@@ -1,0 +1,189 @@
+"""Authenticated, query-only task and analysis HTTP routes."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Annotated, Protocol, cast
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+
+from ...application.persistence import (
+    AnalysisRunRepository,
+    CandidateDecisionStatus,
+    TaskRepository,
+)
+from ...domain import PSEUDONYM_PATTERN
+from .dto import (
+    AnalysisResultDto,
+    AnalysisRunDto,
+    AnalysisRunListResponse,
+    AnalysisRunResponse,
+    CandidateDecisionsResponse,
+    CandidateListItemDto,
+    CandidateListResponse,
+    CandidateResponse,
+    TaskCandidateDto,
+    TaskDecisionDto,
+    TaskRevisionDto,
+    TaskRevisionListResponse,
+    TaskRevisionResponse,
+)
+
+
+class QueryStore(Protocol):
+    """Only repository factories needed by this HTTP query adapter."""
+
+    def task_repository(self) -> TaskRepository: ...
+
+    def analysis_run_repository(self) -> AnalysisRunRepository: ...
+
+
+def _query_store(request: Request) -> QueryStore:
+    # The composition root owns the concrete store. This cast adds no dynamic
+    # lookup and keeps SQL/storage types out of the HTTP interface.
+    return cast(QueryStore, request.app.state.database)
+
+
+def create_task_query_router(
+    require_local_token: Callable[..., None],
+) -> APIRouter:
+    """Create a router with the API's existing local-auth dependency."""
+
+    router = APIRouter(
+        prefix="/v1",
+        tags=["task-discovery"],
+        dependencies=[Depends(require_local_token)],
+    )
+
+    @router.get(
+        "/discovery/candidates",
+        response_model=CandidateListResponse,
+    )
+    def candidate_inbox(
+        request: Request,
+        status: Annotated[CandidateDecisionStatus | None, Query()] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 100,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> CandidateListResponse:
+        records = _query_store(request).task_repository().list_candidates(
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        return CandidateListResponse(
+            candidates=tuple(CandidateListItemDto.from_record(item) for item in records),
+            limit=limit,
+            offset=offset,
+        )
+
+    @router.get(
+        "/discovery/candidates/{candidate_id}",
+        response_model=CandidateResponse,
+    )
+    def candidate_detail(
+        request: Request,
+        candidate_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> CandidateResponse:
+        record = _query_store(request).task_repository().get_candidate(candidate_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="candidate not found")
+        return CandidateResponse(candidate=TaskCandidateDto.from_record(record))
+
+    @router.get(
+        "/discovery/candidates/{candidate_id}/decisions",
+        response_model=CandidateDecisionsResponse,
+    )
+    def candidate_decisions(
+        request: Request,
+        candidate_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> CandidateDecisionsResponse:
+        repository = _query_store(request).task_repository()
+        if repository.get_candidate(candidate_id) is None:
+            raise HTTPException(status_code=404, detail="candidate not found")
+        decisions = repository.list_decisions(candidate_id)
+        return CandidateDecisionsResponse(
+            candidate_id=candidate_id,
+            decisions=tuple(TaskDecisionDto.from_record(item) for item in decisions),
+        )
+
+    @router.get(
+        "/task-revisions",
+        response_model=TaskRevisionListResponse,
+    )
+    def task_revision_list(
+        request: Request,
+        task_id: Annotated[
+            str | None,
+            Query(pattern=PSEUDONYM_PATTERN.pattern),
+        ] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 100,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> TaskRevisionListResponse:
+        records = _query_store(request).task_repository().list_task_revisions(
+            task_id=task_id,
+            limit=limit,
+            offset=offset,
+        )
+        return TaskRevisionListResponse(
+            tasks=tuple(TaskRevisionDto.from_record(item) for item in records),
+            limit=limit,
+            offset=offset,
+        )
+
+    @router.get(
+        "/tasks/{task_id}/revisions/{revision}",
+        response_model=TaskRevisionResponse,
+    )
+    def task_revision_detail(
+        request: Request,
+        task_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        revision: Annotated[int, Path(ge=1)],
+    ) -> TaskRevisionResponse:
+        record = _query_store(request).task_repository().get_revision(task_id, revision)
+        if record is None:
+            raise HTTPException(status_code=404, detail="task revision not found")
+        return TaskRevisionResponse(task=TaskRevisionDto.from_record(record))
+
+    @router.get(
+        "/analysis/runs",
+        response_model=AnalysisRunListResponse,
+    )
+    def analysis_run_list(
+        request: Request,
+        task_id: Annotated[
+            str | None,
+            Query(pattern=PSEUDONYM_PATTERN.pattern),
+        ] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 100,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> AnalysisRunListResponse:
+        records = _query_store(request).analysis_run_repository().list_analysis_runs(
+            task_id=task_id,
+            limit=limit,
+            offset=offset,
+        )
+        return AnalysisRunListResponse(
+            runs=tuple(AnalysisRunDto.from_record(item) for item in records),
+            limit=limit,
+            offset=offset,
+        )
+
+    @router.get(
+        "/analysis/runs/{run_id}",
+        response_model=AnalysisRunResponse,
+    )
+    def analysis_run_detail(
+        request: Request,
+        run_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> AnalysisRunResponse:
+        repository = _query_store(request).analysis_run_repository()
+        run = repository.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="analysis run not found")
+        results = repository.get_results(run_id)
+        return AnalysisRunResponse(
+            run=AnalysisRunDto.from_record(run),
+            results=tuple(AnalysisResultDto.from_record(item) for item in results),
+        )
+
+    return router

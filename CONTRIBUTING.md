@@ -1,0 +1,45 @@
+# Contributing
+
+Thank you for helping build Prompt Enhancer. Privacy and measurement validity are part of correctness, not optional polish.
+
+## Safe contribution checklist
+
+Before staging a change:
+
+- use only synthetic transcripts and reserved example identities;
+- remove absolute machine paths, emails, usernames, hostnames, account IDs, private remotes, tokens, and screenshots;
+- do not add databases, JSONL exports, model weights, caches, logs, or `.env` files;
+- pin external model/package revisions and record their license/provenance;
+- state whether every metric is provider-reported, deterministic, estimated, classifier-derived, or LLM-judged;
+- include missing/unknown behavior and an abstention path;
+- add tests for redaction and deletion when implementation begins.
+
+Before committing:
+
+```text
+git status --short
+git diff --cached --check
+git diff --cached
+git config --get user.email
+```
+
+The email printed by the final command will be public. Use a deliberate public/noreply identity.
+
+## Fixtures
+
+Fixtures must be obviously synthetic and must not be lightly edited copies of real conversations. Use reserved domains and example paths. Include synthetic secrets only when they are labeled canaries and guaranteed invalid.
+
+## Metric proposals
+
+Every new metric needs:
+
+- a precise definition and unit;
+- source events and missing-data behavior;
+- task-type normalization, if applicable;
+- expected value and known failure modes;
+- privacy classification;
+- validation method and minimum evidence;
+- versioning and migration behavior;
+- a statement of what the metric must not be used to infer.
+
+Do not combine metrics into a universal prompt or developer score without a separate, reviewed design decision.
