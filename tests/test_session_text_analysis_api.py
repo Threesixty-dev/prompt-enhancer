@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from prompt_enhancer.adapters.synthetic import SyntheticAdapter
 from prompt_enhancer.api import API_TOKEN_HEADER, create_app
@@ -18,8 +20,27 @@ from prompt_enhancer.application.analysis.session_text_service import (
     SessionTextAnalysisSelectionError,
     SessionTextAnalysisSourceError,
 )
+from prompt_enhancer.application.analysis.redaction_preview import (
+    REDACTION_PREVIEW_CONFIRMATION,
+    AnalysisApproval,
+    AnalysisDestination,
+    CostEstimateState,
+    RedactionPreviewBinding,
+    RedactionPreviewConsumedError,
+    RedactionPreviewExpiredError,
+    RedactionPreviewInspection,
+    RedactionPreviewMessage,
+    RedactionPreviewMismatchError,
+    RedactionPreviewReceipt,
+    RetentionClass,
+)
 from prompt_enhancer.application.analysis.text_analysis_presets import (
     TextAnalysisPresetId,
+)
+from prompt_enhancer.application.analysis.text_contracts import (
+    TextLanguage,
+    TextMessageKind,
+    TextRole,
 )
 from prompt_enhancer.application.analysis.text_source import TextSourceFailureReason
 from prompt_enhancer.application.persistence import AnalysisRunStatus
@@ -31,6 +52,8 @@ from prompt_enhancer.privacy import Pseudonymizer
 
 
 TOKEN = "example_quality_analysis_token_1234567890"
+PREVIEW_CANARY = "SYNTHETIC-REDACTED-PREVIEW-CANARY"
+PREVIEW_TIME = datetime(2044, 5, 6, 7, 8, tzinfo=UTC)
 
 
 def _database(tmp_path) -> tuple[Database, str]:
@@ -50,6 +73,39 @@ def _payload() -> dict[str, object]:
     }
 
 
+def _inspection(session_id: str) -> RedactionPreviewInspection:
+    binding = RedactionPreviewBinding(
+        provider=Provider.CODEX,
+        session_id=session_id,
+        analysis_window_fingerprint="a" * 64,
+        metric_keys=("prompt.task_definition_coverage",),
+        destination=AnalysisDestination.LOCAL,
+        exact_model="none",
+        estimator_plan_version="example-plan-1",
+        redactor_version="example-redactor-1",
+        retention_class=RetentionClass.LOCAL_EPHEMERAL,
+        message_count=1,
+        character_count=len(PREVIEW_CANARY),
+        cost_state=CostEstimateState.NOT_APPLICABLE,
+    )
+    return RedactionPreviewInspection(
+        receipt=RedactionPreviewReceipt(
+            preview_id="e" * 64,
+            created_at=PREVIEW_TIME,
+            expires_at=PREVIEW_TIME + timedelta(minutes=10),
+            binding=binding,
+        ),
+        messages=(
+            RedactionPreviewMessage(
+                role=TextRole.USER,
+                kind=TextMessageKind.REQUEST,
+                language=TextLanguage.ENGLISH,
+                text=SecretStr(PREVIEW_CANARY),
+            ),
+        ),
+    )
+
+
 @dataclass
 class RecordingService:
     error: Exception | None = None
@@ -59,6 +115,31 @@ class RecordingService:
 
     def run_preset(self, **values: object) -> SessionTextAnalysisOutcome:
         self.calls.append(values)
+        if self.error is not None:
+            raise self.error
+        return SessionTextAnalysisOutcome(
+            run_id="f" * 64,
+            status=AnalysisRunStatus.COMPLETED,
+            result_count=10,
+            applied=True,
+            analysis_profile_key="standard_engineering",
+            analysis_profile_version=1,
+        )
+
+    def prepare_preset_preview(
+        self,
+        **values: object,
+    ) -> RedactionPreviewInspection:
+        self.calls.append({"operation": "prepare_preview", **values})
+        if self.error is not None:
+            raise self.error
+        return _inspection(str(values["session_id"]))
+
+    def approve_preview(
+        self,
+        approval: AnalysisApproval,
+    ) -> SessionTextAnalysisOutcome:
+        self.calls.append({"operation": "approve_preview", "approval": approval})
         if self.error is not None:
             raise self.error
         return SessionTextAnalysisOutcome(
@@ -122,6 +203,136 @@ def test_explicit_quality_command_is_authenticated_and_content_free(tmp_path) ->
         "idempotency_key",
     }
     assert "text" not in response.text.casefold()
+
+
+def test_preview_and_approval_are_authenticated_private_no_store_flows(
+    tmp_path,
+    caplog,
+) -> None:
+    service = RecordingService()
+    client, session_id = _client(tmp_path, service)
+    preview_path = f"/v1/sessions/{session_id}/quality-analysis-previews"
+
+    with client:
+        unauthorized = client.post(
+            preview_path,
+            json={"preset_id": "standard_engineering_v1"},
+        )
+        preview = client.post(
+            preview_path,
+            json={"preset_id": "standard_engineering_v1"},
+            headers={API_TOKEN_HEADER: TOKEN},
+        )
+        preview_payload = preview.json()
+        approval = client.post(
+            f"/v1/quality-analysis-previews/{preview_payload['preview_id']}/approval",
+            json={
+                "confirmation": REDACTION_PREVIEW_CONFIRMATION,
+                "expected_binding": preview_payload["binding"],
+            },
+            headers={
+                API_TOKEN_HEADER: TOKEN,
+                "Idempotency-Key": "preview-run-1",
+            },
+        )
+
+    assert unauthorized.status_code == 401
+    assert preview.status_code == 200
+    assert preview.headers["cache-control"] == "no-store, private"
+    assert preview.headers["pragma"] == "no-cache"
+    assert preview_payload["messages"][0]["text"] == PREVIEW_CANARY
+    assert preview_payload["binding"]["destination"] == "local"
+    assert preview_payload["binding"]["exact_model"] == "none"
+    assert preview_payload["binding"]["retention_class"] == "local_ephemeral"
+    assert preview_payload["binding"]["cost_state"] == "not_applicable"
+    assert approval.status_code == 200
+    assert approval.headers["cache-control"] == "no-store, private"
+    assert approval.headers["pragma"] == "no-cache"
+    assert PREVIEW_CANARY not in approval.text
+    assert len(service.calls) == 2
+    assert PREVIEW_CANARY not in repr(service.calls)
+    assert PREVIEW_CANARY not in caplog.text
+    assert PREVIEW_CANARY.encode() not in (tmp_path / "metrics.sqlite3").read_bytes()
+    approved = service.calls[1]["approval"]
+    assert isinstance(approved, AnalysisApproval)
+    assert approved.idempotency_key == "preview-run-1"
+    assert approved.expected_binding == _inspection(session_id).receipt.binding
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    (
+        (
+            RedactionPreviewMismatchError(),
+            409,
+            "redaction_preview_binding_mismatch",
+        ),
+        (
+            RedactionPreviewConsumedError(),
+            409,
+            "redaction_preview_consumed",
+        ),
+        (
+            RedactionPreviewExpiredError(),
+            410,
+            "redaction_preview_expired",
+        ),
+    ),
+)
+def test_preview_approval_errors_are_sanitized_and_no_store(
+    tmp_path,
+    error: Exception,
+    status: int,
+    code: str,
+) -> None:
+    service = RecordingService(error=error)
+    client, session_id = _client(tmp_path, service)
+    inspection = _inspection(session_id)
+
+    with client:
+        response = client.post(
+            f"/v1/quality-analysis-previews/{inspection.receipt.preview_id}/approval",
+            json={
+                "confirmation": REDACTION_PREVIEW_CONFIRMATION,
+                "expected_binding": inspection.receipt.binding.model_dump(
+                    mode="json"
+                ),
+            },
+            headers={
+                API_TOKEN_HEADER: TOKEN,
+                "Idempotency-Key": "preview-run-1",
+            },
+        )
+
+    assert response.status_code == status
+    assert response.json()["detail"]["code"] == code
+    assert response.headers["cache-control"] == "no-store, private"
+    assert response.headers["pragma"] == "no-cache"
+    assert PREVIEW_CANARY not in response.text
+
+
+def test_preview_openapi_requires_idempotency_only_for_approval(tmp_path) -> None:
+    service = RecordingService()
+    client, _session_id = _client(tmp_path, service)
+    paths = client.app.openapi()["paths"]
+
+    preview_operation = paths[
+        "/v1/sessions/{session_id}/quality-analysis-previews"
+    ]["post"]
+    approval_operation = paths[
+        "/v1/quality-analysis-previews/{preview_id}/approval"
+    ]["post"]
+
+    preview_parameters = {
+        parameter["name"] for parameter in preview_operation["parameters"]
+    }
+    approval_parameters = {
+        parameter["name"] for parameter in approval_operation["parameters"]
+    }
+    assert "session_id" in preview_parameters
+    assert "Idempotency-Key" not in preview_parameters
+    assert {"preview_id", "Idempotency-Key"}.issubset(approval_parameters)
+    assert "410" in approval_operation["responses"]
 
 
 def test_quality_command_rejects_unknown_preset_before_service(tmp_path) -> None:

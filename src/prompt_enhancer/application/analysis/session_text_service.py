@@ -37,6 +37,17 @@ from .text_baselines import (
     TextMetricEngine,
 )
 from .coaching_baselines import DEFAULT_COACHING_METRIC_ENGINE
+from .redaction_preview import (
+    AnalysisApproval,
+    AnalysisDestination,
+    ApprovedRedactedAnalysis,
+    CostEstimateState,
+    InMemoryRedactionPreviewStore,
+    RedactionPreviewBinding,
+    RedactionPreviewInspection,
+    RedactionPreviewMismatchError,
+    RetentionClass,
+)
 from .text_contracts import (
     ApplicabilityBasis,
     MAX_ANALYSIS_CHARACTERS,
@@ -47,6 +58,7 @@ from .text_contracts import (
     TextTaskProfile,
 )
 from .text_analysis_presets import (
+    TextAnalysisPreset,
     TextAnalysisPresetId,
     resolve_text_analysis_preset,
 )
@@ -65,6 +77,7 @@ SESSION_TEXT_ANALYSIS_CONSENT_POLICY_VERSION = "explicit-session-text-analysis-v
 SESSION_TEXT_ANALYSIS_PLAN_VERSION = "deterministic-prompt-logic-plan-v2"
 EXPLICIT_USER_ANALYSIS_PROFILE_KEY = "explicit.user-profile"
 EXPLICIT_USER_ANALYSIS_PROFILE_VERSION = 1
+LOCAL_ANALYSIS_MODEL_ID = "none"
 
 
 class SessionTextAnalysisError(RuntimeError):
@@ -315,6 +328,7 @@ class SessionTextAnalysisService:
             DEFAULT_COACHING_METRIC_ENGINE,
         ),
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        preview_store: InMemoryRedactionPreviewStore | None = None,
     ) -> None:
         if isinstance(schema_version, bool) or schema_version < 1:
             raise ValueError("analysis schema version must be positive")
@@ -346,6 +360,9 @@ class SessionTextAnalysisService:
         self._metric_engine = metric_engine
         self._metric_engines = engine_by_pack
         self._clock = clock
+        self._preview_store = preview_store or InMemoryRedactionPreviewStore(
+            clock=clock
+        )
         # One process-local command boundary avoids a duplicate provider read
         # when concurrent retries share an idempotency key. It is intentionally
         # bounded (one lock, no per-key map); cross-process serialization remains
@@ -395,18 +412,7 @@ class SessionTextAnalysisService:
     ) -> SessionTextAnalysisOutcome:
         """Resolve a versioned server-owned profile before any provider access."""
 
-        try:
-            preset = resolve_text_analysis_preset(preset_id)
-        except (KeyError, TypeError):
-            raise SessionTextAnalysisInputError(
-                "analysis preset identifier is invalid"
-            ) from None
-        identity = (preset.metric_pack_key, preset.metric_pack_version)
-        metric_engine = self._metric_engines.get(identity)
-        if metric_engine is None:
-            raise SessionTextAnalysisInputError(
-                "analysis preset metric pack is unavailable"
-            )
+        preset, metric_engine = self._resolve_preset_plan(preset_id)
         return self._run_profile(
             provider=provider,
             session_id=session_id,
@@ -422,6 +428,161 @@ class SessionTextAnalysisService:
             metric_pack_key=preset.metric_pack_key,
             metric_pack_version=preset.metric_pack_version,
         )
+
+    def prepare_preset_preview(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        preset_id: TextAnalysisPresetId,
+    ) -> RedactionPreviewInspection:
+        """Read and retain one exact local redacted window for user inspection."""
+
+        preset, metric_engine = self._resolve_preset_plan(preset_id)
+        self._validate_preview_selection(provider, session_id)
+        model_plan_fingerprint = self._identifiers.fingerprint(
+            "session-analysis-plan-v1",
+            _plan_fingerprint_values(metric_engine),
+        )
+        metric_keys = tuple(
+            definition.key
+            for definition in sorted(
+                metric_engine.registry.definitions,
+                key=lambda definition: (definition.key, definition.version),
+            )
+        )
+        with self._command_lock:
+            self._enforce_access_policy(provider, session_id)
+            self._enforce_provider_compatibility(provider)
+            context = self._read_context(
+                provider=provider,
+                session_id=session_id,
+                task_profile=preset.task_profile,
+                max_messages=preset.max_messages,
+                max_characters=preset.max_characters,
+            )
+            binding = RedactionPreviewBinding(
+                provider=provider,
+                session_id=session_id,
+                analysis_window_fingerprint=(
+                    context.analysis_window_fingerprint
+                ),
+                metric_keys=metric_keys,
+                destination=AnalysisDestination.LOCAL,
+                exact_model=LOCAL_ANALYSIS_MODEL_ID,
+                estimator_plan_version=model_plan_fingerprint,
+                redactor_version=context.redactor_version,
+                retention_class=RetentionClass.LOCAL_EPHEMERAL,
+                message_count=context.observed_message_count,
+                character_count=sum(
+                    len(message.text.get_secret_value())
+                    for message in context.messages
+                ),
+                cost_state=CostEstimateState.NOT_APPLICABLE,
+            )
+            receipt = self._preview_store.create(context, binding)
+            return self._preview_store.inspect(receipt.preview_id)
+
+    def approve_preview(
+        self,
+        approval: AnalysisApproval,
+    ) -> SessionTextAnalysisOutcome:
+        """Consume one exact preview and compute without another content read."""
+
+        if not isinstance(approval, AnalysisApproval):
+            raise SessionTextAnalysisInputError("preview approval is invalid")
+        approved = self._preview_store.consume(approval)
+        preset, metric_engine = self._resolve_approved_plan(approved)
+        return self._run_profile(
+            provider=approved.context.provider,
+            session_id=approved.context.session_id,
+            task_profile=preset.task_profile,
+            required_basis=ApplicabilityBasis.TASK_PROFILE,
+            analysis_profile_key=preset.analysis_profile_key,
+            analysis_profile_version=preset.analysis_profile_version,
+            confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
+            idempotency_key=approved.idempotency_key,
+            max_messages=preset.max_messages,
+            max_characters=preset.max_characters,
+            metric_engine=metric_engine,
+            metric_pack_key=preset.metric_pack_key,
+            metric_pack_version=preset.metric_pack_version,
+            prepared_context=approved.context,
+        )
+
+    def _resolve_preset_plan(
+        self,
+        preset_id: TextAnalysisPresetId,
+    ) -> tuple[TextAnalysisPreset, TextMetricEngine]:
+        try:
+            preset = resolve_text_analysis_preset(preset_id)
+        except (KeyError, TypeError):
+            raise SessionTextAnalysisInputError(
+                "analysis preset identifier is invalid"
+            ) from None
+        metric_engine = self._metric_engines.get(
+            (preset.metric_pack_key, preset.metric_pack_version)
+        )
+        if metric_engine is None:
+            raise SessionTextAnalysisInputError(
+                "analysis preset metric pack is unavailable"
+            )
+        return preset, metric_engine
+
+    def _resolve_approved_plan(
+        self,
+        approved: ApprovedRedactedAnalysis,
+    ) -> tuple[TextAnalysisPreset, TextMetricEngine]:
+        binding = approved.receipt.binding
+        if (
+            binding.destination is not AnalysisDestination.LOCAL
+            or binding.exact_model != LOCAL_ANALYSIS_MODEL_ID
+            or binding.retention_class is not RetentionClass.LOCAL_EPHEMERAL
+            or binding.cost_state is not CostEstimateState.NOT_APPLICABLE
+        ):
+            raise RedactionPreviewMismatchError()
+        candidates = []
+        for preset_id in TextAnalysisPresetId:
+            preset, metric_engine = self._resolve_preset_plan(preset_id)
+            metric_keys = tuple(
+                definition.key
+                for definition in sorted(
+                    metric_engine.registry.definitions,
+                    key=lambda definition: (
+                        definition.key,
+                        definition.version,
+                    ),
+                )
+            )
+            model_plan_fingerprint = self._identifiers.fingerprint(
+                "session-analysis-plan-v1",
+                _plan_fingerprint_values(metric_engine),
+            )
+            if (
+                binding.metric_keys == metric_keys
+                and binding.estimator_plan_version
+                == model_plan_fingerprint
+                and approved.context.task_profile == preset.task_profile
+            ):
+                candidates.append((preset, metric_engine))
+        if len(candidates) != 1:
+            raise RedactionPreviewMismatchError()
+        return candidates[0]
+
+    @staticmethod
+    def _validate_preview_selection(
+        provider: Provider,
+        session_id: str,
+    ) -> None:
+        if not isinstance(provider, Provider):
+            raise SessionTextAnalysisInputError("provider is invalid")
+        if (
+            not isinstance(session_id, str)
+            or PSEUDONYM_PATTERN.fullmatch(session_id) is None
+        ):
+            raise SessionTextAnalysisInputError(
+                "session identifier must be a safe pseudonym"
+            )
 
     def _run_profile(
         self,
@@ -439,6 +600,7 @@ class SessionTextAnalysisService:
         metric_engine: TextMetricEngine,
         metric_pack_key: str,
         metric_pack_version: int,
+        prepared_context: P1TextAnalysisInput | None = None,
     ) -> SessionTextAnalysisOutcome:
         self._validate_request(
             provider=provider,
@@ -516,6 +678,7 @@ class SessionTextAnalysisService:
                 metric_pack_key=metric_pack_key,
                 metric_pack_version=metric_pack_version,
                 run_id=run_id,
+                prepared_context=prepared_context,
             )
 
     def _run_locked(
@@ -535,6 +698,7 @@ class SessionTextAnalysisService:
         metric_pack_key: str,
         metric_pack_version: int,
         run_id: str,
+        prepared_context: P1TextAnalysisInput | None,
     ) -> SessionTextAnalysisOutcome:
 
         existing = self._get_run(run_id)
@@ -561,13 +725,15 @@ class SessionTextAnalysisService:
         # queued request cannot mint a grant from stale consent/index state.
         self._enforce_access_policy(provider, session_id)
         self._enforce_provider_compatibility(provider)
-        context = self._read_context(
-            provider=provider,
-            session_id=session_id,
-            task_profile=task_profile,
-            max_messages=max_messages,
-            max_characters=max_characters,
-        )
+        context = prepared_context
+        if context is None:
+            context = self._read_context(
+                provider=provider,
+                session_id=session_id,
+                task_profile=task_profile,
+                max_messages=max_messages,
+                max_characters=max_characters,
+            )
         input_fingerprint = self._identifiers.fingerprint(
             "session-analysis-input-v1",
             (request_fingerprint, context.analysis_window_fingerprint),

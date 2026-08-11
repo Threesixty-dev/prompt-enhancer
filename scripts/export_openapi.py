@@ -22,6 +22,10 @@ from prompt_enhancer.application.analysis import (
     TaskAnalysisOutcome,
     TextAnalysisPresetId,
 )
+from prompt_enhancer.application.analysis.redaction_preview import (
+    AnalysisApproval,
+    RedactionPreviewInspection,
+)
 from prompt_enhancer.application.discovery import TaskDecisionCommand, TaskReviewResult
 from prompt_enhancer.application.local_sources import CodexLocalSourceStatus
 from prompt_enhancer.application.persistence import AnalysisRunStatus
@@ -80,6 +84,21 @@ class _SchemaAnalysisService:
 
 
 class _SchemaSessionTextAnalysisService:
+    def prepare_preset_preview(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        preset_id: TextAnalysisPresetId,
+    ) -> RedactionPreviewInspection:
+        raise RuntimeError("schema-only service cannot access session text")
+
+    def approve_preview(
+        self,
+        approval: AnalysisApproval,
+    ) -> SessionTextAnalysisOutcome:
+        raise RuntimeError("schema-only service cannot access session text")
+
     def run_preset(
         self,
         *,

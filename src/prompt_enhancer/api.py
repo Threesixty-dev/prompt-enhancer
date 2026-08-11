@@ -332,7 +332,10 @@ def create_app(
             else:
                 response = await call_next(request)
         static_asset = request.url.path.removeprefix("/")
-        if (
+        if "quality-analysis-previews" in request.url.path:
+            response.headers["Cache-Control"] = "no-store, private"
+            response.headers["Pragma"] = "no-cache"
+        elif (
             200 <= response.status_code < 300
             and _HASHED_STATIC_ASSET_PATTERN.fullmatch(static_asset) is not None
             and ".." not in static_asset

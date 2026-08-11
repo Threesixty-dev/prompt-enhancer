@@ -20,6 +20,14 @@ from prompt_enhancer.application.analysis.session_text_service import (
     SessionTextAnalysisService,
     SessionTextAnalysisSourceError,
 )
+from prompt_enhancer.application.analysis.redaction_preview import (
+    REDACTION_PREVIEW_CONFIRMATION,
+    AnalysisApproval,
+    InMemoryRedactionPreviewStore,
+    RedactionPreviewConsumedError,
+    RedactionPreviewExpiredError,
+    RedactionPreviewMismatchError,
+)
 from prompt_enhancer.application.analysis.text_baselines import (
     DEFAULT_TEXT_METRIC_ENGINE,
     DeterministicTextFeatureExtractor,
@@ -84,6 +92,17 @@ class TickingClock:
             value = NOW + timedelta(seconds=self.calls)
             self.calls += 1
             return value
+
+
+class MutablePreviewClock:
+    def __init__(self) -> None:
+        self.now = NOW
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, delta: timedelta) -> None:
+        self.now += delta
 
 
 class MemoryAccessPolicy:
@@ -416,6 +435,8 @@ def _service(
     source: RecordingSource | None = None,
     compatibility: MemoryCompatibilityPolicy | None = None,
     metric_engine: object = DEFAULT_TEXT_METRIC_ENGINE,
+    clock: object | None = None,
+    preview_store: InMemoryRedactionPreviewStore | None = None,
 ) -> tuple[
     SessionTextAnalysisService,
     MemorySessionAnalysisRepository,
@@ -433,7 +454,8 @@ def _service(
         LocalArtifactIdFactory(Pseudonymizer(bytes(range(32)))),
         schema_version=8,
         metric_engine=metric_engine,  # type: ignore[arg-type]
-        clock=TickingClock(),
+        clock=clock or TickingClock(),  # type: ignore[arg-type]
+        preview_store=preview_store,
     )
     return service, repository, source, factory
 
@@ -470,6 +492,125 @@ def _run_preset(
         confirmation=confirmation,
         idempotency_key=idempotency_key,
     )
+
+
+def _preview_approval(
+    inspection,
+    *,
+    expected_binding=None,
+    idempotency_key: str = "example-preview-run-1",
+) -> AnalysisApproval:
+    return AnalysisApproval(
+        preview_id=inspection.receipt.preview_id,
+        confirmation=REDACTION_PREVIEW_CONFIRMATION,
+        idempotency_key=idempotency_key,
+        expected_binding=expected_binding or inspection.receipt.binding,
+    )
+
+
+def test_preview_approval_uses_exact_context_without_second_read_or_text_persistence(
+) -> None:
+    policy = MemoryAccessPolicy()
+    compatibility = MemoryCompatibilityPolicy()
+    service, repository, source, factory = _service(
+        policy=policy,
+        compatibility=compatibility,
+    )
+
+    preview = service.prepare_preset_preview(
+        provider=Provider.SYNTHETIC,
+        session_id=SESSION_ID,
+        preset_id=TextAnalysisPresetId.STANDARD_ENGINEERING_V1,
+    )
+    assert source.read_count == factory.call_count == 1
+    assert repository.runs == {}
+    assert "Build an example" in preview.messages[0].text.get_secret_value()
+    assert "Build an example" not in repr(preview)
+
+    outcome = service.approve_preview(_preview_approval(preview))
+
+    assert outcome.status is AnalysisRunStatus.COMPLETED
+    assert source.read_count == factory.call_count == 1
+    assert policy.consent_calls == policy.index_calls == 2
+    assert compatibility.calls == 2
+    persisted = "".join(
+        record.model_dump_json() for record in repository.runs.values()
+    ) + "".join(
+        result.model_dump_json()
+        for results in repository.results.values()
+        for result in results
+    )
+    assert "Build an example" not in persisted
+    assert "example theme" not in persisted
+
+
+def test_preview_binding_mismatch_is_non_consuming_then_approval_is_one_shot(
+) -> None:
+    service, repository, source, _factory = _service()
+    preview = service.prepare_preset_preview(
+        provider=Provider.SYNTHETIC,
+        session_id=SESSION_ID,
+        preset_id=TextAnalysisPresetId.STANDARD_ENGINEERING_V1,
+    )
+    mismatched = preview.receipt.binding.model_copy(
+        update={"exact_model": "different-local-model"}
+    )
+
+    with pytest.raises(RedactionPreviewMismatchError):
+        service.approve_preview(
+            _preview_approval(preview, expected_binding=mismatched)
+        )
+
+    outcome = service.approve_preview(_preview_approval(preview))
+    assert outcome.status is AnalysisRunStatus.COMPLETED
+    assert source.read_count == 1
+    assert repository.complete_count == 1
+    with pytest.raises(RedactionPreviewConsumedError):
+        service.approve_preview(_preview_approval(preview))
+    assert repository.complete_count == 1
+
+
+def test_expired_preview_cannot_compute_or_persist() -> None:
+    clock = MutablePreviewClock()
+    preview_store = InMemoryRedactionPreviewStore(
+        clock=clock,
+        token_factory=lambda: "d" * 64,
+    )
+    service, repository, source, _factory = _service(
+        clock=clock,
+        preview_store=preview_store,
+    )
+    preview = service.prepare_preset_preview(
+        provider=Provider.SYNTHETIC,
+        session_id=SESSION_ID,
+        preset_id=TextAnalysisPresetId.STANDARD_ENGINEERING_V1,
+    )
+    clock.advance(timedelta(minutes=10))
+
+    with pytest.raises(RedactionPreviewExpiredError):
+        service.approve_preview(_preview_approval(preview))
+
+    assert source.read_count == 1
+    assert repository.runs == {}
+
+
+def test_preview_approval_rechecks_revoked_consent_before_compute() -> None:
+    policy = MemoryAccessPolicy()
+    service, repository, source, _factory = _service(policy=policy)
+    preview = service.prepare_preset_preview(
+        provider=Provider.SYNTHETIC,
+        session_id=SESSION_ID,
+        preset_id=TextAnalysisPresetId.STANDARD_ENGINEERING_V1,
+    )
+    policy.consent = False
+
+    with pytest.raises(SessionTextAnalysisConsentError):
+        service.approve_preview(_preview_approval(preview))
+
+    assert source.read_count == 1
+    assert repository.runs == {}
+    with pytest.raises(RedactionPreviewConsumedError):
+        service.approve_preview(_preview_approval(preview))
 
 
 @pytest.mark.parametrize(

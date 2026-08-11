@@ -30,6 +30,14 @@
         "title": "AcceptTaskRequest",
         "type": "object"
       },
+      "AnalysisDestination": {
+        "enum": [
+          "local",
+          "remote"
+        ],
+        "title": "AnalysisDestination",
+        "type": "string"
+      },
       "AnalysisMethodDto": {
         "additionalProperties": false,
         "properties": {
@@ -1990,6 +1998,15 @@
           "unavailable"
         ],
         "title": "CompatibilityState",
+        "type": "string"
+      },
+      "CostEstimateState": {
+        "enum": [
+          "known",
+          "unknown",
+          "not_applicable"
+        ],
+        "title": "CostEstimateState",
         "type": "string"
       },
       "DataTier": {
@@ -4211,6 +4228,104 @@
         "title": "ProviderTextCapabilityStateDto",
         "type": "string"
       },
+      "RedactionPreviewBinding": {
+        "additionalProperties": false,
+        "description": "Everything whose change invalidates a user's approval.",
+        "properties": {
+          "analysis_window_fingerprint": {
+            "title": "Analysis Window Fingerprint",
+            "type": "string"
+          },
+          "character_count": {
+            "maximum": 500000.0,
+            "minimum": 1.0,
+            "title": "Character Count",
+            "type": "integer"
+          },
+          "cost_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Currency"
+          },
+          "cost_state": {
+            "$ref": "#/components/schemas/CostEstimateState"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/AnalysisDestination"
+          },
+          "estimated_cost_microunits": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Microunits"
+          },
+          "estimator_plan_version": {
+            "title": "Estimator Plan Version",
+            "type": "string"
+          },
+          "exact_model": {
+            "title": "Exact Model",
+            "type": "string"
+          },
+          "message_count": {
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "metric_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Metric Keys",
+            "type": "array"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "redactor_version": {
+            "title": "Redactor Version",
+            "type": "string"
+          },
+          "retention_class": {
+            "$ref": "#/components/schemas/RetentionClass"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "session_id",
+          "analysis_window_fingerprint",
+          "metric_keys",
+          "destination",
+          "exact_model",
+          "estimator_plan_version",
+          "redactor_version",
+          "retention_class",
+          "message_count",
+          "character_count",
+          "cost_state"
+        ],
+        "title": "RedactionPreviewBinding",
+        "type": "object"
+      },
       "RejectTaskRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4287,6 +4402,16 @@
         ],
         "title": "ResearchSourceDto",
         "type": "object"
+      },
+      "RetentionClass": {
+        "enum": [
+          "local_ephemeral",
+          "remote_zero_retention",
+          "remote_30_day",
+          "remote_provider_standard"
+        ],
+        "title": "RetentionClass",
+        "type": "string"
       },
       "SanitizedModelLinkValidationFailureResponse": {
         "additionalProperties": false,
@@ -5913,7 +6038,12 @@
           "provider_protocol_rejected",
           "provider_compatibility_blocked",
           "analysis_persistence_failed",
-          "metric_execution_failed"
+          "metric_execution_failed",
+          "redaction_preview_not_found",
+          "redaction_preview_expired",
+          "redaction_preview_consumed",
+          "redaction_preview_binding_mismatch",
+          "redaction_preview_capacity_reached"
         ],
         "title": "SessionTextAnalysisFailureCode",
         "type": "string"
@@ -5949,6 +6079,106 @@
           "detail"
         ],
         "title": "SessionTextAnalysisFailureResponse",
+        "type": "object"
+      },
+      "SessionTextAnalysisPreviewApprovalRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "approve_exact_redacted_preview",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "expected_binding": {
+            "$ref": "#/components/schemas/RedactionPreviewBinding"
+          }
+        },
+        "required": [
+          "confirmation",
+          "expected_binding"
+        ],
+        "title": "SessionTextAnalysisPreviewApprovalRequest",
+        "type": "object"
+      },
+      "SessionTextAnalysisPreviewMessageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/TextMessageKind"
+          },
+          "language": {
+            "$ref": "#/components/schemas/TextLanguage"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TextRole"
+          },
+          "text": {
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "kind",
+          "language",
+          "text"
+        ],
+        "title": "SessionTextAnalysisPreviewMessageResponse",
+        "type": "object"
+      },
+      "SessionTextAnalysisPreviewRequest": {
+        "additionalProperties": false,
+        "description": "Only a server-owned preset may select preview content and metrics.",
+        "properties": {
+          "preset_id": {
+            "$ref": "#/components/schemas/TextAnalysisPresetId"
+          }
+        },
+        "required": [
+          "preset_id"
+        ],
+        "title": "SessionTextAnalysisPreviewRequest",
+        "type": "object"
+      },
+      "SessionTextAnalysisPreviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "binding": {
+            "$ref": "#/components/schemas/RedactionPreviewBinding"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/SessionTextAnalysisPreviewMessageResponse"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "preview_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Preview Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "preview_id",
+          "created_at",
+          "expires_at",
+          "binding",
+          "messages"
+        ],
+        "title": "SessionTextAnalysisPreviewResponse",
         "type": "object"
       },
       "SessionTextAnalysisRequest": {
@@ -6486,6 +6716,38 @@
         ],
         "title": "TextAnalysisResearchCatalogDto",
         "type": "object"
+      },
+      "TextLanguage": {
+        "enum": [
+          "en",
+          "pl",
+          "mixed",
+          "unknown"
+        ],
+        "title": "TextLanguage",
+        "type": "string"
+      },
+      "TextMessageKind": {
+        "enum": [
+          "request",
+          "response",
+          "plan",
+          "action",
+          "verification",
+          "decision",
+          "feedback",
+          "summary"
+        ],
+        "title": "TextMessageKind",
+        "type": "string"
+      },
+      "TextRole": {
+        "enum": [
+          "user",
+          "agent"
+        ],
+        "title": "TextRole",
+        "type": "string"
       },
       "ValidationError": {
         "properties": {
@@ -8390,6 +8652,159 @@
         ]
       }
     },
+    "/v1/quality-analysis-previews/{preview_id}/approval": {
+      "post": {
+        "operationId": "approve_session_analysis_preview_v1_quality_analysis_previews__preview_id__approval_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "preview_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Preview Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionTextAnalysisPreviewApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisCommandResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SanitizedRequestValidationFailureResponse"
+                    }
+                  ],
+                  "title": "Response 422 Approve Session Analysis Preview V1 Quality Analysis Previews  Preview Id  Approval Post"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Approve Session Analysis Preview",
+        "tags": [
+          "session-quality-analysis"
+        ]
+      }
+    },
     "/v1/quality-analysis/aggregate": {
       "post": {
         "operationId": "aggregate_selected_session_quality_v1_quality_analysis_aggregate_post",
@@ -9491,6 +9906,159 @@
         "summary": "Latest Experiment",
         "tags": [
           "local-model-link-experiments"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/quality-analysis-previews": {
+      "post": {
+        "operationId": "prepare_session_analysis_preview_v1_sessions__session_id__quality_analysis_previews_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionTextAnalysisPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SanitizedRequestValidationFailureResponse"
+                    }
+                  ],
+                  "title": "Response 422 Prepare Session Analysis Preview V1 Sessions  Session Id  Quality Analysis Previews Post"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Prepare Session Analysis Preview",
+        "tags": [
+          "session-quality-analysis"
         ]
       }
     },
