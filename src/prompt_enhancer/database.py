@@ -70,10 +70,12 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_8,
     MIGRATION_9,
     MIGRATION_10,
+    MIGRATION_11,
+    MIGRATION_12,
 )
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 12
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -313,6 +315,8 @@ class Database:
                 (8, MIGRATION_8),
                 (9, MIGRATION_9),
                 (10, MIGRATION_10),
+                (11, MIGRATION_11),
+                (12, MIGRATION_12),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -453,6 +457,44 @@ class Database:
         self._ensure_initialized()
         return SqliteModelLinkExperimentRepository(
             self._connection, self._ensure_initialized
+        )
+
+    def analysis_job_repository(self):
+        """Return the mutable, content-free durable job queue adapter."""
+
+        from .infrastructure.sqlite.analysis_jobs import SqliteAnalysisJobRepository
+
+        self._ensure_initialized()
+        return SqliteAnalysisJobRepository(self._connection, self._ensure_initialized)
+
+    def automation_grant_repository(self):
+        """Return renewable, content-free local automation grant storage."""
+
+        from .infrastructure.sqlite.automation_grants import (
+            SqliteAutomationGrantRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteAutomationGrantRepository(
+            self._connection, self._ensure_initialized
+        )
+
+    def automation_candidate_source(
+        self,
+        *,
+        estimator_plan_version: str,
+        redactor_version: str,
+    ):
+        """Return a metadata-only newest-session fingerprint projection."""
+
+        from .infrastructure.automation import SqliteAutomationCandidateSource
+
+        self._ensure_initialized()
+        return SqliteAutomationCandidateSource(
+            self._connection,
+            self._ensure_initialized,
+            estimator_plan_version=estimator_plan_version,
+            redactor_version=redactor_version,
         )
 
     def has_active_consent(

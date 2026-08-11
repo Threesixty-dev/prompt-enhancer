@@ -172,6 +172,18 @@ class _SchemaMetricReadinessService:
         raise RuntimeError("schema-only service cannot inspect sessions")
 
 
+class _SchemaAnalysisJobService:
+    """Non-executing stand-in that exposes durable job route signatures."""
+
+    pass
+
+
+class _SchemaAutomationGrantService:
+    """Non-executing stand-in that exposes automation route signatures."""
+
+    pass
+
+
 class _SchemaCodexSourceService:
     """Non-executing stand-in that exposes only local-source route signatures."""
 
@@ -216,6 +228,8 @@ def build_openapi_schema() -> dict[str, Any]:
         project_quality_aggregation_service=_SchemaProjectQualityAggregationService(),  # type: ignore[arg-type]
         provider_compatibility_catalog=_SchemaProviderCompatibilityCatalog(),  # type: ignore[arg-type]
         metric_readiness_service=_SchemaMetricReadinessService(),  # type: ignore[arg-type]
+        analysis_job_service=_SchemaAnalysisJobService(),  # type: ignore[arg-type]
+        automation_grant_service=_SchemaAutomationGrantService(),  # type: ignore[arg-type]
         codex_source_service=_SchemaCodexSourceService(),
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),

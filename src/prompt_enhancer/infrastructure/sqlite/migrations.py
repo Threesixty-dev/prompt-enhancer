@@ -990,3 +990,292 @@ END;
 
 COMMIT;
 """
+
+
+MIGRATION_11 = r"""
+BEGIN IMMEDIATE;
+
+CREATE TABLE analysis_jobs (
+    job_id TEXT PRIMARY KEY
+        CHECK(length(job_id) = 64 AND job_id NOT GLOB '*[^0-9a-f]*'),
+    dedupe_key TEXT NOT NULL UNIQUE
+        CHECK(length(dedupe_key) = 64 AND dedupe_key NOT GLOB '*[^0-9a-f]*'),
+    kind TEXT NOT NULL CHECK(kind IN ('session_quality', 'synthetic_validation')),
+    provider TEXT NOT NULL CHECK(provider IN ('codex', 'claude_code', 'synthetic')),
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+    input_fingerprint TEXT NOT NULL CHECK(
+        length(input_fingerprint) = 64
+        AND input_fingerprint NOT GLOB '*[^0-9a-f]*'
+    ),
+    provenance_fingerprint TEXT NOT NULL CHECK(
+        length(provenance_fingerprint) = 64
+        AND provenance_fingerprint NOT GLOB '*[^0-9a-f]*'
+    ),
+    estimator_plan_version TEXT NOT NULL CHECK(
+        length(estimator_plan_version) BETWEEN 1 AND 128
+        AND estimator_plan_version GLOB '[A-Za-z0-9]*'
+        AND estimator_plan_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'
+    ),
+    redactor_version TEXT NOT NULL CHECK(
+        length(redactor_version) BETWEEN 1 AND 128
+        AND redactor_version GLOB '[A-Za-z0-9]*'
+        AND redactor_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'
+    ),
+    provider_schema_version TEXT NOT NULL CHECK(
+        length(provider_schema_version) BETWEEN 1 AND 128
+        AND provider_schema_version GLOB '[A-Za-z0-9]*'
+        AND provider_schema_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'
+    ),
+    automation_grant_id TEXT CHECK(
+        automation_grant_id IS NULL OR (
+            length(automation_grant_id) = 64
+            AND automation_grant_id NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    local_only INTEGER NOT NULL CHECK(local_only = 1),
+    state TEXT NOT NULL CHECK(state IN (
+        'queued', 'preprocessing', 'stage_n', 'awaiting_approval',
+        'completed', 'partial', 'failed', 'cancelled', 'superseded'
+    )),
+    stage_number INTEGER CHECK(stage_number BETWEEN 1 AND 32),
+    progress_completed INTEGER NOT NULL CHECK(
+        progress_completed BETWEEN 0 AND 1000000
+    ),
+    progress_total INTEGER NOT NULL CHECK(progress_total BETWEEN 1 AND 1000000),
+    attempt_count INTEGER NOT NULL CHECK(attempt_count BETWEEN 0 AND 5),
+    max_attempts INTEGER NOT NULL CHECK(max_attempts BETWEEN 1 AND 5),
+    available_at TEXT NOT NULL,
+    cancel_requested INTEGER NOT NULL CHECK(cancel_requested IN (0, 1)),
+    lease_owner TEXT CHECK(
+        lease_owner IS NULL OR (
+            length(lease_owner) = 64 AND lease_owner NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    lease_token TEXT CHECK(
+        lease_token IS NULL OR (
+            length(lease_token) = 64 AND lease_token NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    lease_expires_at TEXT,
+    last_error_code TEXT CHECK(
+        last_error_code IS NULL OR (
+            length(last_error_code) BETWEEN 1 AND 128
+            AND last_error_code GLOB '[A-Za-z0-9]*'
+            AND last_error_code NOT GLOB '*[^A-Za-z0-9._+:/-]*'
+        )
+    ),
+    terminal_reason_code TEXT CHECK(
+        terminal_reason_code IS NULL OR (
+            length(terminal_reason_code) BETWEEN 1 AND 128
+            AND terminal_reason_code GLOB '[A-Za-z0-9]*'
+            AND terminal_reason_code NOT GLOB '*[^A-Za-z0-9._+:/-]*'
+        )
+    ),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    terminal_at TEXT,
+    CHECK(attempt_count <= max_attempts),
+    CHECK(progress_completed <= progress_total),
+    CHECK((state = 'stage_n') = (stage_number IS NOT NULL)),
+    CHECK(
+        (state IN ('preprocessing', 'stage_n')
+            AND lease_owner IS NOT NULL
+            AND lease_token IS NOT NULL
+            AND lease_expires_at IS NOT NULL)
+        OR
+        (state NOT IN ('preprocessing', 'stage_n')
+            AND lease_owner IS NULL
+            AND lease_token IS NULL
+            AND lease_expires_at IS NULL)
+    ),
+    CHECK(
+        (state IN ('completed', 'partial', 'failed', 'cancelled', 'superseded')
+            AND terminal_at IS NOT NULL AND terminal_reason_code IS NOT NULL)
+        OR
+        (state NOT IN ('completed', 'partial', 'failed', 'cancelled', 'superseded')
+            AND terminal_at IS NULL AND terminal_reason_code IS NULL)
+    )
+);
+
+CREATE INDEX analysis_jobs_claim_idx
+    ON analysis_jobs(state, available_at, created_at, job_id);
+CREATE INDEX analysis_jobs_session_idx
+    ON analysis_jobs(session_id, created_at DESC, job_id DESC);
+CREATE INDEX analysis_jobs_grant_idx
+    ON analysis_jobs(automation_grant_id, state, created_at)
+    WHERE automation_grant_id IS NOT NULL;
+CREATE INDEX analysis_jobs_lease_idx
+    ON analysis_jobs(state, lease_expires_at)
+    WHERE state IN ('preprocessing', 'stage_n');
+
+CREATE TABLE analysis_job_metrics (
+    job_id TEXT NOT NULL REFERENCES analysis_jobs(job_id) ON DELETE CASCADE,
+    metric_key TEXT NOT NULL CHECK(
+        length(metric_key) BETWEEN 1 AND 128
+        AND metric_key GLOB '[A-Za-z0-9]*'
+        AND metric_key NOT GLOB '*[^A-Za-z0-9._+:/-]*'
+    ),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    PRIMARY KEY(job_id, metric_key),
+    UNIQUE(job_id, ordinal)
+);
+
+CREATE TRIGGER analysis_jobs_identity_immutable
+BEFORE UPDATE ON analysis_jobs
+WHEN NEW.job_id IS NOT OLD.job_id
+    OR NEW.dedupe_key IS NOT OLD.dedupe_key
+    OR NEW.kind IS NOT OLD.kind
+    OR NEW.provider IS NOT OLD.provider
+    OR NEW.project_id IS NOT OLD.project_id
+    OR NEW.session_id IS NOT OLD.session_id
+    OR NEW.input_fingerprint IS NOT OLD.input_fingerprint
+    OR NEW.provenance_fingerprint IS NOT OLD.provenance_fingerprint
+    OR NEW.estimator_plan_version IS NOT OLD.estimator_plan_version
+    OR NEW.redactor_version IS NOT OLD.redactor_version
+    OR NEW.provider_schema_version IS NOT OLD.provider_schema_version
+    OR NEW.automation_grant_id IS NOT OLD.automation_grant_id
+    OR NEW.local_only IS NOT OLD.local_only
+    OR NEW.max_attempts IS NOT OLD.max_attempts
+    OR NEW.created_at IS NOT OLD.created_at
+BEGIN
+    SELECT RAISE(ABORT, 'analysis job identity is immutable');
+END;
+
+CREATE TRIGGER analysis_jobs_closed_transitions
+BEFORE UPDATE ON analysis_jobs
+WHEN NEW.state <> OLD.state AND NOT (
+    (OLD.state = 'queued' AND NEW.state IN (
+        'preprocessing', 'cancelled', 'superseded'
+    ))
+    OR (OLD.state = 'preprocessing' AND NEW.state IN (
+        'queued', 'stage_n', 'awaiting_approval', 'completed', 'partial',
+        'failed', 'cancelled', 'superseded'
+    ))
+    OR (OLD.state = 'stage_n' AND NEW.state IN (
+        'queued', 'awaiting_approval', 'completed', 'partial', 'failed',
+        'cancelled', 'superseded'
+    ))
+    OR (OLD.state = 'awaiting_approval' AND NEW.state IN (
+        'queued', 'failed', 'cancelled', 'superseded'
+    ))
+)
+BEGIN
+    SELECT RAISE(ABORT, 'analysis job state transition is invalid');
+END;
+
+CREATE TRIGGER analysis_jobs_terminal_immutable
+BEFORE UPDATE ON analysis_jobs
+WHEN OLD.state IN ('completed', 'partial', 'failed', 'cancelled', 'superseded')
+BEGIN
+    SELECT RAISE(ABORT, 'terminal analysis jobs are immutable');
+END;
+
+CREATE TRIGGER analysis_job_metrics_no_update
+BEFORE UPDATE ON analysis_job_metrics
+BEGIN
+    SELECT RAISE(ABORT, 'analysis job metric selections are immutable');
+END;
+
+COMMIT;
+"""
+
+
+MIGRATION_12 = r"""
+BEGIN IMMEDIATE;
+
+CREATE TABLE automation_grants (
+    grant_id TEXT PRIMARY KEY
+        CHECK(length(grant_id) = 64 AND grant_id NOT GLOB '*[^0-9a-f]*'),
+    revision INTEGER NOT NULL CHECK(revision >= 1),
+    provider TEXT NOT NULL CHECK(provider IN ('codex', 'claude_code', 'synthetic')),
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    newest_session_limit INTEGER NOT NULL CHECK(newest_session_limit BETWEEN 1 AND 100),
+    check_interval_seconds INTEGER NOT NULL CHECK(
+        check_interval_seconds BETWEEN 60 AND 86400
+    ),
+    route TEXT NOT NULL CHECK(route IN ('fast', 'balanced', 'deep')),
+    max_gpu_workers INTEGER NOT NULL CHECK(max_gpu_workers = 1),
+    max_cpu_workers INTEGER NOT NULL CHECK(max_cpu_workers BETWEEN 1 AND 4),
+    pause_on_battery INTEGER NOT NULL CHECK(pause_on_battery IN (0, 1)),
+    maximum_session_seconds INTEGER NOT NULL CHECK(
+        maximum_session_seconds BETWEEN 60 AND 14400
+    ),
+    local_only INTEGER NOT NULL CHECK(local_only = 1),
+    remote_requires_fresh_approval INTEGER NOT NULL
+        CHECK(remote_requires_fresh_approval = 1),
+    state TEXT NOT NULL CHECK(state IN ('active', 'revoked', 'expired')),
+    created_at TEXT NOT NULL,
+    renewed_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    next_check_at TEXT NOT NULL,
+    last_checked_at TEXT,
+    revoked_at TEXT,
+    last_error_code TEXT CHECK(
+        last_error_code IS NULL OR (
+            length(last_error_code) BETWEEN 1 AND 128
+            AND last_error_code GLOB '[A-Za-z0-9]*'
+            AND last_error_code NOT GLOB '*[^A-Za-z0-9._+:/-]*'
+        )
+    ),
+    CHECK((state = 'revoked') = (revoked_at IS NOT NULL))
+);
+
+CREATE INDEX automation_grants_due_idx
+    ON automation_grants(state, next_check_at, expires_at, grant_id);
+CREATE INDEX automation_grants_provider_idx
+    ON automation_grants(provider, state, created_at, grant_id);
+CREATE UNIQUE INDEX automation_grants_one_active_project_idx
+    ON automation_grants(provider, project_id)
+    WHERE state = 'active';
+
+CREATE TABLE automation_grant_metrics (
+    grant_id TEXT NOT NULL
+        REFERENCES automation_grants(grant_id) ON DELETE CASCADE,
+    metric_key TEXT NOT NULL CHECK(
+        length(metric_key) BETWEEN 1 AND 128
+        AND metric_key GLOB '[A-Za-z0-9]*'
+        AND metric_key NOT GLOB '*[^A-Za-z0-9._+:/-]*'
+    ),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    PRIMARY KEY(grant_id, metric_key),
+    UNIQUE(grant_id, ordinal)
+);
+
+CREATE TRIGGER automation_grants_scope_immutable
+BEFORE UPDATE ON automation_grants
+WHEN NEW.grant_id IS NOT OLD.grant_id
+    OR NEW.provider IS NOT OLD.provider
+    OR NEW.project_id IS NOT OLD.project_id
+    OR NEW.newest_session_limit IS NOT OLD.newest_session_limit
+    OR NEW.check_interval_seconds IS NOT OLD.check_interval_seconds
+    OR NEW.route IS NOT OLD.route
+    OR NEW.max_gpu_workers IS NOT OLD.max_gpu_workers
+    OR NEW.max_cpu_workers IS NOT OLD.max_cpu_workers
+    OR NEW.pause_on_battery IS NOT OLD.pause_on_battery
+    OR NEW.maximum_session_seconds IS NOT OLD.maximum_session_seconds
+    OR NEW.local_only IS NOT OLD.local_only
+    OR NEW.remote_requires_fresh_approval IS NOT OLD.remote_requires_fresh_approval
+    OR NEW.created_at IS NOT OLD.created_at
+BEGIN
+    SELECT RAISE(ABORT, 'automation grant scope is immutable');
+END;
+
+CREATE TRIGGER automation_grants_closed_transitions
+BEFORE UPDATE ON automation_grants
+WHEN NEW.state <> OLD.state AND NOT (
+    (OLD.state = 'active' AND NEW.state IN ('revoked', 'expired'))
+    OR (OLD.state IN ('revoked', 'expired') AND NEW.state = 'active')
+)
+BEGIN
+    SELECT RAISE(ABORT, 'automation grant state transition is invalid');
+END;
+
+CREATE TRIGGER automation_grant_metrics_no_update
+BEFORE UPDATE ON automation_grant_metrics
+BEGIN
+    SELECT RAISE(ABORT, 'automation grant metrics are immutable');
+END;
+
+COMMIT;
+"""

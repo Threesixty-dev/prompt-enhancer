@@ -4,6 +4,58 @@
  */
 
 export interface paths {
+    "/v1/analysis-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Jobs */
+        get: operations["list_jobs_v1_analysis_jobs_get"];
+        put?: never;
+        /** Enqueue Job */
+        post: operations["enqueue_job_v1_analysis_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analysis-jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Job */
+        get: operations["get_job_v1_analysis_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/analysis-jobs/{job_id}/cancellation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Job */
+        post: operations["cancel_job_v1_analysis_jobs__job_id__cancellation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analysis/runs": {
         parameters: {
             query?: never;
@@ -32,6 +84,92 @@ export interface paths {
         get: operations["analysis_run_detail_v1_analysis_runs__run_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/automation-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Grants */
+        get: operations["list_grants_v1_automation_grants_get"];
+        put?: never;
+        /** Create Grant */
+        post: operations["create_grant_v1_automation_grants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/automation-grants/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Poll Grants */
+        post: operations["poll_grants_v1_automation_grants_poll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/automation-grants/{grant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Grant */
+        get: operations["get_grant_v1_automation_grants__grant_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/automation-grants/{grant_id}/renewal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renew Grant */
+        post: operations["renew_grant_v1_automation_grants__grant_id__renewal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/automation-grants/{grant_id}/revocation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Grant */
+        post: operations["revoke_grant_v1_automation_grants__grant_id__revocation_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -503,6 +641,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/analysis-jobs/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest Session Job */
+        get: operations["latest_session_job_v1_sessions__session_id__analysis_jobs_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/metric-readiness": {
         parameters: {
             query?: never;
@@ -760,6 +915,132 @@ export interface components {
          * @enum {string}
          */
         AnalysisDestination: "local" | "remote";
+        /** AnalysisJobCreateRequest */
+        AnalysisJobCreateRequest: {
+            /** Estimator Plan Version */
+            estimator_plan_version: string;
+            /** Input Fingerprint */
+            input_fingerprint: string;
+            /** @default session_quality */
+            kind: components["schemas"]["AnalysisJobKind"];
+            /**
+             * Max Attempts
+             * @default 3
+             */
+            max_attempts: number;
+            /** Metric Keys */
+            metric_keys: string[];
+            /** Project Id */
+            project_id: string;
+            /** Provenance Fingerprint */
+            provenance_fingerprint: string;
+            provider: components["schemas"]["Provider"];
+            /** Provider Schema Version */
+            provider_schema_version: string;
+            /** Redactor Version */
+            redactor_version: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** AnalysisJobEnqueueResponse */
+        AnalysisJobEnqueueResponse: {
+            /** Created */
+            created: boolean;
+            job: components["schemas"]["AnalysisJobResponse"];
+        };
+        /**
+         * AnalysisJobIdentity
+         * @description Immutable scheduling identity used for deduplication.
+         */
+        AnalysisJobIdentity: {
+            /** Automation Grant Id */
+            automation_grant_id?: string | null;
+            /** Estimator Plan Version */
+            estimator_plan_version: string;
+            /** Input Fingerprint */
+            input_fingerprint: string;
+            kind: components["schemas"]["AnalysisJobKind"];
+            /**
+             * Local Only
+             * @default true
+             */
+            local_only: boolean;
+            /** Metric Keys */
+            metric_keys: string[];
+            /** Project Id */
+            project_id: string;
+            /** Provenance Fingerprint */
+            provenance_fingerprint: string;
+            provider: components["schemas"]["Provider"];
+            /** Provider Schema Version */
+            provider_schema_version: string;
+            /** Redactor Version */
+            redactor_version: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /**
+         * AnalysisJobKind
+         * @enum {string}
+         */
+        AnalysisJobKind: "session_quality" | "synthetic_validation";
+        /** AnalysisJobPageResponse */
+        AnalysisJobPageResponse: {
+            /** Jobs */
+            jobs: components["schemas"]["AnalysisJobResponse"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /**
+         * AnalysisJobResponse
+         * @description Browser-safe queue state; worker lease credentials never cross HTTP.
+         */
+        AnalysisJobResponse: {
+            /** Attempt Count */
+            attempt_count: number;
+            /**
+             * Available At
+             * Format: date-time
+             */
+            available_at: string;
+            /** Cancel Requested */
+            cancel_requested: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            identity: components["schemas"]["AnalysisJobIdentity"];
+            /** Job Id */
+            job_id: string;
+            /** Last Error Code */
+            last_error_code: string | null;
+            /** Max Attempts */
+            max_attempts: number;
+            /** Progress Completed */
+            progress_completed: number;
+            /** Progress Total */
+            progress_total: number;
+            /** Stage Number */
+            stage_number: number | null;
+            state: components["schemas"]["AnalysisJobState"];
+            /** Terminal At */
+            terminal_at: string | null;
+            /** Terminal Reason Code */
+            terminal_reason_code: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * AnalysisJobState
+         * @enum {string}
+         */
+        AnalysisJobState: "queued" | "preprocessing" | "stage_n" | "awaiting_approval" | "completed" | "partial" | "failed" | "cancelled" | "superseded";
         /** AnalysisMethodDto */
         AnalysisMethodDto: {
             /**
@@ -899,6 +1180,144 @@ export interface components {
          * @enum {string}
          */
         AnalysisRunStatus: "running" | "completed" | "failed";
+        /** AutomationGrantCreateRequest */
+        AutomationGrantCreateRequest: {
+            /**
+             * Check Interval Seconds
+             * @default 900
+             */
+            check_interval_seconds: number;
+            /** Metric Keys */
+            metric_keys: string[];
+            /**
+             * Newest Session Limit
+             * @default 20
+             */
+            newest_session_limit: number;
+            /** Project Id */
+            project_id: string;
+            provider: components["schemas"]["Provider"];
+            resource_policy?: components["schemas"]["AutomationResourcePolicy"];
+        };
+        /** AutomationGrantRecord */
+        AutomationGrantRecord: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Grant Id */
+            grant_id: string;
+            /** Last Checked At */
+            last_checked_at?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /**
+             * Next Check At
+             * Format: date-time
+             */
+            next_check_at: string;
+            /**
+             * Renewed At
+             * Format: date-time
+             */
+            renewed_at: string;
+            /** Revision */
+            revision: number;
+            /** Revoked At */
+            revoked_at?: string | null;
+            scope: components["schemas"]["AutomationGrantScope"];
+            state: components["schemas"]["AutomationGrantState"];
+        };
+        /** AutomationGrantScope */
+        AutomationGrantScope: {
+            /**
+             * Check Interval Seconds
+             * @default 900
+             */
+            check_interval_seconds: number;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Metric Keys */
+            metric_keys: string[];
+            /**
+             * Newest Session Limit
+             * @default 20
+             */
+            newest_session_limit: number;
+            /** Project Id */
+            project_id: string;
+            provider: components["schemas"]["Provider"];
+            /**
+             * Remote Requires Fresh Approval
+             * @default true
+             * @constant
+             */
+            remote_requires_fresh_approval: true;
+            resource_policy?: components["schemas"]["AutomationResourcePolicy"];
+        };
+        /**
+         * AutomationGrantState
+         * @enum {string}
+         */
+        AutomationGrantState: "active" | "revoked" | "expired";
+        /** AutomationPollResult */
+        AutomationPollResult: {
+            /** Candidates Seen */
+            candidates_seen: number;
+            /** Failures */
+            failures: number;
+            /** Grants Checked */
+            grants_checked: number;
+            /** Grants Revoked */
+            grants_revoked: number;
+            /** Jobs Created */
+            jobs_created: number;
+            /** Jobs Reused */
+            jobs_reused: number;
+            /** Jobs Superseded */
+            jobs_superseded: number;
+        };
+        /** AutomationResourcePolicy */
+        AutomationResourcePolicy: {
+            /**
+             * Max Cpu Workers
+             * @default 1
+             */
+            max_cpu_workers: number;
+            /**
+             * Max Gpu Workers
+             * @default 1
+             * @constant
+             */
+            max_gpu_workers: 1;
+            /**
+             * Maximum Session Seconds
+             * @default 1800
+             */
+            maximum_session_seconds: number;
+            /**
+             * Pause On Battery
+             * @default true
+             */
+            pause_on_battery: boolean;
+            /** @default balanced */
+            route: components["schemas"]["AutomationRoute"];
+        };
+        /**
+         * AutomationRoute
+         * @enum {string}
+         */
+        AutomationRoute: "fast" | "balanced" | "deep";
         /**
          * CandidateDecisionStatus
          * @enum {string}
@@ -3134,6 +3553,167 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_jobs_v1_analysis_jobs_get: {
+        parameters: {
+            query?: {
+                state?: components["schemas"]["AnalysisJobState"] | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisJobPageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_job_v1_analysis_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisJobCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisJobEnqueueResponse"];
+                };
+            };
+            /** @description Job identity conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_v1_analysis_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisJobResponse"];
+                };
+            };
+            /** @description Job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_job_v1_analysis_jobs__job_id__cancellation_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisJobResponse"];
+                };
+            };
+            /** @description Job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     analysis_run_list_v1_analysis_runs_get: {
         parameters: {
             query?: {
@@ -3192,6 +3772,253 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AnalysisRunResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_grants_v1_automation_grants_get: {
+        parameters: {
+            query: {
+                provider: components["schemas"]["Provider"];
+                active_only?: boolean;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationGrantRecord"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_grant_v1_automation_grants_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutomationGrantCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationGrantRecord"];
+                };
+            };
+            /** @description Standing local consent required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Project unavailable or grant conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    poll_grants_v1_automation_grants_poll_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationPollResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_grant_v1_automation_grants__grant_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                grant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationGrantRecord"];
+                };
+            };
+            /** @description Grant not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    renew_grant_v1_automation_grants__grant_id__renewal_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                grant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationGrantRecord"];
+                };
+            };
+            /** @description Consent required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_grant_v1_automation_grants__grant_id__revocation_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                grant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationGrantRecord"];
+                };
+            };
+            /** @description Grant not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -4305,6 +5132,47 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionCatalogListResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    latest_session_job_v1_sessions__session_id__analysis_jobs_latest_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisJobResponse"];
+                };
+            };
+            /** @description No job for the selected session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

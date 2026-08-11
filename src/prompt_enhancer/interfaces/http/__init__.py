@@ -13,6 +13,8 @@ from .provider_compatibility_routes import create_provider_compatibility_router
 from .metric_readiness_routes import create_metric_readiness_router
 from .research_routes import create_research_router
 from .model_link_experiment_routes import create_model_link_experiment_router
+from .analysis_job_routes import create_analysis_job_router
+from .automation_grant_routes import create_automation_grant_router
 
 __all__ = (
     "create_session_analysis_command_router",
@@ -23,5 +25,7 @@ __all__ = (
     "create_metric_readiness_router",
     "create_research_router",
     "create_model_link_experiment_router",
+    "create_analysis_job_router",
+    "create_automation_grant_router",
     "create_task_query_router",
 )

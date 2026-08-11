@@ -261,8 +261,8 @@ _PROVIDER_CAPABILITY_MAP: dict[MetricEvidenceCapability, CapabilityKey | None] =
     MetricEvidenceCapability.RESPONSE_TEXT: CapabilityKey.AGENT_MESSAGES,
     MetricEvidenceCapability.PLAN_TEXT: CapabilityKey.PLAN_MESSAGES,
     MetricEvidenceCapability.ACTION_EVIDENCE: CapabilityKey.TOOL_EVENTS,
-    MetricEvidenceCapability.DECISION_EVIDENCE: None,
-    MetricEvidenceCapability.FEEDBACK_TEXT: None,
+    MetricEvidenceCapability.DECISION_EVIDENCE: CapabilityKey.DECISION_EVENTS,
+    MetricEvidenceCapability.FEEDBACK_TEXT: CapabilityKey.FEEDBACK_MESSAGES,
     MetricEvidenceCapability.OBJECTIVE_VERIFICATION: (
         CapabilityKey.VERIFICATION_EVENTS
     ),

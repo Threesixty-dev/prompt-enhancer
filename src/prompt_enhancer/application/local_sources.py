@@ -58,6 +58,7 @@ class LabelEnrichmentRunner(Protocol):
 
 
 CodexAdapterFactory = Callable[[bool], ProviderAdapter]
+AutomationRevoker = Callable[[Provider], int]
 
 
 class LocalSourceSelectionError(RuntimeError):
@@ -83,12 +84,19 @@ class CodexLocalSourceService:
         adapter_factory: CodexAdapterFactory,
         verification_capability: VerificationCapability,
         label_enrichment: LabelEnrichmentRunner | None = None,
+        automation_revoker: AutomationRevoker | None = None,
     ) -> None:
         self._repository = repository
         self._ingestion = ingestion
         self._adapter_factory = adapter_factory
         self._verification_capability = verification_capability
         self._label_enrichment = label_enrichment
+        self._automation_revoker = automation_revoker
+
+    def set_automation_revoker(self, revoker: AutomationRevoker) -> None:
+        """Bind the local scheduler only at the trusted composition root."""
+
+        self._automation_revoker = revoker
 
     def status(self) -> CodexLocalSourceStatus:
         counts = self._repository.provider_catalog_summary(Provider.CODEX)
@@ -107,6 +115,13 @@ class CodexLocalSourceService:
 
     def revoke_local_history(self) -> CodexLocalSourceStatus:
         self._repository.revoke_consent(Provider.CODEX, self._TIER)
+        if self._automation_revoker is not None:
+            try:
+                self._automation_revoker(Provider.CODEX)
+            except Exception:
+                # Consent is already authoritative. A worker rechecks it before
+                # every read even if eager queue cancellation fails.
+                pass
         return self.status()
 
     def index(self, *, max_sessions: int) -> IngestionReport:

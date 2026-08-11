@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import hmac
 import re
 from html.parser import HTMLParser
@@ -28,6 +29,8 @@ from starlette.staticfiles import StaticFiles
 from .application.display_labels import ManualDisplayLabelService
 from .application.local_sources import CodexLocalSourceService
 from .application.analysis.session_text_service import SessionTextAnalysisService
+from .application.jobs import AnalysisJobService, AnalysisJobWorker
+from .application.automation import AutomationGrantService, AutomationGrantWorker
 from .application.analysis.metric_readiness import MetricReadinessService
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
@@ -54,6 +57,8 @@ from .interfaces.http import (
     create_metric_readiness_router,
     create_research_router,
     create_model_link_experiment_router,
+    create_analysis_job_router,
+    create_automation_grant_router,
     create_task_query_router,
 )
 from .interfaces.http.browser_session import (
@@ -276,6 +281,10 @@ def create_app(
     codex_source_service: CodexLocalSourceService | None = None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
+    analysis_job_service: AnalysisJobService | None = None,
+    analysis_job_worker: AnalysisJobWorker | None = None,
+    automation_grant_service: AutomationGrantService | None = None,
+    automation_grant_worker: AutomationGrantWorker | None = None,
     static_directory: Path | None = None,
     browser_session_manager: BrowserSessionManager | None = None,
 ) -> FastAPI:
@@ -297,12 +306,27 @@ def create_app(
     if len(resolved_token) < 32:
         raise ValueError("local API token is unexpectedly short")
 
+    @asynccontextmanager
+    async def local_lifespan(_app: FastAPI):
+        if analysis_job_worker is not None:
+            analysis_job_worker.start()
+        if automation_grant_worker is not None:
+            automation_grant_worker.start()
+        try:
+            yield
+        finally:
+            if automation_grant_worker is not None:
+                automation_grant_worker.stop()
+            if analysis_job_worker is not None:
+                analysis_job_worker.stop()
+
     app = FastAPI(
         title="Prompt Enhancer Local API",
         version="0.1.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        lifespan=local_lifespan,
     )
     app.state.database = database
     app.state.api_token = resolved_token
@@ -332,7 +356,14 @@ def create_app(
             else:
                 response = await call_next(request)
         static_asset = request.url.path.removeprefix("/")
-        if "quality-analysis-previews" in request.url.path:
+        if any(
+            marker in request.url.path
+            for marker in (
+                "quality-analysis-previews",
+                "/analysis-jobs",
+                "/automation-grants",
+            )
+        ):
             response.headers["Cache-Control"] = "no-store, private"
             response.headers["Pragma"] = "no-cache"
         elif (
@@ -559,6 +590,17 @@ def create_app(
             create_session_analysis_command_router(
                 require_local_token,
                 session_text_analysis_service,
+            )
+        )
+    if analysis_job_service is not None:
+        app.include_router(
+            create_analysis_job_router(require_local_token, analysis_job_service)
+        )
+    if automation_grant_service is not None:
+        app.include_router(
+            create_automation_grant_router(
+                require_local_token,
+                automation_grant_service,
             )
         )
     if session_model_link_experiment_service is not None:

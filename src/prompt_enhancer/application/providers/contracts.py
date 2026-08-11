@@ -59,6 +59,8 @@ class CapabilityKey(StrEnum):
     AGENT_MESSAGES = "agent_messages"
     PLAN_MESSAGES = "plan_messages"
     TOOL_EVENTS = "tool_events"
+    DECISION_EVENTS = "decision_events"
+    FEEDBACK_MESSAGES = "feedback_messages"
     VERIFICATION_EVENTS = "verification_events"
     EVENT_TIMING = "event_timing"
     TOKEN_USAGE = "token_usage"

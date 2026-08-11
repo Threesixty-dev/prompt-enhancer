@@ -30,6 +30,10 @@ def test_build_time_schema_contains_bounded_queries_and_review_commands() -> Non
     assert "/v1/research/text-analysis-methods" in paths
     assert "/v1/providers/{provider}/capabilities" in paths
     assert "/v1/sessions/{session_id}/metric-readiness" in paths
+    assert "/v1/analysis-jobs" in paths
+    assert "/v1/analysis-jobs/{job_id}" in paths
+    assert "/v1/analysis-jobs/{job_id}/cancellation" in paths
+    assert "/v1/sessions/{session_id}/analysis-jobs/latest" in paths
 
     analysis_limit = schema["components"]["schemas"]["CodexAnalysisRequest"][
         "properties"

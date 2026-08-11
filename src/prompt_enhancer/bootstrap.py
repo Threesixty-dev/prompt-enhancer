@@ -37,6 +37,11 @@ if TYPE_CHECKING:
         TaskReviewService,
     )
     from .application.local_sources import CodexLocalSourceService
+    from .application.jobs import AnalysisJobService, AnalysisJobWorker
+    from .application.automation import (
+        AutomationGrantService,
+        AutomationGrantWorker,
+    )
     from fastapi import FastAPI
 
 
@@ -300,6 +305,103 @@ class LocalApplication:
             session_quality_factory,
         )
 
+    def create_analysis_job_service(self) -> AnalysisJobService:
+        """Compose the durable content-free queue without enabling a runner."""
+
+        from .application.jobs import AnalysisJobService
+
+        return AnalysisJobService(self.database.analysis_job_repository())
+
+    def create_automation_runtime(
+        self,
+        *,
+        codex_source_service: CodexLocalSourceService,
+        session_text_analysis_service: SessionTextAnalysisService,
+        analysis_job_service: AnalysisJobService,
+    ) -> tuple[
+        AutomationGrantService,
+        AutomationGrantWorker,
+        AnalysisJobWorker,
+    ]:
+        """Compose the local-only scheduler and its single reviewed worker."""
+
+        from datetime import UTC, datetime, timedelta
+
+        from .application.analysis.coaching_baselines import (
+            COACHING_METRIC_ENGINE_VERSION,
+            COACHING_METRIC_PACK_VERSION,
+            COACHING_METRIC_RUBRIC_VERSION,
+        )
+        from .application.automation import (
+            AutomationGrantService,
+            AutomationGrantWorker,
+            AutomationJobGuard,
+            SessionQualityAutomationHandler,
+        )
+        from .application.jobs import (
+            AnalysisJobKind,
+            AnalysisJobWorker,
+        )
+        from .domain import Provider
+        from .infrastructure.automation import (
+            LocalAutomationAccessPolicy,
+            LocalAutomationCatalogRefresher,
+            LocalAutomationIdFactory,
+            QueueAutomationJobSink,
+        )
+        from .infrastructure.redaction.deterministic import (
+            DETERMINISTIC_REDACTOR_VERSION,
+        )
+
+        estimator_plan_version = (
+            f"coaching-v{COACHING_METRIC_PACK_VERSION}-"
+            f"{COACHING_METRIC_ENGINE_VERSION}-"
+            f"{COACHING_METRIC_RUBRIC_VERSION}"
+        )
+        clock = lambda: datetime.now(UTC)
+        access = LocalAutomationAccessPolicy(self.database)
+        candidates = self.database.automation_candidate_source(
+            estimator_plan_version=estimator_plan_version,
+            redactor_version=DETERMINISTIC_REDACTOR_VERSION,
+        )
+        grants = self.database.automation_grant_repository()
+        grant_service = AutomationGrantService(
+            grants,
+            access,
+            LocalAutomationCatalogRefresher(
+                {Provider.CODEX: codex_source_service}
+            ),
+            candidates,
+            QueueAutomationJobSink(
+                analysis_job_service,
+                estimator_plan_version=estimator_plan_version,
+                redactor_version=DETERMINISTIC_REDACTOR_VERSION,
+            ),
+            LocalAutomationIdFactory(),
+            clock=clock,
+        )
+        guard = AutomationJobGuard(
+            grants,
+            access,
+            candidates,
+            clock=clock,
+        )
+        job_worker = AnalysisJobWorker(
+            self.database.analysis_job_repository(),
+            {
+                (AnalysisJobKind.SESSION_QUALITY, Provider.CODEX): (
+                    SessionQualityAutomationHandler(
+                        session_text_analysis_service
+                    )
+                )
+            },
+            authorization_check=guard.authorized,
+            fingerprint_resolver=guard.fingerprints,
+            clock=clock,
+            lease_duration=timedelta(minutes=5),
+        )
+        return grant_service, AutomationGrantWorker(grant_service), job_worker
+
     def create_http_app(self) -> FastAPI:
         """Construct the authenticated HTTP adapter without exposing its token."""
 
@@ -329,15 +431,30 @@ class LocalApplication:
                 CapabilityKey.PLAN_MESSAGES,
             ),
         )
+        codex_source_service = self.create_codex_local_source_service()
+        session_text_analysis_service = self.create_session_text_analysis_service(
+            compatibility_policy
+        )
+        analysis_job_service = self.create_analysis_job_service()
+        (
+            automation_grant_service,
+            automation_grant_worker,
+            analysis_job_worker,
+        ) = self.create_automation_runtime(
+            codex_source_service=codex_source_service,
+            session_text_analysis_service=session_text_analysis_service,
+            analysis_job_service=analysis_job_service,
+        )
+        codex_source_service.set_automation_revoker(
+            automation_grant_service.revoke_provider
+        )
         return create_app(
             settings=self.settings,
             database=self.database,
             api_token=token,
             task_review_service=self.create_task_review_service(),
             task_analysis_service=self.create_task_analysis_service(),
-            session_text_analysis_service=(
-                self.create_session_text_analysis_service(compatibility_policy)
-            ),
+            session_text_analysis_service=session_text_analysis_service,
             session_model_link_experiment_service=(
                 self.create_session_model_link_experiment_service(
                     compatibility_policy
@@ -350,9 +467,13 @@ class LocalApplication:
             metric_readiness_service=(
                 self.create_metric_readiness_service(compatibility_catalog)
             ),
-            codex_source_service=self.create_codex_local_source_service(),
+            codex_source_service=codex_source_service,
             display_label_service=self.create_manual_display_label_service(),
             model_evaluation_service=LocalTextModelEvaluationService(),
+            analysis_job_service=analysis_job_service,
+            analysis_job_worker=analysis_job_worker,
+            automation_grant_service=automation_grant_service,
+            automation_grant_worker=automation_grant_worker,
             static_directory=static_directory,
         )
 

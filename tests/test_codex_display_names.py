@@ -299,7 +299,7 @@ def test_v3_migration_adds_nullable_display_names_without_fabricating_values(
     database = Database(path)
     database.initialize()
 
-    assert SCHEMA_VERSION == 10
+    assert SCHEMA_VERSION == 12
     assert database.summary()["schema_version"] == SCHEMA_VERSION
     [record] = database.list_sessions(provider=Provider.CODEX)
     assert record["project_display_name"] is None
