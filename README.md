@@ -3,14 +3,20 @@
 Prompt Enhancer is a local-first analytics and coaching tool for people and teams who use coding agents such as Codex and Claude Code. It turns consented session events into evidence-backed views of task outcomes, delivery flow, prompt clarity, verification habits, token use, rework, and longitudinal improvement.
 
 The repository includes a runnable local vertical slice: a private SQLite store,
-deterministic task discovery and review, immutable task analysis, an authenticated
-loopback API, a React dashboard, and an experimental bounded Codex App Server reader.
+deterministic task discovery and review, immutable task and session analysis, an
+authenticated loopback API, a React dashboard, and an experimental bounded Codex
+App Server reader.
 Synthetic data remains the development default. After explicit `local-history` consent
 and an explicit index action, the local catalog retains pseudonymous identities and any
 available minimized labels. A separate, selected action may read at most 25 task summaries
 to fill missing project-folder basenames and explicit Codex task titles. Local manual
-overrides never rename Codex. Full paths, previews, transcripts, credentials, and tool
-content are discarded, and no analytics are sent online.
+overrides never rename Codex. A separate one-session confirmation can read a bounded
+text window into memory, apply the local redactor, compute twenty experimental prompt,
+collaboration, observable-logic, and outcome-evidence fractions, and persist only
+content-free values and versioned provenance. Project profiles combine compatible immutable session results by
+ratio-of-sums; they never average percentages in the browser. Full paths, previews,
+transcripts, credentials, and tool content are not persisted, and no analytics are sent
+online.
 
 ## Phase 1 local quickstart
 
@@ -48,6 +54,24 @@ npm run dev
 
 The Vite development profile remains synthetic. After `npm run build`, `serve` hosts the production dashboard and API on one loopback origin. The browser code receives only an in-memory CSRF token and never reads or stores the persistent API token.
 
+For explicit real-backend development with hot reload, start the backend on its
+dedicated loopback development port, then run the opt-in Vite mode in another
+terminal:
+
+```powershell
+$env:PROMPT_ENHANCER_PORT = "8766"
+$env:PYTHONPATH = "src"
+python -m prompt_enhancer serve
+
+cd frontend
+npm run dev:local -- --port 4174
+```
+
+This mode proxies only `/auth`, `/health`, and `/v1` to the fixed loopback
+backend. Ordinary `npm run dev` stays synthetic. Granting source access,
+indexing sessions, and starting a selected-session analysis remain separate
+explicit actions in the UI.
+
 See [docs/phase-1.md](docs/phase-1.md) for the safety boundary, explicit Codex workflow, API behavior, and deferred features.
 
 ## Product direction
@@ -71,10 +95,55 @@ Objective evidence such as tests, builds, CI, artifacts, and explicit user accep
   Do not register Claude display-label persistence until a schema-v6 migration
   provides provider-neutral, versioned provenance.
 - Storage: SQLite as the initial source of truth, with a separate optional encrypted content vault. DuckDB/Parquet can be added later for larger analytical workloads.
-- Analysis: deterministic metrics first, then small local Hugging Face models that pass an in-domain benchmark. Remote LLM analysis is optional, redacted, previewed, and explicitly approved.
+- Analysis: deterministic metrics first, then small local Hugging Face models that pass an in-domain benchmark. The local Model Lab screens seven revision-pinned candidates in isolated one-at-a-time subprocesses with CUDA, Apple MPS, or CPU fallback. Current neural candidates remain evaluation-only; none is activated in product metrics. Remote LLM analysis is optional, redacted, previewed, and explicitly approved.
 - Agent access: a read-only, allowlisted local MCP server can let an already-authenticated Codex or Claude session query aggregate metrics. Data returned through MCP enters that model's context and may leave the device.
 
-The detailed proposal is in [docs/architecture.md](docs/architecture.md), the metric definitions are in [docs/metrics-catalog.md](docs/metrics-catalog.md), and the 131-publication research journal begins at [docs/research/research-journal.md](docs/research/research-journal.md).
+The detailed proposal is in [docs/architecture.md](docs/architecture.md), the metric definitions are in [docs/metrics-catalog.md](docs/metrics-catalog.md), and the 131-publication research journal begins at [docs/research/research-journal.md](docs/research/research-journal.md). The dashboard-facing method stack and activation gates are summarized in [docs/research/prompt-agent-analytics-methods.md](docs/research/prompt-agent-analytics-methods.md).
+
+## Synthetic cross-model challenge
+
+The real offline session-link models have an explicit optional runtime and a
+targeted preparation screen. It downloads only immutable reviewed public
+artifacts, then closes the network before inference:
+
+```powershell
+python -m pip install -e ".[models]"
+python scripts/evaluate_local_text_models.py --candidate session-link --device auto --smoke --download
+```
+
+This evaluates Qwen3 Embedding 0.6B and BGE reranker v2 M3 on fictional EN/PL
+cases. It does not activate either model as a product metric; real-session
+annotations and an adjudicated holdout remain required.
+
+The fixed fictional EN/PL frontier packet can be exported without a provider
+call:
+
+```powershell
+python scripts/cross_model_challenge.py export --variant all
+```
+
+It writes blinded prompts and strict response schemas below
+`runtime/model-eval/cross-model-v1`. After a model produces a JSON response in
+that same runtime directory, score one variant and its order stability locally:
+
+```powershell
+python scripts/cross_model_challenge.py score --model-id example-model-1 --variant order-a --response example-model-1.order-a.response.json
+python scripts/cross_model_challenge.py stability --model-id example-model-1 --response-a example-model-1.order-a.response.json --response-b example-model-1.order-b.response.json
+```
+
+The scorer accepts only the checked-in fictional challenge and bounded runtime
+response files. It reports retrieval, NLI, rubric, and order-stability measures
+separately; it never creates an overall model score. See
+[WP-18](docs/work-packages/wp-18-metric-validity-and-roi-constellation.md) for
+the live synthetic results and the proposed cheap-first model constellation.
+
+The dashboard also exposes a versioned nine-family metric opportunity map for
+user value, quality-adjusted delivery, oversight, durability, artifact quality,
+measurement trust, safety, recommendation effectiveness, and private ease.
+Roadmap entries are explicitly partial, unmeasured, or opt-in and never create
+placeholder values or an overall score. The evidence, post-processing, visual,
+and activation contracts are defined in
+[WP-19](docs/work-packages/wp-19-expressive-metric-system.md).
 
 ## Privacy promise
 
@@ -103,5 +172,5 @@ Before expanding provider and content support, the maintainers still need to dec
 ## Repository status
 
 - Default branch: `main`
-- Stage: synthetic vertical slice plus experimental Codex content-discarding index/selected-history adapter; Claude and content analytics deferred
+- Stage: synthetic vertical slice plus experimental Codex index/selected-history adapter and explicitly confirmed local Prompt Quality / observable-logic profiles; Claude ingestion and calibrated model scoring remain deferred
 - License: not yet selected. Until a `LICENSE` file is added, no reuse license is granted by this repository.

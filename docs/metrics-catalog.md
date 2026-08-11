@@ -1,7 +1,7 @@
 # Metric catalog
 
-Status: proposed definitions 0.1
-Last reviewed: 2026-08-06
+Status: implemented P0 packs plus proposed research definitions 0.1
+Last reviewed: 2026-08-08
 
 ## Measurement rules
 
@@ -30,10 +30,38 @@ Privacy tiers:
 
 `unknown` is a valid value. It must never be silently converted to `0`, `false`, `failed`, or `completed`.
 
-## Implemented P0 task metric pack
+## Implemented P0 metadata metric packs
 
-The initial `core.metadata.task` pack is deterministic, metadata-only, and
-versioned independently from the broader research catalog. It currently emits:
+The `core.metadata.session` and `core.metadata.task` packs are deterministic,
+metadata-only, and versioned independently from the broader research catalog.
+Pack version 3 adds the WP-09 readiness and observed-effort family:
+
+| Session key | Reviewed-task key | Unit | Interpretation rule |
+|---|---|---|---|
+| `workflow.finalized_turn_count` | `task.workflow.finalized_turn_count` | count | observed current-snapshot subtotal; not turns required to finish |
+| `data_quality.turn_usage_coverage` | `task.data_quality.turn_usage_coverage` | ratio | usable additive usage observations / observed finalized turns |
+| `data_quality.turn_duration_coverage` | `task.data_quality.turn_duration_coverage` | ratio | finalized turns with a known duration / observed finalized turns |
+| `data_quality.tool_result_coverage` | `task.data_quality.tool_result_coverage` | ratio | completed tools with a known result / observed completed tools |
+| `data_quality.tool_duration_coverage` | `task.data_quality.tool_duration_coverage` | ratio | completed tools with a known duration / observed completed tools |
+| `data_quality.unknown_event_kind_rate` | `task.data_quality.unknown_event_kind_rate` | ratio | unknown event kinds / observed safe events |
+| `data_quality.direct_event_timestamp_rate` | `task.data_quality.direct_event_timestamp_rate` | ratio | event-specific provider timestamps / observed safe events; containing-turn and session fallbacks are excluded |
+
+Session metric cards are a versioned current projection. Rows migrated from a
+pre-v6 database carry the explicit sentinel `legacy.unknown.session` / v1 until
+the user runs a new bounded analysis; the application never guesses which pack
+created legacy rows.
+
+A ratio over an observed event set can have complete numerator/denominator
+coverage while the provider history itself remains an incomplete snapshot. The
+dashboard therefore presents observation coverage and snapshot confidence as
+separate concepts. No eligible events yields `unknown`, not zero.
+
+Session observations are a versioned current projection and may change after a
+later explicit provider read. Reviewed-task analysis runs are immutable. Do not
+use the session projection as longitudinal history until a separate immutable
+session-run store is implemented.
+
+The reviewed-task pack also emits:
 
 | Key | Unit | Unknown rule |
 |---|---|---|
@@ -49,6 +77,134 @@ versioned independently from the broader research catalog. It currently emits:
 Every run fingerprints the complete safe metadata snapshot and preserves its
 engine, metric-pack, schema, evidence, and redactor provenance. A changed input
 requires a new immutable run; reusing a retry key with changed evidence conflicts.
+
+### WP-10A verification capability boundary
+
+The repository includes a versioned, offline, abstaining command-signature
+classifier and a fictional adversarial evaluation corpus. It is currently
+reported as `validation_only`; it is **not connected to live Codex reads** and
+does not change session or task metrics. Current generic Codex command events
+remain tool lifecycle observations, not tests or proof of correctness.
+
+Live classification requires a private provider-specific holdout and a separate
+explicitly consented transient adapter. Unknown package scripts, wrappers,
+compound shell expressions, mutation modes, and unsupported signatures abstain.
+No command, argument, path, output, or command-derived digest may cross the safe
+classifier boundary. Until those gates pass, zero observed verification events
+in a partial Codex snapshot means only “none observed,” never “not run.”
+
+### WP-11 deterministic P1 prompt and logic baseline (legacy ten-metric pack)
+
+The `core.redacted-text.prompt-logic` v1 pack defines an executable local-only
+contract for ten EN/PL rule baselines. The current extractor is
+`rules.en-pl.p1-text` algorithm v1 / engine `text-rules-en-pl-1`; it is a
+deterministic lexical baseline, not an LLM or a calibrated neural model.
+Provider content ingress is a separate
+consent/redaction work package; this pack does not authorize a provider read and
+does not persist message content. Its current validation claim is **synthetic
+functional agreement only**, not accuracy on private conversations.
+
+The public one-click command uses server-owned `standard_engineering_v1`
+(`analysis_profile_key=standard_engineering`, version 1): all ten metrics are
+applicable; goal slots are action/target/outcome; constraint and deliverable sets
+are empty and therefore abstain; expected outcomes remain unknown and are formed
+conservatively when possible; the window is bounded to 100 messages and 100,000
+redacted characters. Profile identity is immutable provenance and an aggregation
+compatibility dimension.
+
+| Key | Direction | Versioned fraction | Main abstention/applicability rule |
+|---|---|---|---|
+| `prompt.goal_definition` | higher is better | detected action/possible-target/purpose lexical cues / the three preset cues | cue presence is not goal clarity or coherence |
+| `prompt.constraint_resolution` | higher is better | expected constraint categories expressed without unresolved-language markers / expected categories | abstain without explicit expected categories |
+| `prompt.completion_evaluability` | higher is better | detected requirement clauses containing an observable-check marker / detected requirement clauses | a check word is not a complete acceptance criterion; abstain when no denominator can be formed |
+| `prompt.deliverable_contract` | higher is better | detected deliverable slots / explicitly expected slots | abstain without explicit expected slots |
+| `prompt.open_decision_load` | **lower risk is better** | clauses containing a recognized choice marker / analyzed user clauses | does not prove materiality or later resolution; deliberate delegation is narrowly excluded |
+| `logic.requirement_action_traceability` | higher is better | active requirements conservatively linked to observed action events / active requirements | abstains when the source cannot expose `ACTION`; an action link is not proof of success |
+| `logic.plan_state_accounting` | higher is better | plan items with an explicit state or observed-action link / plan items | an explicitly no-plan task is `not_applicable` |
+| `logic.decision_rationale_coverage` | higher is better | decisions with an explicit rationale marker / observed decisions | abstains when the source cannot expose `DECISION`; zero observed decisions never creates a synthetic denominator |
+| `logic.scoped_consistency_candidate_rate` | **lower risk is better** | differing typed claims / comparable non-superseded claim pairs | no comparable pair remains unknown; candidates are not proven contradictions |
+| `logic.conversation_loop_closure` | higher is better | questions linked to a later opposite-role answer and not reopened / actionable questions | an explicitly no-question task is `not_applicable`; a link is not answer correctness |
+
+Each metric-schema-v2 result also carries a closed, content-free score receipt.
+For example, goal cue coverage records `goal.action`, `goal.target`, and
+`goal.outcome` as detected/missing; count metrics record their numerator and
+denominator factors. Receipts never contain excerpts, paths, raw identifiers, or
+free-form model explanations. They are immutable with the result and the API/UI
+validate their arithmetic before displaying a percentage.
+
+Each result separates its value numerator/denominator from analyzable-message
+coverage. The dashboard labels these separately as metric fraction and input-window
+coverage. Unsupported-language and bounded-out messages remain outside the
+observed numerator and reduce coverage. Aggregation is `ratio_of_sums`; the dashboard must not average session
+ratios. Applicability, evidence tier, direct/inherited evidence origin, risk
+direction, provider/adapter/schema/redactor versions, analysis-window
+fingerprint, algorithm version, and nullable model provenance are explicit.
+Modeled results require a pinned revision, license, and tokenizer. Deterministic
+execution has no confidence value because repeatability is not calibrated
+correctness. The UI therefore says `Measured` or `Partial input`; it does not use
+the missing confidence value to fabricate a confidence warning or probability.
+
+The public corpus contains fictional English and Polish examples, supersession,
+deliberate delegation, partial windows, explicit no-plan/no-question cases, and
+state/value goldens. `scripts/evaluate_text_baselines.py` emits only content-free
+agreement summaries. `scripts/benchmark_text_baselines.py` is an opt-in synthetic
+upper-bound throughput diagnostic; wall-clock speed is never a unit-test gate.
+
+### WP-11 coaching metric pack v3 (current twenty-metric pack)
+
+The one-click `coaching_profile_v1` command uses the
+`experimental.redacted-text.coaching` v3 pack. It attempts twenty independent
+content-free fractions over a bounded window of at most 100 messages and 100,000
+redacted characters. The metrics are experimental EN/PL deterministic candidates,
+not a universal prompt score, cognitive assessment, developer ranking, or proof of
+task success. Missing evidence and unsupported provider capabilities remain Unknown
+or Abstained.
+
+Release readiness is **candidate-only**. A full fraction such as `4 / 4` means
+that four rule-defined cues matched; it is not a calibrated `100%` estimate of
+prompt quality or personal skill. The primary dashboard therefore displays raw
+fractions and an uncalibrated label. These metrics must not feed rankings,
+performance reviews, or an overall score until private human-label agreement,
+held-out calibration, and outcome-association gates pass.
+
+| Key | What the current baseline observes | Direction |
+|---|---|---|
+| `prompt.task_definition_coverage` v2 | on the focus request: action, target, and intended-outcome cue coverage | higher is better |
+| `prompt.problem_evidence_quality` v2 | for diagnosis candidates: observed, expected, reproduction, and environment cues | higher is better |
+| `prompt.context_sufficiency` v2 | on the focus request: current state, environment/version, and boundary cues | higher is better |
+| `prompt.constraint_precision` v2 | detected constraint clauses containing a concrete boundary/value/platform/version/prohibition | higher is better |
+| `prompt.acceptance_testability` v2 | detected requirements containing an observable check, threshold, comparison, or pass condition | higher is better |
+| `prompt.deliverable_contract` v3 | detected deliverable clauses with format/interface/location/audience/compatibility cues | higher is better |
+| `collaboration.ambiguity_resolution` v2 | ambiguity candidates followed by a related clarification or replacement | higher is better |
+| `collaboration.clarification_yield` v2 | agent clarification questions followed by related substantive user answers | contextual/higher is better |
+| `collaboration.exploration_conversion` v2 | exploration or hypothesis clauses followed by plan, decision, action, or verification evidence | higher is better |
+| `collaboration.scope_change_discipline` v2 | explicit user scope changes followed by acknowledgement or plan revision | higher is better |
+| `collaboration.rework_candidate_rate` v2 | correction/misunderstanding markers in user feedback turns | **lower risk is better** |
+| `logic.decomposition_coverage` v2 | detected requirements conservatively linked to plan items | higher is better |
+| `logic.hypothesis_test_linkage` v2 | hypothesis clauses linked to structured verification evidence | higher is better |
+| `logic.decision_rationale_coverage` v3 | structured decisions with rationale, alternative, constraint, or evidence markers | higher is better |
+| `logic.requirement_action_traceability` v3 | detected requirements linked to structured action items | higher is better |
+| `logic.open_loop_closure` v2 | questions followed by a related opposite-role response and not reopened | higher is better |
+| `outcome.agent_claim_grounding` v2 | material agent claims linked to objective tool/test/source/artifact evidence | higher is better |
+| `outcome.verification_strategy_adequacy` v2 | requirements linked to a later recognized verification strategy | higher is better |
+| `outcome.first_pass_verification` v2 | first meaningful executable verification result, when evaluable | higher is better |
+| `outcome.verified_requirement_coverage` v2 | active requirements linked to objective passing verification or explicit acceptance | higher is better |
+
+`collaboration.exploration_conversion` v2 is specifically a deterministic
+candidate-link rule. It finds clauses containing EN/PL hypothesis markers, then
+looks for a later typed plan/decision/action/verification clause with lexical
+overlap. `0 / 4` therefore means that none of four marker clauses obtained such
+a rule-defined later link; it does **not** mean zero exploration ability or poor
+reasoning. Synthetic tests cover a related later plan and an unrelated later
+plan, but this is functional validation only. No human-labelled accuracy or
+calibration gate has passed, and no neural model contributes to the result.
+
+The current rules engine records exact algorithm, pack, redactor, provider, adapter,
+and schema provenance. Fractions aggregate only by ratio-of-sums within a fully
+compatible provenance cohort. Neural retrieval, reranking, NLI, and rubric models
+are screened separately in the local Model Lab and cannot contribute to these values
+until a representative private holdout passes the published precision, calibration,
+abstention, and drift gates.
 
 ## Task and outcome semantics
 
@@ -273,6 +429,49 @@ These metrics are **C-tier private coaching signals**. They must be disabled in 
 | Selective risk | B | P0 | Error among non-abstained predictions at each coverage level | Report full risk-coverage curve |
 | Cohort/task mix shift | A/B | P0 | Distribution change in task type, complexity, language, provider, model | Needed before interpreting trends |
 | Metric-definition discontinuity | A | P0 | Boundary where event/metric/model versions changed | Never draw one continuous trend across it without recomputation |
+
+## J. User benefit and recommendation effectiveness
+
+These metrics close the loop between a plausible coaching suggestion and a
+verified benefit. They require a versioned recommendation event and later
+evidence; the dashboard must not infer uptake or value from subsequent prose.
+
+| Metric | Tier | Privacy | Definition | Main caution |
+|---|---:|---:|---|---|
+| Explicit goal attainment | A/B | P1 | User-reviewed intended goals marked met, partly met, unmet, or still open | A verification pass can cover a check while missing the intended goal |
+| Accepted-requirement coverage | A | P0/P1 | Requirements explicitly accepted with supporting evidence / applicable reviewed requirements | Missing review remains unknown; acceptance never overrides a failing safety gate |
+| Optional usefulness response | A | P1 | Private user response about whether the delivered result was useful for the intended task | Subjective value is important but distinct from correctness and durability |
+| Recommendation applicability coverage | A/B | P0 | Eligible tasks for which the recommendation's declared preconditions were assessable / eligible tasks | Low coverage can be responsible abstention rather than estimator weakness |
+| Recommendation adoption rate | A | P1 | Explicit `try` decisions / offers with a recorded response | Adoption has no universal favorable direction and non-adoption is not resistance |
+| Experiment execution fidelity | A/B | P0/P1 | Tried recommendations with the declared action observably implemented / tried recommendations with assessable fidelity | Proxy receipts can miss partial or adapted implementations |
+| Recommendation outcome coverage | A | P0/P1 | Faithful experiments with a later comparable outcome / faithful experiments | Follow-up can be censored or task mix can change |
+| Matched verified-outcome uplift | A/B | P0/P1 | Within-stratum randomized or matched difference in predeclared verified outcomes | Separate adoption selection from treatment effect; observational matching is not randomization |
+| Recommendation effort cost | A/B | P1 | Added active time, review load, or resource use attributable to trying the recommendation | Benefit without its implementation burden overstates user value |
+| Recommendation adverse-effect rate | A/B | P0/P1 | Faithful experiments that trigger a predeclared quality, safety, workload, or privacy regression / faithful experiments with assessable guardrails | Rare severe effects should be shown separately from an average rate |
+| Recommendation disposition | A | P0 | Versioned retain, modify, withhold, or withdraw decision after evidence review | A global decision can hide task-specific benefit or harm |
+| Non-adoption reason | A | P1 | Optional private reason code such as not relevant, too costly, already used, or prefer another approach | Never infer a reason or use it for performance evaluation |
+
+## K. Human-agent delegation and oversight
+
+These are task- and risk-context descriptors. They must never be interpreted as
+developer ability, agent intelligence, or evidence that more autonomy is better.
+
+| Metric | Tier | Privacy | Definition | Main caution |
+|---|---:|---:|---|---|
+| Planning-decision delegation share | A/B | P0/P1 | Material planning decisions attributed to the agent / planning decisions with known attribution | Decision attribution requires an explicit taxonomy; higher is not inherently better |
+| Execution-decision delegation share | A/B | P0/P1 | Material execution decisions attributed to the agent / execution decisions with known attribution | Routine and high-risk decisions are not comparable |
+| Human intervention rate | A | P0/P1 | Explicit corrections, overrides, pauses, or takeovers / eligible decision points | Necessary collaboration is not failure |
+| Appropriate-escalation recall | A/B | P0 | Risk cases that should have escalated and did / audited risk cases requiring escalation | False negatives can have much higher cost than false positives |
+| Unnecessary-escalation rate | A/B | P0 | Escalations audited as unnecessary / audited escalations | Audit labels depend on risk, reversibility, permissions, and user preference |
+| Approval-timing adequacy | A/B | P0 | Required approvals obtained before the boundary-crossing action / actions requiring approval | Retrospective approval does not repair an unauthorized action |
+| Verified recovery after intervention | A/B | P0 | Interventions followed by restoration of the accepted verified state / interventions with assessable follow-up | Recovery can be partial or achieved by the human rather than the agent |
+| Oversight active-time share | A/B | P1 | Explicit active review time / covered task time | Idle windows and background work must not be counted as active oversight |
+| User-control recovery coverage | A | P0 | Eligible high-impact workflows with tested pause, override, rollback, or deletion recovery / eligible workflows | Control presence is not proof that recovery works; exercise it in synthetic tests |
+| Escalation precision by risk class | A/B | P0 | Audited required escalations / audited escalations within a versioned risk class | Always report beside recall and asymmetric error cost |
+
+The implementation and activation plan for sections J and K, plus the related
+durability, artifact-quality, safety, experience, and measurement-trust gaps, is
+defined in [WP-19](work-packages/wp-19-expressive-metric-system.md).
 
 ## Complexity normalization
 
