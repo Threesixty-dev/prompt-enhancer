@@ -83,6 +83,7 @@ def _compute(
     eligible_count: int | None = None,
     available_message_kinds: frozenset[TextMessageKind] = frozenset(TextMessageKind),
     text_extraction_complete: bool = True,
+    selected_metric_keys: tuple[str, ...] | None = None,
 ):
     context = P1TextAnalysisInput(
         provider=Provider.SYNTHETIC,
@@ -110,8 +111,40 @@ def _compute(
     )
     return {
         result.observation.key: result
-        for result in DEFAULT_TEXT_METRIC_ENGINE.compute(context, grant)
+        for result in DEFAULT_TEXT_METRIC_ENGINE.compute(
+            context,
+            grant,
+            selected_metric_keys=selected_metric_keys,
+        )
     }
+
+
+def test_explicit_metric_scope_never_invokes_unselected_calculator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = DEFAULT_TEXT_METRIC_ENGINE.registry.calculators[0]
+    unselected = DEFAULT_TEXT_METRIC_ENGINE.registry.calculators[1]
+
+    def reject_unselected(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("unselected calculator was invoked")
+
+    monkeypatch.setattr(type(unselected), "calculate", reject_unselected)
+    messages = (
+        _message(
+            "1",
+            0,
+            "Build an example report so reviewers can verify the result.",
+            role=TextRole.USER,
+            kind=TextMessageKind.REQUEST,
+        ),
+    )
+    results = _compute(
+        messages,
+        _profile(constraints=(), deliverables=()),
+        selected_metric_keys=(selected.definition.key,),
+    )
+
+    assert tuple(results) == (selected.definition.key,)
 
 
 def test_unavailable_action_and_decision_evidence_abstains_instead_of_zero() -> None:

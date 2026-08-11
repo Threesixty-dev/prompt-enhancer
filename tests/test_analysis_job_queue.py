@@ -55,6 +55,10 @@ def _identity(
     input_fingerprint: str = "a" * 64,
     provenance_fingerprint: str = "b" * 64,
     automation_grant_id: str | None = None,
+    metric_keys: tuple[str, ...] = (
+        "prompt.checkability_cue_coverage",
+        "prompt.goal_cue_coverage",
+    ),
 ) -> AnalysisJobIdentity:
     return AnalysisJobIdentity(
         kind=AnalysisJobKind.SESSION_QUALITY,
@@ -63,10 +67,7 @@ def _identity(
         session_id=str(session["session_id"]),
         input_fingerprint=input_fingerprint,
         provenance_fingerprint=provenance_fingerprint,
-        metric_keys=(
-            "prompt.checkability_cue_coverage",
-            "prompt.goal_cue_coverage",
-        ),
+        metric_keys=metric_keys,
         estimator_plan_version="synthetic-plan-v1",
         redactor_version="synthetic-redactor-v1",
         provider_schema_version="synthetic-schema-v1",
@@ -112,6 +113,35 @@ def test_schema_and_enqueue_are_durable_content_free_and_idempotent(tmp_path) ->
     assert persisted == first.job
     assert persisted.identity.metric_keys == tuple(sorted(identity.metric_keys))
     assert PRIVATE_CANARY.encode() not in database.path.read_bytes()
+
+
+def test_metric_scope_is_immutable_persisted_and_part_of_queue_identity(
+    tmp_path,
+) -> None:
+    database, session = _database(tmp_path)
+    service = AnalysisJobService(database.analysis_job_repository())
+    one_metric = ("prompt.goal_cue_coverage",)
+    several_metrics = (
+        "logic.requirement_action_traceability",
+        "prompt.checkability_cue_coverage",
+        "prompt.goal_cue_coverage",
+    )
+
+    one = service.enqueue(_identity(session, metric_keys=one_metric)).job
+    several = service.enqueue(
+        _identity(session, metric_keys=several_metrics)
+    ).job
+
+    assert one.job_id != several.job_id
+    assert one.dedupe_key != several.dedupe_key
+    reopened = Database(database.path)
+    reopened.initialize()
+    persisted_one = reopened.analysis_job_repository().get(one.job_id)
+    persisted_several = reopened.analysis_job_repository().get(several.job_id)
+    assert persisted_one is not None
+    assert persisted_several is not None
+    assert persisted_one.identity.metric_keys == one_metric
+    assert persisted_several.identity.metric_keys == several_metrics
 
 
 def test_lease_heartbeat_restart_recovery_backoff_and_progress(tmp_path) -> None:

@@ -270,6 +270,49 @@ def _engine_pack_identity(engine: TextMetricEngine) -> tuple[str, int]:
     return key, version
 
 
+def _resolve_metric_selection(
+    engine: TextMetricEngine,
+    selected_metric_keys: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    available = tuple(
+        definition.key for definition in engine.registry.definitions
+    )
+    if selected_metric_keys is None:
+        return available
+    if (
+        not isinstance(selected_metric_keys, tuple)
+        or not selected_metric_keys
+        or selected_metric_keys != tuple(sorted(selected_metric_keys))
+        or len(set(selected_metric_keys)) != len(selected_metric_keys)
+        or any(
+            not isinstance(key, str)
+            or SAFE_VERSION_PATTERN.fullmatch(key) is None
+            for key in selected_metric_keys
+        )
+        or not set(selected_metric_keys).issubset(available)
+    ):
+        raise SessionTextAnalysisInputError(
+            "selected metric scope is invalid for this analysis pack"
+        )
+    return selected_metric_keys
+
+
+def _metric_scope_fingerprint_values(
+    selected_metric_keys: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    if selected_metric_keys is None:
+        # Preserve the existing full-profile identity for manual and approved
+        # preview runs.  Automation always supplies an explicit immutable set.
+        return ()
+    return (
+        "metric-scope",
+        "explicit-selection-v1",
+        "metric-count",
+        str(len(selected_metric_keys)),
+        *selected_metric_keys,
+    )
+
+
 def _pre_read_matches(
     stored: SessionAnalysisRunDraft,
     *,
@@ -409,8 +452,15 @@ class SessionTextAnalysisService:
         preset_id: TextAnalysisPresetId,
         confirmation: str,
         idempotency_key: str,
+        selected_metric_keys: tuple[str, ...] | None = None,
     ) -> SessionTextAnalysisOutcome:
-        """Resolve a versioned server-owned profile before any provider access."""
+        """Resolve a versioned server-owned profile before any provider access.
+
+        Manual callers omit ``selected_metric_keys`` and retain the immutable
+        full-profile behavior.  The reviewed automation bridge supplies its
+        immutable job scope so unselected calculators and observations are
+        excluded from that run.
+        """
 
         preset, metric_engine = self._resolve_preset_plan(preset_id)
         return self._run_profile(
@@ -427,6 +477,7 @@ class SessionTextAnalysisService:
             metric_engine=metric_engine,
             metric_pack_key=preset.metric_pack_key,
             metric_pack_version=preset.metric_pack_version,
+            selected_metric_keys=selected_metric_keys,
         )
 
     def prepare_preset_preview(
@@ -600,8 +651,16 @@ class SessionTextAnalysisService:
         metric_engine: TextMetricEngine,
         metric_pack_key: str,
         metric_pack_version: int,
+        selected_metric_keys: tuple[str, ...] | None = None,
         prepared_context: P1TextAnalysisInput | None = None,
     ) -> SessionTextAnalysisOutcome:
+        effective_metric_keys = _resolve_metric_selection(
+            metric_engine,
+            selected_metric_keys,
+        )
+        metric_scope_fingerprint_values = _metric_scope_fingerprint_values(
+            selected_metric_keys
+        )
         self._validate_request(
             provider=provider,
             session_id=session_id,
@@ -620,7 +679,10 @@ class SessionTextAnalysisService:
 
         model_plan_fingerprint = self._identifiers.fingerprint(
             "session-analysis-plan-v1",
-            _plan_fingerprint_values(metric_engine),
+            (
+                *_plan_fingerprint_values(metric_engine),
+                *metric_scope_fingerprint_values,
+            ),
         )
         request_fingerprint = self._identifiers.fingerprint(
             "session-analysis-request-v1",
@@ -648,6 +710,7 @@ class SessionTextAnalysisService:
                 str(metric_pack_version),
                 "model-plan",
                 model_plan_fingerprint,
+                *metric_scope_fingerprint_values,
                 *_profile_fingerprint_values(task_profile),
             ),
         )
@@ -677,6 +740,11 @@ class SessionTextAnalysisService:
                 metric_engine_version=metric_engine.engine_version,
                 metric_pack_key=metric_pack_key,
                 metric_pack_version=metric_pack_version,
+                selected_metric_keys=(
+                    effective_metric_keys
+                    if selected_metric_keys is not None
+                    else None
+                ),
                 run_id=run_id,
                 prepared_context=prepared_context,
             )
@@ -697,6 +765,7 @@ class SessionTextAnalysisService:
         metric_engine_version: str,
         metric_pack_key: str,
         metric_pack_version: int,
+        selected_metric_keys: tuple[str, ...] | None,
         run_id: str,
         prepared_context: P1TextAnalysisInput | None,
     ) -> SessionTextAnalysisOutcome:
@@ -791,8 +860,14 @@ class SessionTextAnalysisService:
                 grant,
                 pack_key=metric_pack_key,
                 pack_version=metric_pack_version,
+                selected_metric_keys=selected_metric_keys,
             )
-            self._validate_result_set(context, calculated, metric_engine)
+            self._validate_result_set(
+                context,
+                calculated,
+                metric_engine,
+                selected_metric_keys=selected_metric_keys,
+            )
             finished_at = _require_utc(self._clock())
             if finished_at < draft.started_at:
                 raise ValueError("analysis clock moved backwards")
@@ -1022,11 +1097,17 @@ class SessionTextAnalysisService:
         context: P1TextAnalysisInput,
         results: tuple[TextMetricResult, ...],
         metric_engine: TextMetricEngine,
+        *,
+        selected_metric_keys: tuple[str, ...] | None,
     ) -> None:
+        selected = set(
+            _resolve_metric_selection(metric_engine, selected_metric_keys)
+        )
         expected = tuple(
             sorted(
                 (definition.key, definition.version)
                 for definition in metric_engine.registry.definitions
+                if definition.key in selected
             )
         )
         actual = tuple(

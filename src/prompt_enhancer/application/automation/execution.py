@@ -115,6 +115,7 @@ class SessionQualityAutomationHandler:
                 # remote disclosure.
                 confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
                 idempotency_key=f"automation-{job.job_id}",
+                selected_metric_keys=job.identity.metric_keys,
             )
         except (
             SessionTextAnalysisConsentError,
@@ -155,6 +156,11 @@ class SessionQualityAutomationHandler:
             raise AnalysisJobExecutionError(
                 "local_analysis_incomplete",
                 retryable=True,
+            )
+        if outcome.result_count != len(job.identity.metric_keys):
+            raise AnalysisJobExecutionError(
+                "automation_metric_scope_mismatch",
+                retryable=False,
             )
         return AnalysisJobExecutionResult(
             state=AnalysisJobState.COMPLETED,

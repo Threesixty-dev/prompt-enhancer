@@ -484,6 +484,7 @@ def _run_preset(
     preset_id: TextAnalysisPresetId = TextAnalysisPresetId.STANDARD_ENGINEERING_V1,
     confirmation: str = SESSION_TEXT_ANALYSIS_CONFIRMATION,
     idempotency_key: str = "example-preset-run-1",
+    selected_metric_keys: tuple[str, ...] | None = None,
 ):
     return service.run_preset(
         provider=Provider.SYNTHETIC,
@@ -491,6 +492,7 @@ def _run_preset(
         preset_id=preset_id,
         confirmation=confirmation,
         idempotency_key=idempotency_key,
+        selected_metric_keys=selected_metric_keys,
     )
 
 
@@ -783,6 +785,102 @@ def test_coaching_preset_produces_twenty_typed_results_in_its_own_immutable_pack
     by_key = {item.observation.key: item for item in results}
     assert by_key["outcome.first_pass_verification"].value_state.value == "abstained"
     assert by_key["outcome.first_pass_verification"].observation.numeric_value is None
+
+
+@pytest.mark.parametrize(
+    "selected_metric_keys",
+    (
+        ("prompt.context_sufficiency",),
+        (
+            "collaboration.rework_candidate_rate",
+            "logic.decomposition_coverage",
+            "prompt.context_sufficiency",
+        ),
+    ),
+)
+def test_explicit_coaching_scope_persists_only_selected_metrics(
+    selected_metric_keys: tuple[str, ...],
+) -> None:
+    service, repository, source, _factory = _service()
+
+    outcome = _run_preset(
+        service,
+        preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+        idempotency_key=f"example-scoped-{len(selected_metric_keys)}",
+        selected_metric_keys=selected_metric_keys,
+    )
+
+    assert outcome.result_count == len(selected_metric_keys)
+    assert source.read_count == 1
+    persisted = repository.get_results(outcome.run_id)
+    assert tuple(item.observation.key for item in persisted) == selected_metric_keys
+    assert not (
+        {definition.key for definition in COACHING_METRIC_DEFINITIONS}
+        - set(selected_metric_keys)
+    ).intersection(item.observation.key for item in persisted)
+
+
+def test_explicit_coaching_scope_is_fingerprinted_and_cannot_drift_on_retry() -> None:
+    one_metric = ("prompt.context_sufficiency",)
+    three_metrics = (
+        "collaboration.rework_candidate_rate",
+        "logic.decomposition_coverage",
+        "prompt.context_sufficiency",
+    )
+    service, repository, source, _factory = _service()
+    first = _run_preset(
+        service,
+        preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+        idempotency_key="example-scope-stable",
+        selected_metric_keys=one_metric,
+    )
+    first_draft = repository.runs[first.run_id].draft
+
+    with pytest.raises(SessionTextAnalysisConflictError):
+        _run_preset(
+            service,
+            preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+            idempotency_key="example-scope-stable",
+            selected_metric_keys=three_metrics,
+        )
+
+    assert source.read_count == 1
+    assert repository.complete_count == 1
+    assert tuple(
+        item.observation.key for item in repository.get_results(first.run_id)
+    ) == one_metric
+
+    other_service, other_repository, _, _ = _service()
+    other = _run_preset(
+        other_service,
+        preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+        idempotency_key="example-scope-stable",
+        selected_metric_keys=three_metrics,
+    )
+    other_draft = other_repository.runs[other.run_id].draft
+    assert other.run_id == first.run_id
+    assert other_draft.request_fingerprint != first_draft.request_fingerprint
+    assert (
+        other_draft.model_plan_fingerprint
+        != first_draft.model_plan_fingerprint
+    )
+
+
+def test_unknown_coaching_scope_fails_before_policy_or_provider_access() -> None:
+    policy = MemoryAccessPolicy()
+    service, repository, source, factory = _service(policy=policy)
+
+    with pytest.raises(SessionTextAnalysisInputError):
+        _run_preset(
+            service,
+            preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+            idempotency_key="example-unknown-scope",
+            selected_metric_keys=("prompt.not_registered",),
+        )
+
+    assert policy.consent_calls == policy.index_calls == 0
+    assert factory.call_count == source.read_count == 0
+    assert repository.begin_count == 0
 
 
 def test_unknown_preset_is_rejected_before_policy_or_source_access() -> None:

@@ -1210,6 +1210,7 @@ class TextMetricEngine:
         *,
         pack_key: str = DEFAULT_TEXT_METRIC_PACK_KEY,
         pack_version: int = DEFAULT_TEXT_METRIC_PACK_VERSION,
+        selected_metric_keys: tuple[str, ...] | None = None,
     ) -> tuple[TextMetricResult, ...]:
         if (
             grant.data_tier is not DataTier.REDACTED_CONTENT
@@ -1227,9 +1228,38 @@ class TextMetricEngine:
         if pack_key != self._pack_key or pack_version != self._pack_version:
             raise ValueError("text metric engine does not own the requested pack")
 
+        calculators = self._registry.calculators
+        if selected_metric_keys is not None:
+            if (
+                not isinstance(selected_metric_keys, tuple)
+                or not selected_metric_keys
+                or selected_metric_keys != tuple(sorted(selected_metric_keys))
+                or len(set(selected_metric_keys)) != len(selected_metric_keys)
+                or any(
+                    not isinstance(key, str)
+                    or SAFE_VERSION_PATTERN.fullmatch(key) is None
+                    for key in selected_metric_keys
+                )
+            ):
+                raise ValueError(
+                    "selected text metric keys must be unique and sorted"
+                )
+            calculators_by_key = {
+                calculator.definition.key: calculator
+                for calculator in self._registry.calculators
+            }
+            if not set(selected_metric_keys).issubset(calculators_by_key):
+                raise ValueError("selected text metric key is not in the pack")
+            # Select calculators before feature extraction and calculation.  The
+            # shared extractor may still preprocess the authorized text window,
+            # but no unselected metric calculator is invoked.
+            calculators = tuple(
+                calculators_by_key[key] for key in selected_metric_keys
+            )
+
         features = self._extractor.extract(context)
         results: list[TextMetricResult] = []
-        for calculator in self._registry.calculators:
+        for calculator in calculators:
             calculation = calculator.calculate(context, features)
             definition = calculator.definition
             applicability = context.task_profile.applicability_for(definition.key)

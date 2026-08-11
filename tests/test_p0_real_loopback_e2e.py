@@ -31,7 +31,9 @@ from prompt_enhancer.application.analysis.text_source import (
 )
 from prompt_enhancer.application.automation import (
     AutomationGrantService,
+    AutomationJobGuard,
     AutomationSessionCandidate,
+    SessionQualityAutomationHandler,
 )
 from prompt_enhancer.application.jobs import (
     AnalysisJobExecutionResult,
@@ -310,8 +312,13 @@ class MutableAutomationCandidates:
 
 
 class FixedIds:
+    def __init__(self) -> None:
+        self.calls = 0
+
     def new_id(self) -> str:
-        return "9" * 64
+        value = f"{9 + self.calls:x}"
+        self.calls += 1
+        return value * 64
 
 
 @contextmanager
@@ -534,6 +541,7 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
     # Recompose with the actual automation application boundary over the same DB.
     automation_clock = MutableClock(job_clock())
     candidates = MutableAutomationCandidates(project_id, session_id, automation_clock)
+    automation_ids = FixedIds()
     automation_service = AutomationGrantService(
         database.automation_grant_repository(),
         LocalAutomationAccessPolicy(database),
@@ -544,7 +552,7 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
             estimator_plan_version="synthetic-loopback-plan-v1",
             redactor_version="synthetic-loopback-redactor-v1",
         ),
-        FixedIds(),
+        automation_ids,
         clock=automation_clock,
     )
     automation_app = create_app(
@@ -584,6 +592,180 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
             if item["identity"]["automation_grant_id"] == grant_id
         )
         assert first_automation_job["state"] == "queued"
+        first_automation_job_id = str(first_automation_job["job_id"])
+
+    guard = AutomationJobGuard(
+        database.automation_grant_repository(),
+        LocalAutomationAccessPolicy(database),
+        candidates,
+        clock=automation_clock,
+    )
+    scoped_worker = AnalysisJobWorker(
+        job_repository,
+        {
+            (AnalysisJobKind.SESSION_QUALITY, Provider.CODEX): (
+                SessionQualityAutomationHandler(text_service)
+            )
+        },
+        authorization_check=guard.authorized,
+        fingerprint_resolver=guard.fingerprints,
+        clock=job_clock,
+        lease_duration=timedelta(seconds=5),
+        poll_seconds=0.05,
+        worker_id="f" * 64,
+    )
+    scoped_app = create_app(
+        settings=AppSettings(home=tmp_path),
+        database=database,
+        api_token=TOKEN,
+        analysis_job_service=job_service,
+        analysis_job_worker=scoped_worker,
+    )
+    with real_loopback_server(scoped_app) as client:
+        completed_scope = _wait_for_job(
+            client,
+            first_automation_job_id,
+            {"completed"},
+        )
+        assert completed_scope["terminal_reason_code"] == "local_analysis_completed"
+
+    scoped_results = [
+        run_repository.get_results(run.draft.run_id)
+        for run in run_repository.list_for_session(session_id)
+        if len(run_repository.get_results(run.draft.run_id)) == 1
+    ]
+    assert len(scoped_results) == 1
+    assert tuple(
+        result.observation.key for result in scoped_results[0]
+    ) == ("prompt.context_sufficiency",)
+    assert text_source.read_count == 2
+    assert compatibility_probe.calls == calls_before_cached_readiness + 1
+    _assert_canary_not_persisted(tmp_path)
+    job_clock.advance(seconds=1)
+
+    changed_scope_app = create_app(
+        settings=AppSettings(home=tmp_path),
+        database=database,
+        api_token=TOKEN,
+        analysis_job_service=job_service,
+        automation_grant_service=automation_service,
+    )
+    with real_loopback_server(changed_scope_app) as client:
+        first_revoked = client.post(
+            f"/v1/automation-grants/{grant_id}/revocation"
+        )
+        assert first_revoked.status_code == 200
+        changed_grant = client.post(
+            "/v1/automation-grants",
+            json={
+                "provider": "codex",
+                "project_id": project_id,
+                "metric_keys": [
+                    "collaboration.rework_candidate_rate",
+                    "logic.decomposition_coverage",
+                    "prompt.context_sufficiency",
+                ],
+                "newest_session_limit": 1,
+                "check_interval_seconds": 900,
+                "resource_policy": {
+                    "route": "balanced",
+                    "max_gpu_workers": 1,
+                    "max_cpu_workers": 1,
+                    "pause_on_battery": True,
+                    "maximum_session_seconds": 1800,
+                },
+            },
+        )
+        assert changed_grant.status_code == 201, changed_grant.text
+        changed_grant_id = str(changed_grant.json()["grant_id"])
+        changed_scope_poll = client.post("/v1/automation-grants/poll")
+        assert changed_scope_poll.status_code == 200
+        assert changed_scope_poll.json()["jobs_created"] == 1
+        changed_scope_jobs = client.get("/v1/analysis-jobs").json()["jobs"]
+        selected_job = next(
+            item
+            for item in changed_scope_jobs
+            if item["identity"]["automation_grant_id"] == changed_grant_id
+        )
+        assert selected_job["identity"]["metric_keys"] == [
+            "collaboration.rework_candidate_rate",
+            "logic.decomposition_coverage",
+            "prompt.context_sufficiency",
+        ]
+        selected_job_id = str(selected_job["job_id"])
+
+    multi_scope_worker_app = create_app(
+        settings=AppSettings(home=tmp_path),
+        database=database,
+        api_token=TOKEN,
+        analysis_job_service=job_service,
+        analysis_job_worker=scoped_worker,
+    )
+    with real_loopback_server(multi_scope_worker_app) as client:
+        completed_multi_scope = _wait_for_job(
+            client,
+            selected_job_id,
+            {"completed"},
+        )
+        assert (
+            completed_multi_scope["terminal_reason_code"]
+            == "local_analysis_completed"
+        )
+
+    expected_scopes = {
+        ("prompt.context_sufficiency",),
+        (
+            "collaboration.rework_candidate_rate",
+            "logic.decomposition_coverage",
+            "prompt.context_sufficiency",
+        ),
+    }
+    persisted_scopes = {
+        tuple(result.observation.key for result in results)
+        for run in run_repository.list_for_session(session_id)
+        if len(results := run_repository.get_results(run.draft.run_id))
+        in {1, 3}
+    }
+    assert persisted_scopes == expected_scopes
+    assert text_source.read_count == 3
+    assert compatibility_probe.calls == calls_before_cached_readiness + 2
+    _assert_canary_not_persisted(tmp_path)
+    job_clock.advance(seconds=1)
+
+    supersession_app = create_app(
+        settings=AppSettings(home=tmp_path),
+        database=database,
+        api_token=TOKEN,
+        analysis_job_service=job_service,
+        automation_grant_service=automation_service,
+    )
+    with real_loopback_server(supersession_app) as client:
+        changed_revoked = client.post(
+            f"/v1/automation-grants/{changed_grant_id}/revocation"
+        )
+        assert changed_revoked.status_code == 200
+        drift_grant = client.post(
+            "/v1/automation-grants",
+            json={
+                "provider": "codex",
+                "project_id": project_id,
+                "metric_keys": ["logic.open_loop_closure"],
+                "newest_session_limit": 1,
+                "check_interval_seconds": 900,
+                "resource_policy": {
+                    "route": "balanced",
+                    "max_gpu_workers": 1,
+                    "max_cpu_workers": 1,
+                    "pause_on_battery": True,
+                    "maximum_session_seconds": 1800,
+                },
+            },
+        )
+        assert drift_grant.status_code == 201, drift_grant.text
+        drift_grant_id = str(drift_grant.json()["grant_id"])
+        drift_poll = client.post("/v1/automation-grants/poll")
+        assert drift_poll.status_code == 200
+        assert drift_poll.json()["jobs_created"] == 1
 
         candidates.input_fingerprint = "7" * 64
         automation_clock.advance(seconds=901)
@@ -595,18 +777,20 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
         grant_jobs = [
             item
             for item in after_change
-            if item["identity"]["automation_grant_id"] == grant_id
+            if item["identity"]["automation_grant_id"] == drift_grant_id
         ]
         assert {item["state"] for item in grant_jobs} == {"queued", "superseded"}
 
-        revoked = client.post(f"/v1/automation-grants/{grant_id}/revocation")
+        revoked = client.post(
+            f"/v1/automation-grants/{drift_grant_id}/revocation"
+        )
         assert revoked.status_code == 200
         assert revoked.json()["state"] == "revoked"
         after_revoke = client.get("/v1/analysis-jobs").json()["jobs"]
         grant_states = {
             item["state"]
             for item in after_revoke
-            if item["identity"]["automation_grant_id"] == grant_id
+            if item["identity"]["automation_grant_id"] == drift_grant_id
         }
         assert grant_states == {"cancelled", "superseded"}
 
@@ -682,7 +866,7 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
         assert completed["progress_completed"] == 2
         assert completed["progress_total"] == 2
 
-    assert text_source.read_count == 1
-    assert compatibility_probe.calls == calls_before_cached_readiness
+    assert text_source.read_count == 3
+    assert compatibility_probe.calls == calls_before_cached_readiness + 2
     assert PRIVATE_CANARY not in caplog.text
     _assert_canary_not_persisted(tmp_path)
