@@ -18,7 +18,7 @@ local runtime artifacts must never be added here.
 | Phase | Status | Current scope | Acceptance gate | Open blockers |
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
-| P0 | In progress | Runtime truth, metric readiness, and radar fallback are complete; transient preview/approval is backend-complete; preview UI, typed evidence adapters, durable local jobs, and automation grants remain | Synthetic-provider HTTP E2E plus restart, revocation, cancellation, supersession, change-during-run, and no-private-persistence tests | Codex currently exposes only documented request/response/plan text for coaching; 7 of 20 metric structures require unsupported action, decision, feedback, or verification evidence and must stay unavailable |
+| P0 | In progress | Runtime truth, metric readiness, radar fallback, one-shot preview/approval, typed evidence contracts, durable local jobs, local automation, Job Centre, and real-loopback recovery/privacy E2E are complete | Full-browser local-transport E2E plus strict selected-metric automation scope, revocation, cancellation, supersession, change-during-run, and no-private-persistence tests | Project Automation settings UI and selected-metric execution integrity remain; Codex exposes only documented request/response/plan coaching text, so 7 of 20 structures stay unsupported |
 | P1 | Blocked by P0 gate | Serialized estimator cascade, generic run/vote records, calibration, reviewed runners, and model comparison | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout; no estimator is product-enabled |
 | P2 | Blocked by P1 gate | Immutable temporal snapshots, compatible aggregation, recommendations, and model/job/history views | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Requires calibrated P1 estimates and completed P0 provenance boundaries |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
@@ -61,12 +61,31 @@ validation. The remaining non-blocking frontend bundle-size warning is still
 tracked. No remote model received session content, and no estimator was
 activated.
 
-P0 remains open. The preview/approval UI, durable SQLite job queue, renewable
-local-only automation grants, documented typed provider evidence adapters, and
-the full synthetic-provider real-HTTP E2E/restart/revocation suite are not yet
-implemented. Per the locked delivery discipline, the first unattended window
-stops at this largest safely completed vertical slice rather than skipping the
-P0 gate to begin models, billing, or teams.
+The continuation checkpoint ending at `9149af8` adds four more coherent P0
+slices:
+
+1. the exact redacted-window preview and one-shot approval UI, including
+   expiry, stale-session, and consumed-token handling;
+2. versioned ephemeral `ACTION`, `DECISION`, `FEEDBACK`, and `VERIFICATION`
+   evidence contracts, with objective verification receipts required;
+3. a durable SQLite analysis queue and renewable local-only automation grants
+   with leases, restart recovery, cancellation, retry bounds, supersession,
+   progress, revocation, and private public DTOs that omit worker lease tokens;
+4. a truthful Job Centre plus a real uvicorn/httpx loopback E2E covering consent,
+   indexing, exact compatibility, preview/approval, 20-metric analysis,
+   readiness, automation supersession/revocation, crash recovery, and canary
+   absence from SQLite, files, and logs.
+
+The combined continuation gate passed 703 Python tests with 4 platform skips,
+313 frontend tests, 9 Playwright tests across responsive widths, the production
+frontend build, and the privacy scanner. The exact test totals belong to this
+checkpoint only; they are not estimator-calibration evidence.
+
+P0 remains open. Automation grants already bind a selected metric set into the
+job identity, but execution must prove that unselected metrics are neither
+computed nor persisted. The project Automation settings UI and a full-browser
+local-HTTP synthetic-provider path also remain. Unsupported provider evidence
+continues to abstain; neither an LLM nor a deterministic rule fills it.
 
 ## Version inventory
 
