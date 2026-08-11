@@ -1,5 +1,8 @@
 # Work packages
 
+Campaign execution status and blockers are tracked in the
+[real-metrics campaign ledger](../real-metrics-campaign-ledger.md).
+
 - [WP-13: selected-session local model-link experiment](wp-13-local-model-link-experiment.md)
 - [WP-14: evidence-bounded coaching loop](wp-14-coaching-loop.md)
 - [WP-15: interactive quality lenses](wp-15-interactive-quality-lenses.md)
