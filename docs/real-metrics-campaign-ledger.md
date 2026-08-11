@@ -18,7 +18,7 @@ local runtime artifacts must never be added here.
 | Phase | Status | Current scope | Acceptance gate | Open blockers |
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
-| P0 | In progress | Truthful runtime health, metric readiness, radar fallback, typed evidence capability checks, transient preview/approval, durable local jobs, and automation grants | Synthetic-provider HTTP E2E plus restart, revocation, cancellation, supersession, change-during-run, and no-private-persistence tests | Codex currently exposes only documented request/response/plan text for coaching; unsupported action, decision, feedback, and verification evidence must stay unavailable |
+| P0 | In progress | Runtime truth, metric readiness, and radar fallback are complete; transient preview/approval is backend-complete; preview UI, typed evidence adapters, durable local jobs, and automation grants remain | Synthetic-provider HTTP E2E plus restart, revocation, cancellation, supersession, change-during-run, and no-private-persistence tests | Codex currently exposes only documented request/response/plan text for coaching; 7 of 20 metric structures require unsupported action, decision, feedback, or verification evidence and must stay unavailable |
 | P1 | Blocked by P0 gate | Serialized estimator cascade, generic run/vote records, calibration, reviewed runners, and model comparison | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout; no estimator is product-enabled |
 | P2 | Blocked by P1 gate | Immutable temporal snapshots, compatible aggregation, recommendations, and model/job/history views | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Requires calibrated P1 estimates and completed P0 provenance boundaries |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
@@ -36,6 +36,37 @@ The checkpoint passed 659 Python tests with 4 skips, 256 frontend tests, the
 production frontend build, 4 Playwright tests, and the repository privacy
 scanner. The build reports a non-blocking bundle-size warning; it is tracked as
 performance work, not hidden as a failure.
+
+## P0 checkpoint evidence
+
+Checkpoint ending at `bd9ffe7` adds four coherent P0 slices:
+
+1. explicit `synthetic_demo` and `local_real` runtime composition with verified
+   loopback health and fail-closed transport identity;
+2. truthful 3-8-axis radar eligibility with exact-value bars below three axes;
+3. versioned, content-free provider/session metric readiness for all 20 Coaching
+   v1 metrics, including exact reason, required evidence, and next action;
+4. a ten-minute, in-memory, one-shot redaction preview and approval backend that
+   binds the exact session window, metric set, destination, model plan, redactor,
+   retention class, size, and cost estimate without a second provider read.
+
+The current Codex capability projection makes 13 of 20 metric structures
+attemptable and marks 7 unsupported before any session content is read. This is
+a documented evidence ceiling, not a failed model run, and unsupported values
+are never synthesized or plotted as zero.
+
+The checkpoint passed 682 Python tests with 4 platform skips, 283 frontend
+tests, the production frontend build, the repository privacy scanner, and diff
+validation. The remaining non-blocking frontend bundle-size warning is still
+tracked. No remote model received session content, and no estimator was
+activated.
+
+P0 remains open. The preview/approval UI, durable SQLite job queue, renewable
+local-only automation grants, documented typed provider evidence adapters, and
+the full synthetic-provider real-HTTP E2E/restart/revocation suite are not yet
+implemented. Per the locked delivery discipline, the first unattended window
+stops at this largest safely completed vertical slice rather than skipping the
+P0 gate to begin models, billing, or teams.
 
 ## Version inventory
 
