@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
+import type { MetricReadiness } from "../../shared/api/contracts";
 import { formatPercent } from "../../shared/lib/format";
 import type {
   QualityMetricObservation,
@@ -11,6 +12,10 @@ import {
   type ResolvedQualityLens,
 } from "./qualityLenses";
 import { metricDecisionGuidance } from "./metricGuidance";
+import {
+  explainMetricReadiness,
+  indexMetricReadiness,
+} from "./metricReadiness";
 
 const CENTER = 280;
 const RADIUS = 192;
@@ -121,9 +126,29 @@ function hasMeasuredNumericValue(metric: QualityMetricObservation): boolean {
 }
 
 function normalizedValueLabel(metric: QualityMetricObservation): string {
-  return !hasMeasuredNumericValue(metric)
-    ? "No normalized value for this state."
-    : `${formatPercent(clampRatio(metric.ratio!))} candidate ratio`;
+  if (hasMeasuredNumericValue(metric)) {
+    return `${formatPercent(clampRatio(metric.ratio!))} candidate ratio`;
+  }
+  return {
+    unavailable: "No value — Unknown",
+    abstained: "No value — analyzer abstained",
+    "not-applicable": "No value — Not applicable",
+    "execution-error": "No value — analysis failed",
+    observed: "No valid normalized value",
+    partial: "No valid normalized value",
+  }[metric.state];
+}
+
+function exactValueStateLabel(metric: QualityMetricObservation): string {
+  if (hasMeasuredNumericValue(metric)) return formatPercent(metric.ratio!);
+  return {
+    unavailable: "Unknown",
+    abstained: "Abstained",
+    "not-applicable": "Not applicable",
+    "execution-error": "Failed",
+    observed: "Invalid value",
+    partial: "Invalid value",
+  }[metric.state];
 }
 
 function methodRevisionLabel(metric: QualityMetricObservation): string {
@@ -352,13 +377,16 @@ function MetricInspector({
   metric,
   onClear,
   pinned,
+  readiness,
 }: {
   lens: QualityLensDefinition;
   metric: QualityMetricObservation;
   onClear: () => void;
   pinned: boolean;
+  readiness?: MetricReadiness;
 }) {
   const guidance = metricDecisionGuidance(metric.definition.key);
+  const readinessExplanation = explainMetricReadiness(metric, readiness);
   return (
     <aside
       aria-live={pinned ? "polite" : "off"}
@@ -392,6 +420,24 @@ function MetricInspector({
         <p className="quality-radar__inspector-caveat">
           {candidateCaveat(metric)}
         </p>
+      )}
+      {readinessExplanation !== null && readinessExplanation.state !== "known" && (
+        <section
+          aria-label="Metric readiness explanation"
+          className={`quality-readiness quality-readiness--${readinessExplanation.state}`}
+          data-readiness-state={readinessExplanation.state}
+        >
+          <strong>{readinessExplanation.label}</strong>
+          <p>{readinessExplanation.reasonCopy}</p>
+          <p>
+            <b>Evidence</b>
+            {readinessExplanation.evidenceCopy}
+          </p>
+          <p>
+            <b>Next</b>
+            {readinessExplanation.actionCopy.join(" ")}
+          </p>
+        </section>
       )}
       <dl className="quality-radar__inspector-summary">
         <div>
@@ -532,6 +578,7 @@ function MetricBoard({
   onPreviewEnd,
   onPreviewStart,
   pinnedKey,
+  readiness,
 }: {
   activeKey: string | null;
   lens: ResolvedQualityLens;
@@ -540,6 +587,7 @@ function MetricBoard({
   onPreviewEnd: (key: string) => void;
   onPreviewStart: (key: string) => void;
   pinnedKey: string | null;
+  readiness: ReadonlyMap<string, MetricReadiness>;
 }) {
   const measured = lens.metrics.filter(hasMeasuredNumericValue).length;
   const compatibilityRegion =
@@ -566,6 +614,10 @@ function MetricBoard({
           const active = metric.definition.key === activeKey;
           const pinned = metric.definition.key === pinnedKey;
           const caveat = candidateCaveat(metric);
+          const metricReadiness = readiness.get(
+            `${metric.definition.key}@${metric.definition.version}`,
+          );
+          const readinessExplanation = explainMetricReadiness(metric, metricReadiness);
           return (
             <button
               aria-pressed={pinned}
@@ -602,7 +654,7 @@ function MetricBoard({
                   >
                     {STATE_LABELS[metric.state]}
                   </span>
-                  <b>{hasValue ? formatPercent(metric.ratio!) : "Not available"}</b>
+                  <b>{exactValueStateLabel(metric)}</b>
                 </span>
               </span>
               {hasValue ? (
@@ -623,6 +675,19 @@ function MetricBoard({
                 <small>Input {coverageLabel(metric)}</small>
                 {caveat && <small>{caveat}</small>}
               </span>
+              {readinessExplanation !== null && readinessExplanation.state !== "known" && (
+                <span
+                  className={`quality-board__readiness quality-board__readiness--${readinessExplanation.state}`}
+                  data-readiness-state={readinessExplanation.state}
+                >
+                  <strong>{readinessExplanation.label}</strong>
+                  <small>{readinessExplanation.compactReasonCopy}</small>
+                  <small>
+                    <b>Needed / next:</b> {readinessExplanation.compactEvidenceCopy}{" "}
+                    {readinessExplanation.compactActionCopy}
+                  </small>
+                </span>
+              )}
             </button>
           );
         })}
@@ -633,11 +698,14 @@ function MetricBoard({
 
 export function QualityRadar({
   metrics,
+  readiness,
 }: {
   metrics: readonly QualityMetricObservation[];
+  readiness?: readonly MetricReadiness[] | null;
 }) {
   const descriptionId = useId();
   const lenses = useMemo(() => qualityLensesFor(metrics), [metrics]);
+  const readinessIndex = useMemo(() => indexMetricReadiness(readiness), [readiness]);
   const [selectedLensId, setSelectedLensId] = useState<QualityLensId | null>(
     () => lenses[0]?.definition.id ?? null,
   );
@@ -813,6 +881,9 @@ export function QualityRadar({
               metric={activeMetric}
               onClear={clearSelection}
               pinned={pinnedKey === activeMetric.definition.key}
+              readiness={readinessIndex.get(
+                `${activeMetric.definition.key}@${activeMetric.definition.version}`,
+              )}
             />
             <MetricBoard
               activeKey={activeKey}
@@ -827,6 +898,7 @@ export function QualityRadar({
               }
               onPreviewStart={setPreviewKey}
               pinnedKey={pinnedKey}
+              readiness={readinessIndex}
             />
           </div>
         </div>

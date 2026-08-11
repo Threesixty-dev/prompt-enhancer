@@ -52,6 +52,22 @@ export type CandidateStatusFilter = "all" | "undecided" | "decided";
 export type VerificationKind = Schemas["VerificationKind"];
 export type VerificationCapability = Schemas["VerificationCapability"];
 export type CodexLocalSourceStatus = Schemas["CodexLocalSourceStatus"];
+export type Provider = Schemas["Provider"];
+export type ProviderCapabilityReport = Schemas["ProviderCapabilityReport"];
+export type ProviderMetricCapability = Schemas["ProviderMetricCapability"];
+export type ProviderMetricCapabilityReason =
+  Schemas["ProviderMetricCapabilityReason"];
+export type ProviderMetricCapabilityState =
+  Schemas["ProviderMetricCapabilityState"];
+export type MetricEvidenceCapability = Schemas["MetricEvidenceCapability"];
+export type MetricReadiness = Schemas["MetricReadiness"];
+export type MetricReadinessAction = Schemas["MetricReadinessAction"];
+export type MetricReadinessReason = Schemas["MetricReadinessReason"];
+export type MetricReadinessState = Schemas["MetricReadinessState"];
+export type MetricRadarPolicy = Schemas["MetricRadarPolicy"];
+export type SessionMetricReadinessReport =
+  Schemas["SessionMetricReadinessReport"];
+export type TextAnalysisPresetId = Schemas["TextAnalysisPresetId"];
 
 export type CodexSession = Schemas["SessionCatalogItemDto"];
 export type CodexSessionListResponse = Schemas["SessionCatalogListResponse"];
@@ -237,6 +253,15 @@ export interface PromptEnhancerTransport {
     provider: ProviderCompatibilityProvider,
     signal?: AbortSignal,
   ): Promise<ProviderCompatibilityStatus>;
+  getProviderMetricCapabilities(
+    provider: Provider,
+    signal?: AbortSignal,
+  ): Promise<ProviderCapabilityReport>;
+  getSessionMetricReadiness(
+    sessionId: string,
+    presetId?: TextAnalysisPresetId,
+    signal?: AbortSignal,
+  ): Promise<SessionMetricReadinessReport>;
   checkProviderCompatibility?(
     provider: ProviderCompatibilityProvider,
     signal?: AbortSignal,

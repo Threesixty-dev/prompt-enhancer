@@ -23,6 +23,8 @@ import {
   SYNTHETIC_TASKS,
   SYNTHETIC_QUALITY_SESSION_ID,
   SYNTHETIC_PROVIDER_COMPATIBILITY,
+  SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+  SYNTHETIC_SESSION_METRIC_READINESS,
   SYNTHETIC_MODEL_LINK_EXPERIMENT,
   SYNTHETIC_MODEL_LINK_OUTCOME,
 } from "./syntheticFixtures";
@@ -378,6 +380,24 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     },
     async getProviderCompatibility() {
       return copy(SYNTHETIC_PROVIDER_COMPATIBILITY);
+    },
+    async getProviderMetricCapabilities(provider) {
+      if (provider !== "synthetic") {
+        throw new TransportError("Synthetic provider capabilities were not found", 404);
+      }
+      return copy(SYNTHETIC_PROVIDER_METRIC_CAPABILITIES);
+    },
+    async getSessionMetricReadiness(
+      sessionId,
+      presetId = "coaching_profile_v1",
+    ) {
+      if (
+        sessionId !== SYNTHETIC_QUALITY_SESSION_ID ||
+        presetId !== "coaching_profile_v1"
+      ) {
+        throw new TransportError("Synthetic metric readiness was not found", 404);
+      }
+      return copy(SYNTHETIC_SESSION_METRIC_READINESS);
     },
     async checkProviderCompatibility() {
       return copy(SYNTHETIC_PROVIDER_COMPATIBILITY);

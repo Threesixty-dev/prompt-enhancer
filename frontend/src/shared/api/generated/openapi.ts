@@ -279,6 +279,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/providers/{provider}/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Provider Capabilities */
+        get: operations["provider_capabilities_v1_providers__provider__capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/providers/{provider}/compatibility": {
         parameters: {
             query?: never;
@@ -307,6 +324,23 @@ export interface paths {
         put?: never;
         /** Check Status */
         post: operations["check_status_v1_providers__provider__compatibility_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/quality-analysis-previews/{preview_id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Session Analysis Preview */
+        post: operations["approve_session_analysis_preview_v1_quality_analysis_previews__preview_id__approval_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -469,6 +503,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/metric-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session Metric Readiness */
+        get: operations["session_metric_readiness_v1_sessions__session_id__metric_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/metrics": {
         parameters: {
             query?: never;
@@ -514,6 +565,23 @@ export interface paths {
         get: operations["latest_experiment_v1_sessions__session_id__model_link_experiments_latest_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/quality-analysis-previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare Session Analysis Preview */
+        post: operations["prepare_session_analysis_preview_v1_sessions__session_id__quality_analysis_previews_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -687,6 +755,11 @@ export interface components {
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
         };
+        /**
+         * AnalysisDestination
+         * @enum {string}
+         */
+        AnalysisDestination: "local" | "remote";
         /** AnalysisMethodDto */
         AnalysisMethodDto: {
             /**
@@ -1319,6 +1392,17 @@ export interface components {
             verification_capability: components["schemas"]["VerificationCapability"];
         };
         /**
+         * CompatibilityState
+         * @description Compatibility of one provider surface, never the whole provider.
+         * @enum {string}
+         */
+        CompatibilityState: "exact" | "compatible" | "degraded" | "untested" | "incompatible" | "unavailable";
+        /**
+         * CostEstimateState
+         * @enum {string}
+         */
+        CostEstimateState: "known" | "unknown" | "not_applicable";
+        /**
          * DataTier
          * @enum {string}
          */
@@ -1473,6 +1557,72 @@ export interface components {
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
         };
+        /**
+         * MetricDirection
+         * @enum {string}
+         */
+        MetricDirection: "higher_is_better" | "lower_is_better";
+        /**
+         * MetricEvidenceCapability
+         * @description Provider evidence families used by the reviewed coaching pack.
+         * @enum {string}
+         */
+        MetricEvidenceCapability: "request_text" | "response_text" | "plan_text" | "action_evidence" | "decision_evidence" | "feedback_text" | "objective_verification";
+        /**
+         * MetricRadarPolicy
+         * @description Server-owned plotting policy; clients never infer or invert direction.
+         * @enum {string}
+         */
+        MetricRadarPolicy: "direct_bounded_ratio" | "exact_value_only_unnormalized_lower_is_better";
+        /** MetricReadiness */
+        MetricReadiness: {
+            /**
+             * Available Capabilities
+             * @default []
+             */
+            available_capabilities: components["schemas"]["MetricEvidenceCapability"][];
+            /** Capability Groups */
+            capability_groups: components["schemas"]["MetricEvidenceCapability"][][];
+            /** Dimension */
+            dimension: string;
+            direction: components["schemas"]["MetricDirection"];
+            /** Display Name */
+            display_name: string;
+            evidence_tier: components["schemas"]["DataTier"];
+            /** Latest Run Id */
+            latest_run_id?: string | null;
+            /** Metric Key */
+            metric_key: string;
+            /** Metric Version */
+            metric_version: number;
+            /**
+             * Missing Capabilities
+             * @default []
+             */
+            missing_capabilities: components["schemas"]["MetricEvidenceCapability"][];
+            /** Next Actions */
+            next_actions: components["schemas"]["MetricReadinessAction"][];
+            radar_policy: components["schemas"]["MetricRadarPolicy"];
+            reason_code: components["schemas"]["MetricReadinessReason"];
+            state: components["schemas"]["MetricReadinessState"];
+            /** Unit */
+            unit: string;
+        };
+        /**
+         * MetricReadinessAction
+         * @enum {string}
+         */
+        MetricReadinessAction: "none" | "run_local_analysis" | "check_provider_compatibility" | "update_provider_adapter" | "collect_action_evidence" | "collect_decision_evidence" | "collect_feedback_evidence" | "collect_objective_verification" | "review_applicability" | "review_evidence_coverage" | "retry_analysis";
+        /**
+         * MetricReadinessReason
+         * @enum {string}
+         */
+        MetricReadinessReason: "measured" | "analysis_not_run" | "analysis_in_progress" | "result_unknown" | "result_abstained" | "explicitly_not_applicable" | "provider_capability_missing" | "provider_adapter_unavailable" | "provider_compatibility_unverified" | "provider_incompatible" | "provider_unavailable" | "analysis_failed" | "result_failed" | "result_missing";
+        /**
+         * MetricReadinessState
+         * @enum {string}
+         */
+        MetricReadinessState: "known" | "unknown" | "unsupported" | "abstained" | "incompatible" | "not_applicable" | "failed";
         /** MetricRoadmapItemDto */
         MetricRoadmapItemDto: {
             /** Caution */
@@ -1977,6 +2127,37 @@ export interface components {
          */
         Provider: "codex" | "claude_code" | "synthetic";
         /**
+         * ProviderCapabilityReport
+         * @description Content-free capability projection for the coaching metric catalog.
+         */
+        ProviderCapabilityReport: {
+            /** Capabilities */
+            capabilities: components["schemas"]["ProviderMetricCapability"][];
+            /**
+             * Catalog Version
+             * @default coaching-evidence-capabilities-v1
+             */
+            catalog_version: string;
+            /** Checked At */
+            checked_at?: string | null;
+            compatibility_state: components["schemas"]["CompatibilityState"];
+            /** Decoder Key */
+            decoder_key?: string | null;
+            /** Decoder Version */
+            decoder_version?: string | null;
+            provider: components["schemas"]["Provider"];
+            /** Provider Version */
+            provider_version?: string | null;
+            /** Structurally Attemptable Metric Count */
+            structurally_attemptable_metric_count: number;
+            /** Structurally Unknown Metric Count */
+            structurally_unknown_metric_count: number;
+            /** Structurally Unsupported Metric Count */
+            structurally_unsupported_metric_count: number;
+            /** @default text_window */
+            surface: components["schemas"]["ProviderSurface"];
+        };
+        /**
          * ProviderCompatibilityReasonDto
          * @enum {string}
          */
@@ -2032,11 +2213,63 @@ export interface components {
             /** Update Target */
             update_target?: ("prompt_enhancer" | "provider") | null;
         };
+        /** ProviderMetricCapability */
+        ProviderMetricCapability: {
+            capability: components["schemas"]["MetricEvidenceCapability"];
+            reason_code: components["schemas"]["ProviderMetricCapabilityReason"];
+            state: components["schemas"]["ProviderMetricCapabilityState"];
+        };
+        /**
+         * ProviderMetricCapabilityReason
+         * @enum {string}
+         */
+        ProviderMetricCapabilityReason: "verified_by_compatible_decoder" | "not_declared_by_decoder" | "provider_adapter_unavailable" | "compatibility_not_checked" | "provider_incompatible" | "capability_not_observed" | "capability_unverified";
+        /**
+         * ProviderMetricCapabilityState
+         * @enum {string}
+         */
+        ProviderMetricCapabilityState: "supported" | "unsupported" | "unknown";
+        /**
+         * ProviderSurface
+         * @description Separately negotiable, least-capability provider surfaces.
+         * @enum {string}
+         */
+        ProviderSurface: "catalog" | "display_labels" | "operational_events" | "text_window" | "live_telemetry";
         /**
          * ProviderTextCapabilityStateDto
          * @enum {string}
          */
         ProviderTextCapabilityStateDto: "supported" | "unsupported" | "unknown";
+        /**
+         * RedactionPreviewBinding
+         * @description Everything whose change invalidates a user's approval.
+         */
+        RedactionPreviewBinding: {
+            /** Analysis Window Fingerprint */
+            analysis_window_fingerprint: string;
+            /** Character Count */
+            character_count: number;
+            /** Cost Currency */
+            cost_currency?: string | null;
+            cost_state: components["schemas"]["CostEstimateState"];
+            destination: components["schemas"]["AnalysisDestination"];
+            /** Estimated Cost Microunits */
+            estimated_cost_microunits?: number | null;
+            /** Estimator Plan Version */
+            estimator_plan_version: string;
+            /** Exact Model */
+            exact_model: string;
+            /** Message Count */
+            message_count: number;
+            /** Metric Keys */
+            metric_keys: string[];
+            provider: components["schemas"]["Provider"];
+            /** Redactor Version */
+            redactor_version: string;
+            retention_class: components["schemas"]["RetentionClass"];
+            /** Session Id */
+            session_id: string;
+        };
         /** RejectTaskRequest */
         RejectTaskRequest: {
             /** Candidate Id */
@@ -2064,6 +2297,11 @@ export interface components {
             /** Url */
             url: string;
         };
+        /**
+         * RetentionClass
+         * @enum {string}
+         */
+        RetentionClass: "local_ephemeral" | "remote_zero_retention" | "remote_30_day" | "remote_provider_standard";
         /** SanitizedModelLinkValidationFailureResponse */
         SanitizedModelLinkValidationFailureResponse: {
             /**
@@ -2343,6 +2581,24 @@ export interface components {
             /** Numerator */
             numerator: number;
         };
+        /** SessionMetricReadinessReport */
+        SessionMetricReadinessReport: {
+            /** Analysis Profile Key */
+            analysis_profile_key: string;
+            /** Analysis Profile Version */
+            analysis_profile_version: number;
+            capability_report: components["schemas"]["ProviderCapabilityReport"];
+            /** Metric Pack Key */
+            metric_pack_key: string;
+            /** Metric Pack Version */
+            metric_pack_version: number;
+            /** Metrics */
+            metrics: components["schemas"]["MetricReadiness"][];
+            preset_id: components["schemas"]["TextAnalysisPresetId"];
+            provider: components["schemas"]["Provider"];
+            /** Session Id */
+            session_id: string;
+        };
         /**
          * SessionQualityAggregate
          * @description Content-free selected-session projection; selected IDs are intentionally absent.
@@ -2567,7 +2823,7 @@ export interface components {
          * @description Closed HTTP error vocabulary; values never contain provider data.
          * @enum {string}
          */
-        SessionTextAnalysisFailureCode: "redacted_content_consent_required" | "session_not_in_safe_index" | "analysis_idempotency_conflict" | "invalid_analysis_request" | "confirmation_required" | "source_schema_unsupported" | "selection_snapshot_miss" | "source_resource_limit" | "source_timeout" | "provider_unavailable" | "no_analyzable_text" | "provider_protocol_rejected" | "provider_compatibility_blocked" | "analysis_persistence_failed" | "metric_execution_failed";
+        SessionTextAnalysisFailureCode: "redacted_content_consent_required" | "session_not_in_safe_index" | "analysis_idempotency_conflict" | "invalid_analysis_request" | "confirmation_required" | "source_schema_unsupported" | "selection_snapshot_miss" | "source_resource_limit" | "source_timeout" | "provider_unavailable" | "no_analyzable_text" | "provider_protocol_rejected" | "provider_compatibility_blocked" | "analysis_persistence_failed" | "metric_execution_failed" | "redaction_preview_not_found" | "redaction_preview_expired" | "redaction_preview_consumed" | "redaction_preview_binding_mismatch" | "redaction_preview_capacity_reached";
         /** SessionTextAnalysisFailureDetail */
         SessionTextAnalysisFailureDetail: {
             code: components["schemas"]["SessionTextAnalysisFailureCode"];
@@ -2577,6 +2833,48 @@ export interface components {
         /** SessionTextAnalysisFailureResponse */
         SessionTextAnalysisFailureResponse: {
             detail: components["schemas"]["SessionTextAnalysisFailureDetail"];
+        };
+        /** SessionTextAnalysisPreviewApprovalRequest */
+        SessionTextAnalysisPreviewApprovalRequest: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "approve_exact_redacted_preview";
+            expected_binding: components["schemas"]["RedactionPreviewBinding"];
+        };
+        /** SessionTextAnalysisPreviewMessageResponse */
+        SessionTextAnalysisPreviewMessageResponse: {
+            kind: components["schemas"]["TextMessageKind"];
+            language: components["schemas"]["TextLanguage"];
+            role: components["schemas"]["TextRole"];
+            /** Text */
+            text: string;
+        };
+        /**
+         * SessionTextAnalysisPreviewRequest
+         * @description Only a server-owned preset may select preview content and metrics.
+         */
+        SessionTextAnalysisPreviewRequest: {
+            preset_id: components["schemas"]["TextAnalysisPresetId"];
+        };
+        /** SessionTextAnalysisPreviewResponse */
+        SessionTextAnalysisPreviewResponse: {
+            binding: components["schemas"]["RedactionPreviewBinding"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Messages */
+            messages: components["schemas"]["SessionTextAnalysisPreviewMessageResponse"][];
+            /** Preview Id */
+            preview_id: string;
         };
         /**
          * SessionTextAnalysisRequest
@@ -2771,6 +3069,21 @@ export interface components {
              */
             summary_policy: "multidimensional_profile_no_universal_score";
         };
+        /**
+         * TextLanguage
+         * @enum {string}
+         */
+        TextLanguage: "en" | "pl" | "mixed" | "unknown";
+        /**
+         * TextMessageKind
+         * @enum {string}
+         */
+        TextMessageKind: "request" | "response" | "plan" | "action" | "verification" | "decision" | "feedback" | "summary";
+        /**
+         * TextRole
+         * @enum {string}
+         */
+        TextRole: "user" | "agent";
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -3508,6 +3821,40 @@ export interface operations {
             };
         };
     };
+    provider_capabilities_v1_providers__provider__capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                provider: components["schemas"]["Provider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderCapabilityReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cached_status_v1_providers__provider__compatibility_get: {
         parameters: {
             query?: never;
@@ -3572,6 +3919,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_session_analysis_preview_v1_quality_analysis_previews__preview_id__approval_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                preview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionTextAnalysisPreviewApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisCommandResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"] | components["schemas"]["SanitizedRequestValidationFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
                 };
             };
         };
@@ -3886,6 +4317,56 @@ export interface operations {
             };
         };
     };
+    session_metric_readiness_v1_sessions__session_id__metric_readiness_get: {
+        parameters: {
+            query?: {
+                preset_id?: components["schemas"]["TextAnalysisPresetId"];
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionMetricReadinessReport"];
+                };
+            };
+            /** @description Indexed session not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Metric readiness preset unavailable */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     session_metrics_v1_sessions__session_id__metrics_get: {
         parameters: {
             query?: never;
@@ -4063,6 +4544,98 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+        };
+    };
+    prepare_session_analysis_preview_v1_sessions__session_id__quality_analysis_previews_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionTextAnalysisPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisPreviewResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"] | components["schemas"]["SanitizedRequestValidationFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Gateway Timeout */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
                 };
             };
         };

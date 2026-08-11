@@ -7,9 +7,14 @@ import type {
   SessionAnalysisRunResponse,
   SessionCoachingProjection,
   SessionMetric,
+  SessionMetricReadinessReport,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
-import { SYNTHETIC_SESSION_QUALITY_RUN } from "../../shared/api/syntheticFixtures";
+import {
+  SYNTHETIC_QUALITY_PROJECT_ID,
+  SYNTHETIC_QUALITY_SESSION_ID,
+  SYNTHETIC_SESSION_QUALITY_RUN,
+} from "../../shared/api/syntheticFixtures";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
 import type { ProjectWorkspaceRoute } from "./ProjectWorkspace";
 import { ProjectWorkspace } from "./ProjectWorkspace";
@@ -189,6 +194,47 @@ function qualityDetail(): SessionAnalysisRunResponse {
   return detail;
 }
 
+function metricReadinessReport(
+  requestedSessionId = sessionId,
+): SessionMetricReadinessReport {
+  return {
+    session_id: requestedSessionId,
+    provider: "codex",
+    preset_id: "coaching_profile_v1",
+    analysis_profile_key: "coaching_profile",
+    analysis_profile_version: 1,
+    metric_pack_key: "experimental.redacted-text.coaching",
+    metric_pack_version: 3,
+    capability_report: {
+      provider: "codex",
+      surface: "text_window",
+      catalog_version: "coaching-evidence-capabilities-v1",
+      compatibility_state: "exact",
+      provider_version: "example-provider-1",
+      decoder_key: "codex_app_server",
+      decoder_version: "example-adapter-1",
+      checked_at: "2040-01-01T10:00:00Z",
+      capabilities: [
+        "request_text",
+        "response_text",
+        "plan_text",
+        "action_evidence",
+        "decision_evidence",
+        "feedback_text",
+        "objective_verification",
+      ].map((capability) => ({
+        capability,
+        state: "supported" as const,
+        reason_code: "verified_by_compatible_decoder" as const,
+      })),
+      structurally_attemptable_metric_count: 20,
+      structurally_unsupported_metric_count: 0,
+      structurally_unknown_metric_count: 0,
+    },
+    metrics: [],
+  } as SessionMetricReadinessReport;
+}
+
 function coachingProjection(): SessionCoachingProjection {
   const common = {
     algorithm_id: "rules.coaching-loop.summary",
@@ -312,6 +358,9 @@ function workspaceTransport() {
   }));
   const getProviderCompatibility = vi.fn(async () => EXACT_COMPATIBILITY);
   const checkProviderCompatibility = vi.fn(async () => EXACT_COMPATIBILITY);
+  const getSessionMetricReadiness = vi.fn(async (requestedSessionId: string) =>
+    metricReadinessReport(requestedSessionId),
+  );
   const transport: PromptEnhancerTransport = {
     ...createSyntheticTransport(),
     listProjectSessions,
@@ -321,6 +370,7 @@ function workspaceTransport() {
     getCodexLocalSourceStatus,
     getProviderCompatibility,
     checkProviderCompatibility,
+    getSessionMetricReadiness,
   };
   return {
     transport,
@@ -329,6 +379,7 @@ function workspaceTransport() {
     getLatestSessionQualityAnalysis,
     getProviderCompatibility,
     checkProviderCompatibility,
+    getSessionMetricReadiness,
   };
 }
 
@@ -829,6 +880,87 @@ describe("ProjectWorkspace", () => {
       sessionId,
       expect.any(AbortSignal),
     );
+  });
+
+  it("loads cached metric readiness without initiating a provider check", async () => {
+    const {
+      transport,
+      getSessionMetricReadiness,
+      checkProviderCompatibility,
+    } = workspaceTransport();
+    const route: ProjectWorkspaceRoute = {
+      name: "session_metrics",
+      projectId,
+      sessionId,
+      category: "prompt-quality",
+    };
+
+    render(
+      <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
+    );
+
+    await waitFor(() =>
+      expect(getSessionMetricReadiness).toHaveBeenCalledWith(
+        sessionId,
+        "coaching_profile_v1",
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(checkProviderCompatibility).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText(/content-free metric readiness could not be loaded/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the synthetic demo session, run, and readiness provider identities coherent", async () => {
+    const transport = createSyntheticTransport();
+    const route: ProjectWorkspaceRoute = {
+      name: "session_metrics",
+      projectId: SYNTHETIC_QUALITY_PROJECT_ID,
+      sessionId: SYNTHETIC_QUALITY_SESSION_ID,
+      category: "prompt-quality",
+    };
+
+    render(
+      <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
+    );
+
+    expect(
+      await screen.findByText("Coherent metric pack v3", {}, { timeout: 5_000 }),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(/metric readiness did not match the selected session/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/content-free metric readiness could not be loaded/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("preserves stored metric values when readiness metadata cannot be loaded", async () => {
+    const { transport } = workspaceTransport();
+    transport.getLatestSessionQualityAnalysis = vi.fn(async () => qualityDetail());
+    const getSessionMetricReadiness = vi.fn(async () => {
+      throw new Error("PRIVATE-READINESS-CANARY");
+    });
+    transport.getSessionMetricReadiness = getSessionMetricReadiness;
+    const route: ProjectWorkspaceRoute = {
+      name: "session_metrics",
+      projectId,
+      sessionId,
+      category: "prompt-quality",
+    };
+
+    render(
+      <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
+    );
+
+    expect(
+      await screen.findByText(/Content-free metric readiness could not be loaded/i),
+    ).toBeVisible();
+    expect(screen.getAllByText("100%").length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("PRIVATE-READINESS-CANARY");
+    fireEvent.click(screen.getByRole("button", { name: "Retry readiness" }));
+    await waitFor(() => expect(getSessionMetricReadiness).toHaveBeenCalledTimes(2));
   });
 
   it("renders one coherent immutable run without loading the legacy metric endpoint", async () => {

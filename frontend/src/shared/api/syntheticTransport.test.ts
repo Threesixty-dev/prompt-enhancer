@@ -8,6 +8,8 @@ import {
   SYNTHETIC_QUALITY_SESSION_ID,
   SYNTHETIC_RUN,
   SYNTHETIC_MODEL_LINK_EXPERIMENT,
+  SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+  SYNTHETIC_SESSION_METRIC_READINESS,
 } from "./syntheticFixtures";
 import { createSyntheticTransport } from "./syntheticTransport";
 
@@ -17,6 +19,61 @@ describe("synthetic transport vertical slice", () => {
 
     expect(transport.runtimeKind).toBe("synthetic_fixture");
     expect("getRuntimeHealth" in transport).toBe(false);
+  });
+
+  it("exposes content-free readiness consistent with the immutable coaching run", async () => {
+    const transport = createSyntheticTransport();
+    const capabilities = await transport.getProviderMetricCapabilities("synthetic");
+    const readiness = await transport.getSessionMetricReadiness(
+      SYNTHETIC_QUALITY_SESSION_ID,
+    );
+    const run = await transport.getLatestSessionQualityAnalysis(
+      SYNTHETIC_QUALITY_SESSION_ID,
+    );
+    const sessions = await transport.listCodexSessions();
+
+    expect(capabilities).toEqual(SYNTHETIC_PROVIDER_METRIC_CAPABILITIES);
+    expect(readiness).toEqual(SYNTHETIC_SESSION_METRIC_READINESS);
+    expect(readiness).toMatchObject({
+      session_id: run.run.session_id,
+      provider: run.run.provider,
+      analysis_profile_key: run.run.analysis_profile_key,
+      analysis_profile_version: run.run.analysis_profile_version,
+      metric_pack_key: run.run.metric_pack_key,
+      metric_pack_version: run.run.metric_pack_version,
+    });
+    expect(sessions.sessions[0]?.provider).toBe(readiness.provider);
+    const resultState = new Map(
+      run.results.map((result) => [
+        `${result.key}.v${result.version}`,
+        result.value_state,
+      ]),
+    );
+    expect(readiness.metrics).toHaveLength(run.results.length);
+    for (const metric of readiness.metrics) {
+      expect(resultState.get(`${metric.metric_key}.v${metric.metric_version}`)).toBe(
+        metric.state,
+      );
+      expect(metric).toMatchObject({
+        reason_code: "measured",
+        next_actions: ["none"],
+        latest_run_id: run.run.run_id,
+      });
+    }
+
+    readiness.metrics[0].next_actions = ["retry_analysis"];
+    await expect(
+      transport.getSessionMetricReadiness(SYNTHETIC_QUALITY_SESSION_ID),
+    ).resolves.toEqual(SYNTHETIC_SESSION_METRIC_READINESS);
+    await expect(
+      transport.getProviderMetricCapabilities("codex"),
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      transport.getSessionMetricReadiness(
+        SYNTHETIC_QUALITY_SESSION_ID,
+        "standard_engineering_v1",
+      ),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it("exposes a coherent canned pack-v3 readiness example", async () => {

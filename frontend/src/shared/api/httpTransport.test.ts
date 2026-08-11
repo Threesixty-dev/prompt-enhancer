@@ -3,14 +3,18 @@ import type { SessionQualityAnalysisRequest } from "./contracts";
 import {
   assertSameOriginRelativePath,
   createHttpTransport,
+  parseProviderCapabilityReport,
   parseProviderCompatibilityStatus,
   parseRuntimeHealth,
+  parseSessionMetricReadinessReport,
   parseSessionTextAnalysisCapability,
   TransportError,
 } from "./httpTransport";
 import {
   SYNTHETIC_MODEL_LINK_EXPERIMENT,
   SYNTHETIC_MODEL_LINK_OUTCOME,
+  SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+  SYNTHETIC_SESSION_METRIC_READINESS,
   SYNTHETIC_SESSION_QUALITY_RUN,
 } from "./syntheticFixtures";
 import { SYNTHETIC_TEXT_ANALYSIS_RESEARCH } from "./syntheticResearchFixture";
@@ -463,6 +467,140 @@ describe("same-origin HTTP transport", () => {
         }),
       }),
     );
+  });
+
+  it("reads cached provider and session metric readiness through exact GET routes", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(SYNTHETIC_PROVIDER_METRIC_CAPABILITIES))
+      .mockResolvedValueOnce(jsonResponse(SYNTHETIC_SESSION_METRIC_READINESS));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(
+      transport.getProviderMetricCapabilities("synthetic"),
+    ).resolves.toEqual(SYNTHETIC_PROVIDER_METRIC_CAPABILITIES);
+    await expect(
+      transport.getSessionMetricReadiness(
+        SYNTHETIC_SESSION_METRIC_READINESS.session_id,
+      ),
+    ).resolves.toEqual(SYNTHETIC_SESSION_METRIC_READINESS);
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/v1/providers/synthetic/capabilities",
+    );
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      `/v1/sessions/${SYNTHETIC_SESSION_METRIC_READINESS.session_id}/metric-readiness?preset_id=coaching_profile_v1`,
+    );
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect(call[1]).toEqual(expect.objectContaining({ method: "GET" }));
+      expect(call[1]?.headers).not.toEqual(
+        expect.objectContaining({ "X-Prompt-Enhancer-CSRF": expect.anything() }),
+      );
+    }
+  });
+
+  it("accepts only the complete coherent content-free provider capability projection", () => {
+    expect(
+      parseProviderCapabilityReport(
+        SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+        "synthetic",
+      ),
+    ).toEqual(SYNTHETIC_PROVIDER_METRIC_CAPABILITIES);
+
+    expect(
+      parseProviderCapabilityReport({
+        ...SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+        provider_version: "synthetic/1:compatible",
+      }),
+    ).toMatchObject({ provider_version: "synthetic/1:compatible" });
+
+    const duplicateCapability = structuredClone(
+      SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+    );
+    duplicateCapability.capabilities[6] = structuredClone(
+      duplicateCapability.capabilities[0],
+    );
+    const incoherentState = structuredClone(
+      SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+    );
+    incoherentState.capabilities[0] = {
+      ...incoherentState.capabilities[0],
+      state: "unsupported",
+    };
+    const invalidCount = {
+      ...SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+      structurally_attemptable_metric_count: 19,
+    };
+
+    expect(() =>
+      parseProviderCapabilityReport({
+        ...SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+        private_payload: "SYNTHETIC-PRIVATE-CANARY",
+      }),
+    ).toThrow(TransportError);
+    expect(() => parseProviderCapabilityReport(duplicateCapability)).toThrow(
+      TransportError,
+    );
+    expect(() => parseProviderCapabilityReport(incoherentState)).toThrow(
+      TransportError,
+    );
+    expect(() => parseProviderCapabilityReport(invalidCount)).toThrow(
+      TransportError,
+    );
+    expect(() =>
+      parseProviderCapabilityReport(
+        SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+        "codex",
+      ),
+    ).toThrow(TransportError);
+  });
+
+  it("rejects readiness metadata that is incomplete, reordered, or contradicts its state", () => {
+    expect(
+      parseSessionMetricReadinessReport(
+        SYNTHETIC_SESSION_METRIC_READINESS,
+        SYNTHETIC_SESSION_METRIC_READINESS.session_id,
+      ),
+    ).toEqual(SYNTHETIC_SESSION_METRIC_READINESS);
+
+    const reordered = structuredClone(SYNTHETIC_SESSION_METRIC_READINESS);
+    reordered.metrics.reverse();
+    const contradictoryAction = structuredClone(
+      SYNTHETIC_SESSION_METRIC_READINESS,
+    );
+    contradictoryAction.metrics[0].next_actions = ["retry_analysis"];
+    const privateDisplay = structuredClone(SYNTHETIC_SESSION_METRIC_READINESS);
+    privateDisplay.metrics[0].display_name = "SYNTHETIC-PRIVATE-CANARY";
+    const duplicateMetric = structuredClone(SYNTHETIC_SESSION_METRIC_READINESS);
+    duplicateMetric.metrics[19] = structuredClone(duplicateMetric.metrics[0]);
+
+    expect(() =>
+      parseSessionMetricReadinessReport({
+        ...SYNTHETIC_SESSION_METRIC_READINESS,
+        raw_excerpt: "SYNTHETIC-PRIVATE-CANARY",
+      }),
+    ).toThrow(TransportError);
+    expect(() => parseSessionMetricReadinessReport(reordered)).toThrow(
+      TransportError,
+    );
+    expect(() => parseSessionMetricReadinessReport(contradictoryAction)).toThrow(
+      TransportError,
+    );
+    expect(() => parseSessionMetricReadinessReport(privateDisplay)).toThrow(
+      TransportError,
+    );
+    expect(() => parseSessionMetricReadinessReport(duplicateMetric)).toThrow(
+      TransportError,
+    );
+    expect(() =>
+      parseSessionMetricReadinessReport(
+        SYNTHETIC_SESSION_METRIC_READINESS,
+        "f".repeat(64),
+      ),
+    ).toThrow(TransportError);
   });
 
   it.each([

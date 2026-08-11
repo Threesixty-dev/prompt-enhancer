@@ -129,7 +129,7 @@ function safeCatalogSession(value: unknown): value is CodexSession {
   if (!isRecord(value) || !hasExactKeys(value, CATALOG_SESSION_KEYS)) return false;
   const origins = new Set(["provider", "manual", "unknown"]);
   return (
-    value.provider === "codex" &&
+    (value.provider === "codex" || value.provider === "synthetic") &&
     isPseudonym(value.installation_id as string) &&
     isPseudonym(value.project_id as string) &&
     isPseudonym(value.session_id as string) &&

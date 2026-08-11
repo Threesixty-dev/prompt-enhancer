@@ -18,12 +18,18 @@ import type {
   ProjectQualityAggregate,
   ProjectQualityAggregateRequest,
   ProjectSessionListResponse,
+  Provider,
+  ProviderCapabilityReport,
   ProviderCompatibilityProvider,
   ProviderCompatibilityStatus,
+  MetricEvidenceCapability,
+  MetricReadiness,
+  MetricReadinessAction,
   ReviewCommand,
   SessionAnalysisRunResponse,
   SessionCoachingProjection,
   SessionMetricResponse,
+  SessionMetricReadinessReport,
   SessionQualityAnalysisOutcome,
   SessionQualityAnalysisRequest,
   SessionTextAnalysisCapability,
@@ -34,6 +40,7 @@ import type {
   TaskAnalysisResponse,
   TaskReviewResponse,
   TextAnalysisResearchCatalog,
+  TextAnalysisPresetId,
 } from "./contracts";
 import type {
   LocalRuntimeTransport,
@@ -347,6 +354,494 @@ export function parseProviderCompatibilityStatus(
   return value as unknown as ProviderCompatibilityStatus;
 }
 
+const READINESS_EVIDENCE_CAPABILITIES = [
+  "request_text",
+  "response_text",
+  "plan_text",
+  "action_evidence",
+  "decision_evidence",
+  "feedback_text",
+  "objective_verification",
+] as const satisfies readonly MetricEvidenceCapability[];
+
+const READINESS_ACTIONS = new Set<MetricReadinessAction>([
+  "none",
+  "run_local_analysis",
+  "check_provider_compatibility",
+  "update_provider_adapter",
+  "collect_action_evidence",
+  "collect_decision_evidence",
+  "collect_feedback_evidence",
+  "collect_objective_verification",
+  "review_applicability",
+  "review_evidence_coverage",
+  "retry_analysis",
+]);
+
+type ReadinessCatalogEntry = {
+  version: number;
+  dimension: "prompt" | "collaboration" | "logic" | "outcome";
+  displayName: string;
+  unit: "ratio" | "risk_ratio";
+  direction: "higher_is_better" | "lower_is_better";
+  capabilityGroups: readonly (readonly MetricEvidenceCapability[])[];
+};
+
+const REQUEST_OR_FEEDBACK = ["feedback_text", "request_text"] as const;
+const COACHING_READINESS_CATALOG = {
+  "prompt.task_definition_coverage": {
+    version: 2, dimension: "prompt", displayName: "Task definition coverage",
+    unit: "ratio", direction: "higher_is_better", capabilityGroups: [REQUEST_OR_FEEDBACK],
+  },
+  "prompt.problem_evidence_quality": {
+    version: 2, dimension: "prompt", displayName: "Problem evidence quality",
+    unit: "ratio", direction: "higher_is_better", capabilityGroups: [REQUEST_OR_FEEDBACK],
+  },
+  "prompt.context_sufficiency": {
+    version: 2, dimension: "prompt", displayName: "Context cue coverage",
+    unit: "ratio", direction: "higher_is_better", capabilityGroups: [REQUEST_OR_FEEDBACK],
+  },
+  "prompt.constraint_precision": {
+    version: 2, dimension: "prompt", displayName: "Constraint precision candidates",
+    unit: "ratio", direction: "higher_is_better", capabilityGroups: [REQUEST_OR_FEEDBACK],
+  },
+  "prompt.acceptance_testability": {
+    version: 2, dimension: "prompt", displayName: "Acceptance testability cues",
+    unit: "ratio", direction: "higher_is_better", capabilityGroups: [REQUEST_OR_FEEDBACK],
+  },
+  "prompt.deliverable_contract": {
+    version: 3, dimension: "prompt", displayName: "Deliverable contract cues",
+    unit: "ratio", direction: "higher_is_better", capabilityGroups: [REQUEST_OR_FEEDBACK],
+  },
+  "collaboration.ambiguity_resolution": {
+    version: 2, dimension: "collaboration", displayName: "Ambiguity-resolution candidates",
+    unit: "ratio", direction: "higher_is_better", capabilityGroups: [REQUEST_OR_FEEDBACK],
+  },
+  "collaboration.clarification_yield": {
+    version: 2, dimension: "collaboration", displayName: "Clarification yield candidates",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [["response_text"], REQUEST_OR_FEEDBACK],
+  },
+  "collaboration.exploration_conversion": {
+    version: 2, dimension: "collaboration", displayName: "Exploration-to-plan conversion",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [["plan_text", "request_text", "response_text"]],
+  },
+  "collaboration.scope_change_discipline": {
+    version: 2, dimension: "collaboration", displayName: "Scope-change acknowledgement",
+    unit: "ratio", direction: "higher_is_better", capabilityGroups: [REQUEST_OR_FEEDBACK],
+  },
+  "collaboration.rework_candidate_rate": {
+    version: 2, dimension: "collaboration", displayName: "Rework-candidate rate",
+    unit: "risk_ratio", direction: "lower_is_better",
+    capabilityGroups: [["response_text"], ["feedback_text"]],
+  },
+  "logic.decomposition_coverage": {
+    version: 2, dimension: "logic", displayName: "Requirement-to-plan coverage",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [REQUEST_OR_FEEDBACK, ["plan_text"]],
+  },
+  "logic.hypothesis_test_linkage": {
+    version: 2, dimension: "logic", displayName: "Hypothesis-to-test linkage",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [["objective_verification"]],
+  },
+  "logic.decision_rationale_coverage": {
+    version: 3, dimension: "logic", displayName: "Decision-rationale coverage",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [["decision_evidence"]],
+  },
+  "logic.requirement_action_traceability": {
+    version: 3, dimension: "logic", displayName: "Requirement-to-action traceability",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [REQUEST_OR_FEEDBACK, ["action_evidence"]],
+  },
+  "logic.open_loop_closure": {
+    version: 2, dimension: "logic", displayName: "Open-loop closure candidates",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [["feedback_text", "request_text", "response_text"]],
+  },
+  "outcome.agent_claim_grounding": {
+    version: 2, dimension: "outcome", displayName: "Agent claim grounding",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [["response_text"], ["objective_verification"]],
+  },
+  "outcome.verification_strategy_adequacy": {
+    version: 2, dimension: "outcome", displayName: "Verification-strategy coverage",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [
+      REQUEST_OR_FEEDBACK,
+      ["objective_verification", "plan_text", "response_text"],
+    ],
+  },
+  "outcome.first_pass_verification": {
+    version: 2, dimension: "outcome", displayName: "First-pass verification",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [["objective_verification"]],
+  },
+  "outcome.verified_requirement_coverage": {
+    version: 2, dimension: "outcome", displayName: "Verified requirement coverage",
+    unit: "ratio", direction: "higher_is_better",
+    capabilityGroups: [REQUEST_OR_FEEDBACK, ["objective_verification"]],
+  },
+} as const satisfies Record<string, ReadinessCatalogEntry>;
+
+const COACHING_READINESS_KEYS = Object.keys(COACHING_READINESS_CATALOG) as Array<
+  keyof typeof COACHING_READINESS_CATALOG
+>;
+const COACHING_READINESS_KEY_SET = new Set<string>(COACHING_READINESS_KEYS);
+const READINESS_SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$/;
+const PSEUDONYM = /^[a-f0-9]{64}$/;
+
+const PROVIDER_CAPABILITY_REPORT_KEYS = new Set([
+  "provider", "surface", "catalog_version", "compatibility_state",
+  "provider_version", "decoder_key", "decoder_version", "checked_at",
+  "capabilities", "structurally_attemptable_metric_count",
+  "structurally_unsupported_metric_count", "structurally_unknown_metric_count",
+]);
+const PROVIDER_METRIC_CAPABILITY_KEYS = new Set([
+  "capability", "state", "reason_code",
+]);
+const SESSION_READINESS_REPORT_KEYS = new Set([
+  "session_id", "provider", "preset_id", "analysis_profile_key",
+  "analysis_profile_version", "metric_pack_key", "metric_pack_version",
+  "capability_report", "metrics",
+]);
+const METRIC_READINESS_KEYS = new Set([
+  "metric_key", "metric_version", "dimension", "display_name", "unit",
+  "direction", "radar_policy", "evidence_tier", "state", "reason_code",
+  "next_actions", "capability_groups", "available_capabilities",
+  "missing_capabilities", "latest_run_id",
+]);
+
+function hasExactKeys(value: Record<string, unknown>, keys: Set<string>): boolean {
+  return Object.keys(value).length === keys.size &&
+    Object.keys(value).every((key) => keys.has(key));
+}
+
+function isSafeNullableReadinessToken(value: unknown): value is string | null {
+  return value === null ||
+    (typeof value === "string" && READINESS_SAFE_TOKEN.test(value));
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function sameArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+function sortedUniqueCapabilities(value: unknown): value is MetricEvidenceCapability[] {
+  return Array.isArray(value) &&
+    value.every((item) => READINESS_EVIDENCE_CAPABILITIES.includes(item)) &&
+    sameArray(value, [...new Set(value)].sort());
+}
+
+function exactCapabilityGroups(
+  value: unknown,
+  expected: readonly (readonly MetricEvidenceCapability[])[],
+): value is MetricEvidenceCapability[][] {
+  return Array.isArray(value) && value.length === expected.length &&
+    value.every((group, index) =>
+      sortedUniqueCapabilities(group) && sameArray(group, expected[index]),
+    );
+}
+
+function readinessRequirementsSatisfied(
+  entry: ReadinessCatalogEntry,
+  available: ReadonlySet<MetricEvidenceCapability>,
+): boolean {
+  return entry.capabilityGroups.every((group) =>
+    group.some((capability) => available.has(capability)),
+  );
+}
+
+export function parseProviderCapabilityReport(
+  value: unknown,
+  expectedProvider?: Provider,
+): ProviderCapabilityReport {
+  if (
+    !isRecord(value) || !hasExactKeys(value, PROVIDER_CAPABILITY_REPORT_KEYS) ||
+    !["codex", "claude_code", "synthetic"].includes(value.provider as string) ||
+    (expectedProvider !== undefined && value.provider !== expectedProvider) ||
+    value.surface !== "text_window" ||
+    value.catalog_version !== "coaching-evidence-capabilities-v1" ||
+    !["exact", "compatible", "degraded", "untested", "incompatible", "unavailable"]
+      .includes(value.compatibility_state as string) ||
+    !isSafeNullableReadinessToken(value.provider_version) ||
+    !isSafeNullableReadinessToken(value.decoder_key) ||
+    !isSafeNullableReadinessToken(value.decoder_version) ||
+    !(
+      value.checked_at === null ||
+      (typeof value.checked_at === "string" &&
+        SAFE_COMPATIBILITY_DATE.test(value.checked_at) &&
+        !Number.isNaN(new Date(value.checked_at).valueOf()))
+    ) ||
+    !isNonNegativeInteger(value.structurally_attemptable_metric_count) ||
+    !isNonNegativeInteger(value.structurally_unsupported_metric_count) ||
+    !isNonNegativeInteger(value.structurally_unknown_metric_count) ||
+    !Array.isArray(value.capabilities) ||
+    value.capabilities.length !== READINESS_EVIDENCE_CAPABILITIES.length
+  ) {
+    throw new TransportError("Provider metric capability response was invalid", 200);
+  }
+
+  const seen = new Set<string>();
+  for (const item of value.capabilities) {
+    if (
+      !isRecord(item) || !hasExactKeys(item, PROVIDER_METRIC_CAPABILITY_KEYS) ||
+      !READINESS_EVIDENCE_CAPABILITIES.includes(item.capability as MetricEvidenceCapability) ||
+      !["supported", "unsupported", "unknown"].includes(item.state as string) ||
+      ![
+        "verified_by_compatible_decoder", "not_declared_by_decoder",
+        "provider_adapter_unavailable", "compatibility_not_checked",
+        "provider_incompatible", "capability_not_observed", "capability_unverified",
+      ].includes(item.reason_code as string) ||
+      seen.has(item.capability as string)
+    ) {
+      throw new TransportError("Provider metric capability response was invalid", 200);
+    }
+    seen.add(item.capability as string);
+    const coherent =
+      (item.state === "supported" && item.reason_code === "verified_by_compatible_decoder") ||
+      (item.state === "unsupported" &&
+        ["not_declared_by_decoder", "capability_not_observed"].includes(item.reason_code as string)) ||
+      (item.state === "unknown" &&
+        [
+          "provider_adapter_unavailable", "compatibility_not_checked",
+          "provider_incompatible", "capability_unverified",
+        ].includes(item.reason_code as string));
+    if (!coherent) {
+      throw new TransportError("Provider metric capability response was invalid", 200);
+    }
+  }
+  if (!READINESS_EVIDENCE_CAPABILITIES.every((item) => seen.has(item))) {
+    throw new TransportError("Provider metric capability response was invalid", 200);
+  }
+
+  const compatibility = value.compatibility_state as ProviderCapabilityReport["compatibility_state"];
+  const capabilities = value.capabilities as Array<{
+    capability: MetricEvidenceCapability;
+    state: "supported" | "unsupported" | "unknown";
+    reason_code: string;
+  }>;
+  const noDecoder = value.decoder_key === null;
+  const reportShapeCoherent = noDecoder
+    ? value.decoder_version === null && value.provider_version === null &&
+      value.checked_at === null && compatibility === "untested" &&
+      capabilities.every((item) =>
+        item.state === "unknown" && item.reason_code === "provider_adapter_unavailable")
+    : typeof value.decoder_version === "string" &&
+      (compatibility === "untested"
+        ? value.provider_version === null && value.checked_at === null &&
+          capabilities.every((item) =>
+            item.reason_code === "not_declared_by_decoder" ||
+            item.reason_code === "compatibility_not_checked")
+        : typeof value.provider_version === "string" &&
+          typeof value.checked_at === "string" &&
+          (compatibility === "exact" || compatibility === "compatible"
+            ? capabilities.every((item) => [
+                "verified_by_compatible_decoder", "not_declared_by_decoder",
+                "capability_not_observed", "capability_unverified",
+              ].includes(item.reason_code))
+            : capabilities.every((item) =>
+                item.reason_code === "not_declared_by_decoder" ||
+                item.reason_code === "provider_incompatible")));
+  if (!reportShapeCoherent) {
+    throw new TransportError("Provider metric capability response was invalid", 200);
+  }
+
+  const structurallyAvailable = new Set(
+    capabilities
+      .filter((item) =>
+        item.reason_code !== "not_declared_by_decoder" &&
+        item.reason_code !== "provider_adapter_unavailable")
+      .map((item) => item.capability),
+  );
+  const attemptable = Object.values(COACHING_READINESS_CATALOG).filter((entry) =>
+    readinessRequirementsSatisfied(entry, structurallyAvailable),
+  ).length;
+  const expectedUnknown = noDecoder ? COACHING_READINESS_KEYS.length : 0;
+  const expectedUnsupported = noDecoder ? 0 : COACHING_READINESS_KEYS.length - attemptable;
+  if (
+    value.structurally_attemptable_metric_count !== attemptable ||
+    value.structurally_unsupported_metric_count !== expectedUnsupported ||
+    value.structurally_unknown_metric_count !== expectedUnknown ||
+    attemptable + expectedUnsupported + expectedUnknown !== COACHING_READINESS_KEYS.length
+  ) {
+    throw new TransportError("Provider metric capability response was invalid", 200);
+  }
+  return value as unknown as ProviderCapabilityReport;
+}
+
+const READINESS_STATE_REASON_ACTION = new Map<string, readonly MetricReadinessAction[]>([
+  ["known:measured", ["none"]],
+  ["unknown:analysis_not_run", ["run_local_analysis"]],
+  ["unknown:analysis_in_progress", ["none"]],
+  ["unknown:result_unknown", ["review_applicability"]],
+  ["unknown:provider_compatibility_unverified", ["check_provider_compatibility"]],
+  ["unsupported:provider_adapter_unavailable", ["update_provider_adapter"]],
+  ["abstained:result_abstained", ["review_evidence_coverage"]],
+  ["incompatible:provider_incompatible", ["update_provider_adapter"]],
+  ["not_applicable:explicitly_not_applicable", ["none"]],
+  ["failed:provider_unavailable", ["check_provider_compatibility"]],
+  ["failed:analysis_failed", ["retry_analysis"]],
+  ["failed:result_failed", ["retry_analysis"]],
+  ["failed:result_missing", ["retry_analysis"]],
+]);
+
+function actionsForMissingCapabilities(
+  capabilities: readonly MetricEvidenceCapability[],
+): MetricReadinessAction[] {
+  const actionForCapability: Record<MetricEvidenceCapability, MetricReadinessAction> = {
+    action_evidence: "collect_action_evidence",
+    decision_evidence: "collect_decision_evidence",
+    feedback_text: "collect_feedback_evidence",
+    objective_verification: "collect_objective_verification",
+    plan_text: "update_provider_adapter",
+    request_text: "update_provider_adapter",
+    response_text: "update_provider_adapter",
+  };
+  const mapped = capabilities.map((capability) => actionForCapability[capability]);
+  return [...new Set(mapped)];
+}
+
+function parseMetricReadiness(
+  value: unknown,
+  entry: ReadinessCatalogEntry,
+  expectedKey: string,
+  capabilityReport: ProviderCapabilityReport,
+): MetricReadiness {
+  const expectedRadarPolicy = entry.direction === "higher_is_better"
+    ? "direct_bounded_ratio"
+    : "exact_value_only_unnormalized_lower_is_better";
+  if (
+    !isRecord(value) || !hasExactKeys(value, METRIC_READINESS_KEYS) ||
+    value.metric_key !== expectedKey || value.metric_version !== entry.version ||
+    value.dimension !== entry.dimension || value.display_name !== entry.displayName ||
+    value.unit !== entry.unit || value.direction !== entry.direction ||
+    value.radar_policy !== expectedRadarPolicy || value.evidence_tier !== "redacted_content" ||
+    !["known", "unknown", "unsupported", "abstained", "incompatible", "not_applicable", "failed"]
+      .includes(value.state as string) ||
+    ![
+      "measured", "analysis_not_run", "analysis_in_progress", "result_unknown",
+      "result_abstained", "explicitly_not_applicable", "provider_capability_missing",
+      "provider_adapter_unavailable", "provider_compatibility_unverified",
+      "provider_incompatible", "provider_unavailable", "analysis_failed",
+      "result_failed", "result_missing",
+    ].includes(value.reason_code as string) ||
+    !Array.isArray(value.next_actions) || value.next_actions.length < 1 ||
+    value.next_actions.some((item) => !READINESS_ACTIONS.has(item as MetricReadinessAction)) ||
+    new Set(value.next_actions).size !== value.next_actions.length ||
+    !exactCapabilityGroups(value.capability_groups, entry.capabilityGroups) ||
+    !sortedUniqueCapabilities(value.available_capabilities) ||
+    !sortedUniqueCapabilities(value.missing_capabilities) ||
+    !(value.latest_run_id === null ||
+      (typeof value.latest_run_id === "string" && PSEUDONYM.test(value.latest_run_id)))
+  ) {
+    throw new TransportError("Session metric readiness response was invalid", 200);
+  }
+
+  const stateReason = `${String(value.state)}:${String(value.reason_code)}`;
+  let expectedActions = READINESS_STATE_REASON_ACTION.get(stateReason);
+  if (stateReason === "unsupported:provider_capability_missing") {
+    expectedActions = actionsForMissingCapabilities(
+      value.missing_capabilities as MetricEvidenceCapability[],
+    );
+  }
+  if (!expectedActions || !sameArray(value.next_actions as string[], expectedActions)) {
+    throw new TransportError("Session metric readiness response was invalid", 200);
+  }
+
+  const capabilityIndex = new Map(
+    capabilityReport.capabilities.map((item) => [item.capability, item.state]),
+  );
+  const required = [...new Set(entry.capabilityGroups.flat())].sort();
+  const expectedAvailable = required.filter(
+    (capability) => capabilityIndex.get(capability) === "supported",
+  );
+  if (!sameArray(value.available_capabilities as string[], expectedAvailable)) {
+    throw new TransportError("Session metric readiness response was invalid", 200);
+  }
+  let expectedMissing: MetricEvidenceCapability[] = [];
+  if (value.reason_code === "provider_adapter_unavailable") {
+    expectedMissing = required;
+  } else if (value.reason_code === "provider_capability_missing") {
+    expectedMissing = [...new Set(
+      entry.capabilityGroups
+        .filter((group) => !group.some((item) => capabilityIndex.get(item) === "supported"))
+        .flat(),
+    )].sort();
+  }
+  if (!sameArray(value.missing_capabilities as string[], expectedMissing)) {
+    throw new TransportError("Session metric readiness response was invalid", 200);
+  }
+
+  const globalOverride = capabilityReport.decoder_key === null
+    ? "unsupported:provider_adapter_unavailable"
+    : capabilityReport.compatibility_state === "untested"
+      ? "unknown:provider_compatibility_unverified"
+      : capabilityReport.compatibility_state === "unavailable"
+        ? "failed:provider_unavailable"
+        : ["exact", "compatible"].includes(capabilityReport.compatibility_state)
+          ? null
+          : "incompatible:provider_incompatible";
+  if (globalOverride !== null && stateReason !== globalOverride) {
+    throw new TransportError("Session metric readiness response was invalid", 200);
+  }
+  if (value.reason_code === "analysis_not_run" && value.latest_run_id !== null) {
+    throw new TransportError("Session metric readiness response was invalid", 200);
+  }
+  if ([
+    "measured", "analysis_in_progress", "result_unknown", "result_abstained",
+    "explicitly_not_applicable", "analysis_failed", "result_failed", "result_missing",
+  ].includes(value.reason_code as string) && value.latest_run_id === null) {
+    throw new TransportError("Session metric readiness response was invalid", 200);
+  }
+  return value as unknown as MetricReadiness;
+}
+
+export function parseSessionMetricReadinessReport(
+  value: unknown,
+  expectedSessionId?: string,
+  expectedPresetId: TextAnalysisPresetId = "coaching_profile_v1",
+): SessionMetricReadinessReport {
+  if (
+    !isRecord(value) || !hasExactKeys(value, SESSION_READINESS_REPORT_KEYS) ||
+    typeof value.session_id !== "string" || !PSEUDONYM.test(value.session_id) ||
+    (expectedSessionId !== undefined && value.session_id !== expectedSessionId) ||
+    !["codex", "claude_code", "synthetic"].includes(value.provider as string) ||
+    value.preset_id !== expectedPresetId || value.preset_id !== "coaching_profile_v1" ||
+    value.analysis_profile_key !== "coaching_profile" ||
+    value.analysis_profile_version !== 1 ||
+    value.metric_pack_key !== "experimental.redacted-text.coaching" ||
+    value.metric_pack_version !== 3 || !Array.isArray(value.metrics) ||
+    value.metrics.length !== COACHING_READINESS_KEYS.length
+  ) {
+    throw new TransportError("Session metric readiness response was invalid", 200);
+  }
+  const provider = value.provider as Provider;
+  const capabilityReport = parseProviderCapabilityReport(value.capability_report, provider);
+  const metrics = value.metrics.map((metric, index) => {
+    const expectedKey = COACHING_READINESS_KEYS[index];
+    return parseMetricReadiness(
+      metric,
+      COACHING_READINESS_CATALOG[expectedKey],
+      expectedKey,
+      capabilityReport,
+    );
+  });
+  if (
+    new Set(metrics.map((metric) => `${metric.metric_key}.v${metric.metric_version}`)).size !==
+    COACHING_READINESS_KEYS.length ||
+    metrics.some((metric) => !COACHING_READINESS_KEY_SET.has(metric.metric_key))
+  ) {
+    throw new TransportError("Session metric readiness response was invalid", 200);
+  }
+  return value as unknown as SessionMetricReadinessReport;
+}
+
 /**
  * Return a request target only when the caller supplied a root-relative URL for
  * the current origin. Absolute, protocol-relative, credentialed, and cross-origin
@@ -582,6 +1077,26 @@ export function createHttpTransport(options: {
         signal,
       );
       return parseProviderCompatibilityStatus(value, provider);
+    },
+    async getProviderMetricCapabilities(provider, signal) {
+      const value = await request<unknown>(
+        `/v1/providers/${encodeURIComponent(provider)}/capabilities`,
+        { method: "GET" },
+        signal,
+      );
+      return parseProviderCapabilityReport(value, provider);
+    },
+    async getSessionMetricReadiness(
+      sessionId,
+      presetId = "coaching_profile_v1",
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/metric-readiness?preset_id=${encodeURIComponent(presetId)}`,
+        { method: "GET" },
+        signal,
+      );
+      return parseSessionMetricReadinessReport(value, sessionId, presetId);
     },
     async checkProviderCompatibility(provider, signal) {
       const value = await request<unknown>(

@@ -6,9 +6,12 @@ import type {
   ModelLinkExperiment,
   ModelLinkExperimentOutcome,
   ProviderCompatibilityStatus,
+  ProviderCapabilityReport,
+  MetricEvidenceCapability,
   SessionCoachingProjection,
   SessionAnalysisResult,
   SessionAnalysisRunResponse,
+  SessionMetricReadinessReport,
   TaskRevision,
 } from "./contracts";
 
@@ -112,7 +115,7 @@ export const SYNTHETIC_CODEX_SESSIONS: CodexSession[] = [
     project_id: SYNTHETIC_QUALITY_PROJECT_ID,
     project_display_name: "Synthetic Metric Lab",
     session_display_name: "Complete Coaching v1 evidence showcase",
-    provider: "codex",
+    provider: "synthetic",
     project_display_name_origin: "provider",
     session_display_name_origin: "provider",
     project_manual_label_revision: 0,
@@ -867,7 +870,7 @@ export const SYNTHETIC_COACHING_METRIC_SPECS = [
     key: "prompt.context_sufficiency",
     version: 2,
     dimension: "prompt",
-    displayName: "Context cue checks",
+    displayName: "Context cue coverage",
     unit: "ratio",
     direction: "higher_is_better",
   },
@@ -1107,6 +1110,121 @@ export const SYNTHETIC_CURRENT_SESSION_QUALITY_RUN: SessionAnalysisRunResponse =
     failure_code: null,
   },
   results: SYNTHETIC_COACHING_METRIC_SPECS.map(syntheticCoachingResult),
+};
+
+const SYNTHETIC_EVIDENCE_CAPABILITIES: MetricEvidenceCapability[] = [
+  "request_text",
+  "response_text",
+  "plan_text",
+  "action_evidence",
+  "decision_evidence",
+  "feedback_text",
+  "objective_verification",
+];
+const SYNTHETIC_REQUEST_OR_FEEDBACK: MetricEvidenceCapability[] = [
+  "feedback_text",
+  "request_text",
+];
+const SYNTHETIC_COACHING_CAPABILITY_GROUPS: Record<
+  SyntheticCoachingKey,
+  MetricEvidenceCapability[][]
+> = {
+  "prompt.task_definition_coverage": [SYNTHETIC_REQUEST_OR_FEEDBACK],
+  "prompt.problem_evidence_quality": [SYNTHETIC_REQUEST_OR_FEEDBACK],
+  "prompt.context_sufficiency": [SYNTHETIC_REQUEST_OR_FEEDBACK],
+  "prompt.constraint_precision": [SYNTHETIC_REQUEST_OR_FEEDBACK],
+  "prompt.acceptance_testability": [SYNTHETIC_REQUEST_OR_FEEDBACK],
+  "prompt.deliverable_contract": [SYNTHETIC_REQUEST_OR_FEEDBACK],
+  "collaboration.ambiguity_resolution": [SYNTHETIC_REQUEST_OR_FEEDBACK],
+  "collaboration.clarification_yield": [
+    ["response_text"],
+    SYNTHETIC_REQUEST_OR_FEEDBACK,
+  ],
+  "collaboration.exploration_conversion": [
+    ["plan_text", "request_text", "response_text"],
+  ],
+  "collaboration.scope_change_discipline": [SYNTHETIC_REQUEST_OR_FEEDBACK],
+  "collaboration.rework_candidate_rate": [
+    ["response_text"],
+    ["feedback_text"],
+  ],
+  "logic.decomposition_coverage": [
+    SYNTHETIC_REQUEST_OR_FEEDBACK,
+    ["plan_text"],
+  ],
+  "logic.hypothesis_test_linkage": [["objective_verification"]],
+  "logic.decision_rationale_coverage": [["decision_evidence"]],
+  "logic.requirement_action_traceability": [
+    SYNTHETIC_REQUEST_OR_FEEDBACK,
+    ["action_evidence"],
+  ],
+  "logic.open_loop_closure": [
+    ["feedback_text", "request_text", "response_text"],
+  ],
+  "outcome.agent_claim_grounding": [
+    ["response_text"],
+    ["objective_verification"],
+  ],
+  "outcome.verification_strategy_adequacy": [
+    SYNTHETIC_REQUEST_OR_FEEDBACK,
+    ["objective_verification", "plan_text", "response_text"],
+  ],
+  "outcome.first_pass_verification": [["objective_verification"]],
+  "outcome.verified_requirement_coverage": [
+    SYNTHETIC_REQUEST_OR_FEEDBACK,
+    ["objective_verification"],
+  ],
+};
+
+export const SYNTHETIC_PROVIDER_METRIC_CAPABILITIES: ProviderCapabilityReport = {
+  provider: "synthetic",
+  surface: "text_window",
+  catalog_version: "coaching-evidence-capabilities-v1",
+  compatibility_state: "exact",
+  provider_version: "synthetic-provider-1",
+  decoder_key: "synthetic.fixture.coaching",
+  decoder_version: "1",
+  checked_at: "2040-01-03T09:12:57Z",
+  capabilities: SYNTHETIC_EVIDENCE_CAPABILITIES.map((capability) => ({
+    capability,
+    state: "supported",
+    reason_code: "verified_by_compatible_decoder",
+  })),
+  structurally_attemptable_metric_count: SYNTHETIC_COACHING_METRIC_SPECS.length,
+  structurally_unsupported_metric_count: 0,
+  structurally_unknown_metric_count: 0,
+};
+
+export const SYNTHETIC_SESSION_METRIC_READINESS: SessionMetricReadinessReport = {
+  session_id: SYNTHETIC_QUALITY_SESSION_ID,
+  provider: "synthetic",
+  preset_id: "coaching_profile_v1",
+  analysis_profile_key: "coaching_profile",
+  analysis_profile_version: 1,
+  metric_pack_key: "experimental.redacted-text.coaching",
+  metric_pack_version: 3,
+  capability_report: SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+  metrics: SYNTHETIC_COACHING_METRIC_SPECS.map((definition) => ({
+    metric_key: definition.key,
+    metric_version: definition.version,
+    dimension: definition.dimension,
+    display_name: definition.displayName,
+    unit: definition.unit,
+    direction: definition.direction,
+    radar_policy: definition.direction === "higher_is_better"
+      ? "direct_bounded_ratio"
+      : "exact_value_only_unnormalized_lower_is_better",
+    evidence_tier: "redacted_content",
+    state: "known",
+    reason_code: "measured",
+    next_actions: ["none"],
+    capability_groups: SYNTHETIC_COACHING_CAPABILITY_GROUPS[definition.key],
+    available_capabilities: [
+      ...new Set(SYNTHETIC_COACHING_CAPABILITY_GROUPS[definition.key].flat()),
+    ].sort(),
+    missing_capabilities: [],
+    latest_run_id: SYNTHETIC_CURRENT_SESSION_QUALITY_RUN.run.run_id,
+  })),
 };
 
 const SYNTHETIC_COACHING_DECISION_COMMON = {

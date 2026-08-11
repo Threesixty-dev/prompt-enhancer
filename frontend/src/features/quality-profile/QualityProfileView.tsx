@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { formatPercent } from "../../shared/lib/format";
 import type {
   ProviderCompatibilityStatus,
+  SessionMetricReadinessReport,
   SessionQualityAnalysisRequest,
   SessionTextAnalysisCapability,
 } from "../../shared/api/contracts";
@@ -220,11 +221,15 @@ export function QualityProfileView({
   profile,
   onAnalyzeLocally,
   analysisCapability,
+  onRetryMetricReadiness,
   providerCompatibility,
   compatibilityLoading = false,
   onCheckProviderCompatibility,
   onUpdateProvider,
   primaryContent,
+  metricReadiness,
+  metricReadinessError = "",
+  metricReadinessLoading = false,
   sessionDescriptor,
 }: {
   profile: QualityMetricProfile;
@@ -234,7 +239,12 @@ export function QualityProfileView({
   providerCompatibility?: ProviderCompatibilityStatus | null;
   compatibilityLoading?: boolean;
   onCheckProviderCompatibility?: (signal: AbortSignal) => Promise<void>;
+  onRetryMetricReadiness?: () => void;
   onUpdateProvider?: () => void;
+  /** Cached, content-free explanation metadata. It never supplies metric values. */
+  metricReadiness?: SessionMetricReadinessReport | null;
+  metricReadinessError?: string;
+  metricReadinessLoading?: boolean;
   /** Optional compact coaching deck rendered below the collapsible radar. */
   primaryContent?: ReactNode;
   /** Content-free identity shown before a real provider read begins. */
@@ -383,6 +393,23 @@ export function QualityProfileView({
               : "Invalid metric contract"}
           </span>
         )}
+        {snapshotKind === "latest" && metricReadinessLoading && (
+          <span>Checking content-free metric readiness</span>
+        )}
+        {snapshotKind === "latest" && metricReadinessError && (
+          <span className="quality-profile__snapshot-alert">
+            {metricReadinessError} Stored metric values are unchanged.
+            {onRetryMetricReadiness && (
+              <button
+                className="button button--secondary button--compact"
+                onClick={onRetryMetricReadiness}
+                type="button"
+              >
+                Retry readiness
+              </button>
+            )}
+          </span>
+        )}
       </div>
       <details className="quality-profile__radar-panel" open>
         <summary>
@@ -397,7 +424,10 @@ export function QualityProfileView({
           </span>
         </summary>
         <div className="quality-profile__radar-content">
-          <QualityRadar metrics={snapshot.metrics} />
+          <QualityRadar
+            metrics={snapshot.metrics}
+            readiness={snapshotKind === "latest" ? metricReadiness?.metrics : null}
+          />
         </div>
       </details>
       {primaryContent !== undefined && (

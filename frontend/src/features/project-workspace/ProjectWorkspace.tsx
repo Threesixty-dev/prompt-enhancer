@@ -20,6 +20,7 @@ import type {
   SessionAnalysisRunResponse,
   SessionCoachingProjection,
   SessionMetric,
+  SessionMetricReadinessReport,
   SessionQualityAggregate,
   SessionTextAnalysisCapability,
 } from "../../shared/api/contracts";
@@ -470,6 +471,11 @@ export function ProjectWorkspace({
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityError, setQualityError] = useState("");
   const [qualityRetryKey, setQualityRetryKey] = useState(0);
+  const [metricReadiness, setMetricReadiness] =
+    useState<SessionMetricReadinessReport | null>(null);
+  const [metricReadinessLoading, setMetricReadinessLoading] = useState(false);
+  const [metricReadinessError, setMetricReadinessError] = useState("");
+  const [metricReadinessRefreshKey, setMetricReadinessRefreshKey] = useState(0);
   const [coachingProjection, setCoachingProjection] =
     useState<SessionCoachingProjection | null>(null);
   const [coachingLoading, setCoachingLoading] = useState(false);
@@ -798,6 +804,53 @@ export function ProjectWorkspace({
   }, [currentSession, qualityCategory, qualityRetryKey, sessionId, transport]);
 
   useEffect(() => {
+    if (!sessionId || !currentSession || !qualityCategory) {
+      setMetricReadiness(null);
+      setMetricReadinessError("");
+      setMetricReadinessLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setMetricReadiness(null);
+    setMetricReadinessError("");
+    setMetricReadinessLoading(true);
+    transport
+      .getSessionMetricReadiness(sessionId, "coaching_profile_v1", controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        if (
+          response.session_id !== sessionId ||
+          response.provider !== currentSession.provider ||
+          response.preset_id !== "coaching_profile_v1"
+        ) {
+          setMetricReadinessError(
+            "Metric readiness did not match the selected session and was ignored.",
+          );
+          return;
+        }
+        setMetricReadiness(response);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setMetricReadinessError(
+            "Content-free metric readiness could not be loaded.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setMetricReadinessLoading(false);
+      });
+    return () => controller.abort();
+  }, [
+    currentSession,
+    metricReadinessRefreshKey,
+    qualityCategory,
+    qualityRetryKey,
+    sessionId,
+    transport,
+  ]);
+
+  useEffect(() => {
     const runId = qualityRun?.run.run_id;
     if (!sessionId || !currentSession || !qualityCategory || !runId) {
       setCoachingProjection(null);
@@ -1025,6 +1078,7 @@ export function ProjectWorkspace({
     }
     setQualityRun(detail);
     setQualityError("");
+    setMetricReadinessRefreshKey((value) => value + 1);
   }
 
   return (
@@ -1311,6 +1365,12 @@ export function ProjectWorkspace({
                   : undefined
               }
               onAnalyzeLocally={analyzeQualityLocally}
+              onRetryMetricReadiness={() =>
+                setMetricReadinessRefreshKey((value) => value + 1)
+              }
+              metricReadiness={metricReadiness}
+              metricReadinessError={metricReadinessError}
+              metricReadinessLoading={metricReadinessLoading}
               providerCompatibility={providerCompatibility}
               profile={createQualityMetricProfile(
                 category,

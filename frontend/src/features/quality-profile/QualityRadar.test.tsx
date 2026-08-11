@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { MetricReadiness } from "../../shared/api/contracts";
 import "../../styles.css";
 import {
   QualityRadar,
@@ -130,6 +131,31 @@ function promptAndCollaborationMetrics(): QualityMetricObservation[] {
       ratio: 0.6,
     }),
   ];
+}
+
+function syntheticReadiness(
+  metric: QualityMetricObservation,
+  input: Pick<MetricReadiness, "state" | "reason_code" | "next_actions"> &
+    Partial<MetricReadiness>,
+): MetricReadiness {
+  return {
+    metric_key: metric.definition.key,
+    metric_version: metric.definition.version,
+    dimension: metric.definition.dimension,
+    display_name: "Fictional readiness display label",
+    unit: metric.definition.unit,
+    direction: metric.definition.direction,
+    radar_policy:
+      metric.definition.direction === "lower_is_better"
+        ? "exact_value_only_unnormalized_lower_is_better"
+        : "direct_bounded_ratio",
+    evidence_tier: "redacted_content",
+    capability_groups: [["request_text"]],
+    available_capabilities: ["request_text"],
+    missing_capabilities: [],
+    latest_run_id: "a".repeat(64),
+    ...input,
+  };
 }
 
 describe("QualityRadar", () => {
@@ -472,5 +498,128 @@ describe("QualityRadar", () => {
 
     expect(screen.queryByRole("group", { name: "Quality lenses" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Task framing" })).toBeVisible();
+  });
+
+  it.each([
+    {
+      metricState: "unavailable" as const,
+      readinessState: "unknown" as const,
+      reason: "analysis_not_run" as const,
+      actions: ["run_local_analysis"] as const,
+      valueLabel: "Unknown",
+      reasonCopy: "No compatible local analysis has been run for this session.",
+      actionCopy: "Run local analysis for this session.",
+    },
+    {
+      metricState: "unavailable" as const,
+      readinessState: "unsupported" as const,
+      reason: "provider_capability_missing" as const,
+      actions: ["collect_objective_verification"] as const,
+      valueLabel: "Unknown",
+      reasonCopy:
+        "The reviewed provider projection does not expose every evidence channel this metric requires.",
+      actionCopy: "Provide objective VERIFICATION evidence",
+    },
+    {
+      metricState: "unavailable" as const,
+      readinessState: "incompatible" as const,
+      reason: "provider_incompatible" as const,
+      actions: ["check_provider_compatibility"] as const,
+      valueLabel: "Unknown",
+      reasonCopy: "The installed provider schema is incompatible with the reviewed adapter.",
+      actionCopy: "Check the installed provider schema",
+    },
+    {
+      metricState: "abstained" as const,
+      readinessState: "abstained" as const,
+      reason: "result_abstained" as const,
+      actions: ["none"] as const,
+      valueLabel: "Abstained",
+      reasonCopy:
+        "The analyzer deliberately declined to estimate this metric from the available evidence.",
+      actionCopy: "No user action is requested for this state.",
+    },
+    {
+      metricState: "not-applicable" as const,
+      readinessState: "not_applicable" as const,
+      reason: "explicitly_not_applicable" as const,
+      actions: ["none"] as const,
+      valueLabel: "Not applicable",
+      reasonCopy:
+        "The completed analysis explicitly determined that this metric does not apply to the selected window.",
+      actionCopy: "No user action is requested for this state.",
+    },
+    {
+      metricState: "execution-error" as const,
+      readinessState: "failed" as const,
+      reason: "result_failed" as const,
+      actions: ["retry_analysis"] as const,
+      valueLabel: "Failed",
+      reasonCopy: "This metric failed inside an otherwise persisted analysis run.",
+      actionCopy: "Retry local analysis",
+    },
+  ])(
+    "shows $readinessState readiness reasons and actions without fabricating a value",
+    ({
+      metricState,
+      readinessState,
+      reason,
+      actions,
+      valueLabel,
+      reasonCopy,
+      actionCopy,
+    }) => {
+      const metric = syntheticMetric({
+        key: "prompt.task_definition_coverage",
+        label: "Task",
+        ratio: null,
+        state: metricState,
+      });
+      const readiness = syntheticReadiness(metric, {
+        state: readinessState,
+        reason_code: reason,
+        next_actions: [...actions],
+        missing_capabilities:
+          readinessState === "unsupported" ? ["objective_verification"] : [],
+      });
+
+      render(<QualityRadar metrics={[metric]} readiness={[readiness]} />);
+
+      const card = within(
+        screen.getByRole("region", { name: "Task framing metrics" }),
+      ).getByRole("button", { name: /Task full metric name/i });
+      expect(card).toHaveTextContent(valueLabel);
+      expect(card).not.toHaveTextContent("Not available");
+      expect(card).toHaveTextContent("Needed / next:");
+      expect(card.querySelector("[data-readiness-state]")).toHaveAttribute(
+        "data-readiness-state",
+        readinessState,
+      );
+
+      const inspector = screen.getByRole("complementary");
+      expect(inspector).toHaveTextContent(reasonCopy);
+      expect(inspector).toHaveTextContent(actionCopy);
+      expect(inspector).toHaveTextContent("No value");
+    },
+  );
+
+  it("keeps the persisted value authoritative when readiness metadata conflicts", () => {
+    const metric = syntheticMetric({
+      key: "prompt.task_definition_coverage",
+      label: "Task",
+      ratio: 0.8,
+    });
+    const readiness = syntheticReadiness(metric, {
+      state: "incompatible",
+      reason_code: "provider_incompatible",
+      next_actions: ["check_provider_compatibility"],
+    });
+
+    render(<QualityRadar metrics={[metric]} readiness={[readiness]} />);
+
+    const card = screen.getByRole("button", { name: /Task full metric name/i });
+    expect(card).toHaveTextContent("80%");
+    expect(card).toHaveTextContent("Readiness metadata mismatch");
+    expect(screen.getByLabelText("Compatible exact-value bars")).toHaveTextContent("80%");
   });
 });
