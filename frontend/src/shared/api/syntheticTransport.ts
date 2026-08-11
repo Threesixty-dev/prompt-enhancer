@@ -489,6 +489,42 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         501,
       );
     },
+    async listAutomationGrants() {
+      throw new TransportError(
+        "Automation grants are unavailable in synthetic demo mode",
+        501,
+      );
+    },
+    async getAutomationGrant() {
+      throw new TransportError(
+        "Automation grants are unavailable in synthetic demo mode",
+        501,
+      );
+    },
+    async createAutomationGrant() {
+      throw new TransportError(
+        "Automation grants are unavailable in synthetic demo mode",
+        501,
+      );
+    },
+    async renewAutomationGrant() {
+      throw new TransportError(
+        "Automation grants are unavailable in synthetic demo mode",
+        501,
+      );
+    },
+    async revokeAutomationGrant() {
+      throw new TransportError(
+        "Automation grants are unavailable in synthetic demo mode",
+        501,
+      );
+    },
+    async pollAutomationGrants() {
+      throw new TransportError(
+        "Automation grants are unavailable in synthetic demo mode",
+        501,
+      );
+    },
     async getLatestSessionQualityAnalysis(sessionId: string) {
       if (sessionId !== SYNTHETIC_QUALITY_SESSION_ID) {
         throw new TransportError("Synthetic quality analysis run was not found", 404);

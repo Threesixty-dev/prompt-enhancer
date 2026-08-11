@@ -22,6 +22,12 @@ describe("platform routes", () => {
     expect(parseRoute(routePath(route))).toEqual(route);
   });
 
+  it("round-trips a project-scoped automation settings route", () => {
+    const projectId = "a".repeat(64);
+    const route = { name: "project_automation", projectId } as const;
+    expect(parseRoute(routePath(route))).toEqual(route);
+  });
+
   it("round-trips the content-free research lab route", () => {
     const route = { name: "research" } as const;
     expect(parseRoute(routePath(route))).toEqual(route);

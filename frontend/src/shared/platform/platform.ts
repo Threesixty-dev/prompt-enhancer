@@ -6,6 +6,7 @@ export type AppRoute =
   | { name: "projects" }
   | { name: "project_overview"; projectId: string }
   | { name: "project_sessions"; projectId: string }
+  | { name: "project_automation"; projectId: string }
   | { name: "project_metrics"; projectId: string; category: MetricCategory }
   | {
       name: "session_metrics";
@@ -85,12 +86,16 @@ export function parseRoute(pathname: string): AppRoute {
   }
 
   const projectViewMatch = pathname.match(
-    /^\/projects\/([a-f0-9]{64})\/(overview|sessions)\/?$/,
+    /^\/projects\/([a-f0-9]{64})\/(overview|sessions|automation)\/?$/,
   );
   if (projectViewMatch && isPseudonym(projectViewMatch[1])) {
-    return projectViewMatch[2] === "overview"
-      ? { name: "project_overview", projectId: projectViewMatch[1] }
-      : { name: "project_sessions", projectId: projectViewMatch[1] };
+    if (projectViewMatch[2] === "overview") {
+      return { name: "project_overview", projectId: projectViewMatch[1] };
+    }
+    if (projectViewMatch[2] === "sessions") {
+      return { name: "project_sessions", projectId: projectViewMatch[1] };
+    }
+    return { name: "project_automation", projectId: projectViewMatch[1] };
   }
 
   const match = pathname.match(/^\/tasks\/([a-f0-9]{64})\/revisions\/(\d+)\/?$/);
@@ -116,6 +121,10 @@ export function routePath(route: AppRoute): string {
   if (route.name === "project_sessions") {
     assertPseudonym(route.projectId);
     return `/projects/${route.projectId}/sessions`;
+  }
+  if (route.name === "project_automation") {
+    assertPseudonym(route.projectId);
+    return `/projects/${route.projectId}/automation`;
   }
   if (route.name === "project_metrics") {
     assertPseudonym(route.projectId);

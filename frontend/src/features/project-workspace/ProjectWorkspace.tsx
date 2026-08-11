@@ -43,7 +43,16 @@ import {
 } from "../coaching-loop";
 import { ModelLinkExperimentPanel } from "../model-link-experiment";
 
-export type ProjectWorkspaceRoute = Extract<AppRoute, { projectId: string }>;
+export type ProjectWorkspaceRoute = Extract<
+  AppRoute,
+  {
+    name:
+      | "project_overview"
+      | "project_sessions"
+      | "project_metrics"
+      | "session_metrics";
+  }
+>;
 
 const SAFE_ID = /^[a-f0-9]{64}$/;
 
@@ -333,6 +342,10 @@ function ProjectSectionNavigation({
     name: "project_sessions",
     projectId: route.projectId,
   };
+  const automationDestination: AppRoute = {
+    name: "project_automation",
+    projectId: route.projectId,
+  };
   const metricCurrent =
     activeSection === "metric-deck"
       ? route.name === "project_overview"
@@ -389,6 +402,17 @@ function ProjectSectionNavigation({
         {sessionTotal !== null && (
           <span className="project-workspace__section-count">{sessionTotal}</span>
         )}
+      </a>
+      <a
+        data-section="automation"
+        href={routePath(automationDestination)}
+        onClick={(event) =>
+          routeLinkClick(event, automationDestination, route, navigate)
+        }
+        tabIndex={enabled ? undefined : -1}
+      >
+        <Icon name="activity" />
+        <span className="project-workspace__section-label">Automation</span>
       </a>
     </nav>
   );

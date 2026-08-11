@@ -319,6 +319,39 @@ describe("synthetic transport vertical slice", () => {
     await expect(transport.cancelAnalysisJob("1".repeat(64))).rejects.toMatchObject({ status: 501 });
   });
 
+  it("never fabricates standing automation consent in synthetic demo mode", async () => {
+    const transport = createSyntheticTransport();
+    const scope = {
+      provider: "codex" as const,
+      project_id: "1".repeat(64),
+      metric_keys: ["prompt.context_sufficiency"],
+      newest_session_limit: 20,
+      check_interval_seconds: 900,
+      resource_policy: {
+        route: "balanced" as const,
+        max_gpu_workers: 1 as const,
+        max_cpu_workers: 1,
+        pause_on_battery: true,
+        maximum_session_seconds: 1_800,
+      },
+      local_only: true as const,
+      remote_requires_fresh_approval: true as const,
+    };
+    await expect(transport.listAutomationGrants("codex")).rejects.toMatchObject({ status: 501 });
+    await expect(transport.getAutomationGrant("2".repeat(64), scope)).rejects.toMatchObject({ status: 501 });
+    await expect(transport.createAutomationGrant({
+      provider: scope.provider,
+      project_id: scope.project_id,
+      metric_keys: scope.metric_keys,
+      newest_session_limit: scope.newest_session_limit,
+      check_interval_seconds: scope.check_interval_seconds,
+      resource_policy: scope.resource_policy,
+    })).rejects.toMatchObject({ status: 501 });
+    await expect(transport.renewAutomationGrant("2".repeat(64), scope)).rejects.toMatchObject({ status: 501 });
+    await expect(transport.revokeAutomationGrant("2".repeat(64), scope)).rejects.toMatchObject({ status: 501 });
+    await expect(transport.pollAutomationGrants()).rejects.toMatchObject({ status: 501 });
+  });
+
   it("keeps model-link excerpts transient while revisioning fictional review labels", async () => {
     const transport = createSyntheticTransport();
     const outcome = await transport.startModelLinkExperiment(

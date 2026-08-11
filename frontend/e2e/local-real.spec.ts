@@ -1,0 +1,295 @@
+import { expect, test, type Page, type Route } from "@playwright/test";
+
+import {
+  SYNTHETIC_CURRENT_SESSION_QUALITY_RUN,
+  SYNTHETIC_QUALITY_PROJECT_ID,
+  SYNTHETIC_QUALITY_SESSION_ID,
+  SYNTHETIC_SESSION_METRIC_READINESS,
+} from "../src/shared/api/syntheticFixtures";
+import { createSyntheticTransport } from "../src/shared/api/syntheticTransport";
+
+const PRIVATE_HEADERS = {
+  "Cache-Control": "no-store, private",
+  "Content-Type": "application/json",
+  Pragma: "no-cache",
+};
+
+async function json(
+  route: Route,
+  body: unknown,
+  status = 200,
+): Promise<void> {
+  await route.fulfill({
+    body: JSON.stringify(body),
+    headers: PRIVATE_HEADERS,
+    status,
+  });
+}
+
+function integer(value: string | null, fallback: number): number {
+  if (value === null) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isSafeInteger(parsed) ? parsed : fallback;
+}
+
+const CODEX_UNSUPPORTED_METRICS = new Map<string, string>([
+  ["collaboration.rework_candidate_rate", "feedback_text"],
+  ["logic.hypothesis_test_linkage", "objective_verification"],
+  ["logic.decision_rationale_coverage", "decision_evidence"],
+  ["logic.requirement_action_traceability", "action_evidence"],
+  ["outcome.agent_claim_grounding", "objective_verification"],
+  ["outcome.first_pass_verification", "objective_verification"],
+  ["outcome.verified_requirement_coverage", "objective_verification"],
+]);
+
+function codexReadinessFixture(): typeof SYNTHETIC_SESSION_METRIC_READINESS {
+  const fixture = structuredClone(SYNTHETIC_SESSION_METRIC_READINESS);
+  fixture.provider = "codex";
+  fixture.capability_report.provider = "codex";
+  fixture.capability_report.provider_version = "synthetic-codex-provider-1";
+  fixture.capability_report.decoder_key = "codex.app-server.text-window";
+  fixture.capability_report.structurally_attemptable_metric_count = 13;
+  fixture.capability_report.structurally_unsupported_metric_count = 7;
+  fixture.capability_report.capabilities = fixture.capability_report.capabilities.map(
+    (capability) => ({
+      ...capability,
+      state: ["request_text", "response_text", "plan_text"].includes(capability.capability)
+        ? "supported"
+        : "unsupported",
+      reason_code: ["request_text", "response_text", "plan_text"].includes(capability.capability)
+        ? "verified_by_compatible_decoder"
+        : "not_declared_by_decoder",
+    }),
+  );
+  fixture.metrics = fixture.metrics.map((metric) => {
+    const missing = CODEX_UNSUPPORTED_METRICS.get(metric.metric_key);
+    if (missing === undefined) {
+      return {
+        ...metric,
+        available_capabilities: metric.available_capabilities.filter((capability) =>
+          ["request_text", "response_text", "plan_text"].includes(capability)
+        ),
+      };
+    }
+    const action = {
+      action_evidence: "collect_action_evidence",
+      decision_evidence: "collect_decision_evidence",
+      feedback_text: "collect_feedback_evidence",
+      objective_verification: "collect_objective_verification",
+    }[missing];
+    return {
+      ...metric,
+      state: "unsupported",
+      reason_code: "provider_capability_missing",
+      next_actions: [action],
+      available_capabilities: metric.available_capabilities.filter((capability) =>
+        ["request_text", "response_text", "plan_text"].includes(capability)
+      ),
+      missing_capabilities: [missing],
+      latest_run_id: null,
+    };
+  });
+  return fixture;
+}
+
+async function installLocalHttpFixture(page: Page): Promise<void> {
+  const transport = createSyntheticTransport();
+
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const method = request.method();
+
+    if (!path.startsWith("/auth/") && path !== "/health" && !path.startsWith("/v1/")) {
+      await route.continue();
+      return;
+    }
+
+    if (path === "/health" && method === "GET") {
+      await json(route, {
+        status: "ok",
+        cost_mode: "offline_only",
+        data_tier: "metadata",
+      });
+      return;
+    }
+    if (path === "/auth/session" && method === "GET") {
+      await json(route, {
+        csrf_token: "synthetic-browser-csrf-token",
+        expires_in_seconds: 300,
+      });
+      return;
+    }
+    if (path === "/v1/capabilities" && method === "GET") {
+      await json(route, await transport.getSessionTextAnalysisCapability());
+      return;
+    }
+    if (path === "/v1/local-sources/codex" && method === "GET") {
+      await json(route, await transport.getCodexLocalSourceStatus());
+      return;
+    }
+    if (path === "/v1/sessions" && method === "GET") {
+      await json(
+        route,
+        await transport.listCodexSessions(
+          integer(url.searchParams.get("limit"), 100),
+          integer(url.searchParams.get("offset"), 0),
+        ),
+      );
+      return;
+    }
+
+    const projectSessions = path.match(/^\/v1\/projects\/([a-f0-9]{64})\/sessions$/);
+    if (projectSessions && method === "GET") {
+      const page = await transport.listProjectSessions(
+        projectSessions[1],
+        integer(url.searchParams.get("limit"), 100),
+        integer(url.searchParams.get("offset"), 0),
+      );
+      await json(
+        route,
+        {
+          ...page,
+          sessions: page.sessions.map((session) => ({ ...session, provider: "codex" })),
+        },
+      );
+      return;
+    }
+
+    const compatibility = path.match(/^\/v1\/providers\/([^/]+)\/compatibility$/);
+    if (compatibility && method === "GET") {
+      await json(route, await transport.getProviderCompatibility(compatibility[1] as "synthetic"));
+      return;
+    }
+    const capabilities = path.match(/^\/v1\/providers\/([^/]+)\/capabilities$/);
+    if (capabilities && method === "GET") {
+      await json(route, await transport.getProviderMetricCapabilities(capabilities[1] as "synthetic"));
+      return;
+    }
+
+    const readiness = path.match(/^\/v1\/sessions\/([a-f0-9]{64})\/metric-readiness$/);
+    if (readiness && method === "GET") {
+      await json(route, codexReadinessFixture());
+      return;
+    }
+    const metrics = path.match(/^\/v1\/sessions\/([a-f0-9]{64})\/metrics$/);
+    if (metrics && method === "GET") {
+      await json(route, await transport.getSessionMetrics(metrics[1]));
+      return;
+    }
+    const latestRun = path.match(
+      /^\/v1\/sessions\/([a-f0-9]{64})\/quality-analysis-runs\/latest$/,
+    );
+    if (latestRun && method === "GET") {
+      await json(route, await transport.getLatestSessionQualityAnalysis(latestRun[1]));
+      return;
+    }
+    const run = path.match(/^\/v1\/quality-analysis\/runs\/([a-f0-9]{64})$/);
+    if (run && method === "GET") {
+      await json(route, await transport.getSessionQualityAnalysisRun(run[1]));
+      return;
+    }
+    const coaching = path.match(
+      /^\/v1\/quality-analysis\/runs\/([a-f0-9]{64})\/coaching-summary$/,
+    );
+    if (coaching && method === "GET") {
+      await json(route, await transport.getSessionCoachingSummary(coaching[1]));
+      return;
+    }
+    if (path === "/v1/quality-analysis/aggregate" && method === "POST") {
+      await json(route, await transport.aggregateSessionQuality(request.postDataJSON()));
+      return;
+    }
+    if (path === "/v1/quality-analysis/aggregate-projects" && method === "POST") {
+      await json(route, await transport.aggregateProjectQuality(request.postDataJSON()));
+      return;
+    }
+    if (path === "/v1/analysis-jobs" && method === "GET") {
+      await json(route, {
+        jobs: [],
+        limit: integer(url.searchParams.get("limit"), 50),
+        offset: integer(url.searchParams.get("offset"), 0),
+      });
+      return;
+    }
+    if (path === "/v1/automation-grants" && method === "GET") {
+      await json(route, []);
+      return;
+    }
+
+    await json(
+      route,
+      { detail: { code: "synthetic_fixture_route_missing" } },
+      501,
+    );
+  });
+}
+
+test.beforeEach(async ({ page }) => {
+  await installLocalHttpFixture(page);
+});
+
+test("renders stored evidence through the local HTTP transport", async ({ page }) => {
+  await page.goto(
+    `/projects/${SYNTHETIC_QUALITY_PROJECT_ID}/sessions/${SYNTHETIC_QUALITY_SESSION_ID}/metrics/prompt-quality`,
+  );
+
+  await expect(
+    page.getByLabel("Runtime status: Local loopback service available"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Prompt & collaboration coaching" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("img", { name: /fixed-scale quality lens radar/i }),
+  ).toBeVisible();
+  await expect(page.getByText("Measured axes only · one shared 0–100% scale")).toBeVisible();
+  await expect(page.getByText("Not available", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(SYNTHETIC_CURRENT_SESSION_QUALITY_RUN.run.run_id)).toHaveCount(0);
+});
+
+test("keeps local job state truthful and responsive", async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 820 });
+  await page.goto("/analysis-jobs");
+
+  await expect(page.getByRole("heading", { name: "Analysis Job Centre" })).toBeVisible();
+  await expect(
+    page.getByText("No durable jobs match this filter. Missing jobs are not treated as completed work."),
+  ).toBeVisible();
+  await expect(page.getByText(/Local real .* SQLite queue .* one local worker/)).toBeVisible();
+
+  const dimensions = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    viewport: document.documentElement.clientWidth,
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
+});
+
+test("requires an exact local project grant before background scheduling", async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 900 });
+  await page.goto(`/projects/${SYNTHETIC_QUALITY_PROJECT_ID}/automation`);
+
+  await expect(page.getByRole("heading", { name: "Project automation" })).toBeVisible();
+  await expect(page.getByText("Remote execution is never unattended")).toBeVisible();
+  await expect(page.getByText("Consent active", { exact: true })).toBeVisible();
+  await expect(page.getByText("Project indexed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Readiness verified", { exact: true })).toBeVisible();
+  await expect(page.getByText("No grant exists for this project")).toBeVisible();
+
+  const create = page.getByRole("button", { name: "Create 30-day local grant" });
+  await expect(create).toBeDisabled();
+  await page.getByRole("button", { name: "Select attemptable" }).click();
+  await page.getByRole("checkbox", {
+    name: /I authorize this local service to schedule selected metrics/,
+  }).check();
+  await expect(create).toBeEnabled();
+  await expect(page.getByText("Every 15 minutes while the service runs")).toBeVisible();
+  await expect(page.getByText("30 days, then renew explicitly")).toBeVisible();
+
+  const dimensions = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    viewport: document.documentElement.clientWidth,
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
+});

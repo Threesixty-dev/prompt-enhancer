@@ -228,6 +228,30 @@ describe("App discovery navigation", () => {
     expect(listJobs).toHaveBeenCalledWith(null, 25, 0, expect.any(AbortSignal));
   });
 
+  it("renders project automation as explicitly non-operational in synthetic mode", () => {
+    const transport = createSyntheticTransport();
+    const listGrants = vi.spyOn(transport, "listAutomationGrants");
+    const listSessions = vi.spyOn(transport, "listProjectSessions");
+    render(
+      <App
+        platform={createMemoryPlatform({
+          name: "project_automation",
+          projectId: SYNTHETIC_QUALITY_PROJECT_ID,
+        })}
+        runtime={syntheticRuntime(transport)}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Project automation" })).toBeVisible();
+    expect(screen.getByText("Automation is not running")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Projects" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(listGrants).not.toHaveBeenCalled();
+    expect(listSessions).not.toHaveBeenCalled();
+  });
+
   it("renders the fictional project catalog in synthetic preview", async () => {
     const transport = createSyntheticTransport();
     const listSpy = vi.spyOn(transport, "listCodexSessions");

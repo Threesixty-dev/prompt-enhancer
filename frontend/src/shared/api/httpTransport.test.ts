@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   AnalysisJobState,
+  AutomationGrantRecord,
+  AutomationGrantScope,
   SessionQualityAnalysisPreview,
   SessionQualityAnalysisRequest,
 } from "./contracts";
@@ -9,6 +11,9 @@ import {
   createHttpTransport,
   parseAnalysisJobPage,
   parseAnalysisJobRecord,
+  parseAutomationGrantList,
+  parseAutomationGrantRecord,
+  parseAutomationPollResult,
   parseProviderCapabilityReport,
   parseProviderCompatibilityStatus,
   parseRuntimeHealth,
@@ -115,6 +120,48 @@ function analysisJobPayload(
     created_at: "2040-01-01T09:00:00Z",
     updated_at: "2040-01-01T10:00:00Z",
     terminal_at: terminal ? "2040-01-01T10:00:00Z" : null,
+    ...overrides,
+  };
+}
+
+function automationScope(
+  overrides: Partial<AutomationGrantScope> = {},
+): AutomationGrantScope {
+  return {
+    provider: "codex",
+    project_id: "3".repeat(64),
+    metric_keys: ["logic.decomposition_coverage", "prompt.context_sufficiency"],
+    newest_session_limit: 20,
+    check_interval_seconds: 900,
+    resource_policy: {
+      route: "balanced",
+      max_gpu_workers: 1,
+      max_cpu_workers: 1,
+      pause_on_battery: true,
+      maximum_session_seconds: 1_800,
+    },
+    local_only: true,
+    remote_requires_fresh_approval: true,
+    ...overrides,
+  };
+}
+
+function automationGrantPayload(
+  state: AutomationGrantRecord["state"] = "active",
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    grant_id: "9".repeat(64),
+    revision: 1,
+    scope: automationScope(),
+    state,
+    created_at: "2040-01-01T09:00:00Z",
+    renewed_at: "2040-01-01T09:00:00Z",
+    expires_at: "2040-01-31T09:00:00Z",
+    next_check_at: "2040-01-01T09:15:00Z",
+    last_checked_at: null,
+    revoked_at: state === "revoked" ? "2040-01-02T09:00:00Z" : null,
+    last_error_code: null,
     ...overrides,
   };
 }
@@ -830,6 +877,190 @@ describe("same-origin HTTP transport", () => {
     expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
       cache: "no-store",
     }));
+  });
+
+  it.each(["active", "revoked", "expired"] as const)(
+    "accepts a coherent %s automation grant with a fixed 30-day lifetime",
+    (state) => {
+      const record = parseAutomationGrantRecord(automationGrantPayload(state));
+      expect(record.state).toBe(state);
+      expect(record.scope.local_only).toBe(true);
+      expect(record.scope.remote_requires_fresh_approval).toBe(true);
+    },
+  );
+
+  it("rejects private extras, remote scope, identity drift, and incoherent automation grants", () => {
+    const privateExtra = {
+      ...automationGrantPayload(),
+      prompt: "PRIVATE-AUTOMATION-CANARY",
+    };
+    const remote = automationGrantPayload();
+    (remote.scope as AutomationGrantScope).local_only = false as true;
+    const unsorted = automationGrantPayload();
+    (unsorted.scope as AutomationGrantScope).metric_keys.reverse();
+    const wrongLifetime = automationGrantPayload("active", {
+      expires_at: "2040-02-01T09:00:00Z",
+    });
+    const missingRevocation = automationGrantPayload("revoked", {
+      revoked_at: null,
+    });
+    const privatePolicy = automationGrantPayload();
+    (privatePolicy.scope as AutomationGrantScope).resource_policy = {
+      ...automationScope().resource_policy,
+      max_gpu_workers: 2 as 1,
+    };
+
+    for (const value of [
+      privateExtra,
+      remote,
+      unsorted,
+      wrongLifetime,
+      missingRevocation,
+      privatePolicy,
+    ]) {
+      const error = (() => {
+        try {
+          parseAutomationGrantRecord(value);
+          return null;
+        } catch (caught) {
+          return caught;
+        }
+      })();
+      expect(error).toBeInstanceOf(TransportError);
+      expect(String(error)).not.toContain("PRIVATE-AUTOMATION-CANARY");
+    }
+    expect(() => parseAutomationGrantRecord(
+      automationGrantPayload(),
+      "9".repeat(64),
+      automationScope({ project_id: "8".repeat(64) }),
+    )).toThrow(TransportError);
+  });
+
+  it("validates provider-bound automation lists and content-free poll counters", () => {
+    const grant = automationGrantPayload();
+    expect(parseAutomationGrantList([grant], "codex")).toHaveLength(1);
+    expect(() => parseAutomationGrantList([grant, grant], "codex")).toThrow(
+      TransportError,
+    );
+    expect(() => parseAutomationGrantList([grant], "claude_code")).toThrow(
+      TransportError,
+    );
+    const poll = {
+      grants_checked: 1,
+      grants_revoked: 0,
+      candidates_seen: 2,
+      jobs_created: 1,
+      jobs_reused: 1,
+      jobs_superseded: 0,
+      failures: 0,
+    };
+    expect(parseAutomationPollResult(poll)).toEqual(poll);
+    expect(() => parseAutomationPollResult({ ...poll, failures: -1 })).toThrow(
+      TransportError,
+    );
+    expect(() => parseAutomationPollResult({ ...poll, raw_error: "private" })).toThrow(
+      TransportError,
+    );
+  });
+
+  it("lists, creates, opens, renews, revokes, and polls automation on exact private routes", async () => {
+    const scope = automationScope();
+    const active = automationGrantPayload();
+    const renewed = automationGrantPayload("active", {
+      revision: 2,
+      renewed_at: "2040-01-02T09:00:00Z",
+      expires_at: "2040-02-01T09:00:00Z",
+      next_check_at: "2040-01-02T09:00:00Z",
+    });
+    const revoked = { ...renewed, state: "revoked", revoked_at: "2040-01-02T10:00:00Z" };
+    const poll = {
+      grants_checked: 1,
+      grants_revoked: 0,
+      candidates_seen: 2,
+      jobs_created: 1,
+      jobs_reused: 1,
+      jobs_superseded: 0,
+      failures: 0,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse([active]))
+      .mockResolvedValueOnce(privateJsonResponse(active))
+      .mockResolvedValueOnce(privateJsonResponse(active, 201))
+      .mockResolvedValueOnce(privateJsonResponse(renewed))
+      .mockResolvedValueOnce(privateJsonResponse(revoked))
+      .mockResolvedValueOnce(privateJsonResponse(poll));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const createRequest = {
+      provider: scope.provider,
+      project_id: scope.project_id,
+      metric_keys: scope.metric_keys,
+      newest_session_limit: scope.newest_session_limit,
+      check_interval_seconds: scope.check_interval_seconds,
+      resource_policy: scope.resource_policy,
+    };
+
+    await transport.listAutomationGrants("codex", false);
+    await transport.getAutomationGrant("9".repeat(64), scope);
+    await transport.createAutomationGrant(createRequest);
+    await transport.renewAutomationGrant("9".repeat(64), scope);
+    await transport.revokeAutomationGrant("9".repeat(64), scope);
+    expect(await transport.pollAutomationGrants()).toEqual(poll);
+
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      "/v1/automation-grants?provider=codex&active_only=false",
+      `/v1/automation-grants/${"9".repeat(64)}`,
+      "/v1/automation-grants",
+      `/v1/automation-grants/${"9".repeat(64)}/renewal`,
+      `/v1/automation-grants/${"9".repeat(64)}/revocation`,
+      "/v1/automation-grants/poll",
+    ]);
+    for (const [, request] of fetchMock.mock.calls.slice(1)) {
+      expect(request).toEqual(expect.objectContaining({
+        cache: "no-store",
+        credentials: "include",
+      }));
+    }
+    expect(JSON.parse((fetchMock.mock.calls[3][1] as RequestInit).body as string)).toEqual(
+      createRequest,
+    );
+  });
+
+  it("fails closed when automation responses are cacheable and preserves safe consent reasons", async () => {
+    const cacheableFetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse([automationGrantPayload()]));
+    const cacheable = createHttpTransport({
+      fetch: cacheableFetch as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(cacheable.listAutomationGrants("codex")).rejects.toThrow(
+      "Private local response was not cache-safe",
+    );
+
+    const deniedFetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        detail: { code: "automation_consent_required" },
+      }, 403));
+    const denied = createHttpTransport({
+      fetch: deniedFetch as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    await expect(denied.createAutomationGrant({
+      provider: "codex",
+      project_id: automationScope().project_id,
+      metric_keys: automationScope().metric_keys,
+      newest_session_limit: 20,
+      check_interval_seconds: 900,
+      resource_policy: automationScope().resource_policy,
+    })).rejects.toMatchObject({
+      status: 403,
+      reasonCode: "automation_consent_required",
+    });
   });
 
   it("strictly validates a local preview and rejects remote, private-extra, drifted, or inconsistent shapes", () => {

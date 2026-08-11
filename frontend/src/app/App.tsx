@@ -10,6 +10,7 @@ import { DiscoveryInbox } from "../features/discovery-inbox/DiscoveryInbox";
 import { AnalysisJobCentre } from "../features/analysis-job-centre";
 import { LocalSources } from "../features/local-sources/LocalSources";
 import { ProjectCatalog } from "../features/project-catalog";
+import { ProjectAutomationSettings } from "../features/project-automation";
 import {
   ProjectWorkspace,
   type ProjectWorkspaceRoute,
@@ -31,6 +32,7 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "discovery") return "Discovery";
   if (route.name === "local_sources") return "Data source";
   if (route.name === "analysis_jobs") return "Analysis jobs";
+  if (route.name === "project_automation") return "Project automation";
   if (route.name === "projects") return "Projects";
   if (route.name === "research") return "Methods & models";
   if (isProjectWorkspaceRoute(route)) return "Project workspace";
@@ -148,12 +150,14 @@ export function App({
           <p>Workspace</p>
           <button
             aria-current={
-              route.name === "projects" || isProjectWorkspaceRoute(route)
+              route.name === "projects" || route.name === "project_automation" ||
+                isProjectWorkspaceRoute(route)
                 ? "page"
                 : undefined
             }
             className={
-              route.name === "projects" || isProjectWorkspaceRoute(route)
+              route.name === "projects" || route.name === "project_automation" ||
+                isProjectWorkspaceRoute(route)
                 ? "primary-nav__item--active"
                 : ""
             }
@@ -266,6 +270,14 @@ export function App({
             />
           ) : route.name === "projects" ? (
             <ProjectCatalog navigate={navigate} transport={transport} />
+          ) : route.name === "project_automation" ? (
+            <ProjectAutomationSettings
+              navigate={navigate}
+              projectId={route.projectId}
+              runtimeMode={runtime.mode}
+              serviceState={serviceState}
+              transport={transport}
+            />
           ) : isProjectWorkspaceRoute(route) ? (
             <ProjectWorkspace
               navigate={navigate}

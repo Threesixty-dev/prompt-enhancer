@@ -5,6 +5,11 @@ import type {
   AnalysisJobState,
   AnalysisRunListResponse,
   AnalysisRunResponse,
+  AutomationGrantCreateRequest,
+  AutomationGrantRecord,
+  AutomationGrantScope,
+  AutomationPollResult,
+  AutomationResourcePolicy,
   CandidateListResponse,
   CandidateStatusFilter,
   CodexAnalysisSelection,
@@ -95,6 +100,11 @@ export type SafeTransportReasonCode =
   | "redaction_preview_capacity_reached"
   | "analysis_job_not_found"
   | "analysis_job_conflict"
+  | "automation_consent_required"
+  | "automation_metric_unsupported"
+  | "automation_project_not_indexed"
+  | "automation_grant_conflict"
+  | "automation_grant_not_found"
   | "invalid_model_link_request"
   | "model_link_confirmation_required"
   | "no_model_link_candidates"
@@ -125,6 +135,11 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "redaction_preview_capacity_reached",
   "analysis_job_not_found",
   "analysis_job_conflict",
+  "automation_consent_required",
+  "automation_metric_unsupported",
+  "automation_project_not_indexed",
+  "automation_grant_conflict",
+  "automation_grant_not_found",
   "invalid_model_link_request",
   "model_link_confirmation_required",
   "no_model_link_candidates",
@@ -1028,6 +1043,226 @@ export function parseAnalysisJobPage(
   return { jobs, limit: expectedLimit, offset: expectedOffset };
 }
 
+const AUTOMATION_GRANT_RECORD_KEYS = new Set([
+  "created_at", "expires_at", "grant_id", "last_checked_at",
+  "last_error_code", "next_check_at", "renewed_at", "revision",
+  "revoked_at", "scope", "state",
+]);
+const AUTOMATION_GRANT_SCOPE_KEYS = new Set([
+  "provider", "project_id", "metric_keys", "newest_session_limit",
+  "check_interval_seconds", "resource_policy", "local_only",
+  "remote_requires_fresh_approval",
+]);
+const AUTOMATION_RESOURCE_POLICY_KEYS = new Set([
+  "route", "max_gpu_workers", "max_cpu_workers", "pause_on_battery",
+  "maximum_session_seconds",
+]);
+const AUTOMATION_GRANT_CREATE_KEYS = new Set([
+  "provider", "project_id", "metric_keys", "newest_session_limit",
+  "check_interval_seconds", "resource_policy",
+]);
+const AUTOMATION_POLL_RESULT_KEYS = new Set([
+  "grants_checked", "grants_revoked", "candidates_seen", "jobs_created",
+  "jobs_reused", "jobs_superseded", "failures",
+]);
+const AUTOMATION_GRANT_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
+
+function parseAutomationResourcePolicy(value: unknown): AutomationResourcePolicy {
+  if (
+    !isRecord(value) || !hasExactKeys(value, AUTOMATION_RESOURCE_POLICY_KEYS) ||
+    !["fast", "balanced", "deep"].includes(value.route as string) ||
+    value.max_gpu_workers !== 1 ||
+    !Number.isInteger(value.max_cpu_workers) ||
+    (value.max_cpu_workers as number) < 1 || (value.max_cpu_workers as number) > 4 ||
+    typeof value.pause_on_battery !== "boolean" ||
+    !Number.isInteger(value.maximum_session_seconds) ||
+    (value.maximum_session_seconds as number) < 60 ||
+    (value.maximum_session_seconds as number) > 14_400
+  ) {
+    throw new TransportError("Automation resource policy response was invalid", 200);
+  }
+  return {
+    route: value.route as AutomationResourcePolicy["route"],
+    max_gpu_workers: 1,
+    max_cpu_workers: value.max_cpu_workers as number,
+    pause_on_battery: value.pause_on_battery,
+    maximum_session_seconds: value.maximum_session_seconds as number,
+  };
+}
+
+function parseAutomationGrantScope(value: unknown): AutomationGrantScope {
+  if (
+    !isRecord(value) || !hasExactKeys(value, AUTOMATION_GRANT_SCOPE_KEYS) ||
+    !["codex", "claude_code", "synthetic"].includes(value.provider as string) ||
+    typeof value.project_id !== "string" || !PSEUDONYM.test(value.project_id) ||
+    !Array.isArray(value.metric_keys) || value.metric_keys.length < 1 ||
+    value.metric_keys.length > 100 ||
+    value.metric_keys.some((key) =>
+      typeof key !== "string" || !READINESS_SAFE_TOKEN.test(key)
+    ) ||
+    new Set(value.metric_keys).size !== value.metric_keys.length ||
+    !sameArray(value.metric_keys, [...value.metric_keys].sort()) ||
+    !Number.isInteger(value.newest_session_limit) ||
+    (value.newest_session_limit as number) < 1 ||
+    (value.newest_session_limit as number) > 100 ||
+    !Number.isInteger(value.check_interval_seconds) ||
+    (value.check_interval_seconds as number) < 60 ||
+    (value.check_interval_seconds as number) > 86_400 ||
+    value.local_only !== true || value.remote_requires_fresh_approval !== true
+  ) {
+    throw new TransportError("Automation grant scope response was invalid", 200);
+  }
+  return {
+    provider: value.provider as Provider,
+    project_id: value.project_id,
+    metric_keys: [...value.metric_keys] as string[],
+    newest_session_limit: value.newest_session_limit as number,
+    check_interval_seconds: value.check_interval_seconds as number,
+    resource_policy: parseAutomationResourcePolicy(value.resource_policy),
+    local_only: true,
+    remote_requires_fresh_approval: true,
+  };
+}
+
+function sameAutomationResourcePolicy(
+  left: AutomationResourcePolicy,
+  right: AutomationResourcePolicy,
+): boolean {
+  return left.route === right.route &&
+    left.max_gpu_workers === right.max_gpu_workers &&
+    left.max_cpu_workers === right.max_cpu_workers &&
+    left.pause_on_battery === right.pause_on_battery &&
+    left.maximum_session_seconds === right.maximum_session_seconds;
+}
+
+export function sameAutomationGrantScope(
+  left: AutomationGrantScope,
+  right: AutomationGrantScope,
+): boolean {
+  return left.provider === right.provider &&
+    left.project_id === right.project_id &&
+    sameArray(left.metric_keys, right.metric_keys) &&
+    left.newest_session_limit === right.newest_session_limit &&
+    left.check_interval_seconds === right.check_interval_seconds &&
+    left.local_only === right.local_only &&
+    left.remote_requires_fresh_approval === right.remote_requires_fresh_approval &&
+    sameAutomationResourcePolicy(left.resource_policy, right.resource_policy);
+}
+
+function parseAutomationGrantCreateRequest(
+  value: unknown,
+): AutomationGrantCreateRequest {
+  if (!isRecord(value) || !hasExactKeys(value, AUTOMATION_GRANT_CREATE_KEYS)) {
+    throw new TransportError("Automation grant request was invalid", 400);
+  }
+  const scope = parseAutomationGrantScope({
+    ...value,
+    local_only: true,
+    remote_requires_fresh_approval: true,
+  });
+  return {
+    provider: scope.provider,
+    project_id: scope.project_id,
+    metric_keys: scope.metric_keys,
+    newest_session_limit: scope.newest_session_limit,
+    check_interval_seconds: scope.check_interval_seconds,
+    resource_policy: scope.resource_policy,
+  };
+}
+
+function scopeForAutomationRequest(
+  request: AutomationGrantCreateRequest,
+): AutomationGrantScope {
+  return {
+    ...request,
+    local_only: true,
+    remote_requires_fresh_approval: true,
+  };
+}
+
+/** Strictly validate a content-free renewable automation grant. */
+export function parseAutomationGrantRecord(
+  value: unknown,
+  expectedGrantId?: string,
+  expectedScope?: AutomationGrantScope,
+): AutomationGrantRecord {
+  if (
+    !isRecord(value) || !hasExactKeys(value, AUTOMATION_GRANT_RECORD_KEYS) ||
+    typeof value.grant_id !== "string" || !PSEUDONYM.test(value.grant_id) ||
+    (expectedGrantId !== undefined && value.grant_id !== expectedGrantId) ||
+    !Number.isSafeInteger(value.revision) || (value.revision as number) < 1 ||
+    !["active", "revoked", "expired"].includes(value.state as string) ||
+    !isUtcJobTimestamp(value.created_at) ||
+    !isUtcJobTimestamp(value.renewed_at) ||
+    !isUtcJobTimestamp(value.expires_at) ||
+    !isUtcJobTimestamp(value.next_check_at) ||
+    Date.parse(value.renewed_at) < Date.parse(value.created_at) ||
+    Date.parse(value.expires_at) - Date.parse(value.renewed_at) !==
+      AUTOMATION_GRANT_LIFETIME_MS ||
+    Date.parse(value.next_check_at) < Date.parse(value.created_at) ||
+    !(
+      value.last_checked_at === null ||
+      (isUtcJobTimestamp(value.last_checked_at) &&
+        Date.parse(value.last_checked_at) >= Date.parse(value.created_at))
+    ) ||
+    !(
+      value.revoked_at === null ||
+      (isUtcJobTimestamp(value.revoked_at) &&
+        Date.parse(value.revoked_at) >= Date.parse(value.created_at))
+    ) ||
+    !isSafeJobCode(value.last_error_code) ||
+    ((value.state === "revoked") !== (value.revoked_at !== null))
+  ) {
+    throw new TransportError("Automation grant response was invalid", 200);
+  }
+  const scope = parseAutomationGrantScope(value.scope);
+  if (expectedScope !== undefined && !sameAutomationGrantScope(scope, expectedScope)) {
+    throw new TransportError("Automation grant response was invalid", 200);
+  }
+  return {
+    grant_id: value.grant_id,
+    revision: value.revision as number,
+    scope,
+    state: value.state as AutomationGrantRecord["state"],
+    created_at: value.created_at,
+    renewed_at: value.renewed_at,
+    expires_at: value.expires_at,
+    next_check_at: value.next_check_at,
+    last_checked_at: value.last_checked_at as string | null,
+    revoked_at: value.revoked_at as string | null,
+    last_error_code: value.last_error_code as string | null,
+  };
+}
+
+export function parseAutomationGrantList(
+  value: unknown,
+  expectedProvider: Provider,
+): AutomationGrantRecord[] {
+  if (!Array.isArray(value) || value.length > 1_000) {
+    throw new TransportError("Automation grant list response was invalid", 200);
+  }
+  const records = value.map((record) => parseAutomationGrantRecord(record));
+  if (
+    new Set(records.map((record) => record.grant_id)).size !== records.length ||
+    records.some((record) => record.scope.provider !== expectedProvider)
+  ) {
+    throw new TransportError("Automation grant list response was invalid", 200);
+  }
+  return records;
+}
+
+export function parseAutomationPollResult(value: unknown): AutomationPollResult {
+  if (
+    !isRecord(value) || !hasExactKeys(value, AUTOMATION_POLL_RESULT_KEYS) ||
+    [...AUTOMATION_POLL_RESULT_KEYS].some((key) =>
+      !Number.isSafeInteger(value[key]) || (value[key] as number) < 0
+    )
+  ) {
+    throw new TransportError("Automation poll response was invalid", 200);
+  }
+  return value as unknown as AutomationPollResult;
+}
+
 const PREVIEW_KEYS = new Set([
   "preview_id", "created_at", "expires_at", "binding", "messages",
 ]);
@@ -1595,6 +1830,94 @@ export function createHttpTransport(options: {
         true,
       );
       return parseAnalysisJobRecord(value, jobId);
+    },
+    async listAutomationGrants(provider, activeOnly = false, signal) {
+      if (!["codex", "claude_code", "synthetic"].includes(provider)) {
+        throw new TransportError("Automation provider was invalid", 400);
+      }
+      const query = new URLSearchParams({
+        provider,
+        active_only: String(activeOnly),
+      });
+      const value = await request<unknown>(
+        `/v1/automation-grants?${query.toString()}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return parseAutomationGrantList(value, provider);
+    },
+    async getAutomationGrant(grantId, expectedScope, signal) {
+      if (!PSEUDONYM.test(grantId)) {
+        throw new TransportError("Automation grant identifier was invalid", 400);
+      }
+      const canonicalScope = parseAutomationGrantScope(expectedScope);
+      const value = await request<unknown>(
+        `/v1/automation-grants/${encodeURIComponent(grantId)}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return parseAutomationGrantRecord(value, grantId, canonicalScope);
+    },
+    async createAutomationGrant(automationRequest, signal) {
+      const canonicalRequest = parseAutomationGrantCreateRequest(automationRequest);
+      const value = await request<unknown>(
+        "/v1/automation-grants",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(canonicalRequest),
+        },
+        signal,
+        true,
+        true,
+      );
+      return parseAutomationGrantRecord(
+        value,
+        undefined,
+        scopeForAutomationRequest(canonicalRequest),
+      );
+    },
+    async renewAutomationGrant(grantId, expectedScope, signal) {
+      if (!PSEUDONYM.test(grantId)) {
+        throw new TransportError("Automation grant identifier was invalid", 400);
+      }
+      const canonicalScope = parseAutomationGrantScope(expectedScope);
+      const value = await request<unknown>(
+        `/v1/automation-grants/${encodeURIComponent(grantId)}/renewal`,
+        { method: "POST" },
+        signal,
+        true,
+        true,
+      );
+      return parseAutomationGrantRecord(value, grantId, canonicalScope);
+    },
+    async revokeAutomationGrant(grantId, expectedScope, signal) {
+      if (!PSEUDONYM.test(grantId)) {
+        throw new TransportError("Automation grant identifier was invalid", 400);
+      }
+      const canonicalScope = parseAutomationGrantScope(expectedScope);
+      const value = await request<unknown>(
+        `/v1/automation-grants/${encodeURIComponent(grantId)}/revocation`,
+        { method: "POST" },
+        signal,
+        true,
+        true,
+      );
+      return parseAutomationGrantRecord(value, grantId, canonicalScope);
+    },
+    async pollAutomationGrants(signal) {
+      const value = await request<unknown>(
+        "/v1/automation-grants/poll",
+        { method: "POST" },
+        signal,
+        true,
+        true,
+      );
+      return parseAutomationPollResult(value);
     },
     getLatestSessionQualityAnalysis(sessionId, signal) {
       return request<SessionAnalysisRunResponse>(

@@ -144,6 +144,32 @@ export interface AnalysisJobPage extends Omit<
   jobs: AnalysisJobRecord[];
 }
 
+export type AutomationGrantState = Schemas["AutomationGrantState"];
+export type AutomationRoute = Schemas["AutomationRoute"];
+export type AutomationResourcePolicy = Schemas["AutomationResourcePolicy"];
+export interface AutomationGrantCreateRequest extends Omit<
+  Schemas["AutomationGrantCreateRequest"],
+  "resource_policy"
+> {
+  resource_policy: AutomationResourcePolicy;
+}
+export interface AutomationGrantScope extends Omit<
+  Schemas["AutomationGrantScope"],
+  "resource_policy"
+> {
+  resource_policy: AutomationResourcePolicy;
+}
+export interface AutomationGrantRecord extends Omit<
+  Schemas["AutomationGrantRecord"],
+  "last_checked_at" | "last_error_code" | "revoked_at" | "scope"
+> {
+  last_checked_at: string | null;
+  last_error_code: string | null;
+  revoked_at: string | null;
+  scope: AutomationGrantScope;
+}
+export type AutomationPollResult = Schemas["AutomationPollResult"];
+
 export type SessionQualityAnalysisRequest =
   Schemas["SessionTextAnalysisRequest"];
 export type SessionQualityAnalysisOutcome =
@@ -363,6 +389,31 @@ export interface PromptEnhancerTransport {
     jobId: string,
     signal?: AbortSignal,
   ): Promise<AnalysisJobRecord>;
+  listAutomationGrants(
+    provider: Provider,
+    activeOnly?: boolean,
+    signal?: AbortSignal,
+  ): Promise<AutomationGrantRecord[]>;
+  getAutomationGrant(
+    grantId: string,
+    expectedScope: AutomationGrantScope,
+    signal?: AbortSignal,
+  ): Promise<AutomationGrantRecord>;
+  createAutomationGrant(
+    request: AutomationGrantCreateRequest,
+    signal?: AbortSignal,
+  ): Promise<AutomationGrantRecord>;
+  renewAutomationGrant(
+    grantId: string,
+    expectedScope: AutomationGrantScope,
+    signal?: AbortSignal,
+  ): Promise<AutomationGrantRecord>;
+  revokeAutomationGrant(
+    grantId: string,
+    expectedScope: AutomationGrantScope,
+    signal?: AbortSignal,
+  ): Promise<AutomationGrantRecord>;
+  pollAutomationGrants(signal?: AbortSignal): Promise<AutomationPollResult>;
   getLatestSessionQualityAnalysis(
     sessionId: string,
     signal?: AbortSignal,
