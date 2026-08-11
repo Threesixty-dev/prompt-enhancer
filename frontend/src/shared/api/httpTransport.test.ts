@@ -692,6 +692,34 @@ describe("same-origin HTTP transport", () => {
     ).toThrow(TransportError);
   });
 
+  it("accepts the backend readiness-token alphabet and rejects values outside its bounds", () => {
+    const completeAlphabet = "A._+:/-readiness-v1";
+    const maximumLength = `A${"x".repeat(127)}`;
+    expect(
+      parseProviderCapabilityReport({
+        ...SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+        provider_version: completeAlphabet,
+        decoder_key: maximumLength,
+        decoder_version: completeAlphabet,
+      }),
+    ).toMatchObject({
+      provider_version: completeAlphabet,
+      decoder_key: maximumLength,
+      decoder_version: completeAlphabet,
+    });
+
+    for (const invalidToken of [
+      ".leading-punctuation",
+      "contains whitespace",
+      `A${"x".repeat(128)}`,
+    ]) {
+      expect(() => parseProviderCapabilityReport({
+        ...SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
+        provider_version: invalidToken,
+      })).toThrow(TransportError);
+    }
+  });
+
   it("rejects readiness metadata that is incomplete, reordered, or contradicts its state", () => {
     expect(
       parseSessionMetricReadinessReport(

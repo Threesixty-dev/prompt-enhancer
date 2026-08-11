@@ -13,7 +13,7 @@ import {
   type RuntimeComposition,
   type SyntheticRuntimeTransport,
 } from "../shared/platform/runtimeMode";
-import { App } from "./App";
+import { App, RouteErrorBoundary } from "./App";
 
 function createMemoryPlatform(initialRoute: AppRoute = { name: "discovery" }): PlatformAdapter {
   let route: AppRoute = initialRoute;
@@ -115,6 +115,23 @@ describe("App discovery navigation", () => {
     expect(screen.getByRole("button", { name: "Projects" })).toBeVisible();
     expect(
       await screen.findByLabelText("Local loopback service available"),
+    ).toBeVisible();
+  });
+
+  it("shows an accessible deterministic fallback while a route bundle loads", async () => {
+    render(
+      <App
+        platform={createMemoryPlatform({ name: "research" })}
+        runtime={syntheticRuntime()}
+      />,
+    );
+
+    const fallback = screen.getByText("Loading Methods & models…").closest(".async-state");
+    expect(fallback).toHaveAttribute("aria-busy", "true");
+    expect(fallback).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByLabelText("Current location")).toHaveTextContent("Methods & models");
+    expect(
+      await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" }),
     ).toBeVisible();
   });
 
@@ -228,7 +245,7 @@ describe("App discovery navigation", () => {
     expect(listJobs).toHaveBeenCalledWith(null, 25, 0, expect.any(AbortSignal));
   });
 
-  it("renders project automation as explicitly non-operational in synthetic mode", () => {
+  it("renders project automation as explicitly non-operational in synthetic mode", async () => {
     const transport = createSyntheticTransport();
     const listGrants = vi.spyOn(transport, "listAutomationGrants");
     const listSessions = vi.spyOn(transport, "listProjectSessions");
@@ -242,7 +259,7 @@ describe("App discovery navigation", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Project automation" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Project automation" })).toBeVisible();
     expect(screen.getByText("Automation is not running")).toBeVisible();
     expect(screen.getByRole("button", { name: "Projects" })).toHaveAttribute(
       "aria-current",
@@ -250,6 +267,34 @@ describe("App discovery navigation", () => {
     );
     expect(listGrants).not.toHaveBeenCalled();
     expect(listSessions).not.toHaveBeenCalled();
+  });
+
+  it("isolates a failed route without exposing its error and resets on navigation", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onExit = vi.fn();
+    function FailingRoute(): never {
+      throw new Error("SYNTHETIC_ROUTE_FAILURE_CANARY");
+    }
+
+    const view = render(
+      <RouteErrorBoundary onExit={onExit} resetKey="/failed-route">
+        <FailingRoute />
+      </RouteErrorBoundary>,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("This screen could not be loaded");
+    expect(screen.getByRole("alert")).toHaveTextContent(/No provider error or session content is shown/);
+    expect(document.body.textContent).not.toContain("SYNTHETIC_ROUTE_FAILURE_CANARY");
+    fireEvent.click(screen.getByRole("button", { name: "Return to Discovery" }));
+    expect(onExit).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <RouteErrorBoundary onExit={onExit} resetKey="/recovered-route">
+        <p>Recovered route</p>
+      </RouteErrorBoundary>,
+    );
+    expect(await screen.findByText("Recovered route")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    consoleError.mockRestore();
   });
 
   it("renders the fictional project catalog in synthetic preview", async () => {

@@ -1,23 +1,117 @@
-import { useEffect, useState } from "react";
+import {
+  Component,
+  Suspense,
+  lazy,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import type { PromptEnhancerTransport } from "../shared/api/contracts";
 import type { AppRoute, PlatformAdapter } from "../shared/platform/platform";
+import { routePath } from "../shared/platform/platform";
 import type {
   RuntimeComposition,
   RuntimeDataMode,
   RuntimeServiceState,
 } from "../shared/platform/runtimeMode";
 import { DiscoveryInbox } from "../features/discovery-inbox/DiscoveryInbox";
-import { AnalysisJobCentre } from "../features/analysis-job-centre";
-import { LocalSources } from "../features/local-sources/LocalSources";
-import { ProjectCatalog } from "../features/project-catalog";
-import { ProjectAutomationSettings } from "../features/project-automation";
-import {
-  ProjectWorkspace,
-  type ProjectWorkspaceRoute,
-} from "../features/project-workspace";
-import { TaskDetail } from "../features/task-detail/TaskDetail";
-import { ResearchLab } from "../features/research-lab";
+import type { ProjectWorkspaceRoute } from "../features/project-workspace";
 import { Icon } from "../shared/ui/Icon";
+import { LoadingState } from "../shared/ui/AsyncState";
+
+const AnalysisJobCentreScreen = lazy(() =>
+  import("../features/analysis-job-centre").then((module) => ({
+    default: module.AnalysisJobCentre,
+  })),
+);
+const LocalSourcesScreen = lazy(() =>
+  import("../features/local-sources/LocalSources").then((module) => ({
+    default: module.LocalSources,
+  })),
+);
+const ProjectCatalogScreen = lazy(() =>
+  import("../features/project-catalog").then((module) => ({
+    default: module.ProjectCatalog,
+  })),
+);
+const ProjectAutomationScreen = lazy(() =>
+  import("../features/project-automation").then((module) => ({
+    default: module.ProjectAutomationSettings,
+  })),
+);
+const ProjectWorkspaceScreen = lazy(() =>
+  import("../features/project-workspace").then((module) => ({
+    default: module.ProjectWorkspace,
+  })),
+);
+const ResearchLabScreen = lazy(() =>
+  import("../features/research-lab").then((module) => ({
+    default: module.ResearchLab,
+  })),
+);
+const TaskDetailScreen = lazy(() =>
+  import("../features/task-detail/TaskDetail").then((module) => ({
+    default: module.TaskDetail,
+  })),
+);
+
+interface RouteErrorBoundaryProps {
+  children: ReactNode;
+  onExit: () => void;
+  resetKey: string;
+}
+
+interface RouteErrorBoundaryState {
+  failed: boolean;
+  resetKey: string;
+}
+
+/** Keep a failed route bundle from taking down the runtime/privacy shell. */
+export class RouteErrorBoundary extends Component<
+  RouteErrorBoundaryProps,
+  RouteErrorBoundaryState
+> {
+  constructor(props: RouteErrorBoundaryProps) {
+    super(props);
+    this.state = { failed: false, resetKey: props.resetKey };
+  }
+
+  static getDerivedStateFromError(): Partial<RouteErrorBoundaryState> {
+    return { failed: true };
+  }
+
+  static getDerivedStateFromProps(
+    props: RouteErrorBoundaryProps,
+    state: RouteErrorBoundaryState,
+  ): Partial<RouteErrorBoundaryState> | null {
+    if (props.resetKey !== state.resetKey) {
+      return { failed: false, resetKey: props.resetKey };
+    }
+    return null;
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="async-state async-state--error" role="alert">
+        <span className="async-state__icon"><Icon name="x" /></span>
+        <div>
+          <strong>This screen could not be loaded</strong>
+          <p>
+            Its local route bundle failed safely. No provider error or session content is shown.
+          </p>
+        </div>
+        <button
+          className="button button--secondary"
+          onClick={this.props.onExit}
+          type="button"
+        >
+          Return to Discovery
+        </button>
+      </div>
+    );
+  }
+}
 
 function isProjectWorkspaceRoute(route: AppRoute): route is ProjectWorkspaceRoute {
   return (
@@ -37,6 +131,10 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "research") return "Methods & models";
   if (isProjectWorkspaceRoute(route)) return "Project workspace";
   return "Task analysis";
+}
+
+function RouteLoading({ route }: { route: AppRoute }) {
+  return <LoadingState label={`Loading ${routeTitle(route)}…`} />;
 }
 
 function runtimeStatusCopy(
@@ -262,65 +360,72 @@ export function App({
         <p aria-live="polite" className="sr-only">{navigationNotice}</p>
         {navigationNotice && <div className="navigation-notice" role="status">{navigationNotice}</div>}
         <main id="main-content" tabIndex={-1}>
-          {route.name === "discovery" ? (
-            <DiscoveryInbox
-              navigate={navigate}
-              onUndecidedCountChange={setUndecidedCount}
-              transport={transport}
-            />
-          ) : route.name === "projects" ? (
-            <ProjectCatalog navigate={navigate} transport={transport} />
-          ) : route.name === "project_automation" ? (
-            <ProjectAutomationSettings
-              navigate={navigate}
-              projectId={route.projectId}
-              runtimeMode={runtime.mode}
-              serviceState={serviceState}
-              transport={transport}
-            />
-          ) : isProjectWorkspaceRoute(route) ? (
-            <ProjectWorkspace
-              navigate={navigate}
-              route={route}
-              transport={transport}
-            />
-          ) : route.name === "local_sources" ? (
-            runtime.mode === "local_real" ? (
-              <LocalSources navigate={navigate} transport={transport} />
-            ) : (
-              <section className="local-sources-page">
-                <div className="async-state" role="status">
-                  <span className="privacy-status__icon"><Icon name="lock" /></span>
-                  <strong>Local sources are disabled in synthetic preview</strong>
-                  <span>
-                    Run the integrated loopback build to grant and inspect local-source access.
-                  </span>
-                  <button
-                    className="button button--secondary"
-                    onClick={() => navigate({ name: "discovery" })}
-                    type="button"
-                  >
-                    Return to Discovery
-                  </button>
-                </div>
-              </section>
-            )
-          ) : route.name === "analysis_jobs" ? (
-            <AnalysisJobCentre
-              runtimeMode={runtime.mode}
-              serviceState={serviceState}
-              transport={transport}
-            />
-          ) : route.name === "research" ? (
-            <ResearchLab transport={transport} />
-          ) : (
-            <TaskDetail
-              navigate={navigate}
-              revision={route.revision}
-              taskId={route.taskId}
-              transport={transport}
-            />
-          )}
+          <RouteErrorBoundary
+            onExit={() => navigate({ name: "discovery" })}
+            resetKey={routePath(route)}
+          >
+            <Suspense fallback={<RouteLoading route={route} />}>
+              {route.name === "discovery" ? (
+                <DiscoveryInbox
+                  navigate={navigate}
+                  onUndecidedCountChange={setUndecidedCount}
+                  transport={transport}
+                />
+              ) : route.name === "projects" ? (
+                <ProjectCatalogScreen navigate={navigate} transport={transport} />
+              ) : route.name === "project_automation" ? (
+                <ProjectAutomationScreen
+                  navigate={navigate}
+                  projectId={route.projectId}
+                  runtimeMode={runtime.mode}
+                  serviceState={serviceState}
+                  transport={transport}
+                />
+              ) : isProjectWorkspaceRoute(route) ? (
+                <ProjectWorkspaceScreen
+                  navigate={navigate}
+                  route={route}
+                  transport={transport}
+                />
+              ) : route.name === "local_sources" ? (
+                runtime.mode === "local_real" ? (
+                  <LocalSourcesScreen navigate={navigate} transport={transport} />
+                ) : (
+                  <section className="local-sources-page">
+                    <div className="async-state" role="status">
+                      <span className="privacy-status__icon"><Icon name="lock" /></span>
+                      <strong>Local sources are disabled in synthetic preview</strong>
+                      <span>
+                        Run the integrated loopback build to grant and inspect local-source access.
+                      </span>
+                      <button
+                        className="button button--secondary"
+                        onClick={() => navigate({ name: "discovery" })}
+                        type="button"
+                      >
+                        Return to Discovery
+                      </button>
+                    </div>
+                  </section>
+                )
+              ) : route.name === "analysis_jobs" ? (
+                <AnalysisJobCentreScreen
+                  runtimeMode={runtime.mode}
+                  serviceState={serviceState}
+                  transport={transport}
+                />
+              ) : route.name === "research" ? (
+                <ResearchLabScreen transport={transport} />
+              ) : (
+                <TaskDetailScreen
+                  navigate={navigate}
+                  revision={route.revision}
+                  taskId={route.taskId}
+                  transport={transport}
+                />
+              )}
+            </Suspense>
+          </RouteErrorBoundary>
         </main>
       </div>
     </div>
