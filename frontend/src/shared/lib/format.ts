@@ -11,9 +11,11 @@ export function titleFromKey(value: string): string {
 }
 
 export function formatPercent(value: number): string {
+  if (value > 0 && value < 0.0001) return "<0.01%";
+  if (value < 1 && value > 0.9999) return ">99.99%";
   return new Intl.NumberFormat("en", {
     style: "percent",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 

@@ -245,6 +245,213 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model-link-experiments/{run_id}/links/{link_id}/annotations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Annotate Link */
+        post: operations["annotate_link_v1_model_link_experiments__run_id__links__link_id__annotations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Sessions */
+        get: operations["project_sessions_v1_projects__project_id__sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/providers/{provider}/compatibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cached Status */
+        get: operations["cached_status_v1_providers__provider__compatibility_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/providers/{provider}/compatibility/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Status */
+        post: operations["check_status_v1_providers__provider__compatibility_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/quality-analysis/aggregate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Aggregate Selected Session Quality */
+        post: operations["aggregate_selected_session_quality_v1_quality_analysis_aggregate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/quality-analysis/aggregate-projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Aggregate Selected Project Quality */
+        post: operations["aggregate_selected_project_quality_v1_quality_analysis_aggregate_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/quality-analysis/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session Analysis Run Detail */
+        get: operations["session_analysis_run_detail_v1_quality_analysis_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/quality-analysis/runs/{run_id}/coaching-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Session Coaching Summary
+         * @description Project stored results only; never initiate a provider content read.
+         */
+        get: operations["session_coaching_summary_v1_quality_analysis_runs__run_id__coaching_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/research/text-analysis-methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Text Analysis Methods */
+        get: operations["get_text_analysis_methods_v1_research_text_analysis_methods_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/research/text-model-evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Text Model Evaluation */
+        post: operations["start_text_model_evaluation_v1_research_text_model_evaluations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/research/text-model-evaluations/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Text Model Evaluation */
+        get: operations["get_text_model_evaluation_v1_research_text_model_evaluations__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/research/text-model-runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Text Model Runtime */
+        get: operations["get_text_model_runtime_v1_research_text_model_runtime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions": {
         parameters: {
             query?: never;
@@ -271,6 +478,75 @@ export interface paths {
         };
         /** Session Metrics */
         get: operations["session_metrics_v1_sessions__session_id__metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/model-link-experiments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Experiment */
+        post: operations["start_experiment_v1_sessions__session_id__model_link_experiments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/model-link-experiments/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest Experiment */
+        get: operations["latest_experiment_v1_sessions__session_id__model_link_experiments_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/quality-analysis-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session Analysis Run List */
+        get: operations["session_analysis_run_list_v1_sessions__session_id__quality_analysis_runs_get"];
+        put?: never;
+        /** Start Session Analysis */
+        post: operations["start_session_analysis_v1_sessions__session_id__quality_analysis_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/quality-analysis-runs/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest Session Analysis Run */
+        get: operations["latest_session_analysis_run_v1_sessions__session_id__quality_analysis_runs_latest_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -411,6 +687,43 @@ export interface components {
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
         };
+        /** AnalysisMethodDto */
+        AnalysisMethodDto: {
+            /**
+             * Approach
+             * @enum {string}
+             */
+            approach: "rules" | "classifier" | "hybrid" | "statistical" | "embedding" | "reranker" | "nli" | "graph_rules" | "graph" | "process_mining" | "generative_model" | "calibration";
+            /** Candidate Model Keys */
+            candidate_model_keys: string[];
+            /**
+             * Family
+             * @enum {string}
+             */
+            family: "extraction" | "conversation" | "linking" | "semantic_inference" | "workflow" | "evaluation";
+            /** Key */
+            key: string;
+            /** Limitations */
+            limitations: string[];
+            /**
+             * Maturity
+             * @enum {string}
+             */
+            maturity: "product_baseline" | "evaluated_exploratory" | "research_candidate" | "failed_gate";
+            /** Name */
+            name: string;
+            /**
+             * Privacy Tier
+             * @enum {string}
+             */
+            privacy_tier: "metadata" | "redacted_content";
+            /** Produces */
+            produces: string[];
+            /** Purpose */
+            purpose: string;
+            /** Source Keys */
+            source_keys: string[];
+        };
         /** AnalysisResultDto */
         AnalysisResultDto: {
             /** Calculator Version */
@@ -424,6 +737,12 @@ export interface components {
             confidence?: number | null;
             /** Coverage */
             coverage: number;
+            /** Description */
+            description?: string | null;
+            /** Dimension */
+            dimension?: string | null;
+            /** Display Name */
+            display_name?: string | null;
             /** Eligible Count */
             eligible_count: number;
             /** Error Code */
@@ -519,6 +838,37 @@ export interface components {
             /** Decisions */
             decisions: components["schemas"]["TaskDecisionDto"][];
         };
+        /** CandidateEvaluationSummaryDto */
+        CandidateEvaluationSummaryDto: {
+            /** Critical Metric */
+            critical_metric?: string | null;
+            /** Critical Value */
+            critical_value?: number | null;
+            /** Error Code */
+            error_code?: ("unsafe_pickle_only" | "model_cache_missing_or_invalid" | "batch_size_outside_manifest_bound" | "cuda_unavailable" | "mps_unavailable" | "resource_exhausted" | "evaluation_failed") | null;
+            /** Inference Latency Ms */
+            inference_latency_ms?: number | null;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "multilingual_e5_small" | "mdeberta_xnli" | "bge_m3" | "bge_reranker_v2_m3" | "qwen3_embedding_06b" | "qwen3_reranker_06b" | "qwen3_4b_rubric";
+            /** Peak Accelerator Memory Mb */
+            peak_accelerator_memory_mb?: number | null;
+            /** Primary Metric */
+            primary_metric?: string | null;
+            /** Primary Value */
+            primary_value?: number | null;
+            /** Secondary Metric */
+            secondary_metric?: string | null;
+            /** Secondary Value */
+            secondary_value?: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "evaluated" | "not_completed" | "blocked_before_download";
+        };
         /** CandidateListItemDto */
         CandidateListItemDto: {
             candidate: components["schemas"]["TaskCandidateDto"];
@@ -569,6 +919,363 @@ export interface components {
             /** Weight */
             weight: number;
         };
+        /**
+         * CapabilitiesDto
+         * @description Exact, content-free feature contract consumed by the dashboard.
+         */
+        CapabilitiesDto: {
+            /**
+             * Arbitrary Sql
+             * @constant
+             */
+            arbitrary_sql: false;
+            /**
+             * Browser Session
+             * @constant
+             */
+            browser_session: true;
+            /** Codex Local Source */
+            codex_local_source: boolean;
+            /**
+             * Cost Mode
+             * @constant
+             */
+            cost_mode: "offline_only";
+            /**
+             * Data Tier
+             * @constant
+             */
+            data_tier: "metadata";
+            /**
+             * Demo Provider
+             * @constant
+             */
+            demo_provider: "synthetic";
+            /** Manual Display Labels */
+            manual_display_labels: boolean;
+            /**
+             * Network Inference
+             * @constant
+             */
+            network_inference: false;
+            /**
+             * Raw Transcripts
+             * @constant
+             */
+            raw_transcripts: false;
+            /** Session Model Link Experiment */
+            session_model_link_experiment: boolean;
+            /** Session Text Analysis */
+            session_text_analysis: boolean;
+            /** Session Text Analysis Data Tier */
+            session_text_analysis_data_tier: "redacted_content" | null;
+            /**
+             * Session Text Content Persistence
+             * @constant
+             */
+            session_text_content_persistence: false;
+            /** Task Analysis */
+            task_analysis: boolean;
+            /** Task Review */
+            task_review: boolean;
+            /** Write Api */
+            write_api: boolean;
+        };
+        /**
+         * CoachingDecisionBasis
+         * @description Common content-free receipt attached to each of the five decisions.
+         */
+        CoachingDecisionBasis: {
+            /** Abstention Code */
+            abstention_code?: string | null;
+            /**
+             * Algorithm Id
+             * @default rules.coaching-loop.summary
+             */
+            algorithm_id: string;
+            /**
+             * Algorithm Version
+             * @default 1
+             */
+            algorithm_version: string;
+            /**
+             * Candidate Policy Version
+             * @default 2
+             */
+            candidate_policy_version: number;
+            /** Code */
+            code: string;
+            /** Confidence */
+            confidence?: number | null;
+            /** Construct Version */
+            construct_version?: number | null;
+            /** Coverage */
+            coverage?: number | null;
+            decision_state: components["schemas"]["CoachingDecisionState"];
+            /** Denominator */
+            denominator?: number | null;
+            denominator_kind?: components["schemas"]["CoachingDenominatorKind"] | null;
+            /**
+             * Denominator Kind Priority Version
+             * @default 1
+             */
+            denominator_kind_priority_version: number;
+            /** Evidence Basis */
+            evidence_basis: components["schemas"]["CoachingEvidenceBasisCode"][];
+            evidence_kind?: components["schemas"]["CoachingEvidenceKind"] | null;
+            /** Evidence Lower Bound */
+            evidence_lower_bound?: number | null;
+            evidence_tier?: components["schemas"]["CoachingEvidenceTier"] | null;
+            /** Evidence Upper Bound */
+            evidence_upper_bound?: number | null;
+            /** Metric Basis */
+            metric_basis: string[];
+            /**
+             * Pack Key
+             * @default coaching.loop
+             */
+            pack_key: string;
+            /**
+             * Pack Version
+             * @default 1
+             */
+            pack_version: number;
+            /** Polarity Successes */
+            polarity_successes?: number | null;
+            /**
+             * Recommendation Policy Version
+             * @default 1
+             */
+            recommendation_policy_version: number;
+            /**
+             * Rule Priority Version
+             * @default 1
+             */
+            rule_priority_version: number;
+            source_provenance?: components["schemas"]["CoachingSourceProvenance"] | null;
+            task_type: components["schemas"]["CoachingTaskType"];
+        };
+        /**
+         * CoachingDecisionState
+         * @enum {string}
+         */
+        CoachingDecisionState: "candidate" | "supported" | "abstained";
+        /**
+         * CoachingDenominatorKind
+         * @enum {string}
+         */
+        CoachingDenominatorKind: "rubric_factor" | "event_count";
+        /**
+         * CoachingEvidenceBasisCode
+         * @description Closed evidence categories; identifiers and free-form labels cannot enter.
+         * @enum {string}
+         */
+        CoachingEvidenceBasisCode: "objective.verification_results" | "human.acceptance_decision" | "rule.factor_counts" | "rule.link_counts" | "rule.correction_counts" | "assistant.completion_claim";
+        /**
+         * CoachingEvidenceKind
+         * @enum {string}
+         */
+        CoachingEvidenceKind: "objective_verification" | "deterministic_candidate" | "human_review" | "assistant_claim";
+        /**
+         * CoachingEvidenceTier
+         * @enum {string}
+         */
+        CoachingEvidenceTier: "metadata" | "redacted_content" | "objective_event" | "human_review";
+        /**
+         * CoachingHumanAcceptanceStatus
+         * @enum {string}
+         */
+        CoachingHumanAcceptanceStatus: "accepted" | "rejected" | "unknown";
+        /** CoachingOutcomeDecision */
+        CoachingOutcomeDecision: {
+            /** Abstention Code */
+            abstention_code?: string | null;
+            /**
+             * Algorithm Id
+             * @default rules.coaching-loop.summary
+             */
+            algorithm_id: string;
+            /**
+             * Algorithm Version
+             * @default 1
+             */
+            algorithm_version: string;
+            /**
+             * Candidate Policy Version
+             * @default 2
+             */
+            candidate_policy_version: number;
+            /** Code */
+            code: string;
+            /** Confidence */
+            confidence?: number | null;
+            /** Construct Version */
+            construct_version?: number | null;
+            /** Coverage */
+            coverage?: number | null;
+            decision_state: components["schemas"]["CoachingDecisionState"];
+            /** Denominator */
+            denominator?: number | null;
+            denominator_kind?: components["schemas"]["CoachingDenominatorKind"] | null;
+            /**
+             * Denominator Kind Priority Version
+             * @default 1
+             */
+            denominator_kind_priority_version: number;
+            /** Evidence Basis */
+            evidence_basis: components["schemas"]["CoachingEvidenceBasisCode"][];
+            /** Evidence Disagreement */
+            evidence_disagreement: boolean;
+            evidence_kind?: components["schemas"]["CoachingEvidenceKind"] | null;
+            /** Evidence Lower Bound */
+            evidence_lower_bound?: number | null;
+            evidence_tier?: components["schemas"]["CoachingEvidenceTier"] | null;
+            /** Evidence Upper Bound */
+            evidence_upper_bound?: number | null;
+            human_acceptance_status: components["schemas"]["CoachingHumanAcceptanceStatus"];
+            /** Metric Basis */
+            metric_basis: string[];
+            /**
+             * Pack Key
+             * @default coaching.loop
+             */
+            pack_key: string;
+            /**
+             * Pack Version
+             * @default 1
+             */
+            pack_version: number;
+            /** Polarity Successes */
+            polarity_successes?: number | null;
+            /**
+             * Recommendation Policy Version
+             * @default 1
+             */
+            recommendation_policy_version: number;
+            /**
+             * Rule Priority Version
+             * @default 1
+             */
+            rule_priority_version: number;
+            source_provenance?: components["schemas"]["CoachingSourceProvenance"] | null;
+            status: components["schemas"]["CoachingOutcomeStatus"];
+            task_type: components["schemas"]["CoachingTaskType"];
+        };
+        /**
+         * CoachingOutcomeStatus
+         * @enum {string}
+         */
+        CoachingOutcomeStatus: "verified" | "failed" | "mixed" | "unknown";
+        /** CoachingPromptTemplateDecision */
+        CoachingPromptTemplateDecision: {
+            /** Abstention Code */
+            abstention_code?: string | null;
+            /**
+             * Algorithm Id
+             * @default rules.coaching-loop.summary
+             */
+            algorithm_id: string;
+            /**
+             * Algorithm Version
+             * @default 1
+             */
+            algorithm_version: string;
+            /**
+             * Candidate Policy Version
+             * @default 2
+             */
+            candidate_policy_version: number;
+            /** Code */
+            code: string;
+            /** Confidence */
+            confidence?: number | null;
+            /** Construct Version */
+            construct_version?: number | null;
+            /** Coverage */
+            coverage?: number | null;
+            decision_state: components["schemas"]["CoachingDecisionState"];
+            /** Denominator */
+            denominator?: number | null;
+            denominator_kind?: components["schemas"]["CoachingDenominatorKind"] | null;
+            /**
+             * Denominator Kind Priority Version
+             * @default 1
+             */
+            denominator_kind_priority_version: number;
+            /** Evidence Basis */
+            evidence_basis: components["schemas"]["CoachingEvidenceBasisCode"][];
+            evidence_kind?: components["schemas"]["CoachingEvidenceKind"] | null;
+            /** Evidence Lower Bound */
+            evidence_lower_bound?: number | null;
+            evidence_tier?: components["schemas"]["CoachingEvidenceTier"] | null;
+            /** Evidence Upper Bound */
+            evidence_upper_bound?: number | null;
+            /** Metric Basis */
+            metric_basis: string[];
+            /**
+             * Pack Key
+             * @default coaching.loop
+             */
+            pack_key: string;
+            /**
+             * Pack Version
+             * @default 1
+             */
+            pack_version: number;
+            /** Polarity Successes */
+            polarity_successes?: number | null;
+            /**
+             * Recommendation Policy Version
+             * @default 1
+             */
+            recommendation_policy_version: number;
+            /**
+             * Rule Priority Version
+             * @default 1
+             */
+            rule_priority_version: number;
+            /** Slot Codes */
+            slot_codes: string[];
+            source_provenance?: components["schemas"]["CoachingSourceProvenance"] | null;
+            task_type: components["schemas"]["CoachingTaskType"];
+            /** Template Version */
+            template_version?: number | null;
+        };
+        /**
+         * CoachingSourceProvenance
+         * @description Version identity for an immutable source receipt.
+         */
+        CoachingSourceProvenance: {
+            /** Algorithm Id */
+            algorithm_id: string;
+            /** Algorithm Version */
+            algorithm_version: string;
+            /** Pack Key */
+            pack_key: string;
+            /** Pack Version */
+            pack_version: number;
+        };
+        /**
+         * CoachingSummary
+         * @description The complete Coaching Loop v1 decision surface: exactly five items.
+         */
+        CoachingSummary: {
+            friction: components["schemas"]["CoachingDecisionBasis"];
+            next_experiment: components["schemas"]["CoachingDecisionBasis"];
+            outcome: components["schemas"]["CoachingOutcomeDecision"];
+            prompt_template: components["schemas"]["CoachingPromptTemplateDecision"];
+            strength: components["schemas"]["CoachingDecisionBasis"];
+        };
+        /**
+         * CoachingTaskContextSource
+         * @enum {string}
+         */
+        CoachingTaskContextSource: "reviewed_task" | "not_reviewed" | "ambiguous";
+        /**
+         * CoachingTaskType
+         * @enum {string}
+         */
+        CoachingTaskType: "implementation" | "diagnosis" | "research" | "review" | "planning" | "unknown";
         /** CodexAnalysisRequest */
         CodexAnalysisRequest: {
             /**
@@ -609,6 +1316,7 @@ export interface components {
             indexed_projects: number;
             /** Indexed Sessions */
             indexed_sessions: number;
+            verification_capability: components["schemas"]["VerificationCapability"];
         };
         /**
          * DataTier
@@ -765,6 +1473,36 @@ export interface components {
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
         };
+        /** MetricRoadmapItemDto */
+        MetricRoadmapItemDto: {
+            /** Caution */
+            caution: string;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "higher_is_better" | "lower_is_better" | "contextual";
+            /** Evidence */
+            evidence: string;
+            /** Key */
+            key: string;
+            /** Method Keys */
+            method_keys: string[];
+            /** Name */
+            name: string;
+            /**
+             * Profile
+             * @enum {string}
+             */
+            profile: "prompt" | "collaboration" | "logic" | "agent_answer" | "outcome";
+            /** Question */
+            question: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "baseline_available" | "research" | "needs_objective_evidence";
+        };
         /**
          * MetricSource
          * @enum {string}
@@ -775,6 +1513,303 @@ export interface components {
          * @enum {string}
          */
         MetricValueState: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error";
+        /** ModelBenchmarkDto */
+        ModelBenchmarkDto: {
+            /** Benchmark Key */
+            benchmark_key: string;
+            /** Case Count */
+            case_count: number;
+            /** Critical Metric */
+            critical_metric?: string | null;
+            /** Critical Value */
+            critical_value?: number | null;
+            /** Primary Metric */
+            primary_metric: string;
+            /** Primary Value */
+            primary_value: number;
+            /** Secondary Metric */
+            secondary_metric?: string | null;
+            /** Secondary Value */
+            secondary_value?: number | null;
+        };
+        /** ModelCandidateDto */
+        ModelCandidateDto: {
+            benchmark: components["schemas"]["ModelBenchmarkDto"] | null;
+            /** Decision */
+            decision: string;
+            /** Display Name */
+            display_name: string;
+            /** Key */
+            key: string;
+            /** Language Scope */
+            language_scope: string;
+            /**
+             * License Spdx
+             * @enum {string}
+             */
+            license_spdx: "MIT" | "Apache-2.0";
+            /** Parameter Scale */
+            parameter_scale: string;
+            /**
+             * Product Enabled
+             * @constant
+             */
+            product_enabled: false;
+            /** Repository Id */
+            repository_id: string;
+            /** Revision */
+            revision?: string | null;
+            /** Source Keys */
+            source_keys: string[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "evaluated_exploratory" | "research_shortlist" | "rejected_screen";
+            /** Task */
+            task: string;
+            /**
+             * Trust Remote Code
+             * @constant
+             */
+            trust_remote_code: false;
+        };
+        /** ModelEvaluationJobDto */
+        ModelEvaluationJobDto: {
+            candidate: components["schemas"]["ModelEvaluationRequestDto"];
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error Code */
+            error_code: ("candidate_evaluation_incomplete" | "model_evaluation_failed") | null;
+            /** Job Id */
+            job_id: string;
+            /** Outcomes */
+            outcomes: components["schemas"]["CandidateEvaluationSummaryDto"][];
+            /** Resolved Device */
+            resolved_device: ("cpu" | "cuda" | "mps") | null;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "completed" | "failed";
+        };
+        /** ModelEvaluationRequestDto */
+        ModelEvaluationRequestDto: {
+            /**
+             * Allow Download
+             * @default false
+             */
+            allow_download: boolean;
+            /**
+             * Candidate
+             * @default all
+             * @enum {string}
+             */
+            candidate: "all" | "session-link" | "e5" | "nli" | "bge-m3" | "bge-reranker" | "qwen-embedding" | "qwen-reranker" | "qwen-rubric";
+            /**
+             * Device
+             * @default auto
+             * @enum {string}
+             */
+            device: "auto" | "cpu" | "cuda" | "mps";
+            /**
+             * Mode
+             * @default smoke
+             * @enum {string}
+             */
+            mode: "smoke" | "full";
+        };
+        /**
+         * ModelExperimentDevice
+         * @enum {string}
+         */
+        ModelExperimentDevice: "auto" | "cpu" | "cuda" | "mps";
+        /** ModelLinkAnnotationDto */
+        ModelLinkAnnotationDto: {
+            /**
+             * Annotated At
+             * Format: date-time
+             */
+            annotated_at: string;
+            label: components["schemas"]["ModelLinkAnnotationLabel"];
+            /** Link Id */
+            link_id: string;
+            /** Revision */
+            revision: number;
+        };
+        /**
+         * ModelLinkAnnotationLabel
+         * @enum {string}
+         */
+        ModelLinkAnnotationLabel: "relevant" | "incorrect" | "unsure";
+        /** ModelLinkAnnotationRequest */
+        ModelLinkAnnotationRequest: {
+            /** Expected Revision */
+            expected_revision: number;
+            label: components["schemas"]["ModelLinkAnnotationLabel"];
+        };
+        /** ModelLinkDto */
+        ModelLinkDto: {
+            /** Bge Rank */
+            bge_rank: number;
+            /** Bge Score */
+            bge_score: number;
+            /**
+             * Candidate Kind
+             * @enum {string}
+             */
+            candidate_kind: "response" | "plan";
+            /** Link Id */
+            link_id: string;
+            /** Qwen Rank */
+            qwen_rank: number;
+            /** Qwen Score */
+            qwen_score: number;
+            /**
+             * Recommended By
+             * @enum {string}
+             */
+            recommended_by: "qwen" | "bge" | "both";
+        };
+        /** ModelLinkExperimentCommandResponse */
+        ModelLinkExperimentCommandResponse: {
+            /** Applied */
+            applied: boolean;
+            experiment: components["schemas"]["ModelLinkExperimentDto"];
+            /** Suggestions */
+            suggestions: components["schemas"]["ModelLinkSuggestionDto"][];
+        };
+        /** ModelLinkExperimentDto */
+        ModelLinkExperimentDto: {
+            /** Annotations */
+            annotations: components["schemas"]["ModelLinkAnnotationDto"][];
+            /** Links */
+            links: components["schemas"]["ModelLinkDto"][];
+            run: components["schemas"]["ModelLinkRunDto"];
+        };
+        /** ModelLinkExperimentRequest */
+        ModelLinkExperimentRequest: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "compare_selected_redacted_text_with_local_models";
+            /** @default auto */
+            device: components["schemas"]["ModelExperimentDevice"];
+        };
+        /**
+         * ModelLinkFailureCode
+         * @enum {string}
+         */
+        ModelLinkFailureCode: "redacted_content_consent_required" | "session_not_in_safe_index" | "provider_compatibility_blocked" | "invalid_model_link_request" | "model_link_confirmation_required" | "no_model_link_candidates" | "local_model_execution_failed" | "model_link_persistence_failed" | "model_link_revision_conflict" | "model_link_experiment_not_found" | "source_schema_unsupported" | "selection_snapshot_miss" | "source_resource_limit" | "source_timeout" | "provider_unavailable" | "no_analyzable_text" | "provider_protocol_rejected";
+        /** ModelLinkFailureDetail */
+        ModelLinkFailureDetail: {
+            code: components["schemas"]["ModelLinkFailureCode"];
+            /** Message */
+            message: string;
+        };
+        /** ModelLinkFailureResponse */
+        ModelLinkFailureResponse: {
+            detail: components["schemas"]["ModelLinkFailureDetail"];
+        };
+        /** ModelLinkModelDto */
+        ModelLinkModelDto: {
+            /** Backend Key */
+            backend_key: string;
+            /** Key */
+            key: string;
+            /** License Spdx */
+            license_spdx: string;
+            /** Repository Id */
+            repository_id: string;
+            /** Revision */
+            revision: string;
+            /** Tokenizer Id */
+            tokenizer_id: string;
+        };
+        /** ModelLinkRunDto */
+        ModelLinkRunDto: {
+            /** Agreement Count */
+            agreement_count: number;
+            bge_model: components["schemas"]["ModelLinkModelDto"];
+            /** Experiment Key */
+            experiment_key: string;
+            /** Experiment Version */
+            experiment_version: number;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /** Link Count */
+            link_count: number;
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            /** Query Count */
+            query_count: number;
+            qwen_model: components["schemas"]["ModelLinkModelDto"];
+            resolved_device: components["schemas"]["ModelExperimentDevice"];
+            /** Run Id */
+            run_id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /** ModelLinkSuggestionDto */
+        ModelLinkSuggestionDto: {
+            /** Candidate Excerpt */
+            candidate_excerpt: string;
+            /** Link Id */
+            link_id: string;
+            /** Query Excerpt */
+            query_excerpt: string;
+        };
+        /** ModelRuntimeInventoryDto */
+        ModelRuntimeInventoryDto: {
+            /**
+             * Cpu Available
+             * @constant
+             */
+            cpu_available: true;
+            /** Cuda Available */
+            cuda_available: boolean;
+            /** Cuda Memory Mb */
+            cuda_memory_mb?: number | null;
+            /** Mps Available */
+            mps_available: boolean;
+            /**
+             * One Model At A Time
+             * @constant
+             */
+            one_model_at_a_time: true;
+            /**
+             * Preferred Device
+             * @enum {string}
+             */
+            preferred_device: "cpu" | "cuda" | "mps";
+            /**
+             * Raw Session Data Accepted
+             * @constant
+             */
+            raw_session_data_accepted: false;
+            /**
+             * Subprocess Isolation
+             * @constant
+             */
+            subprocess_isolation: true;
+        };
         /** OutputRevisionDto */
         OutputRevisionDto: {
             /** Revision */
@@ -783,10 +1818,225 @@ export interface components {
             task_id: string;
         };
         /**
+         * ProjectQualityAggregate
+         * @description Identifier-free wrapper around the existing compatibility-safe aggregate.
+         */
+        ProjectQualityAggregate: {
+            aggregation_method: components["schemas"]["SessionMetricAggregation"];
+            estimand: components["schemas"]["ProjectQualityEstimand"];
+            /** Selected Project Count */
+            selected_project_count: number;
+            selection_mode: components["schemas"]["ProjectQualitySelectionMode"];
+            session_quality: components["schemas"]["ProjectSessionQualityAggregate"];
+        };
+        /**
+         * ProjectQualityAggregateRequest
+         * @description Complete safe-index project scope; raw data is never accepted here.
+         */
+        ProjectQualityAggregateRequest: {
+            /** Project Ids */
+            project_ids: string[];
+            /**
+             * Selection Mode
+             * @default all_analyzed_work
+             * @constant
+             */
+            selection_mode: "all_analyzed_work";
+        };
+        /**
+         * ProjectQualityCompatibilityCohort
+         * @description Path-free public projection of one exact core compatibility cohort.
+         */
+        ProjectQualityCompatibilityCohort: {
+            /** Analyzable Coverage */
+            analyzable_coverage: number;
+            /** Analyzable Eligible Count */
+            analyzable_eligible_count: number;
+            /** Analyzable Observed Count */
+            analyzable_observed_count: number;
+            /** Compatibility Fingerprint */
+            compatibility_fingerprint: string;
+            /** Fraction Denominator */
+            fraction_denominator?: number | null;
+            /** Fraction Numerator */
+            fraction_numerator?: number | null;
+            /** Numeric Value */
+            numeric_value?: number | null;
+            /** Result Count */
+            result_count: number;
+            state_counts: components["schemas"]["SessionQualityStateCounts"];
+        };
+        /**
+         * ProjectQualityEstimand
+         * @enum {string}
+         */
+        ProjectQualityEstimand: "per_eligible_opportunity";
+        /**
+         * ProjectQualityMetricAggregate
+         * @description Core metric outcome with raw compatibility provenance removed.
+         */
+        ProjectQualityMetricAggregate: {
+            aggregate_state: components["schemas"]["SessionQualityAggregateState"];
+            aggregation_method: components["schemas"]["SessionMetricAggregation"];
+            /** Analyzable Coverage */
+            analyzable_coverage?: number | null;
+            /** Analyzable Eligible Count */
+            analyzable_eligible_count?: number | null;
+            /** Analyzable Observed Count */
+            analyzable_observed_count?: number | null;
+            /**
+             * Blocked Reason Codes
+             * @default []
+             */
+            blocked_reason_codes: string[];
+            /**
+             * Compatibility Cohorts
+             * @default []
+             */
+            compatibility_cohorts: components["schemas"]["ProjectQualityCompatibilityCohort"][];
+            compatibility_state: components["schemas"]["SessionQualityCompatibilityState"];
+            /** Completed Run Count */
+            completed_run_count: number;
+            /** Fraction Denominator */
+            fraction_denominator?: number | null;
+            /** Fraction Numerator */
+            fraction_numerator?: number | null;
+            /** Invalid Result Record Count */
+            invalid_result_record_count: number;
+            /** Invalid Result Session Count */
+            invalid_result_session_count: number;
+            metric_direction: components["schemas"]["SessionMetricDirection"];
+            /** Metric Key */
+            metric_key: string;
+            /** Metric Unit */
+            metric_unit: string;
+            /** Metric Version */
+            metric_version: number;
+            /** Missing Result Count */
+            missing_result_count: number;
+            /** Missing Run Count */
+            missing_run_count: number;
+            /** Numeric Value */
+            numeric_value?: number | null;
+            /** Present Result Count */
+            present_result_count: number;
+            /** Selected Session Count */
+            selected_session_count: number;
+            state_counts: components["schemas"]["SessionQualityStateCounts"];
+        };
+        /**
+         * ProjectQualitySelectionMode
+         * @enum {string}
+         */
+        ProjectQualitySelectionMode: "all_analyzed_work";
+        /** ProjectSessionCatalogResponse */
+        ProjectSessionCatalogResponse: {
+            /** Has More */
+            has_more: boolean;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Sessions */
+            sessions: components["schemas"]["SessionCatalogItemDto"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * ProjectSessionQualityAggregate
+         * @description Path-free public mirror of the core selection-level outcome.
+         */
+        ProjectSessionQualityAggregate: {
+            /** Analysis Profile Key */
+            analysis_profile_key: string;
+            /** Analysis Profile Version */
+            analysis_profile_version: number;
+            /** Completed Run Count */
+            completed_run_count: number;
+            /** Duplicate Result Record Count */
+            duplicate_result_record_count: number;
+            integrity_state: components["schemas"]["SessionQualityIntegrityState"];
+            /** Metric Pack Key */
+            metric_pack_key: string;
+            /** Metric Pack Version */
+            metric_pack_version: number;
+            /** Metric Schema Version */
+            metric_schema_version: number;
+            /** Metrics */
+            metrics: components["schemas"]["ProjectQualityMetricAggregate"][];
+            /** Missing Run Count */
+            missing_run_count: number;
+            /** Selected Session Count */
+            selected_session_count: number;
+            /** Unexpected Result Record Count */
+            unexpected_result_record_count: number;
+        };
+        /**
          * Provider
          * @enum {string}
          */
         Provider: "codex" | "claude_code" | "synthetic";
+        /**
+         * ProviderCompatibilityReasonDto
+         * @enum {string}
+         */
+        ProviderCompatibilityReasonDto: "exact_match" | "compatible_version" | "degraded_extraction" | "not_checked" | "provider_unavailable" | "provider_version_unsupported" | "adapter_outdated" | "source_schema_unsupported" | "content_schema_unsupported" | "check_failed";
+        /**
+         * ProviderCompatibilityStateDto
+         * @enum {string}
+         */
+        ProviderCompatibilityStateDto: "exact" | "compatible" | "degraded" | "untested" | "incompatible" | "unavailable";
+        /**
+         * ProviderCompatibilityStatusDto
+         * @description Closed projection. It contains no provider payload, path, or identifier.
+         */
+        ProviderCompatibilityStatusDto: {
+            /** Adapter Family */
+            adapter_family: string;
+            /** Adapter Version */
+            adapter_version?: string | null;
+            /**
+             * Capability
+             * @default session_text_analysis
+             * @constant
+             */
+            capability: "session_text_analysis";
+            capability_state: components["schemas"]["ProviderTextCapabilityStateDto"];
+            /** Checked At */
+            checked_at?: string | null;
+            /** Content Schema Family */
+            content_schema_family: string;
+            /** Content Schema Version */
+            content_schema_version?: string | null;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "codex" | "claude_code" | "synthetic";
+            /** Provider Family */
+            provider_family: string;
+            /** Provider Version */
+            provider_version?: string | null;
+            reason_code: components["schemas"]["ProviderCompatibilityReasonDto"];
+            /** Source Schema Family */
+            source_schema_family: string;
+            /** Source Schema Version */
+            source_schema_version?: string | null;
+            state: components["schemas"]["ProviderCompatibilityStateDto"];
+            /**
+             * Update Support
+             * @default unknown
+             * @enum {string}
+             */
+            update_support: "supported" | "unsupported" | "unknown";
+            /** Update Target */
+            update_target?: ("prompt_enhancer" | "provider") | null;
+        };
+        /**
+         * ProviderTextCapabilityStateDto
+         * @enum {string}
+         */
+        ProviderTextCapabilityStateDto: "supported" | "unsupported" | "unknown";
         /** RejectTaskRequest */
         RejectTaskRequest: {
             /** Candidate Id */
@@ -800,6 +2050,546 @@ export interface components {
          * @enum {string}
          */
         RejectionReason: "not_a_task" | "wrong_grouping" | "duplicate" | "other";
+        /** ResearchSourceDto */
+        ResearchSourceDto: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "paper" | "model_card";
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+        };
+        /** SanitizedModelLinkValidationFailureResponse */
+        SanitizedModelLinkValidationFailureResponse: {
+            /**
+             * Detail
+             * @constant
+             */
+            detail: "request validation failed";
+        };
+        /** SanitizedRequestValidationFailureResponse */
+        SanitizedRequestValidationFailureResponse: {
+            /**
+             * Detail
+             * @constant
+             */
+            detail: "request validation failed";
+        };
+        /** SessionAnalysisEvidenceDto */
+        SessionAnalysisEvidenceDto: {
+            /** Message Id */
+            message_id: string;
+            origin: components["schemas"]["SessionEvidenceOrigin"];
+        };
+        /**
+         * SessionAnalysisResultDto
+         * @description Numeric result, evidence identities and exact definition presentation.
+         */
+        SessionAnalysisResultDto: {
+            aggregation_method: components["schemas"]["SessionMetricAggregation"];
+            /** Algorithm Id */
+            algorithm_id: string;
+            /** Algorithm Version */
+            algorithm_version: string;
+            applicability: components["schemas"]["SessionMetricApplicability"];
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
+            /** Confidence */
+            confidence?: number | null;
+            /** Coverage */
+            coverage: number;
+            /** Description */
+            description?: string | null;
+            /** Dimension */
+            dimension?: string | null;
+            direction: components["schemas"]["SessionMetricDirection"];
+            /** Display Name */
+            display_name?: string | null;
+            /** Eligible Count */
+            eligible_count: number;
+            /** Error Code */
+            error_code: string | null;
+            /** Evidence */
+            evidence: components["schemas"]["SessionAnalysisEvidenceDto"][];
+            evidence_data_tier: components["schemas"]["DataTier"];
+            /** Explanation Code */
+            explanation_code: string;
+            fraction: components["schemas"]["SessionMetricFractionDto"] | null;
+            /** Key */
+            key: string;
+            /** Metric Schema Version */
+            metric_schema_version: number;
+            /** Model Id */
+            model_id: string | null;
+            /** Model License */
+            model_license: string | null;
+            /** Model Revision */
+            model_revision: string | null;
+            /** Numeric Value */
+            numeric_value: number | null;
+            /** Observed Count */
+            observed_count: number;
+            /** Prompt Version */
+            prompt_version: string | null;
+            /** Rubric Version */
+            rubric_version: string | null;
+            /** Signals */
+            signals: components["schemas"]["SessionAnalysisSignalDto"][];
+            source: components["schemas"]["MetricSource"];
+            /** Tokenizer Id */
+            tokenizer_id: string | null;
+            /** Unit */
+            unit: string;
+            value_state: components["schemas"]["MetricValueState"];
+            /** Version */
+            version: number;
+        };
+        /**
+         * SessionAnalysisRunDto
+         * @description Content-free provenance for one selected redacted session window.
+         */
+        SessionAnalysisRunDto: {
+            /** Adapter Version */
+            adapter_version: string;
+            /** Analysis Profile Key */
+            analysis_profile_key: string;
+            /** Analysis Profile Version */
+            analysis_profile_version: number;
+            /** Consent Policy Version */
+            consent_policy_version: string;
+            /** Consent Purpose */
+            consent_purpose: string;
+            /** Content Schema Version */
+            content_schema_version: string;
+            data_tier: components["schemas"]["DataTier"];
+            /** Failure Code */
+            failure_code: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Input Fingerprint */
+            input_fingerprint: string;
+            /** Local Only */
+            local_only: boolean;
+            /** Metric Engine Version */
+            metric_engine_version: string;
+            /** Metric Pack Key */
+            metric_pack_key: string;
+            /** Metric Pack Version */
+            metric_pack_version: number;
+            /** Model Plan Fingerprint */
+            model_plan_fingerprint: string;
+            provider: components["schemas"]["Provider"];
+            /** Provider Version */
+            provider_version: string;
+            /** Redactor Version */
+            redactor_version: string;
+            /** Request Fingerprint */
+            request_fingerprint: string;
+            /** Run Id */
+            run_id: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Session Id */
+            session_id: string;
+            /** Source Schema Version */
+            source_schema_version: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            status: components["schemas"]["AnalysisRunStatus"];
+        };
+        /** SessionAnalysisRunListResponse */
+        SessionAnalysisRunListResponse: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Runs */
+            runs: components["schemas"]["SessionAnalysisRunDto"][];
+            /** Session Id */
+            session_id: string;
+        };
+        /** SessionAnalysisRunResponse */
+        SessionAnalysisRunResponse: {
+            /** Results */
+            results: components["schemas"]["SessionAnalysisResultDto"][];
+            run: components["schemas"]["SessionAnalysisRunDto"];
+        };
+        /**
+         * SessionAnalysisSignalDto
+         * @description Closed factor receipt; contains no text, excerpt, or evidence identity.
+         */
+        SessionAnalysisSignalDto: {
+            /** Code */
+            code: string;
+            /** Count */
+            count: number | null;
+            /** Status */
+            status: string;
+        };
+        /**
+         * SessionCatalogItemDto
+         * @description Exact allowlist for one private-label, content-free catalog row.
+         */
+        SessionCatalogItemDto: {
+            /** Adapter Version */
+            adapter_version: string;
+            /** Ended At */
+            ended_at: string | null;
+            /** Events Complete */
+            events_complete: boolean;
+            /** Installation Id */
+            installation_id: string;
+            /** Project Display Name */
+            project_display_name: string | null;
+            /**
+             * Project Display Name Origin
+             * @enum {string}
+             */
+            project_display_name_origin: "provider" | "manual" | "unknown";
+            /** Project Id */
+            project_id: string;
+            /** Project Manual Label Revision */
+            project_manual_label_revision: number;
+            provider: components["schemas"]["Provider"];
+            /** Provider Version */
+            provider_version: string | null;
+            /** Session Display Name */
+            session_display_name: string | null;
+            /**
+             * Session Display Name Origin
+             * @enum {string}
+             */
+            session_display_name_origin: "provider" | "manual" | "unknown";
+            /** Session Id */
+            session_id: string;
+            /** Session Manual Label Revision */
+            session_manual_label_revision: number;
+            /** Source Schema Version */
+            source_schema_version: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            terminal_state: components["schemas"]["SessionState"] | null;
+        };
+        /** SessionCatalogListResponse */
+        SessionCatalogListResponse: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Sessions */
+            sessions: components["schemas"]["SessionCatalogItemDto"][];
+        };
+        /**
+         * SessionCoachingProjection
+         * @description Content-free current projection; not an immutable historical run.
+         */
+        SessionCoachingProjection: {
+            /**
+             * Projection Key
+             * @default coaching.loop.current
+             */
+            projection_key: string;
+            /**
+             * Projection Version
+             * @default 1
+             */
+            projection_version: number;
+            summary: components["schemas"]["CoachingSummary"];
+            task_context_source: components["schemas"]["CoachingTaskContextSource"];
+            task_type: components["schemas"]["CoachingTaskType"];
+        };
+        /**
+         * SessionEvidenceOrigin
+         * @description How a content-free evidence reference entered the selected window.
+         * @enum {string}
+         */
+        SessionEvidenceOrigin: "direct" | "inherited";
+        /**
+         * SessionMetricAggregation
+         * @description Server-side aggregation contract; ratios must never be client-averaged.
+         * @enum {string}
+         */
+        SessionMetricAggregation: "ratio_of_sums";
+        /**
+         * SessionMetricApplicability
+         * @description Whether the selected redacted analysis window supports a denominator.
+         * @enum {string}
+         */
+        SessionMetricApplicability: "applicable" | "not_applicable" | "unknown";
+        /**
+         * SessionMetricDirection
+         * @description Display polarity for one persisted qualitative ratio.
+         * @enum {string}
+         */
+        SessionMetricDirection: "higher_is_better" | "lower_is_better";
+        /** SessionMetricFractionDto */
+        SessionMetricFractionDto: {
+            /** Denominator */
+            denominator: number;
+            /** Numerator */
+            numerator: number;
+        };
+        /**
+         * SessionQualityAggregate
+         * @description Content-free selected-session projection; selected IDs are intentionally absent.
+         */
+        SessionQualityAggregate: {
+            /** Analysis Profile Key */
+            analysis_profile_key: string;
+            /** Analysis Profile Version */
+            analysis_profile_version: number;
+            /** Completed Run Count */
+            completed_run_count: number;
+            /** Duplicate Result Record Count */
+            duplicate_result_record_count: number;
+            integrity_state: components["schemas"]["SessionQualityIntegrityState"];
+            /** Metric Pack Key */
+            metric_pack_key: string;
+            /** Metric Pack Version */
+            metric_pack_version: number;
+            /** Metric Schema Version */
+            metric_schema_version: number;
+            /** Metrics */
+            metrics: components["schemas"]["SessionQualityMetricAggregate"][];
+            /** Missing Run Count */
+            missing_run_count: number;
+            /** Selected Session Count */
+            selected_session_count: number;
+            /** Unexpected Result Record Count */
+            unexpected_result_record_count: number;
+        };
+        /**
+         * SessionQualityAggregateRequest
+         * @description A bounded selection kept in the request body rather than the URL.
+         */
+        SessionQualityAggregateRequest: {
+            /** Session Ids */
+            session_ids: string[];
+        };
+        /**
+         * SessionQualityAggregateState
+         * @enum {string}
+         */
+        SessionQualityAggregateState: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error" | "incompatible";
+        /**
+         * SessionQualityCompatibilityCohort
+         * @description One exact provenance cohort, retained even when the selection is mixed.
+         */
+        SessionQualityCompatibilityCohort: {
+            /** Analyzable Coverage */
+            analyzable_coverage: number;
+            /** Analyzable Eligible Count */
+            analyzable_eligible_count: number;
+            /** Analyzable Observed Count */
+            analyzable_observed_count: number;
+            /** Fraction Denominator */
+            fraction_denominator?: number | null;
+            /** Fraction Numerator */
+            fraction_numerator?: number | null;
+            key: components["schemas"]["SessionQualityCompatibilityKey"];
+            /** Numeric Value */
+            numeric_value?: number | null;
+            /** Result Count */
+            result_count: number;
+            state_counts: components["schemas"]["SessionQualityStateCounts"];
+        };
+        /**
+         * SessionQualityCompatibilityKey
+         * @description Every provenance field that must match before fractions may combine.
+         */
+        SessionQualityCompatibilityKey: {
+            /** Adapter Version */
+            adapter_version: string;
+            aggregation_method: components["schemas"]["SessionMetricAggregation"];
+            /** Algorithm Id */
+            algorithm_id: string;
+            /** Algorithm Version */
+            algorithm_version: string;
+            /** Analysis Profile Key */
+            analysis_profile_key: string;
+            /** Analysis Profile Version */
+            analysis_profile_version: number;
+            /** Consent Policy Version */
+            consent_policy_version: string;
+            /** Content Schema Version */
+            content_schema_version: string;
+            data_tier: components["schemas"]["DataTier"];
+            /** Local Only */
+            local_only: boolean;
+            metric_direction: components["schemas"]["SessionMetricDirection"];
+            /** Metric Engine Version */
+            metric_engine_version: string;
+            /** Metric Key */
+            metric_key: string;
+            /** Metric Pack Key */
+            metric_pack_key: string;
+            /** Metric Pack Version */
+            metric_pack_version: number;
+            /** Metric Schema Version */
+            metric_schema_version: number;
+            metric_source: components["schemas"]["MetricSource"];
+            /** Metric Unit */
+            metric_unit: string;
+            /** Metric Version */
+            metric_version: number;
+            /** Model Id */
+            model_id?: string | null;
+            /** Model License */
+            model_license?: string | null;
+            /** Model Plan Fingerprint */
+            model_plan_fingerprint: string;
+            /** Model Revision */
+            model_revision?: string | null;
+            /** Persistence Schema Version */
+            persistence_schema_version: number;
+            /** Prompt Version */
+            prompt_version?: string | null;
+            provider: components["schemas"]["Provider"];
+            /** Provider Version */
+            provider_version: string;
+            /** Redactor Version */
+            redactor_version: string;
+            /** Rubric Version */
+            rubric_version?: string | null;
+            /** Source Schema Version */
+            source_schema_version: string;
+            /** Tokenizer Id */
+            tokenizer_id?: string | null;
+        };
+        /**
+         * SessionQualityCompatibilityState
+         * @enum {string}
+         */
+        SessionQualityCompatibilityState: "compatible" | "incompatible" | "no_results";
+        /**
+         * SessionQualityIntegrityState
+         * @enum {string}
+         */
+        SessionQualityIntegrityState: "valid" | "incompatible";
+        /** SessionQualityMetricAggregate */
+        SessionQualityMetricAggregate: {
+            aggregate_state: components["schemas"]["SessionQualityAggregateState"];
+            aggregation_method: components["schemas"]["SessionMetricAggregation"];
+            /** Analyzable Coverage */
+            analyzable_coverage?: number | null;
+            /** Analyzable Eligible Count */
+            analyzable_eligible_count?: number | null;
+            /** Analyzable Observed Count */
+            analyzable_observed_count?: number | null;
+            /**
+             * Blocked Reason Codes
+             * @default []
+             */
+            blocked_reason_codes: string[];
+            /**
+             * Compatibility Cohorts
+             * @default []
+             */
+            compatibility_cohorts: components["schemas"]["SessionQualityCompatibilityCohort"][];
+            compatibility_state: components["schemas"]["SessionQualityCompatibilityState"];
+            /** Completed Run Count */
+            completed_run_count: number;
+            /** Fraction Denominator */
+            fraction_denominator?: number | null;
+            /** Fraction Numerator */
+            fraction_numerator?: number | null;
+            /** Invalid Result Record Count */
+            invalid_result_record_count: number;
+            /** Invalid Result Session Count */
+            invalid_result_session_count: number;
+            metric_direction: components["schemas"]["SessionMetricDirection"];
+            /** Metric Key */
+            metric_key: string;
+            /** Metric Unit */
+            metric_unit: string;
+            /** Metric Version */
+            metric_version: number;
+            /** Missing Result Count */
+            missing_result_count: number;
+            /** Missing Run Count */
+            missing_run_count: number;
+            /** Numeric Value */
+            numeric_value?: number | null;
+            /** Present Result Count */
+            present_result_count: number;
+            /** Selected Session Count */
+            selected_session_count: number;
+            state_counts: components["schemas"]["SessionQualityStateCounts"];
+        };
+        /** SessionQualityStateCounts */
+        SessionQualityStateCounts: {
+            /** Abstained */
+            abstained: number;
+            /** Execution Error */
+            execution_error: number;
+            /** Known */
+            known: number;
+            /** Not Applicable */
+            not_applicable: number;
+            /** Unknown */
+            unknown: number;
+        };
+        /**
+         * SessionState
+         * @enum {string}
+         */
+        SessionState: "completed" | "interrupted" | "failed" | "blocked" | "abandoned" | "unknown";
+        /** SessionTextAnalysisCommandResponse */
+        SessionTextAnalysisCommandResponse: {
+            /** Analysis Profile Key */
+            analysis_profile_key: string;
+            /** Analysis Profile Version */
+            analysis_profile_version: number;
+            /** Applied */
+            applied: boolean;
+            /** Result Count */
+            result_count: number;
+            /** Run Id */
+            run_id: string;
+            status: components["schemas"]["AnalysisRunStatus"];
+        };
+        /**
+         * SessionTextAnalysisFailureCode
+         * @description Closed HTTP error vocabulary; values never contain provider data.
+         * @enum {string}
+         */
+        SessionTextAnalysisFailureCode: "redacted_content_consent_required" | "session_not_in_safe_index" | "analysis_idempotency_conflict" | "invalid_analysis_request" | "confirmation_required" | "source_schema_unsupported" | "selection_snapshot_miss" | "source_resource_limit" | "source_timeout" | "provider_unavailable" | "no_analyzable_text" | "provider_protocol_rejected" | "provider_compatibility_blocked" | "analysis_persistence_failed" | "metric_execution_failed";
+        /** SessionTextAnalysisFailureDetail */
+        SessionTextAnalysisFailureDetail: {
+            code: components["schemas"]["SessionTextAnalysisFailureCode"];
+            /** Message */
+            message: string;
+        };
+        /** SessionTextAnalysisFailureResponse */
+        SessionTextAnalysisFailureResponse: {
+            detail: components["schemas"]["SessionTextAnalysisFailureDetail"];
+        };
+        /**
+         * SessionTextAnalysisRequest
+         * @description A named server-owned scope. The API never accepts profile or transcript text.
+         */
+        SessionTextAnalysisRequest: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "analyze_selected_redacted_text";
+            preset_id: components["schemas"]["TextAnalysisPresetId"];
+        };
         /**
          * SignalDirection
          * @description Whether safe discovery evidence supports joining or separating items.
@@ -933,6 +2723,54 @@ export interface components {
         TaskRevisionResponse: {
             task: components["schemas"]["TaskRevisionDto"];
         };
+        /**
+         * TextAnalysisPresetId
+         * @enum {string}
+         */
+        TextAnalysisPresetId: "standard_engineering_v1" | "coaching_profile_v1";
+        /** TextAnalysisResearchCatalogDto */
+        TextAnalysisResearchCatalogDto: {
+            /**
+             * Catalog Key
+             * @constant
+             */
+            catalog_key: "text-analysis-methods";
+            /**
+             * Catalog Read Downloads Models
+             * @constant
+             */
+            catalog_read_downloads_models: false;
+            /**
+             * Catalog Read Starts Session Access
+             * @constant
+             */
+            catalog_read_starts_session_access: false;
+            /** Catalog Version */
+            catalog_version: number;
+            /** Methods */
+            methods: components["schemas"]["AnalysisMethodDto"][];
+            /** Metric Roadmap */
+            metric_roadmap: components["schemas"]["MetricRoadmapItemDto"][];
+            /** Model Candidates */
+            model_candidates: components["schemas"]["ModelCandidateDto"][];
+            /**
+             * Privacy Mode
+             * @constant
+             */
+            privacy_mode: "local_only_redacted_content";
+            /**
+             * Reviewed On
+             * Format: date
+             */
+            reviewed_on: string;
+            /** Sources */
+            sources: components["schemas"]["ResearchSourceDto"][];
+            /**
+             * Summary Policy
+             * @constant
+             */
+            summary_policy: "multidimensional_profile_no_universal_score";
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -942,6 +2780,38 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * VerificationCapability
+         * @description Truthful provider capability shown before any verification claim.
+         */
+        VerificationCapability: {
+            /** Candidate Schema Version */
+            candidate_schema_version?: string | null;
+            /** Classifier Version */
+            classifier_version?: string | null;
+            /** Live Classification Enabled */
+            live_classification_enabled: boolean;
+            /** Normalizer Version */
+            normalizer_version?: string | null;
+            /** Reason Code */
+            reason_code: string;
+            state: components["schemas"]["VerificationCapabilityState"];
+            /**
+             * Supported Kinds
+             * @default []
+             */
+            supported_kinds: components["schemas"]["VerificationKind"][];
+        };
+        /**
+         * VerificationCapabilityState
+         * @enum {string}
+         */
+        VerificationCapabilityState: "supported" | "validation_only" | "unsupported" | "incompatible" | "not_authorized";
+        /**
+         * VerificationKind
+         * @enum {string}
+         */
+        VerificationKind: "test" | "build" | "lint" | "type_check" | "security" | "artifact_validation";
     };
     responses: never;
     parameters: never;
@@ -1039,9 +2909,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CapabilitiesDto"];
                 };
             };
             /** @description Validation Error */
@@ -1545,6 +3413,443 @@ export interface operations {
             };
         };
     };
+    annotate_link_v1_model_link_experiments__run_id__links__link_id__annotations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                run_id: string;
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelLinkAnnotationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkAnnotationDto"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"] | components["schemas"]["SanitizedModelLinkValidationFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+        };
+    };
+    project_sessions_v1_projects__project_id__sessions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                provider?: components["schemas"]["Provider"] | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSessionCatalogResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cached_status_v1_providers__provider__compatibility_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderCompatibilityStatusDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_status_v1_providers__provider__compatibility_check_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderCompatibilityStatusDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    aggregate_selected_session_quality_v1_quality_analysis_aggregate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionQualityAggregateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionQualityAggregate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    aggregate_selected_project_quality_v1_quality_analysis_aggregate_projects_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectQualityAggregateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectQualityAggregate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_analysis_run_detail_v1_quality_analysis_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAnalysisRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_coaching_summary_v1_quality_analysis_runs__run_id__coaching_summary_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionCoachingProjection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_text_analysis_methods_v1_research_text_analysis_methods_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TextAnalysisResearchCatalogDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_text_model_evaluation_v1_research_text_model_evaluations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelEvaluationRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEvaluationJobDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_text_model_evaluation_v1_research_text_model_evaluations__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEvaluationJobDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_text_model_runtime_v1_research_text_model_runtime_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelRuntimeInventoryDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     sessions_v1_sessions_get: {
         parameters: {
             query?: {
@@ -1567,9 +3872,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SessionCatalogListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1606,6 +3909,315 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_experiment_v1_sessions__session_id__model_link_experiments_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelLinkExperimentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkExperimentCommandResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"] | components["schemas"]["SanitizedModelLinkValidationFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+            /** @description Gateway Timeout */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+        };
+    };
+    latest_experiment_v1_sessions__session_id__model_link_experiments_latest_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkExperimentDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SanitizedModelLinkValidationFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+        };
+    };
+    session_analysis_run_list_v1_sessions__session_id__quality_analysis_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAnalysisRunListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_session_analysis_v1_sessions__session_id__quality_analysis_runs_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionTextAnalysisRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisCommandResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"] | components["schemas"]["SanitizedRequestValidationFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+            /** @description Gateway Timeout */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                };
+            };
+        };
+    };
+    latest_session_analysis_run_v1_sessions__session_id__quality_analysis_runs_latest_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAnalysisRunResponse"];
                 };
             };
             /** @description Validation Error */

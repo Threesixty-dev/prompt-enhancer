@@ -1,5 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertSameOriginRelativePath, createHttpTransport, TransportError } from "./httpTransport";
+import type { SessionQualityAnalysisRequest } from "./contracts";
+import {
+  assertSameOriginRelativePath,
+  createHttpTransport,
+  parseProviderCompatibilityStatus,
+  parseSessionTextAnalysisCapability,
+  TransportError,
+} from "./httpTransport";
+import {
+  SYNTHETIC_MODEL_LINK_EXPERIMENT,
+  SYNTHETIC_MODEL_LINK_OUTCOME,
+  SYNTHETIC_SESSION_QUALITY_RUN,
+} from "./syntheticFixtures";
+import { SYNTHETIC_TEXT_ANALYSIS_RESEARCH } from "./syntheticResearchFixture";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -9,8 +22,192 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const AUTH_RESPONSE = { csrf_token: "synthetic-csrf-token", expires_in_seconds: 300 };
+const CONTENT_FREE_ANALYSIS_REQUEST: SessionQualityAnalysisRequest = {
+  confirmation: "analyze_selected_redacted_text",
+  preset_id: "coaching_profile_v1",
+};
+const PROVIDER_COMPATIBILITY = {
+  provider: "codex",
+  capability: "session_text_analysis",
+  state: "exact",
+  capability_state: "supported",
+  provider_family: "codex_app_server",
+  provider_version: "1.2.3",
+  adapter_family: "codex_app_server",
+  adapter_version: "2.0.0",
+  source_schema_family: "codex_thread",
+  source_schema_version: "1",
+  content_schema_family: "codex_thread_items",
+  content_schema_version: "1",
+  reason_code: "exact_match",
+  checked_at: "2040-01-01T10:00:00Z",
+  update_support: "unsupported",
+  update_target: null,
+} as const;
 
 describe("same-origin HTTP transport", () => {
+  it("runs, reads, and annotates the selected-session model experiment through exact local routes", async () => {
+    const annotation = {
+      link_id: "b".repeat(64),
+      revision: 1,
+      label: "relevant",
+      annotated_at: "2040-01-03T09:02:00Z",
+    } as const;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(SYNTHETIC_MODEL_LINK_OUTCOME))
+      .mockResolvedValueOnce(jsonResponse(SYNTHETIC_MODEL_LINK_EXPERIMENT))
+      .mockResolvedValueOnce(jsonResponse(annotation));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const sessionId = "5".repeat(64);
+    const runId = "a".repeat(64);
+    const linkId = "b".repeat(64);
+
+    await transport.startModelLinkExperiment(
+      sessionId,
+      {
+        confirmation: "compare_selected_redacted_text_with_local_models",
+        device: "auto",
+      },
+      "dashboard-model-link-experiment-example",
+    );
+    await transport.getLatestModelLinkExperiment(sessionId);
+    await transport.annotateModelLink(runId, linkId, {
+      label: "relevant",
+      expected_revision: 0,
+    });
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/sessions/${sessionId}/model-link-experiments`,
+    );
+    expect(fetchMock.mock.calls[1][1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          confirmation: "compare_selected_redacted_text_with_local_models",
+          device: "auto",
+        }),
+        headers: expect.objectContaining({
+          "Idempotency-Key": "dashboard-model-link-experiment-example",
+          "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+        }),
+      }),
+    );
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      `/v1/sessions/${sessionId}/model-link-experiments/latest`,
+    );
+    expect(fetchMock.mock.calls[3][0]).toBe(
+      `/v1/model-link-experiments/${runId}/links/${linkId}/annotations`,
+    );
+  });
+
+  it("projects only allowlisted model-experiment failure codes", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            detail: {
+              code: "local_model_execution_failed",
+              message: "SYNTHETIC_PRIVATE_CANARY",
+            },
+          },
+          503,
+        ),
+      );
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const error = await transport
+      .startModelLinkExperiment(
+        "5".repeat(64),
+        {
+          confirmation: "compare_selected_redacted_text_with_local_models",
+          device: "auto",
+        },
+        "dashboard-model-link-experiment-example",
+      )
+      .catch((value: unknown) => value);
+
+    expect(error).toMatchObject({
+      status: 503,
+      reasonCode: "local_model_execution_failed",
+    });
+    expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+  });
+
+  it("reads the content-free research catalog without a mutation", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(SYNTHETIC_TEXT_ANALYSIS_RESEARCH));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getTextAnalysisResearch?.()).resolves.toEqual(
+      SYNTHETIC_TEXT_ANALYSIS_RESEARCH,
+    );
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/research/text-analysis-methods");
+    expect(fetchMock.mock.calls[1][1]).toEqual(
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("starts only an explicit local synthetic model job with CSRF", async () => {
+    const runtime = {
+      preferred_device: "cuda",
+      cuda_available: true,
+      mps_available: false,
+      cpu_available: true,
+      cuda_memory_mb: 16384,
+      one_model_at_a_time: true,
+      subprocess_isolation: true,
+      raw_session_data_accepted: false,
+    } as const;
+    const job = {
+      job_id: "a".repeat(32),
+      status: "queued",
+      candidate: {
+        candidate: "all",
+        device: "auto",
+        mode: "full",
+        allow_download: false,
+      },
+      created_at: "2040-01-01T00:00:00Z",
+      started_at: null,
+      completed_at: null,
+      resolved_device: null,
+      error_code: null,
+      outcomes: [],
+    } as const;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(runtime))
+      .mockResolvedValueOnce(jsonResponse(job, 202));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getTextModelRuntime?.()).resolves.toEqual(runtime);
+    await expect(transport.startTextModelEvaluation?.(job.candidate)).resolves.toEqual(job);
+    expect(fetchMock.mock.calls[2][0]).toBe("/v1/research/text-model-evaluations");
+    expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify(job.candidate),
+      headers: expect.objectContaining({
+        "Content-Type": "application/json",
+        "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+      }),
+    }));
+  });
+
   it.each([
     "https://outside.invalid/v1/discovery/candidates",
     "//outside.invalid/v1/discovery/candidates",
@@ -71,6 +268,222 @@ describe("same-origin HTTP transport", () => {
     });
 
     await expect(transport.listCandidates()).rejects.toMatchObject({ status: 200 });
+  });
+
+  it("derives a content-free text-analysis capability only from coherent privacy fields", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          session_text_analysis: true,
+          session_text_analysis_data_tier: "redacted_content",
+          session_text_content_persistence: false,
+          codex_local_source: true,
+          network_inference: false,
+          raw_transcripts: false,
+          unrelated_server_field: "discarded",
+        }),
+      );
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getSessionTextAnalysisCapability()).resolves.toEqual({
+      available: true,
+      reason_code: "available",
+      data_tier: "redacted_content",
+      content_persistence: false,
+      network_inference: false,
+      raw_transcripts: false,
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/capabilities");
+  });
+
+  it("fails closed on malformed or contradictory text-analysis capabilities", () => {
+    expect(() =>
+      parseSessionTextAnalysisCapability({
+        session_text_analysis: true,
+        session_text_analysis_data_tier: null,
+        session_text_content_persistence: false,
+        codex_local_source: true,
+        network_inference: false,
+        raw_transcripts: false,
+      }),
+    ).toThrow(TransportError);
+    expect(() =>
+      parseSessionTextAnalysisCapability({
+        session_text_analysis: false,
+        session_text_analysis_data_tier: null,
+        session_text_content_persistence: false,
+        codex_local_source: false,
+        network_inference: true,
+        raw_transcripts: false,
+      }),
+    ).toThrow(TransportError);
+  });
+
+  it("parses only an exact coherent content-free provider compatibility DTO", () => {
+    expect(parseProviderCompatibilityStatus(PROVIDER_COMPATIBILITY)).toEqual(
+      PROVIDER_COMPATIBILITY,
+    );
+    expect(() =>
+      parseProviderCompatibilityStatus(PROVIDER_COMPATIBILITY, "claude_code"),
+    ).toThrow(TransportError);
+    expect(() =>
+      parseProviderCompatibilityStatus({
+        ...PROVIDER_COMPATIBILITY,
+        private_provider_detail: "PRIVATE-CANARY",
+      }),
+    ).toThrow(TransportError);
+    expect(() =>
+      parseProviderCompatibilityStatus({
+        ...PROVIDER_COMPATIBILITY,
+        capability_state: "unsupported",
+      }),
+    ).toThrow(TransportError);
+    expect(() =>
+      parseProviderCompatibilityStatus({
+        ...PROVIDER_COMPATIBILITY,
+        provider_family: "private-hostname",
+      }),
+    ).toThrow(TransportError);
+    expect(() =>
+      parseProviderCompatibilityStatus({
+        ...PROVIDER_COMPATIBILITY,
+        adapter_version: "C:/Users/example",
+      }),
+    ).toThrow(TransportError);
+  });
+
+  it("loads cached compatibility and checks it only through an explicit mutation", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(PROVIDER_COMPATIBILITY))
+      .mockResolvedValueOnce(jsonResponse(PROVIDER_COMPATIBILITY));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await transport.getProviderCompatibility?.("codex");
+    await transport.checkProviderCompatibility?.("codex");
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/v1/providers/codex/compatibility",
+    );
+    expect(fetchMock.mock.calls[1][1]).toEqual(
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock.mock.calls[1][1]?.headers).not.toEqual(
+      expect.objectContaining({ "X-Prompt-Enhancer-CSRF": expect.anything() }),
+    );
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      "/v1/providers/codex/compatibility/check",
+    );
+    expect(fetchMock.mock.calls[2][1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    "provider_unavailable",
+    "no_analyzable_text",
+    "provider_protocol_rejected",
+    "provider_compatibility_blocked",
+  ] as const)("extracts allowlisted detail code %s without forwarding server messages", async (code) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            detail: {
+              code,
+              message: "PRIVATE-SERVER-CONTENT-CANARY",
+            },
+            reason_code: "metric_execution_failed",
+          },
+          503,
+        ),
+      );
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const error = await transport
+      .startSessionQualityAnalysis(
+        "5".repeat(64),
+        CONTENT_FREE_ANALYSIS_REQUEST,
+        `dashboard-quality-analysis-safe-error-${code}`,
+      )
+      .catch((value: unknown) => value);
+    expect(error).toMatchObject({
+      status: 503,
+      reasonCode: code,
+    });
+    expect(String(error)).not.toContain("PRIVATE-SERVER-CONTENT-CANARY");
+  });
+
+  it("ignores unknown, top-level, and raw safe-looking error details", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            detail: { code: "PRIVATE_UNKNOWN_CODE", message: "provider_unavailable" },
+            reason_code: "provider_unavailable",
+          },
+          503,
+        ),
+      );
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const error = await transport
+      .startSessionQualityAnalysis(
+        "5".repeat(64),
+        CONTENT_FREE_ANALYSIS_REQUEST,
+        "dashboard-quality-analysis-unknown-error",
+      )
+      .catch((value: unknown) => value);
+    expect(error).toMatchObject({ status: 503, reasonCode: null });
+  });
+
+  it("loads a project-scoped bounded session page", async () => {
+    const projectId = "4".repeat(64);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          sessions: [],
+          limit: 25,
+          offset: 50,
+          total: 75,
+          has_more: false,
+        }),
+      );
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const response = await transport.listProjectSessions(projectId, 25, 50);
+
+    expect(response).toMatchObject({ total: 75, has_more: false });
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/projects/${projectId}/sessions?provider=codex&limit=25&offset=50`,
+    );
+    expect(fetchMock.mock.calls[1][1]).toEqual(
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it("keeps CSRF in memory and attaches it only to mutations", async () => {
@@ -163,5 +576,149 @@ describe("same-origin HTTP transport", () => {
         "X-Prompt-Enhancer-CSRF": "synthetic-refreshed-csrf-token",
       }),
     );
+  });
+
+  it("reads latest and detail quality snapshots without initiating an analysis", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(SYNTHETIC_SESSION_QUALITY_RUN))
+      .mockResolvedValueOnce(jsonResponse(SYNTHETIC_SESSION_QUALITY_RUN))
+      .mockResolvedValueOnce(jsonResponse({ projection_key: "coaching.loop.current" }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await transport.getLatestSessionQualityAnalysis("5".repeat(64));
+    await transport.getSessionQualityAnalysisRun("6".repeat(64));
+    await transport.getSessionCoachingSummary!("6".repeat(64));
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/sessions/${"5".repeat(64)}/quality-analysis-runs/latest`,
+    );
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      `/v1/quality-analysis/runs/${"6".repeat(64)}`,
+    );
+    expect(fetchMock.mock.calls[3][0]).toBe(
+      `/v1/quality-analysis/runs/${"6".repeat(64)}/coaching-summary`,
+    );
+    expect(fetchMock.mock.calls[3][1]).toEqual(
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock.mock.calls[1][1]).toEqual(
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock.mock.calls[1][1]?.headers).not.toEqual(
+      expect.objectContaining({ "Idempotency-Key": expect.anything() }),
+    );
+  });
+
+  it("posts the exact reviewed quality request with in-memory CSRF and idempotency", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run_id: "6".repeat(64),
+          status: "completed",
+          result_count: 20,
+          applied: true,
+          analysis_profile_key: "coaching_profile",
+          analysis_profile_version: 1,
+        }),
+      );
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const request: SessionQualityAnalysisRequest = {
+      confirmation: "analyze_selected_redacted_text",
+      preset_id: "coaching_profile_v1",
+    };
+
+    const outcome = await transport.startSessionQualityAnalysis(
+      "5".repeat(64),
+      request,
+      "dashboard-quality-analysis-example",
+    );
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/sessions/${"5".repeat(64)}/quality-analysis-runs`,
+    );
+    const mutation = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(mutation.method).toBe("POST");
+    expect(mutation.headers).toEqual(
+      expect.objectContaining({
+        "Content-Type": "application/json",
+        "Idempotency-Key": "dashboard-quality-analysis-example",
+        "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+      }),
+    );
+    expect(JSON.parse(mutation.body as string)).toEqual(request);
+    expect(outcome).toMatchObject({
+      analysis_profile_key: "coaching_profile",
+      analysis_profile_version: 1,
+    });
+  });
+
+  it("posts a content-free selected-session aggregate without an idempotency key", async () => {
+    const sessionIds = ["5".repeat(64), "6".repeat(64)];
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ selected_session_count: 2 }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await transport.aggregateSessionQuality({ session_ids: sessionIds });
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/quality-analysis/aggregate");
+    const request = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(request.method).toBe("POST");
+    expect(request.headers).toEqual(
+      expect.objectContaining({
+        "Content-Type": "application/json",
+        "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+      }),
+    );
+    expect(request.headers).not.toEqual(
+      expect.objectContaining({ "Idempotency-Key": expect.anything() }),
+    );
+    expect(JSON.parse(request.body as string)).toEqual({ session_ids: sessionIds });
+  });
+
+  it("posts only the closed selected-project comparison scope", async () => {
+    const projectIds = ["7".repeat(64), "8".repeat(64)];
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({ selected_project_count: 2 }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await transport.aggregateProjectQuality({
+      project_ids: projectIds,
+      selection_mode: "all_analyzed_work",
+    });
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/v1/quality-analysis/aggregate-projects",
+    );
+    const request = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(request.method).toBe("POST");
+    expect(request.headers).toEqual(
+      expect.objectContaining({
+        "Content-Type": "application/json",
+        "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+      }),
+    );
+    expect(request.headers).not.toEqual(
+      expect.objectContaining({ "Idempotency-Key": expect.anything() }),
+    );
+    expect(JSON.parse(request.body as string)).toEqual({
+      project_ids: projectIds,
+      selection_mode: "all_analyzed_work",
+    });
   });
 });

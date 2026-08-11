@@ -2,19 +2,32 @@ import type {
   AnalysisRun,
   CandidateListItem,
   CandidateStatusFilter,
+  ModelEvaluationJob,
+  ProjectSessionQualityAggregate,
   PromptEnhancerTransport,
   ReviewCommand,
+  SessionQualityAggregate,
   TaskAnalysisResponse,
   TaskRevision,
   TaskReviewResponse,
 } from "./contracts";
 import {
   SYNTHETIC_CANDIDATES,
+  SYNTHETIC_COACHING_METRIC_SPECS,
+  SYNTHETIC_COACHING_PROJECTION,
+  SYNTHETIC_CODEX_SESSIONS,
+  SYNTHETIC_CURRENT_SESSION_QUALITY_RUN,
   SYNTHETIC_RESULTS,
   SYNTHETIC_RUN,
+  SYNTHETIC_QUALITY_PROJECT_ID,
   SYNTHETIC_TASKS,
+  SYNTHETIC_QUALITY_SESSION_ID,
+  SYNTHETIC_PROVIDER_COMPATIBILITY,
+  SYNTHETIC_MODEL_LINK_EXPERIMENT,
+  SYNTHETIC_MODEL_LINK_OUTCOME,
 } from "./syntheticFixtures";
 import { TransportError } from "./httpTransport";
+import { SYNTHETIC_TEXT_ANALYSIS_RESEARCH } from "./syntheticResearchFixture";
 
 function copy<T>(value: T): T {
   return structuredClone(value);
@@ -22,6 +35,219 @@ function copy<T>(value: T): T {
 
 function safeId(sequence: number): string {
   return sequence.toString(16).padStart(64, "0");
+}
+
+function syntheticCoachingProjectAggregate(
+  selectedSessionCount: number,
+): ProjectSessionQualityAggregate {
+  const missingRunCount = Math.max(0, selectedSessionCount - 1);
+  return {
+    analysis_profile_key: "coaching_profile",
+    analysis_profile_version: 1,
+    metric_pack_key: "experimental.redacted-text.coaching",
+    metric_pack_version: 3,
+    metric_schema_version: 2,
+    selected_session_count: selectedSessionCount,
+    completed_run_count: 1,
+    missing_run_count: missingRunCount,
+    integrity_state: "valid",
+    unexpected_result_record_count: 0,
+    duplicate_result_record_count: 0,
+    metrics: SYNTHETIC_COACHING_METRIC_SPECS.map(
+      (definition, index) => {
+        const metricKey = definition.key;
+        const metricVersion = definition.version;
+        const metricUnit = definition.unit;
+        const metricDirection = definition.direction;
+        const abstained = false;
+        const stateCounts = {
+          known: abstained ? 0 : 1,
+          unknown: 0,
+          not_applicable: 0,
+          abstained: abstained ? 1 : 0,
+          execution_error: 0,
+        };
+        const numerator = abstained ? null : 2 + (index % 3);
+        const denominator = abstained ? null : 4;
+        const numericValue =
+          numerator === null || denominator === null
+            ? null
+            : numerator / denominator;
+        const cohort = {
+          compatibility_fingerprint: safeId(800 + index),
+          result_count: 1,
+          state_counts: stateCounts,
+          fraction_numerator: numerator,
+          fraction_denominator: denominator,
+          numeric_value: numericValue,
+          analyzable_observed_count: 4,
+          analyzable_eligible_count: 4,
+          analyzable_coverage: 1,
+        };
+        return {
+          metric_key: metricKey,
+          metric_version: metricVersion,
+          metric_unit: metricUnit,
+          metric_direction: metricDirection,
+          aggregation_method: "ratio_of_sums" as const,
+          compatibility_state: "compatible" as const,
+          aggregate_state: abstained ? ("abstained" as const) : ("known" as const),
+          blocked_reason_codes: [],
+          selected_session_count: selectedSessionCount,
+          completed_run_count: 1,
+          missing_run_count: missingRunCount,
+          present_result_count: 1,
+          missing_result_count: 0,
+          invalid_result_session_count: 0,
+          invalid_result_record_count: 0,
+          state_counts: stateCounts,
+          compatibility_cohorts: [cohort],
+          fraction_numerator: numerator,
+          fraction_denominator: denominator,
+          numeric_value: numericValue,
+          analyzable_observed_count: 4,
+          analyzable_eligible_count: 4,
+          analyzable_coverage: 1,
+        };
+      },
+    ),
+  };
+}
+
+function syntheticQualityAggregate(
+  sessionIds: readonly string[],
+): SessionQualityAggregate {
+  const selected = new Set(sessionIds);
+  if (
+    sessionIds.length < 1 ||
+    sessionIds.length > 100 ||
+    selected.size !== sessionIds.length ||
+    sessionIds.some((value) => !/^[a-f0-9]{64}$/.test(value))
+  ) {
+    throw new TransportError("Synthetic quality selection is invalid", 422);
+  }
+  const hasRun = selected.has(SYNTHETIC_QUALITY_SESSION_ID);
+  const completed = hasRun ? 1 : 0;
+  const missing = sessionIds.length - completed;
+  const run = SYNTHETIC_CURRENT_SESSION_QUALITY_RUN.run;
+  const stateCounts = (state: string) => ({
+    known: state === "known" ? 1 : 0,
+    unknown: state === "unknown" ? 1 : 0,
+    not_applicable: state === "not_applicable" ? 1 : 0,
+    abstained: state === "abstained" ? 1 : 0,
+    execution_error: state === "execution_error" ? 1 : 0,
+  });
+  return {
+    analysis_profile_key: run.analysis_profile_key,
+    analysis_profile_version: run.analysis_profile_version,
+    metric_pack_key: run.metric_pack_key,
+    metric_pack_version: run.metric_pack_version,
+    metric_schema_version: 2,
+    selected_session_count: sessionIds.length,
+    completed_run_count: completed,
+    missing_run_count: missing,
+    integrity_state: "valid",
+    unexpected_result_record_count: 0,
+    duplicate_result_record_count: 0,
+    metrics: SYNTHETIC_CURRENT_SESSION_QUALITY_RUN.results.map((result) => {
+      if (!hasRun) {
+        return {
+          metric_key: result.key,
+          metric_version: result.version,
+          metric_unit: result.unit!,
+          metric_direction: result.direction,
+          aggregation_method: result.aggregation_method,
+          compatibility_state: "no_results",
+          aggregate_state: "unknown",
+          blocked_reason_codes: [],
+          selected_session_count: sessionIds.length,
+          completed_run_count: 0,
+          missing_run_count: sessionIds.length,
+          present_result_count: 0,
+          missing_result_count: 0,
+          invalid_result_session_count: 0,
+          invalid_result_record_count: 0,
+          state_counts: stateCounts("missing"),
+          compatibility_cohorts: [],
+          fraction_numerator: null,
+          fraction_denominator: null,
+          numeric_value: null,
+          analyzable_observed_count: null,
+          analyzable_eligible_count: null,
+          analyzable_coverage: null,
+        };
+      }
+      const counts = stateCounts(result.value_state);
+      const cohort = {
+        key: {
+          metric_pack_key: run.metric_pack_key,
+          metric_pack_version: run.metric_pack_version,
+          analysis_profile_key: run.analysis_profile_key,
+          analysis_profile_version: run.analysis_profile_version,
+          data_tier: run.data_tier,
+          consent_policy_version: run.consent_policy_version,
+          provider: run.provider,
+          provider_version: run.provider_version,
+          adapter_version: run.adapter_version,
+          source_schema_version: run.source_schema_version,
+          content_schema_version: run.content_schema_version,
+          metric_engine_version: run.metric_engine_version,
+          redactor_version: run.redactor_version,
+          model_plan_fingerprint: run.model_plan_fingerprint,
+          persistence_schema_version: run.schema_version,
+          local_only: run.local_only,
+          metric_key: result.key,
+          metric_version: result.version,
+          metric_unit: result.unit!,
+          metric_source: result.source,
+          metric_direction: result.direction,
+          aggregation_method: result.aggregation_method,
+          metric_schema_version: result.metric_schema_version,
+          algorithm_id: result.algorithm_id,
+          algorithm_version: result.algorithm_version,
+          model_id: result.model_id,
+          model_revision: result.model_revision,
+          model_license: result.model_license,
+          tokenizer_id: result.tokenizer_id,
+          prompt_version: result.prompt_version,
+          rubric_version: result.rubric_version,
+        },
+        result_count: 1,
+        state_counts: counts,
+        fraction_numerator: result.fraction?.numerator ?? null,
+        fraction_denominator: result.fraction?.denominator ?? null,
+        numeric_value: result.numeric_value,
+        analyzable_observed_count: result.observed_count,
+        analyzable_eligible_count: result.eligible_count,
+        analyzable_coverage: result.coverage,
+      };
+      return {
+        metric_key: result.key,
+        metric_version: result.version,
+        metric_unit: result.unit!,
+        metric_direction: result.direction,
+        aggregation_method: result.aggregation_method,
+        compatibility_state: "compatible",
+        aggregate_state: result.value_state,
+        blocked_reason_codes: [],
+        selected_session_count: sessionIds.length,
+        completed_run_count: 1,
+        missing_run_count: missing,
+        present_result_count: 1,
+        missing_result_count: 0,
+        invalid_result_session_count: 0,
+        invalid_result_record_count: 0,
+        state_counts: counts,
+        compatibility_cohorts: [cohort],
+        fraction_numerator: result.fraction?.numerator ?? null,
+        fraction_denominator: result.fraction?.denominator ?? null,
+        numeric_value: result.numeric_value,
+        analyzable_observed_count: result.observed_count,
+        analyzable_eligible_count: result.eligible_count,
+        analyzable_coverage: result.coverage,
+      };
+    }),
+  };
 }
 
 function candidateIds(command: ReviewCommand): string[] {
@@ -39,6 +265,50 @@ export function createSyntheticTransport(): PromptEnhancerTransport {
     [SYNTHETIC_RUN.run_id, copy(SYNTHETIC_RESULTS)],
   ]);
   let sequence = 32;
+  let modelLinkExperiment = copy(SYNTHETIC_MODEL_LINK_EXPERIMENT);
+  let modelEvaluationJob: ModelEvaluationJob = {
+    job_id: "a".repeat(32),
+    status: "completed" as const,
+    candidate: {
+      candidate: "all" as const,
+      device: "auto" as const,
+      mode: "full" as const,
+      allow_download: false,
+    },
+    created_at: "2040-01-03T09:00:00Z",
+    started_at: "2040-01-03T09:00:01Z",
+    completed_at: "2040-01-03T09:00:08Z",
+    resolved_device: "cuda" as const,
+    error_code: null,
+    outcomes: [
+      {
+        key: "qwen3_embedding_06b" as const,
+        status: "evaluated" as const,
+        error_code: null,
+        primary_metric: "top1_accuracy",
+        primary_value: 0.75,
+        secondary_metric: "mean_reciprocal_rank",
+        secondary_value: 0.861111,
+        critical_metric: null,
+        critical_value: null,
+        inference_latency_ms: 613.202,
+        peak_accelerator_memory_mb: 1197.371,
+      },
+      {
+        key: "bge_m3" as const,
+        status: "blocked_before_download" as const,
+        error_code: "unsafe_pickle_only" as const,
+        primary_metric: null,
+        primary_value: null,
+        secondary_metric: null,
+        secondary_value: null,
+        critical_metric: null,
+        critical_value: null,
+        inference_latency_ms: null,
+        peak_accelerator_memory_mb: null,
+      },
+    ],
+  };
 
   const findCandidates = (command: ReviewCommand): CandidateListItem[] => {
     const found = candidateIds(command).map((id) =>
@@ -62,8 +332,70 @@ export function createSyntheticTransport(): PromptEnhancerTransport {
   };
 
   return {
+    async getTextAnalysisResearch() {
+      return copy(SYNTHETIC_TEXT_ANALYSIS_RESEARCH);
+    },
+    async getTextModelRuntime() {
+      return {
+        preferred_device: "cuda" as const,
+        cuda_available: true,
+        mps_available: false,
+        cpu_available: true as const,
+        cuda_memory_mb: 16384,
+        one_model_at_a_time: true as const,
+        subprocess_isolation: true as const,
+        raw_session_data_accepted: false as const,
+      };
+    },
+    async startTextModelEvaluation(request) {
+      modelEvaluationJob = {
+        ...modelEvaluationJob,
+        candidate: {
+          candidate: request.candidate ?? "all",
+          device: request.device ?? "auto",
+          mode: request.mode ?? "smoke",
+          allow_download: request.allow_download ?? false,
+        },
+      };
+      return copy(modelEvaluationJob);
+    },
+    async getTextModelEvaluation(jobId) {
+      if (jobId !== modelEvaluationJob.job_id) {
+        throw new TransportError("Synthetic model evaluation was not found", 404);
+      }
+      return copy(modelEvaluationJob);
+    },
+    async getSessionTextAnalysisCapability() {
+      return {
+        available: true,
+        reason_code: "available",
+        data_tier: "redacted_content",
+        content_persistence: false,
+        network_inference: false,
+        raw_transcripts: false,
+      } as const;
+    },
+    async getProviderCompatibility() {
+      return copy(SYNTHETIC_PROVIDER_COMPATIBILITY);
+    },
+    async checkProviderCompatibility() {
+      return copy(SYNTHETIC_PROVIDER_COMPATIBILITY);
+    },
     async getCodexLocalSourceStatus() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+      return {
+        consent_active: true,
+        indexed_sessions: SYNTHETIC_CODEX_SESSIONS.length,
+        indexed_projects: 1,
+        verification_capability: {
+          state: "validation_only" as const,
+          live_classification_enabled: false,
+          supported_kinds: ["test" as const, "build" as const, "type_check" as const],
+          reason_code: "synthetic_validation_only",
+          candidate_schema_version: "synthetic-verification-1",
+          classifier_version: "synthetic-classifier-1",
+          normalizer_version: "synthetic-normalizer-1",
+        },
+      };
     },
     async grantCodexLocalHistoryConsent() {
       throw new TransportError("Local sources are unavailable in synthetic preview", 404);
@@ -86,11 +418,143 @@ export function createSyntheticTransport(): PromptEnhancerTransport {
     async clearManualDisplayLabel() {
       throw new TransportError("Local sources are unavailable in synthetic preview", 404);
     },
-    async listCodexSessions() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+    async listCodexSessions(limit = 100, offset = 0) {
+      return {
+        sessions: copy(SYNTHETIC_CODEX_SESSIONS.slice(offset, offset + limit)),
+        limit,
+        offset,
+      };
     },
-    async getSessionMetrics() {
-      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+    async listProjectSessions(projectId, limit = 100, offset = 0) {
+      const matching = SYNTHETIC_CODEX_SESSIONS.filter(
+        (session) => session.project_id === projectId,
+      );
+      const sessions = matching.slice(offset, offset + limit);
+      return {
+        sessions: copy(sessions),
+        limit,
+        offset,
+        total: matching.length,
+        has_more: offset + sessions.length < matching.length,
+      };
+    },
+    async getSessionMetrics(sessionId: string) {
+      if (!SYNTHETIC_CODEX_SESSIONS.some((session) => session.session_id === sessionId)) {
+        throw new TransportError("Synthetic session was not found", 404);
+      }
+      return { session_id: sessionId, metrics: [] };
+    },
+    async getLatestSessionQualityAnalysis(sessionId: string) {
+      if (sessionId !== SYNTHETIC_QUALITY_SESSION_ID) {
+        throw new TransportError("Synthetic quality analysis run was not found", 404);
+      }
+      return copy(SYNTHETIC_CURRENT_SESSION_QUALITY_RUN);
+    },
+    async getSessionQualityAnalysisRun(runId: string) {
+      if (runId !== SYNTHETIC_CURRENT_SESSION_QUALITY_RUN.run.run_id) {
+        throw new TransportError("Synthetic quality analysis run was not found", 404);
+      }
+      return copy(SYNTHETIC_CURRENT_SESSION_QUALITY_RUN);
+    },
+    async getSessionCoachingSummary(runId) {
+      if (runId !== SYNTHETIC_CURRENT_SESSION_QUALITY_RUN.run.run_id) {
+        throw new TransportError("Synthetic coaching summary was not found", 404);
+      }
+      return copy(SYNTHETIC_COACHING_PROJECTION);
+    },
+    async startSessionQualityAnalysis(sessionId, request) {
+      if (sessionId !== SYNTHETIC_QUALITY_SESSION_ID) {
+        throw new TransportError("Synthetic session was not found", 404);
+      }
+      if (
+        request.confirmation !== "analyze_selected_redacted_text" ||
+        request.preset_id !== "coaching_profile_v1"
+      ) {
+        throw new TransportError("Synthetic quality request is invalid", 422);
+      }
+      return copy({
+        analysis_profile_key: "coaching_profile",
+        analysis_profile_version: 1,
+        applied: false,
+        result_count: SYNTHETIC_CURRENT_SESSION_QUALITY_RUN.results.length,
+        run_id: SYNTHETIC_CURRENT_SESSION_QUALITY_RUN.run.run_id,
+        status: "completed" as const,
+      });
+    },
+    async aggregateSessionQuality(request) {
+      return copy(syntheticQualityAggregate(request.session_ids));
+    },
+    async aggregateProjectQuality(request) {
+      const projectIds = request.project_ids;
+      if (
+        request.selection_mode !== "all_analyzed_work" ||
+        projectIds.length < 1 ||
+        projectIds.length > 25 ||
+        new Set(projectIds).size !== projectIds.length ||
+        projectIds.some((value) => !/^[a-f0-9]{64}$/.test(value))
+      ) {
+        throw new TransportError("Synthetic project quality selection is invalid", 422);
+      }
+      if (projectIds.some((projectId) => projectId !== SYNTHETIC_QUALITY_PROJECT_ID)) {
+        throw new TransportError("Synthetic project quality selection is incomplete", 409);
+      }
+      const sessionIds = SYNTHETIC_CODEX_SESSIONS.filter((session) =>
+        projectIds.includes(session.project_id),
+      ).map((session) => session.session_id);
+      return copy({
+        aggregation_method: "ratio_of_sums" as const,
+        estimand: "per_eligible_opportunity" as const,
+        selected_project_count: projectIds.length,
+        selection_mode: "all_analyzed_work" as const,
+        session_quality: syntheticCoachingProjectAggregate(sessionIds.length),
+      });
+    },
+    async getLatestModelLinkExperiment(sessionId) {
+      if (sessionId !== SYNTHETIC_QUALITY_SESSION_ID) {
+        throw new TransportError("Synthetic model-link experiment was not found", 404);
+      }
+      return copy(modelLinkExperiment);
+    },
+    async startModelLinkExperiment(sessionId) {
+      if (sessionId !== SYNTHETIC_QUALITY_SESSION_ID) {
+        throw new TransportError("Synthetic session was not found", 404);
+      }
+      modelLinkExperiment = copy(SYNTHETIC_MODEL_LINK_EXPERIMENT);
+      return copy({
+        ...SYNTHETIC_MODEL_LINK_OUTCOME,
+        experiment: modelLinkExperiment,
+      });
+    },
+    async annotateModelLink(runId, linkId, request) {
+      if (
+        runId !== modelLinkExperiment.run.run_id ||
+        !modelLinkExperiment.links.some((link) => link.link_id === linkId)
+      ) {
+        throw new TransportError("Synthetic model link was not found", 404);
+      }
+      const current = modelLinkExperiment.annotations.find(
+        (annotation) => annotation.link_id === linkId,
+      );
+      const revision = current?.revision ?? 0;
+      if (revision !== request.expected_revision) {
+        throw new TransportError("Synthetic annotation revision changed", 409);
+      }
+      const annotation = {
+        link_id: linkId,
+        revision: revision + 1,
+        label: request.label,
+        annotated_at: "2040-01-03T09:01:00Z",
+      };
+      modelLinkExperiment = {
+        ...modelLinkExperiment,
+        annotations: [
+          ...modelLinkExperiment.annotations.filter(
+            (item) => item.link_id !== linkId,
+          ),
+          annotation,
+        ],
+      };
+      return copy(annotation);
     },
     async listCandidates(status: CandidateStatusFilter = "all") {
       const filtered =

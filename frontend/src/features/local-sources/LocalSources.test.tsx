@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   CodexIngestionReport,
@@ -8,6 +8,7 @@ import type {
   DisplayLabelEntityKind,
   PromptEnhancerTransport,
   SessionMetric,
+  VerificationCapability,
 } from "../../shared/api/contracts";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
 import { LocalSources } from "./LocalSources";
@@ -17,6 +18,23 @@ const PROJECT_B = "b".repeat(64);
 const SESSION_A = "c".repeat(64);
 const SESSION_B = "d".repeat(64);
 const SESSION_C = "e".repeat(64);
+
+const VALIDATION_CAPABILITY: VerificationCapability = {
+  state: "validation_only",
+  live_classification_enabled: false,
+  classifier_version: "local-command-rules-v1",
+  normalizer_version: "strict-shell-free-v2",
+  candidate_schema_version: "ephemeral-command-v1",
+  supported_kinds: [
+    "test",
+    "build",
+    "lint",
+    "type_check",
+    "security",
+    "artifact_validation",
+  ],
+  reason_code: "provider_adapter_and_holdout_required",
+};
 
 const SESSIONS: CodexSession[] = [
   {
@@ -116,6 +134,8 @@ const METRIC: SessionMetric = {
   eligible_count: 4,
   coverage: 1,
   confidence: 1,
+  metric_pack_key: "core.metadata.session",
+  metric_pack_version: 3,
   metric_engine_version: "synthetic-engine-v1",
   redactor_version: null,
   model_id: null,
@@ -129,6 +149,8 @@ const METRIC: SessionMetric = {
 function createLocalTransport(
   consentActive: boolean,
   sessionRows: CodexSession[] = SESSIONS,
+  metricRows: SessionMetric[] = [METRIC],
+  verificationCapability: VerificationCapability = VALIDATION_CAPABILITY,
 ): {
   transport: PromptEnhancerTransport;
   index: ReturnType<typeof vi.fn>;
@@ -142,12 +164,13 @@ function createLocalTransport(
     consent_active: consentActive,
     indexed_sessions: sessionRows.length,
     indexed_projects: new Set(sessionRows.map((session) => session.project_id)).size,
+    verification_capability: verificationCapability,
   };
   const index = vi.fn(async () => REPORT);
   const analyze = vi.fn(async () => REPORT);
   const metrics = vi.fn(async (sessionId: string) => ({
     session_id: sessionId,
-    metrics: [METRIC],
+    metrics: metricRows,
   }));
   const enrich = vi.fn(async () => LABEL_REPORT);
   const setManual = vi.fn(
@@ -200,10 +223,24 @@ function createLocalTransport(
   };
 }
 
+function renderLocalSources(transport: PromptEnhancerTransport) {
+  const navigate = vi.fn();
+  const rendered = render(
+    <LocalSources navigate={navigate} transport={transport} />,
+  );
+  return { ...rendered, navigate };
+}
+
+async function openAdvancedMaintenance() {
+  const label = await screen.findByText("Advanced source maintenance");
+  fireEvent.click(label.closest("summary")!);
+}
+
 describe("LocalSources", () => {
   it("shows explicit consent state and groups only safe session metadata", async () => {
     const { transport } = createLocalTransport(false);
-    render(<LocalSources transport={transport} />);
+    renderLocalSources(transport);
+    await openAdvancedMaintenance();
 
     expect(await screen.findByRole("heading", { name: "Codex local history" })).toBeVisible();
     expect(screen.getByText("Consent required")).toBeVisible();
@@ -215,11 +252,16 @@ describe("LocalSources", () => {
     expect(screen.getAllByText("Missing label")).toHaveLength(2);
     expect(screen.getAllByRole("checkbox")).toHaveLength(5);
     expect(screen.getByText(/Full paths, previews, prompts/i)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Objective verification evidence" })).toBeVisible();
+    expect(screen.getByText("Calibration required")).toBeVisible();
+    expect(screen.getByText(/Live Codex command inspection is disabled/i)).toBeVisible();
+    expect(screen.getByText(/version-gated provider adapter/i)).toBeVisible();
   });
 
   it("requires an explicit grant before a bounded index", async () => {
     const { transport, index } = createLocalTransport(false);
-    render(<LocalSources transport={transport} />);
+    renderLocalSources(transport);
+    await openAdvancedMaintenance();
 
     const indexButton = await screen.findByRole("button", {
       name: "Refresh content-discarding index",
@@ -240,15 +282,46 @@ describe("LocalSources", () => {
     expect(await screen.findByText("3 sessions indexed.")).toBeVisible();
   });
 
-  it("analyzes a project selection and eagerly refreshes only one session", async () => {
+  it("renders supported and unavailable verification capability states truthfully", async () => {
+    const supported = createLocalTransport(true, SESSIONS, [METRIC], {
+      ...VALIDATION_CAPABILITY,
+      state: "supported",
+      live_classification_enabled: true,
+      reason_code: "private_holdout_passed",
+    });
+    const { unmount } = renderLocalSources(supported.transport);
+
+    expect(await screen.findByText("Locally enabled")).toBeVisible();
+    expect(screen.getByText(/Only categorical, versioned evidence/i)).toBeVisible();
+    unmount();
+
+    const unavailable = createLocalTransport(true, SESSIONS, [METRIC], {
+      state: "unsupported",
+      live_classification_enabled: false,
+      classifier_version: null,
+      normalizer_version: null,
+      candidate_schema_version: null,
+      supported_kinds: [],
+      reason_code: "provider_not_supported",
+    });
+    renderLocalSources(unavailable.transport);
+
+    expect(await screen.findByText("Unavailable", { selector: ".status-pill" })).toBeVisible();
+    expect(
+      screen.getByText(/This provider cannot currently supply validated objective verification evidence/i),
+    ).toBeVisible();
+  });
+
+  it("analyzes a bounded project selection and opens one session workspace", async () => {
     const { transport, analyze, metrics } = createLocalTransport(true);
-    render(<LocalSources transport={transport} />);
+    const { navigate } = renderLocalSources(transport);
+    await openAdvancedMaintenance();
 
     fireEvent.click(
       await screen.findByRole("checkbox", { name: /Example Workspace/ }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Analyze selection" }),
+      screen.getByRole("button", { name: "Import operational metrics" }),
     );
 
     await waitFor(() =>
@@ -258,17 +331,19 @@ describe("LocalSources", () => {
         max_sessions: 10,
       }),
     );
-    expect(await screen.findByText("Turn count")).toBeVisible();
-    expect(metrics).toHaveBeenCalledTimes(1);
-    expect(metrics).toHaveBeenCalledWith(SESSION_A);
-
-    fireEvent.click(screen.getByRole("button", { name: "Refresh metrics" }));
-    await waitFor(() => expect(metrics).toHaveBeenCalledTimes(2));
+    expect(metrics).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith({
+      name: "session_metrics",
+      projectId: PROJECT_A,
+      sessionId: SESSION_A,
+      category: "execution",
+    });
   });
 
   it("uses an explicit bounded selection to find missing labels", async () => {
     const { transport, enrich } = createLocalTransport(true);
-    render(<LocalSources transport={transport} />);
+    renderLocalSources(transport);
+    await openAdvancedMaintenance();
 
     fireEvent.click(
       await screen.findByRole("checkbox", { name: /Unnamed session/ }),
@@ -295,7 +370,8 @@ describe("LocalSources", () => {
 
   it("stores a manual session label locally without renaming Codex", async () => {
     const { transport, setManual } = createLocalTransport(true);
-    render(<LocalSources transport={transport} />);
+    renderLocalSources(transport);
+    await openAdvancedMaintenance();
 
     const editButtons = await screen.findAllByRole("button", {
       name: "Edit local session label",
@@ -331,7 +407,8 @@ describe("LocalSources", () => {
         : session,
     );
     const { transport, clearManual } = createLocalTransport(true, rows);
-    render(<LocalSources transport={transport} />);
+    renderLocalSources(transport);
+    await openAdvancedMaintenance();
 
     const editButtons = await screen.findAllByRole("button", {
       name: "Edit local session label",
@@ -362,7 +439,8 @@ describe("LocalSources", () => {
     ];
 
     const { transport, analyze } = createLocalTransport(true, duplicateRows);
-    render(<LocalSources transport={transport} />);
+    renderLocalSources(transport);
+    await openAdvancedMaintenance();
 
     const projectCheckboxes = await screen.findAllByRole("checkbox", {
       name: /Shared Workspace/,
@@ -373,7 +451,7 @@ describe("LocalSources", () => {
     expect(screen.getAllByRole("checkbox", { name: /Shared Task/ })).toHaveLength(2);
 
     fireEvent.click(projectCheckboxes[1]);
-    fireEvent.click(screen.getByRole("button", { name: "Analyze selection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import operational metrics" }));
 
     await waitFor(() =>
       expect(analyze).toHaveBeenCalledWith({
@@ -382,5 +460,38 @@ describe("LocalSources", () => {
         max_sessions: 10,
       }),
     );
+  });
+
+  it("separates daily project browsing from advanced source maintenance", async () => {
+    const { transport, metrics } = createLocalTransport(true);
+    const { navigate } = renderLocalSources(transport);
+
+    expect(await screen.findByRole("heading", { name: "Browse projects without losing context" })).toBeVisible();
+    const sourceSummary = screen.getByLabelText("Indexed source summary");
+    expect(within(sourceSummary).getByText("2")).toBeVisible();
+    expect(within(sourceSummary).getByText("3")).toBeVisible();
+    expect(screen.getByText("Advanced source maintenance")).toBeVisible();
+    expect(screen.getByText("Example Workspace")).not.toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open project workspace" }));
+    expect(navigate).toHaveBeenCalledWith({ name: "projects" });
+    expect(metrics).not.toHaveBeenCalled();
+  });
+
+  it("opens an exact session metric route without an inline metric read", async () => {
+    const { transport, metrics } = createLocalTransport(true);
+    const { navigate } = renderLocalSources(transport);
+    await openAdvancedMaintenance();
+
+    const metricButtons = await screen.findAllByRole("button", { name: "Open metrics" });
+    fireEvent.click(metricButtons[1]);
+
+    expect(navigate).toHaveBeenCalledWith({
+      name: "session_metrics",
+      projectId: PROJECT_A,
+      sessionId: SESSION_B,
+      category: "execution",
+    });
+    expect(metrics).not.toHaveBeenCalled();
   });
 });

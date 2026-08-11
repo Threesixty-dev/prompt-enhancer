@@ -3,8 +3,32 @@ import type { PromptEnhancerTransport } from "../shared/api/contracts";
 import type { AppRoute, PlatformAdapter } from "../shared/platform/platform";
 import { DiscoveryInbox } from "../features/discovery-inbox/DiscoveryInbox";
 import { LocalSources } from "../features/local-sources/LocalSources";
+import { ProjectCatalog } from "../features/project-catalog";
+import {
+  ProjectWorkspace,
+  type ProjectWorkspaceRoute,
+} from "../features/project-workspace";
 import { TaskDetail } from "../features/task-detail/TaskDetail";
+import { ResearchLab } from "../features/research-lab";
 import { Icon } from "../shared/ui/Icon";
+
+function isProjectWorkspaceRoute(route: AppRoute): route is ProjectWorkspaceRoute {
+  return (
+    route.name === "project_overview" ||
+    route.name === "project_sessions" ||
+    route.name === "project_metrics" ||
+    route.name === "session_metrics"
+  );
+}
+
+function routeTitle(route: AppRoute): string {
+  if (route.name === "discovery") return "Discovery";
+  if (route.name === "local_sources") return "Data source";
+  if (route.name === "projects") return "Projects";
+  if (route.name === "research") return "Methods & models";
+  if (isProjectWorkspaceRoute(route)) return "Project workspace";
+  return "Task analysis";
+}
 
 export function App({
   transport,
@@ -41,9 +65,10 @@ export function App({
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
+    <div className="app-shell" data-layout="responsive-shell">
+      <a className="skip-link" href="#main-content">Skip to dashboard</a>
+      <aside aria-label="Application" className="sidebar">
+        <div aria-label="Prompt Enhancer" className="brand">
           <span className="brand__mark" aria-hidden="true">
             <span />
             <span />
@@ -57,6 +82,23 @@ export function App({
 
         <nav aria-label="Primary" className="primary-nav">
           <p>Workspace</p>
+          <button
+            aria-current={
+              route.name === "projects" || isProjectWorkspaceRoute(route)
+                ? "page"
+                : undefined
+            }
+            className={
+              route.name === "projects" || isProjectWorkspaceRoute(route)
+                ? "primary-nav__item--active"
+                : ""
+            }
+            onClick={() => navigate({ name: "projects" })}
+            type="button"
+          >
+            <Icon name="layers" />
+            <span>Projects</span>
+          </button>
           <button
             aria-current={route.name === "discovery" ? "page" : undefined}
             className={route.name === "discovery" ? "primary-nav__item--active" : ""}
@@ -91,13 +133,17 @@ export function App({
               type="button"
             >
               <Icon name="layers" />
-              <span>Local sources</span>
+              <span>Data source</span>
             </button>
           )}
-          <button aria-disabled="true" className="primary-nav__item--future" disabled type="button">
+          <button
+            aria-current={route.name === "research" ? "page" : undefined}
+            className={route.name === "research" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "research" })}
+            type="button"
+          >
             <Icon name="layers" />
-            <span>Metric catalog</span>
-            <small>Later</small>
+            <span>Methods & models</span>
           </button>
         </nav>
 
@@ -114,18 +160,12 @@ export function App({
         </div>
       </aside>
 
-      <div className="workspace">
+      <div className="workspace" data-route={route.name}>
         <header className="topbar">
-          <div className="topbar__trail">
+          <div aria-label="Current location" className="topbar__trail">
             <span>Personal workspace</span>
             <Icon name="chevron" />
-            <strong>
-              {route.name === "discovery"
-                ? "Discovery"
-                : route.name === "local_sources"
-                  ? "Local sources"
-                  : "Task analysis"}
-            </strong>
+            <strong>{routeTitle(route)}</strong>
           </div>
           <div className="topbar__right">
             <span className="mode-chip"><span /> {mode === "synthetic" ? "Synthetic preview" : "Local mode"}</span>
@@ -134,16 +174,24 @@ export function App({
         </header>
         <p aria-live="polite" className="sr-only">{navigationNotice}</p>
         {navigationNotice && <div className="navigation-notice" role="status">{navigationNotice}</div>}
-        <main id="main-content">
+        <main id="main-content" tabIndex={-1}>
           {route.name === "discovery" ? (
             <DiscoveryInbox
               navigate={navigate}
               onUndecidedCountChange={setUndecidedCount}
               transport={transport}
             />
+          ) : route.name === "projects" ? (
+            <ProjectCatalog navigate={navigate} transport={transport} />
+          ) : isProjectWorkspaceRoute(route) ? (
+            <ProjectWorkspace
+              navigate={navigate}
+              route={route}
+              transport={transport}
+            />
           ) : route.name === "local_sources" ? (
             mode === "local" ? (
-              <LocalSources transport={transport} />
+              <LocalSources navigate={navigate} transport={transport} />
             ) : (
               <section className="local-sources-page">
                 <div className="async-state" role="status">
@@ -162,6 +210,8 @@ export function App({
                 </div>
               </section>
             )
+          ) : route.name === "research" ? (
+            <ResearchLab transport={transport} />
           ) : (
             <TaskDetail
               navigate={navigate}

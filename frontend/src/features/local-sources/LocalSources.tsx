@@ -6,8 +6,8 @@ import type {
   CodexSession,
   DisplayLabelEntityKind,
   PromptEnhancerTransport,
-  SessionMetric,
 } from "../../shared/api/contracts";
+import type { AppRoute } from "../../shared/platform/platform";
 import { Icon } from "../../shared/ui/Icon";
 
 const INDEX_LIMITS = [100, 250, 500] as const;
@@ -81,20 +81,12 @@ interface LabelEditorState {
   revision: number;
 }
 
-function metricValue(metric: SessionMetric): string {
-  if (metric.numeric_value !== null) {
-    const value = Number.isInteger(metric.numeric_value)
-      ? metric.numeric_value.toString()
-      : metric.numeric_value.toFixed(2);
-    return metric.unit ? `${value} ${metric.unit}` : value;
-  }
-  return metric.text_value ?? "Unknown";
-}
-
 export function LocalSources({
   transport,
+  navigate,
 }: {
   transport: PromptEnhancerTransport;
+  navigate: (route: AppRoute) => void;
 }) {
   const [status, setStatus] = useState<CodexLocalSourceStatus | null>(null);
   const [sessions, setSessions] = useState<CodexSession[]>([]);
@@ -115,12 +107,6 @@ export function LocalSources({
   const [selectedSessions, setSelectedSessions] = useState<Set<string>>(
     () => new Set(),
   );
-  const [focusedSession, setFocusedSession] = useState<string | null>(null);
-  const [metricsBySession, setMetricsBySession] = useState<
-    Record<string, SessionMetric[]>
-  >({});
-  const [metricsLoading, setMetricsLoading] = useState<string | null>(null);
-  const [metricsError, setMetricsError] = useState("");
 
   const refreshOverview = useCallback(
     async (signal?: AbortSignal) => {
@@ -168,14 +154,6 @@ export function LocalSources({
     return [...ids];
   }, [selectedProjects, selectedSessions, sessions]);
 
-  const focusedMetrics = focusedSession
-    ? metricsBySession[focusedSession]
-    : undefined;
-  const focusedSessionRecord = focusedSession
-    ? sessions.find((session) => session.session_id === focusedSession)
-    : undefined;
-
-
   async function runStatusAction(action: "grant" | "revoke") {
     setOperation(action);
     setError("");
@@ -221,26 +199,6 @@ export function LocalSources({
     }
   }
 
-  const loadMetrics = useCallback(
-    async (sessionId: string) => {
-      setFocusedSession(sessionId);
-      setMetricsLoading(sessionId);
-      setMetricsError("");
-      try {
-        const response = await transport.getSessionMetrics(sessionId);
-        setMetricsBySession((current) => ({
-          ...current,
-          [sessionId]: response.metrics,
-        }));
-      } catch {
-        setMetricsError("Deterministic metrics could not be loaded.");
-      } finally {
-        setMetricsLoading(null);
-      }
-    },
-    [transport],
-  );
-
   async function analyzeSelection() {
     if (selectedProjects.size === 0 && selectedSessions.size === 0) {
       setError("Select at least one project or session.");
@@ -258,19 +216,21 @@ export function LocalSources({
       setNotice(reportSummary(report, "analyzed"));
       const firstVisibleTarget = selectedSessionIds[0];
       if (firstVisibleTarget !== undefined) {
-        // Analysis can cover hundreds of sessions. Refresh one visible result
-        // eagerly and leave the rest behind each session's explicit Metrics
-        // action so the browser never creates an unbounded request burst.
-        const response = await transport.getSessionMetrics(firstVisibleTarget);
-        setMetricsBySession((current) => ({
-          ...current,
-          [response.session_id]: response.metrics,
-        }));
-        setFocusedSession(firstVisibleTarget);
+        const target = sessions.find(
+          (session) => session.session_id === firstVisibleTarget,
+        );
+        if (target) {
+          navigate({
+            name: "session_metrics",
+            projectId: target.project_id,
+            sessionId: target.session_id,
+            category: "execution",
+          });
+        }
       }
       await refreshOverview();
     } catch {
-      setError("The bounded deterministic analysis could not be completed.");
+      setError("The bounded operational-event import could not be completed.");
     } finally {
       setOperation(null);
     }
@@ -436,7 +396,7 @@ export function LocalSources({
         <div>
           <p className="eyebrow">Private local workflow</p>
           <h1>Local sources</h1>
-          <p>Choose exactly which Codex projects or sessions receive deterministic analysis.</p>
+          <p>Choose exactly which Codex projects or sessions receive local indexing and operational-event analysis.</p>
         </div>
         <div className="page-header__meta">
           <span className="privacy-chip"><Icon name="lock" /> Loopback only</span>
@@ -484,6 +444,16 @@ export function LocalSources({
             <div><dt>Indexed sessions</dt><dd>{status.indexed_sessions}</dd></div>
             <div><dt>Safe projects</dt><dd>{status.indexed_projects}</dd></div>
             <div><dt>Data path</dt><dd>Local only</dd></div>
+            <div>
+              <dt>Verification evidence</dt>
+              <dd>
+                {status.verification_capability.live_classification_enabled
+                  ? "Enabled"
+                  : status.verification_capability.state === "validation_only"
+                    ? "Validation only"
+                    : "Unavailable"}
+              </dd>
+            </div>
           </dl>
           <div className="source-card__actions">
             {status.consent_active ? (
@@ -537,7 +507,94 @@ export function LocalSources({
         </aside>
       </div>
 
-      <section className="source-selection" aria-labelledby="source-selection-title">
+      <section
+        className={`verification-readiness verification-readiness--${status.verification_capability.state}`}
+        aria-labelledby="verification-readiness-title"
+      >
+        <div>
+          <p className="eyebrow">Metric readiness</p>
+          <h2 id="verification-readiness-title">Objective verification evidence</h2>
+        </div>
+        {status.verification_capability.state === "validation_only" ? (
+          <>
+            <span className="status-pill status-pill--warning">Calibration required</span>
+            <p>
+              A local, abstaining ruleset exists for tests, builds, lint, type checks,
+              security scans, and artifact validation. Live Codex command inspection is
+              disabled until a version-gated provider adapter and a private labeled
+              holdout validate the complete boundary. Generic command lifecycle events
+              are not treated as check outcomes.
+            </p>
+            <small>
+              Classifier {status.verification_capability.classifier_version ?? "unknown"}
+              {" · "}no command text, paths, or output are persisted or sent online.
+            </small>
+          </>
+        ) : status.verification_capability.live_classification_enabled ? (
+          <>
+            <span className="status-pill status-pill--positive">Locally enabled</span>
+            <p>
+              Selected command candidates can be classified locally. Only categorical,
+              versioned evidence may cross the transient classifier boundary.
+            </p>
+          </>
+        ) : (
+          <>
+            <span className="status-pill status-pill--neutral">Unavailable</span>
+            <p>
+              This provider cannot currently supply validated objective verification
+              evidence. Verification metrics remain unknown rather than inferred.
+            </p>
+          </>
+        )}
+      </section>
+
+      <section className="source-safety-note" aria-labelledby="coaching-evidence-boundary-title">
+        <span className="source-safety-note__icon"><Icon name="activity" /></span>
+        <div>
+          <strong id="coaching-evidence-boundary-title">Current real-session evidence boundary</strong>
+          <p>
+            The documented Codex text projection currently exposes request, response,
+            and plan messages. That can support at most 13 of the 20 Coaching v1
+            attempts before task-specific denominators. Decision, action, feedback,
+            and objective-verification metrics remain Unknown or Abstained, so Logic
+            and Outcome radars may be withheld. A model is never used to invent that
+            missing objective evidence.
+          </p>
+        </div>
+      </section>
+
+      <section className="project-launchpad" aria-labelledby="project-launchpad-title">
+        <div>
+          <p className="eyebrow">Daily analysis workspace</p>
+          <h2 id="project-launchpad-title">Browse projects without losing context</h2>
+          <p>
+            Open the project workspace to switch sessions and metric views from one
+            persistent navigation surface. Source administration stays separate here.
+          </p>
+        </div>
+        <div className="project-launchpad__facts" aria-label="Indexed source summary">
+          <span><strong>{status.indexed_projects}</strong> projects</span>
+          <span><strong>{status.indexed_sessions}</strong> sessions</span>
+        </div>
+        <button
+          className="button button--primary"
+          onClick={() => navigate({ name: "projects" })}
+          type="button"
+        >
+          Open project workspace
+        </button>
+      </section>
+
+      <details className="source-maintenance">
+        <summary>
+          <span>
+            <strong>Advanced source maintenance</strong>
+            <small>Operational metrics, label discovery, and local label overrides</small>
+          </span>
+          <span className="status-pill">Open controls</span>
+        </summary>
+        <section className="source-selection" aria-labelledby="source-selection-title">
         <div className="section-heading">
           <div>
             <p className="eyebrow">Analysis scope</p>
@@ -567,7 +624,7 @@ export function LocalSources({
               onClick={() => void analyzeSelection()}
               type="button"
             >
-              {operation === "analyze" ? "Analyzing..." : "Analyze selection"}
+              {operation === "analyze" ? "Importing operational metrics..." : "Import operational metrics"}
             </button>
           </div>
         </div>
@@ -712,6 +769,18 @@ export function LocalSources({
                         {labelOriginText(projectOrigin)}
                       </span>
                       <button
+                        className="button button--secondary button--compact"
+                        onClick={() =>
+                          navigate({
+                            name: "project_overview",
+                            projectId,
+                          })
+                        }
+                        type="button"
+                      >
+                        Open project
+                      </button>
+                      <button
                         aria-label="Edit local project label"
                         className="button button--secondary button--compact"
                         disabled={operation !== null}
@@ -774,10 +843,17 @@ export function LocalSources({
                         <span className="status-pill">{session.terminal_state ?? "State unknown"}</span>
                         <button
                           className="button button--secondary"
-                          onClick={() => void loadMetrics(session.session_id)}
+                          onClick={() =>
+                            navigate({
+                              name: "session_metrics",
+                              projectId: session.project_id,
+                              sessionId: session.session_id,
+                              category: "execution",
+                            })
+                          }
                           type="button"
                         >
-                          Metrics
+                          Open metrics
                         </button>
                       </li>
                     ))}
@@ -787,58 +863,8 @@ export function LocalSources({
             })}
           </div>
         )}
-      </section>
-
-      {focusedSession && (
-        <section className="session-metrics" aria-labelledby="session-metrics-title">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Deterministic output</p>
-              <h2 id="session-metrics-title">{displayName(focusedSessionRecord?.session_display_name, "Unnamed session")}</h2>
-              <p>Session metrics - <span className="mono">Session ID {shortId(focusedSession)}</span></p>
-            </div>
-            <button
-              className="button button--secondary"
-              disabled={metricsLoading === focusedSession}
-              onClick={() => void loadMetrics(focusedSession)}
-              type="button"
-            >
-              {metricsLoading === focusedSession ? "Refreshing..." : "Refresh metrics"}
-            </button>
-          </div>
-          {metricsError && <p className="local-source-error" role="alert">{metricsError}</p>}
-          {metricsLoading === focusedSession && focusedMetrics === undefined ? (
-            <div className="async-state" role="status"><span className="spinner" /><span>Loading deterministic metrics...</span></div>
-          ) : focusedMetrics?.length ? (
-            <div className="local-metric-grid">
-              {focusedMetrics.map((metric) => (
-                <article className="local-metric-card" key={`${metric.key}@${metric.version}`}>
-                  <div>
-                    <span className="status-pill">{metric.dimension}</span>
-                    <small>{metric.source}</small>
-                  </div>
-                  <h3>{metric.display_name}</h3>
-                  <strong className="local-metric-card__value">{metricValue(metric)}</strong>
-                  <dl>
-                    <div><dt>Coverage</dt><dd>{Math.round(metric.coverage * 100)}%</dd></div>
-                    <div><dt>Observed</dt><dd>{metric.observed_count}/{metric.eligible_count}</dd></div>
-                    <div><dt>Definition</dt><dd>v{metric.version}</dd></div>
-                  </dl>
-                  <p className="mono">{metric.key}</p>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="no-analysis">
-              <span><Icon name="activity" /></span>
-              <div>
-                <h3>No metrics stored for this session</h3>
-                <p>Select it for analysis, or refresh after a completed run.</p>
-              </div>
-            </div>
-          )}
         </section>
-      )}
+      </details>
     </section>
   );
 }

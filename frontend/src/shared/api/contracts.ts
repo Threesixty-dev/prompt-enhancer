@@ -13,6 +13,29 @@ export type AnalysisRun = Schemas["AnalysisRunDto"];
 export type AnalysisResult = Schemas["AnalysisResultDto"];
 export type AnalysisRunListResponse = Schemas["AnalysisRunListResponse"];
 export type AnalysisRunResponse = Schemas["AnalysisRunResponse"];
+export type SessionAnalysisRun = Schemas["SessionAnalysisRunDto"];
+export type SessionAnalysisResult = Schemas["SessionAnalysisResultDto"];
+export type SessionAnalysisEvidence = Schemas["SessionAnalysisEvidenceDto"];
+export type SessionAnalysisSignal = Schemas["SessionAnalysisSignalDto"];
+export type SessionMetricFraction = Schemas["SessionMetricFractionDto"];
+export type SessionAnalysisRunListResponse =
+  Schemas["SessionAnalysisRunListResponse"];
+export type SessionAnalysisRunResponse = Schemas["SessionAnalysisRunResponse"];
+export type SessionCoachingProjection = Schemas["SessionCoachingProjection"];
+export type SessionQualityAggregate = Schemas["SessionQualityAggregate"];
+export type SessionQualityMetricAggregate =
+  Schemas["SessionQualityMetricAggregate"];
+export type SessionQualityAggregateRequest =
+  Schemas["SessionQualityAggregateRequest"];
+export type ProjectQualityAggregate = Schemas["ProjectQualityAggregate"];
+export type ProjectQualityAggregateRequest =
+  Schemas["ProjectQualityAggregateRequest"];
+export type ProjectSessionQualityAggregate =
+  Schemas["ProjectSessionQualityAggregate"];
+export type ProjectQualityMetricAggregate =
+  Schemas["ProjectQualityMetricAggregate"];
+export type ProjectQualityCompatibilityCohort =
+  Schemas["ProjectQualityCompatibilityCohort"];
 export type TaskReviewResponse = Schemas["TaskReviewResponse"];
 export type TaskAnalysisResponse = Schemas["TaskAnalysisResponse"];
 export type TaskCategory = Schemas["AcceptTaskRequest"]["task_category"];
@@ -26,37 +49,25 @@ export type ReviewCommand =
 
 export type CandidateStatusFilter = "all" | "undecided" | "decided";
 
-export interface CodexLocalSourceStatus {
-  consent_active: boolean;
-  indexed_sessions: number;
-  indexed_projects: number;
-}
+export type VerificationKind = Schemas["VerificationKind"];
+export type VerificationCapability = Schemas["VerificationCapability"];
+export type CodexLocalSourceStatus = Schemas["CodexLocalSourceStatus"];
 
-export interface CodexSession {
-  session_id: string;
-  installation_id: string;
-  project_id: string;
-  project_display_name: string | null;
-  session_display_name: string | null;
-  provider: "codex";
-  project_display_name_origin: "provider" | "manual" | "unknown";
-  session_display_name_origin: "provider" | "manual" | "unknown";
-  project_manual_label_revision: number;
-  session_manual_label_revision: number;
-  provider_version: string | null;
-  adapter_version: string;
-  source_schema_version: string | null;
-  started_at: string;
-  ended_at: string | null;
-  terminal_state: string | null;
-  events_complete: boolean;
-}
-
-export interface CodexSessionListResponse {
-  sessions: CodexSession[];
-  limit: number;
-  offset: number;
-}
+export type CodexSession = Schemas["SessionCatalogItemDto"];
+export type CodexSessionListResponse = Schemas["SessionCatalogListResponse"];
+export type ProjectSessionListResponse =
+  Schemas["ProjectSessionCatalogResponse"];
+export type TextAnalysisResearchCatalog =
+  Schemas["TextAnalysisResearchCatalogDto"];
+export type ModelRuntimeInventory = Schemas["ModelRuntimeInventoryDto"];
+export type ModelEvaluationRequest = Schemas["ModelEvaluationRequestDto"];
+export type ModelEvaluationJob = Schemas["ModelEvaluationJobDto"];
+export type ModelLinkExperiment = Schemas["ModelLinkExperimentDto"];
+export type ModelLinkExperimentRequest = Schemas["ModelLinkExperimentRequest"];
+export type ModelLinkExperimentOutcome =
+  Schemas["ModelLinkExperimentCommandResponse"];
+export type ModelLinkAnnotation = Schemas["ModelLinkAnnotationDto"];
+export type ModelLinkAnnotationRequest = Schemas["ModelLinkAnnotationRequest"];
 
 export interface SessionMetric {
   key: string;
@@ -71,6 +82,8 @@ export interface SessionMetric {
   eligible_count: number;
   coverage: number;
   confidence: number | null;
+  metric_pack_key: string;
+  metric_pack_version: number;
   metric_engine_version: string;
   redactor_version: string | null;
   model_id: string | null;
@@ -84,6 +97,84 @@ export interface SessionMetric {
 export interface SessionMetricResponse {
   session_id: string;
   metrics: SessionMetric[];
+}
+
+export type SessionQualityAnalysisRequest =
+  Schemas["SessionTextAnalysisRequest"];
+export type SessionQualityAnalysisOutcome =
+  Schemas["SessionTextAnalysisCommandResponse"];
+
+export type SessionTextAnalysisUnavailableReason =
+  | "analysis_service_unavailable"
+  | "local_source_unavailable"
+  | "redacted_content_consent_required"
+  | "consent_status_invalid"
+  | "capability_response_invalid"
+  | "synthetic_preview";
+
+/**
+ * Content-free projection of the server capability response. The HTTP adapter
+ * validates all privacy invariants before constructing this value.
+ */
+export type SessionTextAnalysisCapability =
+  | {
+      available: true;
+      reason_code: "available";
+      data_tier: "redacted_content";
+      content_persistence: false;
+      network_inference: false;
+      raw_transcripts: false;
+    }
+  | {
+      available: false;
+      reason_code: SessionTextAnalysisUnavailableReason;
+      data_tier: null;
+      content_persistence: false;
+      network_inference: false;
+      raw_transcripts: false;
+    };
+
+export type ProviderCompatibilityProvider = "codex" | "claude_code" | "synthetic";
+export type ProviderCompatibilityState =
+  | "exact"
+  | "compatible"
+  | "degraded"
+  | "untested"
+  | "incompatible"
+  | "unavailable";
+export type ProviderTextCapabilityState = "supported" | "unsupported" | "unknown";
+export type ProviderCompatibilityReason =
+  | "exact_match"
+  | "compatible_version"
+  | "degraded_extraction"
+  | "not_checked"
+  | "provider_unavailable"
+  | "provider_version_unsupported"
+  | "adapter_outdated"
+  | "source_schema_unsupported"
+  | "content_schema_unsupported"
+  | "check_failed";
+export type ProviderUpdateSupport = "supported" | "unsupported" | "unknown";
+export type ProviderUpdateTarget = "prompt_enhancer" | "provider";
+
+/** Content-free, closed projection of one provider compatibility check. */
+export interface ProviderCompatibilityStatus {
+  provider: ProviderCompatibilityProvider;
+  capability: "session_text_analysis";
+  state: ProviderCompatibilityState;
+  capability_state: ProviderTextCapabilityState;
+  provider_family: string;
+  provider_version: string | null;
+  adapter_family: string;
+  adapter_version: string | null;
+  source_schema_family: string;
+  source_schema_version: string | null;
+  content_schema_family: string;
+  content_schema_version: string | null;
+  reason_code: ProviderCompatibilityReason;
+  checked_at: string | null;
+  update_support: ProviderUpdateSupport;
+  update_target: ProviderUpdateTarget | null;
 }
 
 export interface CodexIngestionReport {
@@ -127,6 +218,29 @@ export interface ManualDisplayLabelResult {
 export type DisplayLabelEntityKind = "project" | "session";
 
 export interface PromptEnhancerTransport {
+  getTextAnalysisResearch?(
+    signal?: AbortSignal,
+  ): Promise<TextAnalysisResearchCatalog>;
+  getTextModelRuntime?(signal?: AbortSignal): Promise<ModelRuntimeInventory>;
+  startTextModelEvaluation?(
+    request: ModelEvaluationRequest,
+    signal?: AbortSignal,
+  ): Promise<ModelEvaluationJob>;
+  getTextModelEvaluation?(
+    jobId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEvaluationJob>;
+  getSessionTextAnalysisCapability(
+    signal?: AbortSignal,
+  ): Promise<SessionTextAnalysisCapability>;
+  getProviderCompatibility?(
+    provider: ProviderCompatibilityProvider,
+    signal?: AbortSignal,
+  ): Promise<ProviderCompatibilityStatus>;
+  checkProviderCompatibility?(
+    provider: ProviderCompatibilityProvider,
+    signal?: AbortSignal,
+  ): Promise<ProviderCompatibilityStatus>;
   getCodexLocalSourceStatus(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
   grantCodexLocalHistoryConsent(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
   revokeCodexLocalHistoryConsent(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
@@ -160,10 +274,58 @@ export interface PromptEnhancerTransport {
     offset?: number,
     signal?: AbortSignal,
   ): Promise<CodexSessionListResponse>;
+  listProjectSessions(
+    projectId: string,
+    limit?: number,
+    offset?: number,
+    signal?: AbortSignal,
+  ): Promise<ProjectSessionListResponse>;
   getSessionMetrics(
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<SessionMetricResponse>;
+  getLatestSessionQualityAnalysis(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<SessionAnalysisRunResponse>;
+  getSessionQualityAnalysisRun(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<SessionAnalysisRunResponse>;
+  getSessionCoachingSummary?(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<SessionCoachingProjection>;
+  startSessionQualityAnalysis(
+    sessionId: string,
+    request: SessionQualityAnalysisRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<SessionQualityAnalysisOutcome>;
+  aggregateSessionQuality(
+    request: SessionQualityAggregateRequest,
+    signal?: AbortSignal,
+  ): Promise<SessionQualityAggregate>;
+  aggregateProjectQuality(
+    request: ProjectQualityAggregateRequest,
+    signal?: AbortSignal,
+  ): Promise<ProjectQualityAggregate>;
+  getLatestModelLinkExperiment(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelLinkExperiment>;
+  startModelLinkExperiment(
+    sessionId: string,
+    request: ModelLinkExperimentRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ModelLinkExperimentOutcome>;
+  annotateModelLink(
+    runId: string,
+    linkId: string,
+    request: ModelLinkAnnotationRequest,
+    signal?: AbortSignal,
+  ): Promise<ModelLinkAnnotation>;
   listCandidates(
     status?: CandidateStatusFilter,
     signal?: AbortSignal,

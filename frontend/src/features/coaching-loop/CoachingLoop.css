@@ -1,0 +1,507 @@
+.coaching-loop {
+  --coaching-accent: var(--teal-700, #176d65);
+  --coaching-line: var(--line, #dfe6e8);
+  --coaching-line-strong: var(--line-strong, #cdd7da);
+  --coaching-soft: var(--surface-soft, #f5f8f8);
+  min-width: 0;
+  padding: clamp(16px, 2vw, 24px);
+  border: 1px solid var(--coaching-line);
+  border-radius: 20px;
+  color: var(--ink-950, #101c23);
+  background:
+    radial-gradient(circle at 6% 0%, rgba(34, 160, 146, 0.08), transparent 28%),
+    var(--surface, #fff);
+  box-shadow: var(--shadow-sm, 0 5px 16px rgba(16, 28, 35, 0.04));
+}
+
+.coaching-loop *,
+.coaching-loop *::before,
+.coaching-loop *::after {
+  box-sizing: border-box;
+}
+
+.coaching-loop__header,
+.coaching-loop__outcome,
+.coaching-loop__prompt,
+.coaching-loop__details summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.coaching-loop__header {
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.coaching-loop__header > div,
+.coaching-loop__prompt > div,
+.coaching-loop__outcome > div {
+  min-width: 0;
+}
+
+.coaching-loop h2,
+.coaching-loop h3,
+.coaching-loop p {
+  margin-top: 0;
+}
+
+.coaching-loop h2 {
+  margin-bottom: 3px;
+  font-size: clamp(1.35rem, 2.4vw, 1.9rem);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.coaching-loop h3 {
+  margin-bottom: 6px;
+  color: var(--ink-900, #17272f);
+  font-size: 0.98rem;
+  line-height: 1.3;
+}
+
+.coaching-loop__header > div > p:last-child,
+.coaching-loop__card > p,
+.coaching-loop__outcome-copy span,
+.coaching-loop__details-grid span {
+  color: var(--ink-650, #4c5f69);
+  line-height: 1.45;
+}
+
+.coaching-loop__header > div > p:last-child {
+  max-width: 720px;
+  margin-bottom: 0;
+}
+
+.coaching-loop__eyebrow {
+  margin-bottom: 4px;
+  color: var(--coaching-accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.coaching-loop__share,
+.coaching-loop__copy,
+.coaching-loop__share-review button {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--coaching-line-strong);
+  border-radius: 10px;
+  color: var(--coaching-accent);
+  background: var(--surface, #fff);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.coaching-loop__share-action {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  max-width: 330px;
+}
+
+.coaching-loop__share-action p {
+  margin: 0;
+  color: var(--ink-650, #4c5f69);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.coaching-loop__share[aria-disabled="true"] {
+  color: var(--ink-500, #596b73);
+  background: var(--coaching-soft);
+  cursor: not-allowed;
+}
+
+.coaching-loop__share-review {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.65fr) minmax(280px, 1.35fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--teal-100, #d9f0eb);
+  border-radius: 14px;
+  background: var(--teal-50, #edf8f5);
+}
+
+.coaching-loop__share-review:focus {
+  outline: 3px solid rgba(27, 129, 117, 0.24);
+  outline-offset: 2px;
+}
+
+.coaching-loop__share-review p {
+  margin: 3px 0 0;
+  color: var(--ink-650, #4c5f69);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.coaching-loop__share-review pre {
+  min-width: 0;
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: 9px;
+  color: var(--ink-800, #25363f);
+  background: var(--surface, #fff);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.coaching-loop__share-review-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.coaching-loop__context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.coaching-loop__context span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--ink-650, #4c5f69);
+  background: var(--coaching-soft);
+  font-size: 0.67rem;
+  font-weight: 720;
+}
+
+.coaching-loop__context span:first-child {
+  color: var(--amber-700, #8b5f12);
+  background: var(--amber-50, #fff8e8);
+}
+
+.coaching-loop button:focus-visible,
+.coaching-loop summary:focus-visible {
+  outline: 3px solid rgba(27, 129, 117, 0.28);
+  outline-offset: 3px;
+}
+
+.coaching-loop__outcome {
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 13px 15px;
+  border: 1px solid var(--teal-100, #d9f0eb);
+  border-radius: 14px;
+  background: var(--teal-50, #edf8f5);
+}
+
+.coaching-loop__outcome--failed {
+  border-color: #f0d3d5;
+  background: var(--red-50, #fff3f3);
+}
+
+.coaching-loop__outcome--mixed {
+  border-color: #eeddb1;
+  background: var(--amber-50, #fff8e8);
+}
+
+.coaching-loop__outcome--unknown,
+.coaching-loop__outcome--abstained,
+.coaching-loop__outcome--not-applicable {
+  align-items: flex-start;
+  border-style: dashed;
+}
+
+.coaching-loop__outcome--unknown {
+  border-color: var(--blue-100, #dceaf4);
+  background: var(--blue-50, #f0f7fb);
+}
+
+.coaching-loop__outcome--abstained {
+  border-color: var(--amber-100, #f8e8bd);
+  background: var(--amber-50, #fff8e8);
+}
+
+.coaching-loop__outcome--not-applicable {
+  border-color: var(--coaching-line-strong);
+  background: var(--coaching-soft);
+}
+
+.coaching-loop__outcome-copy {
+  display: grid;
+  flex: 1 1 420px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.coaching-loop__outcome-copy small,
+.coaching-loop__card small {
+  color: var(--ink-500, #596b73);
+  line-height: 1.35;
+}
+
+.coaching-loop__cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.coaching-loop__card {
+  min-width: 0;
+  min-height: 150px;
+  padding: 14px;
+  border: 1px solid var(--coaching-line);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+}
+
+.coaching-loop__card--unknown,
+.coaching-loop__card--abstained,
+.coaching-loop__card--not-applicable,
+.coaching-loop__prompt--unknown,
+.coaching-loop__prompt--abstained,
+.coaching-loop__prompt--not-applicable {
+  border-style: dashed;
+}
+
+.coaching-loop__card--unknown,
+.coaching-loop__prompt--unknown {
+  border-color: var(--blue-100, #dceaf4);
+  background: var(--blue-50, #f0f7fb);
+}
+
+.coaching-loop__card--abstained,
+.coaching-loop__prompt--abstained {
+  border-color: var(--amber-100, #f8e8bd);
+  background: var(--amber-50, #fff8e8);
+}
+
+.coaching-loop__card--not-applicable,
+.coaching-loop__prompt--not-applicable {
+  border-color: var(--coaching-line-strong);
+  background: var(--coaching-soft);
+}
+
+.coaching-loop__card--experiment {
+  border-color: var(--teal-100, #d9f0eb);
+  background: var(--teal-50, #edf8f5);
+}
+
+.coaching-loop__card > p:not(.coaching-loop__eyebrow) {
+  margin-bottom: 10px;
+  font-size: 0.86rem;
+}
+
+.coaching-loop__experiment-guardrail {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink-650, #4c5f69);
+}
+
+.coaching-loop__card-boundary {
+  display: block;
+  margin: -1px 0 8px;
+  color: var(--amber-700, #8b5f12);
+  font-size: 0.63rem;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.coaching-loop__unavailable {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 9px;
+  border-radius: 10px;
+}
+
+.coaching-loop__unavailable--unknown {
+  color: var(--blue-700, #315f86);
+  background: rgba(220, 234, 244, 0.45);
+}
+
+.coaching-loop__unavailable--abstained {
+  color: var(--amber-700, #8b5f12);
+  background: rgba(248, 232, 189, 0.45);
+}
+
+.coaching-loop__unavailable--not-applicable {
+  color: var(--ink-650, #4c5f69);
+  background: rgba(223, 230, 232, 0.5);
+}
+
+.coaching-loop__state-symbol {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.coaching-loop__unavailable > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.coaching-loop__unavailable > div > strong {
+  color: var(--ink-800, #25363f);
+}
+
+.coaching-loop__unavailable > div > span,
+.coaching-loop__unavailable > div > p {
+  color: var(--ink-650, #4c5f69);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.coaching-loop__unavailable > div > p {
+  margin: 1px 0 0;
+}
+
+.coaching-loop__prompt {
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 13px 14px;
+  border: 1px solid var(--coaching-line);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+}
+
+.coaching-loop__prompt pre {
+  flex: 1 1 520px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--ink-800, #25363f);
+  background: var(--coaching-soft);
+  font-family: inherit;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.coaching-loop__details {
+  border-top: 1px solid var(--coaching-line);
+  border-bottom: 1px solid var(--coaching-line);
+}
+
+.coaching-loop__details summary {
+  align-items: center;
+  padding: 11px 2px;
+  color: var(--ink-800, #25363f);
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.coaching-loop__details summary small {
+  color: var(--ink-500, #596b73);
+  font-weight: 550;
+}
+
+.coaching-loop__details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 0 12px;
+}
+
+.coaching-loop__details-grid > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--coaching-soft);
+  font-size: 0.76rem;
+}
+
+.coaching-loop__boundary {
+  padding-top: 10px;
+  color: var(--ink-500, #596b73);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+@media (max-width: 960px) {
+  .coaching-loop__outcome,
+  .coaching-loop__prompt {
+    flex-wrap: wrap;
+  }
+
+  .coaching-loop__cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .coaching-loop__card--experiment {
+    grid-column: 1 / -1;
+  }
+
+  .coaching-loop__share-review {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .coaching-loop__share-review-actions {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .coaching-loop__header,
+  .coaching-loop__outcome,
+  .coaching-loop__prompt {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .coaching-loop__share,
+  .coaching-loop__copy {
+    width: 100%;
+  }
+
+  .coaching-loop__share-review {
+    grid-template-columns: 1fr;
+  }
+
+  .coaching-loop__share-action {
+    justify-items: stretch;
+    max-width: none;
+  }
+
+  .coaching-loop__share-action p {
+    text-align: left;
+  }
+
+  .coaching-loop__cards,
+  .coaching-loop__details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .coaching-loop__card {
+    min-height: 0;
+  }
+
+  .coaching-loop__card--experiment {
+    grid-column: auto;
+  }
+
+  .coaching-loop__details summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+}

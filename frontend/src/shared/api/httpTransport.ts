@@ -11,24 +11,337 @@ import type {
   DisplayLabelEntityKind,
   PromptEnhancerTransport,
   ManualDisplayLabelResult,
+  ModelLinkAnnotation,
+  ModelLinkAnnotationRequest,
+  ModelLinkExperiment,
+  ModelLinkExperimentOutcome,
+  ModelLinkExperimentRequest,
+  ProjectQualityAggregate,
+  ProjectQualityAggregateRequest,
+  ProjectSessionListResponse,
+  ProviderCompatibilityProvider,
+  ProviderCompatibilityStatus,
   ReviewCommand,
+  SessionAnalysisRunResponse,
+  SessionCoachingProjection,
   SessionMetricResponse,
+  SessionQualityAnalysisOutcome,
+  SessionQualityAnalysisRequest,
+  SessionTextAnalysisCapability,
+  SessionQualityAggregate,
+  SessionQualityAggregateRequest,
   TaskRevisionListResponse,
   TaskRevisionResponse,
   TaskAnalysisResponse,
   TaskReviewResponse,
+  TextAnalysisResearchCatalog,
 } from "./contracts";
 
 type FetchLike = typeof globalThis.fetch;
 
 export class TransportError extends Error {
   readonly status: number;
+  readonly reasonCode: SafeTransportReasonCode | null;
 
-  constructor(message: string, status: number) {
+  constructor(
+    message: string,
+    status: number,
+    reasonCode: SafeTransportReasonCode | null = null,
+  ) {
     super(message);
     this.name = "TransportError";
     this.status = status;
+    this.reasonCode = reasonCode;
   }
+}
+
+export type SafeTransportReasonCode =
+  | "redacted_content_consent_required"
+  | "session_not_in_safe_index"
+  | "analysis_idempotency_conflict"
+  | "invalid_analysis_request"
+  | "confirmation_required"
+  | "source_schema_unsupported"
+  | "selection_snapshot_miss"
+  | "source_resource_limit"
+  | "source_timeout"
+  | "provider_unavailable"
+  | "no_analyzable_text"
+  | "provider_protocol_rejected"
+  | "provider_compatibility_blocked"
+  | "analysis_persistence_failed"
+  | "metric_execution_failed"
+  | "invalid_model_link_request"
+  | "model_link_confirmation_required"
+  | "no_model_link_candidates"
+  | "local_model_execution_failed"
+  | "model_link_persistence_failed"
+  | "model_link_revision_conflict";
+
+const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
+  "redacted_content_consent_required",
+  "session_not_in_safe_index",
+  "analysis_idempotency_conflict",
+  "invalid_analysis_request",
+  "confirmation_required",
+  "source_schema_unsupported",
+  "selection_snapshot_miss",
+  "source_resource_limit",
+  "source_timeout",
+  "provider_unavailable",
+  "no_analyzable_text",
+  "provider_protocol_rejected",
+  "provider_compatibility_blocked",
+  "analysis_persistence_failed",
+  "metric_execution_failed",
+  "invalid_model_link_request",
+  "model_link_confirmation_required",
+  "no_model_link_candidates",
+  "local_model_execution_failed",
+  "model_link_persistence_failed",
+  "model_link_revision_conflict",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function allowlistedReason(value: unknown): SafeTransportReasonCode | null {
+  return typeof value === "string" &&
+    SAFE_TRANSPORT_REASONS.has(value as SafeTransportReasonCode)
+    ? (value as SafeTransportReasonCode)
+    : null;
+}
+
+function safeReasonFromErrorPayload(value: unknown): SafeTransportReasonCode | null {
+  return isRecord(value) && isRecord(value.detail)
+    ? allowlistedReason(value.detail.code)
+    : null;
+}
+
+export function parseSessionTextAnalysisCapability(
+  value: unknown,
+): SessionTextAnalysisCapability {
+  if (
+    !isRecord(value) ||
+    typeof value.session_text_analysis !== "boolean" ||
+    !(
+      value.session_text_analysis_data_tier === "redacted_content" ||
+      value.session_text_analysis_data_tier === null
+    ) ||
+    value.session_text_content_persistence !== false ||
+    typeof value.codex_local_source !== "boolean" ||
+    value.network_inference !== false ||
+    value.raw_transcripts !== false
+  ) {
+    throw new TransportError("Local analysis capability response was invalid", 200);
+  }
+
+  if (value.session_text_analysis) {
+    if (
+      value.session_text_analysis_data_tier !== "redacted_content" ||
+      value.codex_local_source !== true
+    ) {
+      throw new TransportError("Local analysis capability response was invalid", 200);
+    }
+    return {
+      available: true,
+      reason_code: "available",
+      data_tier: "redacted_content",
+      content_persistence: false,
+      network_inference: false,
+      raw_transcripts: false,
+    };
+  }
+
+  if (value.session_text_analysis_data_tier !== null) {
+    throw new TransportError("Local analysis capability response was invalid", 200);
+  }
+  return {
+    available: false,
+    reason_code: value.codex_local_source
+      ? "analysis_service_unavailable"
+      : "local_source_unavailable",
+    data_tier: null,
+    content_persistence: false,
+    network_inference: false,
+    raw_transcripts: false,
+  };
+}
+
+const COMPATIBILITY_KEYS = new Set([
+  "provider",
+  "capability",
+  "state",
+  "capability_state",
+  "provider_family",
+  "provider_version",
+  "adapter_family",
+  "adapter_version",
+  "source_schema_family",
+  "source_schema_version",
+  "content_schema_family",
+  "content_schema_version",
+  "reason_code",
+  "checked_at",
+  "update_support",
+  "update_target",
+]);
+const SAFE_COMPATIBILITY_FAMILY = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const SAFE_COMPATIBILITY_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
+const SAFE_COMPATIBILITY_DATE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function safeNullableVersion(value: unknown): value is string | null {
+  return value === null ||
+    (typeof value === "string" && SAFE_COMPATIBILITY_VERSION.test(value));
+}
+
+const COMPATIBILITY_FAMILIES = {
+  codex: {
+    provider: "codex_app_server",
+    adapter: "codex_app_server",
+    source: "codex_thread",
+    content: "codex_thread_items",
+  },
+  claude_code: {
+    provider: "claude_code",
+    adapter: "claude_code",
+    source: "claude_session",
+    content: "claude_content_blocks",
+  },
+  synthetic: {
+    provider: "synthetic_provider",
+    adapter: "synthetic_adapter",
+    source: "synthetic_session",
+    content: "synthetic_content",
+  },
+} as const;
+
+export function parseProviderCompatibilityStatus(
+  value: unknown,
+  expectedProvider?: ProviderCompatibilityProvider,
+): ProviderCompatibilityStatus {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== COMPATIBILITY_KEYS.size ||
+    Object.keys(value).some((key) => !COMPATIBILITY_KEYS.has(key)) ||
+    !["codex", "claude_code", "synthetic"].includes(value.provider as string) ||
+    value.capability !== "session_text_analysis" ||
+    ![
+      "exact",
+      "compatible",
+      "degraded",
+      "untested",
+      "incompatible",
+      "unavailable",
+    ].includes(value.state as string) ||
+    !["supported", "unsupported", "unknown"].includes(
+      value.capability_state as string,
+    ) ||
+    ![value.provider_family, value.adapter_family, value.source_schema_family, value.content_schema_family].every(
+      (item) => typeof item === "string" && SAFE_COMPATIBILITY_FAMILY.test(item),
+    ) ||
+    ![
+      value.provider_version,
+      value.adapter_version,
+      value.source_schema_version,
+      value.content_schema_version,
+    ].every(safeNullableVersion) ||
+    ![
+      "exact_match",
+      "compatible_version",
+      "degraded_extraction",
+      "not_checked",
+      "provider_unavailable",
+      "provider_version_unsupported",
+      "adapter_outdated",
+      "source_schema_unsupported",
+      "content_schema_unsupported",
+      "check_failed",
+    ].includes(value.reason_code as string) ||
+    !(
+      value.checked_at === null ||
+      (typeof value.checked_at === "string" &&
+        SAFE_COMPATIBILITY_DATE.test(value.checked_at) &&
+        !Number.isNaN(new Date(value.checked_at).valueOf()))
+    ) ||
+    !["supported", "unsupported", "unknown"].includes(
+      value.update_support as string,
+    ) ||
+    !(
+      value.update_target === null ||
+      value.update_target === "prompt_enhancer" ||
+      value.update_target === "provider"
+    )
+  ) {
+    throw new TransportError("Provider compatibility response was invalid", 200);
+  }
+
+  const state = value.state as ProviderCompatibilityStatus["state"];
+  const provider = value.provider as ProviderCompatibilityProvider;
+  const capabilityState =
+    value.capability_state as ProviderCompatibilityStatus["capability_state"];
+  const reason = value.reason_code as ProviderCompatibilityStatus["reason_code"];
+  const checkedAt = value.checked_at as string | null;
+  const updateSupport =
+    value.update_support as ProviderCompatibilityStatus["update_support"];
+  const updateTarget =
+    value.update_target as ProviderCompatibilityStatus["update_target"];
+  const exactVersions = [
+    value.provider_version,
+    value.adapter_version,
+    value.source_schema_version,
+    value.content_schema_version,
+  ].every((item) => typeof item === "string");
+  const expectedFamilies = COMPATIBILITY_FAMILIES[provider];
+  const coherent =
+    ((state === "exact" &&
+      capabilityState === "supported" &&
+      reason === "exact_match" &&
+      checkedAt !== null &&
+      exactVersions) ||
+      (state === "compatible" &&
+        capabilityState === "supported" &&
+        reason === "compatible_version" &&
+        checkedAt !== null &&
+        exactVersions) ||
+      (state === "degraded" &&
+        reason === "degraded_extraction" &&
+        checkedAt !== null) ||
+      (state === "untested" &&
+        capabilityState === "unknown" &&
+        reason === "not_checked" &&
+        checkedAt === null &&
+        updateSupport === "unknown") ||
+      (state === "incompatible" &&
+        capabilityState === "unsupported" &&
+        [
+          "provider_version_unsupported",
+          "adapter_outdated",
+          "source_schema_unsupported",
+          "content_schema_unsupported",
+        ].includes(reason) &&
+        checkedAt !== null) ||
+      (state === "unavailable" &&
+        capabilityState === "unknown" &&
+        ["provider_unavailable", "check_failed"].includes(reason) &&
+        checkedAt !== null)) &&
+    value.provider_family === expectedFamilies.provider &&
+    value.adapter_family === expectedFamilies.adapter &&
+    value.source_schema_family === expectedFamilies.source &&
+    value.content_schema_family === expectedFamilies.content &&
+    (updateSupport === "supported"
+      ? updateTarget !== null
+      : updateTarget === null);
+
+  if (!coherent) {
+    throw new TransportError("Provider compatibility response was invalid", 200);
+  }
+  if (expectedProvider !== undefined && value.provider !== expectedProvider) {
+    throw new TransportError("Provider compatibility response was invalid", 200);
+  }
+  return value as unknown as ProviderCompatibilityStatus;
 }
 
 /**
@@ -127,6 +440,7 @@ export function createHttpTransport(options: {
     path: string,
     init: RequestInit,
     signal?: AbortSignal,
+    readSafeAnalysisReason = false,
   ): Promise<T> {
     const target = assertSameOriginRelativePath(path, origin);
     const method = (init.method ?? "GET").toUpperCase();
@@ -153,7 +467,19 @@ export function createHttpTransport(options: {
     }
 
     if (!response.ok) {
-      throw new TransportError(`Local API request failed (${response.status})`, response.status);
+      let reasonCode: SafeTransportReasonCode | null = null;
+      if (readSafeAnalysisReason && isJsonResponse(response)) {
+        try {
+          reasonCode = safeReasonFromErrorPayload(await response.json());
+        } catch {
+          // Malformed or unexpected server content is deliberately discarded.
+        }
+      }
+      throw new TransportError(
+        `Local API request failed (${response.status})`,
+        response.status,
+        reasonCode,
+      );
     }
     if (!isJsonResponse(response)) {
       throw new TransportError("Local API returned an unexpected content type", response.status);
@@ -162,6 +488,62 @@ export function createHttpTransport(options: {
   }
 
   return {
+    getTextAnalysisResearch(signal) {
+      return request<TextAnalysisResearchCatalog>(
+        "/v1/research/text-analysis-methods",
+        { method: "GET" },
+        signal,
+      );
+    },
+    getTextModelRuntime(signal) {
+      return request(
+        "/v1/research/text-model-runtime",
+        { method: "GET" },
+        signal,
+      );
+    },
+    startTextModelEvaluation(body, signal) {
+      return request(
+        "/v1/research/text-model-evaluations",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        signal,
+      );
+    },
+    getTextModelEvaluation(jobId, signal) {
+      return request(
+        `/v1/research/text-model-evaluations/${encodeURIComponent(jobId)}`,
+        { method: "GET" },
+        signal,
+      );
+    },
+    async getSessionTextAnalysisCapability(signal) {
+      const value = await request<unknown>(
+        "/v1/capabilities",
+        { method: "GET" },
+        signal,
+      );
+      return parseSessionTextAnalysisCapability(value);
+    },
+    async getProviderCompatibility(provider, signal) {
+      const value = await request<unknown>(
+        `/v1/providers/${encodeURIComponent(provider)}/compatibility`,
+        { method: "GET" },
+        signal,
+      );
+      return parseProviderCompatibilityStatus(value, provider);
+    },
+    async checkProviderCompatibility(provider, signal) {
+      const value = await request<unknown>(
+        `/v1/providers/${encodeURIComponent(provider)}/compatibility/check`,
+        { method: "POST" },
+        signal,
+      );
+      return parseProviderCompatibilityStatus(value, provider);
+    },
     getCodexLocalSourceStatus(signal) {
       return request<CodexLocalSourceStatus>(
         "/v1/local-sources/codex",
@@ -257,11 +639,131 @@ export function createHttpTransport(options: {
         signal,
       );
     },
+    listProjectSessions(projectId, limit = 100, offset = 0, signal) {
+      return request<ProjectSessionListResponse>(
+        `/v1/projects/${encodeURIComponent(projectId)}/sessions?provider=codex&limit=${limit}&offset=${offset}`,
+        { method: "GET" },
+        signal,
+      );
+    },
     getSessionMetrics(sessionId, signal) {
       return request<SessionMetricResponse>(
         `/v1/sessions/${encodeURIComponent(sessionId)}/metrics`,
         { method: "GET" },
         signal,
+      );
+    },
+    getLatestSessionQualityAnalysis(sessionId, signal) {
+      return request<SessionAnalysisRunResponse>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/quality-analysis-runs/latest`,
+        { method: "GET" },
+        signal,
+      );
+    },
+    getSessionQualityAnalysisRun(runId, signal) {
+      return request<SessionAnalysisRunResponse>(
+        `/v1/quality-analysis/runs/${encodeURIComponent(runId)}`,
+        { method: "GET" },
+        signal,
+      );
+    },
+    getSessionCoachingSummary(runId, signal) {
+      return request<SessionCoachingProjection>(
+        `/v1/quality-analysis/runs/${encodeURIComponent(runId)}/coaching-summary`,
+        { method: "GET" },
+        signal,
+      );
+    },
+    startSessionQualityAnalysis(
+      sessionId,
+      analysisRequest: SessionQualityAnalysisRequest,
+      idempotencyKey,
+      signal,
+    ) {
+      return request<SessionQualityAnalysisOutcome>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/quality-analysis-runs`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(analysisRequest),
+        },
+        signal,
+        true,
+      );
+    },
+    aggregateSessionQuality(
+      aggregateRequest: SessionQualityAggregateRequest,
+      signal,
+    ) {
+      return request<SessionQualityAggregate>(
+        "/v1/quality-analysis/aggregate",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(aggregateRequest),
+        },
+        signal,
+      );
+    },
+    aggregateProjectQuality(
+      aggregateRequest: ProjectQualityAggregateRequest,
+      signal,
+    ) {
+      return request<ProjectQualityAggregate>(
+        "/v1/quality-analysis/aggregate-projects",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(aggregateRequest),
+        },
+        signal,
+      );
+    },
+    getLatestModelLinkExperiment(sessionId, signal) {
+      return request<ModelLinkExperiment>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/model-link-experiments/latest`,
+        { method: "GET" },
+        signal,
+      );
+    },
+    startModelLinkExperiment(
+      sessionId,
+      experimentRequest: ModelLinkExperimentRequest,
+      idempotencyKey,
+      signal,
+    ) {
+      return request<ModelLinkExperimentOutcome>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/model-link-experiments`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(experimentRequest),
+        },
+        signal,
+        true,
+      );
+    },
+    annotateModelLink(
+      runId,
+      linkId,
+      annotationRequest: ModelLinkAnnotationRequest,
+      signal,
+    ) {
+      return request<ModelLinkAnnotation>(
+        `/v1/model-link-experiments/${encodeURIComponent(runId)}/links/${encodeURIComponent(linkId)}/annotations`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(annotationRequest),
+        },
+        signal,
+        true,
       );
     },
     listCandidates(status = "all", signal) {

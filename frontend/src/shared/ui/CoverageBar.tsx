@@ -12,6 +12,10 @@ export function CoverageBar({
   compact?: boolean;
 }) {
   const boundedCoverage = Math.max(0, Math.min(1, coverage));
+  const ariaPercent =
+    boundedCoverage === 0
+      ? 0
+      : Number((boundedCoverage * 100).toPrecision(6));
   const label =
     eligible === 0
       ? "No eligible evidence"
@@ -27,7 +31,7 @@ export function CoverageBar({
         aria-label={label}
         aria-valuemax={100}
         aria-valuemin={0}
-        aria-valuenow={Math.round(boundedCoverage * 100)}
+        aria-valuenow={ariaPercent}
         className="coverage__track"
         role="progressbar"
       >

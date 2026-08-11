@@ -6,7 +6,7 @@ import type {
   TaskRevision,
 } from "../../shared/api/contracts";
 import type { AppRoute } from "../../shared/platform/platform";
-import { MetricObservationCard } from "../../entities/analysis/MetricObservationCard";
+import { GroupedMetricObservations } from "../../entities/analysis/GroupedMetricObservations";
 import { ProvenancePanel } from "../../entities/analysis/ProvenancePanel";
 import { TaskSummary } from "../../entities/task/TaskSummary";
 import { nextIdempotencyKey } from "../../shared/api/idempotency";
@@ -91,14 +91,23 @@ export function TaskDetail({
                 <h2 id="metrics-heading">Metric observations</h2>
                 <p>Each result keeps its state, coverage, evidence, and definition version.</p>
               </div>
-              {run && <span className={`run-status run-status--${run.status}`}>{run.status}</span>}
+              {run && (
+                <div className="task-analysis-actions">
+                  <button
+                    className="button button--secondary"
+                    disabled={analyzing}
+                    onClick={() => void runAnalysis()}
+                    title="Creates a new immutable run for this task revision; earlier runs remain available"
+                    type="button"
+                  >
+                    <Icon name="activity" /> {analyzing ? "Analyzing..." : "Run latest pack"}
+                  </button>
+                  <span className={`run-status run-status--${run.status}`}>{run.status}</span>
+                </div>
+              )}
             </div>
             {run ? (
-              <div className="metric-grid">
-                {results.map((result) => (
-                  <MetricObservationCard key={`${result.key}-${result.version}`} result={result} />
-                ))}
-              </div>
+              <GroupedMetricObservations results={results} />
             ) : (
               <div className="no-analysis">
                 <span><Icon name="activity" /></span>
