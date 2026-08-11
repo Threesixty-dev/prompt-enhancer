@@ -196,6 +196,38 @@ describe("App discovery navigation", () => {
     ).toBeVisible();
   });
 
+  it("opens a truthful synthetic job centre without inventing queue records", async () => {
+    const transport = createSyntheticTransport();
+    const listJobs = vi.spyOn(transport, "listAnalysisJobs");
+    render(
+      <App
+        platform={createMemoryPlatform()}
+        runtime={syntheticRuntime(transport)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Job centre" }));
+    expect(await screen.findByRole("heading", { name: "Analysis Job Centre" })).toBeVisible();
+    expect(screen.getByText("No jobs ran")).toBeVisible();
+    expect(listJobs).not.toHaveBeenCalled();
+  });
+
+  it("loads the authenticated job centre only after local health succeeds", async () => {
+    const local = localFixtureTransport(async () => HEALTHY_LOCAL_RUNTIME);
+    const listJobs = vi.fn(async () => ({ jobs: [], limit: 25, offset: 0 }));
+    local.listAnalysisJobs = listJobs;
+    render(
+      <App
+        platform={createMemoryPlatform({ name: "analysis_jobs" })}
+        runtime={createRuntimeComposition("local_real", local)}
+      />,
+    );
+
+    expect(await screen.findByLabelText("Local loopback service available")).toBeVisible();
+    expect(await screen.findByText(/no durable jobs match this filter/i)).toBeVisible();
+    expect(listJobs).toHaveBeenCalledWith(null, 25, 0, expect.any(AbortSignal));
+  });
+
   it("renders the fictional project catalog in synthetic preview", async () => {
     const transport = createSyntheticTransport();
     const listSpy = vi.spyOn(transport, "listCodexSessions");

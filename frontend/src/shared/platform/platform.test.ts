@@ -17,6 +17,11 @@ describe("platform routes", () => {
     expect(parseRoute(routePath(route))).toEqual(route);
   });
 
+  it("round-trips the local analysis-job centre route", () => {
+    const route = { name: "analysis_jobs" } as const;
+    expect(parseRoute(routePath(route))).toEqual(route);
+  });
+
   it("round-trips the content-free research lab route", () => {
     const route = { name: "research" } as const;
     expect(parseRoute(routePath(route))).toEqual(route);

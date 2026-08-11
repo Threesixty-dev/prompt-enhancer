@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
+  AnalysisJobState,
   SessionQualityAnalysisPreview,
   SessionQualityAnalysisRequest,
 } from "./contracts";
 import {
   assertSameOriginRelativePath,
   createHttpTransport,
+  parseAnalysisJobPage,
+  parseAnalysisJobRecord,
   parseProviderCapabilityReport,
   parseProviderCompatibilityStatus,
   parseRuntimeHealth,
@@ -74,6 +77,45 @@ function redactionPreview(
       cost_currency: null,
     },
     messages: [{ role: "user", kind: "request", language: "en", text }],
+  };
+}
+
+function analysisJobPayload(
+  state: AnalysisJobState = "queued",
+  overrides: Record<string, unknown> = {},
+) {
+  const terminal = ["completed", "partial", "failed", "cancelled", "superseded"]
+    .includes(state);
+  return {
+    job_id: "1".repeat(64),
+    identity: {
+      kind: "session_quality",
+      provider: "codex",
+      project_id: "3".repeat(64),
+      session_id: "4".repeat(64),
+      input_fingerprint: "5".repeat(64),
+      provenance_fingerprint: "6".repeat(64),
+      metric_keys: ["logic.decomposition_coverage", "prompt.goal_definition"],
+      estimator_plan_version: "example-plan-1",
+      redactor_version: "example-redactor-1",
+      provider_schema_version: "example-schema-1",
+      automation_grant_id: null,
+      local_only: true,
+    },
+    state,
+    stage_number: state === "stage_n" ? 2 : null,
+    progress_completed: state === "completed" ? 2 : 1,
+    progress_total: 2,
+    attempt_count: state === "preprocessing" || state === "stage_n" ? 1 : 0,
+    max_attempts: 3,
+    available_at: "2040-01-01T10:00:00Z",
+    cancel_requested: false,
+    last_error_code: null,
+    terminal_reason_code: terminal ? state : null,
+    created_at: "2040-01-01T09:00:00Z",
+    updated_at: "2040-01-01T10:00:00Z",
+    terminal_at: terminal ? "2040-01-01T10:00:00Z" : null,
+    ...overrides,
   };
 }
 const PROVIDER_COMPATIBILITY = {
@@ -646,6 +688,148 @@ describe("same-origin HTTP transport", () => {
         "f".repeat(64),
       ),
     ).toThrow(TransportError);
+  });
+
+  it.each([
+    "queued", "preprocessing", "stage_n", "awaiting_approval", "completed",
+    "partial", "failed", "cancelled", "superseded",
+  ] as const)("accepts a coherent browser-safe %s job", (state) => {
+    const parsed = parseAnalysisJobRecord(analysisJobPayload(state));
+    expect(parsed.state).toBe(state);
+    expect(parsed).not.toHaveProperty("dedupe_key");
+    expect(parsed).not.toHaveProperty("lease_owner");
+    expect(parsed).not.toHaveProperty("lease_token");
+    expect(parsed).not.toHaveProperty("lease_expires_at");
+  });
+
+  it("rejects job payloads with private extras, remote execution, unsorted metrics, or incoherent runtime state", () => {
+    const extra = {
+      ...analysisJobPayload(),
+      raw_error: "PRIVATE-JOB-ERROR-CANARY",
+    };
+    const remote = analysisJobPayload("queued");
+    (remote.identity as Record<string, unknown>).local_only = false;
+    const unsorted = analysisJobPayload("queued");
+    (unsorted.identity as { metric_keys: string[] }).metric_keys.reverse();
+    const leakedInternalFields = analysisJobPayload("queued", {
+      dedupe_key: "2".repeat(64),
+      lease_owner: "7".repeat(64),
+      lease_token: "8".repeat(64),
+      lease_expires_at: "2040-01-01T10:00:30Z",
+    });
+    const missingTerminal = analysisJobPayload("failed", {
+      terminal_at: null,
+      terminal_reason_code: null,
+    });
+    const wrongStage = analysisJobPayload("stage_n", { stage_number: null });
+
+    for (const value of [
+      extra,
+      remote,
+      unsorted,
+      leakedInternalFields,
+      missingTerminal,
+      wrongStage,
+    ]) {
+      const error = (() => {
+        try {
+          parseAnalysisJobRecord(value);
+          return null;
+        } catch (caught) {
+          return caught;
+        }
+      })();
+      expect(error).toBeInstanceOf(TransportError);
+      expect(String(error)).not.toContain("PRIVATE-JOB-ERROR-CANARY");
+    }
+  });
+
+  it("validates filtered job pages and rejects duplicate or cross-state records", () => {
+    const queued = analysisJobPayload("queued");
+    expect(parseAnalysisJobPage(
+      { jobs: [queued], limit: 25, offset: 0 },
+      25,
+      0,
+      "queued",
+    ).jobs).toHaveLength(1);
+    expect(() => parseAnalysisJobPage(
+      { jobs: [queued, queued], limit: 25, offset: 0 },
+      25,
+      0,
+      "queued",
+    )).toThrow(TransportError);
+    expect(() => parseAnalysisJobPage(
+      { jobs: [analysisJobPayload("failed")], limit: 25, offset: 0 },
+      25,
+      0,
+      "queued",
+    )).toThrow(TransportError);
+  });
+
+  it("lists, opens, resolves latest, and cancels content-free jobs on exact routes", async () => {
+    const queued = analysisJobPayload("queued");
+    const cancelled = analysisJobPayload("cancelled", {
+      terminal_reason_code: "cancellation_requested",
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({ jobs: [queued], limit: 25, offset: 50 }))
+      .mockResolvedValueOnce(privateJsonResponse(queued))
+      .mockResolvedValueOnce(privateJsonResponse(queued))
+      .mockResolvedValueOnce(privateJsonResponse(cancelled));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const page = await transport.listAnalysisJobs("queued", 25, 50);
+    await transport.getAnalysisJob("1".repeat(64));
+    await transport.getLatestSessionAnalysisJob("4".repeat(64));
+    const result = await transport.cancelAnalysisJob("1".repeat(64));
+
+    expect(page.jobs).toHaveLength(1);
+    expect(result.state).toBe("cancelled");
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/v1/analysis-jobs?limit=25&offset=50&state=queued",
+    );
+    expect(fetchMock.mock.calls[2][0]).toBe(`/v1/analysis-jobs/${"1".repeat(64)}`);
+    expect(fetchMock.mock.calls[3][0]).toBe(
+      `/v1/sessions/${"4".repeat(64)}/analysis-jobs/latest`,
+    );
+    expect(fetchMock.mock.calls[4][0]).toBe(
+      `/v1/analysis-jobs/${"1".repeat(64)}/cancellation`,
+    );
+    expect(fetchMock.mock.calls[4][1]).toEqual(expect.objectContaining({
+      cache: "no-store",
+      method: "POST",
+      credentials: "include",
+    }));
+    expect((fetchMock.mock.calls[4][1] as RequestInit).headers).toEqual(
+      expect.objectContaining({
+        "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+      }),
+    );
+  });
+
+  it("fails closed when the job API omits private no-store response headers", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({
+        jobs: [analysisJobPayload("queued")],
+        limit: 25,
+        offset: 0,
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.listAnalysisJobs("queued", 25, 0)).rejects.toThrow(
+      "Private local response was not cache-safe",
+    );
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
+      cache: "no-store",
+    }));
   });
 
   it("strictly validates a local preview and rejects remote, private-extra, drifted, or inconsistent shapes", () => {

@@ -465,6 +465,30 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       }
       return { session_id: sessionId, metrics: [] };
     },
+    async listAnalysisJobs() {
+      throw new TransportError(
+        "Durable jobs are unavailable in synthetic demo mode",
+        501,
+      );
+    },
+    async getAnalysisJob() {
+      throw new TransportError(
+        "Durable jobs are unavailable in synthetic demo mode",
+        501,
+      );
+    },
+    async getLatestSessionAnalysisJob() {
+      throw new TransportError(
+        "Durable jobs are unavailable in synthetic demo mode",
+        501,
+      );
+    },
+    async cancelAnalysisJob() {
+      throw new TransportError(
+        "Durable jobs are unavailable in synthetic demo mode",
+        501,
+      );
+    },
     async getLatestSessionQualityAnalysis(sessionId: string) {
       if (sessionId !== SYNTHETIC_QUALITY_SESSION_ID) {
         throw new TransportError("Synthetic quality analysis run was not found", 404);

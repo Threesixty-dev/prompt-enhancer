@@ -1,4 +1,8 @@
 import type {
+  AnalysisJobIdentity,
+  AnalysisJobPage,
+  AnalysisJobRecord,
+  AnalysisJobState,
   AnalysisRunListResponse,
   AnalysisRunResponse,
   CandidateListResponse,
@@ -89,6 +93,8 @@ export type SafeTransportReasonCode =
   | "redaction_preview_consumed"
   | "redaction_preview_binding_mismatch"
   | "redaction_preview_capacity_reached"
+  | "analysis_job_not_found"
+  | "analysis_job_conflict"
   | "invalid_model_link_request"
   | "model_link_confirmation_required"
   | "no_model_link_candidates"
@@ -117,6 +123,8 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "redaction_preview_consumed",
   "redaction_preview_binding_mismatch",
   "redaction_preview_capacity_reached",
+  "analysis_job_not_found",
+  "analysis_job_conflict",
   "invalid_model_link_request",
   "model_link_confirmation_required",
   "no_model_link_candidates",
@@ -855,6 +863,171 @@ export function parseSessionMetricReadinessReport(
   return value as unknown as SessionMetricReadinessReport;
 }
 
+const ANALYSIS_JOB_STATES = new Set<AnalysisJobState>([
+  "queued", "preprocessing", "stage_n", "awaiting_approval", "completed",
+  "partial", "failed", "cancelled", "superseded",
+]);
+const TERMINAL_ANALYSIS_JOB_STATES = new Set<AnalysisJobState>([
+  "completed", "partial", "failed", "cancelled", "superseded",
+]);
+const ANALYSIS_JOB_PAGE_KEYS = new Set(["jobs", "limit", "offset"]);
+const ANALYSIS_JOB_RECORD_KEYS = new Set([
+  "job_id", "identity", "state", "stage_number",
+  "progress_completed", "progress_total", "attempt_count", "max_attempts",
+  "available_at", "cancel_requested", "last_error_code", "terminal_reason_code",
+  "created_at", "updated_at", "terminal_at",
+]);
+const ANALYSIS_JOB_IDENTITY_KEYS = new Set([
+  "kind", "provider", "project_id", "session_id", "input_fingerprint",
+  "provenance_fingerprint", "metric_keys", "estimator_plan_version",
+  "redactor_version", "provider_schema_version", "automation_grant_id",
+  "local_only",
+]);
+
+function isSafeJobCode(value: unknown): value is string | null {
+  return value === null ||
+    (typeof value === "string" && READINESS_SAFE_TOKEN.test(value));
+}
+
+function isUtcJobTimestamp(value: unknown): value is string {
+  return typeof value === "string" &&
+    /(?:Z|\+00:00)$/.test(value) &&
+    Number.isFinite(Date.parse(value));
+}
+
+function parseAnalysisJobIdentity(value: unknown): AnalysisJobIdentity {
+  if (
+    !isRecord(value) || !hasExactKeys(value, ANALYSIS_JOB_IDENTITY_KEYS) ||
+    !["session_quality", "synthetic_validation"].includes(value.kind as string) ||
+    !["codex", "claude_code", "synthetic"].includes(value.provider as string) ||
+    typeof value.project_id !== "string" || !PSEUDONYM.test(value.project_id) ||
+    typeof value.session_id !== "string" || !PSEUDONYM.test(value.session_id) ||
+    typeof value.input_fingerprint !== "string" || !PSEUDONYM.test(value.input_fingerprint) ||
+    typeof value.provenance_fingerprint !== "string" || !PSEUDONYM.test(value.provenance_fingerprint) ||
+    !Array.isArray(value.metric_keys) || value.metric_keys.length < 1 ||
+    value.metric_keys.length > 100 ||
+    value.metric_keys.some((key) => typeof key !== "string" || !READINESS_SAFE_TOKEN.test(key)) ||
+    new Set(value.metric_keys).size !== value.metric_keys.length ||
+    !sameArray(value.metric_keys, [...value.metric_keys].sort()) ||
+    typeof value.estimator_plan_version !== "string" ||
+    !READINESS_SAFE_TOKEN.test(value.estimator_plan_version) ||
+    typeof value.redactor_version !== "string" ||
+    !READINESS_SAFE_TOKEN.test(value.redactor_version) ||
+    typeof value.provider_schema_version !== "string" ||
+    !READINESS_SAFE_TOKEN.test(value.provider_schema_version) ||
+    !(
+      value.automation_grant_id === null ||
+      (typeof value.automation_grant_id === "string" &&
+        PSEUDONYM.test(value.automation_grant_id))
+    ) ||
+    value.local_only !== true
+  ) {
+    throw new TransportError("Analysis job response was invalid", 200);
+  }
+  return {
+    kind: value.kind as AnalysisJobIdentity["kind"],
+    provider: value.provider as Provider,
+    project_id: value.project_id,
+    session_id: value.session_id,
+    input_fingerprint: value.input_fingerprint,
+    provenance_fingerprint: value.provenance_fingerprint,
+    metric_keys: [...value.metric_keys] as string[],
+    estimator_plan_version: value.estimator_plan_version,
+    redactor_version: value.redactor_version,
+    provider_schema_version: value.provider_schema_version,
+    automation_grant_id: value.automation_grant_id as string | null,
+    local_only: true,
+  };
+}
+
+/** Strictly validate the browser-safe durable job response. */
+export function parseAnalysisJobRecord(
+  value: unknown,
+  expectedJobId?: string,
+): AnalysisJobRecord {
+  if (
+    !isRecord(value) || !hasExactKeys(value, ANALYSIS_JOB_RECORD_KEYS) ||
+    typeof value.job_id !== "string" || !PSEUDONYM.test(value.job_id) ||
+    (expectedJobId !== undefined && value.job_id !== expectedJobId) ||
+    !ANALYSIS_JOB_STATES.has(value.state as AnalysisJobState) ||
+    !Number.isInteger(value.progress_completed) ||
+    (value.progress_completed as number) < 0 ||
+    !Number.isInteger(value.progress_total) ||
+    (value.progress_total as number) < 1 ||
+    (value.progress_total as number) > 1_000_000 ||
+    (value.progress_completed as number) > (value.progress_total as number) ||
+    !Number.isInteger(value.attempt_count) ||
+    (value.attempt_count as number) < 0 || (value.attempt_count as number) > 5 ||
+    !Number.isInteger(value.max_attempts) ||
+    (value.max_attempts as number) < 1 || (value.max_attempts as number) > 5 ||
+    (value.attempt_count as number) > (value.max_attempts as number) ||
+    typeof value.cancel_requested !== "boolean" ||
+    !isUtcJobTimestamp(value.available_at) ||
+    !isUtcJobTimestamp(value.created_at) ||
+    !isUtcJobTimestamp(value.updated_at) ||
+    Date.parse(value.updated_at) < Date.parse(value.created_at) ||
+    !isSafeJobCode(value.last_error_code) ||
+    !isSafeJobCode(value.terminal_reason_code)
+  ) {
+    throw new TransportError("Analysis job response was invalid", 200);
+  }
+  const state = value.state as AnalysisJobState;
+  const terminal = TERMINAL_ANALYSIS_JOB_STATES.has(state);
+  const stageValid = state === "stage_n"
+    ? Number.isInteger(value.stage_number) &&
+      (value.stage_number as number) >= 1 && (value.stage_number as number) <= 32
+    : value.stage_number === null;
+  const terminalValid = terminal
+    ? isUtcJobTimestamp(value.terminal_at) &&
+      typeof value.terminal_reason_code === "string" &&
+      Date.parse(value.terminal_at) >= Date.parse(value.created_at)
+    : value.terminal_at === null && value.terminal_reason_code === null;
+  if (!stageValid || !terminalValid) {
+    throw new TransportError("Analysis job response was invalid", 200);
+  }
+  const identity = parseAnalysisJobIdentity(value.identity);
+  return {
+    job_id: value.job_id,
+    identity,
+    state,
+    stage_number: value.stage_number as number | null,
+    progress_completed: value.progress_completed as number,
+    progress_total: value.progress_total as number,
+    attempt_count: value.attempt_count as number,
+    max_attempts: value.max_attempts as number,
+    available_at: value.available_at,
+    cancel_requested: value.cancel_requested,
+    last_error_code: value.last_error_code as string | null,
+    terminal_reason_code: value.terminal_reason_code as string | null,
+    created_at: value.created_at,
+    updated_at: value.updated_at,
+    terminal_at: value.terminal_at as string | null,
+  };
+}
+
+export function parseAnalysisJobPage(
+  value: unknown,
+  expectedLimit: number,
+  expectedOffset: number,
+  expectedState: AnalysisJobState | null = null,
+): AnalysisJobPage {
+  if (
+    !isRecord(value) || !hasExactKeys(value, ANALYSIS_JOB_PAGE_KEYS) ||
+    value.limit !== expectedLimit || value.offset !== expectedOffset ||
+    !Array.isArray(value.jobs) || value.jobs.length > expectedLimit
+  ) {
+    throw new TransportError("Analysis job page response was invalid", 200);
+  }
+  const jobs = value.jobs.map((job) => parseAnalysisJobRecord(job));
+  if (
+    new Set(jobs.map((job) => job.job_id)).size !== jobs.length ||
+    (expectedState !== null && jobs.some((job) => job.state !== expectedState))
+  ) {
+    throw new TransportError("Analysis job page response was invalid", 200);
+  }
+  return { jobs, limit: expectedLimit, offset: expectedOffset };
+}
+
 const PREVIEW_KEYS = new Set([
   "preview_id", "created_at", "expires_at", "binding", "messages",
 ]);
@@ -1373,6 +1546,55 @@ export function createHttpTransport(options: {
         { method: "GET" },
         signal,
       );
+    },
+    async listAnalysisJobs(state = null, limit = 100, offset = 0, signal) {
+      const query = new URLSearchParams({
+        limit: String(limit),
+        offset: String(offset),
+      });
+      if (state !== null) query.set("state", state);
+      const value = await request<unknown>(
+        `/v1/analysis-jobs?${query.toString()}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return parseAnalysisJobPage(value, limit, offset, state);
+    },
+    async getAnalysisJob(jobId, signal) {
+      const value = await request<unknown>(
+        `/v1/analysis-jobs/${encodeURIComponent(jobId)}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      return parseAnalysisJobRecord(value, jobId);
+    },
+    async getLatestSessionAnalysisJob(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/analysis-jobs/latest`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      const job = parseAnalysisJobRecord(value);
+      if (job.identity.session_id !== sessionId) {
+        throw new TransportError("Analysis job response was invalid", 200);
+      }
+      return job;
+    },
+    async cancelAnalysisJob(jobId, signal) {
+      const value = await request<unknown>(
+        `/v1/analysis-jobs/${encodeURIComponent(jobId)}/cancellation`,
+        { method: "POST" },
+        signal,
+        true,
+        true,
+      );
+      return parseAnalysisJobRecord(value, jobId);
     },
     getLatestSessionQualityAnalysis(sessionId, signal) {
       return request<SessionAnalysisRunResponse>(

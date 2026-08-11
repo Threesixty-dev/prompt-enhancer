@@ -429,10 +429,11 @@ export function AnalyzeLocallyDialog({
                   <h3 id="preview-binding-title">Exact preview binding</h3>
                 </div>
                 <dl>
-                  <div><dt>Destination</dt><dd>Local device only</dd></div>
+                  <div><dt>Provider</dt><dd><code>{preview.binding.provider}</code> · local adapter</dd></div>
+                  <div><dt>Destination</dt><dd><code>{preview.binding.destination}</code> · this device only</dd></div>
                   <div><dt>Exact model</dt><dd><code>{preview.binding.exact_model}</code> · deterministic rules</dd></div>
-                  <div><dt>Retention</dt><dd>Local ephemeral memory · ten minutes</dd></div>
-                  <div><dt>API cost</dt><dd>Not applicable · no remote call</dd></div>
+                  <div><dt>Retention</dt><dd><code>{preview.binding.retention_class}</code> · service memory for ten minutes</dd></div>
+                  <div><dt>API cost</dt><dd><code>{preview.binding.cost_state}</code> · no remote call</dd></div>
                   <div><dt>Size</dt><dd>{preview.binding.message_count} messages · {preview.binding.character_count.toLocaleString("en")} characters</dd></div>
                   <div><dt>Expires at</dt><dd><time dateTime={preview.expires_at}>{preview.expires_at}</time></dd></div>
                   <div><dt>Redactor</dt><dd><code>{preview.binding.redactor_version}</code></dd></div>

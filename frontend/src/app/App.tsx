@@ -7,6 +7,7 @@ import type {
   RuntimeServiceState,
 } from "../shared/platform/runtimeMode";
 import { DiscoveryInbox } from "../features/discovery-inbox/DiscoveryInbox";
+import { AnalysisJobCentre } from "../features/analysis-job-centre";
 import { LocalSources } from "../features/local-sources/LocalSources";
 import { ProjectCatalog } from "../features/project-catalog";
 import {
@@ -29,6 +30,7 @@ function isProjectWorkspaceRoute(route: AppRoute): route is ProjectWorkspaceRout
 function routeTitle(route: AppRoute): string {
   if (route.name === "discovery") return "Discovery";
   if (route.name === "local_sources") return "Data source";
+  if (route.name === "analysis_jobs") return "Analysis jobs";
   if (route.name === "projects") return "Projects";
   if (route.name === "research") return "Methods & models";
   if (isProjectWorkspaceRoute(route)) return "Project workspace";
@@ -199,6 +201,15 @@ export function App({
             </button>
           )}
           <button
+            aria-current={route.name === "analysis_jobs" ? "page" : undefined}
+            className={route.name === "analysis_jobs" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "analysis_jobs" })}
+            type="button"
+          >
+            <Icon name="activity" />
+            <span>Job centre</span>
+          </button>
+          <button
             aria-current={route.name === "research" ? "page" : undefined}
             className={route.name === "research" ? "primary-nav__item--active" : ""}
             onClick={() => navigate({ name: "research" })}
@@ -282,6 +293,12 @@ export function App({
                 </div>
               </section>
             )
+          ) : route.name === "analysis_jobs" ? (
+            <AnalysisJobCentre
+              runtimeMode={runtime.mode}
+              serviceState={serviceState}
+              transport={transport}
+            />
           ) : route.name === "research" ? (
             <ResearchLab transport={transport} />
           ) : (

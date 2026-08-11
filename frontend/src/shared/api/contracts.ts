@@ -115,6 +115,35 @@ export interface SessionMetricResponse {
   metrics: SessionMetric[];
 }
 
+export type AnalysisJobKind = Schemas["AnalysisJobKind"];
+export type AnalysisJobState = Schemas["AnalysisJobState"];
+
+export interface AnalysisJobIdentity extends Omit<
+  Schemas["AnalysisJobIdentity"],
+  "automation_grant_id" | "local_only"
+> {
+  automation_grant_id: string | null;
+  local_only: true;
+}
+
+/**
+ * Validated browser-safe projection. The generated public DTO never includes
+ * an internal dedupe key or worker lease credentials.
+ */
+export interface AnalysisJobRecord extends Omit<
+  Schemas["AnalysisJobResponse"],
+  "identity"
+> {
+  identity: AnalysisJobIdentity;
+}
+
+export interface AnalysisJobPage extends Omit<
+  Schemas["AnalysisJobPageResponse"],
+  "jobs"
+> {
+  jobs: AnalysisJobRecord[];
+}
+
 export type SessionQualityAnalysisRequest =
   Schemas["SessionTextAnalysisRequest"];
 export type SessionQualityAnalysisOutcome =
@@ -316,6 +345,24 @@ export interface PromptEnhancerTransport {
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<SessionMetricResponse>;
+  listAnalysisJobs(
+    state?: AnalysisJobState | null,
+    limit?: number,
+    offset?: number,
+    signal?: AbortSignal,
+  ): Promise<AnalysisJobPage>;
+  getAnalysisJob(
+    jobId: string,
+    signal?: AbortSignal,
+  ): Promise<AnalysisJobRecord>;
+  getLatestSessionAnalysisJob(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<AnalysisJobRecord>;
+  cancelAnalysisJob(
+    jobId: string,
+    signal?: AbortSignal,
+  ): Promise<AnalysisJobRecord>;
   getLatestSessionQualityAnalysis(
     sessionId: string,
     signal?: AbortSignal,

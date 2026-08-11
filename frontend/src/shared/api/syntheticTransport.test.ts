@@ -309,6 +309,16 @@ describe("synthetic transport vertical slice", () => {
     ).rejects.toMatchObject({ status: 501 });
   });
 
+  it("never fabricates durable queue history in synthetic demo mode", async () => {
+    const transport = createSyntheticTransport();
+    await expect(transport.listAnalysisJobs()).rejects.toMatchObject({ status: 501 });
+    await expect(transport.getAnalysisJob("1".repeat(64))).rejects.toMatchObject({ status: 501 });
+    await expect(
+      transport.getLatestSessionAnalysisJob(SYNTHETIC_QUALITY_SESSION_ID),
+    ).rejects.toMatchObject({ status: 501 });
+    await expect(transport.cancelAnalysisJob("1".repeat(64))).rejects.toMatchObject({ status: 501 });
+  });
+
   it("keeps model-link excerpts transient while revisioning fictional review labels", async () => {
     const transport = createSyntheticTransport();
     const outcome = await transport.startModelLinkExperiment(

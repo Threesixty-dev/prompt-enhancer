@@ -102,10 +102,19 @@ describe("AnalyzeLocallyDialog", () => {
       expect.any(AbortSignal),
     );
     expect(await within(dialog).findByText(PREVIEW_TEXT)).toBeVisible();
-    expect(within(dialog).getByText("Local device only")).toBeVisible();
+    expect(within(dialog).getByText("Destination").parentElement).toHaveTextContent(
+      "local · this device only",
+    );
+    expect(within(dialog).getByText("Provider").parentElement).toHaveTextContent(
+      "codex · local adapter",
+    );
     expect(within(dialog).getByText(/deterministic rules/i)).toBeVisible();
-    expect(within(dialog).getByText(/local ephemeral memory/i)).toBeVisible();
-    expect(within(dialog).getByText(/not applicable · no remote call/i)).toBeVisible();
+    expect(within(dialog).getByText("Retention").parentElement).toHaveTextContent(
+      "local_ephemeral · service memory",
+    );
+    expect(within(dialog).getByText("API cost").parentElement).toHaveTextContent(
+      "not_applicable · no remote call",
+    );
     expect(within(dialog).getByText("20 version-bound metric attempts")).toBeVisible();
     expect(within(dialog).getByText("a".repeat(64))).toBeVisible();
     expect(
