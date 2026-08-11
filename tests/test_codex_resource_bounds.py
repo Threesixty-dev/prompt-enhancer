@@ -28,6 +28,7 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.mapping import (
 )
 from prompt_enhancer.infrastructure.providers.codex_app_server.transports.stdio_jsonl import (
     StdioJsonRpcTransport,
+    ThreadReadPolicy,
 )
 from prompt_enhancer.interfaces.http.local_source_routes import (
     CodexAnalysisRequest,
@@ -66,16 +67,50 @@ def test_dashboard_analysis_request_has_a_small_independent_session_bound() -> N
         )
 
 
-def test_transport_rejects_oversized_lines_without_starting_a_process() -> None:
+def test_transport_classifies_oversized_lines_as_a_resource_limit() -> None:
     transport = StdioJsonRpcTransport(
         limits=CodexReadLimits(max_json_line_bytes=16)
     )
     transport._lines.put(b"x" * 17 + b"\n")
 
-    with pytest.raises(CodexProtocolViolation):
+    with pytest.raises(CodexLimitError):
         transport._next_message(deadline=time.monotonic() + 0.1)
 
     assert transport._process is None
+
+
+def test_text_analysis_transport_has_a_separate_bounded_response_ceiling() -> None:
+    limits = CodexReadLimits(
+        max_json_line_bytes=64,
+        max_text_analysis_json_line_bytes=256,
+    )
+    generic = StdioJsonRpcTransport(limits=limits)
+    text_analysis = StdioJsonRpcTransport(
+        limits=limits,
+        thread_read_policy=ThreadReadPolicy.TEXT_ANALYSIS,
+    )
+    response = b'{"id":1,"result":{"padding":"' + (b"x" * 96) + b'"}}\n'
+    assert len(response) > limits.max_json_line_bytes
+    assert len(response) <= limits.max_text_analysis_json_line_bytes
+
+    generic._lines.put(response)
+    with pytest.raises(CodexLimitError):
+        generic._next_message(deadline=time.monotonic() + 0.1)
+
+    text_analysis._lines.put(response)
+    parsed = text_analysis._next_message(deadline=time.monotonic() + 0.1)
+    assert parsed["id"] == 1
+    assert isinstance(parsed["result"], dict)
+
+
+def test_unterminated_in_bound_line_remains_a_protocol_violation() -> None:
+    transport = StdioJsonRpcTransport(
+        limits=CodexReadLimits(max_json_line_bytes=64)
+    )
+    transport._lines.put(b'{"id":1,"result":{}}')
+
+    with pytest.raises(CodexProtocolViolation):
+        transport._next_message(deadline=time.monotonic() + 0.1)
 
 
 def test_transport_timeout_needs_no_provider_process() -> None:

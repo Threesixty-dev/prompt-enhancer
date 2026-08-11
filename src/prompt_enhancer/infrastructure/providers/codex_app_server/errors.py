@@ -23,8 +23,16 @@ class CodexProtocolViolation(CodexAdapterError):
     """The peer violated the deliberately narrow read-only protocol."""
 
 
+class CodexRequestRejected(CodexAdapterError):
+    """The peer rejected an allowlisted request without exposing error content."""
+
+
 class CodexCompatibilityError(CodexAdapterError):
     """The provider response does not match the supported schema family."""
+
+
+class CodexNoAnalyzableTextError(CodexAdapterError):
+    """The selected thread has no supported user text to analyze."""
 
 
 class CodexScopeError(CodexAdapterError):

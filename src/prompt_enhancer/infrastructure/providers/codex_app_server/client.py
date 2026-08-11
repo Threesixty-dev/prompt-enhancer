@@ -15,6 +15,11 @@ from .contracts import (
     parse_thread_label_summary,
     parse_thread_read,
 )
+from .content_contracts import (
+    CodexTextContentLimits,
+    RawCodexTextThread,
+    parse_text_thread_read,
+)
 from .errors import CodexLifecycleError, CodexScopeError
 from .limits import CodexReadLimits
 from .transports.protocol import InternalJsonRpcTransport
@@ -41,9 +46,11 @@ class CodexAppServerClient:
         transport: InternalJsonRpcTransport,
         *,
         limits: CodexReadLimits | None = None,
+        text_limits: CodexTextContentLimits | None = None,
     ) -> None:
         self._transport = transport
         self._limits = limits or CodexReadLimits()
+        self._text_limits = text_limits or CodexTextContentLimits()
         self._initialized = False
         self._listed_thread_ids: set[str] = set()
         self._summary_read_thread_ids: set[str] = set()
@@ -106,6 +113,22 @@ class CodexAppServerClient:
         if parsed.thread.thread_id.get_secret_value() != thread_id:
             raise CodexScopeError("provider read returned a different session")
         return parsed.thread
+
+    def read_thread_text_analysis(self, thread_id: str) -> RawCodexTextThread:
+        """Read one listed thread through the explicit P1 text projection."""
+
+        self._require_initialized()
+        if thread_id not in self._listed_thread_ids:
+            raise CodexScopeError("session was not listed in the current snapshot")
+        result = self._transport._request(
+            "thread/read",
+            {"threadId": thread_id, "includeTurns": True},
+        )
+        parsed = parse_text_thread_read(result, self._text_limits)
+        if parsed.thread_id.get_secret_value() != thread_id:
+            raise CodexScopeError("provider text read returned a different session")
+        return parsed
+
     def read_thread_summary(self, thread_id: str) -> RawThreadLabelSummary:
         """Read one listed task's summary metadata without requesting turns."""
 

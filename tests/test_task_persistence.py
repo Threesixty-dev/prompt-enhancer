@@ -154,6 +154,30 @@ def _accept(
     )
 
 
+def test_current_task_context_for_session_excludes_historical_revisions(
+    tmp_path,
+) -> None:
+    database, session_ids = _database_with_two_project_sessions(tmp_path)
+    repository = database.task_repository()
+    first = _revision(database, session_ids, "7")
+    repository.append_revision(first)
+
+    assert repository.list_current_revisions_for_session(session_ids[0]) == (first,)
+
+    second = first.model_copy(
+        update={
+            "revision": 2,
+            "session_ids": (session_ids[1],),
+            "input_fingerprint": "8" * 64,
+            "created_at": first.created_at + timedelta(minutes=1),
+        }
+    )
+    repository.append_revision(second)
+
+    assert repository.list_current_revisions_for_session(session_ids[0]) == ()
+    assert repository.list_current_revisions_for_session(session_ids[1]) == (second,)
+
+
 def test_v1_database_upgrades_in_order_without_changing_v1_checksum(tmp_path) -> None:
     path = tmp_path / "metrics.sqlite3"
     checksum = hashlib.sha256(_MIGRATION_1.encode("utf-8")).hexdigest()
@@ -185,8 +209,8 @@ def test_v1_database_upgrades_in_order_without_changing_v1_checksum(tmp_path) ->
         task_table = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_revisions'"
         ).fetchone()
-    assert user_version == SCHEMA_VERSION == 5
-    assert [row[0] for row in versions] == [1, 2, 3, 4, 5]
+    assert user_version == SCHEMA_VERSION == 10
+    assert [row[0] for row in versions] == list(range(1, SCHEMA_VERSION + 1))
     assert versions[0][1] == checksum
     assert task_table is not None
 

@@ -21,12 +21,57 @@ from .application.analysis.task_metrics import (
     TASK_METRIC_DEFINITIONS,
     TASK_METRIC_ENGINE_VERSION,
 )
-from .domain import MetricObservation, SafeEvent, SafeSession
+from .application.analysis.text_baselines import (
+    TEXT_METRIC_DEFINITIONS,
+    TEXT_METRIC_ENGINE_VERSION,
+)
+from .application.analysis.coaching_baselines import (
+    COACHING_METRIC_DEFINITIONS,
+    COACHING_METRIC_ENGINE_VERSION,
+)
+from .domain import MetricObservation, MetricSource, SafeEvent, SafeSession
 
 
-METRIC_DEFINITIONS = DEFAULT_ANALYSIS_REGISTRY.definitions + TASK_METRIC_DEFINITIONS
+TEXT_METRIC_PRESENTATION_DEFINITIONS = tuple(
+    MetricDefinition(
+        key=definition.key,
+        version=definition.version,
+        dimension=definition.dimension,
+        display_name=definition.display_name,
+        description=definition.description,
+        unit=definition.unit,
+        source=MetricSource.DETERMINISTIC,
+    )
+    for definition in TEXT_METRIC_DEFINITIONS
+)
+COACHING_METRIC_PRESENTATION_DEFINITIONS = tuple(
+    MetricDefinition(
+        key=definition.key,
+        version=definition.version,
+        dimension=definition.dimension,
+        display_name=definition.display_name,
+        description=definition.description,
+        unit=definition.unit,
+        source=MetricSource.DETERMINISTIC,
+    )
+    for definition in COACHING_METRIC_DEFINITIONS
+)
+METRIC_DEFINITIONS = (
+    DEFAULT_ANALYSIS_REGISTRY.definitions
+    + TASK_METRIC_DEFINITIONS
+    + TEXT_METRIC_PRESENTATION_DEFINITIONS
+    + COACHING_METRIC_PRESENTATION_DEFINITIONS
+)
 _TASK_METRIC_IDENTITIES = frozenset(
     (definition.key, definition.version) for definition in TASK_METRIC_DEFINITIONS
+)
+_TEXT_METRIC_IDENTITIES = frozenset(
+    (definition.key, definition.version)
+    for definition in TEXT_METRIC_PRESENTATION_DEFINITIONS
+)
+_COACHING_METRIC_IDENTITIES = frozenset(
+    (definition.key, definition.version)
+    for definition in COACHING_METRIC_PRESENTATION_DEFINITIONS
 )
 
 
@@ -36,6 +81,10 @@ def metric_engine_version_for_definition(definition: MetricDefinition) -> str:
     identity = (definition.key, definition.version)
     if identity in _TASK_METRIC_IDENTITIES:
         return TASK_METRIC_ENGINE_VERSION
+    if identity in _TEXT_METRIC_IDENTITIES:
+        return TEXT_METRIC_ENGINE_VERSION
+    if identity in _COACHING_METRIC_IDENTITIES:
+        return COACHING_METRIC_ENGINE_VERSION
     return METRIC_ENGINE_VERSION
 
 
@@ -61,6 +110,8 @@ __all__ = [
     "METRIC_ENGINE_VERSION",
     "MetricDefinition",
     "NOT_APPLICABLE_VERSION",
+    "TEXT_METRIC_PRESENTATION_DEFINITIONS",
+    "COACHING_METRIC_PRESENTATION_DEFINITIONS",
     "compute_session_metrics",
     "metric_engine_version_for_definition",
 ]

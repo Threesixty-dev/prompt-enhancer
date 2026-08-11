@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from prompt_enhancer.adapters.synthetic import SyntheticAdapter
+from prompt_enhancer.application.analysis.deterministic import DEFAULT_METRIC_PACK
 from prompt_enhancer.database import Database
 from prompt_enhancer.domain import DataTier, Provider
 from prompt_enhancer.ingestion import IngestionService
@@ -59,6 +60,8 @@ def test_metric_rows_record_definition_and_analysis_provenance(tmp_path) -> None
     required = {
         "version",
         "source",
+        "metric_pack_key",
+        "metric_pack_version",
         "metric_engine_version",
         "redactor_version",
         "model_id",
@@ -71,3 +74,7 @@ def test_metric_rows_record_definition_and_analysis_provenance(tmp_path) -> None
     assert all(required <= record.keys() for record in metrics)
     assert all(record["metric_engine_version"] for record in metrics)
     assert all(record["redactor_version"] for record in metrics)
+    assert {
+        (record["metric_pack_key"], record["metric_pack_version"])
+        for record in metrics
+    } == {(DEFAULT_METRIC_PACK.key, DEFAULT_METRIC_PACK.version)}

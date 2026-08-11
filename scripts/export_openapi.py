@@ -15,13 +15,20 @@ if str(_SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(_SOURCE_ROOT))
 
 from prompt_enhancer.api import create_app
-from prompt_enhancer.application.analysis import TaskAnalysisOutcome
+from prompt_enhancer.application.analysis import (
+    ModelExperimentDevice,
+    ModelLinkAnnotationLabel,
+    SessionTextAnalysisOutcome,
+    TaskAnalysisOutcome,
+    TextAnalysisPresetId,
+)
 from prompt_enhancer.application.discovery import TaskDecisionCommand, TaskReviewResult
 from prompt_enhancer.application.local_sources import CodexLocalSourceStatus
 from prompt_enhancer.application.persistence import AnalysisRunStatus
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.domain import Provider
 from prompt_enhancer.ingestion import IngestionReport
+from prompt_enhancer.infrastructure.text_models.jobs import LocalTextModelEvaluationService
 
 
 class _SchemaStore:
@@ -72,6 +79,65 @@ class _SchemaAnalysisService:
         )
 
 
+class _SchemaSessionTextAnalysisService:
+    def run_preset(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        preset_id: TextAnalysisPresetId,
+        confirmation: str,
+        idempotency_key: str,
+    ) -> SessionTextAnalysisOutcome:
+        raise RuntimeError("schema-only service cannot access session text")
+
+
+class _SchemaModelLinkExperimentService:
+    def run(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        confirmation: str,
+        device: ModelExperimentDevice,
+        idempotency_key: str,
+    ) -> object:
+        raise RuntimeError("schema-only service cannot access session text")
+
+    def latest(self, session_id: str) -> object:
+        raise RuntimeError("schema-only service cannot access local experiments")
+
+    def annotate(
+        self,
+        *,
+        run_id: str,
+        link_id: str,
+        label: ModelLinkAnnotationLabel,
+        expected_revision: int,
+    ) -> object:
+        raise RuntimeError("schema-only service cannot change annotations")
+
+
+class _SchemaProjectQualityAggregationService:
+    """Non-executing stand-in that only enables the project aggregate schema."""
+
+    def aggregate(self, selection: object) -> object:
+        raise RuntimeError("schema-only service cannot resolve indexed projects")
+
+
+class _SchemaProviderCompatibilityCatalog:
+    """Non-executing stand-in that exposes compatibility route signatures."""
+
+    def descriptor(self, provider: str, surface: object) -> object:
+        raise RuntimeError("schema-only service cannot inspect providers")
+
+    def get_cached(self, provider: str, surface: object) -> object:
+        raise RuntimeError("schema-only service cannot inspect providers")
+
+    def refresh(self, provider: str, surface: object) -> object:
+        raise RuntimeError("schema-only service cannot inspect providers")
+
+
 class _SchemaCodexSourceService:
     """Non-executing stand-in that exposes only local-source route signatures."""
 
@@ -111,8 +177,13 @@ def build_openapi_schema() -> dict[str, Any]:
         api_token="example_schema_token_do_not_use_123456789",
         task_review_service=_SchemaReviewService(),
         task_analysis_service=_SchemaAnalysisService(),
+        session_text_analysis_service=_SchemaSessionTextAnalysisService(),
+        session_model_link_experiment_service=_SchemaModelLinkExperimentService(),  # type: ignore[arg-type]
+        project_quality_aggregation_service=_SchemaProjectQualityAggregationService(),  # type: ignore[arg-type]
+        provider_compatibility_catalog=_SchemaProviderCompatibilityCatalog(),  # type: ignore[arg-type]
         codex_source_service=_SchemaCodexSourceService(),
         display_label_service=_SchemaManualDisplayLabelService(),
+        model_evaluation_service=LocalTextModelEvaluationService(),
     )
     return app.openapi()
 

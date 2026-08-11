@@ -299,8 +299,8 @@ def test_v3_migration_adds_nullable_display_names_without_fabricating_values(
     database = Database(path)
     database.initialize()
 
-    assert SCHEMA_VERSION == 5
-    assert database.summary()["schema_version"] == 5
+    assert SCHEMA_VERSION == 10
+    assert database.summary()["schema_version"] == SCHEMA_VERSION
     [record] = database.list_sessions(provider=Provider.CODEX)
     assert record["project_display_name"] is None
     assert record["session_display_name"] is None
@@ -319,7 +319,7 @@ def test_v3_migration_adds_nullable_display_names_without_fabricating_values(
         )
     assert project_name is None
     assert session_name is None
-    assert applied_versions == (1, 2, 3, 4, 5)
+    assert applied_versions == tuple(range(1, SCHEMA_VERSION + 1))
 
 
 def test_display_name_observations_update_without_changing_safe_identity(tmp_path) -> None:

@@ -128,6 +128,12 @@ def test_operational_metadata_maps_to_metrics_without_double_counting_usage() ->
     assert metrics["usage.input_tokens"].eligible_count == 1
     assert metrics["usage.input_tokens"].observed_count == 1
 
+    turn_usage_coverage = metrics["data_quality.turn_usage_coverage"]
+    assert turn_usage_coverage.numeric_value == 1
+    assert turn_usage_coverage.observed_count == 1
+    assert turn_usage_coverage.eligible_count == 1
+    assert turn_usage_coverage.confidence is None
+
     turn_duration = metrics["efficiency.observed_finalized_turn_duration_ms"]
     assert turn_duration.numeric_value == 400_000
     assert turn_duration.coverage == 1

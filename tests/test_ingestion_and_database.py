@@ -6,9 +6,11 @@ import pytest
 
 from prompt_enhancer.adapters.base import AdapterHealth, AdapterProbe, ProviderAdapter
 from prompt_enhancer.adapters.synthetic import SyntheticAdapter
+from prompt_enhancer.application.ingestion import SessionMetricPlan
 from prompt_enhancer.database import Database
 from prompt_enhancer.domain import Provider, SourceEvent, SourceSession, SourceSessionPage
 from prompt_enhancer.ingestion import ConsentRequiredError, IngestionService
+from prompt_enhancer.metrics import compute_session_metrics
 from prompt_enhancer.privacy import Pseudonymizer
 
 
@@ -81,6 +83,37 @@ def test_synthetic_ingestion_is_idempotent(tmp_path) -> None:
     assert after_first == after_second
     assert after_second["sessions"] == 2
     assert after_second["events"] == 10
+
+
+def test_injected_metric_plan_persists_its_own_pack_and_engine_provenance(
+    tmp_path,
+) -> None:
+    database = Database(tmp_path / "metrics.sqlite3")
+    database.initialize()
+    plan = SessionMetricPlan(
+        computer=compute_session_metrics,
+        pack_key="synthetic.metadata.session",
+        pack_version=7,
+        metric_engine_version="synthetic-engine-v7",
+    )
+
+    IngestionService(
+        database,
+        Pseudonymizer(bytes(range(32))),
+        metric_plan=plan,
+    ).ingest(SyntheticAdapter())
+
+    for session in database.list_sessions():
+        metrics = database.get_session_metrics(session["session_id"])
+        assert metrics
+        assert {
+            (
+                item["metric_pack_key"],
+                item["metric_pack_version"],
+                item["metric_engine_version"],
+            )
+            for item in metrics
+        } == {(plan.pack_key, plan.pack_version, plan.metric_engine_version)}
 
 
 def test_raw_source_identifiers_never_cross_sqlite_boundary(tmp_path) -> None:

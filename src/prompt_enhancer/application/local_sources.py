@@ -14,6 +14,7 @@ from ..ingestion import (
     IngestionSelection,
 )
 from .display_labels import LabelEnrichmentReport
+from .verification import VerificationCapability
 
 MAX_LOCAL_SOURCE_SELECTORS = 100
 
@@ -67,6 +68,7 @@ class CodexLocalSourceStatus(StrictModel):
     consent_active: bool
     indexed_sessions: int
     indexed_projects: int
+    verification_capability: VerificationCapability
 
 
 class CodexLocalSourceService:
@@ -79,11 +81,13 @@ class CodexLocalSourceService:
         repository: LocalSourceRepository,
         ingestion: IngestionRunner,
         adapter_factory: CodexAdapterFactory,
+        verification_capability: VerificationCapability,
         label_enrichment: LabelEnrichmentRunner | None = None,
     ) -> None:
         self._repository = repository
         self._ingestion = ingestion
         self._adapter_factory = adapter_factory
+        self._verification_capability = verification_capability
         self._label_enrichment = label_enrichment
 
     def status(self) -> CodexLocalSourceStatus:
@@ -94,6 +98,7 @@ class CodexLocalSourceService:
             ),
             indexed_sessions=counts["sessions"],
             indexed_projects=counts["projects"],
+            verification_capability=self._verification_capability,
         )
 
     def grant_local_history(self) -> CodexLocalSourceStatus:

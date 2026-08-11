@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from ...domain import (
     EventKind,
+    EventTimeBasis,
     MetricObservation,
     MetricSource,
     SafeEvent,
@@ -14,6 +15,7 @@ from ...domain import (
     UsageScope,
 )
 from .contracts import MetricDefinition, MetricPack
+from .deterministic import paired_usable_turn_usage_events
 
 
 TASK_METRIC_ENGINE_VERSION = "task-deterministic-2"
@@ -96,6 +98,71 @@ TASK_TOTAL_TOKENS = MetricDefinition(
     unit="tokens",
     source=MetricSource.PROVIDER_REPORTED,
 )
+TASK_FINALIZED_TURN_COUNT = MetricDefinition(
+    key="task.workflow.finalized_turn_count",
+    version=1,
+    dimension="workflow",
+    display_name="Observed agent iterations",
+    description=(
+        "Observed finalized-turn subtotal across reviewed task sessions; full "
+        "confidence requires complete event streams."
+    ),
+    unit="count",
+)
+TASK_TURN_USAGE_COVERAGE = MetricDefinition(
+    key="task.data_quality.turn_usage_coverage",
+    version=1,
+    dimension="data_quality",
+    display_name="Usable turn usage coverage",
+    description=(
+        "Share of observed finalized turns sequence-paired with an additive, "
+        "turn-scoped usage record containing at least one token counter."
+    ),
+    unit="ratio",
+)
+TASK_TURN_DURATION_COVERAGE = MetricDefinition(
+    key="task.data_quality.turn_duration_coverage",
+    version=1,
+    dimension="data_quality",
+    display_name="Turn duration coverage",
+    description="Share of observed finalized turns with a known duration.",
+    unit="ratio",
+)
+TASK_TOOL_RESULT_COVERAGE = MetricDefinition(
+    key="task.data_quality.tool_result_coverage",
+    version=1,
+    dimension="data_quality",
+    display_name="Tool result coverage",
+    description="Share of observed completed tool events with a known result.",
+    unit="ratio",
+)
+TASK_TOOL_DURATION_COVERAGE = MetricDefinition(
+    key="task.data_quality.tool_duration_coverage",
+    version=1,
+    dimension="data_quality",
+    display_name="Tool duration coverage",
+    description="Share of observed completed tool events with a known duration.",
+    unit="ratio",
+)
+TASK_UNKNOWN_EVENT_KIND_RATE = MetricDefinition(
+    key="task.data_quality.unknown_event_kind_rate",
+    version=1,
+    dimension="data_quality",
+    display_name="Unknown event kind rate",
+    description="Share of observed safe events whose event kind is unknown.",
+    unit="ratio",
+)
+TASK_DIRECT_EVENT_TIMESTAMP_RATE = MetricDefinition(
+    key="task.data_quality.direct_event_timestamp_rate",
+    version=1,
+    dimension="data_quality",
+    display_name="Direct event timestamp rate",
+    description=(
+        "Share of observed safe events with an event-specific provider timestamp; "
+        "containing-turn and session fallback timestamps are excluded."
+    ),
+    unit="ratio",
+)
 
 
 TASK_METRIC_DEFINITIONS = (
@@ -107,10 +174,17 @@ TASK_METRIC_DEFINITIONS = (
     TASK_INPUT_TOKENS,
     TASK_OUTPUT_TOKENS,
     TASK_TOTAL_TOKENS,
+    TASK_FINALIZED_TURN_COUNT,
+    TASK_TURN_USAGE_COVERAGE,
+    TASK_TURN_DURATION_COVERAGE,
+    TASK_TOOL_RESULT_COVERAGE,
+    TASK_TOOL_DURATION_COVERAGE,
+    TASK_UNKNOWN_EVENT_KIND_RATE,
+    TASK_DIRECT_EVENT_TIMESTAMP_RATE,
 )
 DEFAULT_TASK_METRIC_PACK = MetricPack(
     key=DEFAULT_TASK_METRIC_PACK_KEY,
-    version=2,
+    version=3,
     metric_keys=tuple(definition.key for definition in TASK_METRIC_DEFINITIONS),
 )
 
@@ -228,6 +302,45 @@ def _usage_metric(
     )
 
 
+def _coverage_metric(
+    definition: MetricDefinition,
+    observed_events: tuple[SafeEvent, ...],
+    eligible_events: tuple[SafeEvent, ...],
+    *,
+    streams_complete: bool,
+) -> TaskMetricResult:
+    eligible = len(eligible_events)
+    observed = min(len(observed_events), eligible)
+    value = None if eligible == 0 else observed / eligible
+    return _numeric(
+        definition,
+        value,
+        observed,
+        eligible,
+        confidence=1.0 if streams_complete and value is not None else None,
+        evidence=tuple(event.event_id for event in observed_events[:observed]),
+    )
+
+
+def _observed_event_rate(
+    definition: MetricDefinition,
+    events: tuple[SafeEvent, ...],
+    *,
+    matching_count: int,
+    streams_complete: bool,
+) -> TaskMetricResult:
+    eligible = len(events)
+    value = None if eligible == 0 else matching_count / eligible
+    return _numeric(
+        definition,
+        value,
+        eligible,
+        eligible,
+        confidence=1.0 if streams_complete and value is not None else None,
+        evidence=tuple(event.event_id for event in events),
+    )
+
+
 def compute_task_metrics(
     sessions: tuple[TaskSessionEvidence, ...],
 ) -> tuple[TaskMetricResult, ...]:
@@ -247,6 +360,17 @@ def compute_task_metrics(
     streams_observed = sum(item.session.events_complete for item in sessions)
     finalized_turn_count = sum(
         event.kind is EventKind.TURN_END for event in all_events
+    )
+    finalized_turns = tuple(
+        event for event in all_events if event.kind is EventKind.TURN_END
+    )
+    turn_usage_events = tuple(
+        event
+        for item in sessions
+        for event in paired_usable_turn_usage_events(item.events)
+    )
+    tool_events = tuple(
+        event for event in all_events if event.kind is EventKind.TOOL_END
     )
     streams_complete = streams_observed == len(sessions)
     known_ends = tuple(
@@ -340,5 +464,54 @@ def compute_task_metrics(
             usage_events,
             streams_complete=streams_complete,
             finalized_turn_count=finalized_turn_count,
+        ),
+        _numeric(
+            TASK_FINALIZED_TURN_COUNT,
+            finalized_turn_count,
+            streams_observed,
+            len(sessions),
+            confidence=1.0 if streams_complete else None,
+            evidence=tuple(event.event_id for event in finalized_turns),
+        ),
+        _coverage_metric(
+            TASK_TURN_USAGE_COVERAGE,
+            turn_usage_events,
+            finalized_turns,
+            streams_complete=streams_complete,
+        ),
+        _coverage_metric(
+            TASK_TURN_DURATION_COVERAGE,
+            tuple(event for event in finalized_turns if event.duration_ms is not None),
+            finalized_turns,
+            streams_complete=streams_complete,
+        ),
+        _coverage_metric(
+            TASK_TOOL_RESULT_COVERAGE,
+            tuple(event for event in tool_events if event.success is not None),
+            tool_events,
+            streams_complete=streams_complete,
+        ),
+        _coverage_metric(
+            TASK_TOOL_DURATION_COVERAGE,
+            tuple(event for event in tool_events if event.duration_ms is not None),
+            tool_events,
+            streams_complete=streams_complete,
+        ),
+        _observed_event_rate(
+            TASK_UNKNOWN_EVENT_KIND_RATE,
+            all_events,
+            matching_count=sum(
+                event.kind is EventKind.UNKNOWN for event in all_events
+            ),
+            streams_complete=streams_complete,
+        ),
+        _observed_event_rate(
+            TASK_DIRECT_EVENT_TIMESTAMP_RATE,
+            all_events,
+            matching_count=sum(
+                event.time_basis is EventTimeBasis.PROVIDER_REPORTED
+                for event in all_events
+            ),
+            streams_complete=streams_complete,
         ),
     )

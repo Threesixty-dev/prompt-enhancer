@@ -12,6 +12,7 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.client import (
 )
 from prompt_enhancer.infrastructure.providers.codex_app_server.errors import (
     CodexProtocolViolation,
+    CodexRequestRejected,
     CodexScopeError,
 )
 from prompt_enhancer.infrastructure.providers.codex_app_server.limits import CodexReadLimits
@@ -263,3 +264,30 @@ def test_stdio_transport_fails_closed_on_server_request_without_leaking_it(
     rendered = str(error.value)
     assert private_method_canary not in rendered
     assert "private synthetic payload" not in rendered
+
+
+def test_stdio_transport_sanitizes_provider_request_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_canary = "PRIVATE-PROVIDER-ERROR-CANARY"
+    line = json.dumps(
+        {
+            "id": 1,
+            "error": {
+                "code": -32602,
+                "message": private_canary,
+                "data": {"path": private_canary},
+            },
+        }
+    ).encode("utf-8") + b"\n"
+    process = FakeProcess(line)
+    monkeypatch.setattr(subprocess, "Popen", lambda *_args, **_kwargs: process)
+    transport = StdioJsonRpcTransport(
+        limits=CodexReadLimits(request_timeout_seconds=0.5)
+    )
+
+    with pytest.raises(CodexRequestRejected) as raised:
+        transport._request("initialize", {})
+
+    assert str(raised.value) == "provider rejected a read-only request"
+    assert private_canary not in repr(raised.value)

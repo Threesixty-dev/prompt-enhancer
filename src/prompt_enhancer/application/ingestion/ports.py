@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Protocol
 
-from ...domain import DataTier, MetricObservation, Provider, SafeEvent, SafeSession
+from ...domain import (
+    SAFE_VERSION_PATTERN,
+    DataTier,
+    MetricObservation,
+    Provider,
+    SafeEvent,
+    SafeSession,
+)
 
 
 class PersistenceOutcome(Protocol):
@@ -58,7 +66,9 @@ class IngestionRepository(Protocol):
         session_id: str,
         observations: Iterable[MetricObservation],
         *,
-        metric_engine_version: str = ...,
+        metric_pack_key: str,
+        metric_pack_version: int,
+        metric_engine_version: str,
     ) -> int: ...
 
 
@@ -72,3 +82,33 @@ class SessionMetricComputer(Protocol):
     def __call__(
         self, session: SafeSession, events: Iterable[SafeEvent]
     ) -> tuple[MetricObservation, ...]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class SessionMetricPlan:
+    """Bind one trusted session calculator to its persisted provenance."""
+
+    computer: SessionMetricComputer
+    pack_key: str
+    pack_version: int
+    metric_engine_version: str
+
+    def __post_init__(self) -> None:
+        if not callable(self.computer):
+            raise ValueError("session metric computer must be callable")
+        if (
+            not isinstance(self.pack_key, str)
+            or SAFE_VERSION_PATTERN.fullmatch(self.pack_key) is None
+        ):
+            raise ValueError("session metric pack key must be a safe identifier")
+        if (
+            isinstance(self.pack_version, bool)
+            or not isinstance(self.pack_version, int)
+            or self.pack_version < 1
+        ):
+            raise ValueError("session metric pack version must be positive")
+        if (
+            not isinstance(self.metric_engine_version, str)
+            or SAFE_VERSION_PATTERN.fullmatch(self.metric_engine_version) is None
+        ):
+            raise ValueError("session metric engine version must be a safe identifier")

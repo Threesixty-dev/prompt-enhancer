@@ -205,7 +205,22 @@ class TaskQueryStore:
         return None
 
     def list_metric_definitions(self):
-        return []
+        return [
+            {
+                "key": "workflow.event_count",
+                "version": 1,
+                "dimension": "legacy_workflow",
+                "display_name": "Persisted v1 event count",
+                "description": "Synthetic version-one task event observation.",
+            },
+            {
+                "key": "workflow.event_count",
+                "version": 2,
+                "dimension": "workflow",
+                "display_name": "Current event count",
+                "description": "Synthetic version-two task event observation.",
+            },
+        ]
 
     def list_sessions(self, *, limit: int = 100, offset: int = 0):
         return []
@@ -220,6 +235,11 @@ class TaskQueryStore:
         return MemoryAnalysisRepository()
 
 
+class MissingDefinitionTaskQueryStore(TaskQueryStore):
+    def list_metric_definitions(self):
+        return []
+
+
 def _client(tmp_path) -> TestClient:
     return TestClient(
         create_app(
@@ -229,6 +249,25 @@ def _client(tmp_path) -> TestClient:
         ),
         base_url="http://127.0.0.1",
     )
+
+
+def test_analysis_result_presentation_is_optional_for_legacy_stores(tmp_path) -> None:
+    app = create_app(
+        settings=AppSettings(home=tmp_path),
+        database=MissingDefinitionTaskQueryStore(),
+        api_token=EXAMPLE_TOKEN,
+    )
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        response = client.get(
+            f"/v1/analysis/runs/{RUN_ID}",
+            headers={API_TOKEN_HEADER: EXAMPLE_TOKEN},
+        )
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["dimension"] is None
+    assert result["display_name"] is None
+    assert result["description"] is None
 
 
 def test_authenticated_queries_return_only_typed_metadata(tmp_path) -> None:
@@ -264,6 +303,11 @@ def test_authenticated_queries_return_only_typed_metadata(tmp_path) -> None:
     assert run_list.json()["runs"][0]["run_id"] == RUN_ID
     assert run.json()["run"]["status"] == "completed"
     assert run.json()["results"][0]["value_state"] == "known"
+    assert run.json()["results"][0]["dimension"] == "legacy_workflow"
+    assert run.json()["results"][0]["display_name"] == "Persisted v1 event count"
+    assert run.json()["results"][0]["description"] == (
+        "Synthetic version-one task event observation."
+    )
 
     serialized = "".join(
         response.text
@@ -338,4 +382,7 @@ def test_task_interface_is_query_only_and_runtime_schema_is_disabled(tmp_path) -
     assert "/v1/tasks/{task_id}/revisions/{revision}" in paths
     assert "/v1/analysis/runs" in paths
     assert "/v1/analysis/runs/{run_id}" in paths
-    assert all("post" not in operations for operations in paths.values())
+    post_paths = {
+        path for path, operations in paths.items() if "post" in operations
+    }
+    assert post_paths == {"/v1/quality-analysis/aggregate"}

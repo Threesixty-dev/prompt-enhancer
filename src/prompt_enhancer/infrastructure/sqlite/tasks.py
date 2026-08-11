@@ -403,6 +403,43 @@ class SqliteTaskRepository:
         )
         return tuple(revision for revision in revisions if revision is not None)
 
+    def list_current_revisions_for_session(
+        self,
+        session_id: str,
+    ) -> tuple[TaskRevisionRecord, ...]:
+        """Return only latest immutable task revisions containing a safe session.
+
+        Historical revisions are deliberately excluded.  More than one current
+        revision is preserved so application services can abstain instead of
+        guessing which reviewed task context is authoritative.
+        """
+
+        self._ensure_initialized()
+        require_safe_id(session_id)
+        with self._connection_scope(readonly=True) as connection:
+            rows = connection.execute(
+                """
+                WITH latest_revisions AS (
+                    SELECT task_id, MAX(revision) AS revision
+                    FROM task_revisions
+                    GROUP BY task_id
+                )
+                SELECT latest.task_id, latest.revision
+                FROM latest_revisions AS latest
+                JOIN task_revision_sessions AS members
+                  ON members.task_id = latest.task_id
+                 AND members.revision = latest.revision
+                WHERE members.session_id = ?
+                ORDER BY latest.task_id
+                """,
+                (session_id,),
+            ).fetchall()
+        records = (
+            self.get_revision(row["task_id"], row["revision"])
+            for row in rows
+        )
+        return tuple(record for record in records if record is not None)
+
     def record_decision(self, decision: TaskDecisionRecord) -> None:
         self._ensure_initialized()
         with self._connection_scope() as connection:

@@ -1,0 +1,326 @@
+"""Immutable manifests for exploratory WP-11 model candidates."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+from types import MappingProxyType
+import re
+from typing import Mapping
+
+
+_LOWER_HEX_40 = re.compile(r"[0-9a-f]{40}\Z")
+_LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
+_REPOSITORY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+_SAFE_LABELS = frozenset({"entailment", "neutral", "contradiction"})
+
+
+class TextModelTask(str, Enum):
+    REQUIREMENT_ACTION_RETRIEVAL = "requirement_action_retrieval"
+    SCOPED_NLI = "scoped_nli"
+    PAIR_RERANKING = "pair_reranking"
+    STRUCTURED_RUBRIC = "structured_rubric"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelManifest:
+    """A fail-closed model and tokenizer provenance record.
+
+    The manifest deliberately does not support branches, tags, pickle weights,
+    custom code, or unbounded tokenizer inputs.
+    """
+
+    key: str
+    task: TextModelTask
+    repository_id: str
+    revision: str
+    tokenizer_repository_id: str
+    tokenizer_revision: str
+    license_spdx: str
+    weight_filename: str
+    weight_sha256: str
+    max_sequence_length: int
+    max_batch_size: int
+    trust_remote_code: bool = False
+    output_label_by_index: tuple[tuple[int, str], ...] = ()
+    additional_weight_files: tuple[tuple[str, str], ...] = ()
+    architecture: str = "auto"
+
+    def __post_init__(self) -> None:
+        if not self.key or not self.key.replace("_", "").isalnum():
+            raise ValueError("model manifest key must be a stable identifier")
+        for repository_id in (
+            self.repository_id,
+            self.tokenizer_repository_id,
+        ):
+            if _REPOSITORY_ID.fullmatch(repository_id) is None:
+                raise ValueError("model repository must be an explicit Hub repository ID")
+        if _LOWER_HEX_40.fullmatch(self.revision) is None:
+            raise ValueError("model revision must be a 40-character commit hash")
+        if _LOWER_HEX_40.fullmatch(self.tokenizer_revision) is None:
+            raise ValueError("tokenizer revision must be a 40-character commit hash")
+        if (
+            self.tokenizer_repository_id != self.repository_id
+            or self.tokenizer_revision != self.revision
+        ):
+            raise ValueError(
+                "single-snapshot evaluation requires the tokenizer and model pin to match"
+            )
+        if self.license_spdx not in {"MIT", "Apache-2.0"}:
+            raise ValueError("candidate license must be an explicitly reviewed permissive SPDX identifier")
+        if not self.weight_filename.endswith(".safetensors"):
+            raise ValueError("only reviewed safetensors weight files are accepted")
+        if _LOWER_HEX_64.fullmatch(self.weight_sha256) is None:
+            raise ValueError("weight SHA-256 must be a lowercase 64-character digest")
+        all_weights = ((self.weight_filename, self.weight_sha256), *self.additional_weight_files)
+        filenames = tuple(filename for filename, _ in all_weights)
+        if len(set(filenames)) != len(filenames):
+            raise ValueError("reviewed weight filenames must be unique")
+        for filename, digest in all_weights:
+            if (
+                not filename.endswith(".safetensors")
+                or filename.startswith("/")
+                or "\\" in filename
+                or ".." in filename.split("/")
+            ):
+                raise ValueError("reviewed weights must be relative safetensors files")
+            if _LOWER_HEX_64.fullmatch(digest) is None:
+                raise ValueError("weight SHA-256 must be a lowercase 64-character digest")
+        if self.trust_remote_code:
+            raise ValueError("trust_remote_code must remain disabled")
+        if not 8 <= self.max_sequence_length <= 512:
+            raise ValueError("model sequence length must be explicitly bounded at 512 or less")
+        if not 1 <= self.max_batch_size <= 32:
+            raise ValueError("model batch size must be explicitly bounded at 32 or less")
+
+        labels = dict(self.output_label_by_index)
+        if len(labels) != len(self.output_label_by_index):
+            raise ValueError("NLI output label indexes must be unique")
+        if self.task is TextModelTask.SCOPED_NLI:
+            if set(labels.values()) != _SAFE_LABELS or set(labels) != {0, 1, 2}:
+                raise ValueError("NLI manifest must map indexes 0..2 to all three typed labels")
+        elif labels:
+            raise ValueError("retrieval manifests cannot declare classification labels")
+        if not self.architecture or not self.architecture.replace("_", "").isalnum():
+            raise ValueError("model architecture must be a stable identifier")
+
+    @property
+    def weight_files(self) -> tuple[tuple[str, str], ...]:
+        return ((self.weight_filename, self.weight_sha256), *self.additional_weight_files)
+
+    @property
+    def allowed_snapshot_patterns(self) -> tuple[str, ...]:
+        """Public model artifacts allowed into the isolated task cache."""
+
+        return (
+            "config.json",
+            *(filename for filename, _ in self.weight_files),
+            "model.safetensors.index.json",
+            "generation_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "added_tokens.json",
+            "sentencepiece.bpe.model",
+            "spm.model",
+            "vocab.json",
+            "vocab.txt",
+            "merges.txt",
+            "chat_template.jinja",
+            "modules.json",
+            "config_sentence_transformers.json",
+            "sentence_bert_config.json",
+            "1_Pooling/config.json",
+        )
+
+    def public_pin(self) -> dict[str, object]:
+        """Return provenance that is safe for aggregate benchmark output."""
+
+        return {
+            "key": self.key,
+            "task": self.task.value,
+            "repository_id": self.repository_id,
+            "revision": self.revision,
+            "tokenizer_repository_id": self.tokenizer_repository_id,
+            "tokenizer_revision": self.tokenizer_revision,
+            "license_spdx": self.license_spdx,
+            "weight_filename": self.weight_filename,
+            "weight_sha256": self.weight_sha256,
+            "weight_files": [
+                {"filename": filename, "sha256": digest}
+                for filename, digest in self.weight_files
+            ],
+            "max_sequence_length": self.max_sequence_length,
+            "max_batch_size": self.max_batch_size,
+            "trust_remote_code": self.trust_remote_code,
+            "architecture": self.architecture,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class BlockedModelManifest:
+    """A candidate rejected before download by an immutable artifact gate."""
+
+    key: str
+    repository_id: str
+    revision: str
+    license_spdx: str
+    blocked_reason: str
+    reviewed_artifact: str
+    reviewed_sha256: str
+
+    def __post_init__(self) -> None:
+        if _REPOSITORY_ID.fullmatch(self.repository_id) is None:
+            raise ValueError("blocked model repository must be explicit")
+        if _LOWER_HEX_40.fullmatch(self.revision) is None:
+            raise ValueError("blocked model revision must be immutable")
+        if _LOWER_HEX_64.fullmatch(self.reviewed_sha256) is None:
+            raise ValueError("blocked artifact digest must be immutable")
+        if self.blocked_reason != "unsafe_pickle_only":
+            raise ValueError("blocked model reason must be a closed safe code")
+
+    def public_pin(self) -> dict[str, object]:
+        return {
+            "key": self.key,
+            "repository_id": self.repository_id,
+            "revision": self.revision,
+            "license_spdx": self.license_spdx,
+            "status": "blocked",
+            "blocked_reason": self.blocked_reason,
+            "reviewed_artifact": self.reviewed_artifact,
+            "reviewed_sha256": self.reviewed_sha256,
+            "trust_remote_code": False,
+        }
+
+
+E5_MULTILINGUAL_SMALL = ModelManifest(
+    key="multilingual_e5_small",
+    task=TextModelTask.REQUIREMENT_ACTION_RETRIEVAL,
+    repository_id="intfloat/multilingual-e5-small",
+    revision="614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    tokenizer_repository_id="intfloat/multilingual-e5-small",
+    tokenizer_revision="614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    license_spdx="MIT",
+    weight_filename="model.safetensors",
+    weight_sha256="1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477",
+    max_sequence_length=512,
+    max_batch_size=32,
+)
+
+MDEBERTA_XNLI = ModelManifest(
+    key="mdeberta_xnli",
+    task=TextModelTask.SCOPED_NLI,
+    repository_id="MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+    revision="b5113eb38ab63efdd7f280f8c144ea8b13f978ce",
+    tokenizer_repository_id=(
+        "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7"
+    ),
+    tokenizer_revision="b5113eb38ab63efdd7f280f8c144ea8b13f978ce",
+    license_spdx="MIT",
+    weight_filename="model.safetensors",
+    weight_sha256="7c8e29f1115986d032e92b0fbaa0bdef1062a46f658b08705f237c05014a8541",
+    max_sequence_length=512,
+    max_batch_size=16,
+    # This repository's pinned config uses this explicit order.  Runtime loading
+    # also validates semantic config labels when the config exposes them.
+    output_label_by_index=(
+        (0, "entailment"),
+        (1, "neutral"),
+        (2, "contradiction"),
+    ),
+)
+
+BGE_M3_BLOCKED = BlockedModelManifest(
+    key="bge_m3",
+    repository_id="BAAI/bge-m3",
+    revision="5617a9f61b028005a4858fdac845db406aefb181",
+    license_spdx="MIT",
+    blocked_reason="unsafe_pickle_only",
+    reviewed_artifact="pytorch_model.bin",
+    reviewed_sha256="b5e0a70128ad4f26da749a34c4a202c9ba503069e0f40a27d3c35619a358ad38",
+)
+
+BGE_RERANKER_V2_M3 = ModelManifest(
+    key="bge_reranker_v2_m3",
+    task=TextModelTask.PAIR_RERANKING,
+    repository_id="BAAI/bge-reranker-v2-m3",
+    revision="953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+    tokenizer_repository_id="BAAI/bge-reranker-v2-m3",
+    tokenizer_revision="953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+    license_spdx="Apache-2.0",
+    weight_filename="model.safetensors",
+    weight_sha256="d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286",
+    max_sequence_length=512,
+    max_batch_size=8,
+    architecture="sequence_classifier",
+)
+
+QWEN3_EMBEDDING_06B = ModelManifest(
+    key="qwen3_embedding_06b",
+    task=TextModelTask.REQUIREMENT_ACTION_RETRIEVAL,
+    repository_id="Qwen/Qwen3-Embedding-0.6B",
+    revision="97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    tokenizer_repository_id="Qwen/Qwen3-Embedding-0.6B",
+    tokenizer_revision="97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    license_spdx="Apache-2.0",
+    weight_filename="model.safetensors",
+    weight_sha256="0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd",
+    max_sequence_length=512,
+    max_batch_size=16,
+    architecture="qwen3_embedding",
+)
+
+QWEN3_RERANKER_06B = ModelManifest(
+    key="qwen3_reranker_06b",
+    task=TextModelTask.PAIR_RERANKING,
+    repository_id="Qwen/Qwen3-Reranker-0.6B",
+    revision="e61197ed45024b0ed8a2d74b80b4d909f1255473",
+    tokenizer_repository_id="Qwen/Qwen3-Reranker-0.6B",
+    tokenizer_revision="e61197ed45024b0ed8a2d74b80b4d909f1255473",
+    license_spdx="Apache-2.0",
+    weight_filename="model.safetensors",
+    weight_sha256="27cd75a405b9c1b46b59abfd88aaa209e6fed2a1972cde9b70e7659537c5e65b",
+    max_sequence_length=512,
+    max_batch_size=8,
+    architecture="qwen3_reranker",
+)
+
+QWEN3_4B_RUBRIC = ModelManifest(
+    key="qwen3_4b_rubric",
+    task=TextModelTask.STRUCTURED_RUBRIC,
+    repository_id="Qwen/Qwen3-4B-Instruct-2507",
+    revision="cdbee75f17c01a7cc42f958dc650907174af0554",
+    tokenizer_repository_id="Qwen/Qwen3-4B-Instruct-2507",
+    tokenizer_revision="cdbee75f17c01a7cc42f958dc650907174af0554",
+    license_spdx="Apache-2.0",
+    weight_filename="model-00001-of-00003.safetensors",
+    weight_sha256="75311d91bb08cf0b882913da464a1e722a31fb44db35208663487efb7a3d8ed6",
+    additional_weight_files=(
+        (
+            "model-00002-of-00003.safetensors",
+            "0b48adbb1f60e901153d91907ba11ce63bd4b8b584482e730f48808d055dfba1",
+        ),
+        (
+            "model-00003-of-00003.safetensors",
+            "7dd39ccca5e4de123c74c14af44c9bf2eb75df33b4614382af0134528e060d5d",
+        ),
+    ),
+    max_sequence_length=512,
+    max_batch_size=1,
+    architecture="qwen3_instruct",
+)
+
+TEXT_MODEL_MANIFESTS: Mapping[str, ModelManifest] = MappingProxyType(
+    {
+        E5_MULTILINGUAL_SMALL.key: E5_MULTILINGUAL_SMALL,
+        MDEBERTA_XNLI.key: MDEBERTA_XNLI,
+        BGE_RERANKER_V2_M3.key: BGE_RERANKER_V2_M3,
+        QWEN3_EMBEDDING_06B.key: QWEN3_EMBEDDING_06B,
+        QWEN3_RERANKER_06B.key: QWEN3_RERANKER_06B,
+        QWEN3_4B_RUBRIC.key: QWEN3_4B_RUBRIC,
+    }
+)
+
+BLOCKED_TEXT_MODEL_MANIFESTS: Mapping[str, BlockedModelManifest] = MappingProxyType(
+    {BGE_M3_BLOCKED.key: BGE_M3_BLOCKED}
+)

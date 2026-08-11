@@ -8,6 +8,7 @@ from typing import Literal, cast
 from ...domain import (
     DataTier,
     EventKind,
+    EventTimeBasis,
     MetricObservation,
     MetricSource,
     SafeEvent,
@@ -179,6 +180,68 @@ OBSERVED_TURN_DURATION_DEFINITION = MetricDefinition(
     "Subtotal of known finalized-turn durations; coverage shows missing durations.",
     "milliseconds",
 )
+FINALIZED_TURN_COUNT_DEFINITION = MetricDefinition(
+    "workflow.finalized_turn_count",
+    1,
+    "workflow",
+    "Observed agent iterations",
+    "Observed finalized-turn subtotal; full confidence requires a complete event stream.",
+    "count",
+)
+TURN_USAGE_COVERAGE_DEFINITION = MetricDefinition(
+    "data_quality.turn_usage_coverage",
+    1,
+    "data_quality",
+    "Usable turn usage coverage",
+    (
+        "Share of observed finalized turns sequence-paired with an additive, "
+        "turn-scoped usage record containing at least one token counter."
+    ),
+    "ratio",
+)
+TURN_DURATION_COVERAGE_DEFINITION = MetricDefinition(
+    "data_quality.turn_duration_coverage",
+    1,
+    "data_quality",
+    "Turn duration coverage",
+    "Share of observed finalized turns with a known duration.",
+    "ratio",
+)
+TOOL_RESULT_COVERAGE_DEFINITION = MetricDefinition(
+    "data_quality.tool_result_coverage",
+    1,
+    "data_quality",
+    "Tool result coverage",
+    "Share of observed completed tool events with a known result.",
+    "ratio",
+)
+TOOL_DURATION_COVERAGE_DEFINITION = MetricDefinition(
+    "data_quality.tool_duration_coverage",
+    1,
+    "data_quality",
+    "Tool duration coverage",
+    "Share of observed completed tool events with a known duration.",
+    "ratio",
+)
+UNKNOWN_EVENT_KIND_RATE_DEFINITION = MetricDefinition(
+    "data_quality.unknown_event_kind_rate",
+    1,
+    "data_quality",
+    "Unknown event kind rate",
+    "Share of observed safe events whose event kind is unknown.",
+    "ratio",
+)
+DIRECT_EVENT_TIMESTAMP_RATE_DEFINITION = MetricDefinition(
+    "data_quality.direct_event_timestamp_rate",
+    1,
+    "data_quality",
+    "Direct event timestamp rate",
+    (
+        "Share of observed safe events with an event-specific provider timestamp; "
+        "containing-turn and session fallback timestamps are excluded."
+    ),
+    "ratio",
+)
 
 INPUT_TOKENS_DEFINITION = MetricDefinition(
     "usage.input_tokens",
@@ -264,6 +327,51 @@ def _numeric(
             else None
         ),
     )
+
+
+TOKEN_COUNTER_ATTRIBUTES = (
+    "input_tokens",
+    "cached_input_tokens",
+    "cache_creation_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+    "total_tokens",
+)
+
+
+def paired_usable_turn_usage_events(
+    events: tuple[SafeEvent, ...],
+) -> tuple[SafeEvent, ...]:
+    """Return at most one usable usage event per observed finalized turn.
+
+    The canonical event model does not retain a provider turn identifier. Pairing
+    is therefore explicit and deterministic: within sequence order, the latest
+    usable turn-scoped usage event since TURN_START or the preceding TURN_END is
+    paired with the next TURN_END. Orphan and duplicate records cannot increase
+    coverage beyond one observation for that finalized turn.
+    """
+
+    paired: list[SafeEvent] = []
+    pending: SafeEvent | None = None
+    for event in sorted(events, key=lambda item: item.sequence):
+        if event.kind is EventKind.TURN_START:
+            pending = None
+        elif (
+            event.kind is EventKind.USAGE
+            and event.usage is not None
+            and event.usage.scope is UsageScope.TURN
+            and event.usage.counter_kind is UsageCounterKind.DELTA
+            and any(
+                getattr(event.usage, attribute) is not None
+                for attribute in TOKEN_COUNTER_ATTRIBUTES
+            )
+        ):
+            pending = event
+        elif event.kind is EventKind.TURN_END:
+            if pending is not None:
+                paired.append(pending)
+            pending = None
+    return tuple(paired)
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,6 +532,102 @@ class ObservedTurnDurationCalculator:
         )
 
 
+DataCoverageKind = Literal[
+    "turn_usage", "turn_duration", "tool_result", "tool_duration"
+]
+
+
+@dataclass(frozen=True, slots=True)
+class DataCoverageCalculator:
+    """Measure field presence without treating missing values as zero."""
+
+    definition: MetricDefinition
+    coverage_kind: DataCoverageKind
+    required_features: frozenset[str] = frozenset({EVENT_GROUPS_FEATURE})
+    required_tier: DataTier = DataTier.METADATA
+
+    def calculate(
+        self, context: AnalysisContext, features: FeatureSet
+    ) -> MetricObservation:
+        groups = cast(EventGroups, features[EVENT_GROUPS_FEATURE])
+        turn_ends = tuple(
+            event for event in groups.all_events if event.kind is EventKind.TURN_END
+        )
+        if self.coverage_kind == "turn_usage":
+            eligible = len(turn_ends)
+            observed = len(paired_usable_turn_usage_events(groups.all_events))
+        elif self.coverage_kind == "turn_duration":
+            eligible = len(turn_ends)
+            observed = sum(event.duration_ms is not None for event in turn_ends)
+        elif self.coverage_kind == "tool_result":
+            eligible = len(groups.tool_events)
+            observed = sum(event.success is not None for event in groups.tool_events)
+        else:
+            eligible = len(groups.tool_events)
+            observed = sum(
+                event.duration_ms is not None for event in groups.tool_events
+            )
+        value = None if eligible == 0 else observed / eligible
+        return MetricObservation(
+            key=self.definition.key,
+            version=self.definition.version,
+            numeric_value=value,
+            unit=self.definition.unit,
+            source=self.definition.source,
+            observed_count=observed,
+            eligible_count=eligible,
+            coverage=_coverage(observed, eligible),
+            confidence=(
+                1.0
+                if context.session.events_complete and value is not None
+                else None
+            ),
+        )
+
+
+EventRateKind = Literal["unknown_kind", "direct_event_timestamp"]
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedEventRateCalculator:
+    """Rate over safe events, separate from observation completeness."""
+
+    definition: MetricDefinition
+    rate_kind: EventRateKind
+    required_features: frozenset[str] = frozenset({EVENT_GROUPS_FEATURE})
+    required_tier: DataTier = DataTier.METADATA
+
+    def calculate(
+        self, context: AnalysisContext, features: FeatureSet
+    ) -> MetricObservation:
+        events = cast(EventGroups, features[EVENT_GROUPS_FEATURE]).all_events
+        eligible = len(events)
+        matching = sum(
+            (
+                event.kind is EventKind.UNKNOWN
+                if self.rate_kind == "unknown_kind"
+                else event.time_basis is EventTimeBasis.PROVIDER_REPORTED
+            )
+            for event in events
+        )
+        value = None if eligible == 0 else matching / eligible
+        return MetricObservation(
+            key=self.definition.key,
+            version=self.definition.version,
+            numeric_value=value,
+            unit=self.definition.unit,
+            source=self.definition.source,
+            observed_count=eligible,
+            eligible_count=eligible,
+            coverage=1.0 if eligible else 0.0,
+            confidence=(
+                1.0
+                if context.session.events_complete and value is not None
+                else None
+            ),
+        )
+
+
 UsageAttribute = Literal[
     "input_tokens",
     "cached_input_tokens",
@@ -509,6 +713,15 @@ DETERMINISTIC_CALCULATORS = (
     RateCalculator(VERIFICATION_PASS_RATE_DEFINITION, "verification_events"),
     ObservedTurnDurationCalculator(),
     ObservedToolDurationCalculator(),
+    CompleteCountCalculator(FINALIZED_TURN_COUNT_DEFINITION, kind=EventKind.TURN_END),
+    DataCoverageCalculator(TURN_USAGE_COVERAGE_DEFINITION, "turn_usage"),
+    DataCoverageCalculator(TURN_DURATION_COVERAGE_DEFINITION, "turn_duration"),
+    DataCoverageCalculator(TOOL_RESULT_COVERAGE_DEFINITION, "tool_result"),
+    DataCoverageCalculator(TOOL_DURATION_COVERAGE_DEFINITION, "tool_duration"),
+    ObservedEventRateCalculator(UNKNOWN_EVENT_KIND_RATE_DEFINITION, "unknown_kind"),
+    ObservedEventRateCalculator(
+        DIRECT_EVENT_TIMESTAMP_RATE_DEFINITION, "direct_event_timestamp"
+    ),
     UsageCalculator(INPUT_TOKENS_DEFINITION, "input_tokens"),
     UsageCalculator(CACHED_INPUT_TOKENS_DEFINITION, "cached_input_tokens"),
     UsageCalculator(CACHE_CREATION_TOKENS_DEFINITION, "cache_creation_tokens"),
@@ -526,7 +739,7 @@ DETERMINISTIC_FEATURE_EXTRACTORS = (
 
 DEFAULT_METRIC_PACK = MetricPack(
     key=DEFAULT_METRIC_PACK_KEY,
-    version=2,
+    version=3,
     metric_keys=tuple(
         calculator.definition.key for calculator in DETERMINISTIC_CALCULATORS
     ),

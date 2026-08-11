@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+from dataclasses import asdict
+from threading import Event
+import time
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from prompt_enhancer.infrastructure.text_models.jobs import (
+    LocalTextModelEvaluationService,
+    ModelEvaluationBusyError,
+    ModelEvaluationRequest,
+    summarize_model_report,
+)
+from prompt_enhancer.interfaces.http.research_routes import create_research_router
+
+
+def _safe_report() -> dict[str, object]:
+    return {
+        "device": "cuda",
+        "candidate_outcomes": [
+            {"key": "qwen3_embedding_06b", "status": "evaluated", "error_code": None},
+            {
+                "key": "bge_m3",
+                "status": "blocked_before_download",
+                "error_code": "unsafe_pickle_only",
+            },
+        ],
+        "retrieval": [
+            {"backend_key": "lexical_bm25_v1", "top1_accuracy": 0.5},
+            {
+                "backend_key": "qwen3_embedding_last_token_v1",
+                "top1_accuracy": 0.75,
+                "mean_reciprocal_rank": 0.875,
+                "inference_latency_ms": 125.0,
+                "runtime": {"peak_cuda_allocated_mb": 1200.0},
+                "private_canary": "must-not-cross-projection",
+            },
+        ],
+        "reranking": [],
+        "nli": [],
+        "rubric": [],
+    }
+
+
+def _wait(service: LocalTextModelEvaluationService, job_id: str):
+    for _ in range(100):
+        job = service.get(job_id)
+        if job.status not in {"queued", "running"}:
+            return job
+        time.sleep(0.01)
+    raise AssertionError("synthetic model job did not finish")
+
+
+def test_report_projection_is_content_free_and_typed() -> None:
+    device, outcomes = summarize_model_report(_safe_report())
+    assert device == "cuda"
+    assert outcomes[0].primary_metric == "top1_accuracy"
+    assert outcomes[0].primary_value == 0.75
+    assert outcomes[0].peak_accelerator_memory_mb == 1200.0
+    assert outcomes[1].status == "blocked_before_download"
+    assert "must-not-cross-projection" not in repr(outcomes)
+
+
+def test_service_runs_one_daemon_job_and_rejects_concurrent_work() -> None:
+    entered = Event()
+    release = Event()
+
+    def runner(_request):  # type: ignore[no-untyped-def]
+        entered.set()
+        release.wait(timeout=2)
+        return _safe_report()
+
+    service = LocalTextModelEvaluationService(runner)
+    first = service.start(ModelEvaluationRequest(candidate="all", device="cuda"))
+    assert entered.wait(timeout=1)
+    with pytest.raises(ModelEvaluationBusyError):
+        service.start(ModelEvaluationRequest(candidate="e5"))
+    release.set()
+    completed = _wait(service, first.job_id)
+    assert completed.status == "completed"
+    assert completed.resolved_device == "cuda"
+    assert len(completed.outcomes) == 2
+
+
+def test_http_job_contract_is_bounded_and_content_free() -> None:
+    service = LocalTextModelEvaluationService(lambda _request: _safe_report())
+    app = FastAPI()
+    app.include_router(create_research_router(lambda: None, service))
+    client = TestClient(app)
+
+    runtime = client.get("/v1/research/text-model-runtime")
+    started = client.post(
+        "/v1/research/text-model-evaluations",
+        json={
+            "candidate": "all",
+            "device": "auto",
+            "mode": "smoke",
+            "allow_download": False,
+        },
+    )
+    assert runtime.status_code == 200
+    assert runtime.json()["raw_session_data_accepted"] is False
+    assert started.status_code == 202
+    job_id = started.json()["job_id"]
+    for _ in range(100):
+        result = client.get(f"/v1/research/text-model-evaluations/{job_id}")
+        if result.json()["status"] not in {"queued", "running"}:
+            break
+        time.sleep(0.01)
+    assert result.status_code == 200
+    assert result.json()["status"] == "completed"
+    assert result.json()["outcomes"][0]["primary_value"] == 0.75
+    serialized = result.text
+    assert "must-not-cross-projection" not in serialized
+    assert "prompt" not in serialized.casefold()
+    assert "transcript" not in serialized.casefold()

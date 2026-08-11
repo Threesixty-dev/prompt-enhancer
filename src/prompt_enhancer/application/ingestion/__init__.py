@@ -3,11 +3,13 @@
 from .ports import (
     IngestionRepository,
     SessionMetricComputer,
+    SessionMetricPlan,
     SourceIdentifierProtector,
 )
 
 __all__ = [
     "IngestionRepository",
     "SessionMetricComputer",
+    "SessionMetricPlan",
     "SourceIdentifierProtector",
 ]

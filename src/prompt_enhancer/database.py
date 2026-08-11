@@ -30,8 +30,16 @@ from .application.display_labels import (
     ProviderDisplayLabelObservation,
     ProviderLabelSource,
 )
+from .application.analysis.project_quality_aggregation import (
+    IndexedProjectQualitySnapshot,
+    IndexedProjectSessions,
+    ProjectQualitySelectionIncompleteError,
+    ProjectQualitySelectionLimitError,
+)
 from .config import lexical_absolute_path, path_has_symlink_component
 from .domain import (
+    PSEUDONYM_PATTERN,
+    SAFE_VERSION_PATTERN,
     DataTier,
     EventKind,
     EventTimeBasis,
@@ -48,7 +56,6 @@ from .domain import (
 )
 from .metrics import (
     METRIC_DEFINITIONS,
-    METRIC_ENGINE_VERSION,
     MetricDefinition,
     NOT_APPLICABLE_VERSION,
     metric_engine_version_for_definition,
@@ -58,10 +65,15 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_3,
     MIGRATION_4,
     MIGRATION_5,
+    MIGRATION_6,
+    MIGRATION_7,
+    MIGRATION_8,
+    MIGRATION_9,
+    MIGRATION_10,
 )
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 10
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -296,6 +308,11 @@ class Database:
                 (3, MIGRATION_3),
                 (4, MIGRATION_4),
                 (5, MIGRATION_5),
+                (6, MIGRATION_6),
+                (7, MIGRATION_7),
+                (8, MIGRATION_8),
+                (9, MIGRATION_9),
+                (10, MIGRATION_10),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -413,6 +430,30 @@ class Database:
 
         self._ensure_initialized()
         return SqliteAnalysisRunRepository(self._connection, self._ensure_initialized)
+
+    def session_analysis_run_repository(self):
+        """Return the immutable selected-session analysis persistence adapter."""
+
+        from .infrastructure.sqlite.session_analysis_runs import (
+            SqliteSessionAnalysisRunRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteSessionAnalysisRunRepository(
+            self._connection, self._ensure_initialized
+        )
+
+    def model_link_experiment_repository(self):
+        """Return the content-free local neural-comparison persistence adapter."""
+
+        from .infrastructure.sqlite.model_link_experiments import (
+            SqliteModelLinkExperimentRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteModelLinkExperimentRepository(
+            self._connection, self._ensure_initialized
+        )
 
     def has_active_consent(
         self,
@@ -1019,9 +1060,27 @@ class Database:
         session_id: str,
         observations: Iterable[MetricObservation],
         *,
-        metric_engine_version: str = METRIC_ENGINE_VERSION,
+        metric_pack_key: str,
+        metric_pack_version: int,
+        metric_engine_version: str,
     ) -> int:
         self._ensure_initialized()
+        if (
+            not isinstance(metric_pack_key, str)
+            or SAFE_VERSION_PATTERN.fullmatch(metric_pack_key) is None
+        ):
+            raise DatabaseInvariantError("metric pack key is invalid")
+        if (
+            isinstance(metric_pack_version, bool)
+            or not isinstance(metric_pack_version, int)
+            or metric_pack_version < 1
+        ):
+            raise DatabaseInvariantError("metric pack version is invalid")
+        if (
+            not isinstance(metric_engine_version, str)
+            or SAFE_VERSION_PATTERN.fullmatch(metric_engine_version) is None
+        ):
+            raise DatabaseInvariantError("metric engine version is invalid")
         items = tuple(observations)
         identities = {(item.key, item.version) for item in items}
         if len(identities) != len(items):
@@ -1056,6 +1115,8 @@ class Database:
                         item.eligible_count,
                         item.coverage,
                         item.confidence,
+                        metric_pack_key,
+                        metric_pack_version,
                         metric_engine_version,
                         NOT_APPLICABLE_VERSION,
                         None,
@@ -1068,6 +1129,7 @@ class Database:
                     comparison_keys = (
                         "numeric_value", "text_value", "unit", "source",
                         "observed_count", "eligible_count", "coverage", "confidence",
+                        "metric_pack_key", "metric_pack_version",
                         "metric_engine_version", "redactor_version", "model_id",
                         "model_revision", "tokenizer_id", "prompt_version", "rubric_version",
                     )
@@ -1077,10 +1139,11 @@ class Database:
                             INSERT INTO metric_results(
                                 session_id, key, version, numeric_value, text_value,
                                 unit, source, observed_count, eligible_count, coverage,
-                                confidence, metric_engine_version, redactor_version,
+                                confidence, metric_pack_key, metric_pack_version,
+                                metric_engine_version, redactor_version,
                                 model_id, model_revision, tokenizer_id, prompt_version,
                                 rubric_version, computed_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             (session_id, item.key, item.version, *values, now),
                         )
@@ -1090,7 +1153,8 @@ class Database:
                             """
                             UPDATE metric_results SET numeric_value=?, text_value=?,
                                 unit=?, source=?, observed_count=?, eligible_count=?,
-                                coverage=?, confidence=?, metric_engine_version=?,
+                                coverage=?, confidence=?, metric_pack_key=?,
+                                metric_pack_version=?, metric_engine_version=?,
                                 redactor_version=?, model_id=?, model_revision=?,
                                 tokenizer_id=?, prompt_version=?, rubric_version=?,
                                 computed_at=?
@@ -1123,84 +1187,59 @@ class Database:
         limit: int = 100,
         offset: int = 0,
         provider: Provider | None = None,
+        project_id: str | None = None,
     ) -> list[dict[str, object]]:
         self._ensure_initialized()
         if limit < 1 or limit > 500:
             raise ValueError("limit must be between 1 and 500")
         if offset < 0:
             raise ValueError("offset cannot be negative")
+        filters: list[str] = []
+        parameters: list[object] = []
+        if provider is not None:
+            filters.append("s.provider = ?")
+            parameters.append(provider.value)
+        if project_id is not None:
+            filters.append("s.project_id = ?")
+            parameters.append(project_id)
+        where_clause = " WHERE " + " AND ".join(filters) if filters else ""
+        parameters.extend((limit, offset))
         with self._connection(readonly=True) as connection:
-            if provider is None:
-                rows = connection.execute(
-                    """
-                    SELECT s.session_id, s.installation_id, s.project_id, s.provider,
-                           s.provider_version, s.adapter_version, s.source_schema_version,
-                           s.started_at, s.ended_at, s.terminal_state, s.events_complete,
-                           COALESCE(pdl.manual_value, pdl.provider_value, p.display_name)
-                               AS project_display_name,
-                           COALESCE(sdl.manual_value, sdl.provider_value, s.display_name)
-                               AS session_display_name,
-                           CASE
-                               WHEN pdl.manual_value IS NOT NULL THEN 'manual'
-                               WHEN pdl.provider_value IS NOT NULL
-                                    OR p.display_name IS NOT NULL THEN 'provider'
-                               ELSE 'unknown'
-                           END AS project_display_name_origin,
-                           CASE
-                               WHEN sdl.manual_value IS NOT NULL THEN 'manual'
-                               WHEN sdl.provider_value IS NOT NULL
-                                    OR s.display_name IS NOT NULL THEN 'provider'
-                               ELSE 'unknown'
-                           END AS session_display_name_origin,
-                           COALESCE(pdl.manual_revision, 0)
-                               AS project_manual_label_revision,
-                           COALESCE(sdl.manual_revision, 0)
-                               AS session_manual_label_revision
-                    FROM sessions s JOIN projects p ON p.project_id = s.project_id
-                    LEFT JOIN project_display_labels pdl
-                        ON pdl.project_id = p.project_id
-                    LEFT JOIN session_display_labels sdl
-                        ON sdl.session_id = s.session_id
-                    ORDER BY s.started_at DESC, s.session_id LIMIT ? OFFSET ?
-                    """,
-                    (limit, offset),
-                ).fetchall()
-            else:
-                rows = connection.execute(
-                    """
-                    SELECT s.session_id, s.installation_id, s.project_id, s.provider,
-                           s.provider_version, s.adapter_version, s.source_schema_version,
-                           s.started_at, s.ended_at, s.terminal_state, s.events_complete,
-                           COALESCE(pdl.manual_value, pdl.provider_value, p.display_name)
-                               AS project_display_name,
-                           COALESCE(sdl.manual_value, sdl.provider_value, s.display_name)
-                               AS session_display_name,
-                           CASE
-                               WHEN pdl.manual_value IS NOT NULL THEN 'manual'
-                               WHEN pdl.provider_value IS NOT NULL
-                                    OR p.display_name IS NOT NULL THEN 'provider'
-                               ELSE 'unknown'
-                           END AS project_display_name_origin,
-                           CASE
-                               WHEN sdl.manual_value IS NOT NULL THEN 'manual'
-                               WHEN sdl.provider_value IS NOT NULL
-                                    OR s.display_name IS NOT NULL THEN 'provider'
-                               ELSE 'unknown'
-                           END AS session_display_name_origin,
-                           COALESCE(pdl.manual_revision, 0)
-                               AS project_manual_label_revision,
-                           COALESCE(sdl.manual_revision, 0)
-                               AS session_manual_label_revision
-                    FROM sessions s JOIN projects p ON p.project_id = s.project_id
-                    LEFT JOIN project_display_labels pdl
-                        ON pdl.project_id = p.project_id
-                    LEFT JOIN session_display_labels sdl
-                        ON sdl.session_id = s.session_id
-                    WHERE s.provider = ?
-                    ORDER BY s.started_at DESC, s.session_id LIMIT ? OFFSET ?
-                    """,
-                    (provider.value, limit, offset),
-                ).fetchall()
+            rows = connection.execute(
+                f"""
+                SELECT s.session_id, s.installation_id, s.project_id, s.provider,
+                       s.provider_version, s.adapter_version, s.source_schema_version,
+                       s.started_at, s.ended_at, s.terminal_state, s.events_complete,
+                       COALESCE(pdl.manual_value, pdl.provider_value, p.display_name)
+                           AS project_display_name,
+                       COALESCE(sdl.manual_value, sdl.provider_value, s.display_name)
+                           AS session_display_name,
+                       CASE
+                           WHEN pdl.manual_value IS NOT NULL THEN 'manual'
+                           WHEN pdl.provider_value IS NOT NULL
+                                OR p.display_name IS NOT NULL THEN 'provider'
+                           ELSE 'unknown'
+                       END AS project_display_name_origin,
+                       CASE
+                           WHEN sdl.manual_value IS NOT NULL THEN 'manual'
+                           WHEN sdl.provider_value IS NOT NULL
+                                OR s.display_name IS NOT NULL THEN 'provider'
+                           ELSE 'unknown'
+                       END AS session_display_name_origin,
+                       COALESCE(pdl.manual_revision, 0)
+                           AS project_manual_label_revision,
+                       COALESCE(sdl.manual_revision, 0)
+                           AS session_manual_label_revision
+                FROM sessions s JOIN projects p ON p.project_id = s.project_id
+                LEFT JOIN project_display_labels pdl
+                    ON pdl.project_id = p.project_id
+                LEFT JOIN session_display_labels sdl
+                    ON sdl.session_id = s.session_id
+                {where_clause}
+                ORDER BY s.started_at DESC, s.session_id LIMIT ? OFFSET ?
+                """,
+                tuple(parameters),
+            ).fetchall()
         return [
             {
                 **dict(row),
@@ -1208,6 +1247,227 @@ class Database:
             }
             for row in rows
         ]
+
+    def count_sessions(
+        self,
+        *,
+        provider: Provider | None = None,
+        project_id: str | None = None,
+    ) -> int:
+        """Count indexed sessions inside an optional provider/project boundary."""
+
+        self._ensure_initialized()
+        filters: list[str] = []
+        parameters: list[object] = []
+        if provider is not None:
+            filters.append("provider = ?")
+            parameters.append(provider.value)
+        if project_id is not None:
+            filters.append("project_id = ?")
+            parameters.append(project_id)
+        where_clause = " WHERE " + " AND ".join(filters) if filters else ""
+        with self._connection(readonly=True) as connection:
+            row = connection.execute(
+                f"SELECT COUNT(*) AS count FROM sessions{where_clause}",
+                tuple(parameters),
+            ).fetchone()
+        return int(row["count"])
+
+    def resolve_indexed_project_sessions(
+        self,
+        project_ids: tuple[str, ...],
+        *,
+        max_sessions: int,
+    ) -> IndexedProjectSessions:
+        """Resolve one complete project scope with one bounded catalog query.
+
+        The query takes at most ``max_sessions + 1`` candidate sessions and
+        returns at most that sentinel plus one row per selected project. This
+        detects an oversized, missing, or empty selection without a full-scope
+        count and fails rather than becoming silent pagination. Only safe local
+        identifiers are read; provider adapters are not part of this path.
+        """
+
+        self._ensure_initialized()
+        with self._connection(readonly=True) as connection:
+            return self._resolve_indexed_project_sessions_on_connection(
+                connection,
+                project_ids,
+                max_sessions=max_sessions,
+            )
+
+    @staticmethod
+    def _resolve_indexed_project_sessions_on_connection(
+        connection: sqlite3.Connection,
+        project_ids: tuple[str, ...],
+        *,
+        max_sessions: int,
+    ) -> IndexedProjectSessions:
+        if not 1 <= len(project_ids) <= 25:
+            raise ProjectQualitySelectionIncompleteError(
+                ProjectQualitySelectionIncompleteError.code
+            )
+        if len(set(project_ids)) != len(project_ids):
+            raise ProjectQualitySelectionIncompleteError(
+                ProjectQualitySelectionIncompleteError.code
+            )
+        if any(PSEUDONYM_PATTERN.fullmatch(value) is None for value in project_ids):
+            raise ProjectQualitySelectionIncompleteError(
+                ProjectQualitySelectionIncompleteError.code
+            )
+        if max_sessions < 1 or max_sessions > 100:
+            raise ProjectQualitySelectionLimitError(
+                ProjectQualitySelectionLimitError.code
+            )
+
+        selected_values = ", ".join("(?, ?)" for _ in project_ids)
+        parameters = tuple(
+            value
+            for ordinal, project_id in enumerate(project_ids)
+            for value in (project_id, ordinal)
+        ) + (
+            max_sessions + 1,
+            max_sessions + 1 + len(project_ids),
+        )
+        query = f"""
+            WITH selected_projects(project_id, selection_order) AS (
+                VALUES {selected_values}
+            ),
+            resolved_projects AS (
+                SELECT
+                    selected_projects.project_id,
+                    selected_projects.selection_order,
+                    CASE WHEN projects.project_id IS NULL THEN 0 ELSE 1 END
+                        AS project_found
+                FROM selected_projects
+                LEFT JOIN projects
+                  ON projects.project_id = selected_projects.project_id
+            ),
+            candidate_sessions AS (
+                SELECT
+                    resolved_projects.project_id,
+                    resolved_projects.selection_order,
+                    sessions.session_id,
+                    sessions.started_at
+                FROM resolved_projects
+                JOIN sessions
+                  ON sessions.project_id = resolved_projects.project_id
+                WHERE resolved_projects.project_found = 1
+                LIMIT ?
+            ),
+            scope_stats AS (
+                SELECT
+                    (
+                        SELECT COUNT(*) FROM resolved_projects
+                        WHERE project_found = 1
+                    ) AS matched_project_count,
+                    (
+                        SELECT COUNT(*) FROM resolved_projects
+                        WHERE project_found = 1
+                          AND NOT EXISTS (
+                              SELECT 1 FROM candidate_sessions
+                              WHERE candidate_sessions.project_id =
+                                  resolved_projects.project_id
+                          )
+                    ) AS empty_project_count,
+                    (SELECT COUNT(*) FROM candidate_sessions)
+                        AS candidate_session_count
+            )
+            SELECT
+                resolved_projects.selection_order,
+                resolved_projects.project_found,
+                candidate_sessions.session_id,
+                scope_stats.matched_project_count,
+                scope_stats.empty_project_count,
+                scope_stats.candidate_session_count
+            FROM resolved_projects
+            LEFT JOIN candidate_sessions
+              ON candidate_sessions.project_id = resolved_projects.project_id
+            CROSS JOIN scope_stats
+            ORDER BY
+                resolved_projects.selection_order,
+                candidate_sessions.started_at DESC,
+                candidate_sessions.session_id
+            LIMIT ?
+        """
+        rows = connection.execute(query, parameters).fetchall()
+
+        if not rows:
+            raise ProjectQualitySelectionIncompleteError(
+                ProjectQualitySelectionIncompleteError.code
+            )
+        matched_project_count = int(rows[0]["matched_project_count"])
+        empty_project_count = int(rows[0]["empty_project_count"])
+        session_count = int(rows[0]["candidate_session_count"])
+        if matched_project_count != len(project_ids):
+            raise ProjectQualitySelectionIncompleteError(
+                ProjectQualitySelectionIncompleteError.code
+            )
+        if session_count > max_sessions:
+            raise ProjectQualitySelectionLimitError(
+                ProjectQualitySelectionLimitError.code
+            )
+        if session_count < 1 or empty_project_count:
+            raise ProjectQualitySelectionIncompleteError(
+                ProjectQualitySelectionIncompleteError.code
+            )
+
+        session_ids = tuple(
+            str(row["session_id"])
+            for row in rows
+            if row["session_id"] is not None
+        )
+        if len(session_ids) != session_count or len(set(session_ids)) != session_count:
+            raise ProjectQualitySelectionIncompleteError(
+                ProjectQualitySelectionIncompleteError.code
+            )
+        return IndexedProjectSessions(
+            selected_project_count=matched_project_count,
+            session_ids=session_ids,
+        )
+
+    @contextmanager
+    def open_indexed_project_quality_snapshot(
+        self,
+        project_ids: tuple[str, ...],
+        *,
+        max_sessions: int,
+    ) -> Iterator[IndexedProjectQualitySnapshot]:
+        """Keep catalog resolution and immutable-run aggregation in one snapshot."""
+
+        from .infrastructure.sqlite.session_analysis_runs import (
+            SqliteSessionAnalysisRunRepository,
+        )
+
+        self._ensure_initialized()
+        with self._connection(readonly=True) as connection:
+            connection.execute("BEGIN")
+            resolution = self._resolve_indexed_project_sessions_on_connection(
+                connection,
+                project_ids,
+                max_sessions=max_sessions,
+            )
+
+            @contextmanager
+            def borrowed_connection(
+                *,
+                readonly: bool = False,
+            ) -> Iterator[sqlite3.Connection]:
+                if not readonly:
+                    raise DatabaseError("project quality snapshot is read-only")
+                yield connection
+
+            repository = SqliteSessionAnalysisRunRepository(
+                borrowed_connection,
+                self._ensure_initialized,
+            )
+            try:
+                yield IndexedProjectQualitySnapshot(
+                    resolution=resolution,
+                    repository=repository,
+                )
+            finally:
+                connection.rollback()
 
     def resolve_provider_label_targets(
         self,
@@ -1598,6 +1858,7 @@ class Database:
             rows = connection.execute(
                 """
                 SELECT r.key, r.version, d.dimension, d.display_name,
+                       r.metric_pack_key, r.metric_pack_version,
                        r.numeric_value, r.text_value, r.unit, r.source,
                        r.observed_count, r.eligible_count, r.coverage, r.confidence,
                        r.metric_engine_version, r.redactor_version, r.model_id,

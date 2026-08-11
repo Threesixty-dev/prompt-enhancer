@@ -97,6 +97,41 @@ class MetricValueState(StrEnum):
     EXECUTION_ERROR = "execution_error"
 
 
+class SessionMetricDirection(StrEnum):
+    """Display polarity for one persisted qualitative ratio."""
+
+    HIGHER_IS_BETTER = "higher_is_better"
+    LOWER_IS_BETTER = "lower_is_better"
+
+
+class SessionMetricApplicability(StrEnum):
+    """Whether the selected redacted analysis window supports a denominator."""
+
+    APPLICABLE = "applicable"
+    NOT_APPLICABLE = "not_applicable"
+    UNKNOWN = "unknown"
+
+
+class SessionMetricAggregation(StrEnum):
+    """Server-side aggregation contract; ratios must never be client-averaged."""
+
+    RATIO_OF_SUMS = "ratio_of_sums"
+
+
+class SessionEvidenceOrigin(StrEnum):
+    """How a content-free evidence reference entered the selected window."""
+
+    DIRECT = "direct"
+    INHERITED = "inherited"
+
+
+class SessionMetricSignalStatus(StrEnum):
+    DETECTED = "detected"
+    MISSING = "missing"
+    COUNTED = "counted"
+    UNKNOWN = "unknown"
+
+
 class CandidateSignalRecord(StrictModel):
     key: str
     version: int = Field(ge=1)
@@ -377,6 +412,375 @@ class AnalysisRunRecord(StrictModel):
         return self
 
 
+class SessionAnalysisEvidenceRecord(StrictModel):
+    """Pseudonymous evidence identity only; never a message excerpt or path."""
+
+    message_id: str
+    origin: SessionEvidenceOrigin
+
+    _validate_message_id = field_validator("message_id")(_pseudonym)
+
+
+class SessionAnalysisSignalRecord(StrictModel):
+    """Closed score-receipt item; never text or an evidence identifier."""
+
+    code: str
+    status: SessionMetricSignalStatus
+    count: int | None = Field(default=None, ge=0, le=10_000_000)
+
+    _validate_code = field_validator("code")(_safe_label)
+
+    @model_validator(mode="after")
+    def validate_signal(self) -> SessionAnalysisSignalRecord:
+        if self.status is SessionMetricSignalStatus.DETECTED and self.count != 1:
+            raise ValueError("detected binary signals require count one")
+        if self.status is SessionMetricSignalStatus.MISSING and self.count != 0:
+            raise ValueError("missing binary signals require count zero")
+        if self.status is SessionMetricSignalStatus.COUNTED and self.count is None:
+            raise ValueError("counted signals require a non-negative count")
+        if self.status is SessionMetricSignalStatus.UNKNOWN and self.count is not None:
+            raise ValueError("unknown signals cannot claim a count")
+        return self
+
+
+class SessionAnalysisRunDraft(StrictModel):
+    """Immutable provenance for one explicitly authorized P1 analysis window.
+
+    ``request_fingerprint`` covers only the reviewed content-free request,
+    bounds, pack, plan and policy so idempotency can be checked before a provider
+    read. ``input_fingerprint`` identifies the already-redacted, selected
+    analysis window. Neither may be a raw-content hash or provider identifier.
+    """
+
+    run_id: str
+    session_id: str
+    request_fingerprint: str
+    input_fingerprint: str
+    analysis_profile_key: str
+    analysis_profile_version: int = Field(ge=1)
+    metric_pack_key: str
+    metric_pack_version: int = Field(ge=1)
+    data_tier: DataTier
+    consent_purpose: str = "text_analysis"
+    consent_policy_version: str
+    provider: Provider
+    provider_version: str
+    adapter_version: str
+    source_schema_version: str
+    content_schema_version: str
+    metric_engine_version: str
+    redactor_version: str
+    model_plan_fingerprint: str
+    schema_version: int = Field(ge=1)
+    local_only: bool = True
+    started_at: datetime
+
+    _validate_ids = field_validator(
+        "run_id",
+        "session_id",
+        "request_fingerprint",
+        "input_fingerprint",
+        "model_plan_fingerprint",
+    )(_pseudonym)
+    _validate_codes = field_validator(
+        "analysis_profile_key",
+        "metric_pack_key",
+        "consent_policy_version",
+        "provider_version",
+        "adapter_version",
+        "source_schema_version",
+        "content_schema_version",
+        "metric_engine_version",
+        "redactor_version",
+    )(_safe_code)
+    _validate_started_at = field_validator("started_at")(_utc)
+
+    @model_validator(mode="after")
+    def validate_privacy_provenance(self) -> SessionAnalysisRunDraft:
+        if self.data_tier is not DataTier.REDACTED_CONTENT:
+            raise ValueError("session text analysis requires the redacted-content tier")
+        if self.consent_purpose != "text_analysis":
+            raise ValueError("session analysis requires the text_analysis purpose")
+        if not self.local_only:
+            raise ValueError("session analysis persistence is local-only")
+        return self
+
+
+class SessionAnalysisResultRecord(StrictModel):
+    """Content-free persisted projection of one qualitative metric result."""
+
+    observation: MetricObservation
+    value_state: MetricValueState
+    direction: SessionMetricDirection
+    applicability: SessionMetricApplicability
+    aggregation_method: SessionMetricAggregation = SessionMetricAggregation.RATIO_OF_SUMS
+    metric_schema_version: int = Field(ge=1)
+    evidence_data_tier: DataTier
+    fraction_numerator: int | None = Field(default=None, ge=0)
+    fraction_denominator: int | None = Field(default=None, ge=1)
+    evidence: tuple[SessionAnalysisEvidenceRecord, ...] = ()
+    signals: tuple[SessionAnalysisSignalRecord, ...] = ()
+    explanation_code: str
+    error_code: str | None = None
+    algorithm_id: str
+    algorithm_version: str
+    model_id: str | None = None
+    model_revision: str | None = None
+    model_license: str | None = None
+    tokenizer_id: str | None = None
+    prompt_version: str | None = None
+    rubric_version: str | None = None
+    computed_at: datetime
+
+    _validate_explanation = field_validator("explanation_code")(_safe_label)
+    _validate_error = field_validator("error_code")(_safe_label)
+    _validate_algorithm = field_validator("algorithm_id", "algorithm_version")(
+        _safe_code
+    )
+    _validate_model_provenance = field_validator(
+        "model_id",
+        "model_revision",
+        "model_license",
+        "tokenizer_id",
+        "prompt_version",
+        "rubric_version",
+    )(_safe_code)
+    _validate_computed_at = field_validator("computed_at")(_utc)
+
+    @model_validator(mode="after")
+    def validate_qualitative_result(self) -> SessionAnalysisResultRecord:
+        observation = self.observation
+        if observation.text_value is not None:
+            raise ValueError("session analysis results cannot persist textual values")
+        if self.evidence_data_tier is not DataTier.REDACTED_CONTENT:
+            raise ValueError("qualitative evidence must originate at redacted-content tier")
+        if self.aggregation_method is not SessionMetricAggregation.RATIO_OF_SUMS:
+            raise ValueError("qualitative fractions require ratio-of-sums aggregation")
+
+        has_fraction = (
+            self.fraction_numerator is not None
+            and self.fraction_denominator is not None
+        )
+        if (self.fraction_numerator is None) != (self.fraction_denominator is None):
+            raise ValueError("fraction numerator and denominator must be supplied together")
+        if has_fraction and self.fraction_numerator > self.fraction_denominator:
+            raise ValueError("fraction numerator cannot exceed its denominator")
+
+        has_value = observation.numeric_value is not None
+        if self.value_state is MetricValueState.KNOWN:
+            if (
+                not has_value
+                or not has_fraction
+                or self.error_code is not None
+                or self.applicability is not SessionMetricApplicability.APPLICABLE
+            ):
+                raise ValueError(
+                    "known session results require an applicable fraction and no error"
+                )
+            expected = self.fraction_numerator / self.fraction_denominator
+            if abs(observation.numeric_value - expected) > 1e-9:
+                raise ValueError("numeric value must equal the persisted fraction")
+        else:
+            if has_value or has_fraction:
+                raise ValueError("non-known session results cannot contain a value")
+            if observation.confidence is not None:
+                raise ValueError("non-known session results cannot claim confidence")
+            if self.value_state is MetricValueState.EXECUTION_ERROR:
+                if self.error_code is None:
+                    raise ValueError("execution errors require a safe error code")
+            elif self.error_code is not None:
+                raise ValueError("only execution errors may contain an error code")
+
+        if (
+            self.value_state is MetricValueState.NOT_APPLICABLE
+        ) != (
+            self.applicability is SessionMetricApplicability.NOT_APPLICABLE
+        ):
+            raise ValueError("not-applicable state and applicability must agree")
+        evidence_ids = tuple(item.message_id for item in self.evidence)
+        if len(set(evidence_ids)) != len(evidence_ids):
+            raise ValueError("session analysis evidence cannot contain duplicates")
+        signal_codes = tuple(item.code for item in self.signals)
+        if len(signal_codes) > 32:
+            raise ValueError("session analysis signal receipt exceeds its fixed bound")
+        if len(set(signal_codes)) != len(signal_codes):
+            raise ValueError("session analysis signals cannot contain duplicate codes")
+        if self.value_state is MetricValueState.EXECUTION_ERROR and self.signals:
+            raise ValueError("execution errors cannot claim extracted signals")
+
+        pinned_model_fields = (
+            self.model_revision,
+            self.model_license,
+            self.tokenizer_id,
+        )
+        if self.model_id is None:
+            if any(value is not None for value in pinned_model_fields):
+                raise ValueError("model provenance must be entirely absent or pinned")
+            if self.prompt_version is not None:
+                raise ValueError("prompt provenance requires a model identifier")
+        elif any(value is None for value in pinned_model_fields):
+            raise ValueError("models require pinned revision, license and tokenizer")
+        return self
+
+
+class SessionAnalysisRunRecord(StrictModel):
+    draft: SessionAnalysisRunDraft
+    status: AnalysisRunStatus
+    finished_at: datetime | None = None
+    failure_code: str | None = None
+
+    _validate_finished_at = field_validator("finished_at")(_utc)
+    _validate_failure_code = field_validator("failure_code")(_safe_label)
+
+    @model_validator(mode="after")
+    def validate_terminal_state(self) -> SessionAnalysisRunRecord:
+        if self.status is AnalysisRunStatus.RUNNING:
+            if self.finished_at is not None or self.failure_code is not None:
+                raise ValueError("running session analysis cannot have terminal fields")
+        elif self.status is AnalysisRunStatus.COMPLETED:
+            if self.finished_at is None or self.failure_code is not None:
+                raise ValueError("completed session analysis requires only a finish timestamp")
+        elif self.finished_at is None or self.failure_code is None:
+            raise ValueError("failed session analysis requires a finish timestamp and code")
+        return self
+
+
+class SessionAnalysisAggregationResultRecord(StrictModel):
+    """Evidence-free metric projection used only for batch aggregation reads.
+
+    The persisted result owns evidence and explanatory codes.  Cross-session
+    aggregation needs neither, so this projection has no field capable of
+    carrying an evidence identifier, excerpt, path, label, or timestamp.
+    """
+
+    observation: MetricObservation
+    value_state: MetricValueState
+    direction: SessionMetricDirection
+    applicability: SessionMetricApplicability
+    aggregation_method: SessionMetricAggregation
+    metric_schema_version: int = Field(ge=1)
+    fraction_numerator: int | None = Field(default=None, ge=0)
+    fraction_denominator: int | None = Field(default=None, ge=1)
+    algorithm_id: str
+    algorithm_version: str
+    model_id: str | None = None
+    model_revision: str | None = None
+    model_license: str | None = None
+    tokenizer_id: str | None = None
+    prompt_version: str | None = None
+    rubric_version: str | None = None
+
+    _validate_algorithm = field_validator("algorithm_id", "algorithm_version")(
+        _safe_code
+    )
+    _validate_model_provenance = field_validator(
+        "model_id",
+        "model_revision",
+        "model_license",
+        "tokenizer_id",
+        "prompt_version",
+        "rubric_version",
+    )(_safe_code)
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> SessionAnalysisAggregationResultRecord:
+        observation = self.observation
+        if observation.text_value is not None:
+            raise ValueError("aggregation projections cannot contain textual values")
+        if self.aggregation_method is not SessionMetricAggregation.RATIO_OF_SUMS:
+            raise ValueError("qualitative fractions require ratio-of-sums aggregation")
+        has_fraction = (
+            self.fraction_numerator is not None
+            and self.fraction_denominator is not None
+        )
+        if (self.fraction_numerator is None) != (self.fraction_denominator is None):
+            raise ValueError("fraction numerator and denominator must be supplied together")
+        if has_fraction and self.fraction_numerator > self.fraction_denominator:
+            raise ValueError("fraction numerator cannot exceed its denominator")
+        has_value = observation.numeric_value is not None
+        if self.value_state is MetricValueState.KNOWN:
+            if (
+                not has_value
+                or not has_fraction
+                or self.applicability is not SessionMetricApplicability.APPLICABLE
+            ):
+                raise ValueError("known aggregation projections require a fraction")
+            expected = self.fraction_numerator / self.fraction_denominator
+            if abs(observation.numeric_value - expected) > 1e-9:
+                raise ValueError("numeric value must equal the projected fraction")
+        elif has_value or has_fraction or observation.confidence is not None:
+            raise ValueError("non-known aggregation projections cannot claim a value")
+        if (
+            self.value_state is MetricValueState.NOT_APPLICABLE
+        ) != (
+            self.applicability is SessionMetricApplicability.NOT_APPLICABLE
+        ):
+            raise ValueError("not-applicable state and applicability must agree")
+        pinned_model_fields = (
+            self.model_revision,
+            self.model_license,
+            self.tokenizer_id,
+        )
+        if self.model_id is None:
+            if any(value is not None for value in pinned_model_fields):
+                raise ValueError("model provenance must be entirely absent or pinned")
+            if self.prompt_version is not None:
+                raise ValueError("prompt provenance requires a model identifier")
+        elif any(value is None for value in pinned_model_fields):
+            raise ValueError("models require pinned revision, license and tokenizer")
+        return self
+
+
+class SessionAnalysisAggregationSnapshotRecord(StrictModel):
+    """Latest completed run provenance with evidence-free metric projections."""
+
+    session_id: str
+    analysis_profile_key: str
+    analysis_profile_version: int = Field(ge=1)
+    metric_pack_key: str
+    metric_pack_version: int = Field(ge=1)
+    data_tier: DataTier
+    consent_policy_version: str
+    provider: Provider
+    provider_version: str
+    adapter_version: str
+    source_schema_version: str
+    content_schema_version: str
+    metric_engine_version: str
+    redactor_version: str
+    model_plan_fingerprint: str
+    persistence_schema_version: int = Field(ge=1)
+    local_only: bool = True
+    results: tuple[SessionAnalysisAggregationResultRecord, ...] = ()
+
+    _validate_ids = field_validator("session_id", "model_plan_fingerprint")(
+        _pseudonym
+    )
+    _validate_codes = field_validator(
+        "analysis_profile_key",
+        "metric_pack_key",
+        "consent_policy_version",
+        "provider_version",
+        "adapter_version",
+        "source_schema_version",
+        "content_schema_version",
+        "metric_engine_version",
+        "redactor_version",
+    )(_safe_code)
+
+    @model_validator(mode="after")
+    def validate_snapshot(self) -> SessionAnalysisAggregationSnapshotRecord:
+        if self.data_tier is not DataTier.REDACTED_CONTENT or not self.local_only:
+            raise ValueError("session aggregation snapshots are local P1 records")
+        identities = tuple(
+            (result.observation.key, result.observation.version)
+            for result in self.results
+        )
+        if len(set(identities)) != len(identities):
+            raise ValueError("aggregation snapshot results cannot contain duplicates")
+        return self
+
+
 class TaskRepository(Protocol):
     def add_candidate(self, candidate: TaskCandidateRecord) -> None: ...
 
@@ -400,6 +804,11 @@ class TaskRepository(Protocol):
         task_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
+    ) -> tuple[TaskRevisionRecord, ...]: ...
+
+    def list_current_revisions_for_session(
+        self,
+        session_id: str,
     ) -> tuple[TaskRevisionRecord, ...]: ...
 
     def record_decision(self, decision: TaskDecisionRecord) -> None: ...
@@ -443,5 +852,51 @@ class AnalysisRunRepository(Protocol):
     ) -> tuple[AnalysisRunRecord, ...]: ...
 
     def get_results(self, run_id: str) -> tuple[AnalysisResultRecord, ...]: ...
+
+    def delete_for_privacy(self, run_id: str) -> bool: ...
+
+
+class SessionAnalysisRunRepository(Protocol):
+    """Append-only store for selected-session qualitative analysis snapshots."""
+
+    def begin(self, draft: SessionAnalysisRunDraft) -> None: ...
+
+    def complete(
+        self,
+        run_id: str,
+        results: tuple[SessionAnalysisResultRecord, ...],
+        *,
+        finished_at: datetime,
+    ) -> None: ...
+
+    def fail(self, run_id: str, *, finished_at: datetime, failure_code: str) -> None: ...
+
+    def get(self, run_id: str) -> SessionAnalysisRunRecord | None: ...
+
+    def list_for_session(
+        self,
+        session_id: str,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[SessionAnalysisRunRecord, ...]: ...
+
+    def get_latest_completed(
+        self, session_id: str
+    ) -> SessionAnalysisRunRecord | None: ...
+
+    def get_latest_completed_for_aggregation(
+        self,
+        session_ids: tuple[str, ...],
+        *,
+        analysis_profile_key: str,
+        analysis_profile_version: int,
+        metric_pack_key: str,
+        metric_pack_version: int,
+    ) -> tuple[SessionAnalysisAggregationSnapshotRecord, ...]: ...
+
+    def get_results(
+        self, run_id: str
+    ) -> tuple[SessionAnalysisResultRecord, ...]: ...
 
     def delete_for_privacy(self, run_id: str) -> bool: ...

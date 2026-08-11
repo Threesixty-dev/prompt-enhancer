@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from prompt_enhancer.adapters.synthetic import SyntheticAdapter
 from prompt_enhancer.api import API_TOKEN_HEADER, create_app
 from prompt_enhancer.application.analysis import (
+    TASK_METRIC_DEFINITIONS,
     TaskAnalysisConflictError,
     TaskAnalysisExecutionError,
     TaskAnalysisInputError,
@@ -260,12 +261,21 @@ def test_real_sqlite_task_analysis_route_persists_and_reads_results(tmp_path) ->
 
     assert first.status_code == 200
     assert first.json()["applied"] is True
-    assert first.json()["result_count"] == 8
+    assert first.json()["result_count"] == len(TASK_METRIC_DEFINITIONS)
     assert retry.status_code == 200
     assert retry.json() == {**first.json(), "applied": False}
     assert run.status_code == 200
     assert run.json()["run"]["status"] == "completed"
-    assert len(run.json()["results"]) == 8
+    assert len(run.json()["results"]) == len(TASK_METRIC_DEFINITIONS)
+    definitions = {
+        (definition.key, definition.version): definition
+        for definition in TASK_METRIC_DEFINITIONS
+    }
+    for result in run.json()["results"]:
+        definition = definitions[(result["key"], result["version"])]
+        assert result["dimension"] == definition.dimension
+        assert result["display_name"] == definition.display_name
+        assert result["description"] == definition.description
     serialized = (first.text + run.text).casefold()
     for prohibited in ("prompt_text", "transcript", "filesystem", "account_id"):
         assert prohibited not in serialized

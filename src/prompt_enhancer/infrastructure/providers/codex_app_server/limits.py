@@ -16,6 +16,13 @@ class CodexReadLimits:
     """Small, explicit ceilings that prevent unbounded history ingestion."""
 
     max_json_line_bytes: int = 4 * 1024 * 1024
+    # ``thread/read`` has no documented server-side turn, item, or text
+    # projection.  A consented text read therefore receives the complete
+    # thread as one JSONL response before the allowlisted parser can discard
+    # tool output and other unsupported fields.  Keep that exceptional bound
+    # explicit and separate so metadata and operational transports retain the
+    # smaller default ceiling.
+    max_text_analysis_json_line_bytes: int = 32 * 1024 * 1024
     request_timeout_seconds: float = 10.0
     shutdown_timeout_seconds: float = 2.0
     max_page_size: int = 100
@@ -29,6 +36,7 @@ class CodexReadLimits:
     def __post_init__(self) -> None:
         integer_bounds = (
             self.max_json_line_bytes,
+            self.max_text_analysis_json_line_bytes,
             self.max_page_size,
             self.max_pages,
             self.max_sessions,

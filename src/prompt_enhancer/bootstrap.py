@@ -20,7 +20,16 @@ from .privacy import (
 )
 
 if TYPE_CHECKING:
-    from .application.analysis import TaskAnalysisService
+    from .application.analysis import (
+        ProjectQualityAggregationService,
+        SessionModelLinkExperimentService,
+        SessionTextAnalysisService,
+        TaskAnalysisService,
+    )
+    from .application.providers import (
+        ProviderCompatibilityCatalog,
+        ProviderSurfaceCompatibilityPolicy,
+    )
     from .application.discovery import (
         DiscoveryPersistenceService,
         TaskDiscoveryEngine,
@@ -63,6 +72,7 @@ class LocalApplication:
         from .infrastructure.providers.codex_app_server import (
             LABEL_EXTRACTOR_VERSION,
         )
+        from .infrastructure.verification import validation_only_capability
 
         return CodexLocalSourceService(
             self.database,
@@ -70,6 +80,7 @@ class LocalApplication:
             lambda operational_history: self.create_codex_adapter(
                 operational_history=operational_history
             ),
+            validation_only_capability(),
             ProviderDisplayLabelEnrichmentService(
                 self.database,
                 self.pseudonymizer,
@@ -163,15 +174,145 @@ class LocalApplication:
             schema_version=SCHEMA_VERSION,
         )
 
+    def create_provider_compatibility_catalog(self) -> ProviderCompatibilityCatalog:
+        """Compose only built-in, release-reviewed compatibility probes."""
+
+        from .application.providers import (
+            ProviderCompatibilityCatalog,
+            ProviderCompatibilityService,
+            TrustedProviderRegistry,
+        )
+        from .infrastructure.providers.codex_app_server import (
+            CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR,
+            CodexTextWindowCompatibilityProbe,
+        )
+
+        descriptor = CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR
+        registry = TrustedProviderRegistry((descriptor,))
+        service = ProviderCompatibilityService(
+            registry,
+            (CodexTextWindowCompatibilityProbe(),),
+        )
+        return ProviderCompatibilityCatalog(service, (descriptor,))
+
+    def create_session_text_analysis_service(
+        self,
+        compatibility_policy: ProviderSurfaceCompatibilityPolicy,
+    ) -> SessionTextAnalysisService:
+        """Construct the explicit, one-session local P1 analysis command."""
+
+        from .application.analysis import SessionTextAnalysisService
+        from .database import SCHEMA_VERSION
+        from .domain import Provider
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+        from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
+
+        def source_factory(provider: Provider) -> CodexTextAnalysisSource:
+            if provider is not Provider.CODEX:
+                raise ValueError("unsupported local text-analysis provider")
+            return CodexTextAnalysisSource(self.pseudonymizer)
+
+        return SessionTextAnalysisService(
+            self.database,
+            self.database.session_analysis_run_repository(),
+            source_factory,
+            compatibility_policy,
+            LocalArtifactIdFactory(self.pseudonymizer),
+            schema_version=SCHEMA_VERSION,
+        )
+
+    def create_session_model_link_experiment_service(
+        self,
+        compatibility_policy: ProviderSurfaceCompatibilityPolicy,
+    ) -> SessionModelLinkExperimentService:
+        """Compose the explicit offline neural comparison for one session."""
+
+        from .application.analysis import SessionModelLinkExperimentService
+        from .domain import Provider
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+        from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
+        from .infrastructure.text_models.session_links import (
+            SubprocessSessionModelLinkRunner,
+        )
+
+        def source_factory(provider: Provider) -> CodexTextAnalysisSource:
+            if provider is not Provider.CODEX:
+                raise ValueError("unsupported local model-link provider")
+            return CodexTextAnalysisSource(self.pseudonymizer)
+
+        return SessionModelLinkExperimentService(
+            self.database,
+            self.database.model_link_experiment_repository(),
+            source_factory,
+            compatibility_policy,
+            LocalArtifactIdFactory(self.pseudonymizer),
+            SubprocessSessionModelLinkRunner(),
+        )
+
+    def create_project_quality_aggregation_service(
+        self,
+    ) -> ProjectQualityAggregationService:
+        """Compose indexed-project resolution with immutable session aggregation."""
+
+        from .application.analysis import (
+            FingerprintedSessionQualityAggregator,
+            ProjectQualityAggregationService,
+            SessionQualityAggregationService,
+        )
+        from .application.analysis.coaching_baselines import (
+            COACHING_METRIC_DEFINITIONS,
+            COACHING_METRIC_PACK_KEY,
+            COACHING_METRIC_PACK_VERSION,
+        )
+        from .application.analysis.text_analysis_presets import COACHING_PROFILE_V1
+
+        def session_quality_factory(repository):
+            return FingerprintedSessionQualityAggregator(
+                SessionQualityAggregationService(
+                    repository,
+                    definitions=COACHING_METRIC_DEFINITIONS,
+                    analysis_profile_key=COACHING_PROFILE_V1.analysis_profile_key,
+                    analysis_profile_version=(
+                        COACHING_PROFILE_V1.analysis_profile_version
+                    ),
+                    metric_pack_key=COACHING_METRIC_PACK_KEY,
+                    metric_pack_version=COACHING_METRIC_PACK_VERSION,
+                )
+            )
+
+        return ProjectQualityAggregationService(
+            self.database,
+            session_quality_factory,
+        )
+
     def create_http_app(self) -> FastAPI:
         """Construct the authenticated HTTP adapter without exposing its token."""
 
         from .api import create_app
+        from .application.providers import (
+            CapabilityKey,
+            ProviderSurface,
+            ProviderSurfaceCompatibilityPolicy,
+        )
+        from .infrastructure.text_models.jobs import LocalTextModelEvaluationService
 
         token = load_or_create_api_token(self.settings.api_token_path)
         dashboard_build = Path(__file__).parents[2] / "frontend" / "dist"
         static_directory = (
             dashboard_build if (dashboard_build / "index.html").is_file() else None
+        )
+        compatibility_catalog = self.create_provider_compatibility_catalog()
+        # This invokes only the documented schema generator in an isolated
+        # empty provider home. It never lists or reads provider sessions.
+        compatibility_catalog.refresh("codex", ProviderSurface.TEXT_WINDOW)
+        compatibility_policy = ProviderSurfaceCompatibilityPolicy(
+            compatibility_catalog,
+            surface=ProviderSurface.TEXT_WINDOW,
+            required_capabilities=(
+                CapabilityKey.USER_MESSAGES,
+                CapabilityKey.AGENT_MESSAGES,
+                CapabilityKey.PLAN_MESSAGES,
+            ),
         )
         return create_app(
             settings=self.settings,
@@ -179,8 +320,21 @@ class LocalApplication:
             api_token=token,
             task_review_service=self.create_task_review_service(),
             task_analysis_service=self.create_task_analysis_service(),
+            session_text_analysis_service=(
+                self.create_session_text_analysis_service(compatibility_policy)
+            ),
+            session_model_link_experiment_service=(
+                self.create_session_model_link_experiment_service(
+                    compatibility_policy
+                )
+            ),
+            project_quality_aggregation_service=(
+                self.create_project_quality_aggregation_service()
+            ),
+            provider_compatibility_catalog=compatibility_catalog,
             codex_source_service=self.create_codex_local_source_service(),
             display_label_service=self.create_manual_display_label_service(),
+            model_evaluation_service=LocalTextModelEvaluationService(),
             static_directory=static_directory,
         )
 

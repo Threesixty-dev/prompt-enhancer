@@ -33,6 +33,8 @@ from .dto import (
 class QueryStore(Protocol):
     """Only repository factories needed by this HTTP query adapter."""
 
+    def list_metric_definitions(self) -> list[dict[str, object]]: ...
+
     def task_repository(self) -> TaskRepository: ...
 
     def analysis_run_repository(self) -> AnalysisRunRepository: ...
@@ -42,6 +44,22 @@ def _query_store(request: Request) -> QueryStore:
     # The composition root owns the concrete store. This cast adds no dynamic
     # lookup and keeps SQL/storage types out of the HTTP interface.
     return cast(QueryStore, request.app.state.database)
+
+
+def _metric_definition_index(
+    store: QueryStore,
+) -> dict[tuple[str, int], dict[str, object]]:
+    definitions: dict[tuple[str, int], dict[str, object]] = {}
+    for definition in store.list_metric_definitions():
+        key = definition.get("key")
+        version = definition.get("version")
+        if (
+            isinstance(key, str)
+            and isinstance(version, int)
+            and not isinstance(version, bool)
+        ):
+            definitions[(key, version)] = definition
+    return definitions
 
 
 def create_task_query_router(
@@ -181,9 +199,18 @@ def create_task_query_router(
         if run is None:
             raise HTTPException(status_code=404, detail="analysis run not found")
         results = repository.get_results(run_id)
+        definitions = _metric_definition_index(_query_store(request))
         return AnalysisRunResponse(
             run=AnalysisRunDto.from_record(run),
-            results=tuple(AnalysisResultDto.from_record(item) for item in results),
+            results=tuple(
+                AnalysisResultDto.from_record(
+                    item,
+                    definition=definitions.get(
+                        (item.observation.key, item.observation.version)
+                    ),
+                )
+                for item in results
+            ),
         )
 
     return router

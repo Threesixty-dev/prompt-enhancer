@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from prompt_enhancer.adapters.synthetic import SyntheticAdapter
-from prompt_enhancer.application.analysis import TaskAnalysisService
+from prompt_enhancer.application.analysis import (
+    TASK_METRIC_DEFINITIONS,
+    TaskAnalysisService,
+)
 from prompt_enhancer.application.discovery import (
     AcceptCandidate,
     DiscoveryPersistenceService,
@@ -77,7 +80,7 @@ def test_reviewed_synthetic_task_is_analyzed_and_retry_is_immutable(tmp_path) ->
     assert retry.applied is False
     assert first.run_id == retry.run_id
     assert first.status is AnalysisRunStatus.COMPLETED
-    assert first.result_count == retry.result_count == 8
+    assert first.result_count == retry.result_count == len(TASK_METRIC_DEFINITIONS)
     results = database.analysis_run_repository().get_results(first.run_id)
     by_key = {item.observation.key: item for item in results}
     assert by_key["task.workflow.session_count"].observation.numeric_value == 2

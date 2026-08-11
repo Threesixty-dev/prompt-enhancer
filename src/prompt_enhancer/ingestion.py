@@ -5,9 +5,10 @@ from __future__ import annotations
 from pydantic import Field, SecretStr, field_validator
 
 from .adapters.base import AdapterHealth, ProviderAdapter
+from .application.analysis.deterministic import DEFAULT_METRIC_PACK
 from .application.ingestion import (
     IngestionRepository,
-    SessionMetricComputer,
+    SessionMetricPlan,
     SourceIdentifierProtector,
 )
 from .display_labels import (
@@ -25,7 +26,15 @@ from .domain import (
     SourceSessionSnapshot,
     StrictModel,
 )
-from .metrics import compute_session_metrics
+from .metrics import METRIC_ENGINE_VERSION, compute_session_metrics
+
+
+DEFAULT_SESSION_METRIC_PLAN = SessionMetricPlan(
+    computer=compute_session_metrics,
+    pack_key=DEFAULT_METRIC_PACK.key,
+    pack_version=DEFAULT_METRIC_PACK.version,
+    metric_engine_version=METRIC_ENGINE_VERSION,
+)
 
 
 class IngestionError(RuntimeError):
@@ -79,11 +88,11 @@ class IngestionService:
         self,
         database: IngestionRepository,
         pseudonymizer: SourceIdentifierProtector,
-        metric_computer: SessionMetricComputer = compute_session_metrics,
+        metric_plan: SessionMetricPlan = DEFAULT_SESSION_METRIC_PLAN,
     ):
         self._database = database
         self._pseudonymizer = pseudonymizer
-        self._metric_computer = metric_computer
+        self._metric_plan = metric_plan
 
     @staticmethod
     def _private_display_name(
@@ -296,11 +305,17 @@ class IngestionService:
                     stored_events = self._database.get_session_events(
                         safe_session.session_id
                     )
-                    observations = self._metric_computer(
+                    observations = self._metric_plan.computer(
                         stored_session, stored_events
                     )
                     metrics_written += self._database.replace_session_metrics(
-                        safe_session.session_id, observations
+                        safe_session.session_id,
+                        observations,
+                        metric_pack_key=self._metric_plan.pack_key,
+                        metric_pack_version=self._metric_plan.pack_version,
+                        metric_engine_version=(
+                            self._metric_plan.metric_engine_version
+                        ),
                     )
 
                 if stop_listing:

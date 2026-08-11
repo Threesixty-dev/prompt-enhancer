@@ -30,6 +30,125 @@
         "title": "AcceptTaskRequest",
         "type": "object"
       },
+      "AnalysisMethodDto": {
+        "additionalProperties": false,
+        "properties": {
+          "approach": {
+            "enum": [
+              "rules",
+              "classifier",
+              "hybrid",
+              "statistical",
+              "embedding",
+              "reranker",
+              "nli",
+              "graph_rules",
+              "graph",
+              "process_mining",
+              "generative_model",
+              "calibration"
+            ],
+            "title": "Approach",
+            "type": "string"
+          },
+          "candidate_model_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Candidate Model Keys",
+            "type": "array"
+          },
+          "family": {
+            "enum": [
+              "extraction",
+              "conversation",
+              "linking",
+              "semantic_inference",
+              "workflow",
+              "evaluation"
+            ],
+            "title": "Family",
+            "type": "string"
+          },
+          "key": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Limitations",
+            "type": "array"
+          },
+          "maturity": {
+            "enum": [
+              "product_baseline",
+              "evaluated_exploratory",
+              "research_candidate",
+              "failed_gate"
+            ],
+            "title": "Maturity",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 96,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "privacy_tier": {
+            "enum": [
+              "metadata",
+              "redacted_content"
+            ],
+            "title": "Privacy Tier",
+            "type": "string"
+          },
+          "produces": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Produces",
+            "type": "array"
+          },
+          "purpose": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Purpose",
+            "type": "string"
+          },
+          "source_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Source Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "family",
+          "approach",
+          "maturity",
+          "privacy_tier",
+          "purpose",
+          "produces",
+          "candidate_model_keys",
+          "source_keys",
+          "limitations"
+        ],
+        "title": "AnalysisMethodDto",
+        "type": "object"
+      },
       "AnalysisResultDto": {
         "additionalProperties": false,
         "properties": {
@@ -60,6 +179,45 @@
             "minimum": 0.0,
             "title": "Coverage",
             "type": "number"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "dimension": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dimension"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
           },
           "eligible_count": {
             "minimum": 0.0,
@@ -411,6 +569,160 @@
         "title": "CandidateDecisionsResponse",
         "type": "object"
       },
+      "CandidateEvaluationSummaryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "critical_metric": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critical Metric"
+          },
+          "critical_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critical Value"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unsafe_pickle_only",
+                  "model_cache_missing_or_invalid",
+                  "batch_size_outside_manifest_bound",
+                  "cuda_unavailable",
+                  "mps_unavailable",
+                  "resource_exhausted",
+                  "evaluation_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "inference_latency_ms": {
+            "anyOf": [
+              {
+                "maximum": 86400000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inference Latency Ms"
+          },
+          "key": {
+            "enum": [
+              "multilingual_e5_small",
+              "mdeberta_xnli",
+              "bge_m3",
+              "bge_reranker_v2_m3",
+              "qwen3_embedding_06b",
+              "qwen3_reranker_06b",
+              "qwen3_4b_rubric"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "peak_accelerator_memory_mb": {
+            "anyOf": [
+              {
+                "maximum": 1048576.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Accelerator Memory Mb"
+          },
+          "primary_metric": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Metric"
+          },
+          "primary_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Value"
+          },
+          "secondary_metric": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Metric"
+          },
+          "secondary_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Value"
+          },
+          "status": {
+            "enum": [
+              "evaluated",
+              "not_completed",
+              "blocked_before_download"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "status"
+        ],
+        "title": "CandidateEvaluationSummaryDto",
+        "type": "object"
+      },
       "CandidateListItemDto": {
         "additionalProperties": false,
         "properties": {
@@ -608,6 +920,955 @@
         "title": "CandidateSignalDto",
         "type": "object"
       },
+      "CapabilitiesDto": {
+        "additionalProperties": false,
+        "description": "Exact, content-free feature contract consumed by the dashboard.",
+        "properties": {
+          "arbitrary_sql": {
+            "const": false,
+            "title": "Arbitrary Sql",
+            "type": "boolean"
+          },
+          "browser_session": {
+            "const": true,
+            "title": "Browser Session",
+            "type": "boolean"
+          },
+          "codex_local_source": {
+            "title": "Codex Local Source",
+            "type": "boolean"
+          },
+          "cost_mode": {
+            "const": "offline_only",
+            "title": "Cost Mode",
+            "type": "string"
+          },
+          "data_tier": {
+            "const": "metadata",
+            "title": "Data Tier",
+            "type": "string"
+          },
+          "demo_provider": {
+            "const": "synthetic",
+            "title": "Demo Provider",
+            "type": "string"
+          },
+          "manual_display_labels": {
+            "title": "Manual Display Labels",
+            "type": "boolean"
+          },
+          "network_inference": {
+            "const": false,
+            "title": "Network Inference",
+            "type": "boolean"
+          },
+          "raw_transcripts": {
+            "const": false,
+            "title": "Raw Transcripts",
+            "type": "boolean"
+          },
+          "session_model_link_experiment": {
+            "title": "Session Model Link Experiment",
+            "type": "boolean"
+          },
+          "session_text_analysis": {
+            "title": "Session Text Analysis",
+            "type": "boolean"
+          },
+          "session_text_analysis_data_tier": {
+            "anyOf": [
+              {
+                "const": "redacted_content",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Text Analysis Data Tier"
+          },
+          "session_text_content_persistence": {
+            "const": false,
+            "title": "Session Text Content Persistence",
+            "type": "boolean"
+          },
+          "task_analysis": {
+            "title": "Task Analysis",
+            "type": "boolean"
+          },
+          "task_review": {
+            "title": "Task Review",
+            "type": "boolean"
+          },
+          "write_api": {
+            "title": "Write Api",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cost_mode",
+          "data_tier",
+          "network_inference",
+          "raw_transcripts",
+          "arbitrary_sql",
+          "write_api",
+          "task_review",
+          "task_analysis",
+          "session_text_analysis",
+          "session_model_link_experiment",
+          "session_text_analysis_data_tier",
+          "session_text_content_persistence",
+          "codex_local_source",
+          "manual_display_labels",
+          "browser_session",
+          "demo_provider"
+        ],
+        "title": "CapabilitiesDto",
+        "type": "object"
+      },
+      "CoachingDecisionBasis": {
+        "additionalProperties": false,
+        "description": "Common content-free receipt attached to each of the five decisions.",
+        "properties": {
+          "abstention_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstention Code"
+          },
+          "algorithm_id": {
+            "default": "rules.coaching-loop.summary",
+            "title": "Algorithm Id",
+            "type": "string"
+          },
+          "algorithm_version": {
+            "default": "1",
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "candidate_policy_version": {
+            "default": 2,
+            "title": "Candidate Policy Version",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "construct_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Construct Version"
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "decision_state": {
+            "$ref": "#/components/schemas/CoachingDecisionState"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "denominator_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingDenominatorKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "denominator_kind_priority_version": {
+            "default": 1,
+            "title": "Denominator Kind Priority Version",
+            "type": "integer"
+          },
+          "evidence_basis": {
+            "items": {
+              "$ref": "#/components/schemas/CoachingEvidenceBasisCode"
+            },
+            "maxItems": 8,
+            "title": "Evidence Basis",
+            "type": "array"
+          },
+          "evidence_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingEvidenceKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_lower_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Lower Bound"
+          },
+          "evidence_tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingEvidenceTier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_upper_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Upper Bound"
+          },
+          "metric_basis": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Metric Basis",
+            "type": "array"
+          },
+          "pack_key": {
+            "default": "coaching.loop",
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "pack_version": {
+            "default": 1,
+            "title": "Pack Version",
+            "type": "integer"
+          },
+          "polarity_successes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polarity Successes"
+          },
+          "recommendation_policy_version": {
+            "default": 1,
+            "title": "Recommendation Policy Version",
+            "type": "integer"
+          },
+          "rule_priority_version": {
+            "default": 1,
+            "title": "Rule Priority Version",
+            "type": "integer"
+          },
+          "source_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingSourceProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task_type": {
+            "$ref": "#/components/schemas/CoachingTaskType"
+          }
+        },
+        "required": [
+          "code",
+          "decision_state",
+          "metric_basis",
+          "evidence_basis",
+          "task_type"
+        ],
+        "title": "CoachingDecisionBasis",
+        "type": "object"
+      },
+      "CoachingDecisionState": {
+        "enum": [
+          "candidate",
+          "supported",
+          "abstained"
+        ],
+        "title": "CoachingDecisionState",
+        "type": "string"
+      },
+      "CoachingDenominatorKind": {
+        "enum": [
+          "rubric_factor",
+          "event_count"
+        ],
+        "title": "CoachingDenominatorKind",
+        "type": "string"
+      },
+      "CoachingEvidenceBasisCode": {
+        "description": "Closed evidence categories; identifiers and free-form labels cannot enter.",
+        "enum": [
+          "objective.verification_results",
+          "human.acceptance_decision",
+          "rule.factor_counts",
+          "rule.link_counts",
+          "rule.correction_counts",
+          "assistant.completion_claim"
+        ],
+        "title": "CoachingEvidenceBasisCode",
+        "type": "string"
+      },
+      "CoachingEvidenceKind": {
+        "enum": [
+          "objective_verification",
+          "deterministic_candidate",
+          "human_review",
+          "assistant_claim"
+        ],
+        "title": "CoachingEvidenceKind",
+        "type": "string"
+      },
+      "CoachingEvidenceTier": {
+        "enum": [
+          "metadata",
+          "redacted_content",
+          "objective_event",
+          "human_review"
+        ],
+        "title": "CoachingEvidenceTier",
+        "type": "string"
+      },
+      "CoachingHumanAcceptanceStatus": {
+        "enum": [
+          "accepted",
+          "rejected",
+          "unknown"
+        ],
+        "title": "CoachingHumanAcceptanceStatus",
+        "type": "string"
+      },
+      "CoachingOutcomeDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "abstention_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstention Code"
+          },
+          "algorithm_id": {
+            "default": "rules.coaching-loop.summary",
+            "title": "Algorithm Id",
+            "type": "string"
+          },
+          "algorithm_version": {
+            "default": "1",
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "candidate_policy_version": {
+            "default": 2,
+            "title": "Candidate Policy Version",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "construct_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Construct Version"
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "decision_state": {
+            "$ref": "#/components/schemas/CoachingDecisionState"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "denominator_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingDenominatorKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "denominator_kind_priority_version": {
+            "default": 1,
+            "title": "Denominator Kind Priority Version",
+            "type": "integer"
+          },
+          "evidence_basis": {
+            "items": {
+              "$ref": "#/components/schemas/CoachingEvidenceBasisCode"
+            },
+            "maxItems": 8,
+            "title": "Evidence Basis",
+            "type": "array"
+          },
+          "evidence_disagreement": {
+            "title": "Evidence Disagreement",
+            "type": "boolean"
+          },
+          "evidence_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingEvidenceKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_lower_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Lower Bound"
+          },
+          "evidence_tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingEvidenceTier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_upper_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Upper Bound"
+          },
+          "human_acceptance_status": {
+            "$ref": "#/components/schemas/CoachingHumanAcceptanceStatus"
+          },
+          "metric_basis": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Metric Basis",
+            "type": "array"
+          },
+          "pack_key": {
+            "default": "coaching.loop",
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "pack_version": {
+            "default": 1,
+            "title": "Pack Version",
+            "type": "integer"
+          },
+          "polarity_successes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polarity Successes"
+          },
+          "recommendation_policy_version": {
+            "default": 1,
+            "title": "Recommendation Policy Version",
+            "type": "integer"
+          },
+          "rule_priority_version": {
+            "default": 1,
+            "title": "Rule Priority Version",
+            "type": "integer"
+          },
+          "source_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingSourceProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/CoachingOutcomeStatus"
+          },
+          "task_type": {
+            "$ref": "#/components/schemas/CoachingTaskType"
+          }
+        },
+        "required": [
+          "code",
+          "decision_state",
+          "metric_basis",
+          "evidence_basis",
+          "task_type",
+          "status",
+          "human_acceptance_status",
+          "evidence_disagreement"
+        ],
+        "title": "CoachingOutcomeDecision",
+        "type": "object"
+      },
+      "CoachingOutcomeStatus": {
+        "enum": [
+          "verified",
+          "failed",
+          "mixed",
+          "unknown"
+        ],
+        "title": "CoachingOutcomeStatus",
+        "type": "string"
+      },
+      "CoachingPromptTemplateDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "abstention_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstention Code"
+          },
+          "algorithm_id": {
+            "default": "rules.coaching-loop.summary",
+            "title": "Algorithm Id",
+            "type": "string"
+          },
+          "algorithm_version": {
+            "default": "1",
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "candidate_policy_version": {
+            "default": 2,
+            "title": "Candidate Policy Version",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "construct_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Construct Version"
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "decision_state": {
+            "$ref": "#/components/schemas/CoachingDecisionState"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "denominator_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingDenominatorKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "denominator_kind_priority_version": {
+            "default": 1,
+            "title": "Denominator Kind Priority Version",
+            "type": "integer"
+          },
+          "evidence_basis": {
+            "items": {
+              "$ref": "#/components/schemas/CoachingEvidenceBasisCode"
+            },
+            "maxItems": 8,
+            "title": "Evidence Basis",
+            "type": "array"
+          },
+          "evidence_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingEvidenceKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_lower_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Lower Bound"
+          },
+          "evidence_tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingEvidenceTier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_upper_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Upper Bound"
+          },
+          "metric_basis": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Metric Basis",
+            "type": "array"
+          },
+          "pack_key": {
+            "default": "coaching.loop",
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "pack_version": {
+            "default": 1,
+            "title": "Pack Version",
+            "type": "integer"
+          },
+          "polarity_successes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polarity Successes"
+          },
+          "recommendation_policy_version": {
+            "default": 1,
+            "title": "Recommendation Policy Version",
+            "type": "integer"
+          },
+          "rule_priority_version": {
+            "default": 1,
+            "title": "Rule Priority Version",
+            "type": "integer"
+          },
+          "slot_codes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Slot Codes",
+            "type": "array"
+          },
+          "source_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoachingSourceProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task_type": {
+            "$ref": "#/components/schemas/CoachingTaskType"
+          },
+          "template_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Version"
+          }
+        },
+        "required": [
+          "code",
+          "decision_state",
+          "metric_basis",
+          "evidence_basis",
+          "task_type",
+          "slot_codes"
+        ],
+        "title": "CoachingPromptTemplateDecision",
+        "type": "object"
+      },
+      "CoachingSourceProvenance": {
+        "additionalProperties": false,
+        "description": "Version identity for an immutable source receipt.",
+        "properties": {
+          "algorithm_id": {
+            "title": "Algorithm Id",
+            "type": "string"
+          },
+          "algorithm_version": {
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "pack_key": {
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "pack_version": {
+            "minimum": 1.0,
+            "title": "Pack Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pack_key",
+          "pack_version",
+          "algorithm_id",
+          "algorithm_version"
+        ],
+        "title": "CoachingSourceProvenance",
+        "type": "object"
+      },
+      "CoachingSummary": {
+        "additionalProperties": false,
+        "description": "The complete Coaching Loop v1 decision surface: exactly five items.",
+        "properties": {
+          "friction": {
+            "$ref": "#/components/schemas/CoachingDecisionBasis"
+          },
+          "next_experiment": {
+            "$ref": "#/components/schemas/CoachingDecisionBasis"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/CoachingOutcomeDecision"
+          },
+          "prompt_template": {
+            "$ref": "#/components/schemas/CoachingPromptTemplateDecision"
+          },
+          "strength": {
+            "$ref": "#/components/schemas/CoachingDecisionBasis"
+          }
+        },
+        "required": [
+          "outcome",
+          "strength",
+          "friction",
+          "next_experiment",
+          "prompt_template"
+        ],
+        "title": "CoachingSummary",
+        "type": "object"
+      },
+      "CoachingTaskContextSource": {
+        "enum": [
+          "reviewed_task",
+          "not_reviewed",
+          "ambiguous"
+        ],
+        "title": "CoachingTaskContextSource",
+        "type": "string"
+      },
+      "CoachingTaskType": {
+        "enum": [
+          "implementation",
+          "diagnosis",
+          "research",
+          "review",
+          "planning",
+          "unknown"
+        ],
+        "title": "CoachingTaskType",
+        "type": "string"
+      },
       "CodexAnalysisRequest": {
         "additionalProperties": false,
         "properties": {
@@ -704,12 +1965,16 @@
           "indexed_sessions": {
             "title": "Indexed Sessions",
             "type": "integer"
+          },
+          "verification_capability": {
+            "$ref": "#/components/schemas/VerificationCapability"
           }
         },
         "required": [
           "consent_active",
           "indexed_sessions",
-          "indexed_projects"
+          "indexed_projects",
+          "verification_capability"
         ],
         "title": "CodexLocalSourceStatus",
         "type": "object"
@@ -987,6 +2252,91 @@
         "title": "MergeTasksRequest",
         "type": "object"
       },
+      "MetricRoadmapItemDto": {
+        "additionalProperties": false,
+        "properties": {
+          "caution": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Caution",
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "higher_is_better",
+              "lower_is_better",
+              "contextual"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "evidence": {
+            "maxLength": 280,
+            "minLength": 1,
+            "title": "Evidence",
+            "type": "string"
+          },
+          "key": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "method_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Method Keys",
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 96,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "profile": {
+            "enum": [
+              "prompt",
+              "collaboration",
+              "logic",
+              "agent_answer",
+              "outcome"
+            ],
+            "title": "Profile",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "baseline_available",
+              "research",
+              "needs_objective_evidence"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "profile",
+          "question",
+          "direction",
+          "state",
+          "evidence",
+          "method_keys",
+          "caution"
+        ],
+        "title": "MetricRoadmapItemDto",
+        "type": "object"
+      },
       "MetricSource": {
         "enum": [
           "provider_reported",
@@ -1007,6 +2357,834 @@
         ],
         "title": "MetricValueState",
         "type": "string"
+      },
+      "ModelBenchmarkDto": {
+        "additionalProperties": false,
+        "properties": {
+          "benchmark_key": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+            "title": "Benchmark Key",
+            "type": "string"
+          },
+          "case_count": {
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Case Count",
+            "type": "integer"
+          },
+          "critical_metric": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critical Metric"
+          },
+          "critical_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critical Value"
+          },
+          "primary_metric": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Primary Metric",
+            "type": "string"
+          },
+          "primary_value": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Primary Value",
+            "type": "number"
+          },
+          "secondary_metric": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Metric"
+          },
+          "secondary_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Value"
+          }
+        },
+        "required": [
+          "benchmark_key",
+          "case_count",
+          "primary_metric",
+          "primary_value"
+        ],
+        "title": "ModelBenchmarkDto",
+        "type": "object"
+      },
+      "ModelCandidateDto": {
+        "additionalProperties": false,
+        "properties": {
+          "benchmark": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelBenchmarkDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision": {
+            "maxLength": 360,
+            "minLength": 1,
+            "title": "Decision",
+            "type": "string"
+          },
+          "display_name": {
+            "maxLength": 96,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "key": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "language_scope": {
+            "maxLength": 96,
+            "minLength": 1,
+            "title": "Language Scope",
+            "type": "string"
+          },
+          "license_spdx": {
+            "enum": [
+              "MIT",
+              "Apache-2.0"
+            ],
+            "title": "License Spdx",
+            "type": "string"
+          },
+          "parameter_scale": {
+            "maxLength": 16,
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?[MB]$",
+            "title": "Parameter Scale",
+            "type": "string"
+          },
+          "product_enabled": {
+            "const": false,
+            "title": "Product Enabled",
+            "type": "boolean"
+          },
+          "repository_id": {
+            "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+            "title": "Repository Id",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{40}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "source_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Source Keys",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "evaluated_exploratory",
+              "research_shortlist",
+              "rejected_screen"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Task",
+            "type": "string"
+          },
+          "trust_remote_code": {
+            "const": false,
+            "title": "Trust Remote Code",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "display_name",
+          "repository_id",
+          "task",
+          "license_spdx",
+          "parameter_scale",
+          "language_scope",
+          "status",
+          "product_enabled",
+          "trust_remote_code",
+          "decision",
+          "benchmark",
+          "source_keys"
+        ],
+        "title": "ModelCandidateDto",
+        "type": "object"
+      },
+      "ModelEvaluationJobDto": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/ModelEvaluationRequestDto"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "candidate_evaluation_incomplete",
+                  "model_evaluation_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "job_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateEvaluationSummaryDto"
+            },
+            "maxItems": 7,
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "resolved_device": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cpu",
+                  "cuda",
+                  "mps"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Device"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "candidate",
+          "created_at",
+          "started_at",
+          "completed_at",
+          "resolved_device",
+          "error_code",
+          "outcomes"
+        ],
+        "title": "ModelEvaluationJobDto",
+        "type": "object"
+      },
+      "ModelEvaluationRequestDto": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_download": {
+            "default": false,
+            "title": "Allow Download",
+            "type": "boolean"
+          },
+          "candidate": {
+            "default": "all",
+            "enum": [
+              "all",
+              "session-link",
+              "e5",
+              "nli",
+              "bge-m3",
+              "bge-reranker",
+              "qwen-embedding",
+              "qwen-reranker",
+              "qwen-rubric"
+            ],
+            "title": "Candidate",
+            "type": "string"
+          },
+          "device": {
+            "default": "auto",
+            "enum": [
+              "auto",
+              "cpu",
+              "cuda",
+              "mps"
+            ],
+            "title": "Device",
+            "type": "string"
+          },
+          "mode": {
+            "default": "smoke",
+            "enum": [
+              "smoke",
+              "full"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "title": "ModelEvaluationRequestDto",
+        "type": "object"
+      },
+      "ModelExperimentDevice": {
+        "enum": [
+          "auto",
+          "cpu",
+          "cuda",
+          "mps"
+        ],
+        "title": "ModelExperimentDevice",
+        "type": "string"
+      },
+      "ModelLinkAnnotationDto": {
+        "additionalProperties": false,
+        "properties": {
+          "annotated_at": {
+            "format": "date-time",
+            "title": "Annotated At",
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/ModelLinkAnnotationLabel"
+          },
+          "link_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Link Id",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "link_id",
+          "revision",
+          "label",
+          "annotated_at"
+        ],
+        "title": "ModelLinkAnnotationDto",
+        "type": "object"
+      },
+      "ModelLinkAnnotationLabel": {
+        "enum": [
+          "relevant",
+          "incorrect",
+          "unsure"
+        ],
+        "title": "ModelLinkAnnotationLabel",
+        "type": "string"
+      },
+      "ModelLinkAnnotationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "label": {
+            "$ref": "#/components/schemas/ModelLinkAnnotationLabel"
+          }
+        },
+        "required": [
+          "label",
+          "expected_revision"
+        ],
+        "title": "ModelLinkAnnotationRequest",
+        "type": "object"
+      },
+      "ModelLinkDto": {
+        "additionalProperties": false,
+        "properties": {
+          "bge_rank": {
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Bge Rank",
+            "type": "integer"
+          },
+          "bge_score": {
+            "title": "Bge Score",
+            "type": "number"
+          },
+          "candidate_kind": {
+            "enum": [
+              "response",
+              "plan"
+            ],
+            "title": "Candidate Kind",
+            "type": "string"
+          },
+          "link_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Link Id",
+            "type": "string"
+          },
+          "qwen_rank": {
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Qwen Rank",
+            "type": "integer"
+          },
+          "qwen_score": {
+            "title": "Qwen Score",
+            "type": "number"
+          },
+          "recommended_by": {
+            "enum": [
+              "qwen",
+              "bge",
+              "both"
+            ],
+            "title": "Recommended By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link_id",
+          "candidate_kind",
+          "qwen_score",
+          "qwen_rank",
+          "bge_score",
+          "bge_rank",
+          "recommended_by"
+        ],
+        "title": "ModelLinkDto",
+        "type": "object"
+      },
+      "ModelLinkExperimentCommandResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "experiment": {
+            "$ref": "#/components/schemas/ModelLinkExperimentDto"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/ModelLinkSuggestionDto"
+            },
+            "maxItems": 16,
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "experiment",
+          "suggestions",
+          "applied"
+        ],
+        "title": "ModelLinkExperimentCommandResponse",
+        "type": "object"
+      },
+      "ModelLinkExperimentDto": {
+        "additionalProperties": false,
+        "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/ModelLinkAnnotationDto"
+            },
+            "maxItems": 16,
+            "title": "Annotations",
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/ModelLinkDto"
+            },
+            "maxItems": 16,
+            "title": "Links",
+            "type": "array"
+          },
+          "run": {
+            "$ref": "#/components/schemas/ModelLinkRunDto"
+          }
+        },
+        "required": [
+          "run",
+          "links",
+          "annotations"
+        ],
+        "title": "ModelLinkExperimentDto",
+        "type": "object"
+      },
+      "ModelLinkExperimentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "compare_selected_redacted_text_with_local_models",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "device": {
+            "$ref": "#/components/schemas/ModelExperimentDevice",
+            "default": "auto"
+          }
+        },
+        "required": [
+          "confirmation"
+        ],
+        "title": "ModelLinkExperimentRequest",
+        "type": "object"
+      },
+      "ModelLinkFailureCode": {
+        "enum": [
+          "redacted_content_consent_required",
+          "session_not_in_safe_index",
+          "provider_compatibility_blocked",
+          "invalid_model_link_request",
+          "model_link_confirmation_required",
+          "no_model_link_candidates",
+          "local_model_execution_failed",
+          "model_link_persistence_failed",
+          "model_link_revision_conflict",
+          "model_link_experiment_not_found",
+          "source_schema_unsupported",
+          "selection_snapshot_miss",
+          "source_resource_limit",
+          "source_timeout",
+          "provider_unavailable",
+          "no_analyzable_text",
+          "provider_protocol_rejected"
+        ],
+        "title": "ModelLinkFailureCode",
+        "type": "string"
+      },
+      "ModelLinkFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ModelLinkFailureCode"
+          },
+          "message": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ModelLinkFailureDetail",
+        "type": "object"
+      },
+      "ModelLinkFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ModelLinkFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ModelLinkFailureResponse",
+        "type": "object"
+      },
+      "ModelLinkModelDto": {
+        "additionalProperties": false,
+        "properties": {
+          "backend_key": {
+            "title": "Backend Key",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "license_spdx": {
+            "title": "License Spdx",
+            "type": "string"
+          },
+          "repository_id": {
+            "title": "Repository Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "tokenizer_id": {
+            "title": "Tokenizer Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "repository_id",
+          "revision",
+          "license_spdx",
+          "tokenizer_id",
+          "backend_key"
+        ],
+        "title": "ModelLinkModelDto",
+        "type": "object"
+      },
+      "ModelLinkRunDto": {
+        "additionalProperties": false,
+        "properties": {
+          "agreement_count": {
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Agreement Count",
+            "type": "integer"
+          },
+          "bge_model": {
+            "$ref": "#/components/schemas/ModelLinkModelDto"
+          },
+          "experiment_key": {
+            "title": "Experiment Key",
+            "type": "string"
+          },
+          "experiment_version": {
+            "minimum": 1.0,
+            "title": "Experiment Version",
+            "type": "integer"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "link_count": {
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Link Count",
+            "type": "integer"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "query_count": {
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Query Count",
+            "type": "integer"
+          },
+          "qwen_model": {
+            "$ref": "#/components/schemas/ModelLinkModelDto"
+          },
+          "resolved_device": {
+            "$ref": "#/components/schemas/ModelExperimentDevice"
+          },
+          "run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "experiment_key",
+          "experiment_version",
+          "resolved_device",
+          "qwen_model",
+          "bge_model",
+          "query_count",
+          "link_count",
+          "agreement_count",
+          "started_at",
+          "finished_at",
+          "local_only"
+        ],
+        "title": "ModelLinkRunDto",
+        "type": "object"
+      },
+      "ModelLinkSuggestionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_excerpt": {
+            "maxLength": 361,
+            "minLength": 1,
+            "title": "Candidate Excerpt",
+            "type": "string"
+          },
+          "link_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Link Id",
+            "type": "string"
+          },
+          "query_excerpt": {
+            "maxLength": 361,
+            "minLength": 1,
+            "title": "Query Excerpt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link_id",
+          "query_excerpt",
+          "candidate_excerpt"
+        ],
+        "title": "ModelLinkSuggestionDto",
+        "type": "object"
+      },
+      "ModelRuntimeInventoryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu_available": {
+            "const": true,
+            "title": "Cpu Available",
+            "type": "boolean"
+          },
+          "cuda_available": {
+            "title": "Cuda Available",
+            "type": "boolean"
+          },
+          "cuda_memory_mb": {
+            "anyOf": [
+              {
+                "maximum": 1048576.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuda Memory Mb"
+          },
+          "mps_available": {
+            "title": "Mps Available",
+            "type": "boolean"
+          },
+          "one_model_at_a_time": {
+            "const": true,
+            "title": "One Model At A Time",
+            "type": "boolean"
+          },
+          "preferred_device": {
+            "enum": [
+              "cpu",
+              "cuda",
+              "mps"
+            ],
+            "title": "Preferred Device",
+            "type": "string"
+          },
+          "raw_session_data_accepted": {
+            "const": false,
+            "title": "Raw Session Data Accepted",
+            "type": "boolean"
+          },
+          "subprocess_isolation": {
+            "const": true,
+            "title": "Subprocess Isolation",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "preferred_device",
+          "cuda_available",
+          "mps_available",
+          "cpu_available",
+          "one_model_at_a_time",
+          "subprocess_isolation",
+          "raw_session_data_accepted"
+        ],
+        "title": "ModelRuntimeInventoryDto",
+        "type": "object"
       },
       "OutputRevisionDto": {
         "additionalProperties": false,
@@ -1031,6 +3209,467 @@
         "title": "OutputRevisionDto",
         "type": "object"
       },
+      "ProjectQualityAggregate": {
+        "additionalProperties": false,
+        "description": "Identifier-free wrapper around the existing compatibility-safe aggregate.",
+        "properties": {
+          "aggregation_method": {
+            "$ref": "#/components/schemas/SessionMetricAggregation"
+          },
+          "estimand": {
+            "$ref": "#/components/schemas/ProjectQualityEstimand"
+          },
+          "selected_project_count": {
+            "maximum": 25.0,
+            "minimum": 1.0,
+            "title": "Selected Project Count",
+            "type": "integer"
+          },
+          "selection_mode": {
+            "$ref": "#/components/schemas/ProjectQualitySelectionMode"
+          },
+          "session_quality": {
+            "$ref": "#/components/schemas/ProjectSessionQualityAggregate"
+          }
+        },
+        "required": [
+          "selection_mode",
+          "estimand",
+          "aggregation_method",
+          "selected_project_count",
+          "session_quality"
+        ],
+        "title": "ProjectQualityAggregate",
+        "type": "object"
+      },
+      "ProjectQualityAggregateRequest": {
+        "additionalProperties": false,
+        "description": "Complete safe-index project scope; raw data is never accepted here.",
+        "properties": {
+          "project_ids": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "maxItems": 25,
+            "minItems": 1,
+            "title": "Project Ids",
+            "type": "array"
+          },
+          "selection_mode": {
+            "const": "all_analyzed_work",
+            "default": "all_analyzed_work",
+            "title": "Selection Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_ids"
+        ],
+        "title": "ProjectQualityAggregateRequest",
+        "type": "object"
+      },
+      "ProjectQualityCompatibilityCohort": {
+        "additionalProperties": false,
+        "description": "Path-free public projection of one exact core compatibility cohort.",
+        "properties": {
+          "analyzable_coverage": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Analyzable Coverage",
+            "type": "number"
+          },
+          "analyzable_eligible_count": {
+            "minimum": 0.0,
+            "title": "Analyzable Eligible Count",
+            "type": "integer"
+          },
+          "analyzable_observed_count": {
+            "minimum": 0.0,
+            "title": "Analyzable Observed Count",
+            "type": "integer"
+          },
+          "compatibility_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Compatibility Fingerprint",
+            "type": "string"
+          },
+          "fraction_denominator": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fraction Denominator"
+          },
+          "fraction_numerator": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fraction Numerator"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "result_count": {
+            "minimum": 1.0,
+            "title": "Result Count",
+            "type": "integer"
+          },
+          "state_counts": {
+            "$ref": "#/components/schemas/SessionQualityStateCounts"
+          }
+        },
+        "required": [
+          "compatibility_fingerprint",
+          "result_count",
+          "state_counts",
+          "analyzable_observed_count",
+          "analyzable_eligible_count",
+          "analyzable_coverage"
+        ],
+        "title": "ProjectQualityCompatibilityCohort",
+        "type": "object"
+      },
+      "ProjectQualityEstimand": {
+        "enum": [
+          "per_eligible_opportunity"
+        ],
+        "title": "ProjectQualityEstimand",
+        "type": "string"
+      },
+      "ProjectQualityMetricAggregate": {
+        "additionalProperties": false,
+        "description": "Core metric outcome with raw compatibility provenance removed.",
+        "properties": {
+          "aggregate_state": {
+            "$ref": "#/components/schemas/SessionQualityAggregateState"
+          },
+          "aggregation_method": {
+            "$ref": "#/components/schemas/SessionMetricAggregation"
+          },
+          "analyzable_coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzable Coverage"
+          },
+          "analyzable_eligible_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzable Eligible Count"
+          },
+          "analyzable_observed_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzable Observed Count"
+          },
+          "blocked_reason_codes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocked Reason Codes",
+            "type": "array"
+          },
+          "compatibility_cohorts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ProjectQualityCompatibilityCohort"
+            },
+            "title": "Compatibility Cohorts",
+            "type": "array"
+          },
+          "compatibility_state": {
+            "$ref": "#/components/schemas/SessionQualityCompatibilityState"
+          },
+          "completed_run_count": {
+            "minimum": 0.0,
+            "title": "Completed Run Count",
+            "type": "integer"
+          },
+          "fraction_denominator": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fraction Denominator"
+          },
+          "fraction_numerator": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fraction Numerator"
+          },
+          "invalid_result_record_count": {
+            "minimum": 0.0,
+            "title": "Invalid Result Record Count",
+            "type": "integer"
+          },
+          "invalid_result_session_count": {
+            "minimum": 0.0,
+            "title": "Invalid Result Session Count",
+            "type": "integer"
+          },
+          "metric_direction": {
+            "$ref": "#/components/schemas/SessionMetricDirection"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_unit": {
+            "title": "Metric Unit",
+            "type": "string"
+          },
+          "metric_version": {
+            "minimum": 1.0,
+            "title": "Metric Version",
+            "type": "integer"
+          },
+          "missing_result_count": {
+            "minimum": 0.0,
+            "title": "Missing Result Count",
+            "type": "integer"
+          },
+          "missing_run_count": {
+            "minimum": 0.0,
+            "title": "Missing Run Count",
+            "type": "integer"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "present_result_count": {
+            "minimum": 0.0,
+            "title": "Present Result Count",
+            "type": "integer"
+          },
+          "selected_session_count": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Selected Session Count",
+            "type": "integer"
+          },
+          "state_counts": {
+            "$ref": "#/components/schemas/SessionQualityStateCounts"
+          }
+        },
+        "required": [
+          "metric_key",
+          "metric_version",
+          "metric_unit",
+          "metric_direction",
+          "aggregation_method",
+          "compatibility_state",
+          "aggregate_state",
+          "selected_session_count",
+          "completed_run_count",
+          "missing_run_count",
+          "present_result_count",
+          "missing_result_count",
+          "invalid_result_session_count",
+          "invalid_result_record_count",
+          "state_counts"
+        ],
+        "title": "ProjectQualityMetricAggregate",
+        "type": "object"
+      },
+      "ProjectQualitySelectionMode": {
+        "enum": [
+          "all_analyzed_work"
+        ],
+        "title": "ProjectQualitySelectionMode",
+        "type": "string"
+      },
+      "ProjectSessionCatalogResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionCatalogItemDto"
+            },
+            "title": "Sessions",
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sessions",
+          "limit",
+          "offset",
+          "total",
+          "has_more"
+        ],
+        "title": "ProjectSessionCatalogResponse",
+        "type": "object"
+      },
+      "ProjectSessionQualityAggregate": {
+        "additionalProperties": false,
+        "description": "Path-free public mirror of the core selection-level outcome.",
+        "properties": {
+          "analysis_profile_key": {
+            "title": "Analysis Profile Key",
+            "type": "string"
+          },
+          "analysis_profile_version": {
+            "minimum": 1.0,
+            "title": "Analysis Profile Version",
+            "type": "integer"
+          },
+          "completed_run_count": {
+            "minimum": 0.0,
+            "title": "Completed Run Count",
+            "type": "integer"
+          },
+          "duplicate_result_record_count": {
+            "minimum": 0.0,
+            "title": "Duplicate Result Record Count",
+            "type": "integer"
+          },
+          "integrity_state": {
+            "$ref": "#/components/schemas/SessionQualityIntegrityState"
+          },
+          "metric_pack_key": {
+            "title": "Metric Pack Key",
+            "type": "string"
+          },
+          "metric_pack_version": {
+            "minimum": 1.0,
+            "title": "Metric Pack Version",
+            "type": "integer"
+          },
+          "metric_schema_version": {
+            "minimum": 1.0,
+            "title": "Metric Schema Version",
+            "type": "integer"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectQualityMetricAggregate"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "missing_run_count": {
+            "minimum": 0.0,
+            "title": "Missing Run Count",
+            "type": "integer"
+          },
+          "selected_session_count": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Selected Session Count",
+            "type": "integer"
+          },
+          "unexpected_result_record_count": {
+            "minimum": 0.0,
+            "title": "Unexpected Result Record Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "analysis_profile_key",
+          "analysis_profile_version",
+          "metric_pack_key",
+          "metric_pack_version",
+          "metric_schema_version",
+          "selected_session_count",
+          "completed_run_count",
+          "missing_run_count",
+          "integrity_state",
+          "unexpected_result_record_count",
+          "duplicate_result_record_count",
+          "metrics"
+        ],
+        "title": "ProjectSessionQualityAggregate",
+        "type": "object"
+      },
       "Provider": {
         "enum": [
           "codex",
@@ -1038,6 +3677,190 @@
           "synthetic"
         ],
         "title": "Provider",
+        "type": "string"
+      },
+      "ProviderCompatibilityReasonDto": {
+        "enum": [
+          "exact_match",
+          "compatible_version",
+          "degraded_extraction",
+          "not_checked",
+          "provider_unavailable",
+          "provider_version_unsupported",
+          "adapter_outdated",
+          "source_schema_unsupported",
+          "content_schema_unsupported",
+          "check_failed"
+        ],
+        "title": "ProviderCompatibilityReasonDto",
+        "type": "string"
+      },
+      "ProviderCompatibilityStateDto": {
+        "enum": [
+          "exact",
+          "compatible",
+          "degraded",
+          "untested",
+          "incompatible",
+          "unavailable"
+        ],
+        "title": "ProviderCompatibilityStateDto",
+        "type": "string"
+      },
+      "ProviderCompatibilityStatusDto": {
+        "additionalProperties": false,
+        "description": "Closed projection. It contains no provider payload, path, or identifier.",
+        "properties": {
+          "adapter_family": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Adapter Family",
+            "type": "string"
+          },
+          "adapter_version": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter Version"
+          },
+          "capability": {
+            "const": "session_text_analysis",
+            "default": "session_text_analysis",
+            "title": "Capability",
+            "type": "string"
+          },
+          "capability_state": {
+            "$ref": "#/components/schemas/ProviderTextCapabilityStateDto"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "content_schema_family": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Content Schema Family",
+            "type": "string"
+          },
+          "content_schema_version": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Schema Version"
+          },
+          "provider": {
+            "enum": [
+              "codex",
+              "claude_code",
+              "synthetic"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_family": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Provider Family",
+            "type": "string"
+          },
+          "provider_version": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Version"
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/ProviderCompatibilityReasonDto"
+          },
+          "source_schema_family": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Source Schema Family",
+            "type": "string"
+          },
+          "source_schema_version": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Schema Version"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProviderCompatibilityStateDto"
+          },
+          "update_support": {
+            "default": "unknown",
+            "enum": [
+              "supported",
+              "unsupported",
+              "unknown"
+            ],
+            "title": "Update Support",
+            "type": "string"
+          },
+          "update_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prompt_enhancer",
+                  "provider"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Update Target"
+          }
+        },
+        "required": [
+          "provider",
+          "state",
+          "capability_state",
+          "provider_family",
+          "adapter_family",
+          "source_schema_family",
+          "content_schema_family",
+          "reason_code"
+        ],
+        "title": "ProviderCompatibilityStatusDto",
+        "type": "object"
+      },
+      "ProviderTextCapabilityStateDto": {
+        "enum": [
+          "supported",
+          "unsupported",
+          "unknown"
+        ],
+        "title": "ProviderTextCapabilityStateDto",
         "type": "string"
       },
       "RejectTaskRequest": {
@@ -1078,6 +3901,1671 @@
         ],
         "title": "RejectionReason",
         "type": "string"
+      },
+      "ResearchSourceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "paper",
+              "model_card"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 256,
+            "pattern": "^https://[^\\s]+$",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "url",
+          "kind"
+        ],
+        "title": "ResearchSourceDto",
+        "type": "object"
+      },
+      "SanitizedModelLinkValidationFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "const": "request validation failed",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "SanitizedModelLinkValidationFailureResponse",
+        "type": "object"
+      },
+      "SanitizedRequestValidationFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "const": "request validation failed",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "SanitizedRequestValidationFailureResponse",
+        "type": "object"
+      },
+      "SessionAnalysisEvidenceDto": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/SessionEvidenceOrigin"
+          }
+        },
+        "required": [
+          "message_id",
+          "origin"
+        ],
+        "title": "SessionAnalysisEvidenceDto",
+        "type": "object"
+      },
+      "SessionAnalysisResultDto": {
+        "additionalProperties": false,
+        "description": "Numeric result, evidence identities and exact definition presentation.",
+        "properties": {
+          "aggregation_method": {
+            "$ref": "#/components/schemas/SessionMetricAggregation"
+          },
+          "algorithm_id": {
+            "title": "Algorithm Id",
+            "type": "string"
+          },
+          "algorithm_version": {
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "applicability": {
+            "$ref": "#/components/schemas/SessionMetricApplicability"
+          },
+          "computed_at": {
+            "format": "date-time",
+            "title": "Computed At",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "coverage": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Coverage",
+            "type": "number"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "dimension": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dimension"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/SessionMetricDirection"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "eligible_count": {
+            "minimum": 0.0,
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/SessionAnalysisEvidenceDto"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "evidence_data_tier": {
+            "$ref": "#/components/schemas/DataTier"
+          },
+          "explanation_code": {
+            "title": "Explanation Code",
+            "type": "string"
+          },
+          "fraction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionMetricFractionDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "metric_schema_version": {
+            "minimum": 1.0,
+            "title": "Metric Schema Version",
+            "type": "integer"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "model_license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model License"
+          },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Revision"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "observed_count": {
+            "minimum": 0.0,
+            "title": "Observed Count",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "rubric_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric Version"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/SessionAnalysisSignalDto"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/MetricSource"
+          },
+          "tokenizer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokenizer Id"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value_state": {
+            "$ref": "#/components/schemas/MetricValueState"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "version",
+          "metric_schema_version",
+          "value_state",
+          "numeric_value",
+          "unit",
+          "source",
+          "direction",
+          "applicability",
+          "aggregation_method",
+          "fraction",
+          "observed_count",
+          "eligible_count",
+          "coverage",
+          "evidence_data_tier",
+          "evidence",
+          "signals",
+          "explanation_code",
+          "error_code",
+          "algorithm_id",
+          "algorithm_version",
+          "model_id",
+          "model_revision",
+          "model_license",
+          "tokenizer_id",
+          "prompt_version",
+          "rubric_version",
+          "computed_at"
+        ],
+        "title": "SessionAnalysisResultDto",
+        "type": "object"
+      },
+      "SessionAnalysisRunDto": {
+        "additionalProperties": false,
+        "description": "Content-free provenance for one selected redacted session window.",
+        "properties": {
+          "adapter_version": {
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "analysis_profile_key": {
+            "title": "Analysis Profile Key",
+            "type": "string"
+          },
+          "analysis_profile_version": {
+            "minimum": 1.0,
+            "title": "Analysis Profile Version",
+            "type": "integer"
+          },
+          "consent_policy_version": {
+            "title": "Consent Policy Version",
+            "type": "string"
+          },
+          "consent_purpose": {
+            "title": "Consent Purpose",
+            "type": "string"
+          },
+          "content_schema_version": {
+            "title": "Content Schema Version",
+            "type": "string"
+          },
+          "data_tier": {
+            "$ref": "#/components/schemas/DataTier"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "input_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Input Fingerprint",
+            "type": "string"
+          },
+          "local_only": {
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "metric_engine_version": {
+            "title": "Metric Engine Version",
+            "type": "string"
+          },
+          "metric_pack_key": {
+            "title": "Metric Pack Key",
+            "type": "string"
+          },
+          "metric_pack_version": {
+            "minimum": 1.0,
+            "title": "Metric Pack Version",
+            "type": "integer"
+          },
+          "model_plan_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Model Plan Fingerprint",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "provider_version": {
+            "title": "Provider Version",
+            "type": "string"
+          },
+          "redactor_version": {
+            "title": "Redactor Version",
+            "type": "string"
+          },
+          "request_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Request Fingerprint",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "session_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_schema_version": {
+            "title": "Source Schema Version",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AnalysisRunStatus"
+          }
+        },
+        "required": [
+          "run_id",
+          "session_id",
+          "request_fingerprint",
+          "input_fingerprint",
+          "analysis_profile_key",
+          "analysis_profile_version",
+          "metric_pack_key",
+          "metric_pack_version",
+          "data_tier",
+          "consent_purpose",
+          "consent_policy_version",
+          "provider",
+          "provider_version",
+          "adapter_version",
+          "source_schema_version",
+          "content_schema_version",
+          "metric_engine_version",
+          "redactor_version",
+          "model_plan_fingerprint",
+          "schema_version",
+          "local_only",
+          "started_at",
+          "status",
+          "finished_at",
+          "failure_code"
+        ],
+        "title": "SessionAnalysisRunDto",
+        "type": "object"
+      },
+      "SessionAnalysisRunListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/SessionAnalysisRunDto"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "session_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "runs",
+          "limit",
+          "offset"
+        ],
+        "title": "SessionAnalysisRunListResponse",
+        "type": "object"
+      },
+      "SessionAnalysisRunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SessionAnalysisResultDto"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "run": {
+            "$ref": "#/components/schemas/SessionAnalysisRunDto"
+          }
+        },
+        "required": [
+          "run",
+          "results"
+        ],
+        "title": "SessionAnalysisRunResponse",
+        "type": "object"
+      },
+      "SessionAnalysisSignalDto": {
+        "additionalProperties": false,
+        "description": "Closed factor receipt; contains no text, excerpt, or evidence identity.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "status",
+          "count"
+        ],
+        "title": "SessionAnalysisSignalDto",
+        "type": "object"
+      },
+      "SessionCatalogItemDto": {
+        "additionalProperties": false,
+        "description": "Exact allowlist for one private-label, content-free catalog row.",
+        "properties": {
+          "adapter_version": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "events_complete": {
+            "title": "Events Complete",
+            "type": "boolean"
+          },
+          "installation_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Installation Id",
+            "type": "string"
+          },
+          "project_display_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Display Name"
+          },
+          "project_display_name_origin": {
+            "enum": [
+              "provider",
+              "manual",
+              "unknown"
+            ],
+            "title": "Project Display Name Origin",
+            "type": "string"
+          },
+          "project_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_manual_label_revision": {
+            "minimum": 0.0,
+            "title": "Project Manual Label Revision",
+            "type": "integer"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "provider_version": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Version"
+          },
+          "session_display_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Display Name"
+          },
+          "session_display_name_origin": {
+            "enum": [
+              "provider",
+              "manual",
+              "unknown"
+            ],
+            "title": "Session Display Name Origin",
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "session_manual_label_revision": {
+            "minimum": 0.0,
+            "title": "Session Manual Label Revision",
+            "type": "integer"
+          },
+          "source_schema_version": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Schema Version"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "terminal_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "session_id",
+          "installation_id",
+          "project_id",
+          "provider",
+          "provider_version",
+          "adapter_version",
+          "source_schema_version",
+          "started_at",
+          "ended_at",
+          "terminal_state",
+          "events_complete",
+          "project_display_name",
+          "session_display_name",
+          "project_display_name_origin",
+          "session_display_name_origin",
+          "project_manual_label_revision",
+          "session_manual_label_revision"
+        ],
+        "title": "SessionCatalogItemDto",
+        "type": "object"
+      },
+      "SessionCatalogListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionCatalogItemDto"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sessions",
+          "limit",
+          "offset"
+        ],
+        "title": "SessionCatalogListResponse",
+        "type": "object"
+      },
+      "SessionCoachingProjection": {
+        "additionalProperties": false,
+        "description": "Content-free current projection; not an immutable historical run.",
+        "properties": {
+          "projection_key": {
+            "default": "coaching.loop.current",
+            "title": "Projection Key",
+            "type": "string"
+          },
+          "projection_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Projection Version",
+            "type": "integer"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/CoachingSummary"
+          },
+          "task_context_source": {
+            "$ref": "#/components/schemas/CoachingTaskContextSource"
+          },
+          "task_type": {
+            "$ref": "#/components/schemas/CoachingTaskType"
+          }
+        },
+        "required": [
+          "task_type",
+          "task_context_source",
+          "summary"
+        ],
+        "title": "SessionCoachingProjection",
+        "type": "object"
+      },
+      "SessionEvidenceOrigin": {
+        "description": "How a content-free evidence reference entered the selected window.",
+        "enum": [
+          "direct",
+          "inherited"
+        ],
+        "title": "SessionEvidenceOrigin",
+        "type": "string"
+      },
+      "SessionMetricAggregation": {
+        "description": "Server-side aggregation contract; ratios must never be client-averaged.",
+        "enum": [
+          "ratio_of_sums"
+        ],
+        "title": "SessionMetricAggregation",
+        "type": "string"
+      },
+      "SessionMetricApplicability": {
+        "description": "Whether the selected redacted analysis window supports a denominator.",
+        "enum": [
+          "applicable",
+          "not_applicable",
+          "unknown"
+        ],
+        "title": "SessionMetricApplicability",
+        "type": "string"
+      },
+      "SessionMetricDirection": {
+        "description": "Display polarity for one persisted qualitative ratio.",
+        "enum": [
+          "higher_is_better",
+          "lower_is_better"
+        ],
+        "title": "SessionMetricDirection",
+        "type": "string"
+      },
+      "SessionMetricFractionDto": {
+        "additionalProperties": false,
+        "properties": {
+          "denominator": {
+            "minimum": 1.0,
+            "title": "Denominator",
+            "type": "integer"
+          },
+          "numerator": {
+            "minimum": 0.0,
+            "title": "Numerator",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "numerator",
+          "denominator"
+        ],
+        "title": "SessionMetricFractionDto",
+        "type": "object"
+      },
+      "SessionQualityAggregate": {
+        "additionalProperties": false,
+        "description": "Content-free selected-session projection; selected IDs are intentionally absent.",
+        "properties": {
+          "analysis_profile_key": {
+            "title": "Analysis Profile Key",
+            "type": "string"
+          },
+          "analysis_profile_version": {
+            "minimum": 1.0,
+            "title": "Analysis Profile Version",
+            "type": "integer"
+          },
+          "completed_run_count": {
+            "minimum": 0.0,
+            "title": "Completed Run Count",
+            "type": "integer"
+          },
+          "duplicate_result_record_count": {
+            "minimum": 0.0,
+            "title": "Duplicate Result Record Count",
+            "type": "integer"
+          },
+          "integrity_state": {
+            "$ref": "#/components/schemas/SessionQualityIntegrityState"
+          },
+          "metric_pack_key": {
+            "title": "Metric Pack Key",
+            "type": "string"
+          },
+          "metric_pack_version": {
+            "minimum": 1.0,
+            "title": "Metric Pack Version",
+            "type": "integer"
+          },
+          "metric_schema_version": {
+            "minimum": 1.0,
+            "title": "Metric Schema Version",
+            "type": "integer"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/SessionQualityMetricAggregate"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "missing_run_count": {
+            "minimum": 0.0,
+            "title": "Missing Run Count",
+            "type": "integer"
+          },
+          "selected_session_count": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Selected Session Count",
+            "type": "integer"
+          },
+          "unexpected_result_record_count": {
+            "minimum": 0.0,
+            "title": "Unexpected Result Record Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "analysis_profile_key",
+          "analysis_profile_version",
+          "metric_pack_key",
+          "metric_pack_version",
+          "metric_schema_version",
+          "selected_session_count",
+          "completed_run_count",
+          "missing_run_count",
+          "integrity_state",
+          "unexpected_result_record_count",
+          "duplicate_result_record_count",
+          "metrics"
+        ],
+        "title": "SessionQualityAggregate",
+        "type": "object"
+      },
+      "SessionQualityAggregateRequest": {
+        "additionalProperties": false,
+        "description": "A bounded selection kept in the request body rather than the URL.",
+        "properties": {
+          "session_ids": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Session Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_ids"
+        ],
+        "title": "SessionQualityAggregateRequest",
+        "type": "object"
+      },
+      "SessionQualityAggregateState": {
+        "enum": [
+          "known",
+          "unknown",
+          "not_applicable",
+          "abstained",
+          "execution_error",
+          "incompatible"
+        ],
+        "title": "SessionQualityAggregateState",
+        "type": "string"
+      },
+      "SessionQualityCompatibilityCohort": {
+        "additionalProperties": false,
+        "description": "One exact provenance cohort, retained even when the selection is mixed.",
+        "properties": {
+          "analyzable_coverage": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Analyzable Coverage",
+            "type": "number"
+          },
+          "analyzable_eligible_count": {
+            "minimum": 0.0,
+            "title": "Analyzable Eligible Count",
+            "type": "integer"
+          },
+          "analyzable_observed_count": {
+            "minimum": 0.0,
+            "title": "Analyzable Observed Count",
+            "type": "integer"
+          },
+          "fraction_denominator": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fraction Denominator"
+          },
+          "fraction_numerator": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fraction Numerator"
+          },
+          "key": {
+            "$ref": "#/components/schemas/SessionQualityCompatibilityKey"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "result_count": {
+            "minimum": 1.0,
+            "title": "Result Count",
+            "type": "integer"
+          },
+          "state_counts": {
+            "$ref": "#/components/schemas/SessionQualityStateCounts"
+          }
+        },
+        "required": [
+          "key",
+          "result_count",
+          "state_counts",
+          "analyzable_observed_count",
+          "analyzable_eligible_count",
+          "analyzable_coverage"
+        ],
+        "title": "SessionQualityCompatibilityCohort",
+        "type": "object"
+      },
+      "SessionQualityCompatibilityKey": {
+        "additionalProperties": false,
+        "description": "Every provenance field that must match before fractions may combine.",
+        "properties": {
+          "adapter_version": {
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "aggregation_method": {
+            "$ref": "#/components/schemas/SessionMetricAggregation"
+          },
+          "algorithm_id": {
+            "title": "Algorithm Id",
+            "type": "string"
+          },
+          "algorithm_version": {
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "analysis_profile_key": {
+            "title": "Analysis Profile Key",
+            "type": "string"
+          },
+          "analysis_profile_version": {
+            "minimum": 1.0,
+            "title": "Analysis Profile Version",
+            "type": "integer"
+          },
+          "consent_policy_version": {
+            "title": "Consent Policy Version",
+            "type": "string"
+          },
+          "content_schema_version": {
+            "title": "Content Schema Version",
+            "type": "string"
+          },
+          "data_tier": {
+            "$ref": "#/components/schemas/DataTier"
+          },
+          "local_only": {
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "metric_direction": {
+            "$ref": "#/components/schemas/SessionMetricDirection"
+          },
+          "metric_engine_version": {
+            "title": "Metric Engine Version",
+            "type": "string"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_pack_key": {
+            "title": "Metric Pack Key",
+            "type": "string"
+          },
+          "metric_pack_version": {
+            "minimum": 1.0,
+            "title": "Metric Pack Version",
+            "type": "integer"
+          },
+          "metric_schema_version": {
+            "minimum": 1.0,
+            "title": "Metric Schema Version",
+            "type": "integer"
+          },
+          "metric_source": {
+            "$ref": "#/components/schemas/MetricSource"
+          },
+          "metric_unit": {
+            "title": "Metric Unit",
+            "type": "string"
+          },
+          "metric_version": {
+            "minimum": 1.0,
+            "title": "Metric Version",
+            "type": "integer"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "model_license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model License"
+          },
+          "model_plan_fingerprint": {
+            "title": "Model Plan Fingerprint",
+            "type": "string"
+          },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Revision"
+          },
+          "persistence_schema_version": {
+            "minimum": 1.0,
+            "title": "Persistence Schema Version",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "provider_version": {
+            "title": "Provider Version",
+            "type": "string"
+          },
+          "redactor_version": {
+            "title": "Redactor Version",
+            "type": "string"
+          },
+          "rubric_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric Version"
+          },
+          "source_schema_version": {
+            "title": "Source Schema Version",
+            "type": "string"
+          },
+          "tokenizer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokenizer Id"
+          }
+        },
+        "required": [
+          "analysis_profile_key",
+          "analysis_profile_version",
+          "metric_pack_key",
+          "metric_pack_version",
+          "data_tier",
+          "consent_policy_version",
+          "provider",
+          "provider_version",
+          "adapter_version",
+          "source_schema_version",
+          "content_schema_version",
+          "metric_engine_version",
+          "redactor_version",
+          "model_plan_fingerprint",
+          "persistence_schema_version",
+          "local_only",
+          "metric_key",
+          "metric_version",
+          "metric_unit",
+          "metric_source",
+          "metric_direction",
+          "aggregation_method",
+          "metric_schema_version",
+          "algorithm_id",
+          "algorithm_version"
+        ],
+        "title": "SessionQualityCompatibilityKey",
+        "type": "object"
+      },
+      "SessionQualityCompatibilityState": {
+        "enum": [
+          "compatible",
+          "incompatible",
+          "no_results"
+        ],
+        "title": "SessionQualityCompatibilityState",
+        "type": "string"
+      },
+      "SessionQualityIntegrityState": {
+        "enum": [
+          "valid",
+          "incompatible"
+        ],
+        "title": "SessionQualityIntegrityState",
+        "type": "string"
+      },
+      "SessionQualityMetricAggregate": {
+        "additionalProperties": false,
+        "properties": {
+          "aggregate_state": {
+            "$ref": "#/components/schemas/SessionQualityAggregateState"
+          },
+          "aggregation_method": {
+            "$ref": "#/components/schemas/SessionMetricAggregation"
+          },
+          "analyzable_coverage": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzable Coverage"
+          },
+          "analyzable_eligible_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzable Eligible Count"
+          },
+          "analyzable_observed_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzable Observed Count"
+          },
+          "blocked_reason_codes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocked Reason Codes",
+            "type": "array"
+          },
+          "compatibility_cohorts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SessionQualityCompatibilityCohort"
+            },
+            "title": "Compatibility Cohorts",
+            "type": "array"
+          },
+          "compatibility_state": {
+            "$ref": "#/components/schemas/SessionQualityCompatibilityState"
+          },
+          "completed_run_count": {
+            "minimum": 0.0,
+            "title": "Completed Run Count",
+            "type": "integer"
+          },
+          "fraction_denominator": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fraction Denominator"
+          },
+          "fraction_numerator": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fraction Numerator"
+          },
+          "invalid_result_record_count": {
+            "minimum": 0.0,
+            "title": "Invalid Result Record Count",
+            "type": "integer"
+          },
+          "invalid_result_session_count": {
+            "minimum": 0.0,
+            "title": "Invalid Result Session Count",
+            "type": "integer"
+          },
+          "metric_direction": {
+            "$ref": "#/components/schemas/SessionMetricDirection"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_unit": {
+            "title": "Metric Unit",
+            "type": "string"
+          },
+          "metric_version": {
+            "minimum": 1.0,
+            "title": "Metric Version",
+            "type": "integer"
+          },
+          "missing_result_count": {
+            "minimum": 0.0,
+            "title": "Missing Result Count",
+            "type": "integer"
+          },
+          "missing_run_count": {
+            "minimum": 0.0,
+            "title": "Missing Run Count",
+            "type": "integer"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "present_result_count": {
+            "minimum": 0.0,
+            "title": "Present Result Count",
+            "type": "integer"
+          },
+          "selected_session_count": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Selected Session Count",
+            "type": "integer"
+          },
+          "state_counts": {
+            "$ref": "#/components/schemas/SessionQualityStateCounts"
+          }
+        },
+        "required": [
+          "metric_key",
+          "metric_version",
+          "metric_unit",
+          "metric_direction",
+          "aggregation_method",
+          "compatibility_state",
+          "aggregate_state",
+          "selected_session_count",
+          "completed_run_count",
+          "missing_run_count",
+          "present_result_count",
+          "missing_result_count",
+          "invalid_result_session_count",
+          "invalid_result_record_count",
+          "state_counts"
+        ],
+        "title": "SessionQualityMetricAggregate",
+        "type": "object"
+      },
+      "SessionQualityStateCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "abstained": {
+            "minimum": 0.0,
+            "title": "Abstained",
+            "type": "integer"
+          },
+          "execution_error": {
+            "minimum": 0.0,
+            "title": "Execution Error",
+            "type": "integer"
+          },
+          "known": {
+            "minimum": 0.0,
+            "title": "Known",
+            "type": "integer"
+          },
+          "not_applicable": {
+            "minimum": 0.0,
+            "title": "Not Applicable",
+            "type": "integer"
+          },
+          "unknown": {
+            "minimum": 0.0,
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "known",
+          "unknown",
+          "not_applicable",
+          "abstained",
+          "execution_error"
+        ],
+        "title": "SessionQualityStateCounts",
+        "type": "object"
+      },
+      "SessionState": {
+        "enum": [
+          "completed",
+          "interrupted",
+          "failed",
+          "blocked",
+          "abandoned",
+          "unknown"
+        ],
+        "title": "SessionState",
+        "type": "string"
+      },
+      "SessionTextAnalysisCommandResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "analysis_profile_key": {
+            "title": "Analysis Profile Key",
+            "type": "string"
+          },
+          "analysis_profile_version": {
+            "minimum": 1.0,
+            "title": "Analysis Profile Version",
+            "type": "integer"
+          },
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "result_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Result Count",
+            "type": "integer"
+          },
+          "run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AnalysisRunStatus"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "result_count",
+          "applied",
+          "analysis_profile_key",
+          "analysis_profile_version"
+        ],
+        "title": "SessionTextAnalysisCommandResponse",
+        "type": "object"
+      },
+      "SessionTextAnalysisFailureCode": {
+        "description": "Closed HTTP error vocabulary; values never contain provider data.",
+        "enum": [
+          "redacted_content_consent_required",
+          "session_not_in_safe_index",
+          "analysis_idempotency_conflict",
+          "invalid_analysis_request",
+          "confirmation_required",
+          "source_schema_unsupported",
+          "selection_snapshot_miss",
+          "source_resource_limit",
+          "source_timeout",
+          "provider_unavailable",
+          "no_analyzable_text",
+          "provider_protocol_rejected",
+          "provider_compatibility_blocked",
+          "analysis_persistence_failed",
+          "metric_execution_failed"
+        ],
+        "title": "SessionTextAnalysisFailureCode",
+        "type": "string"
+      },
+      "SessionTextAnalysisFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/SessionTextAnalysisFailureCode"
+          },
+          "message": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "SessionTextAnalysisFailureDetail",
+        "type": "object"
+      },
+      "SessionTextAnalysisFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/SessionTextAnalysisFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "SessionTextAnalysisFailureResponse",
+        "type": "object"
+      },
+      "SessionTextAnalysisRequest": {
+        "additionalProperties": false,
+        "description": "A named server-owned scope. The API never accepts profile or transcript text.",
+        "properties": {
+          "confirmation": {
+            "const": "analyze_selected_redacted_text",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "preset_id": {
+            "$ref": "#/components/schemas/TextAnalysisPresetId"
+          }
+        },
+        "required": [
+          "confirmation",
+          "preset_id"
+        ],
+        "title": "SessionTextAnalysisRequest",
+        "type": "object"
       },
       "SignalDirection": {
         "description": "Whether safe discovery evidence supports joining or separating items.",
@@ -1496,6 +5984,105 @@
         "title": "TaskRevisionResponse",
         "type": "object"
       },
+      "TextAnalysisPresetId": {
+        "enum": [
+          "standard_engineering_v1",
+          "coaching_profile_v1"
+        ],
+        "title": "TextAnalysisPresetId",
+        "type": "string"
+      },
+      "TextAnalysisResearchCatalogDto": {
+        "additionalProperties": false,
+        "properties": {
+          "catalog_key": {
+            "const": "text-analysis-methods",
+            "title": "Catalog Key",
+            "type": "string"
+          },
+          "catalog_read_downloads_models": {
+            "const": false,
+            "title": "Catalog Read Downloads Models",
+            "type": "boolean"
+          },
+          "catalog_read_starts_session_access": {
+            "const": false,
+            "title": "Catalog Read Starts Session Access",
+            "type": "boolean"
+          },
+          "catalog_version": {
+            "minimum": 1.0,
+            "title": "Catalog Version",
+            "type": "integer"
+          },
+          "methods": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisMethodDto"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Methods",
+            "type": "array"
+          },
+          "metric_roadmap": {
+            "items": {
+              "$ref": "#/components/schemas/MetricRoadmapItemDto"
+            },
+            "maxItems": 64,
+            "minItems": 10,
+            "title": "Metric Roadmap",
+            "type": "array"
+          },
+          "model_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ModelCandidateDto"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Model Candidates",
+            "type": "array"
+          },
+          "privacy_mode": {
+            "const": "local_only_redacted_content",
+            "title": "Privacy Mode",
+            "type": "string"
+          },
+          "reviewed_on": {
+            "format": "date",
+            "title": "Reviewed On",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchSourceDto"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Sources",
+            "type": "array"
+          },
+          "summary_policy": {
+            "const": "multidimensional_profile_no_universal_score",
+            "title": "Summary Policy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "catalog_key",
+          "catalog_version",
+          "reviewed_on",
+          "privacy_mode",
+          "summary_policy",
+          "catalog_read_starts_session_access",
+          "catalog_read_downloads_models",
+          "methods",
+          "model_candidates",
+          "metric_roadmap",
+          "sources"
+        ],
+        "title": "TextAnalysisResearchCatalogDto",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -1528,6 +6115,94 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VerificationCapability": {
+        "additionalProperties": false,
+        "description": "Truthful provider capability shown before any verification claim.",
+        "properties": {
+          "candidate_schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Schema Version"
+          },
+          "classifier_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classifier Version"
+          },
+          "live_classification_enabled": {
+            "title": "Live Classification Enabled",
+            "type": "boolean"
+          },
+          "normalizer_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalizer Version"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VerificationCapabilityState"
+          },
+          "supported_kinds": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/VerificationKind"
+            },
+            "title": "Supported Kinds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "state",
+          "live_classification_enabled",
+          "reason_code"
+        ],
+        "title": "VerificationCapability",
+        "type": "object"
+      },
+      "VerificationCapabilityState": {
+        "enum": [
+          "supported",
+          "validation_only",
+          "unsupported",
+          "incompatible",
+          "not_authorized"
+        ],
+        "title": "VerificationCapabilityState",
+        "type": "string"
+      },
+      "VerificationKind": {
+        "enum": [
+          "test",
+          "build",
+          "lint",
+          "type_check",
+          "security",
+          "artifact_validation"
+        ],
+        "title": "VerificationKind",
+        "type": "string"
       }
     }
   },
@@ -1759,9 +6434,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Capabilities V1 Capabilities Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CapabilitiesDto"
                 }
               }
             },
@@ -2856,6 +7529,971 @@
         "summary": "Metric Definitions"
       }
     },
+    "/v1/model-link-experiments/{run_id}/links/{link_id}/annotations": {
+      "post": {
+        "operationId": "annotate_link_v1_model_link_experiments__run_id__links__link_id__annotations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Link Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelLinkAnnotationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkAnnotationDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SanitizedModelLinkValidationFailureResponse"
+                    }
+                  ],
+                  "title": "Response 422 Annotate Link V1 Model Link Experiments  Run Id  Links  Link Id  Annotations Post"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Annotate Link",
+        "tags": [
+          "local-model-link-experiments"
+        ]
+      }
+    },
+    "/v1/projects/{project_id}/sessions": {
+      "get": {
+        "operationId": "project_sessions_v1_projects__project_id__sessions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Provider"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSessionCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Project Sessions"
+      }
+    },
+    "/v1/providers/{provider}/compatibility": {
+      "get": {
+        "operationId": "cached_status_v1_providers__provider__compatibility_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderCompatibilityStatusDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cached Status",
+        "tags": [
+          "provider-compatibility"
+        ]
+      }
+    },
+    "/v1/providers/{provider}/compatibility/check": {
+      "post": {
+        "operationId": "check_status_v1_providers__provider__compatibility_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z][a-z0-9_]{0,63}$",
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderCompatibilityStatusDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Status",
+        "tags": [
+          "provider-compatibility"
+        ]
+      }
+    },
+    "/v1/quality-analysis/aggregate": {
+      "post": {
+        "operationId": "aggregate_selected_session_quality_v1_quality_analysis_aggregate_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionQualityAggregateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionQualityAggregate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Aggregate Selected Session Quality",
+        "tags": [
+          "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/quality-analysis/aggregate-projects": {
+      "post": {
+        "operationId": "aggregate_selected_project_quality_v1_quality_analysis_aggregate_projects_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectQualityAggregateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectQualityAggregate"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Aggregate Selected Project Quality",
+        "tags": [
+          "project-quality-analysis"
+        ]
+      }
+    },
+    "/v1/quality-analysis/runs/{run_id}": {
+      "get": {
+        "operationId": "session_analysis_run_detail_v1_quality_analysis_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionAnalysisRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Analysis Run Detail",
+        "tags": [
+          "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/quality-analysis/runs/{run_id}/coaching-summary": {
+      "get": {
+        "description": "Project stored results only; never initiate a provider content read.",
+        "operationId": "session_coaching_summary_v1_quality_analysis_runs__run_id__coaching_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCoachingProjection"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Coaching Summary",
+        "tags": [
+          "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/research/text-analysis-methods": {
+      "get": {
+        "operationId": "get_text_analysis_methods_v1_research_text_analysis_methods_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextAnalysisResearchCatalogDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Text Analysis Methods",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/text-model-evaluations": {
+      "post": {
+        "operationId": "start_text_model_evaluation_v1_research_text_model_evaluations_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelEvaluationRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEvaluationJobDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Text Model Evaluation",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/text-model-evaluations/{job_id}": {
+      "get": {
+        "operationId": "get_text_model_evaluation_v1_research_text_model_evaluations__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEvaluationJobDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Text Model Evaluation",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/text-model-runtime": {
+      "get": {
+        "operationId": "get_text_model_runtime_v1_research_text_model_runtime_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelRuntimeInventoryDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Text Model Runtime",
+        "tags": [
+          "research"
+        ]
+      }
+    },
     "/v1/sessions": {
       "get": {
         "operationId": "sessions_v1_sessions_get",
@@ -2937,9 +8575,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Sessions V1 Sessions Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SessionCatalogListResponse"
                 }
               }
             },
@@ -3031,6 +8667,598 @@
           }
         },
         "summary": "Session Metrics"
+      }
+    },
+    "/v1/sessions/{session_id}/model-link-experiments": {
+      "post": {
+        "operationId": "start_experiment_v1_sessions__session_id__model_link_experiments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelLinkExperimentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkExperimentCommandResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SanitizedModelLinkValidationFailureResponse"
+                    }
+                  ],
+                  "title": "Response 422 Start Experiment V1 Sessions  Session Id  Model Link Experiments Post"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Start Experiment",
+        "tags": [
+          "local-model-link-experiments"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/model-link-experiments/latest": {
+      "get": {
+        "operationId": "latest_experiment_v1_sessions__session_id__model_link_experiments_latest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkExperimentDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SanitizedModelLinkValidationFailureResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Latest Experiment",
+        "tags": [
+          "local-model-link-experiments"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/quality-analysis-runs": {
+      "get": {
+        "operationId": "session_analysis_run_list_v1_sessions__session_id__quality_analysis_runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionAnalysisRunListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Analysis Run List",
+        "tags": [
+          "session-quality-analysis"
+        ]
+      },
+      "post": {
+        "operationId": "start_session_analysis_v1_sessions__session_id__quality_analysis_runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionTextAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisCommandResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SanitizedRequestValidationFailureResponse"
+                    }
+                  ],
+                  "title": "Response 422 Start Session Analysis V1 Sessions  Session Id  Quality Analysis Runs Post"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Start Session Analysis",
+        "tags": [
+          "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/quality-analysis-runs/latest": {
+      "get": {
+        "operationId": "latest_session_analysis_run_v1_sessions__session_id__quality_analysis_runs_latest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionAnalysisRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Latest Session Analysis Run",
+        "tags": [
+          "session-quality-analysis"
+        ]
       }
     },
     "/v1/task-decisions/accept": {

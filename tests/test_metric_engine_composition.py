@@ -190,7 +190,7 @@ def test_facade_and_composed_engine_have_identical_deterministic_output() -> Non
 
     assert facade == composed
     by_key = {observation.key: observation for observation in composed}
-    assert len(composed) == 17
+    assert len(composed) == 24
     assert by_key["outcome.session_state"].text_value == "completed"
     assert by_key["efficiency.cycle_time_ms"].numeric_value == 60_000
     assert by_key["workflow.event_count"].numeric_value == 4

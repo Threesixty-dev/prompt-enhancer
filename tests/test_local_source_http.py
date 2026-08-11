@@ -14,6 +14,10 @@ from prompt_enhancer.application.local_sources import (
     CodexLocalSourceService,
     LocalSourceSelectionError,
 )
+from prompt_enhancer.application.verification import (
+    VerificationCapability,
+    VerificationCapabilityState,
+)
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.database import Database
 from prompt_enhancer.domain import (
@@ -37,6 +41,13 @@ API_TOKEN = "synthetic-local-api-token-" + "x" * 32
 ORIGIN = "http://127.0.0.1:8766"
 PROJECT_ID = "a" * 64
 SESSION_ID = "b" * 64
+
+
+VERIFICATION_CAPABILITY = VerificationCapability(
+    state=VerificationCapabilityState.UNSUPPORTED,
+    live_classification_enabled=False,
+    reason_code="synthetic_not_composed",
+)
 
 
 class FakeReadStore:
@@ -166,7 +177,9 @@ def build_source_app(tmp_path: Path):
         factory_calls.append(operational_history)
         return NeverReadAdapter(operational_history)
 
-    service = CodexLocalSourceService(repository, runner, adapter_factory)
+    service = CodexLocalSourceService(
+        repository, runner, adapter_factory, VERIFICATION_CAPABILITY
+    )
     app = create_app(
         settings=AppSettings(home=tmp_path),
         database=store,
@@ -290,6 +303,15 @@ def test_local_source_endpoint_flow_is_explicit_bounded_and_selected(tmp_path) -
         "consent_active": False,
         "indexed_sessions": 2,
         "indexed_projects": 1,
+        "verification_capability": {
+            "state": "unsupported",
+            "live_classification_enabled": False,
+            "classifier_version": None,
+            "normalizer_version": None,
+            "candidate_schema_version": None,
+            "supported_kinds": [],
+            "reason_code": "synthetic_not_composed",
+        },
     }
     assert granted.json()["consent_active"] is True
     assert indexed.status_code == 200
@@ -361,7 +383,9 @@ def test_service_denials_do_not_construct_an_adapter() -> None:
         factory_calls.append(operational_history)
         return NeverReadAdapter(operational_history)
 
-    service = CodexLocalSourceService(repository, runner, adapter_factory)
+    service = CodexLocalSourceService(
+        repository, runner, adapter_factory, VERIFICATION_CAPABILITY
+    )
 
     with pytest.raises(ConsentRequiredError):
         service.index(max_sessions=10)
@@ -380,8 +404,46 @@ def test_service_denials_do_not_construct_an_adapter() -> None:
 
 def test_provider_filter_reaches_the_narrow_database_query(tmp_path) -> None:
     rows = [
-        {"session_id": "c" * 64, "provider": "codex"},
-        {"session_id": "d" * 64, "provider": "synthetic"},
+        {
+            "session_id": "c" * 64,
+            "installation_id": "e" * 64,
+            "project_id": "f" * 64,
+            "provider": "codex",
+            "provider_version": "example-provider-1",
+            "adapter_version": "example-adapter-1",
+            "source_schema_version": "example-schema-1",
+            "started_at": "2040-01-01T00:00:00+00:00",
+            "ended_at": None,
+            "terminal_state": "unknown",
+            "events_complete": False,
+            "project_display_name": "Example Project",
+            "session_display_name": "Example Session",
+            "project_display_name_origin": "provider",
+            "session_display_name_origin": "provider",
+            "project_manual_label_revision": 0,
+            "session_manual_label_revision": 0,
+            # The API must never forward unallowlisted repository fields.
+            "transcript": "synthetic-canary-must-not-cross-http",
+        },
+        {
+            "session_id": "d" * 64,
+            "installation_id": "1" * 64,
+            "project_id": "2" * 64,
+            "provider": "synthetic",
+            "provider_version": "example-provider-1",
+            "adapter_version": "example-adapter-1",
+            "source_schema_version": "example-schema-1",
+            "started_at": "2040-01-02T00:00:00+00:00",
+            "ended_at": None,
+            "terminal_state": "unknown",
+            "events_complete": False,
+            "project_display_name": None,
+            "session_display_name": None,
+            "project_display_name_origin": "unknown",
+            "session_display_name_origin": "unknown",
+            "project_manual_label_revision": 0,
+            "session_manual_label_revision": 0,
+        },
     ]
     store = FakeReadStore(rows)
     app = create_app(
@@ -401,7 +463,14 @@ def test_provider_filter_reaches_the_narrow_database_query(tmp_path) -> None:
         )
 
     assert response.status_code == 200
-    assert response.json()["sessions"] == [rows[0]]
+    returned = response.json()["sessions"]
+    assert len(returned) == 1
+    expected = {
+        key: value for key, value in rows[0].items() if key != "transcript"
+    }
+    expected["started_at"] = "2040-01-01T00:00:00Z"
+    assert returned[0] == expected
+    assert "synthetic-canary-must-not-cross-http" not in response.text
     assert store.provider_queries == [Provider.CODEX]
     assert invalid.status_code == 422
 
@@ -470,8 +539,15 @@ def test_integrated_static_hosting_uses_spa_fallback_but_reserves_api_paths(
 ) -> None:
     static_root = tmp_path / "synthetic-dashboard"
     static_root.mkdir()
+    assets = static_root / "assets"
+    assets.mkdir()
+    (assets / "index-synthetic1.js").write_text(
+        "globalThis.syntheticDashboard = true;",
+        encoding="utf-8",
+    )
     (static_root / "index.html").write_text(
-        "<!doctype html><div id='root'>Synthetic dashboard</div>",
+        "<!doctype html><div id='root'>Synthetic dashboard</div>"
+        "<script type='module' src='/assets/index-synthetic1.js'></script>",
         encoding="utf-8",
     )
     (static_root / "style.css").write_text("body { color: #123456; }", encoding="utf-8")
@@ -504,3 +580,4 @@ def test_integrated_static_hosting_uses_spa_fallback_but_reserves_api_paths(
     assert all(response.status_code == 404 for response in reserved)
     assert root.headers["cache-control"] == "no-store"
     assert "default-src 'self'" in root.headers["content-security-policy"]
+    assert "img-src 'self' data: blob:" in root.headers["content-security-policy"]

@@ -1,6 +1,11 @@
 """Narrow SQLite adapters for local, privacy-sensitive persistence."""
 
-__all__ = ("SqliteAnalysisRunRepository", "SqliteTaskRepository")
+__all__ = (
+    "SqliteAnalysisRunRepository",
+    "SqliteModelLinkExperimentRepository",
+    "SqliteSessionAnalysisRunRepository",
+    "SqliteTaskRepository",
+)
 
 
 def __getattr__(name: str):
@@ -14,4 +19,12 @@ def __getattr__(name: str):
         from .tasks import SqliteTaskRepository
 
         return SqliteTaskRepository
+    if name == "SqliteSessionAnalysisRunRepository":
+        from .session_analysis_runs import SqliteSessionAnalysisRunRepository
+
+        return SqliteSessionAnalysisRunRepository
+    if name == "SqliteModelLinkExperimentRepository":
+        from .model_link_experiments import SqliteModelLinkExperimentRepository
+
+        return SqliteModelLinkExperimentRepository
     raise AttributeError(name)

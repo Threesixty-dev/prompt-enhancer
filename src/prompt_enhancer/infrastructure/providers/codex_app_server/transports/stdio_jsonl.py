@@ -14,7 +14,9 @@ import time
 from typing import BinaryIO, Callable
 
 from ..errors import (
+    CodexLimitError,
     CodexProtocolViolation,
+    CodexRequestRejected,
     CodexTransportError,
     CodexTransportTimeout,
 )
@@ -63,6 +65,7 @@ class ThreadReadPolicy(StrEnum):
     NONE = "none"
     SUMMARY_ONLY = "summary_only"
     OPERATIONAL = "operational"
+    TEXT_ANALYSIS = "text_analysis"
 
 
 class StdioJsonRpcTransport:
@@ -76,8 +79,19 @@ class StdioJsonRpcTransport:
     ) -> None:
         self._limits = limits or CodexReadLimits()
         self._thread_read_policy = thread_read_policy
+        self._response_json_line_bytes = (
+            self._limits.max_text_analysis_json_line_bytes
+            if thread_read_policy is ThreadReadPolicy.TEXT_ANALYSIS
+            else self._limits.max_json_line_bytes
+        )
         self._process: subprocess.Popen[bytes] | None = None
-        self._lines: Queue[bytes | None] = Queue(maxsize=4)
+        # A text response can be materially larger than metadata.  One queued
+        # frame is sufficient for this sequential transport and prevents four
+        # maximum-sized provider frames from accumulating in memory.
+        queue_capacity = (
+            1 if thread_read_policy is ThreadReadPolicy.TEXT_ANALYSIS else 4
+        )
+        self._lines: Queue[bytes | None] = Queue(maxsize=queue_capacity)
         self._reader: Thread | None = None
         self._reader_stop = Event()
         self._request_id = 0
@@ -126,13 +140,13 @@ class StdioJsonRpcTransport:
     def _read_lines(self, stdout: BinaryIO) -> None:
         try:
             while True:
-                line = stdout.readline(self._limits.max_json_line_bytes + 1)
+                line = stdout.readline(self._response_json_line_bytes + 1)
                 if not line:
                     self._queue_line(None)
                     return
                 if not self._queue_line(line):
                     return
-                if len(line) > self._limits.max_json_line_bytes or not line.endswith(b"\n"):
+                if len(line) > self._response_json_line_bytes or not line.endswith(b"\n"):
                     return
         except (OSError, ValueError):
             self._queue_line(None)
@@ -168,8 +182,10 @@ class StdioJsonRpcTransport:
             raise CodexTransportTimeout("Codex App Server request timed out") from None
         if line is None:
             raise CodexTransportError("Codex App Server transport closed unexpectedly")
-        if len(line) > self._limits.max_json_line_bytes or not line.endswith(b"\n"):
-            raise CodexProtocolViolation("provider JSON-RPC line exceeded the configured bound")
+        if len(line) > self._response_json_line_bytes:
+            raise CodexLimitError("provider JSON-RPC line exceeded the configured bound")
+        if not line.endswith(b"\n"):
+            raise CodexProtocolViolation("provider returned an unterminated JSON-RPC line")
         try:
             payload = json.loads(line)
         except (UnicodeDecodeError, json.JSONDecodeError):
@@ -210,11 +226,12 @@ class StdioJsonRpcTransport:
             and include_turns is not False
         ):
             raise CodexProtocolViolation("summary transport requires a no-turn read")
-        if (
-            self._thread_read_policy is ThreadReadPolicy.OPERATIONAL
-            and include_turns is not True
-        ):
-            raise CodexProtocolViolation("operational transport requires a turn read")
+        if self._thread_read_policy in {
+            ThreadReadPolicy.OPERATIONAL,
+            ThreadReadPolicy.TEXT_ANALYSIS,
+        } and include_turns is not True:
+            purpose = self._thread_read_policy.value.replace("_", " ")
+            raise CodexProtocolViolation(f"{purpose} transport requires a turn read")
 
     def _request(self, method: str, params: JsonObject) -> object:
         self._validate_request(method, params)
@@ -244,7 +261,10 @@ class StdioJsonRpcTransport:
                     self.close()
                     raise CodexProtocolViolation("provider returned an unexpected response id")
                 if "error" in payload:
-                    raise CodexProtocolViolation("provider rejected a read-only request")
+                    # Provider error messages and data may contain identifiers,
+                    # paths, or content. Deliberately discard the entire payload
+                    # and expose only this closed, content-free category.
+                    raise CodexRequestRejected("provider rejected a read-only request")
                 if "result" not in payload:
                     raise CodexProtocolViolation("provider returned an incomplete response")
                 return payload["result"]
