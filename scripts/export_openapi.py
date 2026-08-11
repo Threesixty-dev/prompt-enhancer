@@ -138,6 +138,21 @@ class _SchemaProviderCompatibilityCatalog:
         raise RuntimeError("schema-only service cannot inspect providers")
 
 
+class _SchemaMetricReadinessService:
+    """Non-executing stand-in that exposes readiness response schemas."""
+
+    def provider_capabilities(self, provider: Provider) -> object:
+        raise RuntimeError("schema-only service cannot inspect providers")
+
+    def session_readiness(
+        self,
+        session_id: str,
+        *,
+        preset_id: TextAnalysisPresetId,
+    ) -> object:
+        raise RuntimeError("schema-only service cannot inspect sessions")
+
+
 class _SchemaCodexSourceService:
     """Non-executing stand-in that exposes only local-source route signatures."""
 
@@ -181,6 +196,7 @@ def build_openapi_schema() -> dict[str, Any]:
         session_model_link_experiment_service=_SchemaModelLinkExperimentService(),  # type: ignore[arg-type]
         project_quality_aggregation_service=_SchemaProjectQualityAggregationService(),  # type: ignore[arg-type]
         provider_compatibility_catalog=_SchemaProviderCompatibilityCatalog(),  # type: ignore[arg-type]
+        metric_readiness_service=_SchemaMetricReadinessService(),  # type: ignore[arg-type]
         codex_source_service=_SchemaCodexSourceService(),
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),

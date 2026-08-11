@@ -10,6 +10,7 @@ from .project_quality_aggregation_routes import (
     create_project_quality_aggregation_router,
 )
 from .provider_compatibility_routes import create_provider_compatibility_router
+from .metric_readiness_routes import create_metric_readiness_router
 from .research_routes import create_research_router
 from .model_link_experiment_routes import create_model_link_experiment_router
 
@@ -19,6 +20,7 @@ __all__ = (
     "create_session_quality_aggregation_router",
     "create_project_quality_aggregation_router",
     "create_provider_compatibility_router",
+    "create_metric_readiness_router",
     "create_research_router",
     "create_model_link_experiment_router",
     "create_task_query_router",

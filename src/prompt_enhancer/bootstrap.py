@@ -21,6 +21,7 @@ from .privacy import (
 
 if TYPE_CHECKING:
     from .application.analysis import (
+        MetricReadinessService,
         ProjectQualityAggregationService,
         SessionModelLinkExperimentService,
         SessionTextAnalysisService,
@@ -221,6 +222,20 @@ class LocalApplication:
             schema_version=SCHEMA_VERSION,
         )
 
+    def create_metric_readiness_service(
+        self,
+        compatibility_catalog: ProviderCompatibilityCatalog,
+    ) -> MetricReadinessService:
+        """Compose cached provider capability and persisted readiness queries."""
+
+        from .application.analysis.metric_readiness import MetricReadinessService
+
+        return MetricReadinessService(
+            self.database,
+            self.database.session_analysis_run_repository(),
+            compatibility_catalog,
+        )
+
     def create_session_model_link_experiment_service(
         self,
         compatibility_policy: ProviderSurfaceCompatibilityPolicy,
@@ -332,6 +347,9 @@ class LocalApplication:
                 self.create_project_quality_aggregation_service()
             ),
             provider_compatibility_catalog=compatibility_catalog,
+            metric_readiness_service=(
+                self.create_metric_readiness_service(compatibility_catalog)
+            ),
             codex_source_service=self.create_codex_local_source_service(),
             display_label_service=self.create_manual_display_label_service(),
             model_evaluation_service=LocalTextModelEvaluationService(),

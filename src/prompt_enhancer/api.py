@@ -28,6 +28,7 @@ from starlette.staticfiles import StaticFiles
 from .application.display_labels import ManualDisplayLabelService
 from .application.local_sources import CodexLocalSourceService
 from .application.analysis.session_text_service import SessionTextAnalysisService
+from .application.analysis.metric_readiness import MetricReadinessService
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
 )
@@ -50,6 +51,7 @@ from .interfaces.http import (
     create_session_quality_aggregation_router,
     create_project_quality_aggregation_router,
     create_provider_compatibility_router,
+    create_metric_readiness_router,
     create_research_router,
     create_model_link_experiment_router,
     create_task_query_router,
@@ -270,6 +272,7 @@ def create_app(
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
     project_quality_aggregation_service: ProjectQualityAggregationService | None = None,
     provider_compatibility_catalog: ProviderCompatibilityCatalog | None = None,
+    metric_readiness_service: MetricReadinessService | None = None,
     codex_source_service: CodexLocalSourceService | None = None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
@@ -539,6 +542,13 @@ def create_app(
             create_provider_compatibility_router(
                 require_local_token,
                 provider_compatibility_catalog,
+            )
+        )
+    if metric_readiness_service is not None:
+        app.include_router(
+            create_metric_readiness_router(
+                require_local_token,
+                metric_readiness_service,
             )
         )
     if session_text_analysis_service is not None:

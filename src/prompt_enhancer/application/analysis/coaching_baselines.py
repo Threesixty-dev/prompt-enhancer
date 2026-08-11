@@ -39,6 +39,9 @@ COACHING_METRIC_ENGINE_VERSION = "coaching-rules-en-pl-2"
 COACHING_METRIC_ALGORITHM_ID = "rules.en-pl.coaching-observables"
 COACHING_METRIC_ALGORITHM_VERSION = "2"
 COACHING_METRIC_RUBRIC_VERSION = "coaching-observables-rubric-2"
+COACHING_EVIDENCE_CAPABILITY_CATALOG_VERSION = (
+    "coaching-evidence-capabilities-v1"
+)
 MAX_COACHING_EVIDENCE = 32
 
 
@@ -1245,7 +1248,14 @@ DEFAULT_COACHING_METRIC_ENGINE = TextMetricEngine(
     pack_version=COACHING_METRIC_PACK_VERSION,
     engine_version=COACHING_METRIC_ENGINE_VERSION,
     rubric_version=COACHING_METRIC_RUBRIC_VERSION,
-    model_plan_identity=("model", "none", "activation", "deterministic-candidate"),
+    model_plan_identity=(
+        "model",
+        "none",
+        "activation",
+        "deterministic-candidate",
+        "evidence-capability-catalog",
+        COACHING_EVIDENCE_CAPABILITY_CATALOG_VERSION,
+    ),
 )
 
 
@@ -1254,6 +1264,7 @@ __all__ = [
     "COACHING_METRIC_ALGORITHM_VERSION",
     "COACHING_METRIC_CALCULATORS",
     "COACHING_METRIC_DEFINITIONS",
+    "COACHING_EVIDENCE_CAPABILITY_CATALOG_VERSION",
     "COACHING_METRIC_ENGINE_VERSION",
     "COACHING_METRIC_PACK_KEY",
     "COACHING_METRIC_PACK_VERSION",

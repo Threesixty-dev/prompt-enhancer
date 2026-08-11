@@ -1979,6 +1979,19 @@
         "title": "CodexLocalSourceStatus",
         "type": "object"
       },
+      "CompatibilityState": {
+        "description": "Compatibility of one provider surface, never the whole provider.",
+        "enum": [
+          "exact",
+          "compatible",
+          "degraded",
+          "untested",
+          "incompatible",
+          "unavailable"
+        ],
+        "title": "CompatibilityState",
+        "type": "string"
+      },
       "DataTier": {
         "enum": [
           "metadata",
@@ -2251,6 +2264,188 @@
         ],
         "title": "MergeTasksRequest",
         "type": "object"
+      },
+      "MetricDirection": {
+        "enum": [
+          "higher_is_better",
+          "lower_is_better"
+        ],
+        "title": "MetricDirection",
+        "type": "string"
+      },
+      "MetricEvidenceCapability": {
+        "description": "Provider evidence families used by the reviewed coaching pack.",
+        "enum": [
+          "request_text",
+          "response_text",
+          "plan_text",
+          "action_evidence",
+          "decision_evidence",
+          "feedback_text",
+          "objective_verification"
+        ],
+        "title": "MetricEvidenceCapability",
+        "type": "string"
+      },
+      "MetricRadarPolicy": {
+        "description": "Server-owned plotting policy; clients never infer or invert direction.",
+        "enum": [
+          "direct_bounded_ratio",
+          "exact_value_only_unnormalized_lower_is_better"
+        ],
+        "title": "MetricRadarPolicy",
+        "type": "string"
+      },
+      "MetricReadiness": {
+        "additionalProperties": false,
+        "properties": {
+          "available_capabilities": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MetricEvidenceCapability"
+            },
+            "title": "Available Capabilities",
+            "type": "array"
+          },
+          "capability_groups": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/MetricEvidenceCapability"
+              },
+              "type": "array"
+            },
+            "title": "Capability Groups",
+            "type": "array"
+          },
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/MetricDirection"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "evidence_tier": {
+            "$ref": "#/components/schemas/DataTier"
+          },
+          "latest_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Run Id"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_version": {
+            "minimum": 1.0,
+            "title": "Metric Version",
+            "type": "integer"
+          },
+          "missing_capabilities": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MetricEvidenceCapability"
+            },
+            "title": "Missing Capabilities",
+            "type": "array"
+          },
+          "next_actions": {
+            "items": {
+              "$ref": "#/components/schemas/MetricReadinessAction"
+            },
+            "title": "Next Actions",
+            "type": "array"
+          },
+          "radar_policy": {
+            "$ref": "#/components/schemas/MetricRadarPolicy"
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/MetricReadinessReason"
+          },
+          "state": {
+            "$ref": "#/components/schemas/MetricReadinessState"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_key",
+          "metric_version",
+          "dimension",
+          "display_name",
+          "unit",
+          "direction",
+          "radar_policy",
+          "evidence_tier",
+          "state",
+          "reason_code",
+          "next_actions",
+          "capability_groups"
+        ],
+        "title": "MetricReadiness",
+        "type": "object"
+      },
+      "MetricReadinessAction": {
+        "enum": [
+          "none",
+          "run_local_analysis",
+          "check_provider_compatibility",
+          "update_provider_adapter",
+          "collect_action_evidence",
+          "collect_decision_evidence",
+          "collect_feedback_evidence",
+          "collect_objective_verification",
+          "review_applicability",
+          "review_evidence_coverage",
+          "retry_analysis"
+        ],
+        "title": "MetricReadinessAction",
+        "type": "string"
+      },
+      "MetricReadinessReason": {
+        "enum": [
+          "measured",
+          "analysis_not_run",
+          "analysis_in_progress",
+          "result_unknown",
+          "result_abstained",
+          "explicitly_not_applicable",
+          "provider_capability_missing",
+          "provider_adapter_unavailable",
+          "provider_compatibility_unverified",
+          "provider_incompatible",
+          "provider_unavailable",
+          "analysis_failed",
+          "result_failed",
+          "result_missing"
+        ],
+        "title": "MetricReadinessReason",
+        "type": "string"
+      },
+      "MetricReadinessState": {
+        "enum": [
+          "known",
+          "unknown",
+          "unsupported",
+          "abstained",
+          "incompatible",
+          "not_applicable",
+          "failed"
+        ],
+        "title": "MetricReadinessState",
+        "type": "string"
       },
       "MetricRoadmapItemDto": {
         "additionalProperties": false,
@@ -3679,6 +3874,104 @@
         "title": "Provider",
         "type": "string"
       },
+      "ProviderCapabilityReport": {
+        "additionalProperties": false,
+        "description": "Content-free capability projection for the coaching metric catalog.",
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderMetricCapability"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "catalog_version": {
+            "default": "coaching-evidence-capabilities-v1",
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "compatibility_state": {
+            "$ref": "#/components/schemas/CompatibilityState"
+          },
+          "decoder_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decoder Key"
+          },
+          "decoder_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decoder Version"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "provider_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Version"
+          },
+          "structurally_attemptable_metric_count": {
+            "minimum": 0.0,
+            "title": "Structurally Attemptable Metric Count",
+            "type": "integer"
+          },
+          "structurally_unknown_metric_count": {
+            "minimum": 0.0,
+            "title": "Structurally Unknown Metric Count",
+            "type": "integer"
+          },
+          "structurally_unsupported_metric_count": {
+            "minimum": 0.0,
+            "title": "Structurally Unsupported Metric Count",
+            "type": "integer"
+          },
+          "surface": {
+            "$ref": "#/components/schemas/ProviderSurface",
+            "default": "text_window"
+          }
+        },
+        "required": [
+          "provider",
+          "compatibility_state",
+          "capabilities",
+          "structurally_attemptable_metric_count",
+          "structurally_unsupported_metric_count",
+          "structurally_unknown_metric_count"
+        ],
+        "title": "ProviderCapabilityReport",
+        "type": "object"
+      },
       "ProviderCompatibilityReasonDto": {
         "enum": [
           "exact_match",
@@ -3853,6 +4146,61 @@
         ],
         "title": "ProviderCompatibilityStatusDto",
         "type": "object"
+      },
+      "ProviderMetricCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/MetricEvidenceCapability"
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/ProviderMetricCapabilityReason"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProviderMetricCapabilityState"
+          }
+        },
+        "required": [
+          "capability",
+          "state",
+          "reason_code"
+        ],
+        "title": "ProviderMetricCapability",
+        "type": "object"
+      },
+      "ProviderMetricCapabilityReason": {
+        "enum": [
+          "verified_by_compatible_decoder",
+          "not_declared_by_decoder",
+          "provider_adapter_unavailable",
+          "compatibility_not_checked",
+          "provider_incompatible",
+          "capability_not_observed",
+          "capability_unverified"
+        ],
+        "title": "ProviderMetricCapabilityReason",
+        "type": "string"
+      },
+      "ProviderMetricCapabilityState": {
+        "enum": [
+          "supported",
+          "unsupported",
+          "unknown"
+        ],
+        "title": "ProviderMetricCapabilityState",
+        "type": "string"
+      },
+      "ProviderSurface": {
+        "description": "Separately negotiable, least-capability provider surfaces.",
+        "enum": [
+          "catalog",
+          "display_labels",
+          "operational_events",
+          "text_window",
+          "live_telemetry"
+        ],
+        "title": "ProviderSurface",
+        "type": "string"
       },
       "ProviderTextCapabilityStateDto": {
         "enum": [
@@ -4805,6 +5153,62 @@
           "denominator"
         ],
         "title": "SessionMetricFractionDto",
+        "type": "object"
+      },
+      "SessionMetricReadinessReport": {
+        "additionalProperties": false,
+        "properties": {
+          "analysis_profile_key": {
+            "title": "Analysis Profile Key",
+            "type": "string"
+          },
+          "analysis_profile_version": {
+            "minimum": 1.0,
+            "title": "Analysis Profile Version",
+            "type": "integer"
+          },
+          "capability_report": {
+            "$ref": "#/components/schemas/ProviderCapabilityReport"
+          },
+          "metric_pack_key": {
+            "title": "Metric Pack Key",
+            "type": "string"
+          },
+          "metric_pack_version": {
+            "minimum": 1.0,
+            "title": "Metric Pack Version",
+            "type": "integer"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricReadiness"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "preset_id": {
+            "$ref": "#/components/schemas/TextAnalysisPresetId"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "provider",
+          "preset_id",
+          "analysis_profile_key",
+          "analysis_profile_version",
+          "metric_pack_key",
+          "metric_pack_version",
+          "capability_report",
+          "metrics"
+        ],
+        "title": "SessionMetricReadinessReport",
         "type": "object"
       },
       "SessionQualityAggregate": {
@@ -7763,6 +8167,79 @@
         "summary": "Project Sessions"
       }
     },
+    "/v1/providers/{provider}/capabilities": {
+      "get": {
+        "operationId": "provider_capabilities_v1_providers__provider__capabilities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Provider"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderCapabilityReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provider Capabilities",
+        "tags": [
+          "metric-readiness"
+        ]
+      }
+    },
     "/v1/providers/{provider}/compatibility": {
       "get": {
         "operationId": "cached_status_v1_providers__provider__compatibility_get",
@@ -8593,6 +9070,96 @@
           }
         },
         "summary": "Sessions"
+      }
+    },
+    "/v1/sessions/{session_id}/metric-readiness": {
+      "get": {
+        "operationId": "session_metric_readiness_v1_sessions__session_id__metric_readiness_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "preset_id",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TextAnalysisPresetId",
+              "default": "coaching_profile_v1"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionMetricReadinessReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Indexed session not found"
+          },
+          "409": {
+            "description": "Metric readiness preset unavailable"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Metric Readiness",
+        "tags": [
+          "metric-readiness"
+        ]
       }
     },
     "/v1/sessions/{session_id}/metrics": {

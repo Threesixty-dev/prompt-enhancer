@@ -364,6 +364,20 @@ def test_session_quality_snapshot_is_immutable_and_privacy_deletion_cascades(
     stored = repository.get(draft.run_id)
     assert stored is not None and stored.status is AnalysisRunStatus.COMPLETED
     assert repository.get_latest_completed(session_id) == stored
+    assert repository.get_latest_for_profile(
+        session_id,
+        analysis_profile_key=draft.analysis_profile_key,
+        analysis_profile_version=draft.analysis_profile_version,
+        metric_pack_key=draft.metric_pack_key,
+        metric_pack_version=draft.metric_pack_version,
+    ) == stored
+    assert repository.get_latest_for_profile(
+        session_id,
+        analysis_profile_key="different_profile",
+        analysis_profile_version=1,
+        metric_pack_key=draft.metric_pack_key,
+        metric_pack_version=draft.metric_pack_version,
+    ) is None
     assert repository.list_for_session(session_id) == (stored,)
     assert repository.get_results(draft.run_id) == (not_applicable, known)
     round_tripped_known = repository.get_results(draft.run_id)[1]

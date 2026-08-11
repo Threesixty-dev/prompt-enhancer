@@ -388,6 +388,51 @@ class SqliteSessionAnalysisRunRepository:
             ).fetchone()
         return None if row is None else self._record_from_row(row)
 
+    def get_latest_for_profile(
+        self,
+        session_id: str,
+        *,
+        analysis_profile_key: str,
+        analysis_profile_version: int,
+        metric_pack_key: str,
+        metric_pack_version: int,
+    ) -> SessionAnalysisRunRecord | None:
+        """Load the latest run for one exact server-owned profile and pack."""
+
+        self._ensure_initialized()
+        require_safe_id(session_id)
+        require_safe_label(analysis_profile_key)
+        require_safe_label(metric_pack_key)
+        if (
+            isinstance(analysis_profile_version, bool)
+            or not isinstance(analysis_profile_version, int)
+            or analysis_profile_version < 1
+            or isinstance(metric_pack_version, bool)
+            or not isinstance(metric_pack_version, int)
+            or metric_pack_version < 1
+        ):
+            raise ValueError("analysis profile and metric pack versions begin at one")
+        with self._connection_scope(readonly=True) as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM session_analysis_runs
+                WHERE session_id = ?
+                  AND analysis_profile_key = ?
+                  AND analysis_profile_version = ?
+                  AND metric_pack_key = ?
+                  AND metric_pack_version = ?
+                ORDER BY started_at DESC, run_id LIMIT 1
+                """,
+                (
+                    session_id,
+                    analysis_profile_key,
+                    analysis_profile_version,
+                    metric_pack_key,
+                    metric_pack_version,
+                ),
+            ).fetchone()
+        return None if row is None else self._record_from_row(row)
+
     @staticmethod
     def _validate_aggregation_selection(session_ids: tuple[str, ...]) -> None:
         if not 1 <= len(session_ids) <= 100:

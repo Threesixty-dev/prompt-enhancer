@@ -885,6 +885,16 @@ class SessionAnalysisRunRepository(Protocol):
         self, session_id: str
     ) -> SessionAnalysisRunRecord | None: ...
 
+    def get_latest_for_profile(
+        self,
+        session_id: str,
+        *,
+        analysis_profile_key: str,
+        analysis_profile_version: int,
+        metric_pack_key: str,
+        metric_pack_version: int,
+    ) -> SessionAnalysisRunRecord | None: ...
+
     def get_latest_completed_for_aggregation(
         self,
         session_ids: tuple[str, ...],
