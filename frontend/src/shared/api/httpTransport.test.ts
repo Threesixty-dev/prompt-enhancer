@@ -4,6 +4,7 @@ import {
   assertSameOriginRelativePath,
   createHttpTransport,
   parseProviderCompatibilityStatus,
+  parseRuntimeHealth,
   parseSessionTextAnalysisCapability,
   TransportError,
 } from "./httpTransport";
@@ -46,6 +47,79 @@ const PROVIDER_COMPATIBILITY = {
 } as const;
 
 describe("same-origin HTTP transport", () => {
+  it("checks the actual minimal health route without bootstrapping a session", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        status: "ok",
+        cost_mode: "offline_only",
+        data_tier: "metadata",
+      }),
+    );
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getRuntimeHealth()).resolves.toEqual({
+      status: "ok",
+      costMode: "offline_only",
+      dataTier: "metadata",
+    });
+    expect(transport.runtimeKind).toBe("local_loopback");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/health",
+      expect.objectContaining({
+        method: "GET",
+        credentials: "include",
+        redirect: "error",
+        referrerPolicy: "no-referrer",
+        headers: { Accept: "application/json" },
+      }),
+    );
+  });
+
+  it("rejects non-minimal or non-local runtime health payloads", () => {
+    expect(() =>
+      parseRuntimeHealth({
+        status: "ok",
+        cost_mode: "offline_only",
+        data_tier: "metadata",
+        remote_approved: true,
+      }),
+    ).toThrow(/health response was invalid/i);
+    expect(() =>
+      parseRuntimeHealth({
+        status: "ok",
+        cost_mode: "metered",
+        data_tier: "remote_redacted",
+      }),
+    ).toThrow(/health response was invalid/i);
+  });
+
+  it("fails the health check on an HTTP or content-type error", async () => {
+    const unavailable = createHttpTransport({
+      fetch: vi.fn().mockResolvedValueOnce(jsonResponse({}, 503)) as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const wrongType = createHttpTransport({
+      fetch: vi.fn().mockResolvedValueOnce(
+        new Response("ok", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        }),
+      ) as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(unavailable.getRuntimeHealth()).rejects.toMatchObject({
+      status: 503,
+    });
+    await expect(wrongType.getRuntimeHealth()).rejects.toMatchObject({
+      status: 200,
+    });
+  });
+
   it("runs, reads, and annotates the selected-session model experiment through exact local routes", async () => {
     const annotation = {
       link_id: "b".repeat(64),

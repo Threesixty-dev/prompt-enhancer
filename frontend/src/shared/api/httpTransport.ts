@@ -9,7 +9,6 @@ import type {
   CodexLocalSourceStatus,
   CodexSessionListResponse,
   DisplayLabelEntityKind,
-  PromptEnhancerTransport,
   ManualDisplayLabelResult,
   ModelLinkAnnotation,
   ModelLinkAnnotationRequest,
@@ -36,6 +35,10 @@ import type {
   TaskReviewResponse,
   TextAnalysisResearchCatalog,
 } from "./contracts";
+import type {
+  LocalRuntimeTransport,
+  RuntimeHealth,
+} from "../platform/runtimeMode";
 
 type FetchLike = typeof globalThis.fetch;
 
@@ -370,10 +373,28 @@ function isJsonResponse(response: Response): boolean {
   return response.headers.get("content-type")?.toLowerCase().includes("application/json") ?? false;
 }
 
+/** Parse the deliberately minimal, unauthenticated loopback health response. */
+export function parseRuntimeHealth(value: unknown): RuntimeHealth {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).sort().join(",") !== "cost_mode,data_tier,status" ||
+    value.status !== "ok" ||
+    value.cost_mode !== "offline_only" ||
+    value.data_tier !== "metadata"
+  ) {
+    throw new TransportError("Local runtime health response was invalid", 200);
+  }
+  return {
+    status: "ok",
+    costMode: "offline_only",
+    dataTier: "metadata",
+  };
+}
+
 export function createHttpTransport(options: {
   fetch?: FetchLike;
   origin?: string;
-} = {}): PromptEnhancerTransport {
+} = {}): LocalRuntimeTransport {
   const fetchRequest = options.fetch ?? globalThis.fetch.bind(globalThis);
   const origin = options.origin ?? globalThis.location.origin;
   let sessionAuth: { csrfToken: string; refreshAfter: number } | undefined;
@@ -488,6 +509,32 @@ export function createHttpTransport(options: {
   }
 
   return {
+    runtimeKind: "local_loopback",
+    async getRuntimeHealth(signal) {
+      signal?.throwIfAborted();
+      const target = assertSameOriginRelativePath("/health", origin);
+      const response = await fetchRequest(target, {
+        method: "GET",
+        credentials: "include",
+        redirect: "error",
+        referrerPolicy: "no-referrer",
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new TransportError(
+          `Local runtime health check failed (${response.status})`,
+          response.status,
+        );
+      }
+      if (!isJsonResponse(response)) {
+        throw new TransportError(
+          "Local runtime health returned an unexpected content type",
+          response.status,
+        );
+      }
+      return parseRuntimeHealth(await response.json());
+    },
     getTextAnalysisResearch(signal) {
       return request<TextAnalysisResearchCatalog>(
         "/v1/research/text-analysis-methods",

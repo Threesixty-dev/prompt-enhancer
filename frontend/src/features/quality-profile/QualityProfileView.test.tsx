@@ -41,10 +41,11 @@ describe("QualityProfileView", () => {
     const { container } = render(<QualityProfileView profile={promptProfile()} />);
 
     expect(screen.getByRole("heading", { name: "Prompt contract" })).toBeVisible();
-    expect(screen.getByText("Not enough available axes")).toBeVisible();
+    expect(screen.getByText(/Radar withheld · exact-value bars/)).toBeVisible();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Radar availability")).toHaveTextContent("2 omitted as unavailable");
-    expect(screen.getByLabelText("Radar availability")).toHaveTextContent("2 plotted axes");
+    expect(screen.getByLabelText("Radar availability")).toHaveTextContent("3 measured");
+    expect(screen.getByLabelText("Radar availability")).toHaveTextContent("2 plottable axes");
+    expect(screen.getByLabelText("Radar availability")).toHaveTextContent("2 abstained");
     const board = screen.getByRole("region", { name: "Prompt-quality candidates" });
     expect(board).toBeVisible();
     for (const metric of profile.latest.metrics) {

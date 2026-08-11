@@ -12,6 +12,13 @@ import {
 import { createSyntheticTransport } from "./syntheticTransport";
 
 describe("synthetic transport vertical slice", () => {
+  it("is explicitly tagged as fixture transport and exposes no loopback health check", () => {
+    const transport = createSyntheticTransport();
+
+    expect(transport.runtimeKind).toBe("synthetic_fixture");
+    expect("getRuntimeHealth" in transport).toBe(false);
+  });
+
   it("exposes a coherent canned pack-v3 readiness example", async () => {
     const detail = await createSyntheticTransport().getAnalysisRun(SYNTHETIC_RUN.run_id);
     const byKey = new Map(detail.results.map((result) => [result.key, result]));

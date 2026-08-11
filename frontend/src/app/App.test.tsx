@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createSyntheticTransport } from "../shared/api/syntheticTransport";
 import {
@@ -6,6 +6,13 @@ import {
   SYNTHETIC_QUALITY_SESSION_ID,
 } from "../shared/api/syntheticFixtures";
 import type { AppRoute, PlatformAdapter } from "../shared/platform/platform";
+import {
+  createRuntimeComposition,
+  type LocalRuntimeTransport,
+  type RuntimeHealth,
+  type RuntimeComposition,
+  type SyntheticRuntimeTransport,
+} from "../shared/platform/runtimeMode";
 import { App } from "./App";
 
 function createMemoryPlatform(initialRoute: AppRoute = { name: "discovery" }): PlatformAdapter {
@@ -24,13 +31,34 @@ function createMemoryPlatform(initialRoute: AppRoute = { name: "discovery" }): P
   };
 }
 
+const HEALTHY_LOCAL_RUNTIME: RuntimeHealth = {
+  status: "ok",
+  costMode: "offline_only",
+  dataTier: "metadata",
+};
+
+function syntheticRuntime(
+  transport: SyntheticRuntimeTransport = createSyntheticTransport(),
+): RuntimeComposition {
+  return createRuntimeComposition("synthetic_demo", transport);
+}
+
+function localFixtureTransport(
+  getRuntimeHealth: LocalRuntimeTransport["getRuntimeHealth"],
+): LocalRuntimeTransport {
+  return {
+    ...createSyntheticTransport(),
+    runtimeKind: "local_loopback",
+    getRuntimeHealth,
+  };
+}
+
 describe("App discovery navigation", () => {
   it("exposes a responsive shell with a keyboard skip target", () => {
     const { container } = render(
       <App
-        mode="synthetic"
+        runtime={syntheticRuntime()}
         platform={createMemoryPlatform()}
-        transport={createSyntheticTransport()}
       />,
     );
 
@@ -44,14 +72,15 @@ describe("App discovery navigation", () => {
     );
     expect(container.querySelector("#main-content")).toHaveAttribute("tabindex", "-1");
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeVisible();
+    expect(screen.getByLabelText("Synthetic demo fixture ready")).toBeVisible();
+    expect(screen.getByText("Synthetic demo · Fixture ready")).toBeVisible();
   });
 
   it("keeps the sidebar review count synchronized after a decision", async () => {
     render(
       <App
-        mode="synthetic"
         platform={createMemoryPlatform()}
-        transport={createSyntheticTransport()}
+        runtime={syntheticRuntime()}
       />,
     );
 
@@ -63,9 +92,8 @@ describe("App discovery navigation", () => {
   it("keeps fictional projects available in preview while local-source controls stay local", async () => {
     const { unmount } = render(
       <App
-        mode="synthetic"
         platform={createMemoryPlatform()}
-        transport={createSyntheticTransport()}
+        runtime={syntheticRuntime()}
       />,
     );
     expect(
@@ -74,17 +102,68 @@ describe("App discovery navigation", () => {
     expect(screen.getByRole("button", { name: "Projects" })).toBeVisible();
     unmount();
 
+    const local = localFixtureTransport(async () => HEALTHY_LOCAL_RUNTIME);
     render(
       <App
-        mode="local"
         platform={createMemoryPlatform()}
-        transport={createSyntheticTransport()}
+        runtime={createRuntimeComposition("local_real", local)}
       />,
     );
     expect(
       screen.getByRole("button", { name: "Data source" }),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "Projects" })).toBeVisible();
+    expect(
+      await screen.findByLabelText("Local loopback service available"),
+    ).toBeVisible();
+  });
+
+  it("reports local service checking before a successful health response", async () => {
+    let resolveHealth!: (health: RuntimeHealth) => void;
+    const getRuntimeHealth = vi.fn(
+      () =>
+        new Promise<RuntimeHealth>((resolve) => {
+          resolveHealth = resolve;
+        }),
+    );
+    const local = localFixtureTransport(getRuntimeHealth);
+
+    render(
+      <App
+        platform={createMemoryPlatform()}
+        runtime={createRuntimeComposition("local_real", local)}
+      />,
+    );
+
+    expect(
+      screen.getByLabelText("Local loopback service is being checked"),
+    ).toBeVisible();
+    expect(screen.getByText("Local real · Checking service")).toBeVisible();
+
+    await act(async () => resolveHealth(HEALTHY_LOCAL_RUNTIME));
+
+    expect(
+      await screen.findByLabelText("Local loopback service available"),
+    ).toBeVisible();
+    expect(getRuntimeHealth).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports local service unavailable when the health check fails", async () => {
+    const getRuntimeHealth = vi.fn().mockRejectedValue(new Error("offline"));
+    const local = localFixtureTransport(getRuntimeHealth);
+
+    render(
+      <App
+        platform={createMemoryPlatform()}
+        runtime={createRuntimeComposition("local_real", local)}
+      />,
+    );
+
+    expect(
+      await screen.findByLabelText("Local loopback service unavailable"),
+    ).toBeVisible();
+    expect(screen.getByText("Local real · Service unavailable")).toBeVisible();
+    expect(getRuntimeHealth).toHaveBeenCalledTimes(1);
   });
 
   it("does not contact local-source APIs for a synthetic direct route", () => {
@@ -92,9 +171,8 @@ describe("App discovery navigation", () => {
     const statusSpy = vi.spyOn(transport, "getCodexLocalSourceStatus");
     render(
       <App
-        mode="synthetic"
         platform={createMemoryPlatform({ name: "local_sources" })}
-        transport={transport}
+        runtime={syntheticRuntime(transport)}
       />,
     );
 
@@ -107,9 +185,8 @@ describe("App discovery navigation", () => {
   it("opens the methods and models lab from primary navigation", async () => {
     render(
       <App
-        mode="synthetic"
         platform={createMemoryPlatform()}
-        transport={createSyntheticTransport()}
+        runtime={syntheticRuntime()}
       />,
     );
 
@@ -124,9 +201,8 @@ describe("App discovery navigation", () => {
     const listSpy = vi.spyOn(transport, "listCodexSessions");
     render(
       <App
-        mode="synthetic"
         platform={createMemoryPlatform({ name: "projects" })}
-        transport={transport}
+        runtime={syntheticRuntime(transport)}
       />,
     );
 
@@ -137,14 +213,13 @@ describe("App discovery navigation", () => {
   it("supports a direct fictional quality-profile route for browser QA", async () => {
     render(
       <App
-        mode="synthetic"
         platform={createMemoryPlatform({
           name: "session_metrics",
           projectId: SYNTHETIC_QUALITY_PROJECT_ID,
           sessionId: SYNTHETIC_QUALITY_SESSION_ID,
           category: "prompt-quality",
         })}
-        transport={createSyntheticTransport()}
+        runtime={syntheticRuntime()}
       />,
     );
 
@@ -166,13 +241,12 @@ describe("App discovery navigation", () => {
     const latest = vi.spyOn(transport, "getLatestSessionQualityAnalysis");
     render(
       <App
-        mode="synthetic"
         platform={createMemoryPlatform({
           name: "project_metrics",
           projectId: SYNTHETIC_QUALITY_PROJECT_ID,
           category: "prompt-quality",
         })}
-        transport={transport}
+        runtime={syntheticRuntime(transport)}
       />,
     );
 

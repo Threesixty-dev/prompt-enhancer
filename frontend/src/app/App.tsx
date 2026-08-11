@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import type { PromptEnhancerTransport } from "../shared/api/contracts";
 import type { AppRoute, PlatformAdapter } from "../shared/platform/platform";
+import type {
+  RuntimeComposition,
+  RuntimeDataMode,
+  RuntimeServiceState,
+} from "../shared/platform/runtimeMode";
 import { DiscoveryInbox } from "../features/discovery-inbox/DiscoveryInbox";
 import { LocalSources } from "../features/local-sources/LocalSources";
 import { ProjectCatalog } from "../features/project-catalog";
@@ -30,20 +35,77 @@ function routeTitle(route: AppRoute): string {
   return "Task analysis";
 }
 
+function runtimeStatusCopy(
+  mode: RuntimeDataMode,
+  serviceState: RuntimeServiceState,
+): {
+  chip: string;
+  detail: string;
+  indicator: string;
+} {
+  if (mode === "synthetic_demo") {
+    return {
+      chip: "Synthetic demo · Fixture ready",
+      detail: "Fictional in-memory fixtures",
+      indicator: "Synthetic demo fixture ready",
+    };
+  }
+  if (serviceState === "checking") {
+    return {
+      chip: "Local real · Checking service",
+      detail: "Checking loopback service",
+      indicator: "Local loopback service is being checked",
+    };
+  }
+  if (serviceState === "available") {
+    return {
+      chip: "Local real · Service available",
+      detail: "Loopback service available",
+      indicator: "Local loopback service available",
+    };
+  }
+  return {
+    chip: "Local real · Service unavailable",
+    detail: "Loopback service unavailable",
+    indicator: "Local loopback service unavailable",
+  };
+}
+
 export function App({
-  transport,
   platform,
-  mode,
+  runtime,
 }: {
-  transport: PromptEnhancerTransport;
   platform: PlatformAdapter;
-  mode: "synthetic" | "local";
+  runtime: RuntimeComposition;
 }) {
+  const transport: PromptEnhancerTransport = runtime.transport;
   const [route, setRoute] = useState<AppRoute>(() => platform.currentRoute());
   const [navigationNotice, setNavigationNotice] = useState("");
   const [undecidedCount, setUndecidedCount] = useState<number | null>(null);
+  const [serviceState, setServiceState] = useState<RuntimeServiceState>(() =>
+    runtime.mode === "synthetic_demo" ? "available" : "checking",
+  );
+  const runtimeCopy = runtimeStatusCopy(runtime.mode, serviceState);
 
   useEffect(() => platform.subscribe(setRoute), [platform]);
+
+  useEffect(() => {
+    if (runtime.mode === "synthetic_demo") {
+      setServiceState("available");
+      return;
+    }
+    const controller = new AbortController();
+    setServiceState("checking");
+    void runtime.transport
+      .getRuntimeHealth(controller.signal)
+      .then(() => {
+        if (!controller.signal.aborted) setServiceState("available");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setServiceState("unavailable");
+      });
+    return () => controller.abort();
+  }, [runtime]);
 
   function navigate(next: AppRoute) {
     platform.navigate(next);
@@ -125,7 +187,7 @@ export function App({
             <Icon name="tasks" />
             <span>Reviewed tasks</span>
           </button>
-          {mode === "local" && (
+          {runtime.mode === "local_real" && (
             <button
               aria-current={route.name === "local_sources" ? "page" : undefined}
               className={route.name === "local_sources" ? "primary-nav__item--active" : ""}
@@ -152,9 +214,12 @@ export function App({
             <span className="privacy-status__icon"><Icon name="lock" /></span>
             <div>
               <strong>Private by default</strong>
-              <span>{mode === "synthetic" ? "Fictional fixture mode" : "Loopback connection"}</span>
+              <span>{runtimeCopy.detail}</span>
             </div>
-            <span className="online-dot" aria-label="Local service available" />
+            <span
+              aria-label={runtimeCopy.indicator}
+              className={`online-dot online-dot--${serviceState}`}
+            />
           </div>
           <p>No remote analytics - no content export</p>
         </div>
@@ -168,7 +233,14 @@ export function App({
             <strong>{routeTitle(route)}</strong>
           </div>
           <div className="topbar__right">
-            <span className="mode-chip"><span /> {mode === "synthetic" ? "Synthetic preview" : "Local mode"}</span>
+            <span
+              aria-label={`Runtime status: ${runtimeCopy.indicator}`}
+              aria-live="polite"
+              className="mode-chip"
+              data-service-state={serviceState}
+            >
+              <span /> {runtimeCopy.chip}
+            </span>
             <span className="avatar" aria-label="Local profile">L</span>
           </div>
         </header>
@@ -190,7 +262,7 @@ export function App({
               transport={transport}
             />
           ) : route.name === "local_sources" ? (
-            mode === "local" ? (
+            runtime.mode === "local_real" ? (
               <LocalSources navigate={navigate} transport={transport} />
             ) : (
               <section className="local-sources-page">

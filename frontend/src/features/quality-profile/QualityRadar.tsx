@@ -15,7 +15,7 @@ import { metricDecisionGuidance } from "./metricGuidance";
 const CENTER = 280;
 const RADIUS = 192;
 const LABEL_RADIUS = 242;
-const MIN_RADAR_AXES = 4;
+const MIN_RADAR_AXES = 3;
 const MAX_RADAR_AXES = 8;
 const COVERAGE_RING_RADIUS = 10;
 const COVERAGE_RING_CIRCUMFERENCE = 2 * Math.PI * COVERAGE_RING_RADIUS;
@@ -110,10 +110,20 @@ function calibrationLabel(metric: QualityMetricObservation): string {
   return `Calibration not reported; recorded confidence ${formatPercent(metric.confidence)}.`;
 }
 
+function hasMeasuredNumericValue(metric: QualityMetricObservation): boolean {
+  return (
+    (metric.state === "observed" || metric.state === "partial") &&
+    metric.ratio !== null &&
+    Number.isFinite(metric.ratio) &&
+    metric.ratio >= 0 &&
+    metric.ratio <= 1
+  );
+}
+
 function normalizedValueLabel(metric: QualityMetricObservation): string {
-  return metric.ratio === null
+  return !hasMeasuredNumericValue(metric)
     ? "No normalized value for this state."
-    : `${formatPercent(clampRatio(metric.ratio))} candidate ratio`;
+    : `${formatPercent(clampRatio(metric.ratio!))} candidate ratio`;
 }
 
 function methodRevisionLabel(metric: QualityMetricObservation): string {
@@ -123,6 +133,7 @@ function methodRevisionLabel(metric: QualityMetricObservation): string {
 }
 
 function candidateCaveat(metric: QualityMetricObservation): string | null {
+  if (!hasMeasuredNumericValue(metric)) return null;
   if (metric.ratio === 0) {
     return "Measured zero; the rule ran and found no counted candidates.";
   }
@@ -154,11 +165,16 @@ function labelPoint(index: number, count: number) {
 
 function isRadarMetric(metric: QualityMetricObservation): boolean {
   return (
-    metric.ratio !== null &&
-    Number.isFinite(metric.ratio) &&
+    hasMeasuredNumericValue(metric) &&
     metric.definition.polarity !== "review-load" &&
     metric.definition.direction === "higher_is_better"
   );
+}
+
+export function radarMetricsFor(
+  metrics: readonly QualityMetricObservation[],
+): readonly QualityMetricObservation[] {
+  return metrics.filter(isRadarMetric).slice(0, MAX_RADAR_AXES);
 }
 
 function RadarPlot({
@@ -447,6 +463,67 @@ function MetricInspector({
   );
 }
 
+function ExactValueFallback({
+  metrics,
+  totalMetricCount,
+}: {
+  metrics: readonly QualityMetricObservation[];
+  totalMetricCount: number;
+}) {
+  return (
+    <figure
+      aria-label="Exact-value bar fallback"
+      className="quality-radar__fallback"
+    >
+      <figcaption>
+        <strong>Radar withheld · exact-value bars</strong>
+        <span>
+          {metrics.length} of {totalMetricCount} metrics are compatible numeric
+          higher-is-better axes. A radar needs at least three. These aligned bars
+          keep the fixed 0-100% scale; review-load and non-measured states remain
+          in the exact-value board.
+        </span>
+      </figcaption>
+      {metrics.length > 0 ? (
+        <div
+          aria-label="Compatible exact-value bars"
+          className="quality-radar__fallback-bars"
+          role="list"
+        >
+          {metrics.map((metric) => {
+            const ratio = clampRatio(metric.ratio!);
+            return (
+              <div
+                aria-label={`${metric.definition.label}: ${formatPercent(ratio)}, raw ${compactFraction(metric)}`}
+                className="quality-radar__fallback-row"
+                key={metric.definition.key}
+                role="listitem"
+              >
+                <span className="quality-radar__fallback-label">
+                  {metric.definition.shortLabel}
+                </span>
+                <span aria-hidden="true" className="quality-radar__fallback-track">
+                  <span
+                    data-exact-value={formatPercent(ratio)}
+                    style={{ width: `${ratio * 100}%` }}
+                  />
+                </span>
+                <strong>{formatPercent(ratio)}</strong>
+                <small>{compactFraction(metric)}</small>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p>
+          No compatible numeric higher-is-better value is available for this
+          lens. Use the exact-value board for the recorded states and evidence.
+        </p>
+      )}
+    </figure>
+  );
+}
+
 function MetricBoard({
   activeKey,
   lens,
@@ -464,7 +541,7 @@ function MetricBoard({
   onPreviewStart: (key: string) => void;
   pinnedKey: string | null;
 }) {
-  const measured = lens.metrics.filter((metric) => metric.ratio !== null).length;
+  const measured = lens.metrics.filter(hasMeasuredNumericValue).length;
   const compatibilityRegion =
     lens.definition.dimension === "prompt"
       ? "Prompt-quality candidates"
@@ -483,7 +560,7 @@ function MetricBoard({
         role="region"
       >
         {lens.metrics.map((metric) => {
-          const hasValue = metric.ratio !== null;
+          const hasValue = hasMeasuredNumericValue(metric);
           const percentage = hasValue ? clampRatio(metric.ratio!) * 100 : null;
           const risk = metric.definition.direction === "lower_is_better";
           const active = metric.definition.key === activeKey;
@@ -605,13 +682,28 @@ export function QualityRadar({
     selectedLens.metrics.find((metric) => metric.definition.key === activeKey) ??
     selectedLens.metrics[0];
   const availableRadarMetrics = selectedLens.metrics.filter(isRadarMetric);
-  const radarMetrics = availableRadarMetrics.slice(0, MAX_RADAR_AXES);
+  const radarMetrics = radarMetricsFor(selectedLens.metrics);
   const cappedRadarCount = Math.max(
     0,
     availableRadarMetrics.length - radarMetrics.length,
   );
-  const unavailableCount = selectedLens.metrics.filter(
-    (metric) => metric.ratio === null,
+  const measuredCount = selectedLens.metrics.filter(hasMeasuredNumericValue).length;
+  const unknownCount = selectedLens.metrics.filter(
+    (metric) => metric.state === "unavailable",
+  ).length;
+  const abstainedCount = selectedLens.metrics.filter(
+    (metric) => metric.state === "abstained",
+  ).length;
+  const notApplicableCount = selectedLens.metrics.filter(
+    (metric) => metric.state === "not-applicable",
+  ).length;
+  const failedCount = selectedLens.metrics.filter(
+    (metric) => metric.state === "execution-error",
+  ).length;
+  const invalidMeasuredCount = selectedLens.metrics.filter(
+    (metric) =>
+      (metric.state === "observed" || metric.state === "partial") &&
+      !hasMeasuredNumericValue(metric),
   ).length;
   const reviewCount = selectedLens.metrics.filter(
     (metric) =>
@@ -674,11 +766,18 @@ export function QualityRadar({
 
         <div aria-label="Radar availability">
           <div aria-label="Selected lens availability" className="quality-radar__availability">
-            <span><strong>{radarMetrics.length}</strong> plotted axes</span>
-            {unavailableCount > 0 && (
-              <span><strong>{unavailableCount}</strong> omitted as unavailable</span>
+            <span><strong>{measuredCount}</strong> measured</span>
+            <span><strong>{radarMetrics.length}</strong> plottable axes</span>
+            {unknownCount > 0 && <span><strong>{unknownCount}</strong> unknown</span>}
+            {abstainedCount > 0 && <span><strong>{abstainedCount}</strong> abstained</span>}
+            {notApplicableCount > 0 && (
+              <span><strong>{notApplicableCount}</strong> not applicable</span>
             )}
-            {reviewCount > 0 && <span><strong>{reviewCount}</strong> review-load in board</span>}
+            {failedCount > 0 && <span><strong>{failedCount}</strong> failed</span>}
+            {invalidMeasuredCount > 0 && (
+              <span><strong>{invalidMeasuredCount}</strong> invalid measured value</span>
+            )}
+            {reviewCount > 0 && <span><strong>{reviewCount}</strong> review-load in exact board</span>}
             {cappedRadarCount > 0 && (
               <span><strong>{cappedRadarCount}</strong> outside the 8-axis cap</span>
             )}
@@ -703,16 +802,10 @@ export function QualityRadar({
               onPreviewStart={setPreviewKey}
             />
           ) : (
-            <div className="quality-radar__empty" role="note">
-              <strong>Not enough available axes</strong>
-              <span>
-                {radarMetrics.length} of {selectedLens.metrics.length} metrics can
-                be plotted. A radar shape needs at least four numeric
-                higher-is-better axes. Unknown and review-load metrics remain in
-                the exact value board; they are never plotted as zero or silently
-                inverted.
-              </span>
-            </div>
+            <ExactValueFallback
+              metrics={radarMetrics}
+              totalMetricCount={selectedLens.metrics.length}
+            />
           )}
           <div className="quality-radar__rail">
             <MetricInspector

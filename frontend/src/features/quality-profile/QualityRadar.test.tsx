@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import "../../styles.css";
-import { QualityRadar, radarRingPoints } from "./QualityRadar";
+import {
+  QualityRadar,
+  radarMetricsFor,
+  radarRingPoints,
+} from "./QualityRadar";
 import type {
   QualityMetricObservation,
   QualityMetricPolarity,
@@ -129,7 +133,7 @@ function promptAndCollaborationMetrics(): QualityMetricObservation[] {
 }
 
 describe("QualityRadar", () => {
-  it.each([4, 6, 8])("builds a closed polygon web for %i fixed-scale axes", (count) => {
+  it.each([3, 4, 6, 8])("builds a closed polygon web for %i fixed-scale axes", (count) => {
     const points = radarRingPoints(count, 1).trim().split(/\s+/);
 
     expect(points).toHaveLength(count);
@@ -172,10 +176,13 @@ describe("QualityRadar", () => {
     expect(within(radar).queryByText("Context")).not.toBeInTheDocument();
     expect(radar.querySelector(".quality-radar__scale--zero")).toHaveTextContent("0%");
     expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
-      "5 plotted axes",
+      "5 measured",
     );
     expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
-      "1 omitted as unavailable",
+      "5 plottable axes",
+    );
+    expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
+      "1 unknown",
     );
     expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
       "1 measured zero",
@@ -205,7 +212,7 @@ describe("QualityRadar", () => {
     expect(reviewRow).toHaveTextContent("Lower is better; raw value");
     expect(reviewRow).toHaveTextContent("60%");
     expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
-      "1 review-load in board",
+      "1 review-load in exact board",
     );
   });
 
@@ -338,22 +345,126 @@ describe("QualityRadar", () => {
     expect(screen.queryByRole("button", { name: /pan/i })).not.toBeInTheDocument();
   });
 
-  it("withholds polygon geometry below the four-axis lens floor", () => {
+  it("renders a three-axis triangle at the radar floor", () => {
+    const metrics = promptAndCollaborationMetrics().slice(0, 3);
+    metrics[2] = syntheticMetric({
+      key: "prompt.context_sufficiency",
+      label: "Context",
+      ratio: 0.6,
+    });
+
+    render(<QualityRadar metrics={metrics} />);
+
+    const radar = screen.getByRole("img", { name: /3-axis/i });
+    expect(radar.querySelectorAll(".quality-radar__axis-control")).toHaveLength(3);
+    expect(radar.querySelector('[data-filled-profile="true"]')).toBeVisible();
+    for (const ring of radar.querySelectorAll("polygon.quality-radar__ring")) {
+      expect(ring.getAttribute("points")?.trim().split(/\s+/)).toHaveLength(3);
+    }
+  });
+
+  it("uses aligned exact-value bars for two capability axes and keeps lower-is-better in the board", () => {
     render(
       <QualityRadar
-        metrics={promptAndCollaborationMetrics().slice(0, 3)}
+        metrics={[
+          syntheticMetric({
+            key: "prompt.task_definition_coverage",
+            label: "Task",
+            ratio: 0.2,
+          }),
+          syntheticMetric({
+            key: "prompt.problem_evidence_quality",
+            label: "Evidence",
+            ratio: 0.4,
+          }),
+          syntheticMetric({
+            key: "prompt.context_sufficiency",
+            label: "Context",
+            polarity: "review-load",
+            ratio: 0.6,
+          }),
+        ]}
       />,
     );
 
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.getByText("Not enough available axes")).toBeVisible();
-    expect(screen.getByText(/2 of 3 metrics can be plotted/i)).toBeVisible();
-    expect(screen.getByText(/at least four numeric higher-is-better axes/i)).toBeVisible();
+    const fallback = screen.getByLabelText("Exact-value bar fallback");
+    expect(within(fallback).getByText(/Radar withheld/i)).toBeVisible();
+    expect(within(fallback).getByText(/2 of 3 metrics are compatible/i)).toBeVisible();
+    expect(
+      within(fallback).getByRole("list", { name: "Compatible exact-value bars" }),
+    ).toBeVisible();
+    expect(within(fallback).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(fallback).queryByText("Context")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
+      "3 measured",
+    );
+    expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
+      "2 plottable axes",
+    );
+    expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
+      "1 review-load in exact board",
+    );
+    expect(
+      within(screen.getByRole("region", { name: "Task framing metrics" })).getByRole(
+        "button",
+        { name: /Context full metric name/i },
+      ),
+    ).toHaveTextContent("Lower is better; raw value");
     expect(
       within(screen.getByRole("region", { name: "Task framing metrics" })).getAllByRole(
         "button",
       ),
     ).toHaveLength(3);
+  });
+
+  it("caps compatible axes at eight", () => {
+    const metrics = Array.from({ length: 10 }, (_, index) =>
+      syntheticMetric({
+        key: `prompt.synthetic_${index}`,
+        label: `Axis ${index + 1}`,
+        ratio: (index + 1) / 10,
+      }),
+    );
+
+    expect(radarMetricsFor(metrics)).toHaveLength(8);
+  });
+
+  it("keeps zero plottable and excludes every non-measured state", () => {
+    const zero = syntheticMetric({
+      key: "prompt.zero",
+      label: "Zero",
+      ratio: 0,
+    });
+    const nonMeasuredStates: QualityMetricState[] = [
+      "unavailable",
+      "abstained",
+      "not-applicable",
+      "execution-error",
+    ];
+    const incompatible = nonMeasuredStates.map((state, index) =>
+      syntheticMetric({
+        key: `prompt.excluded_${index}`,
+        label: state,
+        ratio: 0.7,
+        state,
+      }),
+    );
+    const lowerIsBetter = syntheticMetric({
+      key: "prompt.review_load",
+      label: "Review load",
+      polarity: "review-load",
+      ratio: 0.3,
+    });
+    const outOfRange = syntheticMetric({
+      key: "prompt.out_of_range",
+      label: "Out of range",
+      ratio: 1.1,
+    });
+
+    expect(
+      radarMetricsFor([zero, ...incompatible, lowerIsBetter, outOfRange]),
+    ).toEqual([zero]);
   });
 
   it("hides lens controls when only one lens is represented", () => {

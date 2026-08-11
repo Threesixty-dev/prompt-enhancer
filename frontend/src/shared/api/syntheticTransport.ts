@@ -4,13 +4,13 @@ import type {
   CandidateStatusFilter,
   ModelEvaluationJob,
   ProjectSessionQualityAggregate,
-  PromptEnhancerTransport,
   ReviewCommand,
   SessionQualityAggregate,
   TaskAnalysisResponse,
   TaskRevision,
   TaskReviewResponse,
 } from "./contracts";
+import type { SyntheticRuntimeTransport } from "../platform/runtimeMode";
 import {
   SYNTHETIC_CANDIDATES,
   SYNTHETIC_COACHING_METRIC_SPECS,
@@ -255,7 +255,7 @@ function candidateIds(command: ReviewCommand): string[] {
   return [command.request.candidate_id];
 }
 
-export function createSyntheticTransport(): PromptEnhancerTransport {
+export function createSyntheticTransport(): SyntheticRuntimeTransport {
   let candidates = copy(SYNTHETIC_CANDIDATES);
   const tasks = copy(SYNTHETIC_TASKS);
   const decisions = new Map<string, TaskReviewResponse>();
@@ -332,6 +332,7 @@ export function createSyntheticTransport(): PromptEnhancerTransport {
   };
 
   return {
+    runtimeKind: "synthetic_fixture",
     async getTextAnalysisResearch() {
       return copy(SYNTHETIC_TEXT_ANALYSIS_RESEARCH);
     },

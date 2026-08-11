@@ -1388,6 +1388,8 @@ h3 { margin-bottom: 4px; font-size: 1rem; }
 .privacy-status strong { font-size: 0.76rem; }
 .privacy-status span { color: #81989d; font-size: 0.68rem; }
 .online-dot { width: 7px; height: 7px; border-radius: 50%; background: #56c7a1; box-shadow: 0 0 0 3px rgba(86, 199, 161, 0.1); }
+.online-dot--checking { background: #d69a3b; box-shadow: 0 0 0 3px rgba(214, 154, 59, 0.14); }
+.online-dot--unavailable { background: #d86155; box-shadow: 0 0 0 3px rgba(216, 97, 85, 0.14); }
 .sidebar__footer > p { margin: 12px 4px 0; color: #91a8ac; font-size: 0.64rem; line-height: 1.5; }
 
 .workspace { grid-column: 2; width: 100%; min-width: 0; max-width: 100%; }
@@ -1400,6 +1402,8 @@ h3 { margin-bottom: 4px; font-size: 1rem; }
 .topbar__trail strong { color: var(--ink-800); font-weight: 650; }
 .mode-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 20px; color: var(--ink-650); font-size: 0.72rem; background: var(--surface); }
 .mode-chip > span { width: 6px; height: 6px; border-radius: 50%; background: var(--teal-500); }
+.mode-chip[data-service-state="checking"] > span { background: #d69a3b; }
+.mode-chip[data-service-state="unavailable"] > span { background: #d86155; }
 .avatar { width: 32px; height: 32px; display: grid; place-content: center; border-radius: 50%; color: var(--teal-700); font-size: 0.76rem; font-weight: 750; background: var(--teal-100); }
 main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px); outline: none; }
 .navigation-notice { margin: 14px 36px 0; padding: 10px 13px; border: 1px solid var(--amber-100); border-radius: var(--radius-sm); color: var(--amber-700); font-size: 0.82rem; background: var(--amber-50); }
@@ -3685,6 +3689,53 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .quality-radar__empty strong { color: var(--ink-800); }
 .quality-radar__empty span { max-width: 560px; font-size: 0.72rem; line-height: 1.45; }
 
+.quality-radar__fallback {
+  width: min(100%, 560px);
+  min-width: 0;
+  min-height: 260px;
+  display: grid;
+  align-content: center;
+  gap: 16px;
+  margin: 0 auto;
+  padding: 18px;
+}
+.quality-radar__fallback figcaption { display: grid; gap: 5px; margin: 0; text-align: left; }
+.quality-radar__fallback figcaption strong { color: var(--ink-800); font-size: 0.84rem; }
+.quality-radar__fallback figcaption span,
+.quality-radar__fallback > p { margin: 0; color: var(--ink-500); font-size: 0.7rem; line-height: 1.45; }
+.quality-radar__fallback-bars { min-width: 0; display: grid; gap: 10px; }
+.quality-radar__fallback-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(78px, 0.7fr) minmax(100px, 2fr) 48px;
+  align-items: center;
+  gap: 4px 10px;
+}
+.quality-radar__fallback-label {
+  min-width: 0;
+  color: var(--ink-700);
+  font-size: 0.7rem;
+  font-weight: 780;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+}
+.quality-radar__fallback-track {
+  min-width: 0;
+  height: 8px;
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5eeec;
+}
+.quality-radar__fallback-track > span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #6fbaae, #126e65);
+}
+.quality-radar__fallback-row > strong { color: var(--teal-700); font-size: 0.72rem; text-align: right; }
+.quality-radar__fallback-row > small { grid-column: 2; color: var(--ink-500); font-size: 0.61rem; }
+
 .quality-radar__rail .quality-board { padding: 8px 0 0; border: 0; border-top: 1px solid #dfe8e6; border-radius: 0; background: transparent; box-shadow: none; }
 .quality-board__header { margin-bottom: 6px; }
 .quality-radar__rail .quality-board__header h3 { font-size: 0.84rem; }
@@ -3915,12 +3966,14 @@ canvas { max-width: 100%; }
   .project-workspace__primary-actions,
   .status-pill { color: CanvasText; background: Canvas; border-color: CanvasText; box-shadow: none; }
   .project-workspace__primary-actions::before { display: none; }
-  .quality-board__track {
+  .quality-board__track,
+  .quality-radar__fallback-track {
     border: 1px solid CanvasText;
     background: Canvas;
   }
   .quality-board__track > span,
-  .quality-board__metric--risk .quality-board__track > span {
+  .quality-board__metric--risk .quality-board__track > span,
+  .quality-radar__fallback-track > span {
     background: Highlight;
   }
   .quality-radar__explorer,
