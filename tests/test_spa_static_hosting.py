@@ -51,10 +51,12 @@ def test_spa_route_allowlist_matches_frontend_history_shapes() -> None:
     accepted = [
         "",
         "local-sources",
+        "analysis-jobs",
         "projects",
         "research/methods",
         f"projects/{PROJECT_ID}/overview",
         f"projects/{PROJECT_ID}/sessions",
+        f"projects/{PROJECT_ID}/automation",
         f"projects/{PROJECT_ID}/metrics/prompt-quality",
         f"projects/{PROJECT_ID}/sessions/{SESSION_ID}/metrics/reasoning",
         f"tasks/{TASK_ID}/revisions/1",
@@ -62,11 +64,14 @@ def test_spa_route_allowlist_matches_frontend_history_shapes() -> None:
     ]
     rejected = [
         "unexpected",
+        "analysis-jobs/extra",
         "research",
         "research/private",
         "missing.js",
         ".env",
         "projects/example-label/overview",
+        "projects/example-label/automation",
+        f"projects/{PROJECT_ID}/automation/extra",
         f"projects/{PROJECT_ID}/metrics/not-registered",
         f"projects/{PROJECT_ID}/sessions/{SESSION_ID}/metrics/tools/extra",
         f"tasks/{TASK_ID}/revisions/0",
@@ -81,9 +86,11 @@ def test_browser_get_and_head_refresh_allowlisted_deep_routes(tmp_path: Path) ->
     app = _build_static_app(tmp_path)
     deep_routes = [
         "/local-sources",
+        "/analysis-jobs",
         "/projects",
         "/research/methods",
         f"/projects/{PROJECT_ID}/overview",
+        f"/projects/{PROJECT_ID}/automation",
         f"/projects/{PROJECT_ID}/sessions",
         f"/projects/{PROJECT_ID}/metrics/prompt-quality",
         f"/projects/{PROJECT_ID}/sessions/{SESSION_ID}/metrics/tools",

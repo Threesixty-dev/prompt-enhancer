@@ -24,7 +24,9 @@ _METRIC_CATEGORIES = frozenset(
         "other",
     }
 )
-_PROJECT_VIEW = re.compile(rf"projects/({_PSEUDONYM})/(?:overview|sessions)/?")
+_PROJECT_VIEW = re.compile(
+    rf"projects/({_PSEUDONYM})/(?:overview|sessions|automation)/?"
+)
 _PROJECT_METRICS = re.compile(
     rf"projects/({_PSEUDONYM})/metrics/([a-z-]+)/?"
 )
@@ -41,6 +43,8 @@ def is_spa_navigation_path(path: str) -> bool:
         "",
         "local-sources",
         "local-sources/",
+        "analysis-jobs",
+        "analysis-jobs/",
         "projects",
         "projects/",
         "research/methods",
