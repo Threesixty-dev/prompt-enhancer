@@ -3,7 +3,9 @@ import { formatPercent } from "../../shared/lib/format";
 import type {
   ProviderCompatibilityStatus,
   SessionMetricReadinessReport,
-  SessionQualityAnalysisRequest,
+  SessionQualityAnalysisPreview,
+  SessionQualityAnalysisPreviewApprovalRequest,
+  SessionQualityAnalysisPreviewRequest,
   SessionTextAnalysisCapability,
 } from "../../shared/api/contracts";
 import {
@@ -189,11 +191,21 @@ function fractionLine(metric: QualityMetricObservation): string {
   return `${metric.fractionNumerator} of ${metric.fractionDenominator} metric-specific items satisfied the candidate definition.`;
 }
 
-export type AnalyzeLocallyHandler = (
-  request: SessionQualityAnalysisRequest,
-  idempotencyKey: string,
-  signal: AbortSignal,
-) => Promise<void>;
+export interface AnalyzeLocallyHandler {
+  exactSessionId: string;
+  preparePreview: (
+    sessionId: string,
+    request: SessionQualityAnalysisPreviewRequest,
+    signal: AbortSignal,
+  ) => Promise<SessionQualityAnalysisPreview>;
+  approvePreview: (
+    sessionId: string,
+    previewId: string,
+    request: SessionQualityAnalysisPreviewApprovalRequest,
+    idempotencyKey: string,
+    signal: AbortSignal,
+  ) => Promise<void>;
+}
 
 function analysisCapabilityCopy(
   capability: SessionTextAnalysisCapability,
@@ -583,9 +595,11 @@ export function QualityProfileView({
       )}
       {analysisOpen && onAnalyzeLocally && (
         <AnalyzeLocallyDialog
-          onAnalyze={onAnalyzeLocally}
+          exactSessionId={onAnalyzeLocally.exactSessionId}
+          onApprovePreview={onAnalyzeLocally.approvePreview}
           onCheckCompatibility={onCheckProviderCompatibility}
           onClose={() => setAnalysisOpen(false)}
+          onPreparePreview={onAnalyzeLocally.preparePreview}
           sessionDescriptor={sessionDescriptor}
         />
       )}

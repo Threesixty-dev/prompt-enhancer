@@ -8,11 +8,13 @@ import type {
   SessionCoachingProjection,
   SessionMetric,
   SessionMetricReadinessReport,
+  SessionQualityAnalysisPreview,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import {
   SYNTHETIC_QUALITY_PROJECT_ID,
   SYNTHETIC_QUALITY_SESSION_ID,
+  SYNTHETIC_SESSION_METRIC_READINESS,
   SYNTHETIC_SESSION_QUALITY_RUN,
 } from "../../shared/api/syntheticFixtures";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
@@ -194,6 +196,42 @@ function qualityDetail(): SessionAnalysisRunResponse {
   return detail;
 }
 
+function qualityPreview(
+  requestedSessionId = sessionId,
+): SessionQualityAnalysisPreview {
+  const createdAt = new Date(Date.now() + 60_000);
+  const previewText = "Synthetic redacted request for the example workspace.";
+  return {
+    preview_id: "e".repeat(64),
+    created_at: createdAt.toISOString(),
+    expires_at: new Date(createdAt.getTime() + 600_000).toISOString(),
+    binding: {
+      provider: "codex",
+      session_id: requestedSessionId,
+      analysis_window_fingerprint: "f".repeat(64),
+      metric_keys: SYNTHETIC_SESSION_METRIC_READINESS.metrics.map(
+        (metric) => metric.metric_key,
+      ),
+      destination: "local",
+      exact_model: "none",
+      estimator_plan_version: "example-plan-1",
+      redactor_version: "example-redactor-1",
+      retention_class: "local_ephemeral",
+      message_count: 1,
+      character_count: Array.from(previewText).length,
+      cost_state: "not_applicable",
+      estimated_cost_microunits: null,
+      cost_currency: null,
+    },
+    messages: [{
+      role: "user",
+      kind: "request",
+      language: "en",
+      text: previewText,
+    }],
+  };
+}
+
 function metricReadinessReport(
   requestedSessionId = sessionId,
 ): SessionMetricReadinessReport {
@@ -361,6 +399,17 @@ function workspaceTransport() {
   const getSessionMetricReadiness = vi.fn(async (requestedSessionId: string) =>
     metricReadinessReport(requestedSessionId),
   );
+  const prepareSessionQualityAnalysisPreview = vi.fn(
+    async (requestedSessionId: string) => qualityPreview(requestedSessionId),
+  );
+  const approveSessionQualityAnalysisPreview = vi.fn(async () => ({
+    run_id: qualityDetail().run.run_id,
+    status: "completed" as const,
+    result_count: 10,
+    applied: true,
+    analysis_profile_key: "coaching_profile",
+    analysis_profile_version: 1,
+  }));
   const transport: PromptEnhancerTransport = {
     ...createSyntheticTransport(),
     listProjectSessions,
@@ -371,6 +420,8 @@ function workspaceTransport() {
     getProviderCompatibility,
     checkProviderCompatibility,
     getSessionMetricReadiness,
+    prepareSessionQualityAnalysisPreview,
+    approveSessionQualityAnalysisPreview,
   };
   return {
     transport,
@@ -380,6 +431,8 @@ function workspaceTransport() {
     getProviderCompatibility,
     checkProviderCompatibility,
     getSessionMetricReadiness,
+    prepareSessionQualityAnalysisPreview,
+    approveSessionQualityAnalysisPreview,
   };
 }
 
@@ -1069,7 +1122,7 @@ describe("ProjectWorkspace", () => {
   it("clears only the canceled in-dialog compatibility request's loading state", async () => {
     const { transport } = workspaceTransport();
     transport.getLatestSessionQualityAnalysis = vi.fn(async () => qualityDetail());
-    transport.startSessionQualityAnalysis = vi.fn(async () => {
+    transport.prepareSessionQualityAnalysisPreview = vi.fn(async () => {
       throw new TransportError(
         "PRIVATE-PROVIDER-CANARY",
         503,
@@ -1102,7 +1155,7 @@ describe("ProjectWorkspace", () => {
     const analyze = await screen.findByRole("button", { name: "Analyze locally" });
     await waitFor(() => expect(analyze).toBeEnabled());
     fireEvent.click(analyze);
-    fireEvent.click(screen.getByRole("button", { name: "Analyze this session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
     fireEvent.click(
       await screen.findByRole("button", { name: "Recheck compatibility" }),
     );
@@ -1152,17 +1205,17 @@ describe("ProjectWorkspace", () => {
   });
 
   it("runs analysis only after the explicit review, then fetches immutable detail", async () => {
-    const { transport } = workspaceTransport();
-    const start = vi.fn(async () => ({
+    const { transport, prepareSessionQualityAnalysisPreview } = workspaceTransport();
+    const approve = vi.fn(async () => ({
       run_id: qualityDetail().run.run_id,
       status: "completed" as const,
       result_count: 10,
       applied: true,
-      analysis_profile_key: "standard_engineering" as const,
+      analysis_profile_key: "coaching_profile" as const,
       analysis_profile_version: 1 as const,
     }));
     const getDetail = vi.fn(async () => qualityDetail());
-    transport.startSessionQualityAnalysis = start;
+    transport.approveSessionQualityAnalysisPreview = approve;
     transport.getSessionQualityAnalysisRun = getDetail;
     const route: ProjectWorkspaceRoute = {
       name: "session_metrics",
@@ -1175,25 +1228,35 @@ describe("ProjectWorkspace", () => {
     );
 
     await screen.findByText(/no compatible Coaching v1 analysis run/i);
-    expect(start).not.toHaveBeenCalled();
+    expect(prepareSessionQualityAnalysisPreview).not.toHaveBeenCalled();
     const analyzeButton = screen.getByRole("button", { name: "Analyze locally" });
     await waitFor(() => expect(analyzeButton).toBeEnabled());
     fireEvent.click(analyzeButton);
     const dialog = screen.getByRole("dialog", { name: "Ready to analyze" });
     fireEvent.click(
       within(dialog).getByRole("button", {
-        name: "Analyze this session",
+        name: "Prepare redacted preview",
+      }),
+    );
+    expect(prepareSessionQualityAnalysisPreview).toHaveBeenCalledWith(
+      sessionId,
+      { preset_id: "coaching_profile_v1" },
+      expect.any(AbortSignal),
+    );
+    fireEvent.click(
+      await within(dialog).findByRole("button", {
+        name: "Approve once and analyze",
       }),
     );
 
-    await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
-    expect(start).toHaveBeenCalledWith(
-      sessionId,
+    await waitFor(() => expect(approve).toHaveBeenCalledTimes(1));
+    expect(approve).toHaveBeenCalledWith(
+      "e".repeat(64),
       {
-        confirmation: "analyze_selected_redacted_text",
-        preset_id: "coaching_profile_v1",
+        confirmation: "approve_exact_redacted_preview",
+        expected_binding: qualityPreview().binding,
       },
-      expect.stringMatching(/^dashboard-quality-analysis-/),
+      expect.stringMatching(/^dashboard-quality-preview-approval-/),
       expect.any(AbortSignal),
     );
     expect(getDetail).toHaveBeenCalledWith(
@@ -1208,12 +1271,100 @@ describe("ProjectWorkspace", () => {
     );
   });
 
+  it("does not fetch result detail after a binding mismatch and prepares retry for the same session", async () => {
+    const { transport, prepareSessionQualityAnalysisPreview } = workspaceTransport();
+    transport.getLatestSessionQualityAnalysis = vi.fn(async () => qualityDetail());
+    transport.approveSessionQualityAnalysisPreview = vi.fn(async () => {
+      throw new TransportError(
+        "PRIVATE-BINDING-CANARY",
+        409,
+        "redaction_preview_binding_mismatch",
+      );
+    });
+    const getDetail = vi.fn(async () => qualityDetail());
+    transport.getSessionQualityAnalysisRun = getDetail;
+    const route: ProjectWorkspaceRoute = {
+      name: "session_metrics",
+      projectId,
+      sessionId,
+      category: "prompt-quality",
+    };
+    render(<ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />);
+
+    const analyze = await screen.findByRole("button", { name: "Analyze locally" });
+    await waitFor(() => expect(analyze).toBeEnabled());
+    fireEvent.click(analyze);
+    const dialog = screen.getByRole("dialog", { name: "Ready to analyze" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Prepare redacted preview" }));
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Approve once and analyze" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(/exact preview binding changed/i);
+    expect(document.body.textContent).not.toContain("PRIVATE-BINDING-CANARY");
+    expect(getDetail).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Prepare fresh preview" }));
+    await waitFor(() => expect(prepareSessionQualityAnalysisPreview).toHaveBeenCalledTimes(2));
+    expect(
+      prepareSessionQualityAnalysisPreview.mock.calls.every(
+        ([requestedSessionId]) => requestedSessionId === sessionId,
+      ),
+    ).toBe(true);
+  });
+
+  it("aborts a pending preview when navigation changes the selected session identity", async () => {
+    const { transport } = workspaceTransport();
+    let previewSignal: AbortSignal | undefined;
+    const prepare = vi.fn(
+      (_requestedSessionId: string, _request: unknown, signal?: AbortSignal) => {
+        previewSignal = signal;
+        return new Promise<SessionQualityAnalysisPreview>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Canceled", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    );
+    transport.prepareSessionQualityAnalysisPreview = prepare;
+    const firstRoute: ProjectWorkspaceRoute = {
+      name: "session_metrics",
+      projectId,
+      sessionId,
+      category: "prompt-quality",
+    };
+    const { rerender } = render(
+      <ProjectWorkspace navigate={vi.fn()} route={firstRoute} transport={transport} />,
+    );
+    const analyze = await screen.findByRole("button", { name: "Analyze locally" });
+    await waitFor(() => expect(analyze).toBeEnabled());
+    fireEvent.click(analyze);
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+    await waitFor(() => expect(previewSignal).toBeInstanceOf(AbortSignal));
+
+    const secondRoute: ProjectWorkspaceRoute = {
+      ...firstRoute,
+      sessionId: secondSessionId,
+    };
+    rerender(
+      <ProjectWorkspace navigate={vi.fn()} route={secondRoute} transport={transport} />,
+    );
+
+    await waitFor(() => expect(previewSignal?.aborted).toBe(true));
+    expect(prepare).toHaveBeenCalledWith(
+      sessionId,
+      { preset_id: "coaching_profile_v1" },
+      expect.any(AbortSignal),
+    );
+    expect(transport.approveSessionQualityAnalysisPreview).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Ready to analyze" })).not.toBeInTheDocument();
+  });
+
   it("keeps analysis disabled when capability verification fails", async () => {
     const { transport } = workspaceTransport();
     transport.getSessionTextAnalysisCapability = vi.fn(async () => {
       throw new TransportError("PRIVATE-CAPABILITY-CANARY", 200);
     });
-    const start = vi.spyOn(transport, "startSessionQualityAnalysis");
+    const start = vi.spyOn(transport, "prepareSessionQualityAnalysisPreview");
     const route: ProjectWorkspaceRoute = {
       name: "session_metrics",
       projectId,
@@ -1247,7 +1398,7 @@ describe("ProjectWorkspace", () => {
         reason_code: "synthetic_validation_only",
       },
     }));
-    const start = vi.spyOn(transport, "startSessionQualityAnalysis");
+    const start = vi.spyOn(transport, "prepareSessionQualityAnalysisPreview");
     const route: ProjectWorkspaceRoute = {
       name: "session_metrics",
       projectId,
@@ -1272,7 +1423,7 @@ describe("ProjectWorkspace", () => {
     transport.getCodexLocalSourceStatus = vi.fn(async () => {
       throw new TransportError("PRIVATE-CONSENT-STATUS-CANARY", 503);
     });
-    const start = vi.spyOn(transport, "startSessionQualityAnalysis");
+    const start = vi.spyOn(transport, "prepareSessionQualityAnalysisPreview");
     const route: ProjectWorkspaceRoute = {
       name: "session_metrics",
       projectId,
@@ -1297,7 +1448,7 @@ describe("ProjectWorkspace", () => {
     transport.getCodexLocalSourceStatus = vi.fn(async () => ({
       consent_active: true,
     }) as never);
-    const start = vi.spyOn(transport, "startSessionQualityAnalysis");
+    const start = vi.spyOn(transport, "prepareSessionQualityAnalysisPreview");
     const route: ProjectWorkspaceRoute = {
       name: "session_metrics",
       projectId,

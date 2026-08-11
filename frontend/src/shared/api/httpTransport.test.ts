@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SessionQualityAnalysisRequest } from "./contracts";
+import type {
+  SessionQualityAnalysisPreview,
+  SessionQualityAnalysisRequest,
+} from "./contracts";
 import {
   assertSameOriginRelativePath,
   createHttpTransport,
@@ -7,6 +10,7 @@ import {
   parseProviderCompatibilityStatus,
   parseRuntimeHealth,
   parseSessionMetricReadinessReport,
+  parseSessionQualityAnalysisPreview,
   parseSessionTextAnalysisCapability,
   TransportError,
 } from "./httpTransport";
@@ -26,11 +30,52 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function privateJsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store, private",
+      Pragma: "no-cache",
+    },
+  });
+}
+
 const AUTH_RESPONSE = { csrf_token: "synthetic-csrf-token", expires_in_seconds: 300 };
 const CONTENT_FREE_ANALYSIS_REQUEST: SessionQualityAnalysisRequest = {
   confirmation: "analyze_selected_redacted_text",
   preset_id: "coaching_profile_v1",
 };
+
+function redactionPreview(
+  sessionId = "5".repeat(64),
+): SessionQualityAnalysisPreview {
+  const text = "Synthetic redacted request for transport validation.";
+  return {
+    preview_id: "e".repeat(64),
+    created_at: "2040-01-01T10:00:00Z",
+    expires_at: "2040-01-01T10:10:00Z",
+    binding: {
+      provider: "codex",
+      session_id: sessionId,
+      analysis_window_fingerprint: "a".repeat(64),
+      metric_keys: SYNTHETIC_SESSION_METRIC_READINESS.metrics.map(
+        (metric) => metric.metric_key,
+      ),
+      destination: "local",
+      exact_model: "none",
+      estimator_plan_version: "example-plan-1",
+      redactor_version: "example-redactor-1",
+      retention_class: "local_ephemeral",
+      message_count: 1,
+      character_count: Array.from(text).length,
+      cost_state: "not_applicable",
+      estimated_cost_microunits: null,
+      cost_currency: null,
+    },
+    messages: [{ role: "user", kind: "request", language: "en", text }],
+  };
+}
 const PROVIDER_COMPATIBILITY = {
   provider: "codex",
   capability: "session_text_analysis",
@@ -601,6 +646,152 @@ describe("same-origin HTTP transport", () => {
         "f".repeat(64),
       ),
     ).toThrow(TransportError);
+  });
+
+  it("strictly validates a local preview and rejects remote, private-extra, drifted, or inconsistent shapes", () => {
+    const sessionId = "5".repeat(64);
+    const valid = redactionPreview(sessionId);
+    expect(parseSessionQualityAnalysisPreview(valid, sessionId)).toEqual(valid);
+
+    const remote = structuredClone(valid);
+    remote.binding.destination = "remote" as "local";
+    remote.binding.retention_class = "remote_30_day" as "local_ephemeral";
+    remote.binding.cost_state = "unknown" as "not_applicable";
+    const extra = { ...valid, raw_provider_path: "PRIVATE-PATH-CANARY" };
+    const wrongSession = structuredClone(valid);
+    wrongSession.binding.session_id = "6".repeat(64);
+    const wrongCharacters = structuredClone(valid);
+    wrongCharacters.binding.character_count += 1;
+    const wrongTtl = structuredClone(valid);
+    wrongTtl.expires_at = "2040-01-01T10:09:59Z";
+    const incompleteMetrics = structuredClone(valid);
+    incompleteMetrics.binding.metric_keys.pop();
+
+    for (const value of [
+      remote,
+      extra,
+      wrongSession,
+      wrongCharacters,
+      wrongTtl,
+      incompleteMetrics,
+    ]) {
+      let error: unknown;
+      try {
+        parseSessionQualityAnalysisPreview(value, sessionId);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toBeInstanceOf(TransportError);
+      expect(String(error)).not.toContain("PRIVATE-PATH-CANARY");
+    }
+  });
+
+  it("prepares and approves an exact private preview with no-store transport policy", async () => {
+    const sessionId = "5".repeat(64);
+    const preview = redactionPreview(sessionId);
+    const outcome = {
+      run_id: "6".repeat(64),
+      status: "completed",
+      result_count: 20,
+      applied: true,
+      analysis_profile_key: "coaching_profile",
+      analysis_profile_version: 1,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(preview))
+      .mockResolvedValueOnce(privateJsonResponse(outcome));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const prepared = await transport.prepareSessionQualityAnalysisPreview(
+      sessionId,
+      { preset_id: "coaching_profile_v1" },
+    );
+    const approved = await transport.approveSessionQualityAnalysisPreview(
+      prepared.preview_id,
+      {
+        confirmation: "approve_exact_redacted_preview",
+        expected_binding: prepared.binding,
+      },
+      "dashboard-quality-preview-approval-example",
+    );
+
+    expect(approved).toEqual(outcome);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/sessions/${sessionId}/quality-analysis-previews`,
+    );
+    const preparation = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(preparation).toEqual(expect.objectContaining({
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+      referrerPolicy: "no-referrer",
+    }));
+    expect(JSON.parse(preparation.body as string)).toEqual({
+      preset_id: "coaching_profile_v1",
+    });
+    const approval = fetchMock.mock.calls[2][1] as RequestInit;
+    expect(approval.cache).toBe("no-store");
+    expect(approval.headers).toEqual(expect.objectContaining({
+      "Idempotency-Key": "dashboard-quality-preview-approval-example",
+      "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+    }));
+    expect(JSON.parse(approval.body as string)).toEqual({
+      confirmation: "approve_exact_redacted_preview",
+      expected_binding: preview.binding,
+    });
+  });
+
+  it("fails closed if a secret-bearing success response lacks private no-store headers", async () => {
+    const sessionId = "5".repeat(64);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(redactionPreview(sessionId)));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(
+      transport.prepareSessionQualityAnalysisPreview(
+        sessionId,
+        { preset_id: "coaching_profile_v1" },
+      ),
+    ).rejects.toMatchObject({ status: 200, reasonCode: null });
+  });
+
+  it("extracts only an allowlisted preview failure code and discards server content", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse({
+        detail: {
+          code: "redaction_preview_binding_mismatch",
+          message: "PRIVATE-PREVIEW-ERROR-CANARY",
+        },
+      }, 409));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const error = await transport.approveSessionQualityAnalysisPreview(
+      "e".repeat(64),
+      {
+        confirmation: "approve_exact_redacted_preview",
+        expected_binding: redactionPreview().binding,
+      },
+      "dashboard-quality-preview-approval-mismatch",
+    ).catch((value: unknown) => value);
+
+    expect(error).toMatchObject({
+      status: 409,
+      reasonCode: "redaction_preview_binding_mismatch",
+    });
+    expect(String(error)).not.toContain("PRIVATE-PREVIEW-ERROR-CANARY");
   });
 
   it.each([

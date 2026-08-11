@@ -6,7 +6,7 @@ import {
   SYNTHETIC_SESSION_QUALITY_RUN,
 } from "../../shared/api/syntheticFixtures";
 import { createQualityMetricProfile } from "./qualityProfile";
-import { QualityProfileView } from "./QualityProfileView";
+import { QualityProfileView, type AnalyzeLocallyHandler } from "./QualityProfileView";
 
 function promptProfile() {
   return createQualityMetricProfile(
@@ -14,6 +14,16 @@ function promptProfile() {
     structuredClone(SYNTHETIC_SESSION_QUALITY_RUN),
     SYNTHETIC_QUALITY_SESSION_ID,
   )!;
+}
+
+function analysisFlow(): AnalyzeLocallyHandler {
+  return {
+    exactSessionId: SYNTHETIC_QUALITY_SESSION_ID,
+    preparePreview: vi.fn(async () => {
+      throw new Error("not exercised");
+    }),
+    approvePreview: vi.fn(async () => undefined),
+  };
 }
 
 const EXACT_COMPATIBILITY: ProviderCompatibilityStatus = {
@@ -107,7 +117,7 @@ describe("QualityProfileView", () => {
           network_inference: false,
           raw_transcripts: false,
         }}
-        onAnalyzeLocally={vi.fn(async () => undefined)}
+        onAnalyzeLocally={analysisFlow()}
         providerCompatibility={EXACT_COMPATIBILITY}
         profile={promptProfile()}
       />,
@@ -132,7 +142,7 @@ describe("QualityProfileView", () => {
           network_inference: false,
           raw_transcripts: false,
         }}
-        onAnalyzeLocally={vi.fn(async () => undefined)}
+        onAnalyzeLocally={analysisFlow()}
         onCheckProviderCompatibility={onCheck}
         profile={promptProfile()}
       />,
@@ -180,7 +190,7 @@ describe("QualityProfileView", () => {
           network_inference: false,
           raw_transcripts: false,
         }}
-        onAnalyzeLocally={vi.fn(async () => undefined)}
+        onAnalyzeLocally={analysisFlow()}
         profile={promptProfile()}
       />,
     );
@@ -192,7 +202,7 @@ describe("QualityProfileView", () => {
   it("does not enable analysis before capability verification completes", () => {
     render(
       <QualityProfileView
-        onAnalyzeLocally={vi.fn(async () => undefined)}
+        onAnalyzeLocally={analysisFlow()}
         profile={promptProfile()}
       />,
     );

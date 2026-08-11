@@ -274,6 +274,41 @@ describe("synthetic transport vertical slice", () => {
     expect(latest).toEqual(SYNTHETIC_CURRENT_SESSION_QUALITY_RUN);
   });
 
+  it("never presents a fictional redaction preview as a real approval flow", async () => {
+    const transport = createSyntheticTransport();
+    await expect(
+      transport.prepareSessionQualityAnalysisPreview(
+        SYNTHETIC_QUALITY_SESSION_ID,
+        { preset_id: "coaching_profile_v1" },
+      ),
+    ).rejects.toMatchObject({ status: 501 });
+    await expect(
+      transport.approveSessionQualityAnalysisPreview(
+        "e".repeat(64),
+        {
+          confirmation: "approve_exact_redacted_preview",
+          expected_binding: {
+            provider: "synthetic",
+            session_id: SYNTHETIC_QUALITY_SESSION_ID,
+            analysis_window_fingerprint: "a".repeat(64),
+            metric_keys: ["prompt.goal_definition"],
+            destination: "local",
+            exact_model: "none",
+            estimator_plan_version: "synthetic-plan-1",
+            redactor_version: "synthetic-redactor-1",
+            retention_class: "local_ephemeral",
+            message_count: 1,
+            character_count: 1,
+            cost_state: "not_applicable",
+            estimated_cost_microunits: null,
+            cost_currency: null,
+          },
+        },
+        "dashboard-quality-preview-approval-synthetic",
+      ),
+    ).rejects.toMatchObject({ status: 501 });
+  });
+
   it("keeps model-link excerpts transient while revisioning fictional review labels", async () => {
     const transport = createSyntheticTransport();
     const outcome = await transport.startModelLinkExperiment(

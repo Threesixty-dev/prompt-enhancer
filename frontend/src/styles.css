@@ -3339,7 +3339,27 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .analysis-dialog__preset dl > div { min-width: 0; display: grid; gap: 2px; padding: 9px 10px; border-radius: 9px; background: var(--surface); }
 .analysis-dialog__preset dt { color: var(--ink-500); font-size: 0.62rem; font-weight: 780; letter-spacing: 0.06em; text-transform: uppercase; }
 .analysis-dialog__preset dd { margin: 0; color: var(--ink-800); font-size: 0.72rem; font-weight: 700; line-height: 1.4; }
+.analysis-dialog__preset code,
+.analysis-dialog__binding code { overflow-wrap: anywhere; color: inherit; font-size: 0.66rem; }
 .analysis-dialog__preset > p { margin: 0; color: var(--ink-650); font-size: 0.7rem; line-height: 1.5; }
+.analysis-dialog__binding,
+.analysis-dialog__metrics,
+.analysis-dialog__preview { display: grid; gap: 11px; padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.analysis-dialog__binding h3,
+.analysis-dialog__metrics h3,
+.analysis-dialog__preview h3 { margin: 1px 0 0; color: var(--ink-800); font-size: 0.88rem; }
+.analysis-dialog__binding dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 0; }
+.analysis-dialog__binding dl > div { min-width: 0; padding: 8px 9px; border-radius: 9px; background: var(--surface-soft); }
+.analysis-dialog__binding dt { color: var(--ink-500); font-size: 0.6rem; font-weight: 780; letter-spacing: 0.05em; text-transform: uppercase; }
+.analysis-dialog__binding dd { margin: 3px 0 0; overflow-wrap: anywhere; color: var(--ink-800); font-size: 0.7rem; font-weight: 690; line-height: 1.45; }
+.analysis-dialog__binding-wide { grid-column: 1 / -1; }
+.analysis-dialog__metrics ul { display: flex; flex-wrap: wrap; gap: 5px; max-height: 110px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.analysis-dialog__metrics li { padding: 5px 7px; border: 1px solid #c9e2dd; border-radius: 999px; color: var(--teal-700); font-size: 0.62rem; background: var(--teal-50); }
+.analysis-dialog__preview > div > p:not(.eyebrow) { margin: 4px 0 0; color: var(--ink-500); font-size: 0.69rem; line-height: 1.45; }
+.analysis-dialog__preview ol { display: grid; gap: 8px; max-height: min(40vh, 360px); overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.analysis-dialog__preview li { min-width: 0; padding: 9px 10px; border-radius: 9px; background: var(--surface-soft); }
+.analysis-dialog__preview li > span { display: block; margin-bottom: 5px; color: var(--teal-700); font-size: 0.61rem; font-weight: 790; letter-spacing: 0.04em; text-transform: uppercase; }
+.analysis-dialog__preview li > p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--ink-750); font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.68rem; line-height: 1.5; }
 .analysis-dialog__privacy { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 13px; padding: 10px 12px; border: 1px solid #b8dcd5; border-radius: 10px; background: var(--teal-50); }
 .analysis-dialog__privacy strong { color: var(--teal-700); font-size: 0.76rem; }
 .analysis-dialog__privacy span { color: var(--ink-650); font-size: 0.73rem; line-height: 1.45; }
@@ -3952,6 +3972,8 @@ button.quality-board__metric[aria-pressed="true"] { border-color: #55a598; box-s
   .analysis-dialog__panel { max-height: calc(100vh - 14px); padding: 14px; border-radius: 14px; }
   .analysis-dialog__privacy { grid-template-columns: 1fr; }
   .analysis-dialog__preset dl { grid-template-columns: 1fr; }
+  .analysis-dialog__binding dl { grid-template-columns: 1fr; }
+  .analysis-dialog__binding-wide { grid-column: auto; }
   .analysis-dialog__panel form > footer { display: grid; grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr); }
   .model-link-experiment { padding: 14px; border-radius: 14px; }
   .model-link-experiment__actions .button { min-height: 44px; }

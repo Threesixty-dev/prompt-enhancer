@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { SessionQualityAnalysisRequest } from "../../shared/api/contracts";
+import type {
+  SessionQualityAnalysisPreview,
+  SessionQualityAnalysisPreviewApprovalRequest,
+  SessionQualityAnalysisPreviewRequest,
+} from "../../shared/api/contracts";
 import { nextIdempotencyKey } from "../../shared/api/idempotency";
 import {
   COACHING_ANALYSIS_PRESET,
-  COACHING_ANALYSIS_REQUEST,
+  COACHING_ANALYSIS_PREVIEW_REQUEST,
 } from "./standardEngineeringAnalysisPreset";
+
+type PendingAction = "preview" | "approval" | "compatibility" | null;
 
 function statusOf(error: unknown): number | null {
   if (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
+    typeof error === "object" && error !== null && "status" in error &&
     typeof error.status === "number"
   ) {
     return error.status;
@@ -21,9 +25,7 @@ function statusOf(error: unknown): number | null {
 
 function reasonCodeOf(error: unknown): string | null {
   if (
-    typeof error === "object" &&
-    error !== null &&
-    "reasonCode" in error &&
+    typeof error === "object" && error !== null && "reasonCode" in error &&
     typeof error.reasonCode === "string"
   ) {
     return error.reasonCode;
@@ -34,28 +36,40 @@ function reasonCodeOf(error: unknown): string | null {
 function safeError(error: unknown): string {
   const reasonCode = reasonCodeOf(error);
   if (reasonCode === "redacted_content_consent_required") {
-    return "Redacted-text access is not granted. Open Local sources, grant access, then retry.";
+    return "Redacted-text access is not granted. Open Local sources, grant access, then prepare a fresh preview.";
   }
   if (reasonCode === "session_not_in_safe_index") {
     return "This session is no longer in the bounded safe index. Refresh Local sources, then reopen the session.";
   }
   if (reasonCode === "analysis_idempotency_conflict") {
-    return "This request conflicts with an earlier local run. Close this review, reopen it, and retry.";
+    return "The one-shot request conflicts with an earlier local run. Refresh this session before preparing another preview.";
   }
-  if (
-    reasonCode === "invalid_analysis_request" ||
-    reasonCode === "confirmation_required"
-  ) {
-    return "The coaching analysis profile was rejected. Update and restart Prompt Enhancer, then retry.";
+  if (reasonCode === "redaction_preview_expired") {
+    return "The ten-minute in-memory preview expired. Prepare a fresh preview before approving.";
+  }
+  if (reasonCode === "redaction_preview_consumed") {
+    return "That one-shot preview was already consumed. Refresh the stored result before preparing another preview.";
+  }
+  if (reasonCode === "redaction_preview_binding_mismatch") {
+    return "Approval was rejected because the exact preview binding changed. Nothing was approved from this screen; prepare a fresh preview.";
+  }
+  if (reasonCode === "redaction_preview_not_found") {
+    return "The in-memory preview is no longer available. Prepare a fresh preview.";
+  }
+  if (reasonCode === "redaction_preview_capacity_reached") {
+    return "The local preview limit is temporarily full. Wait for an older preview to expire, then retry.";
+  }
+  if (reasonCode === "invalid_analysis_request" || reasonCode === "confirmation_required") {
+    return "The fixed coaching profile was rejected. Update and restart Prompt Enhancer, then retry.";
   }
   if (reasonCode === "source_schema_unsupported") {
     return "This Codex session uses a content schema this app version cannot safely read. Update Prompt Enhancer, restart it, and refresh the safe index.";
   }
   if (reasonCode === "selection_snapshot_miss") {
-    return "The indexed session changed before the bounded read. Refresh the safe index, reopen this session, and retry.";
+    return "The indexed session changed before the bounded read. Refresh the safe index, reopen this session, and prepare a new preview.";
   }
   if (reasonCode === "source_resource_limit") {
-    return "This session exceeds the coaching profile's fixed local safety limit. No partial score was created.";
+    return "This session exceeds the coaching profile's fixed local safety limit. No partial preview or score was created.";
   }
   if (reasonCode === "source_timeout") {
     return "The bounded local provider read timed out. Retry once; no provider content is included in this message.";
@@ -64,56 +78,60 @@ function safeError(error: unknown): string {
     return "The Codex local provider is temporarily unavailable. Keep Codex running, then retry.";
   }
   if (reasonCode === "no_analyzable_text") {
-    return "No analyzable prompt or response text was available in this bounded session. No metric score was created.";
+    return "No analyzable prompt or response text was available in this bounded session. No preview or metric score was created.";
   }
   if (reasonCode === "provider_protocol_rejected") {
-    return "Installed schema compatibility passed, but Codex rejected this session read. Retry the analysis once. If it repeats, restart Codex and Prompt Enhancer; rechecking schema compatibility alone will not repair a live read failure.";
+    return "Codex rejected the bounded session read. Retry once; if it repeats, restart Codex and Prompt Enhancer.";
   }
   if (reasonCode === "provider_compatibility_blocked") {
-    return "The installed-schema compatibility status changed after this review opened. Refresh that content-free status before trying this session again.";
+    return "Installed-schema compatibility changed after this review opened. Refresh the content-free compatibility status first.";
   }
   if (reasonCode === "analysis_persistence_failed") {
-    return "The content-free immutable result could not be stored. Check the local database and retry.";
+    return "The content-free immutable result could not be stored. Check the local database before preparing a fresh preview.";
   }
   if (reasonCode === "metric_execution_failed") {
-    return "The local metric engine could not finish this run. Retry once or inspect the local application logs.";
+    return "The local metric engine could not finish after one-shot approval. Refresh stored results before preparing a fresh preview.";
   }
   const status = statusOf(error);
   if (status === 403) {
-    return "This local analysis was not authorized. Review local-source access and try again.";
+    return "This local preview was not authorized. Review local-source access and try again.";
   }
-  if (status === 404) {
-    return "This session is no longer available in the safe local index.";
+  if (status === 404 || status === 410) {
+    return "The selected session or its in-memory preview is no longer available. Prepare a fresh preview.";
   }
   if (status === 409) {
-    return "The selected session changed. Close this review, reopen it, and retry.";
+    return "The selected session or preview changed. Reopen the session and prepare a fresh preview.";
   }
-  if (status === 405) {
-    return "Bounded text analysis is not available in this running app. Restart Prompt Enhancer after updating the local backend.";
+  if (status === 405 || status === 501) {
+    return "Preview-bound local analysis is not available in this running mode. Restart Prompt Enhancer in Local real mode after updating it.";
   }
   if (status === 413 || status === 422) {
-    return "The coaching analysis profile was rejected by the local service.";
+    return "The fixed coaching preview was rejected by the local service.";
   }
-  if (status === 501) {
-    return "New local analyses are disabled in the fictional preview. The canned immutable run remains available for inspection.";
+  if (status === 503 || status === 504) {
+    return "The local preview service is temporarily unavailable. Retry once; no provider content is included in this message.";
   }
-  if (status === 503) {
-    return "The local analysis service is temporarily unavailable. Refresh the safe index and retry; no provider content is included in this message.";
-  }
-  if (status === null) {
-    return "The browser lost the local analysis response. Refresh this page once and retry. If it repeats, the local app needs diagnostics; no transcript content is shown here.";
-  }
-  return "The bounded local analysis could not be completed. Refresh once and retry; no transcript content is shown in this error.";
+  return "The private local preview flow could not be completed. Refresh once and retry; no transcript content is shown in this error.";
 }
 
 export function AnalyzeLocallyDialog({
-  onAnalyze,
+  exactSessionId,
+  onApprovePreview,
   onCheckCompatibility,
   onClose,
+  onPreparePreview,
   sessionDescriptor = "Selected session",
 }: {
-  onAnalyze: (
-    request: SessionQualityAnalysisRequest,
+  exactSessionId: string;
+  onPreparePreview: (
+    sessionId: string,
+    request: SessionQualityAnalysisPreviewRequest,
+    signal: AbortSignal,
+  ) => Promise<SessionQualityAnalysisPreview>;
+  onApprovePreview: (
+    sessionId: string,
+    previewId: string,
+    request: SessionQualityAnalysisPreviewApprovalRequest,
     idempotencyKey: string,
     signal: AbortSignal,
   ) => Promise<void>;
@@ -121,26 +139,38 @@ export function AnalyzeLocallyDialog({
   onClose: () => void;
   sessionDescriptor?: string;
 }) {
-  const [pendingAction, setPendingAction] = useState<
-    "analysis" | "compatibility" | null
-  >(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [preview, setPreview] = useState<SessionQualityAnalysisPreview | null>(null);
   const [error, setError] = useState("");
   const [failureReason, setFailureReason] = useState<string | null>(null);
+  const [requiresRefresh, setRequiresRefresh] = useState(false);
   const primaryRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
-  const idempotencyKeyRef = useRef(nextIdempotencyKey("quality-analysis"));
+  const approvalKeyRef = useRef("");
+  const initialSessionIdRef = useRef(exactSessionId);
+  const initialDescriptorRef = useRef(sessionDescriptor);
   const onCloseRef = useRef(onClose);
+
+  function clearPreview() {
+    setPreview(null);
+    approvalKeyRef.current = "";
+  }
 
   function close() {
     requestControllerRef.current?.abort();
+    clearPreview();
     onCloseRef.current();
   }
 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  useEffect(() => {
+    if (exactSessionId !== initialSessionIdRef.current) close();
+  }, [exactSessionId]);
 
   useEffect(() => {
     const previous =
@@ -182,25 +212,93 @@ export function AnalyzeLocallyDialog({
     };
   }, []);
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  useEffect(() => {
+    if (!preview) return;
+    primaryRef.current?.focus();
+    const remaining = Date.parse(preview.expires_at) - Date.now();
+    if (remaining <= 0) {
+      clearPreview();
+      setError("The ten-minute in-memory preview expired. Prepare a fresh preview before approving.");
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      clearPreview();
+      setError("The ten-minute in-memory preview expired. Prepare a fresh preview before approving.");
+    }, remaining);
+    return () => window.clearTimeout(timeout);
+  }, [preview]);
+
+  async function preparePreview() {
     if (pendingAction !== null) return;
     const controller = new AbortController();
     requestControllerRef.current = controller;
     setError("");
     setFailureReason(null);
-    setPendingAction("analysis");
+    setRequiresRefresh(false);
+    clearPreview();
+    setPendingAction("preview");
     cancelRef.current?.focus();
     try {
-      await onAnalyze(
-        COACHING_ANALYSIS_REQUEST,
-        idempotencyKeyRef.current,
+      const nextPreview = await onPreparePreview(
+        initialSessionIdRef.current,
+        COACHING_ANALYSIS_PREVIEW_REQUEST,
         controller.signal,
       );
-      if (!controller.signal.aborted) onCloseRef.current();
+      if (controller.signal.aborted) return;
+      if (nextPreview.binding.session_id !== initialSessionIdRef.current) {
+        throw new Error("preview identity mismatch");
+      }
+      approvalKeyRef.current = nextIdempotencyKey("quality-preview-approval");
+      setPreview(nextPreview);
     } catch (nextError) {
       if (!controller.signal.aborted) {
         setFailureReason(reasonCodeOf(nextError));
+        setError(safeError(nextError));
+      }
+    } finally {
+      if (!controller.signal.aborted) setPendingAction(null);
+      requestControllerRef.current = null;
+    }
+  }
+
+  async function approvePreview() {
+    if (!preview || pendingAction !== null) return;
+    if (Date.now() >= Date.parse(preview.expires_at)) {
+      clearPreview();
+      setError("The ten-minute in-memory preview expired. Prepare a fresh preview before approving.");
+      return;
+    }
+    const approvedPreview = preview;
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    setError("");
+    setFailureReason(null);
+    setPendingAction("approval");
+    cancelRef.current?.focus();
+    try {
+      await onApprovePreview(
+        initialSessionIdRef.current,
+        approvedPreview.preview_id,
+        {
+          confirmation: "approve_exact_redacted_preview",
+          expected_binding: approvedPreview.binding,
+        },
+        approvalKeyRef.current,
+        controller.signal,
+      );
+      if (!controller.signal.aborted) close();
+    } catch (nextError) {
+      if (!controller.signal.aborted) {
+        // Approval is atomic and one-shot. Never offer a second click against
+        // the same preview after an ambiguous or failed response.
+        clearPreview();
+        const reasonCode = reasonCodeOf(nextError);
+        setFailureReason(reasonCode);
+        setRequiresRefresh(![
+          "redaction_preview_expired",
+          "redaction_preview_binding_mismatch",
+          "redaction_preview_not_found",
+        ].includes(reasonCode ?? ""));
         setError(safeError(nextError));
       }
     } finally {
@@ -218,11 +316,11 @@ export function AnalyzeLocallyDialog({
     cancelRef.current?.focus();
     try {
       await onCheckCompatibility(controller.signal);
-      if (!controller.signal.aborted) onCloseRef.current();
+      if (!controller.signal.aborted) setFailureReason(null);
     } catch {
       if (!controller.signal.aborted) {
         setError(
-          "The content-free compatibility check could not be completed. Retry the check or close this review; no session content was included in this error.",
+          "The content-free compatibility check could not be completed. Retry the check or cancel; no session content was included in this error.",
         );
       }
     } finally {
@@ -234,17 +332,21 @@ export function AnalyzeLocallyDialog({
   const compatibilityBlocked = failureReason === "provider_compatibility_blocked";
   const pending = pendingAction !== null;
   const primaryLabel =
-    pendingAction === "analysis"
-      ? "Analyzing locally…"
-      : pendingAction === "compatibility"
-        ? "Rechecking compatibility…"
-        : compatibilityBlocked
-          ? onCheckCompatibility
+    pendingAction === "preview"
+      ? "Preparing private preview…"
+      : pendingAction === "approval"
+        ? "Approving and analyzing locally…"
+        : pendingAction === "compatibility"
+          ? "Rechecking compatibility…"
+          : compatibilityBlocked
             ? "Recheck compatibility"
-            : "Close to compatibility status"
-          : error
-            ? "Retry analysis"
-            : "Analyze this session";
+            : requiresRefresh
+              ? "Close and refresh session"
+            : preview
+              ? "Approve once and analyze"
+              : error
+                ? "Prepare fresh preview"
+                : "Prepare redacted preview";
 
   return createPortal(
     <div
@@ -258,10 +360,12 @@ export function AnalyzeLocallyDialog({
       <section className="analysis-dialog__panel" ref={panelRef}>
         <header>
           <div>
-            <p className="eyebrow">One session · local only</p>
+            <p className="eyebrow">One session · local only · approval bound</p>
             <h2 id="analyze-locally-title">Ready to analyze</h2>
             <p id="analyze-locally-summary">
-              Review the fixed coaching profile, then start it—nothing to configure.
+              {preview
+                ? "Inspect the exact redacted window and binding before one-shot approval."
+                : "Prepare an in-memory redacted window first. Preparation does not calculate or store metric results."}
             </p>
           </div>
           <button
@@ -275,7 +379,12 @@ export function AnalyzeLocallyDialog({
           </button>
         </header>
 
-        <form onSubmit={(event) => void submit(event)}>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void (preview ? approvePreview() : preparePreview());
+          }}
+        >
           <section className="analysis-dialog__preset" aria-labelledby="analysis-preset-title">
             <div className="analysis-dialog__preset-heading">
               <span aria-hidden="true">S1</span>
@@ -283,20 +392,24 @@ export function AnalyzeLocallyDialog({
                 <strong id="analysis-preset-title">
                   {COACHING_ANALYSIS_PRESET.label} v{COACHING_ANALYSIS_PRESET.version}
                 </strong>
-                <small>Fixed scope; provenance is checked before comparison</small>
+                <small>Fixed local scope; remote destinations remain disabled</small>
               </div>
             </div>
             <dl>
               <div>
-                <dt>Session</dt>
-                <dd>{sessionDescriptor}</dd>
+                <dt>Selected session</dt>
+                <dd>{initialDescriptorRef.current}</dd>
+              </div>
+              <div>
+                <dt>Exact safe session ID</dt>
+                <dd><code>{initialSessionIdRef.current}</code></dd>
               </div>
               <div>
                 <dt>Coverage</dt>
-                <dd>{COACHING_ANALYSIS_PRESET.metricAttempts} prompt, collaboration, logic, and outcome metric attempts</dd>
+                <dd>{COACHING_ANALYSIS_PRESET.metricAttempts} metric attempts</dd>
               </div>
               <div>
-                <dt>Local limit</dt>
+                <dt>Bounded read</dt>
                 <dd>
                   Up to {COACHING_ANALYSIS_PRESET.maxMessages} messages · {COACHING_ANALYSIS_PRESET.maxCharacters.toLocaleString("en")} redacted characters
                 </dd>
@@ -308,30 +421,90 @@ export function AnalyzeLocallyDialog({
             </p>
           </section>
 
+          {preview && (
+            <>
+              <section className="analysis-dialog__binding" aria-labelledby="preview-binding-title">
+                <div>
+                  <p className="eyebrow">Approval contract</p>
+                  <h3 id="preview-binding-title">Exact preview binding</h3>
+                </div>
+                <dl>
+                  <div><dt>Destination</dt><dd>Local device only</dd></div>
+                  <div><dt>Exact model</dt><dd><code>{preview.binding.exact_model}</code> · deterministic rules</dd></div>
+                  <div><dt>Retention</dt><dd>Local ephemeral memory · ten minutes</dd></div>
+                  <div><dt>API cost</dt><dd>Not applicable · no remote call</dd></div>
+                  <div><dt>Size</dt><dd>{preview.binding.message_count} messages · {preview.binding.character_count.toLocaleString("en")} characters</dd></div>
+                  <div><dt>Expires at</dt><dd><time dateTime={preview.expires_at}>{preview.expires_at}</time></dd></div>
+                  <div><dt>Redactor</dt><dd><code>{preview.binding.redactor_version}</code></dd></div>
+                  <div><dt>Estimator plan</dt><dd><code>{preview.binding.estimator_plan_version}</code></dd></div>
+                  <div className="analysis-dialog__binding-wide">
+                    <dt>Window fingerprint</dt>
+                    <dd><code>{preview.binding.analysis_window_fingerprint}</code></dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section className="analysis-dialog__metrics" aria-labelledby="preview-metrics-title">
+                <div>
+                  <p className="eyebrow">Selected metric set</p>
+                  <h3 id="preview-metrics-title">{preview.binding.metric_keys.length} version-bound metric attempts</h3>
+                </div>
+                <ul>
+                  {preview.binding.metric_keys.map((key) => (
+                    <li key={key}><code>{key}</code></li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="analysis-dialog__preview" aria-labelledby="redacted-preview-title">
+                <div>
+                  <p className="eyebrow">Sensitive · memory only</p>
+                  <h3 id="redacted-preview-title">Exact redacted text window</h3>
+                  <p>Review every item below. Text is not written to browser storage, logs, analytics, or the metrics database.</p>
+                </div>
+                <ol>
+                  {preview.messages.map((message, index) => (
+                    <li key={`${index}-${message.role}-${message.kind}`}>
+                      <span>{message.role} · {message.kind} · {message.language}</span>
+                      <p>{message.text}</p>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            </>
+          )}
+
           <div className="analysis-dialog__privacy" role="note">
-            <strong>Private by default</strong>
+            <strong>{preview ? "One-shot approval" : "Private preparation"}</strong>
             <span>
-              The bounded provider read starts only when you press the analysis button.
-              Processing stays local; the database stores content-free metrics and
-              provenance, not prompts, responses, excerpts, paths, or tool output.
+              {preview
+                ? "Approval is valid only for the exact session, window fingerprint, metric set, model, redactor, destination, retention, size, and cost shown above. Any mismatch fails closed."
+                : "Preparing reads one bounded, redacted provider window into local service memory for ten minutes. It does not call a remote model or persist preview text."}
             </span>
           </div>
 
           {error && <p className="analysis-dialog__error" role="alert">{error}</p>}
           <p aria-live="polite" className="analysis-dialog__status" role="status">
-            {pendingAction === "analysis"
-              ? "Running the coaching profile locally…"
-              : pendingAction === "compatibility"
-                ? "Refreshing installed-schema compatibility without reading a session…"
-                : compatibilityBlocked
-                  ? "Session analysis is paused until the content-free compatibility status is refreshed."
-                  : error
-                    ? "The run did not complete. Review the message above before trying again."
-                    : "Pressing Analyze is the explicit one-time confirmation for this session."}
+            {pendingAction === "preview"
+              ? "Preparing the bounded redacted window locally…"
+              : pendingAction === "approval"
+                ? "Consuming this exact approval once and calculating local metrics…"
+                : pendingAction === "compatibility"
+                  ? "Refreshing installed-schema compatibility without reading a session…"
+                  : compatibilityBlocked
+                    ? "Preview preparation is paused until compatibility is refreshed."
+                    : requiresRefresh
+                      ? "The approval result is uncertain or consumed. Close and refresh stored results before starting another preview."
+                    : preview
+                      ? "Nothing has been analyzed yet. Approval will consume this exact preview once."
+                      : error
+                        ? "No preview is active. Review the message, then prepare a fresh one."
+                        : "Prepare first; review the exact redacted text and disclosure; then approve once."}
           </p>
           <p className="analysis-dialog__cancel-note">
-            Cancel stops this browser from waiting. A run already accepted locally may
-            still finish and remain immutable.
+            {preview
+              ? "Cancel removes this browser copy immediately; the local service copy expires automatically."
+              : "Cancel stops this browser from waiting. A provider read already accepted locally may finish and expire without approval."}
           </p>
           <footer>
             <button
@@ -350,10 +523,12 @@ export function AnalyzeLocallyDialog({
                   ? onCheckCompatibility
                     ? () => void recheckCompatibility()
                     : close
+                  : requiresRefresh
+                    ? close
                   : undefined
               }
               ref={primaryRef}
-              type={compatibilityBlocked ? "button" : "submit"}
+              type={compatibilityBlocked || requiresRefresh ? "button" : "submit"}
             >
               {primaryLabel}
             </button>

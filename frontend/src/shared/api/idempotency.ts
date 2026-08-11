@@ -5,6 +5,7 @@ export type IdempotentAction =
   | "split"
   | "analysis"
   | "quality-analysis"
+  | "quality-preview-approval"
   | "model-link-experiment";
 
 /** A content-free, collision-resistant key generated only for a local command. */

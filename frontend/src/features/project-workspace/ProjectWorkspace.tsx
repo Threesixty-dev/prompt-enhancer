@@ -1050,14 +1050,36 @@ export function ProjectWorkspace({
     });
   }
 
-  async function analyzeQualityLocally(
-    request: Parameters<PromptEnhancerTransport["startSessionQualityAnalysis"]>[1],
+  async function prepareQualityPreview(
+    requestedSessionId: string,
+    request: Parameters<PromptEnhancerTransport["prepareSessionQualityAnalysisPreview"]>[1],
+    signal: AbortSignal,
+  ) {
+    if (!sessionId || requestedSessionId !== sessionId) {
+      throw new Error("Selected session is unavailable.");
+    }
+    return transport.prepareSessionQualityAnalysisPreview(
+      requestedSessionId,
+      request,
+      signal,
+    );
+  }
+
+  async function approveQualityPreview(
+    requestedSessionId: string,
+    previewId: string,
+    request: Parameters<PromptEnhancerTransport["approveSessionQualityAnalysisPreview"]>[1],
     idempotencyKey: string,
     signal: AbortSignal,
   ) {
-    if (!sessionId) throw new Error("Selected session is unavailable.");
-    const outcome = await transport.startSessionQualityAnalysis(
-      sessionId,
+    if (!sessionId || requestedSessionId !== sessionId) {
+      throw new Error("Selected session is unavailable.");
+    }
+    if (request.expected_binding.session_id !== requestedSessionId) {
+      throw new Error("Preview session is unavailable.");
+    }
+    const outcome = await transport.approveSessionQualityAnalysisPreview(
+      previewId,
       request,
       idempotencyKey,
       signal,
@@ -1071,7 +1093,11 @@ export function ProjectWorkspace({
       : null;
     if (
       outcome.status !== "completed" ||
+      outcome.analysis_profile_key !== "coaching_profile" ||
+      outcome.analysis_profile_version !== 1 ||
       detail.run.status !== "completed" ||
+      detail.run.run_id !== outcome.run_id ||
+      detail.run.session_id !== requestedSessionId ||
       nextProfile?.latest.integrity !== "coherent"
     ) {
       throw new Error("The immutable result is not complete.");
@@ -1364,7 +1390,11 @@ export function ProjectWorkspace({
                   ? checkProviderCompatibility
                   : undefined
               }
-              onAnalyzeLocally={analyzeQualityLocally}
+              onAnalyzeLocally={{
+                exactSessionId: currentSession.session_id,
+                preparePreview: prepareQualityPreview,
+                approvePreview: approveQualityPreview,
+              }}
               onRetryMetricReadiness={() =>
                 setMetricReadinessRefreshKey((value) => value + 1)
               }

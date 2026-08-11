@@ -31,6 +31,9 @@ import type {
   SessionMetricResponse,
   SessionMetricReadinessReport,
   SessionQualityAnalysisOutcome,
+  SessionQualityAnalysisPreview,
+  SessionQualityAnalysisPreviewApprovalRequest,
+  SessionQualityAnalysisPreviewRequest,
   SessionQualityAnalysisRequest,
   SessionTextAnalysisCapability,
   SessionQualityAggregate,
@@ -81,6 +84,11 @@ export type SafeTransportReasonCode =
   | "provider_compatibility_blocked"
   | "analysis_persistence_failed"
   | "metric_execution_failed"
+  | "redaction_preview_not_found"
+  | "redaction_preview_expired"
+  | "redaction_preview_consumed"
+  | "redaction_preview_binding_mismatch"
+  | "redaction_preview_capacity_reached"
   | "invalid_model_link_request"
   | "model_link_confirmation_required"
   | "no_model_link_candidates"
@@ -104,6 +112,11 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "provider_compatibility_blocked",
   "analysis_persistence_failed",
   "metric_execution_failed",
+  "redaction_preview_not_found",
+  "redaction_preview_expired",
+  "redaction_preview_consumed",
+  "redaction_preview_binding_mismatch",
+  "redaction_preview_capacity_reached",
   "invalid_model_link_request",
   "model_link_confirmation_required",
   "no_model_link_candidates",
@@ -842,6 +855,141 @@ export function parseSessionMetricReadinessReport(
   return value as unknown as SessionMetricReadinessReport;
 }
 
+const PREVIEW_KEYS = new Set([
+  "preview_id", "created_at", "expires_at", "binding", "messages",
+]);
+const PREVIEW_BINDING_KEYS = new Set([
+  "provider", "session_id", "analysis_window_fingerprint", "metric_keys",
+  "destination", "exact_model", "estimator_plan_version", "redactor_version",
+  "retention_class", "message_count", "character_count", "cost_state",
+  "estimated_cost_microunits", "cost_currency",
+]);
+const PREVIEW_MESSAGE_KEYS = new Set(["role", "kind", "language", "text"]);
+const ANALYSIS_OUTCOME_KEYS = new Set([
+  "run_id", "status", "result_count", "applied", "analysis_profile_key",
+  "analysis_profile_version",
+]);
+const PREVIEW_MESSAGE_KINDS = new Set([
+  "request", "response", "plan", "action", "verification", "decision",
+  "feedback", "summary",
+]);
+const PREVIEW_LANGUAGES = new Set(["en", "pl", "mixed", "unknown"]);
+
+function isUtcTimestamp(value: unknown): value is string {
+  return typeof value === "string" &&
+    /(?:Z|\+00:00)$/.test(value) &&
+    Number.isFinite(Date.parse(value));
+}
+
+function parseLocalPreviewBinding(
+  value: unknown,
+  expectedSessionId: string,
+  expectedPresetId: TextAnalysisPresetId,
+) {
+  if (
+    !isRecord(value) || !hasExactKeys(value, PREVIEW_BINDING_KEYS) ||
+    value.provider !== "codex" ||
+    value.session_id !== expectedSessionId || !PSEUDONYM.test(expectedSessionId) ||
+    typeof value.analysis_window_fingerprint !== "string" ||
+    !PSEUDONYM.test(value.analysis_window_fingerprint) ||
+    !Array.isArray(value.metric_keys) || value.metric_keys.length < 1 ||
+    value.metric_keys.length > 100 ||
+    value.metric_keys.some((key) => typeof key !== "string" || !READINESS_SAFE_TOKEN.test(key)) ||
+    new Set(value.metric_keys).size !== value.metric_keys.length ||
+    value.destination !== "local" || value.exact_model !== "none" ||
+    typeof value.estimator_plan_version !== "string" ||
+    !READINESS_SAFE_TOKEN.test(value.estimator_plan_version) ||
+    typeof value.redactor_version !== "string" ||
+    !READINESS_SAFE_TOKEN.test(value.redactor_version) ||
+    value.retention_class !== "local_ephemeral" ||
+    !Number.isInteger(value.message_count) ||
+    (value.message_count as number) < 1 || (value.message_count as number) > 500 ||
+    !Number.isInteger(value.character_count) ||
+    (value.character_count as number) < 1 || (value.character_count as number) > 500_000 ||
+    value.cost_state !== "not_applicable" ||
+    value.estimated_cost_microunits !== null || value.cost_currency !== null
+  ) {
+    throw new TransportError("Redaction preview response was invalid", 200);
+  }
+  if (expectedPresetId === "coaching_profile_v1") {
+    const keys = value.metric_keys as string[];
+    if (
+      keys.length !== COACHING_READINESS_KEYS.length ||
+      keys.some((key) => !COACHING_READINESS_KEY_SET.has(key))
+    ) {
+      throw new TransportError("Redaction preview response was invalid", 200);
+    }
+  }
+  return value;
+}
+
+/**
+ * Validate the only secret-bearing browser DTO. Unknown fields and every
+ * remote/cost-bearing shape fail closed before preview text reaches React.
+ */
+export function parseSessionQualityAnalysisPreview(
+  value: unknown,
+  expectedSessionId: string,
+  expectedPresetId: TextAnalysisPresetId = "coaching_profile_v1",
+): SessionQualityAnalysisPreview {
+  if (
+    !isRecord(value) || !hasExactKeys(value, PREVIEW_KEYS) ||
+    typeof value.preview_id !== "string" || !PSEUDONYM.test(value.preview_id) ||
+    !isUtcTimestamp(value.created_at) || !isUtcTimestamp(value.expires_at) ||
+    Date.parse(value.expires_at) - Date.parse(value.created_at) !== 600_000 ||
+    !Array.isArray(value.messages)
+  ) {
+    throw new TransportError("Redaction preview response was invalid", 200);
+  }
+  const binding = parseLocalPreviewBinding(
+    value.binding,
+    expectedSessionId,
+    expectedPresetId,
+  );
+  const messages = value.messages;
+  if (messages.length !== binding.message_count) {
+    throw new TransportError("Redaction preview response was invalid", 200);
+  }
+  let characterCount = 0;
+  for (const message of messages) {
+    if (
+      !isRecord(message) || !hasExactKeys(message, PREVIEW_MESSAGE_KEYS) ||
+      !["user", "agent"].includes(message.role as string) ||
+      !PREVIEW_MESSAGE_KINDS.has(message.kind as string) ||
+      !PREVIEW_LANGUAGES.has(message.language as string) ||
+      typeof message.text !== "string" || message.text.length < 1 ||
+      Array.from(message.text).length > 32_000
+    ) {
+      throw new TransportError("Redaction preview response was invalid", 200);
+    }
+    characterCount += Array.from(message.text).length;
+  }
+  if (characterCount !== binding.character_count) {
+    throw new TransportError("Redaction preview response was invalid", 200);
+  }
+  return value as unknown as SessionQualityAnalysisPreview;
+}
+
+export function parseSessionQualityAnalysisOutcome(
+  value: unknown,
+): SessionQualityAnalysisOutcome {
+  if (
+    !isRecord(value) || !hasExactKeys(value, ANALYSIS_OUTCOME_KEYS) ||
+    typeof value.run_id !== "string" || !PSEUDONYM.test(value.run_id) ||
+    !["running", "completed", "failed"].includes(value.status as string) ||
+    !Number.isInteger(value.result_count) ||
+    (value.result_count as number) < 0 || (value.result_count as number) > 100 ||
+    typeof value.applied !== "boolean" ||
+    typeof value.analysis_profile_key !== "string" ||
+    !READINESS_SAFE_TOKEN.test(value.analysis_profile_key) ||
+    !Number.isInteger(value.analysis_profile_version) ||
+    (value.analysis_profile_version as number) < 1
+  ) {
+    throw new TransportError("Local analysis response was invalid", 200);
+  }
+  return value as unknown as SessionQualityAnalysisOutcome;
+}
+
 /**
  * Return a request target only when the caller supplied a root-relative URL for
  * the current origin. Absolute, protocol-relative, credentialed, and cross-origin
@@ -957,6 +1105,7 @@ export function createHttpTransport(options: {
     init: RequestInit,
     signal?: AbortSignal,
     readSafeAnalysisReason = false,
+    requirePrivateNoStore = false,
   ): Promise<T> {
     const target = assertSameOriginRelativePath(path, origin);
     const method = (init.method ?? "GET").toUpperCase();
@@ -965,6 +1114,7 @@ export function createHttpTransport(options: {
     const send = (csrf: string) =>
       fetchRequest(target, {
         ...init,
+        cache: requirePrivateNoStore ? "no-store" : init.cache,
         credentials: "include",
         redirect: "error",
         referrerPolicy: "no-referrer",
@@ -996,6 +1146,15 @@ export function createHttpTransport(options: {
         response.status,
         reasonCode,
       );
+    }
+    if (
+      requirePrivateNoStore &&
+      (
+        response.headers.get("cache-control") !== "no-store, private" ||
+        response.headers.get("pragma") !== "no-cache"
+      )
+    ) {
+      throw new TransportError("Private local response was not cache-safe", response.status);
     }
     if (!isJsonResponse(response)) {
       throw new TransportError("Local API returned an unexpected content type", response.status);
@@ -1242,7 +1401,7 @@ export function createHttpTransport(options: {
       idempotencyKey,
       signal,
     ) {
-      return request<SessionQualityAnalysisOutcome>(
+      return request<unknown>(
         `/v1/sessions/${encodeURIComponent(sessionId)}/quality-analysis-runs`,
         {
           method: "POST",
@@ -1254,7 +1413,51 @@ export function createHttpTransport(options: {
         },
         signal,
         true,
+      ).then(parseSessionQualityAnalysisOutcome);
+    },
+    async prepareSessionQualityAnalysisPreview(
+      sessionId,
+      previewRequest: SessionQualityAnalysisPreviewRequest,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/quality-analysis-previews`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(previewRequest),
+        },
+        signal,
+        true,
+        true,
       );
+      return parseSessionQualityAnalysisPreview(
+        value,
+        sessionId,
+        previewRequest.preset_id,
+      );
+    },
+    async approveSessionQualityAnalysisPreview(
+      previewId,
+      approvalRequest: SessionQualityAnalysisPreviewApprovalRequest,
+      idempotencyKey,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/quality-analysis-previews/${encodeURIComponent(previewId)}/approval`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(approvalRequest),
+        },
+        signal,
+        true,
+        true,
+      );
+      return parseSessionQualityAnalysisOutcome(value);
     },
     aggregateSessionQuality(
       aggregateRequest: SessionQualityAggregateRequest,

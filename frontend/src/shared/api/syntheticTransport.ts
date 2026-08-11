@@ -502,6 +502,24 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         status: "completed" as const,
       });
     },
+    async prepareSessionQualityAnalysisPreview(sessionId, request) {
+      if (sessionId !== SYNTHETIC_QUALITY_SESSION_ID) {
+        throw new TransportError("Synthetic session was not found", 404);
+      }
+      if (request.preset_id !== "coaching_profile_v1") {
+        throw new TransportError("Synthetic preview request is invalid", 422);
+      }
+      throw new TransportError(
+        "Private previews are unavailable in synthetic demo mode",
+        501,
+      );
+    },
+    async approveSessionQualityAnalysisPreview() {
+      throw new TransportError(
+        "Private preview approvals are unavailable in synthetic demo mode",
+        501,
+      );
+    },
     async aggregateSessionQuality(request) {
       return copy(syntheticQualityAggregate(request.session_ids));
     },

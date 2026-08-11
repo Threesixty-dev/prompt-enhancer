@@ -119,6 +119,13 @@ export type SessionQualityAnalysisRequest =
   Schemas["SessionTextAnalysisRequest"];
 export type SessionQualityAnalysisOutcome =
   Schemas["SessionTextAnalysisCommandResponse"];
+export type RedactionPreviewBinding = Schemas["RedactionPreviewBinding"];
+export type SessionQualityAnalysisPreviewRequest =
+  Schemas["SessionTextAnalysisPreviewRequest"];
+export type SessionQualityAnalysisPreview =
+  Schemas["SessionTextAnalysisPreviewResponse"];
+export type SessionQualityAnalysisPreviewApprovalRequest =
+  Schemas["SessionTextAnalysisPreviewApprovalRequest"];
 
 export type SessionTextAnalysisUnavailableReason =
   | "analysis_service_unavailable"
@@ -324,6 +331,17 @@ export interface PromptEnhancerTransport {
   startSessionQualityAnalysis(
     sessionId: string,
     request: SessionQualityAnalysisRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<SessionQualityAnalysisOutcome>;
+  prepareSessionQualityAnalysisPreview(
+    sessionId: string,
+    request: SessionQualityAnalysisPreviewRequest,
+    signal?: AbortSignal,
+  ): Promise<SessionQualityAnalysisPreview>;
+  approveSessionQualityAnalysisPreview(
+    previewId: string,
+    request: SessionQualityAnalysisPreviewApprovalRequest,
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<SessionQualityAnalysisOutcome>;
