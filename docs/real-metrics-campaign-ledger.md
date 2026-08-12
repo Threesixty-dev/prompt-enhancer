@@ -19,8 +19,8 @@ local runtime artifacts must never be added here.
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
-| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, plus repository-sealed non-comparable calibration reports | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, sealed gate decision, calibrated model-stage runtime, or product-enabled estimator |
-| P2 | In progress | Prospective, untrusted temporal contracts and capture-lineage foundations only | Prospective comparable recommendation outcomes with missingness and adverse effects visible | No temporal persistence, repository-materialized snapshots, recommendations, or model/job/history views; no legacy backfill is permitted |
+| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, and repository-sealed non-activating gate decisions | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
+| P2 | In progress | Prospective capture-lineage contracts plus a bounded, synthetic-only, untrusted temporal source-draft boundary | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item timestamps and stable snapshot/cursor boundaries; no temporal capture persistence, repository seal, materialized snapshot, recommendation, or model/job/history view exists; no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
@@ -343,6 +343,29 @@ export/team sharing false. No gate-decision or activation table was added. The
 checkpoint passed 1,241 backend tests with 4 platform skips, focused/adjacent
 report gates, privacy and compile checks, and independent adversarial review.
 
+Checkpoint `7704ed6` adds repository-sealed gate decisions as normalized
+schema-v20 data. Its public write command accepts only a sealed v19 report
+identifier, then rehydrates and independently rederives the exact v16 campaign,
+v17 submission, and v19 report lineage in one repository transaction before
+writing the decision root last. The code-owned decision vocabulary covers every
+registered metric, required stratum and language, subgroup dimension, high-risk
+rule, and identity, access, privacy, and stability gate. In the frozen
+single-metric fixture, adversarial hardening expanded the initial 83-check
+projection to 85 checks by making cold- and warm-latency sample sufficiency
+explicit; real vocabulary size remains derived from the registered campaign.
+
+The decision outcome has only `rejected` and `insufficient_data`; there is no
+eligible state. Missing or unsupported evidence never becomes zero or a failed
+measurement, and an all-pass release root is structurally invalid. A clean
+synthetic lineage remains insufficient because activation-grade evidence is
+absent, while repository-proven violations reject. The sealed decision keeps
+`activation_allowed=false`, `activation_slot_written=false`,
+`comparison_allowed=false`, private export false, and team sharing false.
+Schema v20 contains no activation slot or activation API. The checkpoint passed
+1,312 backend tests with 4 platform skips, privacy and compile checks, and
+independent adversarial review. This proves decision integrity, not estimator
+eligibility or product activation.
+
 ## P2 foundation evidence
 
 Checkpoints `249f6c0` and `4db7052` define a prospective, content-free temporal
@@ -372,16 +395,37 @@ snapshot-disabled, and activation-disabled. Its 82-test combined temporal gate
 and adversarial review passed, including a coordinated chronology/fingerprint
 forgery; no temporal storage or authority was added.
 
-These are contracts, not temporal storage. A history root requires a
-server-clock floor and rejects pre-floor data; selections and input receipts are
-direct-only; legacy inference and backfill are fixed false. Append-prefix proofs
-remain `untrusted_until_repository_verified`, unsealed, and unable to authorize
+Checkpoint `a1626a9` adds a public source boundary only for bounded synthetic
+tests. A draft request revalidates and binds the exact prospective history root,
+selection revision, project scope, metric keys, pack, catalog, and source
+authority. Canonical chronology and local resource bounds are enforced before
+a concrete local HMAC creates content-free commitments; the HMAC is a local
+integrity mechanism, not source or repository authority. The resulting draft is
+fixed untrusted, synthetic-only, unsealed, and repository-issuance-required.
+
+The Codex capability descriptor remains unavailable because the documented
+provider boundary supplies neither an authoritative UTC timestamp for every
+source item nor stable provider snapshot and cursor boundaries. Capture, list,
+read, session, turn, and repository-clock values cannot substitute for those
+missing facts. The draft has no `AnalysisInputReceiptV2` mapping and cannot
+enter product capture. Repository verification and issuance, a batch seal,
+comparison, snapshot materialization, and activation all remain false. The
+checkpoint passed 62 focused tests, a 173-test adjacent temporal/privacy/config
+gate, and independent adversarial review. These are synthetic contract and
+privacy results, not proof that product history capture is available.
+
+These are contracts and an untrusted synthetic draft, not temporal storage. A
+history root requires a server-clock floor and rejects pre-floor data;
+selections and input receipts are direct-only; legacy inference and backfill are
+fixed false. Append-prefix proofs remain
+`untrusted_until_repository_verified`, unsealed, and unable to authorize
 comparison. Session revisions and completion projections likewise require
 repository verification and remain unsealed with comparison disabled. Snapshot
 specification and receipt shapes exist only as untrusted construction
 boundaries: no repository materializes or seals them, and activation remains
-false. There is no temporal migration or persistence, no generated snapshot,
-recommendation, or model/job/history view, and no claim about legacy history.
+false. There is no temporal migration or capture persistence, repository batch
+seal, generated snapshot, recommendation, or model/job/history view, and no
+claim about legacy or product history.
 
 ## Version inventory
 
