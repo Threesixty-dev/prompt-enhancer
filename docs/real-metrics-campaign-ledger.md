@@ -20,7 +20,7 @@ local runtime artifacts must never be added here.
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
 | P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, and repository-sealed non-activating gate decisions | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
-| P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum and supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, and repository-issued synthetic comparison-stratum preparation and graph sealing | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
+| P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, and repository-issued synthetic comparison-stratum preparation and graph sealing | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
@@ -538,6 +538,42 @@ deprecation warning. The privacy scanner, compileall, and diff validation passed
 three independent contract, SQL, and integration reviews returned `PASS`. These
 results prove synthetic repository-graph integrity, not source truth, comparison
 validity, recommendation effectiveness, adverse-effect safety, or calibration.
+
+Pushed checkpoint `bdff8a5` (`Add repository-backed synthetic aggregation
+drafts`) adds an application-only V2 raw aggregation draft over schema-v22
+repository-sealed synthetic comparison-stratum receipts. The repository backing
+belongs to the revalidated input graph, not to the aggregation output. The draft
+still describes only the bounded set supplied by its caller: it is unsealed,
+nonrepository, noncomplete, and does not claim repository-return provenance or
+population completeness. Its exact content-free authority manifest commits the
+anchor preparation plus every supplied prepared and sealed stratum, analysis run
+and authority fingerprint, sealed batch, temporal revision, session coordinate,
+effective and sealed times, and window disposition. Authority-only changes move
+the draft identity and fingerprint even when the descriptive numbers do not.
+
+The V2 path reuses the exact aggregation semantics rather than introducing a
+second estimator: fraction ratio-of-sums, count and exposure sums and rates,
+pooled Type-7 distribution quartiles, and pooled sampled-proportion successes,
+trials, and Wilson intervals. Selection, source, value, missingness, evidence
+coverage, reviewed task buckets, compatibility runs, `A -> B -> A` transitions,
+and identity-unavailable gaps remain separately visible and conservatively
+counted. Synthetic contract tests cover one- and two-receipt paths; a separate
+SQLite integration uses one actual v22 repository-prepared and repository-sealed
+receipt. Neither establishes that the caller supplied a complete repository
+collection.
+
+Every product capture, source, comparison, pair-matching, aggregate and snapshot
+materialization, recommendation and outcome-evaluation, causal, activation,
+private-export, and team-sharing authority remains false. The checkpoint adds no
+schema migration, repository write, HTTP or CLI API, or UI surface. Its frozen
+evidence is 30 focused V2 tests, an exact 172-test adjacent gate, 554 passing
+temporal tests, and the full backend gate with 1,762 passed, 4 platform-only
+symlink skips, and one existing Starlette deprecation warning. The privacy scan,
+compileall, and diff validation passed, and an independent review of the exact
+`bdff8a5b35bdb1a93893c93c38b8b4a57b46442b` tree returned `PASS`. These are
+synthetic implementation-integrity results, not product/source truth,
+comparison validity, snapshot authority, recommendation effectiveness, or
+adverse-effect evidence.
 
 P2 remains in progress: the product-source boundary is still blocked by missing
 authoritative per-item timestamps and stable provider snapshot/cursor
