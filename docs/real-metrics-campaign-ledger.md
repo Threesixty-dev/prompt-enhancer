@@ -134,6 +134,17 @@ human-truth, privacy, and synthetic-origin facts from frozen immutable records
 before any estimator can become eligible. Until that vertical slice and the
 representative 100-200-judgment program exist, every estimator remains disabled.
 
+The reviewed runner foundation adds only two bounded paths: exploratory Codex
+CLI execution and explicit schema-validated manual native import. Subprocesses
+use direct argument arrays, an empty temporary Git workspace, read-only sandbox,
+strict ignored-user-configuration overrides, bounded stdin/stdout/stderr/workspace,
+process-tree cancellation, sanitized errors, and exact structured output. The
+installed CLI surface was checked directly before freezing the adapter. Codex
+CLI activation-grade requests fail before disclosure because the documented CLI
+does not provide a universal no-tool boundary. Claude consumer-subscription
+automation is absent; its only supported path is manual export/import. No BYOK
+or provider-network runner is implemented in this checkpoint.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
