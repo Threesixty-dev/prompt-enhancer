@@ -217,6 +217,43 @@ be promoted as quality scores. Promotion remains limited to at most two
 non-dominated configurations after the later preregistered screen; it is not
 product activation.
 
+The deterministic scope-router foundation is now implemented as a separate,
+label-blind metadata decision. It routes only content-free project, session,
+revision, requirement-version, applicability, supersession, and evidence-kind
+identities into five closed states: compatible, different scope, superseded,
+insufficient evidence, or not applicable. Unknown evidence is never converted
+to zero. The frozen synthetic corpus contains 30 distinct scenarios repeated
+across four reporting strata; the report therefore records 30 effective cases,
+not 120 independent cases, and explicitly fails the planned 96-case promotion
+threshold. The router is contract evidence only and remains product-disabled.
+
+The provisional activation-gate v2 contracts now bind the complete stored
+estimator plan, all expected attempts, requested and observed identities,
+authoritative candidate projections, blind human labels, and state-aware
+stability trials. The in-memory decision type cannot represent an eligible
+outcome: immutable persistence is an unconditional insufficient-evidence gate.
+This prevents synthetic or caller-constructed receipts from activating an
+estimator while the durable calibration evidence ledger is still absent.
+
+Schema v16 adds the first frozen private-calibration commitment without storing
+private observations or results. A preregistered campaign binds one previously
+stored non-synthetic plan, one exact provider/schema identity, exactly one
+versioned metric question per metric, a complete case-assignment manifest, a
+project/time split, gate policy, full model constellation, and both legacy and
+v2 preregistration receipts. Every planned question must be represented before
+the campaign can seal. Application and raw-SQL boundaries enforce the same
+lineage, canonical-time, control-character, finite-number, and safe-identifier
+rules. Activation remains fixed false.
+
+Campaign deletion securely removes all campaign-owned identifiers from the
+main database and SQLite WAL/SHM before reporting success. A domain-separated
+revocation digest prevents the same erased campaign identity from being
+recreated during or after checkpoint retry without retaining the original
+identifier. Global plans and gate policies remain immutable. The next P1 gate
+is the normalized v17 evidence journal for attempts, judgments, access events,
+privacy findings, and stability trials; reports, decisions, and activation
+remain later work.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
