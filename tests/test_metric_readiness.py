@@ -25,6 +25,7 @@ from prompt_enhancer.application.analysis.text_analysis_presets import (
 from prompt_enhancer.application.persistence import (
     AnalysisRunStatus,
     MetricValueState,
+    SessionMetricScopeState,
 )
 from prompt_enhancer.application.providers import (
     CapabilityObservation,
@@ -234,7 +235,13 @@ def test_persisted_closed_states_remain_distinct() -> None:
     runs = _Runs()
     runs.latest = SimpleNamespace(
         status=AnalysisRunStatus.COMPLETED,
-        draft=SimpleNamespace(run_id="4" * 64),
+        draft=SimpleNamespace(
+            run_id="4" * 64,
+            metric_scope_state=SessionMetricScopeState.EXACT,
+            selected_metric_keys=tuple(
+                sorted(definition.key for definition in COACHING_METRIC_DEFINITIONS)
+            ),
+        ),
     )
     stored_states = (
         MetricValueState.KNOWN,
@@ -271,7 +278,81 @@ def test_persisted_closed_states_remain_distinct() -> None:
     assert runs.result_reads == 1
 
 
-def test_latest_explicit_state_and_failed_run_precede_structural_support() -> None:
+def test_subset_scope_marks_only_supported_omissions_not_selected() -> None:
+    selected = next(
+        definition
+        for definition in COACHING_METRIC_DEFINITIONS
+        if definition.key == "prompt.context_sufficiency"
+    )
+    runs = _Runs()
+    runs.latest = SimpleNamespace(
+        status=AnalysisRunStatus.COMPLETED,
+        draft=SimpleNamespace(
+            run_id="4" * 64,
+            metric_scope_state=SessionMetricScopeState.EXACT,
+            selected_metric_keys=(selected.key,),
+        ),
+    )
+    runs.results = (
+        SimpleNamespace(
+            observation=SimpleNamespace(
+                key=selected.key,
+                version=selected.version,
+            ),
+            value_state=MetricValueState.KNOWN,
+        ),
+    )
+    service, _catalog, _runs = _service(runs=runs)
+
+    report = service.session_readiness(SESSION_ID)
+    by_key = {item.metric_key: item for item in report.metrics}
+    assert by_key[selected.key].state is MetricReadinessState.KNOWN
+    not_selected = tuple(
+        item
+        for item in report.metrics
+        if item.reason_code.value == "metric_not_selected"
+    )
+    unsupported = tuple(
+        item
+        for item in report.metrics
+        if item.reason_code.value == "provider_capability_missing"
+    )
+    assert len(not_selected) == 12
+    assert len(unsupported) == 7
+    assert all(item.state is MetricReadinessState.UNKNOWN for item in not_selected)
+    assert all(
+        item.next_actions[0].value == "select_metric_for_analysis"
+        for item in not_selected
+    )
+    assert all(item.state is MetricReadinessState.UNSUPPORTED for item in unsupported)
+    assert runs.result_reads == 1
+
+
+def test_unknown_legacy_scope_never_guesses_an_omission_is_failure() -> None:
+    runs = _Runs()
+    runs.latest = SimpleNamespace(
+        status=AnalysisRunStatus.COMPLETED,
+        draft=SimpleNamespace(
+            run_id="4" * 64,
+            metric_scope_state=SessionMetricScopeState.LEGACY_UNKNOWN,
+            selected_metric_keys=(),
+        ),
+    )
+    service, _catalog, _runs = _service(runs=runs)
+
+    report = service.session_readiness(SESSION_ID)
+
+    compatible = tuple(
+        item
+        for item in report.metrics
+        if item.reason_code.value == "metric_scope_unknown"
+    )
+    assert len(compatible) == 13
+    assert all(item.state is MetricReadinessState.UNKNOWN for item in compatible)
+    assert all(item.reason_code.value != "result_missing" for item in report.metrics)
+
+
+def test_explicit_result_precedes_capability_and_failed_run_preserves_it() -> None:
     rework = next(
         definition
         for definition in COACHING_METRIC_DEFINITIONS
@@ -280,7 +361,13 @@ def test_latest_explicit_state_and_failed_run_precede_structural_support() -> No
     completed = _Runs()
     completed.latest = SimpleNamespace(
         status=AnalysisRunStatus.COMPLETED,
-        draft=SimpleNamespace(run_id="4" * 64),
+        draft=SimpleNamespace(
+            run_id="4" * 64,
+            metric_scope_state=SessionMetricScopeState.EXACT,
+            selected_metric_keys=tuple(
+                sorted(definition.key for definition in COACHING_METRIC_DEFINITIONS)
+            ),
+        ),
     )
     completed.results = (
         SimpleNamespace(
@@ -302,14 +389,25 @@ def test_latest_explicit_state_and_failed_run_precede_structural_support() -> No
     failed = _Runs()
     failed.latest = SimpleNamespace(
         status=AnalysisRunStatus.FAILED,
-        draft=SimpleNamespace(run_id="4" * 64),
+        draft=SimpleNamespace(
+            run_id="4" * 64,
+            metric_scope_state=SessionMetricScopeState.EXACT,
+            selected_metric_keys=tuple(
+                sorted(definition.key for definition in COACHING_METRIC_DEFINITIONS)
+            ),
+        ),
     )
     failed_service, _catalog, _runs = _service(runs=failed)
 
     failed_report = failed_service.session_readiness(SESSION_ID)
-    assert {item.state for item in failed_report.metrics} == {
-        MetricReadinessState.FAILED
-    }
+    assert sum(
+        item.state is MetricReadinessState.FAILED
+        for item in failed_report.metrics
+    ) == 13
+    assert sum(
+        item.state is MetricReadinessState.UNSUPPORTED
+        for item in failed_report.metrics
+    ) == 7
     assert failed.result_reads == 0
 
 

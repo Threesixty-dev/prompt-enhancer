@@ -37,6 +37,7 @@ from prompt_enhancer.application.persistence import (
     SessionMetricAggregation,
     SessionMetricApplicability,
     SessionMetricDirection,
+    SessionMetricScopeState,
 )
 from prompt_enhancer.domain import (
     DataTier,
@@ -68,6 +69,8 @@ class _Repository:
             analysis_profile_version=draft.analysis_profile_version,
             metric_pack_key=draft.metric_pack_key,
             metric_pack_version=draft.metric_pack_version,
+            metric_scope_state=draft.metric_scope_state,
+            selected_metric_keys=draft.selected_metric_keys,
             data_tier=draft.data_tier,
             consent_policy_version=draft.consent_policy_version,
             provider=draft.provider,
@@ -144,6 +147,8 @@ def _run(
         "analysis_profile_version": 1,
         "metric_pack_key": DEFAULT_TEXT_METRIC_PACK_KEY,
         "metric_pack_version": DEFAULT_TEXT_METRIC_PACK_VERSION,
+        "metric_scope_state": SessionMetricScopeState.EXACT,
+        "selected_metric_keys": (GOAL_KEY,),
         "data_tier": DataTier.REDACTED_CONTENT,
         "consent_purpose": "text_analysis",
         "consent_policy_version": "explicit-session-text-analysis-v1",
@@ -245,6 +250,10 @@ def _goal_metric(result):
     return next(metric for metric in result.metrics if metric.metric_key == GOAL_KEY)
 
 
+def _metric(result, metric_key: str):
+    return next(metric for metric in result.metrics if metric.metric_key == metric_key)
+
+
 def test_selector_is_bounded_safe_and_rejects_duplicate_weighting() -> None:
     with pytest.raises(ValidationError):
         SessionQualitySelection(session_ids=())
@@ -297,7 +306,54 @@ def test_known_metrics_use_ratio_of_sums_and_summed_coverage() -> None:
         goal.__class__.model_validate(invalid_output)
 
 
-def test_sparse_missing_and_partial_results_remain_unknown_not_zero() -> None:
+def test_overlapping_exact_scopes_combine_selected_metric_and_count_omission() -> None:
+    first_session, second_session = "1" * 64, "2" * 64
+    constraint_key = "prompt.constraint_resolution"
+    repository = _Repository()
+    repository.add(
+        first_session,
+        _run(first_session, "a" * 64),
+        (_result(numerator=1, denominator=2),),
+    )
+    repository.add(
+        second_session,
+        _run(
+            second_session,
+            "b" * 64,
+            selected_metric_keys=tuple(sorted((GOAL_KEY, constraint_key))),
+            model_plan_fingerprint="e" * 64,
+            schema_version=13,
+        ),
+        (
+            _result(numerator=1, denominator=2),
+            _result(
+                numerator=1,
+                denominator=1,
+                observation__key=constraint_key,
+            ),
+        ),
+    )
+
+    aggregate = SessionQualityAggregationService(repository).aggregate(
+        SessionQualitySelection(session_ids=(first_session, second_session))
+    )
+    goal = _goal_metric(aggregate)
+    constraint = _metric(aggregate, constraint_key)
+
+    assert goal.compatibility_state is SessionQualityCompatibilityState.COMPATIBLE
+    assert len(goal.compatibility_cohorts) == 1
+    assert goal.compatibility_cohorts[0].result_count == 2
+    assert goal.numeric_value == pytest.approx(0.5)
+    assert constraint.compatibility_state is (
+        SessionQualityCompatibilityState.COMPATIBLE
+    )
+    assert constraint.not_selected_run_count == 1
+    assert constraint.missing_result_count == 0
+    assert constraint.present_result_count == 1
+    assert constraint.numeric_value == pytest.approx(1.0)
+
+
+def test_sparse_legacy_scope_blocks_value_instead_of_zero_filling() -> None:
     first_session, second_session, absent_session = "1" * 64, "2" * 64, "3" * 64
     repository = _Repository()
     repository.add(
@@ -313,7 +369,16 @@ def test_sparse_missing_and_partial_results_remain_unknown_not_zero() -> None:
             ),
         ),
     )
-    repository.add(second_session, _run(second_session, "b" * 64), ())
+    repository.add(
+        second_session,
+        _run(
+            second_session,
+            "b" * 64,
+            metric_scope_state=SessionMetricScopeState.LEGACY_UNKNOWN,
+            selected_metric_keys=(),
+        ),
+        (),
+    )
 
     aggregate = SessionQualityAggregationService(repository).aggregate(
         SessionQualitySelection(
@@ -327,10 +392,57 @@ def test_sparse_missing_and_partial_results_remain_unknown_not_zero() -> None:
     assert goal.present_result_count == 1
     assert goal.missing_result_count == 1
     assert goal.state_counts.not_applicable == 1
-    assert goal.aggregate_state is SessionQualityAggregateState.UNKNOWN
+    assert goal.aggregate_state is SessionQualityAggregateState.INCOMPATIBLE
+    assert goal.compatibility_state is SessionQualityCompatibilityState.INCOMPATIBLE
+    assert goal.unknown_scope_run_count == 1
+    assert goal.blocked_reason_codes == ("metric_scope_unknown",)
     assert goal.numeric_value is None
     assert goal.fraction_numerator is None
     assert goal.fraction_denominator is None
+
+
+def test_unknown_scope_count_is_orthogonal_for_legacy_missing_results() -> None:
+    exact_session, legacy_session = "1" * 64, "2" * 64
+    repository = _Repository()
+    repository.add(
+        exact_session,
+        _run(exact_session, "a" * 64),
+        (_result(numerator=1, denominator=2),),
+    )
+    repository.add(
+        legacy_session,
+        _run(
+            legacy_session,
+            "b" * 64,
+            metric_scope_state=SessionMetricScopeState.LEGACY_UNKNOWN,
+            selected_metric_keys=(),
+        ),
+        (),
+    )
+
+    aggregate = SessionQualityAggregationService(repository).aggregate(
+        SessionQualitySelection(session_ids=(exact_session, legacy_session))
+    )
+    goal = _goal_metric(aggregate)
+    omitted = _metric(aggregate, "prompt.constraint_resolution")
+
+    assert goal.completed_run_count == 2
+    assert goal.present_result_count == 1
+    assert goal.missing_result_count == 1
+    assert goal.not_selected_run_count == 0
+    assert goal.unknown_scope_run_count == 1
+    assert goal.compatibility_state is SessionQualityCompatibilityState.INCOMPATIBLE
+    assert goal.blocked_reason_codes == ("metric_scope_unknown",)
+    assert omitted.present_result_count == 0
+    assert omitted.not_selected_run_count == 1
+    assert omitted.missing_result_count == 1
+    assert omitted.unknown_scope_run_count == 1
+    assert omitted.blocked_reason_codes == ("metric_scope_unknown",)
+
+    invalid = goal.model_dump()
+    invalid["unknown_scope_run_count"] = 3
+    with pytest.raises(ValidationError, match="unknown metric scope"):
+        goal.__class__.model_validate(invalid)
 
 
 @pytest.mark.parametrize(
@@ -387,8 +499,6 @@ def test_complete_non_known_cohort_preserves_defensible_typed_state(
         ({"content_schema_version": "alternate-content-v2"}, {}),
         ({"metric_engine_version": "alternate-engine-v2"}, {}),
         ({"redactor_version": "alternate-redactor-v2"}, {}),
-        ({"model_plan_fingerprint": "e" * 64}, {}),
-        ({"schema_version": 9}, {}),
         ({"consent_policy_version": "alternate-consent-v2"}, {}),
         ({}, {"observation__version": 2}),
         ({}, {"observation__unit": "risk_ratio"}),

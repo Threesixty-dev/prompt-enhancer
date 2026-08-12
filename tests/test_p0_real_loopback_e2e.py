@@ -510,6 +510,12 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
         assert approved.status_code == 200
         assert approved.json()["status"] == "completed"
         assert approved.json()["result_count"] == 20
+        approved_detail = client.get(
+            f"/v1/quality-analysis/runs/{approved.json()['run_id']}"
+        )
+        assert approved_detail.status_code == 200
+        assert approved_detail.json()["run"]["metric_scope_state"] == "exact"
+        assert len(approved_detail.json()["run"]["selected_metric_keys"]) == 20
         assert text_source.read_count == 1
         consumed = client.post(
             approval_path,
@@ -629,12 +635,18 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
         )
         assert completed_scope["terminal_reason_code"] == "local_analysis_completed"
 
-    scoped_results = [
-        run_repository.get_results(run.draft.run_id)
+    scoped_runs = [
+        run
         for run in run_repository.list_for_session(session_id)
         if len(run_repository.get_results(run.draft.run_id)) == 1
     ]
+    scoped_results = [
+        run_repository.get_results(run.draft.run_id) for run in scoped_runs
+    ]
     assert len(scoped_results) == 1
+    assert scoped_runs[0].draft.selected_metric_keys == (
+        "prompt.context_sufficiency",
+    )
     assert tuple(
         result.observation.key for result in scoped_results[0]
     ) == ("prompt.context_sufficiency",)
@@ -727,6 +739,63 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
         in {1, 3}
     }
     assert persisted_scopes == expected_scopes
+    assert {
+        run.draft.selected_metric_keys
+        for run in run_repository.list_for_session(session_id)
+        if len(run_repository.get_results(run.draft.run_id)) in {1, 3}
+    } == expected_scopes
+
+    scope_truth_app = create_app(
+        settings=AppSettings(home=tmp_path),
+        database=database,
+        api_token=TOKEN,
+        metric_readiness_service=readiness_service,
+    )
+    with real_loopback_server(scope_truth_app) as client:
+        latest_scope = client.get(
+            f"/v1/sessions/{session_id}/quality-analysis-runs/latest"
+        )
+        assert latest_scope.status_code == 200
+        assert latest_scope.json()["run"]["metric_scope_state"] == "exact"
+        assert tuple(latest_scope.json()["run"]["selected_metric_keys"]) == (
+            "collaboration.rework_candidate_rate",
+            "logic.decomposition_coverage",
+            "prompt.context_sufficiency",
+        )
+        scoped_readiness = client.get(
+            f"/v1/sessions/{session_id}/metric-readiness",
+            params={"preset_id": "coaching_profile_v1"},
+        )
+        assert scoped_readiness.status_code == 200
+        readiness_metrics = scoped_readiness.json()["metrics"]
+        assert any(
+            item["reason_code"] == "metric_not_selected"
+            for item in readiness_metrics
+        )
+        assert all(
+            item["reason_code"] != "result_missing"
+            for item in readiness_metrics
+        )
+        aggregate = client.post(
+            "/v1/quality-analysis/aggregate",
+            json={"session_ids": [session_id]},
+        )
+        assert aggregate.status_code == 200
+        selected_scope = expected_scopes.copy()
+        selected_keys = max(selected_scope, key=len)
+        aggregate_by_key = {
+            item["metric_key"]: item for item in aggregate.json()["metrics"]
+        }
+        assert all(
+            aggregate_by_key[key]["present_result_count"] == 1
+            for key in selected_keys
+        )
+        assert all(
+            item["not_selected_run_count"] == 1
+            and item["missing_result_count"] == 0
+            for key, item in aggregate_by_key.items()
+            if key not in selected_keys
+        )
     assert text_source.read_count == 3
     assert compatibility_probe.calls == calls_before_cached_readiness + 2
     _assert_canary_not_persisted(tmp_path)

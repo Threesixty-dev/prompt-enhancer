@@ -10,6 +10,7 @@ from prompt_enhancer.application.analysis.coaching_baselines import (
     COACHING_METRIC_ENGINE_VERSION,
     COACHING_METRIC_PACK_KEY,
     COACHING_METRIC_PACK_VERSION,
+    COACHING_METRIC_DEFINITIONS,
 )
 from prompt_enhancer.application.analysis.coaching_summary import (
     CoachingDecisionState,
@@ -84,6 +85,9 @@ def _draft(*, pack_key: str = COACHING_METRIC_PACK_KEY) -> SessionAnalysisRunDra
         analysis_profile_version=1,
         metric_pack_key=pack_key,
         metric_pack_version=COACHING_METRIC_PACK_VERSION,
+        selected_metric_keys=tuple(
+            sorted(definition.key for definition in COACHING_METRIC_DEFINITIONS)
+        ),
         data_tier=DataTier.REDACTED_CONTENT,
         consent_purpose="text_analysis",
         consent_policy_version="synthetic-consent-v1",

@@ -5,6 +5,7 @@ import type {
   SessionAnalysisRun,
   SessionAnalysisRunResponse,
   SessionQualityAggregate,
+  SessionQualityCompatibilityKey,
   SessionQualityMetricAggregate,
 } from "../../shared/api/contracts";
 import type { MetricCategory } from "../../shared/platform/platform";
@@ -26,12 +27,17 @@ export type QualityMetricPolarity = "capability" | "review-load";
 export type QualityMetricState =
   | "observed"
   | "partial"
+  | "not-selected"
+  | "incompatible"
   | "unavailable"
   | "abstained"
   | "not-applicable"
   | "execution-error";
 export type QualityMetricErrorCode =
   | "metric-not-implemented"
+  | "metric-not-selected"
+  | "metric-scope-unknown"
+  | "incompatible-provenance"
   | "insufficient-evidence"
   | "analysis-abstained"
   | "calculation-failed"
@@ -60,6 +66,10 @@ export interface QualityMetricObservation {
   fractionDenominator: number | null;
   observed: number;
   eligible: number;
+  /** Completed runs that explicitly omitted this metric from their exact scope. */
+  notSelectedRuns: number;
+  /** Completed legacy runs whose selected metric scope cannot be recovered. */
+  unknownScopeRuns: number;
   coverage: number;
   confidence: number | null;
   signals: readonly QualityMetricSignal[];
@@ -508,6 +518,8 @@ function unavailableObservation(
     fractionDenominator: null,
     observed: 0,
     eligible: 0,
+    notSelectedRuns: 0,
+    unknownScopeRuns: 0,
     coverage: 0,
     confidence: null,
     signals: [],
@@ -522,6 +534,29 @@ function unavailableObservation(
   };
 }
 
+function notSelectedObservation(
+  definition: QualityMetricDefinition,
+  notSelectedRuns = 1,
+): QualityMetricObservation {
+  return {
+    ...unavailableObservation(definition),
+    state: "not-selected",
+    notSelectedRuns,
+    errorCode: "metric-not-selected",
+  };
+}
+
+function scopeUnknownObservation(
+  definition: QualityMetricDefinition,
+  unknownScopeRuns = 1,
+): QualityMetricObservation {
+  return {
+    ...unavailableObservation(definition),
+    unknownScopeRuns,
+    errorCode: "metric-scope-unknown",
+  };
+}
+
 function invalidObservation(
   definition: QualityMetricDefinition,
 ): QualityMetricObservation {
@@ -529,6 +564,19 @@ function invalidObservation(
     ...unavailableObservation(definition),
     state: "execution-error",
     errorCode: "invalid-contract",
+  };
+}
+
+function incompatibleObservation(
+  definition: QualityMetricDefinition,
+  notSelectedRuns: number,
+): QualityMetricObservation {
+  return {
+    ...unavailableObservation(definition),
+    state: "incompatible",
+    notSelectedRuns,
+    errorCode: "incompatible-provenance",
+    definitionVersion: definition.version,
   };
 }
 
@@ -540,6 +588,26 @@ function isCompletedRun(
 ): boolean {
   const positiveInteger = (value: number) =>
     Number.isSafeInteger(value) && value > 0;
+  const metricScopeValid = (() => {
+    if (
+      !Array.isArray(run.selected_metric_keys) ||
+      run.selected_metric_keys.length > 100 ||
+      run.selected_metric_keys.some((key) => !isRequiredSafeVersion(key))
+    ) {
+      return false;
+    }
+    const canonical = [...run.selected_metric_keys].sort();
+    if (
+      new Set(run.selected_metric_keys).size !== run.selected_metric_keys.length ||
+      canonical.some((key, index) => key !== run.selected_metric_keys[index])
+    ) {
+      return false;
+    }
+    return run.metric_scope_state === "exact"
+      ? run.selected_metric_keys.length > 0
+      : run.metric_scope_state === "legacy_unknown" &&
+          run.selected_metric_keys.length === 0;
+  })();
   return (
     PSEUDONYM.test(run.run_id) &&
     PSEUDONYM.test(run.session_id) &&
@@ -555,6 +623,7 @@ function isCompletedRun(
     run.status === "completed" &&
     ["codex", "claude_code", "synthetic"].includes(run.provider) &&
     run.failure_code === null &&
+    metricScopeValid &&
     isRequiredDate(run.started_at) &&
     isRequiredDate(run.finished_at) &&
     positiveInteger(run.schema_version) &&
@@ -811,6 +880,8 @@ function observationFromResult(
     fractionDenominator: result.fraction?.denominator ?? null,
     observed: result.observed_count,
     eligible: result.eligible_count,
+    notSelectedRuns: 0,
+    unknownScopeRuns: 0,
     coverage: result.coverage,
     confidence: result.confidence ?? null,
     signals: result.signals.map((signal) => ({
@@ -916,25 +987,33 @@ function snapshot(
   const allKeys = new Set(packContract.definitions.map((definition) => definition.key));
   const resultKeys = response.results.map((result) => result.key);
   const uniqueKeys = new Set(resultKeys);
-  const exactPack =
-    response.results.length === packContract.definitions.length &&
-    uniqueKeys.size === packContract.definitions.length &&
+  const returnedSubsetValid =
+    response.results.length <= 100 &&
+    uniqueKeys.size === response.results.length &&
     resultKeys.every((key) => allKeys.has(key));
   const resultsByKey = new Map(
     response.results.map((result) => [result.key, result]),
   );
-  const resultsValid = packContract.definitions.every((definition) => {
-    const result = resultsByKey.get(definition.key);
-    return result !== undefined && validValueContract(definition, result);
+  const resultsValid = response.results.every((result) => {
+    const definition = packContract.definitions.find(
+      (candidate) => candidate.key === result.key,
+    );
+    return definition !== undefined && validValueContract(definition, result);
   });
+  const selectedKeys = response.run.selected_metric_keys;
+  const exactScopeMatchesResults =
+    response.run.metric_scope_state !== "exact" ||
+    (selectedKeys.length === resultKeys.length &&
+      selectedKeys.every((key) => uniqueKeys.has(key)));
   const coherent =
-    exactPack &&
+    returnedSubsetValid &&
     isCompletedRun(
       response.run,
       packContract.key,
       packContract.version,
       expectedSessionId,
     ) &&
+    exactScopeMatchesResults &&
     resultsValid;
   if (!coherent) {
     return {
@@ -951,9 +1030,13 @@ function snapshot(
     integrity: "coherent",
     metricPackVersion: response.run.metric_pack_version,
     scope: null,
-    metrics: definitions.map((definition) =>
-      observationFromResult(definition, resultsByKey.get(definition.key)!),
-    ),
+    metrics: definitions.map((definition) => {
+      const result = resultsByKey.get(definition.key);
+      if (result !== undefined) return observationFromResult(definition, result);
+      return response.run.metric_scope_state === "exact"
+        ? notSelectedObservation(definition)
+        : scopeUnknownObservation(definition);
+    }),
   };
 }
 
@@ -1010,9 +1093,11 @@ const PROJECT_METRIC_REQUIRED_KEYS = [
   "metric_version",
   "missing_result_count",
   "missing_run_count",
+  "not_selected_run_count",
   "present_result_count",
   "selected_session_count",
   "state_counts",
+  "unknown_scope_run_count",
 ] as const;
 
 const PROJECT_METRIC_OPTIONAL_KEYS = [
@@ -1056,12 +1141,55 @@ function sameStateCounts(
   return STATE_COUNT_KEYS.every((key) => left[key] === right[key]);
 }
 
+function validAggregateCohortProjection(
+  cohort:
+    | SessionQualityMetricAggregate["compatibility_cohorts"][number]
+    | ProjectQualityMetricAggregate["compatibility_cohorts"][number],
+): boolean {
+  const stateTotal = Object.values(cohort.state_counts).reduce(
+    (total, count) => total + count,
+    0,
+  );
+  const numerator = cohort.fraction_numerator ?? null;
+  const denominator = cohort.fraction_denominator ?? null;
+  const value = cohort.numeric_value ?? null;
+  const hasKnown = cohort.state_counts.known > 0;
+  return (
+    safeCount(cohort.result_count) &&
+    cohort.result_count > 0 &&
+    cohort.result_count === stateTotal &&
+    safeCount(cohort.analyzable_observed_count) &&
+    safeCount(cohort.analyzable_eligible_count) &&
+    cohort.analyzable_observed_count <= cohort.analyzable_eligible_count &&
+    Number.isFinite(cohort.analyzable_coverage) &&
+    Math.abs(
+      cohort.analyzable_coverage -
+        (cohort.analyzable_eligible_count === 0
+          ? 0
+          : cohort.analyzable_observed_count / cohort.analyzable_eligible_count)
+    ) <= EPSILON &&
+    (hasKnown
+      ? numerator !== null &&
+        denominator !== null &&
+        value !== null &&
+        safeCount(numerator) &&
+        Number.isSafeInteger(denominator) &&
+        denominator > 0 &&
+        numerator <= denominator &&
+        Number.isFinite(value) &&
+        Math.abs(value - numerator / denominator) <= EPSILON
+      : numerator === null && denominator === null && value === null)
+  );
+}
+
 function hasAggregateMetricStructure(
   value: unknown,
 ): value is SessionQualityMetricAggregate {
   if (
     !isRecord(value) ||
     !hasStateCounts(value.state_counts) ||
+    !safeCount(value.not_selected_run_count as number) ||
+    !safeCount(value.unknown_scope_run_count as number) ||
     !Array.isArray(value.blocked_reason_codes) ||
     !value.blocked_reason_codes.every(isRequiredSafeLabel) ||
     !Array.isArray(value.compatibility_cohorts)
@@ -1169,12 +1297,10 @@ function aggregateAnalysisProfile(
   };
 }
 
-function aggregateBaseIdentity(
+function compatibilityBaseIdentity(
   metric: SessionQualityMetricAggregate,
+  key: SessionQualityCompatibilityKey,
 ): string | null {
-  if (metric.compatibility_cohorts.length === 0) return null;
-  if (metric.compatibility_cohorts.length !== 1) return "invalid";
-  const key = metric.compatibility_cohorts[0].key;
   const modelFields = [
     key.model_id,
     key.model_revision,
@@ -1200,6 +1326,7 @@ function aggregateBaseIdentity(
         key.metric_pack_version === LEGACY_PACK_VERSION)
     ) ||
     key.metric_schema_version !== 2 ||
+    !["exact", "legacy_unknown"].includes(key.metric_scope_state) ||
     !["codex", "claude_code", "synthetic"].includes(key.provider) ||
     !["provider_reported", "deterministic", "human_label", "estimated"].includes(
       key.metric_source,
@@ -1212,12 +1339,8 @@ function aggregateBaseIdentity(
     ].every(isNullableSafeVersion) ||
     !isRequiredSafeVersion(key.algorithm_id) ||
     !isRequiredSafeVersion(key.algorithm_version) ||
-    typeof key.model_plan_fingerprint !== "string" ||
-    !PSEUDONYM.test(key.model_plan_fingerprint) ||
     !Number.isSafeInteger(key.metric_pack_version) ||
     key.metric_pack_version < 1 ||
-    !Number.isSafeInteger(key.persistence_schema_version) ||
-    key.persistence_schema_version < 1 ||
     !Number.isSafeInteger(key.metric_schema_version) ||
     key.metric_schema_version < 1 ||
     ![
@@ -1238,6 +1361,7 @@ function aggregateBaseIdentity(
     analysisProfileVersion: key.analysis_profile_version,
     metricPackKey: key.metric_pack_key,
     metricPackVersion: key.metric_pack_version,
+    metricScopeState: key.metric_scope_state,
     dataTier: key.data_tier,
     consentPolicyVersion: key.consent_policy_version,
     provider: key.provider,
@@ -1247,10 +1371,23 @@ function aggregateBaseIdentity(
     contentSchemaVersion: key.content_schema_version,
     metricEngineVersion: key.metric_engine_version,
     redactorVersion: key.redactor_version,
-    modelPlanFingerprint: key.model_plan_fingerprint,
-    persistenceSchemaVersion: key.persistence_schema_version,
     localOnly: key.local_only,
   });
+}
+
+function aggregateBaseIdentity(
+  metric: SessionQualityMetricAggregate,
+): string | null {
+  if (metric.compatibility_cohorts.length === 0) return null;
+  const identities = new Set(
+    metric.compatibility_cohorts.map((cohort) =>
+      compatibilityBaseIdentity(metric, cohort.key),
+    ),
+  );
+  if (identities.has("invalid") || identities.has(null) || identities.size !== 1) {
+    return "invalid";
+  }
+  return [...identities][0];
 }
 
 function aggregateObservation(
@@ -1282,17 +1419,21 @@ function aggregateObservation(
       metric.completed_run_count + metric.missing_run_count ||
     metric.completed_run_count !==
       metric.present_result_count +
+        metric.not_selected_run_count +
         metric.missing_result_count +
         metric.invalid_result_session_count ||
     metric.present_result_count !== stateTotal ||
     metric.invalid_result_session_count !== 0 ||
     metric.invalid_result_record_count !== 0 ||
+    metric.unknown_scope_run_count > metric.completed_run_count ||
     ![
       metric.selected_session_count,
       metric.completed_run_count,
       metric.missing_run_count,
       metric.present_result_count,
       metric.missing_result_count,
+      metric.not_selected_run_count,
+      metric.unknown_scope_run_count,
       metric.invalid_result_session_count,
       metric.invalid_result_record_count,
       ...Object.values(metric.state_counts),
@@ -1301,11 +1442,54 @@ function aggregateObservation(
     return null;
   }
 
+  if (metric.compatibility_state === "incompatible") {
+    const cohortResultCount = metric.compatibility_cohorts.reduce(
+      (total, cohort) => total + cohort.result_count,
+      0,
+    );
+    if (
+      metric.aggregate_state !== "incompatible" ||
+      metric.blocked_reason_codes.length === 0 ||
+      cohortResultCount !== metric.present_result_count ||
+      !metric.compatibility_cohorts.every(validAggregateCohortProjection) ||
+      !metric.compatibility_cohorts.every(
+        (cohort) =>
+          !("key" in cohort) ||
+          compatibilityBaseIdentity(
+            metric as SessionQualityMetricAggregate,
+            cohort.key,
+          ) !== "invalid",
+      ) ||
+      metric.numeric_value != null ||
+      metric.fraction_numerator != null ||
+      metric.fraction_denominator != null ||
+      metric.analyzable_observed_count != null ||
+      metric.analyzable_eligible_count != null ||
+      metric.analyzable_coverage != null
+    ) {
+      return null;
+    }
+    const scopeReason = metric.blocked_reason_codes.includes("metric_scope_unknown");
+    if (scopeReason !== (metric.unknown_scope_run_count > 0)) return null;
+    if (scopeReason) {
+      return {
+        ...scopeUnknownObservation(definition, metric.unknown_scope_run_count),
+        notSelectedRuns: metric.not_selected_run_count,
+        definitionVersion: metric.metric_version,
+      };
+    }
+    return incompatibleObservation(
+      definition,
+      metric.not_selected_run_count,
+    );
+  }
+
   if (metric.compatibility_state === "no_results") {
     if (
       metric.present_result_count !== 0 ||
       metric.compatibility_cohorts.length !== 0 ||
       metric.blocked_reason_codes.length !== 0 ||
+      metric.unknown_scope_run_count !== 0 ||
       metric.aggregate_state !== "unknown" ||
       metric.numeric_value != null ||
       metric.fraction_numerator != null ||
@@ -1316,11 +1500,29 @@ function aggregateObservation(
     ) {
       return null;
     }
-    return unavailableObservation(definition);
+    if (
+      metric.not_selected_run_count > 0 &&
+      metric.not_selected_run_count === metric.selected_session_count &&
+      metric.missing_run_count === 0 &&
+      metric.missing_result_count === 0
+    ) {
+      return notSelectedObservation(definition, metric.not_selected_run_count);
+    }
+    const unavailable = unavailableObservation(definition);
+    return {
+      ...unavailable,
+      errorCode:
+        metric.missing_result_count > 0
+          ? "insufficient-evidence"
+          : unavailable.errorCode,
+      notSelectedRuns: metric.not_selected_run_count,
+      unknownScopeRuns: metric.unknown_scope_run_count,
+    };
   }
 
   if (
     metric.compatibility_state !== "compatible" ||
+    metric.unknown_scope_run_count !== 0 ||
     metric.blocked_reason_codes.length !== 0 ||
     metric.compatibility_cohorts.length !== 1
   ) {
@@ -1380,6 +1582,7 @@ function aggregateObservation(
     const partial =
       metric.missing_run_count > 0 ||
       metric.missing_result_count > 0 ||
+      metric.not_selected_run_count > 0 ||
       stateTotal !== metric.state_counts.known ||
       coverage < 1;
     return {
@@ -1390,6 +1593,8 @@ function aggregateObservation(
       fractionDenominator: denominator,
       observed,
       eligible,
+      notSelectedRuns: metric.not_selected_run_count,
+      unknownScopeRuns: metric.unknown_scope_run_count,
       coverage,
       confidence: null,
       signals: [],
@@ -1433,6 +1638,8 @@ function aggregateObservation(
     fractionDenominator: null,
     observed,
     eligible,
+    notSelectedRuns: metric.not_selected_run_count,
+    unknownScopeRuns: metric.unknown_scope_run_count,
     coverage,
     confidence: null,
     signals: [],
@@ -1601,6 +1808,9 @@ export function createAggregateQualityMetricProfile(
     const metric = resultsByKey.get(definition.key);
     return metric ? aggregateObservation(definition, metric) : null;
   });
+  const validMixedObservations = observations.every(
+    (observation) => observation !== null,
+  );
   const baseIdentities = new Set(
     aggregate.metrics
       .map(aggregateBaseIdentity)
@@ -1618,14 +1828,19 @@ export function createAggregateQualityMetricProfile(
   if (
     aggregate.integrity_state === "incompatible" &&
     topCountsValid &&
-    exactPack
+    exactPack &&
+    aggregatePlanValid
   ) {
     latest = {
       kind: "latest",
       integrity: "mixed-provenance",
-      metricPackVersion: null,
+      metricPackVersion: validMixedObservations
+        ? aggregate.metric_pack_version
+        : null,
       scope,
-      metrics: definitions.map(invalidObservation),
+      metrics: validMixedObservations
+        ? observations as QualityMetricObservation[]
+        : definitions.map(invalidObservation),
     };
   } else if (
     !topCountsValid ||
@@ -1643,7 +1858,13 @@ export function createAggregateQualityMetricProfile(
       metrics: definitions.map(invalidObservation),
     };
   } else if (baseIdentities.size === 0) {
-    latest = unavailable;
+    latest = {
+      kind: "latest",
+      integrity: "coherent",
+      metricPackVersion: aggregate.metric_pack_version,
+      scope,
+      metrics: observations as QualityMetricObservation[],
+    };
   } else {
     const firstCohort = aggregate.metrics.find(
       (metric) => metric.compatibility_cohorts.length === 1,
@@ -1760,6 +1981,9 @@ export function createProjectAggregateQualityMetricProfile(
     const metric = resultsByKey.get(definition.key);
     return metric ? aggregateObservation(definition, metric) : null;
   });
+  const validMixedObservations = observations.every(
+    (observation) => observation !== null,
+  );
   const hasAnyCohort = aggregate.metrics.some(
     (metric) => metric.compatibility_cohorts.length === 1,
   );
@@ -1768,14 +1992,19 @@ export function createProjectAggregateQualityMetricProfile(
   if (
     aggregate.integrity_state === "incompatible" &&
     topCountsValid &&
-    exactPack
+    exactPack &&
+    aggregatePlanValid
   ) {
     latest = {
       kind: "latest",
       integrity: "mixed-provenance",
-      metricPackVersion: null,
+      metricPackVersion: validMixedObservations
+        ? aggregate.metric_pack_version
+        : null,
       scope: scope!,
-      metrics: definitions.map(invalidObservation),
+      metrics: validMixedObservations
+        ? observations as QualityMetricObservation[]
+        : definitions.map(invalidObservation),
     };
   } else if (
     !topCountsValid ||
@@ -1792,7 +2021,13 @@ export function createProjectAggregateQualityMetricProfile(
       metrics: definitions.map(invalidObservation),
     };
   } else if (!hasAnyCohort) {
-    latest = unavailable;
+    latest = {
+      kind: "latest",
+      integrity: "coherent",
+      metricPackVersion: aggregate.metric_pack_version,
+      scope: scope!,
+      metrics: observations as QualityMetricObservation[],
+    };
   } else {
     latest = {
       kind: "latest",

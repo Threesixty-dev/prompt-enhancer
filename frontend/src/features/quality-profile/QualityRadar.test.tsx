@@ -53,6 +53,8 @@ function syntheticMetric({
     fractionDenominator: denominator,
     observed: ratio === null ? 7 : 8,
     eligible: 10,
+    notSelectedRuns: 0,
+    unknownScopeRuns: 0,
     coverage: ratio === null ? 0.7 : 0.8,
     confidence: null,
     signals: [],
@@ -463,6 +465,8 @@ describe("QualityRadar", () => {
       ratio: 0,
     });
     const nonMeasuredStates: QualityMetricState[] = [
+      "not-selected",
+      "incompatible",
       "unavailable",
       "abstained",
       "not-applicable",
@@ -493,6 +497,34 @@ describe("QualityRadar", () => {
     ).toEqual([zero]);
   });
 
+  it("withholds incompatible provenance while retaining compatible axes", () => {
+    const metrics = promptAndCollaborationMetrics();
+    metrics[0] = syntheticMetric({
+      key: "prompt.task_definition_coverage",
+      label: "Task",
+      ratio: null,
+      state: "incompatible",
+    });
+
+    render(<QualityRadar metrics={metrics} />);
+
+    const board = screen.getByRole("region", { name: "Task framing metrics" });
+    const incompatible = within(board).getByRole("button", {
+      name: /Task full metric name/i,
+    });
+    expect(incompatible).toHaveTextContent("Incompatible");
+    expect(screen.getByRole("complementary")).toHaveTextContent(
+      "No value — Incompatible provenance",
+    );
+    expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
+      "1 incompatible",
+    );
+    expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
+      "4 plottable axes",
+    );
+    expect(screen.getByRole("img").querySelectorAll(".quality-radar__axis-control")).toHaveLength(4);
+  });
+
   it("hides lens controls when only one lens is represented", () => {
     render(<QualityRadar metrics={promptAndCollaborationMetrics().slice(0, 6)} />);
 
@@ -501,6 +533,25 @@ describe("QualityRadar", () => {
   });
 
   it.each([
+    {
+      metricState: "not-selected" as const,
+      readinessState: "unknown" as const,
+      reason: "metric_not_selected" as const,
+      actions: ["select_metric_for_analysis"] as const,
+      valueLabel: "Not selected",
+      reasonCopy:
+        "The completed run explicitly did not select this metric. It was omitted by scope, not missing or failed.",
+      actionCopy: "Select this metric for a new local analysis run",
+    },
+    {
+      metricState: "unavailable" as const,
+      readinessState: "unknown" as const,
+      reason: "metric_scope_unknown" as const,
+      actions: ["select_metric_for_analysis"] as const,
+      valueLabel: "Unknown",
+      reasonCopy: "This legacy run does not preserve its requested metric set",
+      actionCopy: "Select this metric for a new local analysis run",
+    },
     {
       metricState: "unavailable" as const,
       readinessState: "unknown" as const,
@@ -521,11 +572,11 @@ describe("QualityRadar", () => {
       actionCopy: "Provide objective VERIFICATION evidence",
     },
     {
-      metricState: "unavailable" as const,
+      metricState: "incompatible" as const,
       readinessState: "incompatible" as const,
       reason: "provider_incompatible" as const,
       actions: ["check_provider_compatibility"] as const,
-      valueLabel: "Unknown",
+      valueLabel: "Incompatible",
       reasonCopy: "The installed provider schema is incompatible with the reviewed adapter.",
       actionCopy: "Check the installed provider schema",
     },
@@ -602,6 +653,54 @@ describe("QualityRadar", () => {
       expect(inspector).toHaveTextContent("No value");
     },
   );
+
+  it("keeps a partial numeric estimate while disclosing excluded scope omissions", () => {
+    const metric = syntheticMetric({
+      key: "prompt.task_definition_coverage",
+      label: "Task",
+      ratio: 0.5,
+      state: "partial",
+    });
+    metric.notSelectedRuns = 1;
+
+    render(<QualityRadar metrics={[metric]} />);
+
+    const card = screen.getByRole("button", { name: /Task full metric name/i });
+    expect(card).toHaveTextContent("50%");
+    expect(card).toHaveTextContent(
+      "1 run omitted by selected scope; not missing or failed",
+    );
+    expect(screen.getByRole("complementary")).toHaveTextContent(
+      "1 completed run; excluded, not failed",
+    );
+  });
+
+  it("shows legacy unknown-scope counts as unknown rather than failed", () => {
+    const metric = syntheticMetric({
+      key: "prompt.task_definition_coverage",
+      label: "Task",
+      ratio: null,
+      state: "unavailable",
+    });
+    metric.unknownScopeRuns = 2;
+
+    render(<QualityRadar metrics={[metric]} />);
+
+    const card = screen.getByRole("button", { name: /Task full metric name/i });
+    expect(card).toHaveTextContent("Unknown");
+    expect(card).toHaveTextContent(
+      "2 legacy runs without a metric-scope receipt; not classified as failed",
+    );
+    expect(screen.getByRole("complementary")).toHaveTextContent(
+      "2 completed runs; absence is not classified as failed",
+    );
+    expect(screen.getByLabelText("Selected lens availability")).toHaveTextContent(
+      "1 unknown",
+    );
+    expect(screen.getByLabelText("Selected lens availability")).not.toHaveTextContent(
+      "failed",
+    );
+  });
 
   it("keeps the persisted value authoritative when readiness metadata conflicts", () => {
     const metric = syntheticMetric({

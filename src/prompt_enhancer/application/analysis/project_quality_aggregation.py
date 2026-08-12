@@ -221,6 +221,14 @@ class ProjectQualityMetricAggregate(StrictModel):
     selected_session_count: int = Field(ge=1, le=MAX_PROJECT_QUALITY_SESSIONS)
     completed_run_count: int = Field(ge=0)
     missing_run_count: int = Field(ge=0)
+    not_selected_run_count: int = Field(ge=0)
+    unknown_scope_run_count: int = Field(
+        ge=0,
+        description=(
+            "Orthogonal count of completed legacy runs whose selected metric "
+            "scope cannot be recovered; these runs may also be present or missing."
+        ),
+    )
     present_result_count: int = Field(ge=0)
     missing_result_count: int = Field(ge=0)
     invalid_result_session_count: int = Field(ge=0)
@@ -238,6 +246,19 @@ class ProjectQualityMetricAggregate(StrictModel):
     _validate_reasons = field_validator("blocked_reason_codes")(
         lambda values: tuple(_public_code(value) for value in values)
     )
+
+    @model_validator(mode="after")
+    def validate_scope_counts(self) -> ProjectQualityMetricAggregate:
+        if self.unknown_scope_run_count > self.completed_run_count:
+            raise ValueError("unknown metric scope cannot exceed completed runs")
+        if self.completed_run_count != (
+            self.present_result_count
+            + self.not_selected_run_count
+            + self.missing_result_count
+            + self.invalid_result_session_count
+        ):
+            raise ValueError("project metric run counts must preserve all completed runs")
+        return self
 
 
 class ProjectSessionQualityAggregate(StrictModel):

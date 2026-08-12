@@ -15,6 +15,8 @@ export interface SafeShareMetric {
   fractionDenominator: number | null;
   observed: number;
   eligible: number;
+  notSelectedRuns: number;
+  unknownScopeRuns: number;
 }
 
 export interface SafeShareSnapshot {
@@ -82,6 +84,9 @@ export function createSafeShareSnapshot(
   if (snapshot.integrity !== "coherent") {
     throw new TypeError("Only a coherent immutable profile can be shared.");
   }
+  if (snapshot.metrics.some((metric) => metric.state === "incompatible")) {
+    throw new TypeError("Incompatible metric provenance cannot be shared.");
+  }
   const analysisDates = snapshot.metrics
     .map((metric) => safeDate(metric.computedAt))
     .filter((date): date is string => date !== null)
@@ -100,17 +105,24 @@ export function createSafeShareSnapshot(
       label: metric.definition.label,
       polarity: metric.definition.polarity,
       state: metric.state,
-      ratio: safeRatio(metric.ratio),
+      ratio:
+        metric.state === "observed" || metric.state === "partial"
+          ? safeRatio(metric.ratio)
+          : null,
       fractionNumerator:
+        (metric.state !== "observed" && metric.state !== "partial") ||
         metric.fractionNumerator === null
           ? null
           : boundedCount(metric.fractionNumerator),
       fractionDenominator:
+        (metric.state !== "observed" && metric.state !== "partial") ||
         metric.fractionDenominator === null
           ? null
           : boundedCount(metric.fractionDenominator),
       observed: boundedCount(metric.observed),
       eligible: boundedCount(metric.eligible),
+      notSelectedRuns: boundedCount(metric.notSelectedRuns),
+      unknownScopeRuns: boundedCount(metric.unknownScopeRuns),
     })),
     analysisDate: analysisDates.at(-1) ?? null,
     definitionVersions: [...new Set(versions)].sort((left, right) => left - right),
@@ -151,6 +163,8 @@ type ShareContext = Pick<
   >;
 
 function displayState(state: QualityMetricState): string {
+  if (state === "not-selected") return "Not selected";
+  if (state === "incompatible") return "Incompatible";
   if (state === "not-applicable") return "Not applicable";
   if (state === "execution-error") return "Execution error";
   return `${state.charAt(0).toUpperCase()}${state.slice(1)}`;
@@ -249,8 +263,14 @@ export function drawSafeShareCard(
       metric.eligible > 0
         ? `${metric.observed}/${metric.eligible} coverage`
         : "no eligible observations";
+    const scopeOmission = metric.notSelectedRuns > 0
+      ? ` · ${metric.notSelectedRuns} scope omission${metric.notSelectedRuns === 1 ? "" : "s"}`
+      : "";
+    const unknownScope = metric.unknownScopeRuns > 0
+      ? ` · ${metric.unknownScopeRuns} legacy scope unknown`
+      : "";
     context.fillText(
-      `${displayState(metric.state)} · ${metricFraction} · ${observationCoverage}`,
+      `${displayState(metric.state)} · ${metricFraction} · ${observationCoverage}${scopeOmission}${unknownScope}`,
       1080,
       y + 15,
     );

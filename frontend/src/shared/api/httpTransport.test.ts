@@ -17,6 +17,7 @@ import {
   parseProviderCapabilityReport,
   parseProviderCompatibilityStatus,
   parseRuntimeHealth,
+  parseSessionAnalysisRunResponse,
   parseSessionMetricReadinessReport,
   parseSessionQualityAnalysisPreview,
   parseSessionTextAnalysisCapability,
@@ -54,6 +55,10 @@ const CONTENT_FREE_ANALYSIS_REQUEST: SessionQualityAnalysisRequest = {
   confirmation: "analyze_selected_redacted_text",
   preset_id: "coaching_profile_v1",
 };
+
+function qualityRunResponse() {
+  return structuredClone(SYNTHETIC_SESSION_QUALITY_RUN);
+}
 
 function redactionPreview(
   sessionId = "5".repeat(64),
@@ -185,6 +190,97 @@ const PROVIDER_COMPATIBILITY = {
 } as const;
 
 describe("same-origin HTTP transport", () => {
+  it("strictly accepts canonical exact and legacy-unknown quality run scopes", () => {
+    const exact = qualityRunResponse();
+    expect(parseSessionAnalysisRunResponse(exact, {
+      sessionId: exact.run.session_id,
+      runId: exact.run.run_id,
+    })).toEqual(exact);
+
+    const legacy = qualityRunResponse();
+    legacy.run.metric_scope_state = "legacy_unknown";
+    legacy.run.selected_metric_keys = [];
+    legacy.results = [];
+    expect(parseSessionAnalysisRunResponse(legacy)).toEqual(legacy);
+
+    const legacyMultiVersion = qualityRunResponse();
+    legacyMultiVersion.run.metric_scope_state = "legacy_unknown";
+    legacyMultiVersion.run.selected_metric_keys = [];
+    legacyMultiVersion.results = [
+      legacyMultiVersion.results[0],
+      { ...legacyMultiVersion.results[0], version: 2 },
+    ];
+    expect(parseSessionAnalysisRunResponse(legacyMultiVersion)).toEqual(
+      legacyMultiVersion,
+    );
+  });
+
+  it("rejects unbound or noncanonical quality run scope responses", () => {
+    const malformed: unknown[] = [
+      (() => {
+        const value = qualityRunResponse() as unknown as { run: Record<string, unknown> };
+        delete value.run.metric_scope_state;
+        return value;
+      })(),
+      (() => {
+        const value = qualityRunResponse();
+        value.run.selected_metric_keys = [...value.run.selected_metric_keys].reverse();
+        return value;
+      })(),
+      (() => {
+        const value = qualityRunResponse();
+        value.run.selected_metric_keys = [
+          value.run.selected_metric_keys[0],
+          value.run.selected_metric_keys[0],
+        ];
+        return value;
+      })(),
+      (() => {
+        const value = qualityRunResponse();
+        value.run.selected_metric_keys = Array.from(
+          { length: 101 },
+          (_, index) => `metric.synthetic_${index.toString().padStart(3, "0")}`,
+        );
+        return value;
+      })(),
+      (() => {
+        const value = qualityRunResponse();
+        value.run.selected_metric_keys = ["private metric key"];
+        return value;
+      })(),
+      (() => {
+        const value = qualityRunResponse();
+        value.results.pop();
+        return value;
+      })(),
+      (() => {
+        const value = qualityRunResponse();
+        value.run.metric_scope_state = "legacy_unknown";
+        value.run.selected_metric_keys = [];
+        value.results = [value.results[0], structuredClone(value.results[0])];
+        return value;
+      })(),
+      (() => {
+        const value = qualityRunResponse();
+        value.run.metric_scope_state = "legacy_unknown";
+        return value;
+      })(),
+    ];
+
+    malformed.forEach((value) => {
+      expect(() => parseSessionAnalysisRunResponse(value)).toThrow(
+        new TransportError("Quality analysis response was invalid", 200),
+      );
+    });
+    const exact = qualityRunResponse();
+    expect(() => parseSessionAnalysisRunResponse(exact, {
+      sessionId: "f".repeat(64),
+    })).toThrow(new TransportError("Quality analysis response was invalid", 200));
+    expect(() => parseSessionAnalysisRunResponse(exact, {
+      runId: "e".repeat(64),
+    })).toThrow(new TransportError("Quality analysis response was invalid", 200));
+  });
+
   it("checks the actual minimal health route without bootstrapping a session", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       jsonResponse({
@@ -763,6 +859,23 @@ describe("same-origin HTTP transport", () => {
         "f".repeat(64),
       ),
     ).toThrow(TransportError);
+  });
+
+  it.each([
+    "metric_not_selected",
+    "metric_scope_unknown",
+  ] as const)("accepts truthful %s readiness with an explicit selection action", (reason) => {
+    const report = structuredClone(SYNTHETIC_SESSION_METRIC_READINESS);
+    report.metrics[0].state = "unknown";
+    report.metrics[0].reason_code = reason;
+    report.metrics[0].next_actions = ["select_metric_for_analysis"];
+
+    expect(parseSessionMetricReadinessReport(report).metrics[0]).toMatchObject({
+      state: "unknown",
+      reason_code: reason,
+      next_actions: ["select_metric_for_analysis"],
+      latest_run_id: SYNTHETIC_SESSION_METRIC_READINESS.metrics[0].latest_run_id,
+    });
   });
 
   it.each([

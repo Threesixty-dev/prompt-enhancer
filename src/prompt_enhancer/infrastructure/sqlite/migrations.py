@@ -1279,3 +1279,233 @@ END;
 
 COMMIT;
 """
+
+
+MIGRATION_13 = r"""
+BEGIN IMMEDIATE;
+
+ALTER TABLE session_analysis_runs
+ADD COLUMN metric_scope_state TEXT NOT NULL DEFAULT 'legacy_unknown'
+    CHECK(metric_scope_state IN ('exact', 'legacy_unknown'));
+
+-- The previous terminal-row immutability trigger predates scope provenance and
+-- must be replaced before this one-time, content-free backfill updates it.
+DROP TRIGGER session_analysis_runs_terminal_transition_only;
+
+CREATE TABLE session_analysis_run_metrics (
+    run_id TEXT NOT NULL
+        REFERENCES session_analysis_runs(run_id) ON DELETE CASCADE,
+    metric_key TEXT NOT NULL CHECK(
+        length(metric_key) BETWEEN 1 AND 128
+        AND metric_key GLOB '[A-Za-z0-9]*'
+        AND metric_key NOT GLOB '*[^A-Za-z0-9._+:/-]*'
+    ),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    PRIMARY KEY(run_id, metric_key),
+    UNIQUE(run_id, ordinal)
+);
+
+-- Completed runs expose their requested key set through persisted results.
+-- Scope is intentionally key-level, so multiple historical versions of one
+-- metric collapse to one selected key rather than conflicting in the child PK.
+WITH completed_metric_keys(run_id, metric_key) AS (
+    SELECT run.run_id, result.key
+    FROM session_analysis_runs AS run
+    JOIN session_analysis_results AS result ON result.run_id = run.run_id
+    WHERE run.status = 'completed'
+      AND (
+          (run.analysis_profile_key = 'standard_engineering'
+           AND run.analysis_profile_version = 1
+           AND run.metric_pack_key = 'core.redacted-text.prompt-logic'
+           AND run.metric_pack_version = 1)
+          OR
+          (run.analysis_profile_key = 'explicit.user-profile'
+           AND run.analysis_profile_version = 1
+           AND run.metric_pack_key = 'core.redacted-text.prompt-logic'
+           AND run.metric_pack_version = 1)
+          OR
+          (run.analysis_profile_key = 'coaching_profile'
+           AND run.analysis_profile_version = 1
+           AND run.metric_pack_key = 'experimental.redacted-text.coaching'
+           AND run.metric_pack_version = 3)
+      )
+    GROUP BY run.run_id, result.key
+)
+INSERT INTO session_analysis_run_metrics(run_id, metric_key, ordinal)
+SELECT completed.run_id, completed.metric_key,
+       ROW_NUMBER() OVER (
+           PARTITION BY completed.run_id ORDER BY completed.metric_key
+       ) - 1
+FROM completed_metric_keys AS completed;
+
+UPDATE session_analysis_runs
+SET metric_scope_state = 'exact'
+WHERE status = 'completed'
+  AND EXISTS (
+      SELECT 1 FROM session_analysis_run_metrics AS selected
+      WHERE selected.run_id = session_analysis_runs.run_id
+  );
+
+-- A terminal result set is unavailable for historical running/failed rows.
+-- Only runs written before schema v12 introduced subset execution can be
+-- recovered as the full reviewed pack. Schema-v12 rows may be either full or
+-- subset runs and therefore remain explicitly unknown rather than guessed.
+WITH recognized_metrics(
+    analysis_profile_key,
+    analysis_profile_version,
+    metric_pack_key,
+    metric_pack_version,
+    metric_key
+) AS (
+    VALUES
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.conversation_loop_closure'),
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.decision_rationale_coverage'),
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.plan_state_accounting'),
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.requirement_action_traceability'),
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.scoped_consistency_candidate_rate'),
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.completion_evaluability'),
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.constraint_resolution'),
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.deliverable_contract'),
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.goal_definition'),
+    ('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.open_decision_load'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.conversation_loop_closure'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.decision_rationale_coverage'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.plan_state_accounting'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.requirement_action_traceability'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.scoped_consistency_candidate_rate'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.completion_evaluability'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.constraint_resolution'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.deliverable_contract'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.goal_definition'),
+    ('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.open_decision_load'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.ambiguity_resolution'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.clarification_yield'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.exploration_conversion'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.rework_candidate_rate'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.scope_change_discipline'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.decision_rationale_coverage'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.decomposition_coverage'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.hypothesis_test_linkage'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.open_loop_closure'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.requirement_action_traceability'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'outcome.agent_claim_grounding'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'outcome.first_pass_verification'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'outcome.verification_strategy_adequacy'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'outcome.verified_requirement_coverage'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.acceptance_testability'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.constraint_precision'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.context_sufficiency'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.deliverable_contract'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.problem_evidence_quality'),
+    ('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.task_definition_coverage')
+)
+INSERT INTO session_analysis_run_metrics(run_id, metric_key, ordinal)
+SELECT run.run_id, recognized.metric_key,
+       ROW_NUMBER() OVER (
+           PARTITION BY run.run_id ORDER BY recognized.metric_key
+       ) - 1
+FROM session_analysis_runs AS run
+JOIN recognized_metrics AS recognized
+  ON recognized.analysis_profile_key = run.analysis_profile_key
+ AND recognized.analysis_profile_version = run.analysis_profile_version
+ AND recognized.metric_pack_key = run.metric_pack_key
+ AND recognized.metric_pack_version = run.metric_pack_version
+WHERE run.status <> 'completed'
+  AND run.schema_version <= 11;
+
+UPDATE session_analysis_runs
+SET metric_scope_state = 'exact'
+WHERE status <> 'completed'
+  AND EXISTS (
+      SELECT 1 FROM session_analysis_run_metrics AS selected
+      WHERE selected.run_id = session_analysis_runs.run_id
+  );
+
+CREATE TRIGGER session_analysis_runs_terminal_transition_only
+BEFORE UPDATE ON session_analysis_runs
+WHEN OLD.status <> 'running'
+    OR NEW.status NOT IN ('completed', 'failed')
+    OR NEW.run_id IS NOT OLD.run_id
+    OR NEW.session_id IS NOT OLD.session_id
+    OR NEW.request_fingerprint IS NOT OLD.request_fingerprint
+    OR NEW.input_fingerprint IS NOT OLD.input_fingerprint
+    OR NEW.analysis_profile_key IS NOT OLD.analysis_profile_key
+    OR NEW.analysis_profile_version IS NOT OLD.analysis_profile_version
+    OR NEW.metric_pack_key IS NOT OLD.metric_pack_key
+    OR NEW.metric_pack_version IS NOT OLD.metric_pack_version
+    OR NEW.metric_scope_state IS NOT OLD.metric_scope_state
+    OR NEW.data_tier IS NOT OLD.data_tier
+    OR NEW.consent_purpose IS NOT OLD.consent_purpose
+    OR NEW.consent_policy_version IS NOT OLD.consent_policy_version
+    OR NEW.provider IS NOT OLD.provider
+    OR NEW.provider_version IS NOT OLD.provider_version
+    OR NEW.adapter_version IS NOT OLD.adapter_version
+    OR NEW.source_schema_version IS NOT OLD.source_schema_version
+    OR NEW.content_schema_version IS NOT OLD.content_schema_version
+    OR NEW.metric_engine_version IS NOT OLD.metric_engine_version
+    OR NEW.redactor_version IS NOT OLD.redactor_version
+    OR NEW.model_plan_fingerprint IS NOT OLD.model_plan_fingerprint
+    OR NEW.schema_version IS NOT OLD.schema_version
+    OR NEW.local_only IS NOT OLD.local_only
+    OR NEW.started_at IS NOT OLD.started_at
+    OR NEW.finished_at IS NULL
+    OR (NEW.status = 'completed' AND (
+        OLD.metric_scope_state <> 'exact'
+        OR NOT EXISTS (
+            SELECT 1 FROM session_analysis_results WHERE run_id = OLD.run_id
+        )
+        OR EXISTS (
+            SELECT 1 FROM session_analysis_results AS result
+            WHERE result.run_id = OLD.run_id
+              AND NOT EXISTS (
+                  SELECT 1 FROM session_analysis_run_metrics AS selected
+                  WHERE selected.run_id = OLD.run_id
+                    AND selected.metric_key = result.key
+              )
+        )
+        OR EXISTS (
+            SELECT 1 FROM session_analysis_run_metrics AS selected
+            WHERE selected.run_id = OLD.run_id
+              AND NOT EXISTS (
+                  SELECT 1 FROM session_analysis_results AS result
+                  WHERE result.run_id = OLD.run_id
+                    AND result.key = selected.metric_key
+              )
+        )
+    ))
+    OR (NEW.status = 'failed' AND EXISTS (
+        SELECT 1 FROM session_analysis_results WHERE run_id = OLD.run_id
+    ))
+BEGIN
+    SELECT RAISE(ABORT, 'session analysis run transition is invalid');
+END;
+
+CREATE TRIGGER session_analysis_run_metrics_running_insert_only
+BEFORE INSERT ON session_analysis_run_metrics
+WHEN COALESCE(
+    (SELECT status FROM session_analysis_runs WHERE run_id = NEW.run_id), ''
+) <> 'running'
+OR COALESCE(
+    (SELECT metric_scope_state FROM session_analysis_runs WHERE run_id = NEW.run_id), ''
+) <> 'exact'
+BEGIN
+    SELECT RAISE(ABORT, 'session analysis metric scope requires an exact running run');
+END;
+
+CREATE TRIGGER session_analysis_run_metrics_no_update
+BEFORE UPDATE ON session_analysis_run_metrics
+BEGIN
+    SELECT RAISE(ABORT, 'session analysis metric scope is immutable');
+END;
+
+CREATE TRIGGER session_analysis_run_metrics_privacy_delete_only
+BEFORE DELETE ON session_analysis_run_metrics
+WHEN EXISTS (
+    SELECT 1 FROM session_analysis_runs WHERE run_id = OLD.run_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'session analysis metric scope requires parent privacy deletion');
+END;
+
+COMMIT;
+"""

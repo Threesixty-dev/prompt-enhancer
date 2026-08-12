@@ -26,6 +26,7 @@ from .contracts import (
     SessionMetricAggregation,
     SessionMetricApplicability,
     SessionMetricDirection,
+    SessionMetricScopeState,
     TaskCandidateRecord,
     TaskDecisionRecord,
     TaskRepository,
@@ -64,4 +65,5 @@ __all__ = (
     "SessionMetricAggregation",
     "SessionMetricApplicability",
     "SessionMetricDirection",
+    "SessionMetricScopeState",
 )

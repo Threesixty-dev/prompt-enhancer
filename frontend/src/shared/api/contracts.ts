@@ -18,6 +18,9 @@ export type SessionAnalysisResult = Schemas["SessionAnalysisResultDto"];
 export type SessionAnalysisEvidence = Schemas["SessionAnalysisEvidenceDto"];
 export type SessionAnalysisSignal = Schemas["SessionAnalysisSignalDto"];
 export type SessionMetricFraction = Schemas["SessionMetricFractionDto"];
+export type SessionMetricScopeState = Schemas["SessionMetricScopeState"];
+export type SessionQualityCompatibilityKey =
+  Schemas["SessionQualityCompatibilityKey"];
 export type SessionAnalysisRunListResponse =
   Schemas["SessionAnalysisRunListResponse"];
 export type SessionAnalysisRunResponse = Schemas["SessionAnalysisRunResponse"];

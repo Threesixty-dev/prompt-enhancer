@@ -3055,7 +3055,8 @@
           "collect_objective_verification",
           "review_applicability",
           "review_evidence_coverage",
-          "retry_analysis"
+          "retry_analysis",
+          "select_metric_for_analysis"
         ],
         "title": "MetricReadinessAction",
         "type": "string"
@@ -3075,7 +3076,9 @@
           "provider_unavailable",
           "analysis_failed",
           "result_failed",
-          "result_missing"
+          "result_missing",
+          "metric_not_selected",
+          "metric_scope_unknown"
         ],
         "title": "MetricReadinessReason",
         "type": "string"
@@ -4334,6 +4337,11 @@
             "title": "Missing Run Count",
             "type": "integer"
           },
+          "not_selected_run_count": {
+            "minimum": 0.0,
+            "title": "Not Selected Run Count",
+            "type": "integer"
+          },
           "numeric_value": {
             "anyOf": [
               {
@@ -4360,6 +4368,12 @@
           },
           "state_counts": {
             "$ref": "#/components/schemas/SessionQualityStateCounts"
+          },
+          "unknown_scope_run_count": {
+            "description": "Orthogonal count of completed legacy runs whose selected metric scope cannot be recovered; these runs may also be present or missing.",
+            "minimum": 0.0,
+            "title": "Unknown Scope Run Count",
+            "type": "integer"
           }
         },
         "required": [
@@ -4373,6 +4387,8 @@
           "selected_session_count",
           "completed_run_count",
           "missing_run_count",
+          "not_selected_run_count",
+          "unknown_scope_run_count",
           "present_result_count",
           "missing_result_count",
           "invalid_result_session_count",
@@ -5443,6 +5459,9 @@
             "title": "Metric Pack Version",
             "type": "integer"
           },
+          "metric_scope_state": {
+            "$ref": "#/components/schemas/SessionMetricScopeState"
+          },
           "model_plan_fingerprint": {
             "maxLength": 64,
             "minLength": 64,
@@ -5480,6 +5499,14 @@
             "title": "Schema Version",
             "type": "integer"
           },
+          "selected_metric_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Selected Metric Keys",
+            "type": "array"
+          },
           "session_id": {
             "maxLength": 64,
             "minLength": 64,
@@ -5509,6 +5536,8 @@
           "analysis_profile_version",
           "metric_pack_key",
           "metric_pack_version",
+          "metric_scope_state",
+          "selected_metric_keys",
           "data_tier",
           "consent_purpose",
           "consent_policy_version",
@@ -5965,6 +5994,15 @@
         "title": "SessionMetricReadinessReport",
         "type": "object"
       },
+      "SessionMetricScopeState": {
+        "description": "Whether a persisted run's complete requested metric set is recoverable.",
+        "enum": [
+          "exact",
+          "legacy_unknown"
+        ],
+        "title": "SessionMetricScopeState",
+        "type": "string"
+      },
       "SessionQualityAggregate": {
         "additionalProperties": false,
         "description": "Content-free selected-session projection; selected IDs are intentionally absent.",
@@ -6229,6 +6267,9 @@
             "title": "Metric Schema Version",
             "type": "integer"
           },
+          "metric_scope_state": {
+            "$ref": "#/components/schemas/SessionMetricScopeState"
+          },
           "metric_source": {
             "$ref": "#/components/schemas/MetricSource"
           },
@@ -6263,10 +6304,6 @@
             ],
             "title": "Model License"
           },
-          "model_plan_fingerprint": {
-            "title": "Model Plan Fingerprint",
-            "type": "string"
-          },
           "model_revision": {
             "anyOf": [
               {
@@ -6277,11 +6314,6 @@
               }
             ],
             "title": "Model Revision"
-          },
-          "persistence_schema_version": {
-            "minimum": 1.0,
-            "title": "Persistence Schema Version",
-            "type": "integer"
           },
           "prompt_version": {
             "anyOf": [
@@ -6337,6 +6369,7 @@
           "analysis_profile_version",
           "metric_pack_key",
           "metric_pack_version",
+          "metric_scope_state",
           "data_tier",
           "consent_policy_version",
           "provider",
@@ -6346,8 +6379,6 @@
           "content_schema_version",
           "metric_engine_version",
           "redactor_version",
-          "model_plan_fingerprint",
-          "persistence_schema_version",
           "local_only",
           "metric_key",
           "metric_version",
@@ -6509,6 +6540,11 @@
             "title": "Missing Run Count",
             "type": "integer"
           },
+          "not_selected_run_count": {
+            "minimum": 0.0,
+            "title": "Not Selected Run Count",
+            "type": "integer"
+          },
           "numeric_value": {
             "anyOf": [
               {
@@ -6535,6 +6571,12 @@
           },
           "state_counts": {
             "$ref": "#/components/schemas/SessionQualityStateCounts"
+          },
+          "unknown_scope_run_count": {
+            "description": "Orthogonal count of completed legacy runs whose selected metric scope cannot be recovered; these runs may also be present or missing.",
+            "minimum": 0.0,
+            "title": "Unknown Scope Run Count",
+            "type": "integer"
           }
         },
         "required": [
@@ -6548,6 +6590,8 @@
           "selected_session_count",
           "completed_run_count",
           "missing_run_count",
+          "not_selected_run_count",
+          "unknown_scope_run_count",
           "present_result_count",
           "missing_result_count",
           "invalid_result_session_count",
@@ -7380,6 +7424,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [

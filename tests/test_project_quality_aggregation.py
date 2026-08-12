@@ -31,6 +31,7 @@ from prompt_enhancer.application.analysis.session_quality_aggregation import (
 from prompt_enhancer.application.persistence import (
     SessionMetricAggregation,
     SessionMetricDirection,
+    SessionMetricScopeState,
 )
 from prompt_enhancer.domain import DataTier, MetricSource, Provider
 
@@ -197,6 +198,7 @@ def test_public_projection_hashes_path_capable_provenance_values() -> None:
         analysis_profile_version=1,
         metric_pack_key="coaching.session-quality",
         metric_pack_version=1,
+        metric_scope_state=SessionMetricScopeState.EXACT,
         data_tier=DataTier.REDACTED_CONTENT,
         consent_policy_version="consent-v1",
         provider=Provider.SYNTHETIC,
@@ -206,8 +208,6 @@ def test_public_projection_hashes_path_capable_provenance_values() -> None:
         content_schema_version="content-v1",
         metric_engine_version="engine-v1",
         redactor_version="redactor-v1",
-        model_plan_fingerprint="d" * 64,
-        persistence_schema_version=10,
         local_only=True,
         metric_key="goal_definition_coverage",
         metric_version=1,
@@ -242,6 +242,8 @@ def test_public_projection_hashes_path_capable_provenance_values() -> None:
         selected_session_count=1,
         completed_run_count=1,
         missing_run_count=0,
+        not_selected_run_count=0,
+        unknown_scope_run_count=0,
         present_result_count=1,
         missing_result_count=0,
         invalid_result_session_count=0,
@@ -293,6 +295,7 @@ def test_public_projection_hashes_path_capable_provenance_values() -> None:
     fingerprint = result.session_quality.metrics[0].compatibility_cohorts[
         0
     ].compatibility_fingerprint
+    assert result.session_quality.metrics[0].unknown_scope_run_count == 0
     assert len(fingerprint) == 64
     assert set(fingerprint) <= set("0123456789abcdef")
 

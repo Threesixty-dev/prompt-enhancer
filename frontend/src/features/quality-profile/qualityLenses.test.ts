@@ -28,6 +28,8 @@ function metric(
     fractionDenominator: 2,
     observed: 1,
     eligible: 1,
+    notSelectedRuns: 0,
+    unknownScopeRuns: 0,
     coverage: 1,
     confidence: null,
     signals: [],

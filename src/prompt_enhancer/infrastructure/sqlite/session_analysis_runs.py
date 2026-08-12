@@ -19,6 +19,7 @@ from ...application.persistence import (
     SessionMetricAggregation,
     SessionMetricApplicability,
     SessionMetricDirection,
+    SessionMetricScopeState,
     SessionMetricSignalStatus,
 )
 from ...database import DatabaseInvariantError, SCHEMA_VERSION
@@ -74,14 +75,14 @@ class SqliteSessionAnalysisRunRepository:
                         run_id, session_id, request_fingerprint,
                         input_fingerprint, analysis_profile_key,
                         analysis_profile_version, metric_pack_key,
-                        metric_pack_version, data_tier, consent_purpose,
+                        metric_pack_version, metric_scope_state, data_tier, consent_purpose,
                         consent_policy_version, provider, provider_version,
                         adapter_version, source_schema_version,
                         content_schema_version, metric_engine_version,
                         redactor_version, model_plan_fingerprint,
                         schema_version, local_only, started_at, status
                     ) VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1,
                         ?, 'running'
                     )
                     """,
@@ -94,6 +95,7 @@ class SqliteSessionAnalysisRunRepository:
                         draft.analysis_profile_version,
                         draft.metric_pack_key,
                         draft.metric_pack_version,
+                        draft.metric_scope_state.value,
                         draft.data_tier.value,
                         draft.consent_purpose,
                         draft.consent_policy_version,
@@ -107,6 +109,19 @@ class SqliteSessionAnalysisRunRepository:
                         draft.model_plan_fingerprint,
                         draft.schema_version,
                         to_iso(draft.started_at),
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO session_analysis_run_metrics(
+                        run_id, metric_key, ordinal
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        (draft.run_id, metric_key, ordinal)
+                        for ordinal, metric_key in enumerate(
+                            draft.selected_metric_keys
+                        )
                     ),
                 )
                 connection.commit()
@@ -137,7 +152,8 @@ class SqliteSessionAnalysisRunRepository:
                 connection.execute("BEGIN IMMEDIATE")
                 run = connection.execute(
                     """
-                    SELECT started_at, status FROM session_analysis_runs
+                    SELECT started_at, status, metric_scope_state
+                    FROM session_analysis_runs
                     WHERE run_id = ?
                     """,
                     (run_id,),
@@ -145,6 +161,25 @@ class SqliteSessionAnalysisRunRepository:
                 if run is None or run["status"] != AnalysisRunStatus.RUNNING.value:
                     raise DatabaseInvariantError(
                         "session analysis run is missing or already terminal"
+                    )
+                selected_metric_keys = tuple(
+                    row["metric_key"]
+                    for row in connection.execute(
+                        """
+                        SELECT metric_key FROM session_analysis_run_metrics
+                        WHERE run_id = ? ORDER BY ordinal
+                        """,
+                        (run_id,),
+                    ).fetchall()
+                )
+                if (
+                    run["metric_scope_state"]
+                    != SessionMetricScopeState.EXACT.value
+                    or tuple(sorted(result.observation.key for result in results))
+                    != selected_metric_keys
+                ):
+                    raise DatabaseInvariantError(
+                        "session analysis results do not match selected metric scope"
                     )
                 started_at = from_iso(run["started_at"])
                 if started_at is None or finished_at < started_at:
@@ -302,7 +337,24 @@ class SqliteSessionAnalysisRunRepository:
                 raise
 
     @staticmethod
-    def _record_from_row(row: object) -> SessionAnalysisRunRecord:
+    def _selected_metrics(connection, run_id: str) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
+        return tuple(
+            row["metric_key"]
+            for row in connection.execute(
+                """
+                SELECT metric_key FROM session_analysis_run_metrics
+                WHERE run_id = ? ORDER BY ordinal
+                """,
+                (run_id,),
+            ).fetchall()
+        )
+
+    @classmethod
+    def _record_from_row(
+        cls,
+        connection,  # type: ignore[no-untyped-def]
+        row: object,
+    ) -> SessionAnalysisRunRecord:
         draft = SessionAnalysisRunDraft(
             run_id=row["run_id"],
             session_id=row["session_id"],
@@ -312,6 +364,13 @@ class SqliteSessionAnalysisRunRepository:
             analysis_profile_version=row["analysis_profile_version"],
             metric_pack_key=row["metric_pack_key"],
             metric_pack_version=row["metric_pack_version"],
+            metric_scope_state=SessionMetricScopeState(
+                row["metric_scope_state"]
+            ),
+            selected_metric_keys=cls._selected_metrics(
+                connection,
+                row["run_id"],
+            ),
             data_tier=DataTier(row["data_tier"]),
             consent_purpose=row["consent_purpose"],
             consent_policy_version=row["consent_policy_version"],
@@ -341,7 +400,11 @@ class SqliteSessionAnalysisRunRepository:
             row = connection.execute(
                 "SELECT * FROM session_analysis_runs WHERE run_id = ?", (run_id,)
             ).fetchone()
-        return None if row is None else self._record_from_row(row)
+            return (
+                None
+                if row is None
+                else self._record_from_row(connection, row)
+            )
 
     @staticmethod
     def _validate_page(limit: int, offset: int) -> None:
@@ -370,7 +433,9 @@ class SqliteSessionAnalysisRunRepository:
                 """,
                 (session_id, limit, offset),
             ).fetchall()
-        return tuple(self._record_from_row(row) for row in rows)
+            return tuple(
+                self._record_from_row(connection, row) for row in rows
+            )
 
     def get_latest_completed(
         self, session_id: str
@@ -386,7 +451,11 @@ class SqliteSessionAnalysisRunRepository:
                 """,
                 (session_id,),
             ).fetchone()
-        return None if row is None else self._record_from_row(row)
+            return (
+                None
+                if row is None
+                else self._record_from_row(connection, row)
+            )
 
     def get_latest_for_profile(
         self,
@@ -431,7 +500,11 @@ class SqliteSessionAnalysisRunRepository:
                     metric_pack_version,
                 ),
             ).fetchone()
-        return None if row is None else self._record_from_row(row)
+            return (
+                None
+                if row is None
+                else self._record_from_row(connection, row)
+            )
 
     @staticmethod
     def _validate_aggregation_selection(session_ids: tuple[str, ...]) -> None:
@@ -474,6 +547,16 @@ class SqliteSessionAnalysisRunRepository:
             WITH selected(session_id, selection_order) AS (
                 VALUES {selected_values}
             ),
+            scope AS (
+                SELECT ordered.run_id,
+                       GROUP_CONCAT(ordered.metric_key, '|') AS metric_keys
+                FROM (
+                    SELECT run_id, metric_key
+                    FROM session_analysis_run_metrics
+                    ORDER BY run_id, ordinal
+                ) AS ordered
+                GROUP BY ordered.run_id
+            ),
             ranked AS (
                 SELECT
                     selected.selection_order,
@@ -483,6 +566,8 @@ class SqliteSessionAnalysisRunRepository:
                     run.analysis_profile_version,
                     run.metric_pack_key,
                     run.metric_pack_version,
+                    run.metric_scope_state,
+                    COALESCE(scope.metric_keys, '') AS selected_metric_keys,
                     run.data_tier,
                     run.consent_policy_version,
                     run.provider,
@@ -507,6 +592,7 @@ class SqliteSessionAnalysisRunRepository:
                  AND run.analysis_profile_version = ?
                  AND run.metric_pack_key = ?
                  AND run.metric_pack_version = ?
+                LEFT JOIN scope ON scope.run_id = run.run_id
             )
             SELECT
                 ranked.selection_order,
@@ -515,6 +601,8 @@ class SqliteSessionAnalysisRunRepository:
                 ranked.analysis_profile_version,
                 ranked.metric_pack_key,
                 ranked.metric_pack_version,
+                ranked.metric_scope_state,
+                ranked.selected_metric_keys,
                 ranked.data_tier,
                 ranked.consent_policy_version,
                 ranked.provider,
@@ -573,6 +661,14 @@ class SqliteSessionAnalysisRunRepository:
                     "analysis_profile_version": row["analysis_profile_version"],
                     "metric_pack_key": row["metric_pack_key"],
                     "metric_pack_version": row["metric_pack_version"],
+                    "metric_scope_state": SessionMetricScopeState(
+                        row["metric_scope_state"]
+                    ),
+                    "selected_metric_keys": tuple(
+                        key
+                        for key in row["selected_metric_keys"].split("|")
+                        if key
+                    ),
                     "data_tier": DataTier(row["data_tier"]),
                     "consent_policy_version": row["consent_policy_version"],
                     "provider": Provider(row["provider"]),

@@ -21,6 +21,7 @@ from ..persistence import (
     SessionAnalysisResultRecord,
     SessionAnalysisRunRecord,
     SessionAnalysisRunRepository,
+    SessionMetricScopeState,
 )
 from ..providers import (
     CapabilityKey,
@@ -96,6 +97,8 @@ class MetricReadinessReason(StrEnum):
     ANALYSIS_FAILED = "analysis_failed"
     RESULT_FAILED = "result_failed"
     RESULT_MISSING = "result_missing"
+    METRIC_NOT_SELECTED = "metric_not_selected"
+    METRIC_SCOPE_UNKNOWN = "metric_scope_unknown"
 
 
 class MetricReadinessAction(StrEnum):
@@ -110,6 +113,7 @@ class MetricReadinessAction(StrEnum):
     REVIEW_APPLICABILITY = "review_applicability"
     REVIEW_EVIDENCE_COVERAGE = "review_evidence_coverage"
     RETRY_ANALYSIS = "retry_analysis"
+    SELECT_METRIC_FOR_ANALYSIS = "select_metric_for_analysis"
 
 
 class MetricRadarPolicy(StrEnum):
@@ -704,23 +708,6 @@ class MetricReadinessService:
         if result is not None:
             return self._from_result(common, result)
 
-        if latest is not None and latest.status is AnalysisRunStatus.FAILED:
-            return MetricReadiness(
-                **common,
-                state=MetricReadinessState.FAILED,
-                reason_code=MetricReadinessReason.ANALYSIS_FAILED,
-                next_actions=(MetricReadinessAction.RETRY_ANALYSIS,),
-                missing_capabilities=(),
-            )
-        if latest is not None and latest.status is AnalysisRunStatus.RUNNING:
-            return MetricReadiness(
-                **common,
-                state=MetricReadinessState.UNKNOWN,
-                reason_code=MetricReadinessReason.ANALYSIS_IN_PROGRESS,
-                next_actions=(MetricReadinessAction.NONE,),
-                missing_capabilities=(),
-            )
-
         missing = self._missing_capabilities(requirement, capability_index)
         if missing:
             actions = tuple(
@@ -738,6 +725,51 @@ class MetricReadinessService:
                 reason_code=MetricReadinessReason.PROVIDER_CAPABILITY_MISSING,
                 next_actions=actions,
                 missing_capabilities=missing,
+            )
+        if (
+            latest is not None
+            and latest.draft.metric_scope_state
+            is SessionMetricScopeState.EXACT
+            and definition.key not in latest.draft.selected_metric_keys
+        ):
+            return MetricReadiness(
+                **common,
+                state=MetricReadinessState.UNKNOWN,
+                reason_code=MetricReadinessReason.METRIC_NOT_SELECTED,
+                next_actions=(
+                    MetricReadinessAction.SELECT_METRIC_FOR_ANALYSIS,
+                ),
+                missing_capabilities=(),
+            )
+        if (
+            latest is not None
+            and latest.draft.metric_scope_state
+            is SessionMetricScopeState.LEGACY_UNKNOWN
+        ):
+            return MetricReadiness(
+                **common,
+                state=MetricReadinessState.UNKNOWN,
+                reason_code=MetricReadinessReason.METRIC_SCOPE_UNKNOWN,
+                next_actions=(
+                    MetricReadinessAction.SELECT_METRIC_FOR_ANALYSIS,
+                ),
+                missing_capabilities=(),
+            )
+        if latest is not None and latest.status is AnalysisRunStatus.FAILED:
+            return MetricReadiness(
+                **common,
+                state=MetricReadinessState.FAILED,
+                reason_code=MetricReadinessReason.ANALYSIS_FAILED,
+                next_actions=(MetricReadinessAction.RETRY_ANALYSIS,),
+                missing_capabilities=(),
+            )
+        if latest is not None and latest.status is AnalysisRunStatus.RUNNING:
+            return MetricReadiness(
+                **common,
+                state=MetricReadinessState.UNKNOWN,
+                reason_code=MetricReadinessReason.ANALYSIS_IN_PROGRESS,
+                next_actions=(MetricReadinessAction.NONE,),
+                missing_capabilities=(),
             )
         if latest is not None:
             return MetricReadiness(

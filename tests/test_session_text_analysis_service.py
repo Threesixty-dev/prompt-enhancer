@@ -7,6 +7,11 @@ from threading import Event, Lock
 import pytest
 from pydantic import SecretStr
 
+from prompt_enhancer.adapters.synthetic import SyntheticAdapter
+from prompt_enhancer.application.analysis.session_quality_aggregation import (
+    SessionQualityAggregationService,
+    SessionQualitySelection,
+)
 from prompt_enhancer.application.analysis.session_text_service import (
     SESSION_TEXT_ANALYSIS_CONFIRMATION,
     SessionTextAnalysisConflictError,
@@ -73,7 +78,9 @@ from prompt_enhancer.application.persistence import (
     SessionAnalysisRunRecord,
 )
 from prompt_enhancer.domain import DataTier, Provider
+from prompt_enhancer.database import Database, SCHEMA_VERSION
 from prompt_enhancer.infrastructure.identifiers import LocalArtifactIdFactory
+from prompt_enhancer.ingestion import IngestionService
 from prompt_enhancer.privacy import Pseudonymizer
 
 
@@ -775,6 +782,9 @@ def test_coaching_preset_produces_twenty_typed_results_in_its_own_immutable_pack
     assert stored is not None
     assert stored.draft.metric_pack_key == COACHING_METRIC_PACK_KEY
     assert stored.draft.metric_pack_version == COACHING_METRIC_PACK_VERSION
+    assert stored.draft.selected_metric_keys == tuple(
+        sorted(definition.key for definition in COACHING_METRIC_DEFINITIONS)
+    )
     results = repository.get_results(outcome.run_id)
     assert tuple(
         (item.observation.key, item.observation.version) for item in results
@@ -814,6 +824,9 @@ def test_explicit_coaching_scope_persists_only_selected_metrics(
     assert source.read_count == 1
     persisted = repository.get_results(outcome.run_id)
     assert tuple(item.observation.key for item in persisted) == selected_metric_keys
+    stored = repository.get(outcome.run_id)
+    assert stored is not None
+    assert stored.draft.selected_metric_keys == selected_metric_keys
     assert not (
         {definition.key for definition in COACHING_METRIC_DEFINITIONS}
         - set(selected_metric_keys)
@@ -864,6 +877,116 @@ def test_explicit_coaching_scope_is_fingerprinted_and_cannot_drift_on_retry() ->
         other_draft.model_plan_fingerprint
         != first_draft.model_plan_fingerprint
     )
+
+
+def test_real_repository_aggregates_overlap_across_distinct_scope_plans(
+    tmp_path,
+) -> None:
+    database = Database(tmp_path / "scope-aggregation.sqlite3")
+    database.initialize()
+    pseudonymizer = Pseudonymizer(bytes(range(32)))
+    IngestionService(database, pseudonymizer).ingest(SyntheticAdapter())
+    session_ids = tuple(
+        row["session_id"] for row in database.list_sessions(limit=10)
+    )
+    assert len(session_ids) == 2
+
+    class MultiSessionPolicy:
+        def has_active_consent(
+            self, provider: Provider, tier: DataTier
+        ) -> bool:
+            return (
+                provider is Provider.SYNTHETIC
+                and tier is DataTier.REDACTED_CONTENT
+            )
+
+        def selection_is_indexed(
+            self,
+            provider: Provider,
+            *,
+            project_ids: frozenset[str],
+            session_ids: frozenset[str],
+        ) -> bool:
+            return (
+                provider is Provider.SYNTHETIC
+                and not project_ids
+                and len(session_ids) == 1
+            )
+
+    class MultiSessionSource(RecordingSource):
+        def read(
+            self,
+            *,
+            selection: TextAnalysisSelection,
+            grant: TextSourceAccessGrant,
+            task_profile: TextTaskProfile,
+        ) -> P1TextAnalysisInput:
+            del grant
+            session_id = selection.session_id
+            return _context(task_profile).model_copy(
+                update={
+                    "session_id": session_id,
+                    "analysis_window_fingerprint": session_id,
+                }
+            )
+
+    repository = database.session_analysis_run_repository()
+    source = MultiSessionSource()
+    service = SessionTextAnalysisService(
+        MultiSessionPolicy(),  # type: ignore[arg-type]
+        repository,
+        lambda provider: source
+        if provider is Provider.SYNTHETIC
+        else (_ for _ in ()).throw(ValueError("unsupported synthetic provider")),
+        MemoryCompatibilityPolicy(),
+        LocalArtifactIdFactory(pseudonymizer),
+        schema_version=SCHEMA_VERSION,
+        clock=TickingClock(),
+    )
+    first_scope = ("prompt.context_sufficiency",)
+    second_scope = (
+        "logic.decomposition_coverage",
+        "prompt.context_sufficiency",
+    )
+    outcomes = (
+        service.run_preset(
+            provider=Provider.SYNTHETIC,
+            session_id=session_ids[0],
+            preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+            confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
+            idempotency_key="example-real-scope-a",
+            selected_metric_keys=first_scope,
+        ),
+        service.run_preset(
+            provider=Provider.SYNTHETIC,
+            session_id=session_ids[1],
+            preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+            confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
+            idempotency_key="example-real-scope-ab",
+            selected_metric_keys=second_scope,
+        ),
+    )
+    runs = tuple(repository.get(outcome.run_id) for outcome in outcomes)
+    assert all(run is not None for run in runs)
+    assert runs[0].draft.model_plan_fingerprint != runs[1].draft.model_plan_fingerprint  # type: ignore[union-attr]
+
+    aggregate = SessionQualityAggregationService(
+        repository,
+        definitions=COACHING_METRIC_DEFINITIONS,
+        analysis_profile_key=COACHING_PROFILE_V1.analysis_profile_key,
+        analysis_profile_version=COACHING_PROFILE_V1.analysis_profile_version,
+        metric_pack_key=COACHING_METRIC_PACK_KEY,
+        metric_pack_version=COACHING_METRIC_PACK_VERSION,
+    ).aggregate(SessionQualitySelection(session_ids=session_ids))
+    by_key = {metric.metric_key: metric for metric in aggregate.metrics}
+    shared = by_key["prompt.context_sufficiency"]
+    second_only = by_key["logic.decomposition_coverage"]
+    assert len(shared.compatibility_cohorts) == 1
+    assert shared.compatibility_cohorts[0].result_count == 2
+    assert shared.not_selected_run_count == 0
+    assert second_only.present_result_count == 1
+    assert second_only.not_selected_run_count == 1
+    assert second_only.missing_result_count == 0
 
 
 def test_unknown_coaching_scope_fails_before_policy_or_provider_access() -> None:

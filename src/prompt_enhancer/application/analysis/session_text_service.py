@@ -28,6 +28,7 @@ from ..persistence import (
     SessionMetricAggregation,
     SessionMetricApplicability,
     SessionMetricDirection,
+    SessionMetricScopeState,
     SessionMetricSignalStatus,
 )
 from .text_baselines import (
@@ -278,7 +279,7 @@ def _resolve_metric_selection(
         definition.key for definition in engine.registry.definitions
     )
     if selected_metric_keys is None:
-        return available
+        return tuple(sorted(available))
     if (
         not isinstance(selected_metric_keys, tuple)
         or not selected_metric_keys
@@ -325,6 +326,7 @@ def _pre_read_matches(
     metric_engine_version: str,
     metric_pack_key: str,
     metric_pack_version: int,
+    selected_metric_keys: tuple[str, ...],
     schema_version: int,
 ) -> bool:
     return (
@@ -336,6 +338,8 @@ def _pre_read_matches(
         and stored.model_plan_fingerprint == model_plan_fingerprint
         and stored.metric_pack_key == metric_pack_key
         and stored.metric_pack_version == metric_pack_version
+        and stored.metric_scope_state is SessionMetricScopeState.EXACT
+        and stored.selected_metric_keys == selected_metric_keys
         and stored.data_tier is DataTier.REDACTED_CONTENT
         and stored.consent_purpose == TextAnalysisPurpose.TEXT_ANALYSIS.value
         and stored.consent_policy_version
@@ -740,7 +744,8 @@ class SessionTextAnalysisService:
                 metric_engine_version=metric_engine.engine_version,
                 metric_pack_key=metric_pack_key,
                 metric_pack_version=metric_pack_version,
-                selected_metric_keys=(
+                selected_metric_keys=effective_metric_keys,
+                calculator_selected_metric_keys=(
                     effective_metric_keys
                     if selected_metric_keys is not None
                     else None
@@ -765,7 +770,8 @@ class SessionTextAnalysisService:
         metric_engine_version: str,
         metric_pack_key: str,
         metric_pack_version: int,
-        selected_metric_keys: tuple[str, ...] | None,
+        selected_metric_keys: tuple[str, ...],
+        calculator_selected_metric_keys: tuple[str, ...] | None,
         run_id: str,
         prepared_context: P1TextAnalysisInput | None,
     ) -> SessionTextAnalysisOutcome:
@@ -783,6 +789,7 @@ class SessionTextAnalysisService:
                 metric_engine_version=metric_engine_version,
                 metric_pack_key=metric_pack_key,
                 metric_pack_version=metric_pack_version,
+                selected_metric_keys=selected_metric_keys,
                 schema_version=self._schema_version,
             ):
                 raise SessionTextAnalysisConflictError(
@@ -816,6 +823,8 @@ class SessionTextAnalysisService:
             analysis_profile_version=analysis_profile_version,
             metric_pack_key=metric_pack_key,
             metric_pack_version=metric_pack_version,
+            metric_scope_state=SessionMetricScopeState.EXACT,
+            selected_metric_keys=selected_metric_keys,
             data_tier=DataTier.REDACTED_CONTENT,
             consent_purpose=TextAnalysisPurpose.TEXT_ANALYSIS.value,
             consent_policy_version=SESSION_TEXT_ANALYSIS_CONSENT_POLICY_VERSION,
@@ -860,13 +869,13 @@ class SessionTextAnalysisService:
                 grant,
                 pack_key=metric_pack_key,
                 pack_version=metric_pack_version,
-                selected_metric_keys=selected_metric_keys,
+                selected_metric_keys=calculator_selected_metric_keys,
             )
             self._validate_result_set(
                 context,
                 calculated,
                 metric_engine,
-                selected_metric_keys=selected_metric_keys,
+                selected_metric_keys=calculator_selected_metric_keys,
             )
             finished_at = _require_utc(self._clock())
             if finished_at < draft.started_at:

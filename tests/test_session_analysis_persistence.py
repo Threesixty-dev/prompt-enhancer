@@ -16,17 +16,26 @@ from prompt_enhancer.application.analysis.text_baselines import (
     DEFAULT_TEXT_METRIC_PACK_VERSION,
     TEXT_METRIC_ALGORITHM_ID,
     TEXT_METRIC_ALGORITHM_VERSION,
+    TEXT_METRIC_DEFINITIONS,
     TEXT_METRIC_ENGINE_VERSION,
 )
 from prompt_enhancer.application.analysis.coaching_baselines import (
     COACHING_METRIC_ALGORITHM_ID,
     COACHING_METRIC_ALGORITHM_VERSION,
     COACHING_METRIC_ENGINE_VERSION,
+    COACHING_METRIC_DEFINITIONS,
     COACHING_METRIC_PACK_KEY,
     COACHING_METRIC_PACK_VERSION,
 )
 from prompt_enhancer.application.analysis.text_contracts import (
+    MetricDirection,
     TEXT_METRIC_SCHEMA_VERSION,
+    TextMetricDefinition,
+)
+from prompt_enhancer.application.analysis.session_quality_aggregation import (
+    SessionQualityAggregationService,
+    SessionQualityCompatibilityState,
+    SessionQualitySelection,
 )
 from prompt_enhancer.application.persistence import (
     AnalysisRunStatus,
@@ -39,6 +48,7 @@ from prompt_enhancer.application.persistence import (
     SessionMetricAggregation,
     SessionMetricApplicability,
     SessionMetricDirection,
+    SessionMetricScopeState,
     SessionMetricSignalStatus,
     TaskRevisionRecord,
 )
@@ -59,6 +69,11 @@ from prompt_enhancer.infrastructure.sqlite.migrations import (
     MIGRATION_5,
     MIGRATION_6,
     MIGRATION_7,
+    MIGRATION_8,
+    MIGRATION_9,
+    MIGRATION_10,
+    MIGRATION_11,
+    MIGRATION_12,
 )
 
 
@@ -198,7 +213,259 @@ def _database_and_session(tmp_path) -> tuple[Database, str]:
     return database, session_id
 
 
-def _draft(session_id: str, identity: str = "a", *, started_at: datetime = NOW):
+def _create_v12_scope_runs(
+    path,
+    *,
+    duplicate_versions: bool = False,
+) -> tuple[str, str, str, str, str, str]:
+    migrations = (
+        (1, _MIGRATION_1),
+        (2, MIGRATION_2),
+        (3, MIGRATION_3),
+        (4, MIGRATION_4),
+        (5, MIGRATION_5),
+        (6, MIGRATION_6),
+        (7, MIGRATION_7),
+        (8, MIGRATION_8),
+        (9, MIGRATION_9),
+        (10, MIGRATION_10),
+        (11, MIGRATION_11),
+        (12, MIGRATION_12),
+    )
+    installation_id, project_id, session_id = "1" * 64, "2" * 64, "3" * 64
+    subset_run_id = "4" * 64
+    failed_standard_run_id = "5" * 64
+    failed_explicit_run_id = "6" * 64
+    failed_coaching_run_id = "7" * 64
+    unknown_run_id = "8" * 64
+    ambiguous_v12_run_id = "9" * 64
+    timestamp = NOW.isoformat()
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                checksum TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            )
+            """
+        )
+        for version, script in migrations:
+            connection.executescript(script)
+            connection.execute(
+                """
+                INSERT INTO schema_migrations(version, checksum, applied_at)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    version,
+                    hashlib.sha256(script.encode("utf-8")).hexdigest(),
+                    timestamp,
+                ),
+            )
+            connection.execute(f"PRAGMA user_version = {version}")
+            connection.commit()
+        connection.execute(
+            "INSERT INTO installations(installation_id, provider, created_at) VALUES (?, ?, ?)",
+            (installation_id, "synthetic", timestamp),
+        )
+        connection.execute(
+            "INSERT INTO projects(project_id, installation_id, provider, created_at) VALUES (?, ?, ?, ?)",
+            (project_id, installation_id, "synthetic", timestamp),
+        )
+        connection.execute(
+            """
+            INSERT INTO sessions(
+                session_id, installation_id, project_id, provider,
+                provider_version, adapter_version, source_schema_version,
+                started_at, ended_at, terminal_state, events_complete,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, 'synthetic', ?, ?, ?, ?, ?, 'completed', 1, ?, ?)
+            """,
+            (
+                session_id,
+                installation_id,
+                project_id,
+                "synthetic-v1",
+                "synthetic-adapter-v1",
+                "synthetic-schema-v1",
+                timestamp,
+                timestamp,
+                timestamp,
+                timestamp,
+            ),
+        )
+
+        def insert_running(
+            run_id: str,
+            profile_key: str,
+            pack_key: str,
+            pack_version: int,
+            schema_version: int = 12,
+        ) -> None:
+            connection.execute(
+                """
+                INSERT INTO session_analysis_runs(
+                    run_id, session_id, request_fingerprint, input_fingerprint,
+                    metric_pack_key, metric_pack_version, data_tier,
+                    consent_purpose, consent_policy_version, provider,
+                    provider_version, adapter_version, source_schema_version,
+                    content_schema_version, metric_engine_version,
+                    redactor_version, model_plan_fingerprint, schema_version,
+                    local_only, started_at, status, analysis_profile_key,
+                    analysis_profile_version
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, 'redacted_content', 'text_analysis',
+                    'synthetic-consent-v1', 'synthetic', 'synthetic-v1',
+                    'synthetic-adapter-v1', 'synthetic-schema-v1',
+                    'redacted-message-v1', 'synthetic-engine-v1',
+                    'synthetic-redactor-v1', ?, ?, 1, ?, 'running', ?, 1
+                )
+                """,
+                (
+                    run_id,
+                    session_id,
+                    "7" * 64,
+                    "8" * 64,
+                    pack_key,
+                    pack_version,
+                    "9" * 64,
+                    schema_version,
+                    timestamp,
+                    profile_key,
+                ),
+            )
+
+        def complete_with_result(
+            run_id: str,
+            metric_key: str,
+            *,
+            versions: tuple[int, ...] = (1,),
+        ) -> None:
+            for version in versions:
+                definition_identity = f"{metric_key}:{version}"
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO metric_definitions(
+                        key, version, dimension, display_name, description, unit,
+                        source, algorithm_version, definition_checksum
+                    ) VALUES (?, ?, 'synthetic', 'Synthetic metric',
+                              'Reserved synthetic migration fixture.', 'ratio',
+                              'deterministic', '1', ?)
+                    """,
+                    (
+                        metric_key,
+                        version,
+                        hashlib.sha256(
+                            definition_identity.encode("utf-8")
+                        ).hexdigest(),
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO session_analysis_results(
+                        run_id, key, version, metric_schema_version, value_state,
+                        numeric_value, unit, source, direction, applicability,
+                        aggregation_method, fraction_numerator,
+                        fraction_denominator, observed_count, eligible_count,
+                        coverage, confidence, evidence_data_tier,
+                        explanation_code, error_code, algorithm_id,
+                        algorithm_version, model_id, model_revision, model_license,
+                        tokenizer_id, prompt_version, rubric_version, computed_at
+                    ) VALUES (
+                        ?, ?, ?, 2, 'known', 1.0, 'ratio', 'deterministic',
+                        'higher_is_better', 'applicable', 'ratio_of_sums', 1, 1,
+                        1, 1, 1.0, NULL, 'redacted_content', 'legacy_fixture',
+                        NULL, 'legacy.algorithm', '1', NULL, NULL, NULL, NULL,
+                        NULL, 'legacy-rubric-v1', ?
+                    )
+                    """,
+                    (run_id, metric_key, version, timestamp),
+                )
+            connection.execute(
+                """
+                UPDATE session_analysis_runs
+                SET status = 'completed', finished_at = ?
+                WHERE run_id = ?
+                """,
+                (timestamp, run_id),
+            )
+
+        insert_running(
+            subset_run_id,
+            "coaching_profile",
+            COACHING_METRIC_PACK_KEY,
+            COACHING_METRIC_PACK_VERSION,
+        )
+        complete_with_result(
+            subset_run_id,
+            "prompt.context_sufficiency",
+            versions=(1, 99) if duplicate_versions else (1,),
+        )
+
+        def fail(run_id: str) -> None:
+            connection.execute(
+                """
+                UPDATE session_analysis_runs
+                SET status = 'failed', finished_at = ?,
+                    failure_code = 'synthetic_failure'
+                WHERE run_id = ?
+                """,
+                (timestamp, run_id),
+            )
+
+        insert_running(
+            failed_standard_run_id,
+            "standard_engineering",
+            DEFAULT_TEXT_METRIC_PACK_KEY,
+            DEFAULT_TEXT_METRIC_PACK_VERSION,
+            schema_version=11,
+        )
+        fail(failed_standard_run_id)
+        insert_running(
+            failed_explicit_run_id,
+            "explicit.user-profile",
+            DEFAULT_TEXT_METRIC_PACK_KEY,
+            DEFAULT_TEXT_METRIC_PACK_VERSION,
+            schema_version=11,
+        )
+        fail(failed_explicit_run_id)
+        insert_running(
+            failed_coaching_run_id,
+            "coaching_profile",
+            COACHING_METRIC_PACK_KEY,
+            COACHING_METRIC_PACK_VERSION,
+            schema_version=11,
+        )
+        fail(failed_coaching_run_id)
+        insert_running(
+            ambiguous_v12_run_id,
+            "coaching_profile",
+            COACHING_METRIC_PACK_KEY,
+            COACHING_METRIC_PACK_VERSION,
+        )
+        fail(ambiguous_v12_run_id)
+        insert_running(unknown_run_id, "unknown_profile", "unknown.pack", 1)
+        complete_with_result(unknown_run_id, "unknown.metric")
+        connection.commit()
+    return (
+        subset_run_id,
+        failed_standard_run_id,
+        failed_explicit_run_id,
+        failed_coaching_run_id,
+        unknown_run_id,
+        ambiguous_v12_run_id,
+    )
+
+
+def _draft(
+    session_id: str,
+    identity: str = "a",
+    *,
+    started_at: datetime = NOW,
+    selected_metric_keys: tuple[str, ...] = ("prompt.goal_definition",),
+):
     return SessionAnalysisRunDraft(
         run_id=identity * 64,
         session_id=session_id,
@@ -208,6 +475,7 @@ def _draft(session_id: str, identity: str = "a", *, started_at: datetime = NOW):
         analysis_profile_version=1,
         metric_pack_key=DEFAULT_TEXT_METRIC_PACK_KEY,
         metric_pack_version=DEFAULT_TEXT_METRIC_PACK_VERSION,
+        selected_metric_keys=tuple(sorted(selected_metric_keys)),
         data_tier=DataTier.REDACTED_CONTENT,
         consent_purpose="text_analysis",
         consent_policy_version="explicit-session-text-analysis-v1",
@@ -345,12 +613,189 @@ def test_v8_migration_marks_legacy_analysis_profile_without_guessing(tmp_path) -
             )
 
 
+def test_v13_backfills_only_recoverable_metric_scopes(tmp_path) -> None:
+    path = tmp_path / "scope-migration.sqlite3"
+    (
+        subset_run_id,
+        failed_standard_run_id,
+        failed_explicit_run_id,
+        failed_coaching_run_id,
+        unknown_run_id,
+        ambiguous_v12_run_id,
+    ) = _create_v12_scope_runs(path)
+
+    database = Database(path)
+    database.initialize()
+    repository = database.session_analysis_run_repository()
+    subset = repository.get(subset_run_id)
+    failed_standard = repository.get(failed_standard_run_id)
+    failed_explicit = repository.get(failed_explicit_run_id)
+    failed_coaching = repository.get(failed_coaching_run_id)
+    unknown = repository.get(unknown_run_id)
+    ambiguous_v12 = repository.get(ambiguous_v12_run_id)
+
+    assert subset is not None
+    assert subset.draft.metric_scope_state is SessionMetricScopeState.EXACT
+    assert subset.draft.selected_metric_keys == ("prompt.context_sufficiency",)
+    expected_standard = tuple(
+        sorted(definition.key for definition in TEXT_METRIC_DEFINITIONS)
+    )
+    expected_coaching = tuple(
+        sorted(definition.key for definition in COACHING_METRIC_DEFINITIONS)
+    )
+    assert failed_standard is not None
+    assert failed_explicit is not None
+    assert failed_coaching is not None
+    assert all(
+        run.draft.metric_scope_state is SessionMetricScopeState.EXACT
+        for run in (failed_standard, failed_explicit, failed_coaching)
+    )
+    assert failed_standard.draft.selected_metric_keys == expected_standard
+    assert failed_explicit.draft.selected_metric_keys == expected_standard
+    assert failed_coaching.draft.selected_metric_keys == expected_coaching
+    assert unknown is not None
+    assert ambiguous_v12 is not None
+    assert (
+        unknown.draft.metric_scope_state
+        is SessionMetricScopeState.LEGACY_UNKNOWN
+    )
+    assert unknown.draft.selected_metric_keys == ()
+    assert (
+        ambiguous_v12.draft.metric_scope_state
+        is SessionMetricScopeState.LEGACY_UNKNOWN
+    )
+    assert ambiguous_v12.draft.selected_metric_keys == ()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert connection.execute(
+            "SELECT COUNT(*) FROM session_analysis_run_metrics"
+        ).fetchone()[0] == 41
+
+
+def test_v13_collapses_legacy_metric_versions_to_one_scope_key(tmp_path) -> None:
+    path = tmp_path / "multi-version-scope.sqlite3"
+    subset_run_id, *_rest = _create_v12_scope_runs(
+        path,
+        duplicate_versions=True,
+    )
+
+    database = Database(path)
+    database.initialize()
+    repository = database.session_analysis_run_repository()
+    run = repository.get(subset_run_id)
+
+    assert run is not None
+    assert run.draft.metric_scope_state is SessionMetricScopeState.EXACT
+    assert run.draft.selected_metric_keys == ("prompt.context_sufficiency",)
+    assert len(repository.get_results(subset_run_id)) == 2
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            """
+            SELECT COUNT(*) FROM session_analysis_run_metrics
+            WHERE run_id = ?
+            """,
+            (subset_run_id,),
+        ).fetchone()[0] == 1
+
+
+def test_backfilled_v12_and_new_v13_runs_share_result_level_cohort(tmp_path) -> None:
+    path = tmp_path / "storage-version-cohort.sqlite3"
+    subset_run_id, *_rest = _create_v12_scope_runs(path)
+    database = Database(path)
+    database.initialize()
+    IngestionService(database, Pseudonymizer(bytes(range(32)))).ingest(
+        SyntheticAdapter()
+    )
+    new_session_id = next(
+        row["session_id"]
+        for row in database.list_sessions(limit=10)
+        if row["session_id"] != "3" * 64
+    )
+    repository = database.session_analysis_run_repository()
+    old = repository.get(subset_run_id)
+    assert old is not None and old.draft.schema_version == 12
+    draft = SessionAnalysisRunDraft(
+        run_id="a" * 64,
+        session_id=new_session_id,
+        request_fingerprint="b" * 64,
+        input_fingerprint="c" * 64,
+        analysis_profile_key="coaching_profile",
+        analysis_profile_version=1,
+        metric_pack_key=COACHING_METRIC_PACK_KEY,
+        metric_pack_version=COACHING_METRIC_PACK_VERSION,
+        selected_metric_keys=("prompt.context_sufficiency",),
+        data_tier=DataTier.REDACTED_CONTENT,
+        consent_purpose="text_analysis",
+        consent_policy_version="synthetic-consent-v1",
+        provider=Provider.SYNTHETIC,
+        provider_version="synthetic-v1",
+        adapter_version="synthetic-adapter-v1",
+        source_schema_version="synthetic-schema-v1",
+        content_schema_version="redacted-message-v1",
+        metric_engine_version="synthetic-engine-v1",
+        redactor_version="synthetic-redactor-v1",
+        model_plan_fingerprint="d" * 64,
+        schema_version=SCHEMA_VERSION,
+        started_at=NOW + timedelta(minutes=10),
+    )
+    result = _known_result(key="prompt.context_sufficiency").model_copy(
+        update={
+            "algorithm_id": "legacy.algorithm",
+            "algorithm_version": "1",
+            "rubric_version": "legacy-rubric-v1",
+            "computed_at": NOW + timedelta(minutes=11),
+        }
+    )
+    repository.begin(draft)
+    repository.complete(
+        draft.run_id,
+        (result,),
+        finished_at=NOW + timedelta(minutes=12),
+    )
+    definition = TextMetricDefinition(
+        key="prompt.context_sufficiency",
+        version=1,
+        dimension="prompt",
+        display_name="Context sufficiency",
+        description="Reserved synthetic storage-version comparison metric.",
+        unit="ratio",
+        direction=MetricDirection.HIGHER_IS_BETTER,
+    )
+
+    aggregate = SessionQualityAggregationService(
+        repository,
+        definitions=(definition,),
+        analysis_profile_key="coaching_profile",
+        analysis_profile_version=1,
+        metric_pack_key=COACHING_METRIC_PACK_KEY,
+        metric_pack_version=COACHING_METRIC_PACK_VERSION,
+    ).aggregate(
+        SessionQualitySelection(session_ids=("3" * 64, new_session_id))
+    )
+    metric = aggregate.metrics[0]
+
+    assert old.draft.model_plan_fingerprint != draft.model_plan_fingerprint
+    assert (
+        metric.compatibility_state
+        is SessionQualityCompatibilityState.COMPATIBLE
+    ), metric.model_dump()
+    assert len(metric.compatibility_cohorts) == 1
+    assert metric.compatibility_cohorts[0].result_count == 2
+
+
 def test_session_quality_snapshot_is_immutable_and_privacy_deletion_cascades(
     tmp_path,
 ) -> None:
     database, session_id = _database_and_session(tmp_path)
     repository = database.session_analysis_run_repository()
-    draft = _draft(session_id)
+    draft = _draft(
+        session_id,
+        selected_metric_keys=(
+            "logic.plan_state_accounting",
+            "prompt.goal_definition",
+        ),
+    )
     known = _known_result()
     not_applicable = _not_applicable_result()
 
@@ -422,6 +867,11 @@ def test_session_quality_snapshot_is_immutable_and_privacy_deletion_cascades(
                 "DELETE FROM session_analysis_results WHERE run_id = ?",
                 (draft.run_id,),
             )
+        with pytest.raises(sqlite3.IntegrityError, match="parent privacy deletion"):
+            connection.execute(
+                "DELETE FROM session_analysis_run_metrics WHERE run_id = ?",
+                (draft.run_id,),
+            )
         with pytest.raises(sqlite3.IntegrityError, match="transition"):
             connection.execute(
                 "UPDATE session_analysis_runs SET adapter_version = 'changed-v2' WHERE run_id = ?",
@@ -444,18 +894,45 @@ def test_session_quality_snapshot_is_immutable_and_privacy_deletion_cascades(
             connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             for table in (
                 "session_analysis_runs",
+                "session_analysis_run_metrics",
                 "session_analysis_results",
                 "session_analysis_result_evidence",
                 "session_analysis_result_signals",
             )
         )
-    assert counts == (0, 0, 0, 0)
+    assert counts == (0, 0, 0, 0, 0)
+
+
+def test_completion_rejects_result_scope_drift_without_partial_persistence(
+    tmp_path,
+) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    repository = database.session_analysis_run_repository()
+    draft = _draft(session_id)
+    repository.begin(draft)
+
+    with pytest.raises(DatabaseInvariantError, match="selected metric scope"):
+        repository.complete(
+            draft.run_id,
+            (_not_applicable_result(),),
+            finished_at=NOW + timedelta(minutes=2),
+        )
+
+    stored = repository.get(draft.run_id)
+    assert stored is not None and stored.status is AnalysisRunStatus.RUNNING
+    assert repository.get_results(draft.run_id) == ()
 
 
 def test_hybrid_model_provenance_round_trips_per_result(tmp_path) -> None:
     database, session_id = _database_and_session(tmp_path)
     repository = database.session_analysis_run_repository()
-    draft = _draft(session_id)
+    draft = _draft(
+        session_id,
+        selected_metric_keys=(
+            "logic.requirement_action_traceability",
+            "logic.scoped_consistency_candidate_rate",
+        ),
+    )
     embedding_result = _known_result(
         key="logic.requirement_action_traceability",
         model_id="example/e5-small",
@@ -498,7 +975,13 @@ def test_hybrid_model_provenance_round_trips_per_result(tmp_path) -> None:
 def test_authenticated_quality_reads_return_hybrid_profile_without_text(tmp_path) -> None:
     database, session_id = _database_and_session(tmp_path)
     repository = database.session_analysis_run_repository()
-    draft = _draft(session_id)
+    draft = _draft(
+        session_id,
+        selected_metric_keys=(
+            "logic.requirement_action_traceability",
+            "logic.scoped_consistency_candidate_rate",
+        ),
+    )
     e5 = _known_result(
         key="logic.requirement_action_traceability",
         model_id="example/e5-small",
@@ -554,6 +1037,11 @@ def test_authenticated_quality_reads_return_hybrid_profile_without_text(tmp_path
     assert payload["run"]["input_fingerprint"] == "b" * 64
     assert payload["run"]["analysis_profile_key"] == "standard_engineering"
     assert payload["run"]["analysis_profile_version"] == 1
+    assert payload["run"]["metric_scope_state"] == "exact"
+    assert payload["run"]["selected_metric_keys"] == [
+        "logic.requirement_action_traceability",
+        "logic.scoped_consistency_candidate_rate",
+    ]
     assert payload["run"]["model_plan_fingerprint"] == "c" * 64
     by_key = {result["key"]: result for result in payload["results"]}
     traceability = by_key["logic.requirement_action_traceability"]
@@ -587,6 +1075,10 @@ def test_authenticated_current_coaching_projection_uses_reviewed_task_context(
             "metric_pack_key": COACHING_METRIC_PACK_KEY,
             "metric_pack_version": COACHING_METRIC_PACK_VERSION,
             "metric_engine_version": COACHING_METRIC_ENGINE_VERSION,
+            "selected_metric_keys": (
+                "prompt.acceptance_testability",
+                "prompt.deliverable_contract",
+            ),
         }
     )
     deliverable = _known_result(key="prompt.deliverable_contract")
@@ -704,6 +1196,30 @@ def test_contracts_reject_text_and_incomplete_model_provenance_without_echoing(
                 "data_tier": DataTier.METADATA,
             }
         )
+    with pytest.raises(ValidationError, match="unique and sorted"):
+        SessionAnalysisRunDraft.model_validate(
+            {
+                **_draft(session_id).model_dump(),
+                "selected_metric_keys": (
+                    "prompt.goal_definition",
+                    "logic.plan_state_accounting",
+                ),
+            }
+        )
+    with pytest.raises(ValidationError, match="exact metric scope requires keys"):
+        SessionAnalysisRunDraft.model_validate(
+            {
+                **_draft(session_id).model_dump(),
+                "selected_metric_keys": (),
+            }
+        )
+    with pytest.raises(ValidationError, match="unknown legacy scope"):
+        SessionAnalysisRunDraft.model_validate(
+            {
+                **_draft(session_id).model_dump(),
+                "metric_scope_state": SessionMetricScopeState.LEGACY_UNKNOWN,
+            }
+        )
 
 
 def test_newer_failed_run_does_not_replace_latest_completed_snapshot(tmp_path) -> None:
@@ -757,7 +1273,12 @@ def test_latest_completed_aggregation_projection_is_one_query_and_evidence_free(
         started_at=NOW - timedelta(minutes=10),
     )
     newer = _draft(first_session, "b", started_at=NOW)
-    second = _draft(second_session, "c", started_at=NOW)
+    second = _draft(
+        second_session,
+        "c",
+        started_at=NOW,
+        selected_metric_keys=("logic.plan_state_accounting",),
+    )
     repository.begin(older)
     repository.complete(
         older.run_id,

@@ -16,6 +16,30 @@ function promptProfile() {
   )!;
 }
 
+function exactSubsetProfile() {
+  const detail = structuredClone(SYNTHETIC_SESSION_QUALITY_RUN);
+  const selectedKey = "prompt.goal_definition";
+  detail.results = detail.results.filter((item) => item.key === selectedKey);
+  detail.run.selected_metric_keys = [selectedKey];
+  return createQualityMetricProfile(
+    "prompt-quality",
+    detail,
+    SYNTHETIC_QUALITY_SESSION_ID,
+  )!;
+}
+
+function legacyUnknownScopeProfile() {
+  const detail = structuredClone(SYNTHETIC_SESSION_QUALITY_RUN);
+  detail.run.metric_scope_state = "legacy_unknown";
+  detail.run.selected_metric_keys = [];
+  detail.results = [];
+  return createQualityMetricProfile(
+    "prompt-quality",
+    detail,
+    SYNTHETIC_QUALITY_SESSION_ID,
+  )!;
+}
+
 function analysisFlow(): AnalyzeLocallyHandler {
   return {
     exactSessionId: SYNTHETIC_QUALITY_SESSION_ID,
@@ -46,6 +70,64 @@ const EXACT_COMPATIBILITY: ProviderCompatibilityStatus = {
 };
 
 describe("QualityProfileView", () => {
+  it("summarizes valid incompatibility separately and preserves compatible metric cards", () => {
+    const profile = promptProfile();
+    profile.latest.integrity = "mixed-provenance";
+    Object.assign(profile.latest.metrics[0], {
+      state: "incompatible" as const,
+      ratio: null,
+      fractionNumerator: null,
+      fractionDenominator: null,
+      observed: 0,
+      eligible: 0,
+      coverage: 0,
+      errorCode: "incompatible-provenance" as const,
+    });
+
+    render(<QualityProfileView profile={profile} />);
+
+    expect(screen.getByText(/2 partial · 1 incompatible/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: /Goal cue coverage/i })).toHaveTextContent(
+      "Incompatible",
+    );
+    expect(screen.getByRole("button", { name: /Checkability cue coverage/i })).toHaveTextContent(
+      "50%",
+    );
+    expect(screen.getByText(/Incompatible metrics are withheld from the radar and sharing/i)).toBeVisible();
+    fireEvent.click(screen.getByText("Methods & details"));
+    expect(screen.getByText(/No combined value is shown and this state is not an execution failure/i)).toBeVisible();
+  });
+
+  it("labels exact-scope omissions separately from unknown, failed, and zero", () => {
+    const { container } = render(<QualityProfileView profile={exactSubsetProfile()} />);
+
+    expect(screen.getByText(/0 assessable · 1 partial · 4 not selected/)).toBeVisible();
+    expect(screen.getByLabelText("Radar availability")).toHaveTextContent(
+      "4 not selected",
+    );
+    const omitted = screen.getByRole("button", { name: /Expected constraint cues/i });
+    expect(omitted).toHaveTextContent("Not selected");
+    expect(omitted).toHaveTextContent("1 run omitted by selected scope");
+    expect(omitted.querySelector(".quality-board__track--missing > span")).toBeNull();
+
+    fireEvent.click(screen.getByText("Methods & details"));
+    expect(screen.getAllByText(/outside the exact metric scope/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/excluded—not missing or failed/i).length).toBeGreaterThan(0);
+    expect(container).not.toHaveTextContent(/No compatible Coaching v1 analysis run/i);
+  });
+
+  it("explains a coherent legacy unknown scope without claiming no run exists", () => {
+    render(<QualityProfileView profile={legacyUnknownScopeProfile()} />);
+
+    expect(screen.getByText(
+      /A compatible legacy run exists, but its selected metric scope was not recorded/i,
+    )).toBeVisible();
+    expect(screen.getByText(/cannot be classified as selected, omitted, or failed/i)).toBeVisible();
+    expect(screen.queryByText(/No compatible Coaching v1 analysis run is available/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Methods & details"));
+    expect(screen.getAllByText(/1 completed legacy run does not preserve/i).length).toBeGreaterThan(0);
+  });
+
   it("shows every metric in one zero-configuration control deck", () => {
     const profile = promptProfile();
     const { container } = render(<QualityProfileView profile={promptProfile()} />);

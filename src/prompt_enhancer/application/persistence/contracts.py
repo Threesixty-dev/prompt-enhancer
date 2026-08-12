@@ -66,6 +66,14 @@ def _unique(values: tuple[str, ...], field: str) -> tuple[str, ...]:
     return values
 
 
+def _selected_metric_keys(values: tuple[str, ...]) -> tuple[str, ...]:
+    if values != tuple(sorted(values)) or len(set(values)) != len(values):
+        raise ValueError("selected metric keys must be unique and sorted")
+    if any(_SAFE_CODE.fullmatch(value) is None for value in values):
+        raise ValueError("selected metric keys must use safe identifier characters")
+    return values
+
+
 class DecisionAction(StrEnum):
     ACCEPT = "accept"
     REJECT = "reject"
@@ -87,6 +95,13 @@ class AnalysisRunStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class SessionMetricScopeState(StrEnum):
+    """Whether a persisted run's complete requested metric set is recoverable."""
+
+    EXACT = "exact"
+    LEGACY_UNKNOWN = "legacy_unknown"
 
 
 class MetricValueState(StrEnum):
@@ -460,6 +475,8 @@ class SessionAnalysisRunDraft(StrictModel):
     analysis_profile_version: int = Field(ge=1)
     metric_pack_key: str
     metric_pack_version: int = Field(ge=1)
+    metric_scope_state: SessionMetricScopeState = SessionMetricScopeState.EXACT
+    selected_metric_keys: tuple[str, ...] = Field(max_length=100)
     data_tier: DataTier
     consent_purpose: str = "text_analysis"
     consent_policy_version: str
@@ -495,6 +512,10 @@ class SessionAnalysisRunDraft(StrictModel):
     )(_safe_code)
     _validate_started_at = field_validator("started_at")(_utc)
 
+    _validate_selected_metric_keys = field_validator("selected_metric_keys")(
+        _selected_metric_keys
+    )
+
     @model_validator(mode="after")
     def validate_privacy_provenance(self) -> SessionAnalysisRunDraft:
         if self.data_tier is not DataTier.REDACTED_CONTENT:
@@ -503,6 +524,12 @@ class SessionAnalysisRunDraft(StrictModel):
             raise ValueError("session analysis requires the text_analysis purpose")
         if not self.local_only:
             raise ValueError("session analysis persistence is local-only")
+        if (
+            self.metric_scope_state is SessionMetricScopeState.EXACT
+        ) != bool(self.selected_metric_keys):
+            raise ValueError(
+                "exact metric scope requires keys; unknown legacy scope cannot claim keys"
+            )
         return self
 
 
@@ -739,6 +766,8 @@ class SessionAnalysisAggregationSnapshotRecord(StrictModel):
     analysis_profile_version: int = Field(ge=1)
     metric_pack_key: str
     metric_pack_version: int = Field(ge=1)
+    metric_scope_state: SessionMetricScopeState
+    selected_metric_keys: tuple[str, ...] = Field(max_length=100)
     data_tier: DataTier
     consent_policy_version: str
     provider: Provider
@@ -768,6 +797,10 @@ class SessionAnalysisAggregationSnapshotRecord(StrictModel):
         "redactor_version",
     )(_safe_code)
 
+    _validate_selected_metric_keys = field_validator("selected_metric_keys")(
+        _selected_metric_keys
+    )
+
     @model_validator(mode="after")
     def validate_snapshot(self) -> SessionAnalysisAggregationSnapshotRecord:
         if self.data_tier is not DataTier.REDACTED_CONTENT or not self.local_only:
@@ -778,6 +811,16 @@ class SessionAnalysisAggregationSnapshotRecord(StrictModel):
         )
         if len(set(identities)) != len(identities):
             raise ValueError("aggregation snapshot results cannot contain duplicates")
+        result_keys = {result.observation.key for result in self.results}
+        if self.metric_scope_state is SessionMetricScopeState.EXACT:
+            if not self.selected_metric_keys or result_keys != set(
+                self.selected_metric_keys
+            ):
+                raise ValueError(
+                    "exact aggregation scope must equal its completed result keys"
+                )
+        elif self.selected_metric_keys:
+            raise ValueError("unknown legacy scope cannot claim selected metric keys")
         return self
 
 

@@ -556,6 +556,8 @@
 }
 
 .quality-board__state--unavailable,
+.quality-board__state--not-selected,
+.quality-board__state--incompatible,
 .quality-board__state--abstained,
 .quality-board__state--not-applicable {
   color: var(--ink-500);
@@ -3855,6 +3857,8 @@ button.quality-board__metric[aria-pressed="true"] { border-color: #55a598; box-s
 .quality-board__state { max-width: 140px; padding: 2px 5px; border-radius: 999px; color: #176f67; background: #e7f4f1; font-size: 0.58rem; font-weight: 800; line-height: 1.2; overflow-wrap: break-word; word-break: normal; text-align: right; }
 .quality-board__state--partial { color: #86600f; background: #fff4d3; }
 .quality-board__state--unavailable,
+.quality-board__state--not-selected,
+.quality-board__state--incompatible,
 .quality-board__state--abstained,
 .quality-board__state--not-applicable { color: var(--ink-500); background: #edf2f1; }
 .quality-board__state--execution-error { color: var(--red-700); background: var(--red-50); }

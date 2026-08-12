@@ -2031,12 +2031,12 @@ export interface components {
          * MetricReadinessAction
          * @enum {string}
          */
-        MetricReadinessAction: "none" | "run_local_analysis" | "check_provider_compatibility" | "update_provider_adapter" | "collect_action_evidence" | "collect_decision_evidence" | "collect_feedback_evidence" | "collect_objective_verification" | "review_applicability" | "review_evidence_coverage" | "retry_analysis";
+        MetricReadinessAction: "none" | "run_local_analysis" | "check_provider_compatibility" | "update_provider_adapter" | "collect_action_evidence" | "collect_decision_evidence" | "collect_feedback_evidence" | "collect_objective_verification" | "review_applicability" | "review_evidence_coverage" | "retry_analysis" | "select_metric_for_analysis";
         /**
          * MetricReadinessReason
          * @enum {string}
          */
-        MetricReadinessReason: "measured" | "analysis_not_run" | "analysis_in_progress" | "result_unknown" | "result_abstained" | "explicitly_not_applicable" | "provider_capability_missing" | "provider_adapter_unavailable" | "provider_compatibility_unverified" | "provider_incompatible" | "provider_unavailable" | "analysis_failed" | "result_failed" | "result_missing";
+        MetricReadinessReason: "measured" | "analysis_not_run" | "analysis_in_progress" | "result_unknown" | "result_abstained" | "explicitly_not_applicable" | "provider_capability_missing" | "provider_adapter_unavailable" | "provider_compatibility_unverified" | "provider_incompatible" | "provider_unavailable" | "analysis_failed" | "result_failed" | "result_missing" | "metric_not_selected" | "metric_scope_unknown";
         /**
          * MetricReadinessState
          * @enum {string}
@@ -2485,6 +2485,8 @@ export interface components {
             missing_result_count: number;
             /** Missing Run Count */
             missing_run_count: number;
+            /** Not Selected Run Count */
+            not_selected_run_count: number;
             /** Numeric Value */
             numeric_value?: number | null;
             /** Present Result Count */
@@ -2492,6 +2494,11 @@ export interface components {
             /** Selected Session Count */
             selected_session_count: number;
             state_counts: components["schemas"]["SessionQualityStateCounts"];
+            /**
+             * Unknown Scope Run Count
+             * @description Orthogonal count of completed legacy runs whose selected metric scope cannot be recovered; these runs may also be present or missing.
+             */
+            unknown_scope_run_count: number;
         };
         /**
          * ProjectQualitySelectionMode
@@ -2841,6 +2848,7 @@ export interface components {
             metric_pack_key: string;
             /** Metric Pack Version */
             metric_pack_version: number;
+            metric_scope_state: components["schemas"]["SessionMetricScopeState"];
             /** Model Plan Fingerprint */
             model_plan_fingerprint: string;
             provider: components["schemas"]["Provider"];
@@ -2854,6 +2862,8 @@ export interface components {
             run_id: string;
             /** Schema Version */
             schema_version: number;
+            /** Selected Metric Keys */
+            selected_metric_keys: string[];
             /** Session Id */
             session_id: string;
             /** Source Schema Version */
@@ -3019,6 +3029,12 @@ export interface components {
             session_id: string;
         };
         /**
+         * SessionMetricScopeState
+         * @description Whether a persisted run's complete requested metric set is recoverable.
+         * @enum {string}
+         */
+        SessionMetricScopeState: "exact" | "legacy_unknown";
+        /**
          * SessionQualityAggregate
          * @description Content-free selected-session projection; selected IDs are intentionally absent.
          */
@@ -3116,6 +3132,7 @@ export interface components {
             metric_pack_version: number;
             /** Metric Schema Version */
             metric_schema_version: number;
+            metric_scope_state: components["schemas"]["SessionMetricScopeState"];
             metric_source: components["schemas"]["MetricSource"];
             /** Metric Unit */
             metric_unit: string;
@@ -3125,12 +3142,8 @@ export interface components {
             model_id?: string | null;
             /** Model License */
             model_license?: string | null;
-            /** Model Plan Fingerprint */
-            model_plan_fingerprint: string;
             /** Model Revision */
             model_revision?: string | null;
-            /** Persistence Schema Version */
-            persistence_schema_version: number;
             /** Prompt Version */
             prompt_version?: string | null;
             provider: components["schemas"]["Provider"];
@@ -3197,6 +3210,8 @@ export interface components {
             missing_result_count: number;
             /** Missing Run Count */
             missing_run_count: number;
+            /** Not Selected Run Count */
+            not_selected_run_count: number;
             /** Numeric Value */
             numeric_value?: number | null;
             /** Present Result Count */
@@ -3204,6 +3219,11 @@ export interface components {
             /** Selected Session Count */
             selected_session_count: number;
             state_counts: components["schemas"]["SessionQualityStateCounts"];
+            /**
+             * Unknown Scope Run Count
+             * @description Orthogonal count of completed legacy runs whose selected metric scope cannot be recovered; these runs may also be present or missing.
+             */
+            unknown_scope_run_count: number;
         };
         /** SessionQualityStateCounts */
         SessionQualityStateCounts: {
@@ -3505,6 +3525,10 @@ export interface components {
         TextRole: "user" | "agent";
         /** ValidationError */
         ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */

@@ -27,6 +27,8 @@ import type {
 const STATE_LABELS: Record<QualityMetricState, string> = {
   observed: "Rule candidate",
   partial: "Partial rule candidate",
+  "not-selected": "Not selected",
+  incompatible: "Incompatible provenance",
   unavailable: "Unknown",
   abstained: "Not measurable",
   "not-applicable": "Not applicable",
@@ -88,6 +90,15 @@ function signalValue(
 }
 
 function explanationLine(metric: QualityMetricObservation): string | null {
+  if (metric.errorCode === "metric-not-selected") {
+    return "This metric was outside the exact metric scope selected for the completed run. It is omitted—not missing, failed, or scored as zero.";
+  }
+  if (metric.errorCode === "metric-scope-unknown") {
+    return "This legacy run did not record its selected metric scope, so absence cannot be classified as an omission or a failure.";
+  }
+  if (metric.errorCode === "incompatible-provenance") {
+    return "Stored observations use incompatible metric, provider, redactor, or estimator provenance. No combined value is shown and this state is not an execution failure.";
+  }
   if (
     metric.definition.key === "collaboration.exploration_conversion" &&
     metric.ratio === 0 &&
@@ -160,6 +171,8 @@ function denominatorSource(metric: QualityMetricObservation): string {
 function summary(metrics: readonly QualityMetricObservation[]): string {
   const observed = metrics.filter((metric) => metric.state === "observed").length;
   const partial = metrics.filter((metric) => metric.state === "partial").length;
+  const notSelected = metrics.filter((metric) => metric.state === "not-selected").length;
+  const incompatible = metrics.filter((metric) => metric.state === "incompatible").length;
   const unavailable = metrics.filter((metric) => metric.state === "unavailable").length;
   const abstained = metrics.filter((metric) => metric.state === "abstained").length;
   const failed = metrics.filter((metric) => metric.state === "execution-error").length;
@@ -167,6 +180,8 @@ function summary(metrics: readonly QualityMetricObservation[]): string {
   return [
     `${observed} assessable`,
     partial > 0 ? `${partial} partial` : null,
+    notSelected > 0 ? `${notSelected} not selected` : null,
+    incompatible > 0 ? `${incompatible} incompatible` : null,
     unavailable > 0 ? `${unavailable} unavailable` : null,
     abstained > 0 ? `${abstained} not measurable` : null,
     failed > 0 ? `${failed} failed` : null,
@@ -177,11 +192,17 @@ function summary(metrics: readonly QualityMetricObservation[]): string {
 }
 
 function coverageLine(metric: QualityMetricObservation): string {
+  if (metric.state === "not-selected") {
+    return "Not in the selected metric scope; excluded from analysis coverage.";
+  }
   if (metric.eligible === 0) return "No eligible observations were available for this snapshot.";
   return `${metric.observed} of ${metric.eligible} eligible observations were usable (${formatPercent(metric.coverage)} coverage).`;
 }
 
 function fractionLine(metric: QualityMetricObservation): string {
+  if (metric.state === "not-selected") {
+    return "No fraction was expected because this metric was not selected.";
+  }
   if (
     metric.fractionNumerator === null ||
     metric.fractionDenominator === null
@@ -275,6 +296,15 @@ export function QualityProfileView({
     snapshot.integrity === "invalid-contract" ||
     snapshot.integrity === "mixed-provenance";
   const stalePack = snapshot.integrity === "stale-pack";
+  const allNotSelected = snapshot.metrics.every(
+    (metric) => metric.state === "not-selected",
+  );
+  const allUnavailable = snapshot.metrics.every(
+    (metric) => metric.state === "unavailable",
+  );
+  const allLegacyScopeUnknown = allUnavailable && snapshot.metrics.every(
+    (metric) => metric.errorCode === "metric-scope-unknown",
+  );
   const shareBlockedTitle =
     snapshot.integrity === "unavailable" || stalePack
       ? "Run Coaching v1 analysis before sharing"
@@ -540,6 +570,22 @@ export function QualityProfileView({
                   <dl>
                     <div><dt>Fraction</dt><dd>{fractionLine(metric)}</dd></div>
                     <div><dt>Window coverage</dt><dd>{coverageLine(metric)}</dd></div>
+                    {metric.notSelectedRuns > 0 && (
+                      <div>
+                        <dt>Scope omissions</dt>
+                        <dd>
+                          {metric.notSelectedRuns} completed run{metric.notSelectedRuns === 1 ? "" : "s"} did not select this metric. Those runs are excluded—not missing or failed.
+                        </dd>
+                      </div>
+                    )}
+                    {metric.unknownScopeRuns > 0 && (
+                      <div>
+                        <dt>Legacy scope unknown</dt>
+                        <dd>
+                          {metric.unknownScopeRuns} completed legacy run{metric.unknownScopeRuns === 1 ? " does" : "s do"} not preserve the selected metric set. Absence remains unknown—not missing or failed.
+                        </dd>
+                      </div>
+                    )}
                     <div><dt>Denominator</dt><dd>{denominatorSource(metric)}</dd></div>
                     <div><dt>Extractor</dt><dd>{metric.modelId === null ? "Deterministic EN/PL rules · no model" : "Model-assisted result with pinned provenance"}</dd></div>
                     <div><dt>Method</dt><dd>{metric.definition.method}</dd></div>
@@ -561,7 +607,7 @@ export function QualityProfileView({
 
         </div>
       </details>
-      {snapshot.metrics.every((metric) => metric.state === "unavailable") && (
+      {allUnavailable && !allLegacyScopeUnknown && (
         <div className="quality-profile__calibration" role="note">
           <strong>
             {stalePack
@@ -575,11 +621,29 @@ export function QualityProfileView({
           </span>
         </div>
       )}
+      {allLegacyScopeUnknown && (
+        <div className="quality-profile__calibration" role="note">
+          <strong>A compatible legacy run exists, but its selected metric scope was not recorded</strong>
+          <span>
+            Missing result rows cannot be classified as selected, omitted, or failed. Run a new exact-scope local analysis to establish that provenance boundary.
+          </span>
+        </div>
+      )}
+      {allNotSelected && (
+        <div className="quality-profile__calibration" role="note">
+          <strong>No metric in this view was selected for the completed run</strong>
+          <span>
+            The run is valid, but its exact metric scope omitted this view. Select the metrics you want and start a new local analysis; omissions are never relabeled as missing, failed, or zero.
+          </span>
+        </div>
+      )}
       {integrityBlocked && (
         <div className="quality-profile__integrity-error" role="alert">
           <strong>Profile comparison and sharing are blocked</strong>
           <span>
-            Stored rows do not form one coherent, valid metric-pack snapshot. No axis values are presented until the provenance boundary is repaired.
+            {snapshot.integrity === "mixed-provenance"
+              ? "Incompatible metrics are withheld from the radar and sharing. Compatible per-metric values remain visible with their own receipts, but no cross-metric comparison is implied."
+              : "Stored rows do not form a valid metric-pack snapshot. No axis values are presented until the contract is repaired."}
           </span>
         </div>
       )}

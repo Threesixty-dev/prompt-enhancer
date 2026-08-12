@@ -211,7 +211,11 @@ describe("synthetic transport vertical slice", () => {
       metric_pack_key: "experimental.redacted-text.coaching",
       metric_pack_version: 3,
       local_only: true,
+      metric_scope_state: "exact",
     });
+    expect(latest.run.selected_metric_keys).toEqual(
+      [...new Set(latest.run.selected_metric_keys)].sort(),
+    );
     expect(latest.results).toHaveLength(20);
     expect(latest.results.every((result) => result.value_state === "known")).toBe(true);
     expect(latest.results.every((result) => result.model_id === null)).toBe(true);
@@ -231,6 +235,10 @@ describe("synthetic transport vertical slice", () => {
         missing_run_count: 0,
       },
     });
+    expect(projectAggregate.session_quality.metrics.every((metric) =>
+      metric.not_selected_run_count === 0 &&
+      metric.unknown_scope_run_count === 0
+    )).toBe(true);
     const publicCohort = projectAggregate.session_quality.metrics.find(
       (metric) => metric.compatibility_cohorts.length > 0,
     )!.compatibility_cohorts[0];
@@ -240,6 +248,15 @@ describe("synthetic transport vertical slice", () => {
     expect(serializedProjectAggregate).not.toContain("provider_version");
     expect(serializedProjectAggregate).not.toContain("adapter_version");
     expect(serializedProjectAggregate).not.toContain("model_plan_fingerprint");
+
+    const sessionAggregate = await transport.aggregateSessionQuality({
+      session_ids: [SYNTHETIC_QUALITY_SESSION_ID],
+    });
+    expect(sessionAggregate.metrics.every((metric) =>
+      metric.not_selected_run_count === 0 &&
+      metric.unknown_scope_run_count === 0 &&
+      metric.compatibility_cohorts[0]?.key.metric_scope_state === "exact"
+    )).toBe(true);
 
     latest.results[0].numeric_value = 0;
     const secondRead = await transport.getSessionQualityAnalysisRun(

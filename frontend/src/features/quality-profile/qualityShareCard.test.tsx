@@ -118,6 +118,69 @@ describe("privacy-safe quality share card", () => {
     expect(asset.filename).not.toContain(canary);
   });
 
+  it("exports scope omissions as provenance and never as a measured value", () => {
+    const exactSubset = structuredClone(SYNTHETIC_SESSION_QUALITY_RUN);
+    const selectedKey = "prompt.goal_definition";
+    exactSubset.results = exactSubset.results.filter(
+      (result) => result.key === selectedKey,
+    );
+    exactSubset.run.selected_metric_keys = [selectedKey];
+    const exactProfile = createQualityMetricProfile(
+      "prompt-quality",
+      exactSubset,
+      SYNTHETIC_QUALITY_SESSION_ID,
+    )!;
+    const exactSnapshot = createSafeShareSnapshot(exactProfile, "latest");
+    const omitted = exactSnapshot.metrics.find(
+      (metric) => metric.label === "Expected constraint cues",
+    )!;
+    expect(omitted).toMatchObject({
+      state: "not-selected",
+      ratio: null,
+      fractionNumerator: null,
+      fractionDenominator: null,
+      notSelectedRuns: 1,
+      unknownScopeRuns: 0,
+    });
+
+    const mixedProfile = profileFixture();
+    mixedProfile.latest.metrics[0].notSelectedRuns = 1;
+    const mixedSnapshot = createSafeShareSnapshot(mixedProfile, "latest");
+    const { calls, context } = recordingContext();
+    drawSafeShareCard(
+      context as unknown as Parameters<typeof drawSafeShareCard>[0],
+      mixedSnapshot,
+    );
+    expect(mixedSnapshot.metrics[0]).toMatchObject({
+      state: "partial",
+      ratio: 1,
+      notSelectedRuns: 1,
+    });
+    expect(calls.join(" ")).toContain("1 scope omission");
+
+    const exactRecording = recordingContext();
+    drawSafeShareCard(
+      exactRecording.context as unknown as Parameters<typeof drawSafeShareCard>[0],
+      exactSnapshot,
+    );
+    expect(exactRecording.calls).toContain("Not selected");
+  });
+
+  it("never exports an incompatible observation as measured even if an unsafe caller supplies numbers", () => {
+    const profile = profileFixture();
+    Object.assign(profile.latest.metrics[0], {
+      state: "incompatible" as const,
+      ratio: 0.75,
+      fractionNumerator: 3,
+      fractionDenominator: 4,
+      errorCode: "incompatible-provenance" as const,
+    });
+
+    expect(() => createSafeShareSnapshot(profile, "latest")).toThrow(
+      /Incompatible metric provenance cannot be shared/i,
+    );
+  });
+
   it("rejects unavailable and invalid profiles and revokes blob preview URLs", () => {
     const unavailable = createQualityMetricProfile(
       "prompt-quality",
@@ -134,6 +197,18 @@ describe("privacy-safe quality share card", () => {
       SYNTHETIC_QUALITY_SESSION_ID,
     )!;
     expect(() => createSafeShareSnapshot(invalid, "latest")).toThrow(/coherent/i);
+
+    const unknownScope = profileFixture();
+    unknownScope.latest.integrity = "mixed-provenance";
+    unknownScope.latest.metrics.forEach((metric) => {
+      metric.state = "unavailable";
+      metric.ratio = null;
+      metric.unknownScopeRuns = 1;
+      metric.errorCode = "metric-scope-unknown";
+    });
+    expect(() => createSafeShareSnapshot(unknownScope, "latest")).toThrow(
+      /Only a coherent immutable profile can be shared/i,
+    );
 
     const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     const { asset } = runtimeFixture();

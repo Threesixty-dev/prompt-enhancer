@@ -32,6 +32,7 @@ from ...application.persistence import (
     SessionMetricAggregation,
     SessionMetricApplicability,
     SessionMetricDirection,
+    SessionMetricScopeState,
     TaskCandidateRecord,
     TaskDecisionRecord,
     TaskRevisionRecord,
@@ -495,6 +496,8 @@ class SessionAnalysisRunDto(HttpDto):
     analysis_profile_version: int = Field(ge=1)
     metric_pack_key: str
     metric_pack_version: int = Field(ge=1)
+    metric_scope_state: SessionMetricScopeState
+    selected_metric_keys: tuple[str, ...] = Field(max_length=100)
     data_tier: DataTier
     consent_purpose: str
     consent_policy_version: str
@@ -527,6 +530,8 @@ class SessionAnalysisRunDto(HttpDto):
             analysis_profile_version=draft.analysis_profile_version,
             metric_pack_key=draft.metric_pack_key,
             metric_pack_version=draft.metric_pack_version,
+            metric_scope_state=draft.metric_scope_state,
+            selected_metric_keys=draft.selected_metric_keys,
             data_tier=draft.data_tier,
             consent_purpose=draft.consent_purpose,
             consent_policy_version=draft.consent_policy_version,

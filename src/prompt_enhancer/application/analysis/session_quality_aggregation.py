@@ -29,6 +29,7 @@ from ..persistence import (
     SessionAnalysisRunRepository,
     SessionMetricAggregation,
     SessionMetricDirection,
+    SessionMetricScopeState,
 )
 from .text_baselines import (
     DEFAULT_TEXT_METRIC_PACK_KEY,
@@ -122,6 +123,7 @@ class SessionQualityCompatibilityKey(StrictModel):
     analysis_profile_version: int = Field(ge=1)
     metric_pack_key: str
     metric_pack_version: int = Field(ge=1)
+    metric_scope_state: SessionMetricScopeState
     data_tier: DataTier
     consent_policy_version: str
     provider: Provider
@@ -131,8 +133,6 @@ class SessionQualityCompatibilityKey(StrictModel):
     content_schema_version: str
     metric_engine_version: str
     redactor_version: str
-    model_plan_fingerprint: str
-    persistence_schema_version: int = Field(ge=1)
     local_only: bool
     metric_key: str
     metric_version: int = Field(ge=1)
@@ -171,7 +171,6 @@ class SessionQualityCompatibilityKey(StrictModel):
         "prompt_version",
         "rubric_version",
     )(_safe_code)
-    _validate_plan = field_validator("model_plan_fingerprint")(_safe_id)
 
 
 class SessionQualityCompatibilityCohort(StrictModel):
@@ -232,6 +231,14 @@ class SessionQualityMetricAggregate(StrictModel):
     selected_session_count: int = Field(ge=1, le=100)
     completed_run_count: int = Field(ge=0)
     missing_run_count: int = Field(ge=0)
+    not_selected_run_count: int = Field(ge=0)
+    unknown_scope_run_count: int = Field(
+        ge=0,
+        description=(
+            "Orthogonal count of completed legacy runs whose selected metric "
+            "scope cannot be recovered; these runs may also be present or missing."
+        ),
+    )
     present_result_count: int = Field(ge=0)
     missing_result_count: int = Field(ge=0)
     invalid_result_session_count: int = Field(ge=0)
@@ -256,13 +263,16 @@ class SessionQualityMetricAggregate(StrictModel):
             self.completed_run_count + self.missing_run_count
         ):
             raise ValueError("every selected session must be completed or missing")
+        if self.unknown_scope_run_count > self.completed_run_count:
+            raise ValueError("unknown metric scope cannot exceed completed runs")
         if self.completed_run_count != (
             self.present_result_count
+            + self.not_selected_run_count
             + self.missing_result_count
             + self.invalid_result_session_count
         ):
             raise ValueError(
-                "every completed run must contribute one present, missing, or invalid result"
+                "every completed run must contribute one present, not-selected, missing, or invalid result"
             )
         if self.present_result_count != self.state_counts.total:
             raise ValueError("metric state counts must equal present result count")
@@ -509,10 +519,21 @@ class SessionQualityAggregationService:
             ]
         ] = []
         missing_result_count = 0
+        not_selected_run_count = 0
+        unknown_scope_run_count = sum(
+            snapshot.metric_scope_state is SessionMetricScopeState.LEGACY_UNKNOWN
+            for snapshot in latest
+        )
         invalid_result_session_count = 0
         invalid_result_record_count = 0
 
         for snapshot in latest:
+            if (
+                snapshot.metric_scope_state is SessionMetricScopeState.EXACT
+                and definition.key not in snapshot.selected_metric_keys
+            ):
+                not_selected_run_count += 1
+                continue
             matches = tuple(
                 result
                 for result in snapshot.results
@@ -541,6 +562,8 @@ class SessionQualityAggregationService:
         reasons: list[str] = []
         if invalid_result_session_count:
             reasons.append("duplicate_metric_records")
+        if unknown_scope_run_count:
+            reasons.append("metric_scope_unknown")
         if any(
             not self._matches_expected_contract(definition, cohort.key)
             for cohort in cohorts
@@ -592,6 +615,8 @@ class SessionQualityAggregationService:
                 selected_session_count=selected_session_count,
                 completed_run_count=len(latest),
                 missing_run_count=missing_run_count,
+                not_selected_run_count=not_selected_run_count,
+                unknown_scope_run_count=unknown_scope_run_count,
                 present_result_count=len(valid),
                 missing_result_count=missing_result_count,
                 invalid_result_session_count=invalid_result_session_count,
@@ -613,6 +638,7 @@ class SessionQualityAggregationService:
             and key.analysis_profile_version == self._analysis_profile_version
             and key.metric_pack_key == self._metric_pack_key
             and key.metric_pack_version == self._metric_pack_version
+            and key.metric_scope_state is SessionMetricScopeState.EXACT
             and key.metric_key == definition.key
             and key.metric_version == definition.version
             and key.metric_unit == definition.unit
@@ -634,6 +660,7 @@ def _compatibility_key(
         analysis_profile_version=snapshot.analysis_profile_version,
         metric_pack_key=snapshot.metric_pack_key,
         metric_pack_version=snapshot.metric_pack_version,
+        metric_scope_state=snapshot.metric_scope_state,
         data_tier=snapshot.data_tier,
         consent_policy_version=snapshot.consent_policy_version,
         provider=snapshot.provider,
@@ -643,8 +670,6 @@ def _compatibility_key(
         content_schema_version=snapshot.content_schema_version,
         metric_engine_version=snapshot.metric_engine_version,
         redactor_version=snapshot.redactor_version,
-        model_plan_fingerprint=snapshot.model_plan_fingerprint,
-        persistence_schema_version=snapshot.persistence_schema_version,
         local_only=snapshot.local_only,
         metric_key=observation.key,
         metric_version=observation.version,
@@ -670,6 +695,7 @@ def _compatibility_sort_key(key: SessionQualityCompatibilityKey) -> tuple[str, .
         str(key.analysis_profile_version),
         key.metric_pack_key,
         str(key.metric_pack_version),
+        key.metric_scope_state.value,
         key.data_tier.value,
         key.consent_policy_version,
         key.provider.value,
@@ -679,8 +705,6 @@ def _compatibility_sort_key(key: SessionQualityCompatibilityKey) -> tuple[str, .
         key.content_schema_version,
         key.metric_engine_version,
         key.redactor_version,
-        key.model_plan_fingerprint,
-        str(key.persistence_schema_version),
         str(key.local_only),
         key.metric_key,
         str(key.metric_version),

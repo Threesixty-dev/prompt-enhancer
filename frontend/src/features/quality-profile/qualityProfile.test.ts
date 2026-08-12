@@ -52,6 +52,10 @@ function coachingResponse(): SessionAnalysisRunResponse {
       metric_engine_version: "coaching-rules-en-pl-2",
       redactor_version: "example-redactor-1",
       model_plan_fingerprint: "4".repeat(64),
+      metric_scope_state: "exact",
+      selected_metric_keys: QUALITY_ANALYSIS_DEFINITIONS.map(
+        (definition) => definition.key,
+      ).sort(),
       schema_version: 9,
       local_only: true,
       started_at: "2042-06-07T12:00:00Z",
@@ -389,6 +393,70 @@ describe("immutable quality profile adapter", () => {
     ).toBe("invalid-contract");
   });
 
+  it("keeps exact-scope omissions distinct from missing, failed, and zero", () => {
+    const detail = coachingResponse();
+    const selectedKey = "prompt.task_definition_coverage";
+    detail.results = detail.results.filter((item) => item.key === selectedKey);
+    detail.run.selected_metric_keys = [selectedKey];
+
+    const profile = createQualityMetricProfile(
+      "prompt-quality",
+      detail,
+      SYNTHETIC_QUALITY_SESSION_ID,
+    )!;
+
+    expect(profile.latest.integrity).toBe("coherent");
+    expect(profile.latest.metrics.find(
+      (metric) => metric.definition.key === selectedKey,
+    )).toMatchObject({ state: "observed", ratio: 1, notSelectedRuns: 0 });
+    expect(profile.latest.metrics.find(
+      (metric) => metric.definition.key === "prompt.context_sufficiency",
+    )).toMatchObject({
+      state: "not-selected",
+      ratio: null,
+      errorCode: "metric-not-selected",
+      notSelectedRuns: 1,
+    });
+  });
+
+  it("keeps a legacy run with unknown scope coherent without inventing omissions", () => {
+    const detail = coachingResponse();
+    detail.run.metric_scope_state = "legacy_unknown";
+    detail.run.selected_metric_keys = [];
+    detail.results = [];
+
+    const profile = createQualityMetricProfile(
+      "prompt-quality",
+      detail,
+      SYNTHETIC_QUALITY_SESSION_ID,
+    )!;
+
+    expect(profile.latest.integrity).toBe("coherent");
+    expect(profile.latest.metrics.every((metric) =>
+      metric.state === "unavailable" &&
+      metric.errorCode === "metric-scope-unknown" &&
+      metric.notSelectedRuns === 0
+    )).toBe(true);
+  });
+
+  it("lets transport-era legacy versions reach the mapper but blocks a mixed-version metric snapshot", () => {
+    const detail = response();
+    detail.run.metric_scope_state = "legacy_unknown";
+    detail.run.selected_metric_keys = [];
+    detail.results = [
+      detail.results[0],
+      { ...detail.results[0], version: 2 },
+    ];
+
+    const profile = createQualityMetricProfile(
+      "prompt-quality",
+      detail,
+      SYNTHETIC_QUALITY_SESSION_ID,
+    )!;
+    expect(profile.latest.integrity).toBe("invalid-contract");
+    expect(profile.latest.metrics.every((metric) => metric.ratio === null)).toBe(true);
+  });
+
   it("fails closed instead of throwing when JSON violates the generated runtime shape", () => {
     const malformed = response() as unknown as {
       run: SessionAnalysisRunResponse["run"];
@@ -495,6 +563,203 @@ describe("immutable quality profile adapter", () => {
     expect(profile.latest.metrics[0]).not.toHaveProperty("evidence");
   });
 
+  it("aggregates overlapping exact scopes without counting omissions as missing", async () => {
+    const aggregate = await createSyntheticTransport().aggregateSessionQuality({
+      session_ids: [SYNTHETIC_QUALITY_SESSION_ID],
+    });
+    aggregate.selected_session_count = 2;
+    aggregate.completed_run_count = 2;
+    aggregate.missing_run_count = 0;
+    const alwaysSelected = "prompt.task_definition_coverage";
+    for (const metric of aggregate.metrics) {
+      metric.selected_session_count = 2;
+      metric.completed_run_count = 2;
+      metric.missing_run_count = 0;
+      if (metric.metric_key !== alwaysSelected) {
+        metric.not_selected_run_count = 1;
+        continue;
+      }
+      metric.present_result_count = 2;
+      metric.not_selected_run_count = 0;
+      metric.state_counts = Object.fromEntries(
+        Object.entries(metric.state_counts).map(([state, count]) => [state, count * 2]),
+      ) as typeof metric.state_counts;
+      metric.compatibility_cohorts[0].state_counts = {
+        ...metric.state_counts,
+      };
+      metric.compatibility_cohorts[0].result_count = 2;
+      if (metric.fraction_numerator != null) metric.fraction_numerator *= 2;
+      if (metric.fraction_denominator != null) metric.fraction_denominator *= 2;
+      metric.analyzable_observed_count! *= 2;
+      metric.analyzable_eligible_count! *= 2;
+      if (metric.compatibility_cohorts[0].fraction_numerator !== null) {
+        metric.compatibility_cohorts[0].fraction_numerator! *= 2;
+      }
+      if (metric.compatibility_cohorts[0].fraction_denominator !== null) {
+        metric.compatibility_cohorts[0].fraction_denominator! *= 2;
+      }
+      metric.compatibility_cohorts[0].analyzable_observed_count *= 2;
+      metric.compatibility_cohorts[0].analyzable_eligible_count *= 2;
+    }
+
+    const profile = createAggregateQualityMetricProfile("prompt-quality", aggregate)!;
+    expect(profile.latest.integrity).toBe("coherent");
+    expect(profile.latest.metrics.find(
+      (metric) => metric.definition.key === alwaysSelected,
+    )).toMatchObject({
+      state: "observed",
+      fractionNumerator: 6,
+      fractionDenominator: 6,
+      notSelectedRuns: 0,
+    });
+    expect(profile.latest.metrics.find(
+      (metric) => metric.definition.key === "prompt.problem_evidence_quality",
+    )).toMatchObject({
+      state: "partial",
+      ratio: 1,
+      notSelectedRuns: 1,
+    });
+  });
+
+  it("projects a pure exact-scope omission as not selected", async () => {
+    const aggregate = await createSyntheticTransport().aggregateSessionQuality({
+      session_ids: [SYNTHETIC_QUALITY_SESSION_ID],
+    });
+    const omitted = aggregate.metrics.find(
+      (metric) => metric.metric_key === "prompt.task_definition_coverage",
+    )!;
+    omitted.compatibility_state = "no_results";
+    omitted.aggregate_state = "unknown";
+    omitted.not_selected_run_count = omitted.completed_run_count;
+    omitted.present_result_count = 0;
+    omitted.missing_result_count = 0;
+    omitted.state_counts = {
+      known: 0, unknown: 0, not_applicable: 0, abstained: 0, execution_error: 0,
+    };
+    omitted.compatibility_cohorts = [];
+    omitted.fraction_numerator = null;
+    omitted.fraction_denominator = null;
+    omitted.numeric_value = null;
+    omitted.analyzable_observed_count = null;
+    omitted.analyzable_eligible_count = null;
+    omitted.analyzable_coverage = null;
+
+    const profile = createAggregateQualityMetricProfile("prompt-quality", aggregate)!;
+    expect(profile.latest.integrity).toBe("coherent");
+    expect(profile.latest.metrics.find(
+      (metric) => metric.definition.key === "prompt.task_definition_coverage",
+    )).toMatchObject({
+      state: "not-selected",
+      ratio: null,
+      errorCode: "metric-not-selected",
+      notSelectedRuns: 1,
+    });
+  });
+
+  it("does not call a metric purely not selected when another selected session is missing", async () => {
+    const aggregate = await createSyntheticTransport().aggregateSessionQuality({
+      session_ids: [SYNTHETIC_QUALITY_SESSION_ID],
+    });
+    aggregate.selected_session_count = 2;
+    aggregate.completed_run_count = 1;
+    aggregate.missing_run_count = 1;
+    aggregate.metrics.forEach((metric) => {
+      metric.selected_session_count = 2;
+      metric.completed_run_count = 1;
+      metric.missing_run_count = 1;
+    });
+    const omitted = aggregate.metrics.find(
+      (metric) => metric.metric_key === "prompt.task_definition_coverage",
+    )!;
+    omitted.compatibility_state = "no_results";
+    omitted.aggregate_state = "unknown";
+    omitted.not_selected_run_count = 1;
+    omitted.present_result_count = 0;
+    omitted.missing_result_count = 0;
+    omitted.state_counts = {
+      known: 0, unknown: 0, not_applicable: 0, abstained: 0, execution_error: 0,
+    };
+    omitted.compatibility_cohorts = [];
+    omitted.fraction_numerator = null;
+    omitted.fraction_denominator = null;
+    omitted.numeric_value = null;
+    omitted.analyzable_observed_count = null;
+    omitted.analyzable_eligible_count = null;
+    omitted.analyzable_coverage = null;
+
+    const profile = createAggregateQualityMetricProfile("prompt-quality", aggregate)!;
+    expect(profile.latest.integrity).toBe("coherent");
+    expect(profile.latest.metrics.find(
+      (metric) => metric.definition.key === "prompt.task_definition_coverage",
+    )).toMatchObject({
+      state: "unavailable",
+      ratio: null,
+      notSelectedRuns: 1,
+    });
+    expect(profile.latest.scope).toMatchObject({ missingRuns: 1 });
+  });
+
+  it("blocks aggregation across legacy unknown scopes without relabeling them as failed", async () => {
+    const aggregate = await createSyntheticTransport().aggregateSessionQuality({
+      session_ids: [SYNTHETIC_QUALITY_SESSION_ID],
+    });
+    aggregate.integrity_state = "incompatible";
+    aggregate.metrics.forEach((metric) => {
+      metric.unknown_scope_run_count = 1;
+      metric.compatibility_state = "incompatible";
+      metric.aggregate_state = "incompatible";
+      metric.blocked_reason_codes = ["metric_scope_unknown", "metric_contract_mismatch"];
+      metric.compatibility_cohorts[0].key.metric_scope_state = "legacy_unknown";
+      metric.fraction_numerator = null;
+      metric.fraction_denominator = null;
+      metric.numeric_value = null;
+      metric.analyzable_observed_count = null;
+      metric.analyzable_eligible_count = null;
+      metric.analyzable_coverage = null;
+    });
+
+    const profile = createAggregateQualityMetricProfile("prompt-quality", aggregate)!;
+    expect(profile.latest.integrity).toBe("mixed-provenance");
+    expect(profile.latest.metrics.every((metric) =>
+      metric.state === "unavailable" &&
+      metric.errorCode === "metric-scope-unknown" &&
+      metric.unknownScopeRuns === 1 &&
+      metric.ratio === null
+    )).toBe(true);
+  });
+
+  it("keeps project-level unknown metric scope explicit and content-free", async () => {
+    const response = await createSyntheticTransport().aggregateProjectQuality({
+      project_ids: [SYNTHETIC_QUALITY_PROJECT_ID],
+      selection_mode: "all_analyzed_work",
+    });
+    const aggregate = response.session_quality;
+    aggregate.integrity_state = "incompatible";
+    aggregate.metrics.forEach((metric) => {
+      metric.unknown_scope_run_count = 1;
+      metric.compatibility_state = "incompatible";
+      metric.aggregate_state = "incompatible";
+      metric.blocked_reason_codes = ["metric_scope_unknown"];
+      metric.fraction_numerator = null;
+      metric.fraction_denominator = null;
+      metric.numeric_value = null;
+      metric.analyzable_observed_count = null;
+      metric.analyzable_eligible_count = null;
+      metric.analyzable_coverage = null;
+    });
+
+    const profile = createProjectAggregateQualityMetricProfile(
+      "prompt-quality",
+      aggregate,
+    )!;
+    expect(profile.latest.integrity).toBe("mixed-provenance");
+    expect(profile.latest.metrics.every((metric) =>
+      metric.errorCode === "metric-scope-unknown" &&
+      metric.unknownScopeRuns === 1 &&
+      metric.ratio === null
+    )).toBe(true);
+  });
+
   it("maps the identifier-free project aggregate without retaining compatibility receipts", async () => {
     const response = await createSyntheticTransport().aggregateProjectQuality({
       project_ids: [SYNTHETIC_QUALITY_PROJECT_ID],
@@ -584,6 +849,12 @@ describe("immutable quality profile adapter", () => {
       (() => {
         const aggregate = structuredClone(response.session_quality) as unknown as Record<string, unknown>;
         const metric = (aggregate.metrics as Array<Record<string, unknown>>)[0];
+        delete metric.unknown_scope_run_count;
+        return aggregate;
+      })(),
+      (() => {
+        const aggregate = structuredClone(response.session_quality) as unknown as Record<string, unknown>;
+        const metric = (aggregate.metrics as Array<Record<string, unknown>>)[0];
         const cohort = (metric.compatibility_cohorts as Array<Record<string, unknown>>)[0];
         cohort.compatibility_fingerprint = "not-a-fingerprint";
         return aggregate;
@@ -610,6 +881,40 @@ describe("immutable quality profile adapter", () => {
     });
   });
 
+  it("preserves compatible project metrics beside a distinct incompatible metric", async () => {
+    const response = await createSyntheticTransport().aggregateProjectQuality({
+      project_ids: [SYNTHETIC_QUALITY_PROJECT_ID],
+      selection_mode: "all_analyzed_work",
+    });
+    const aggregate = response.session_quality;
+    aggregate.integrity_state = "incompatible";
+    const blocked = aggregate.metrics[0];
+    blocked.compatibility_state = "incompatible";
+    blocked.aggregate_state = "incompatible";
+    blocked.blocked_reason_codes = ["mixed_provenance"];
+    blocked.fraction_numerator = null;
+    blocked.fraction_denominator = null;
+    blocked.numeric_value = null;
+    blocked.analyzable_observed_count = null;
+    blocked.analyzable_eligible_count = null;
+    blocked.analyzable_coverage = null;
+
+    const profile = createProjectAggregateQualityMetricProfile(
+      "prompt-quality",
+      aggregate,
+    )!;
+    expect(profile.latest.integrity).toBe("mixed-provenance");
+    expect(profile.latest.metrics[0]).toMatchObject({
+      state: "incompatible",
+      ratio: null,
+      errorCode: "incompatible-provenance",
+    });
+    expect(profile.latest.metrics[1]).toMatchObject({
+      state: "observed",
+      ratio: 0.75,
+    });
+  });
+
   it("fails closed for mixed or contradictory aggregate provenance", async () => {
     const source = await createSyntheticTransport().aggregateSessionQuality({
       session_ids: [SYNTHETIC_QUALITY_SESSION_ID],
@@ -625,10 +930,20 @@ describe("immutable quality profile adapter", () => {
     mixed.metrics[0].analyzable_observed_count = null;
     mixed.metrics[0].analyzable_eligible_count = null;
     mixed.metrics[0].analyzable_coverage = null;
-    expect(
-      createAggregateQualityMetricProfile("prompt-quality", mixed)?.latest
-        .integrity,
-    ).toBe("mixed-provenance");
+    const mixedProfile = createAggregateQualityMetricProfile(
+      "prompt-quality",
+      mixed,
+    )!;
+    expect(mixedProfile.latest.integrity).toBe("mixed-provenance");
+    expect(mixedProfile.latest.metrics[0]).toMatchObject({
+      state: "incompatible",
+      ratio: null,
+      errorCode: "incompatible-provenance",
+    });
+    expect(mixedProfile.latest.metrics[1]).toMatchObject({
+      state: "observed",
+      ratio: 1,
+    });
 
     const contradictory = structuredClone(source);
     contradictory.metrics[0].numeric_value = 0.25;
@@ -661,6 +976,24 @@ describe("immutable quality profile adapter", () => {
       (() => {
         const aggregate = structuredClone(source) as unknown as Record<string, unknown>;
         const first = (aggregate.metrics as Array<Record<string, unknown>>)[0];
+        delete first.not_selected_run_count;
+        return aggregate;
+      })(),
+      (() => {
+        const aggregate = structuredClone(source) as unknown as Record<string, unknown>;
+        const first = (aggregate.metrics as Array<Record<string, unknown>>)[0];
+        delete first.unknown_scope_run_count;
+        return aggregate;
+      })(),
+      (() => {
+        const aggregate = structuredClone(source) as unknown as Record<string, unknown>;
+        const first = (aggregate.metrics as Array<Record<string, unknown>>)[0];
+        first.unknown_scope_run_count = 2;
+        return aggregate;
+      })(),
+      (() => {
+        const aggregate = structuredClone(source) as unknown as Record<string, unknown>;
+        const first = (aggregate.metrics as Array<Record<string, unknown>>)[0];
         const cohort = (first.compatibility_cohorts as Array<Record<string, unknown>>)[0];
         delete (cohort.key as Record<string, unknown>).algorithm_id;
         return aggregate;
@@ -670,6 +1003,13 @@ describe("immutable quality profile adapter", () => {
         const first = (aggregate.metrics as Array<Record<string, unknown>>)[0];
         const cohort = (first.compatibility_cohorts as Array<Record<string, unknown>>)[0];
         delete (cohort.key as Record<string, unknown>).analysis_profile_key;
+        return aggregate;
+      })(),
+      (() => {
+        const aggregate = structuredClone(source) as unknown as Record<string, unknown>;
+        const first = (aggregate.metrics as Array<Record<string, unknown>>)[0];
+        const cohort = (first.compatibility_cohorts as Array<Record<string, unknown>>)[0];
+        delete (cohort.key as Record<string, unknown>).metric_scope_state;
         return aggregate;
       })(),
       (() => {

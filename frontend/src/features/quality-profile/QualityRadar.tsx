@@ -28,6 +28,8 @@ const COVERAGE_RING_CIRCUMFERENCE = 2 * Math.PI * COVERAGE_RING_RADIUS;
 const STATE_LABELS: Record<QualityMetricState, string> = {
   observed: "Measured",
   partial: "Partial input",
+  "not-selected": "Not selected",
+  incompatible: "Incompatible",
   unavailable: "Unknown",
   abstained: "Not measurable",
   "not-applicable": "Not applicable",
@@ -130,6 +132,8 @@ function normalizedValueLabel(metric: QualityMetricObservation): string {
     return `${formatPercent(clampRatio(metric.ratio!))} candidate ratio`;
   }
   return {
+    "not-selected": "No value — Not selected",
+    incompatible: "No value — Incompatible provenance",
     unavailable: "No value — Unknown",
     abstained: "No value — analyzer abstained",
     "not-applicable": "No value — Not applicable",
@@ -142,6 +146,8 @@ function normalizedValueLabel(metric: QualityMetricObservation): string {
 function exactValueStateLabel(metric: QualityMetricObservation): string {
   if (hasMeasuredNumericValue(metric)) return formatPercent(metric.ratio!);
   return {
+    "not-selected": "Not selected",
+    incompatible: "Incompatible",
     unavailable: "Unknown",
     abstained: "Abstained",
     "not-applicable": "Not applicable",
@@ -448,6 +454,18 @@ function MetricInspector({
           <dt>Input coverage</dt>
           <dd>{coverageLabel(metric)}</dd>
         </div>
+        {metric.notSelectedRuns > 0 && (
+          <div>
+            <dt>Scope omissions</dt>
+            <dd>{metric.notSelectedRuns} completed run{metric.notSelectedRuns === 1 ? "" : "s"}; excluded, not failed</dd>
+          </div>
+        )}
+        {metric.unknownScopeRuns > 0 && (
+          <div>
+            <dt>Legacy scope unknown</dt>
+            <dd>{metric.unknownScopeRuns} completed run{metric.unknownScopeRuns === 1 ? "" : "s"}; absence is not classified as failed</dd>
+          </div>
+        )}
       </dl>
       <section
         aria-label="Decision guidance"
@@ -673,6 +691,12 @@ function MetricBoard({
               <span className="quality-board__basis">
                 <span>Raw {compactFraction(metric)}</span>
                 <small>Input {coverageLabel(metric)}</small>
+                {metric.notSelectedRuns > 0 && (
+                  <small>{metric.notSelectedRuns} run{metric.notSelectedRuns === 1 ? "" : "s"} omitted by selected scope; not missing or failed</small>
+                )}
+                {metric.unknownScopeRuns > 0 && (
+                  <small>{metric.unknownScopeRuns} legacy run{metric.unknownScopeRuns === 1 ? "" : "s"} without a metric-scope receipt; not classified as failed</small>
+                )}
                 {caveat && <small>{caveat}</small>}
               </span>
               {readinessExplanation !== null && readinessExplanation.state !== "known" && (
@@ -759,6 +783,12 @@ export function QualityRadar({
   const unknownCount = selectedLens.metrics.filter(
     (metric) => metric.state === "unavailable",
   ).length;
+  const notSelectedCount = selectedLens.metrics.filter(
+    (metric) => metric.state === "not-selected",
+  ).length;
+  const incompatibleCount = selectedLens.metrics.filter(
+    (metric) => metric.state === "incompatible",
+  ).length;
   const abstainedCount = selectedLens.metrics.filter(
     (metric) => metric.state === "abstained",
   ).length;
@@ -837,6 +867,8 @@ export function QualityRadar({
             <span><strong>{measuredCount}</strong> measured</span>
             <span><strong>{radarMetrics.length}</strong> plottable axes</span>
             {unknownCount > 0 && <span><strong>{unknownCount}</strong> unknown</span>}
+            {notSelectedCount > 0 && <span><strong>{notSelectedCount}</strong> not selected</span>}
+            {incompatibleCount > 0 && <span><strong>{incompatibleCount}</strong> incompatible</span>}
             {abstainedCount > 0 && <span><strong>{abstainedCount}</strong> abstained</span>}
             {notApplicableCount > 0 && (
               <span><strong>{notApplicableCount}</strong> not applicable</span>

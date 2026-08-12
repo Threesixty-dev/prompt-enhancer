@@ -412,6 +412,7 @@ const READINESS_ACTIONS = new Set<MetricReadinessAction>([
   "review_applicability",
   "review_evidence_coverage",
   "retry_analysis",
+  "select_metric_for_analysis",
 ]);
 
 type ReadinessCatalogEntry = {
@@ -716,6 +717,8 @@ const READINESS_STATE_REASON_ACTION = new Map<string, readonly MetricReadinessAc
   ["unknown:analysis_not_run", ["run_local_analysis"]],
   ["unknown:analysis_in_progress", ["none"]],
   ["unknown:result_unknown", ["review_applicability"]],
+  ["unknown:metric_not_selected", ["select_metric_for_analysis"]],
+  ["unknown:metric_scope_unknown", ["select_metric_for_analysis"]],
   ["unknown:provider_compatibility_unverified", ["check_provider_compatibility"]],
   ["unsupported:provider_adapter_unavailable", ["update_provider_adapter"]],
   ["abstained:result_abstained", ["review_evidence_coverage"]],
@@ -765,7 +768,8 @@ function parseMetricReadiness(
       "result_abstained", "explicitly_not_applicable", "provider_capability_missing",
       "provider_adapter_unavailable", "provider_compatibility_unverified",
       "provider_incompatible", "provider_unavailable", "analysis_failed",
-      "result_failed", "result_missing",
+      "result_failed", "result_missing", "metric_not_selected",
+      "metric_scope_unknown",
     ].includes(value.reason_code as string) ||
     !Array.isArray(value.next_actions) || value.next_actions.length < 1 ||
     value.next_actions.some((item) => !READINESS_ACTIONS.has(item as MetricReadinessAction)) ||
@@ -832,6 +836,7 @@ function parseMetricReadiness(
   if ([
     "measured", "analysis_in_progress", "result_unknown", "result_abstained",
     "explicitly_not_applicable", "analysis_failed", "result_failed", "result_missing",
+    "metric_not_selected", "metric_scope_unknown",
   ].includes(value.reason_code as string) && value.latest_run_id === null) {
     throw new TransportError("Session metric readiness response was invalid", 200);
   }
@@ -1277,6 +1282,28 @@ const ANALYSIS_OUTCOME_KEYS = new Set([
   "run_id", "status", "result_count", "applied", "analysis_profile_key",
   "analysis_profile_version",
 ]);
+const SESSION_ANALYSIS_RESPONSE_KEYS = new Set(["run", "results"]);
+const SESSION_ANALYSIS_RUN_KEYS = new Set([
+  "adapter_version", "analysis_profile_key", "analysis_profile_version",
+  "consent_policy_version", "consent_purpose", "content_schema_version",
+  "data_tier", "failure_code", "finished_at", "input_fingerprint",
+  "local_only", "metric_engine_version", "metric_pack_key",
+  "metric_pack_version", "metric_scope_state", "model_plan_fingerprint",
+  "provider", "provider_version", "redactor_version", "request_fingerprint",
+  "run_id", "schema_version", "selected_metric_keys", "session_id",
+  "source_schema_version", "started_at", "status",
+]);
+const SESSION_ANALYSIS_RESULT_REQUIRED_KEYS = new Set([
+  "aggregation_method", "algorithm_id", "algorithm_version", "applicability",
+  "computed_at", "coverage", "direction", "eligible_count", "error_code",
+  "evidence", "evidence_data_tier", "explanation_code", "fraction", "key",
+  "metric_schema_version", "model_id", "model_license", "model_revision",
+  "numeric_value", "observed_count", "prompt_version", "rubric_version",
+  "signals", "source", "tokenizer_id", "unit", "value_state", "version",
+]);
+const SESSION_ANALYSIS_RESULT_OPTIONAL_KEYS = new Set([
+  "confidence", "description", "dimension", "display_name",
+]);
 const PREVIEW_MESSAGE_KINDS = new Set([
   "request", "response", "plan", "action", "verification", "decision",
   "feedback", "summary",
@@ -1396,6 +1423,106 @@ export function parseSessionQualityAnalysisOutcome(
     throw new TransportError("Local analysis response was invalid", 200);
   }
   return value as unknown as SessionQualityAnalysisOutcome;
+}
+
+function hasRequiredAndAllowedKeys(
+  value: Record<string, unknown>,
+  required: ReadonlySet<string>,
+  optional: ReadonlySet<string>,
+): boolean {
+  return [...required].every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).every((key) => required.has(key) || optional.has(key));
+}
+
+/**
+ * Validate content-free run scope before any quality adapter sees the response.
+ * Exact scopes are canonical and must match completed result keys one-for-one;
+ * legacy rows deliberately keep an empty selection because their omission
+ * provenance is unknowable.
+ */
+export function parseSessionAnalysisRunResponse(
+  value: unknown,
+  expected: { sessionId?: string; runId?: string } = {},
+): SessionAnalysisRunResponse {
+  if (
+    !isRecord(value) || !hasExactKeys(value, SESSION_ANALYSIS_RESPONSE_KEYS) ||
+    !isRecord(value.run) || !hasExactKeys(value.run, SESSION_ANALYSIS_RUN_KEYS) ||
+    !Array.isArray(value.results) || value.results.length > 100
+  ) {
+    throw new TransportError("Quality analysis response was invalid", 200);
+  }
+  const run = value.run;
+  const positiveInteger = (candidate: unknown) =>
+    Number.isSafeInteger(candidate) && (candidate as number) > 0;
+  const safeVersion = (candidate: unknown) =>
+    typeof candidate === "string" && READINESS_SAFE_TOKEN.test(candidate);
+  if (
+    typeof run.run_id !== "string" || !PSEUDONYM.test(run.run_id) ||
+    typeof run.session_id !== "string" || !PSEUDONYM.test(run.session_id) ||
+    (expected.runId !== undefined && run.run_id !== expected.runId) ||
+    (expected.sessionId !== undefined && run.session_id !== expected.sessionId) ||
+    ![run.request_fingerprint, run.input_fingerprint, run.model_plan_fingerprint]
+      .every((item) => typeof item === "string" && PSEUDONYM.test(item)) ||
+    ![run.analysis_profile_key, run.metric_pack_key, run.consent_policy_version,
+      run.provider_version, run.adapter_version, run.source_schema_version,
+      run.content_schema_version, run.metric_engine_version, run.redactor_version]
+      .every(safeVersion) ||
+    !positiveInteger(run.analysis_profile_version) ||
+    !positiveInteger(run.metric_pack_version) ||
+    !positiveInteger(run.schema_version) ||
+    run.data_tier !== "redacted_content" || run.consent_purpose !== "text_analysis" ||
+    run.local_only !== true ||
+    !["codex", "claude_code", "synthetic"].includes(run.provider as string) ||
+    !["running", "completed", "failed"].includes(run.status as string) ||
+    !isUtcTimestamp(run.started_at) ||
+    (run.finished_at !== null && !isUtcTimestamp(run.finished_at)) ||
+    (run.failure_code !== null && !safeVersion(run.failure_code)) ||
+    !Array.isArray(run.selected_metric_keys) || run.selected_metric_keys.length > 100 ||
+    run.selected_metric_keys.some((key) => !safeVersion(key)) ||
+    !sameArray(
+      run.selected_metric_keys as string[],
+      [...new Set(run.selected_metric_keys as string[])].sort(),
+    ) ||
+    !(
+      (run.metric_scope_state === "exact" && run.selected_metric_keys.length > 0) ||
+      (run.metric_scope_state === "legacy_unknown" && run.selected_metric_keys.length === 0)
+    ) ||
+    (run.status === "completed" && (run.finished_at === null || run.failure_code !== null)) ||
+    (run.status === "running" && (run.finished_at !== null || run.failure_code !== null)) ||
+    (run.status === "failed" && (run.finished_at === null || run.failure_code === null))
+  ) {
+    throw new TransportError("Quality analysis response was invalid", 200);
+  }
+
+  const resultKeys: string[] = [];
+  const resultIdentities = new Set<string>();
+  for (const result of value.results) {
+    if (
+      !isRecord(result) ||
+      !hasRequiredAndAllowedKeys(
+        result,
+        SESSION_ANALYSIS_RESULT_REQUIRED_KEYS,
+        SESSION_ANALYSIS_RESULT_OPTIONAL_KEYS,
+      ) ||
+      typeof result.key !== "string" || !READINESS_SAFE_TOKEN.test(result.key) ||
+      !positiveInteger(result.version)
+    ) {
+      throw new TransportError("Quality analysis response was invalid", 200);
+    }
+    const identity = `${result.key}@${String(result.version)}`;
+    if (resultIdentities.has(identity)) {
+      throw new TransportError("Quality analysis response was invalid", 200);
+    }
+    resultIdentities.add(identity);
+    resultKeys.push(result.key);
+  }
+  if (
+    (run.status === "completed" && run.metric_scope_state === "exact" &&
+      !sameArray([...new Set(resultKeys)].sort(), run.selected_metric_keys as string[]))
+  ) {
+    throw new TransportError("Quality analysis response was invalid", 200);
+  }
+  return value as unknown as SessionAnalysisRunResponse;
 }
 
 /**
@@ -1919,19 +2046,27 @@ export function createHttpTransport(options: {
       );
       return parseAutomationPollResult(value);
     },
-    getLatestSessionQualityAnalysis(sessionId, signal) {
-      return request<SessionAnalysisRunResponse>(
+    async getLatestSessionQualityAnalysis(sessionId, signal) {
+      if (!PSEUDONYM.test(sessionId)) {
+        throw new TransportError("Session identifier was invalid", 400);
+      }
+      const value = await request<unknown>(
         `/v1/sessions/${encodeURIComponent(sessionId)}/quality-analysis-runs/latest`,
         { method: "GET" },
         signal,
       );
+      return parseSessionAnalysisRunResponse(value, { sessionId });
     },
-    getSessionQualityAnalysisRun(runId, signal) {
-      return request<SessionAnalysisRunResponse>(
+    async getSessionQualityAnalysisRun(runId, signal) {
+      if (!PSEUDONYM.test(runId)) {
+        throw new TransportError("Quality analysis run identifier was invalid", 400);
+      }
+      const value = await request<unknown>(
         `/v1/quality-analysis/runs/${encodeURIComponent(runId)}`,
         { method: "GET" },
         signal,
       );
+      return parseSessionAnalysisRunResponse(value, { runId });
     },
     getSessionCoachingSummary(runId, signal) {
       return request<SessionCoachingProjection>(

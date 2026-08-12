@@ -756,6 +756,8 @@ export const SYNTHETIC_SESSION_QUALITY_RUN: SessionAnalysisRunResponse = {
     analysis_profile_version: 1,
     metric_pack_key: "core.redacted-text.prompt-logic",
     metric_pack_version: 1,
+    metric_scope_state: "exact",
+    selected_metric_keys: Object.keys(SYNTHETIC_QUALITY_DEFINITIONS).sort(),
     data_tier: "redacted_content",
     consent_purpose: "text_analysis",
     consent_policy_version: "synthetic-text-consent-1",
@@ -1091,6 +1093,10 @@ export const SYNTHETIC_CURRENT_SESSION_QUALITY_RUN: SessionAnalysisRunResponse =
     analysis_profile_version: 1,
     metric_pack_key: "experimental.redacted-text.coaching",
     metric_pack_version: 3,
+    metric_scope_state: "exact",
+    selected_metric_keys: SYNTHETIC_COACHING_METRIC_SPECS
+      .map((definition) => definition.key)
+      .sort(),
     data_tier: "redacted_content",
     consent_purpose: "text_analysis",
     consent_policy_version: "synthetic-text-consent-1",

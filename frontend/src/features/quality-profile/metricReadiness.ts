@@ -51,6 +51,10 @@ const REASON_COPY: Record<MetricReadinessReason, string> = {
   result_failed: "This metric failed inside an otherwise persisted analysis run.",
   result_missing:
     "The completed run did not contain the required result record for this metric.",
+  metric_not_selected:
+    "The completed run explicitly did not select this metric. It was omitted by scope, not missing or failed.",
+  metric_scope_unknown:
+    "This legacy run does not preserve its requested metric set, so an absent result cannot be classified as selected or omitted.",
 };
 
 const COMPACT_REASON_COPY: Record<MetricReadinessReason, string> = {
@@ -68,6 +72,8 @@ const COMPACT_REASON_COPY: Record<MetricReadinessReason, string> = {
   analysis_failed: "The latest local analysis failed.",
   result_failed: "This metric failed during analysis.",
   result_missing: "The completed run omitted this metric result.",
+  metric_not_selected: "This metric was not selected for the completed run.",
+  metric_scope_unknown: "The legacy run's metric scope is unknown.",
 };
 
 const ACTION_COPY: Record<MetricReadinessAction, string> = {
@@ -86,6 +92,8 @@ const ACTION_COPY: Record<MetricReadinessAction, string> = {
     "Review whether the metric applies and whether its denominator exists in this window.",
   review_evidence_coverage: "Review which required evidence channels were observed.",
   retry_analysis: "Retry local analysis after checking the local service and provider adapter.",
+  select_metric_for_analysis:
+    "Select this metric for a new local analysis run if you want a current value.",
 };
 
 const COMPACT_ACTION_COPY: Record<MetricReadinessAction, string> = {
@@ -100,12 +108,15 @@ const COMPACT_ACTION_COPY: Record<MetricReadinessAction, string> = {
   review_applicability: "Review applicability.",
   review_evidence_coverage: "Review evidence coverage.",
   retry_analysis: "Retry local analysis.",
+  select_metric_for_analysis: "Select this metric for analysis.",
 };
 
 const EXPECTED_READINESS_STATES: Record<QualityMetricState, readonly MetricReadinessState[]> = {
   observed: ["known"],
   partial: ["known"],
-  unavailable: ["unknown", "unsupported", "incompatible", "failed"],
+  "not-selected": ["unknown"],
+  incompatible: ["incompatible"],
+  unavailable: ["unknown", "unsupported", "failed"],
   abstained: ["abstained"],
   "not-applicable": ["not_applicable"],
   "execution-error": ["failed"],
@@ -150,6 +161,12 @@ function capabilityRequirement(
 }
 
 function evidenceCopy(readiness: MetricReadiness): string {
+  if (readiness.reason_code === "metric_not_selected") {
+    return "No result was expected for this metric in the exact stored run scope; no failure or zero is inferred.";
+  }
+  if (readiness.reason_code === "metric_scope_unknown") {
+    return "The legacy run has no recoverable selection receipt, so the absent value remains unknown rather than failed.";
+  }
   if (readiness.missing_capabilities.length > 0) {
     return `Missing evidence channels: ${capabilityList(readiness.missing_capabilities)}.`;
   }
@@ -169,6 +186,12 @@ function evidenceCopy(readiness: MetricReadiness): string {
 }
 
 function compactEvidenceCopy(readiness: MetricReadiness): string {
+  if (readiness.reason_code === "metric_not_selected") {
+    return "Omitted by exact run scope; not failed.";
+  }
+  if (readiness.reason_code === "metric_scope_unknown") {
+    return "Legacy run scope is unavailable.";
+  }
   if (readiness.missing_capabilities.length > 0) {
     return `Missing: ${capabilityList(readiness.missing_capabilities)}.`;
   }
