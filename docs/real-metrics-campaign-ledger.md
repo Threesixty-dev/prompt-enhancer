@@ -159,12 +159,22 @@ unverified external execution boundaries reject. Codex CLI, manual import,
 OpenAI API, and Anthropic API therefore remain activation-blocked until a
 separately reviewed execution boundary and immutable provenance exist.
 
+The local retrieval screen also adds `intfloat/multilingual-e5-base` as a
+revision-pinned MIT/safetensors challenger with `trust_remote_code` disabled.
+On the fixed 12-case fictional EN/PL screen it reached top-1 `0.833333`, MRR
+`0.902778`, and Recall@3 `1.0`, with `453.488 ms` measured inference latency
+and `1,078.121 MiB` peak CUDA allocation on this machine. This is a useful
+screening result, not a promotion: the candidate remains exploratory and
+product-disabled until the frozen representative private holdout and all
+activation gates pass.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
 |---|---|---|
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
+| E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | Qwen embedding challenger | `Qwen/Qwen3-Embedding-0.6B` at `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` | Synthetic exploratory challenger; not product-enabled |
 | BGE reranker challenger | `BAAI/bge-reranker-v2-m3` at `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e` | Synthetic exploratory challenger; not product-enabled |
 | Claude Opus review target | Exact requested and served model must be recorded by a reviewed BYOK/API runner | Not implemented; no private-session review is authorized |

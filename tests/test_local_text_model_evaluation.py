@@ -31,6 +31,7 @@ from prompt_enhancer.infrastructure.text_models.loader import (
 from prompt_enhancer.infrastructure.text_models.manifests import (
     BGE_M3_BLOCKED,
     BGE_RERANKER_V2_M3,
+    E5_MULTILINGUAL_BASE,
     E5_MULTILINGUAL_SMALL,
     MDEBERTA_XNLI,
     QWEN3_4B_RUBRIC,
@@ -97,6 +98,12 @@ def test_candidate_manifests_are_exact_pins_without_remote_code() -> None:
     assert E5_MULTILINGUAL_SMALL.weight_sha256 == (
         "1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477"
     )
+    assert E5_MULTILINGUAL_BASE.revision == (
+        "d128750597153bb5987e10b1c3493a34e5a4502a"
+    )
+    assert E5_MULTILINGUAL_BASE.weight_sha256 == (
+        "a18a44fad1d0b46ded15928144138cff1135d5cc8233bdd90be5f18822de09a7"
+    )
     assert MDEBERTA_XNLI.revision == (
         "b5113eb38ab63efdd7f280f8c144ea8b13f978ce"
     )
@@ -107,7 +114,7 @@ def test_candidate_manifests_are_exact_pins_without_remote_code() -> None:
     assert QWEN3_EMBEDDING_06B.revision == "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
     assert QWEN3_RERANKER_06B.revision == "e61197ed45024b0ed8a2d74b80b4d909f1255473"
     assert QWEN3_4B_RUBRIC.revision == "cdbee75f17c01a7cc42f958dc650907174af0554"
-    assert len(TEXT_MODEL_MANIFESTS) == 6
+    assert len(TEXT_MODEL_MANIFESTS) == 7
     for manifest in TEXT_MODEL_MANIFESTS.values():
         assert manifest.trust_remote_code is False
         assert all(filename.endswith(".safetensors") for filename, _ in manifest.weight_files)

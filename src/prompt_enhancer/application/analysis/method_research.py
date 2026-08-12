@@ -14,8 +14,8 @@ from typing import Mapping
 
 
 CATALOG_KEY = "text-analysis-methods"
-CATALOG_VERSION = 2
-CATALOG_REVIEWED_ON = "2026-08-09"
+CATALOG_VERSION = 3
+CATALOG_REVIEWED_ON = "2026-08-12"
 
 
 class ResearchMaturity(StrEnum):
@@ -153,6 +153,12 @@ SOURCES: tuple[ResearchSource, ...] = (
         "model_card",
     ),
     ResearchSource(
+        "e5_base_model",
+        "multilingual-e5-base model card",
+        "https://huggingface.co/intfloat/multilingual-e5-base",
+        "model_card",
+    ),
+    ResearchSource(
         "mdeberta_model",
         "mDeBERTa multilingual NLI model card",
         "https://huggingface.co/MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
@@ -262,8 +268,19 @@ METHODS: tuple[AnalysisMethod, ...] = (
         "redacted_content",
         "Link paraphrased requirements, actions, answers and verification evidence across English and Polish.",
         ("candidate links", "semantic similarity", "retrieval coverage"),
-        ("multilingual_e5_small", "bge_m3", "qwen3_embedding_06b"),
-        ("e5_paper", "e5_model", "bge_m3", "qwen_embedding"),
+        (
+            "multilingual_e5_small",
+            "multilingual_e5_base",
+            "bge_m3",
+            "qwen3_embedding_06b",
+        ),
+        (
+            "e5_paper",
+            "e5_model",
+            "e5_base_model",
+            "bge_m3",
+            "qwen_embedding",
+        ),
         (
             "Similarity is not entailment, causality or correctness.",
             "Top-k retrieval must precede expensive pairwise checks.",
@@ -406,6 +423,29 @@ MODEL_CANDIDATES: tuple[ModelCandidate, ...] = (
             0.819444,
         ),
         ("e5_model", "e5_paper"),
+    ),
+    ModelCandidate(
+        "multilingual_e5_base",
+        "Multilingual E5 base",
+        "intfloat/multilingual-e5-base",
+        "semantic retrieval",
+        "MIT",
+        "d128750597153bb5987e10b1c3493a34e5a4502a",
+        "278M",
+        "multilingual including English and Polish",
+        ModelCandidateStatus.EVALUATED_EXPLORATORY,
+        False,
+        False,
+        "Led the tiny synthetic retrieval screen, but remains disabled; representative private calibration and release gates are still required.",
+        ModelBenchmark(
+            "bilingual-model-screen-v1-full",
+            12,
+            "top1_accuracy",
+            0.833333,
+            "mean_reciprocal_rank",
+            0.902778,
+        ),
+        ("e5_base_model", "e5_paper"),
     ),
     ModelCandidate(
         "mdeberta_xnli",

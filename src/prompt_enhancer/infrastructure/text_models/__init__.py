@@ -7,6 +7,7 @@ adapter is an explicit local experiment whose outputs require human review.
 from .manifests import (
     BGE_M3_BLOCKED,
     BGE_RERANKER_V2_M3,
+    E5_MULTILINGUAL_BASE,
     E5_MULTILINGUAL_SMALL,
     MDEBERTA_XNLI,
     QWEN3_4B_RUBRIC,
@@ -23,6 +24,7 @@ from .session_links import SubprocessSessionModelLinkRunner
 __all__ = [
     "BGE_M3_BLOCKED",
     "BGE_RERANKER_V2_M3",
+    "E5_MULTILINGUAL_BASE",
     "E5_MULTILINGUAL_SMALL",
     "MDEBERTA_XNLI",
     "QWEN3_4B_RUBRIC",

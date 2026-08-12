@@ -8,6 +8,7 @@ calibrated metric.
 | Purpose | Hub repository | Immutable revision | SPDX | Reviewed primary weight SHA-256 | Gate status |
 |---|---|---|---|---|---|
 | requirement-to-action retrieval | `intfloat/multilingual-e5-small` | `614241f622f53c4eeff9890bdc4f31cfecc418b3` | MIT | `1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477` | evaluated |
+| requirement-to-action retrieval | `intfloat/multilingual-e5-base` | `d128750597153bb5987e10b1c3493a34e5a4502a` | MIT | `a18a44fad1d0b46ded15928144138cff1135d5cc8233bdd90be5f18822de09a7` | evaluated exploratory; not activated |
 | requirement-to-action retrieval | `Qwen/Qwen3-Embedding-0.6B` | `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` | Apache-2.0 | `0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd` | evaluated |
 | pair reranking | `BAAI/bge-reranker-v2-m3` | `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e` | Apache-2.0 | `d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286` | evaluated |
 | pair reranking | `Qwen/Qwen3-Reranker-0.6B` | `e61197ed45024b0ed8a2d74b80b4d909f1255473` | Apache-2.0 | `27cd75a405b9c1b46b59abfd88aaa209e6fed2a1972cde9b70e7659537c5e65b` | evaluated |
@@ -87,24 +88,26 @@ python scripts/evaluate_local_text_models.py --device cuda
 
 ## Synthetic reference result
 
-A recovered cached, network-closed full screen completed all six safe neural
-candidates sequentially on one 16 GB CUDA device. BGE-M3 was blocked before
-download. These are one-machine exploratory observations on tiny authored
-fixtures, not model-quality or population-accuracy claims.
+Network-closed full screens completed all seven safe neural candidates one
+model at a time on one 16 GB CUDA device. BGE-M3 was blocked before download.
+These are one-machine exploratory observations on tiny authored fixtures, not
+model-quality or population-accuracy claims.
 
 | Capability | Backend | Cases | Primary | Secondary | Critical gate | Inference ms | Peak CUDA MiB |
 |---|---|---:|---:|---:|---:|---:|---:|
 | retrieval | BM25 | 12 | top-1 0.583333 | MRR 0.729167 | recall@3 0.750000 | 0.534 | — |
 | retrieval | multilingual E5 small | 12 | top-1 0.666667 | MRR 0.819444 | recall@3 1.000000 | 285.495 | 462.436 |
+| retrieval | multilingual E5 base | 12 | top-1 0.833333 | MRR 0.902778 | recall@3 1.000000 | 453.488 | 1,078.121 |
 | retrieval | Qwen3 Embedding 0.6B | 12 | top-1 0.750000 | MRR 0.861111 | recall@3 1.000000 | 573.687 | 1,197.371 |
 | reranking | BGE Reranker v2 M3 | 12 | top-1 0.750000 | MRR 0.875000 | recall@3 1.000000 | 236.369 | 2,194.156 |
 | reranking | Qwen3 Reranker 0.6B | 12 | top-1 0.666667 | MRR 0.826389 | recall@3 0.916667 | 388.045 | 1,488.585 |
 | scoped NLI | multilingual DeBERTa | 18 | 3-way accuracy 0.555556 | contradiction F1 0.600000 | different-scope FP 1.000000 | 460.529 | 1,121.560 |
 | structured rubric | Qwen3 4B Instruct | 24 | exact agreement 0.666667 | abstention F1 0.521368 | JSON compliance 1.000000 | 10,791.454 | 7,769.893 |
 
-Qwen3 Embedding led the retrieval slice, while BGE Reranker led the separate
-reranking slice. The smoke/full reversal for BGE Reranker and the small case
-counts make both results unstable. The NLI candidate marked every
+Multilingual E5 base led this retrieval slice, while BGE Reranker led the
+separate reranking slice. Its 12-case top-1 advantage over BM25 was 0.25, but
+the smoke/full variance and small case counts make all results unstable. The
+candidate is neither promoted nor activated. The NLI candidate marked every
 different-scope negative as a contradiction, a hard failure for scoped use.
 The Qwen rubric model always returned valid JSON but did not reach a defensible
 agreement or abstention gate. None of the neural candidates is activated in

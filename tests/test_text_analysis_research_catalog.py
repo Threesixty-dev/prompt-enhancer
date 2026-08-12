@@ -16,6 +16,7 @@ from prompt_enhancer.application.analysis.method_research import (
 from prompt_enhancer.infrastructure.text_models.manifests import (
     BGE_M3_BLOCKED,
     BGE_RERANKER_V2_M3,
+    E5_MULTILINGUAL_BASE,
     E5_MULTILINGUAL_SMALL,
     MDEBERTA_XNLI,
     QWEN3_4B_RUBRIC,
@@ -48,6 +49,10 @@ def test_catalog_is_a_multidimensional_disabled_research_registry() -> None:
         metric.state is MetricRoadmapState.NEEDS_OBJECTIVE_EVIDENCE
         for metric in METRIC_ROADMAP
     )
+    retrieval_method = next(
+        method for method in METHODS if method.key == "multilingual_embeddings"
+    )
+    assert len(retrieval_method.candidate_model_keys) <= 5
 
 
 def test_evaluated_candidates_match_the_immutable_runtime_manifests() -> None:
@@ -59,6 +64,15 @@ def test_evaluated_candidates_match_the_immutable_runtime_manifests() -> None:
     assert e5.license_spdx == E5_MULTILINGUAL_SMALL.license_spdx
     assert e5.status is ModelCandidateStatus.EVALUATED_EXPLORATORY
     assert e5.benchmark is not None
+
+    e5_base = candidates[E5_MULTILINGUAL_BASE.key]
+    assert e5_base.repository_id == E5_MULTILINGUAL_BASE.repository_id
+    assert e5_base.revision == E5_MULTILINGUAL_BASE.revision
+    assert e5_base.license_spdx == E5_MULTILINGUAL_BASE.license_spdx
+    assert e5_base.status is ModelCandidateStatus.EVALUATED_EXPLORATORY
+    assert e5_base.benchmark is not None
+    assert e5_base.benchmark.primary_value == 0.833333
+    assert e5_base.benchmark.secondary_value == 0.902778
 
     nli = candidates[MDEBERTA_XNLI.key]
     assert nli.repository_id == MDEBERTA_XNLI.repository_id
@@ -100,7 +114,7 @@ def test_research_endpoint_is_content_free_and_read_only() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["catalog_key"] == "text-analysis-methods"
-    assert body["catalog_version"] == 2
+    assert body["catalog_version"] == 3
     assert body["privacy_mode"] == "local_only_redacted_content"
     assert body["summary_policy"] == "multidimensional_profile_no_universal_score"
     assert body["catalog_read_starts_session_access"] is False

@@ -207,6 +207,20 @@ E5_MULTILINGUAL_SMALL = ModelManifest(
     max_batch_size=32,
 )
 
+E5_MULTILINGUAL_BASE = ModelManifest(
+    key="multilingual_e5_base",
+    task=TextModelTask.REQUIREMENT_ACTION_RETRIEVAL,
+    repository_id="intfloat/multilingual-e5-base",
+    revision="d128750597153bb5987e10b1c3493a34e5a4502a",
+    tokenizer_repository_id="intfloat/multilingual-e5-base",
+    tokenizer_revision="d128750597153bb5987e10b1c3493a34e5a4502a",
+    license_spdx="MIT",
+    weight_filename="model.safetensors",
+    weight_sha256="a18a44fad1d0b46ded15928144138cff1135d5cc8233bdd90be5f18822de09a7",
+    max_sequence_length=512,
+    max_batch_size=16,
+)
+
 MDEBERTA_XNLI = ModelManifest(
     key="mdeberta_xnli",
     task=TextModelTask.SCOPED_NLI,
@@ -313,6 +327,7 @@ QWEN3_4B_RUBRIC = ModelManifest(
 TEXT_MODEL_MANIFESTS: Mapping[str, ModelManifest] = MappingProxyType(
     {
         E5_MULTILINGUAL_SMALL.key: E5_MULTILINGUAL_SMALL,
+        E5_MULTILINGUAL_BASE.key: E5_MULTILINGUAL_BASE,
         MDEBERTA_XNLI.key: MDEBERTA_XNLI,
         BGE_RERANKER_V2_M3.key: BGE_RERANKER_V2_M3,
         QWEN3_EMBEDDING_06B.key: QWEN3_EMBEDDING_06B,

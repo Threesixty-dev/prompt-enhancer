@@ -26,6 +26,7 @@ _CANDIDATES = frozenset(
         "all",
         "session-link",
         "e5",
+        "e5-base",
         "nli",
         "bge-m3",
         "bge-reranker",
@@ -53,6 +54,7 @@ _ERROR_CODES = frozenset(
 _MODEL_KEYS = frozenset(
     {
         "multilingual_e5_small",
+        "multilingual_e5_base",
         "mdeberta_xnli",
         "bge_m3",
         "bge_reranker_v2_m3",
@@ -64,6 +66,7 @@ _MODEL_KEYS = frozenset(
 _BACKEND_TO_MODEL = MappingProxyType(
     {
         "multilingual_e5_small_cosine_v1": "multilingual_e5_small",
+        "multilingual_e5_base_cosine_v1": "multilingual_e5_base",
         "qwen3_embedding_last_token_v1": "qwen3_embedding_06b",
         "bge_reranker_sequence_classifier_v1": "bge_reranker_v2_m3",
         "qwen3_reranker_yes_no_v1": "qwen3_reranker_06b",
@@ -287,7 +290,7 @@ def summarize_model_report(report: Mapping[str, object]) -> tuple[str, tuple[Can
     if device not in {"cpu", "cuda", "mps"}:
         raise ModelEvaluationError("model evaluation output invalid")
     raw_outcomes = report.get("candidate_outcomes")
-    if not isinstance(raw_outcomes, list) or len(raw_outcomes) > 7:
+    if not isinstance(raw_outcomes, list) or len(raw_outcomes) > 8:
         raise ModelEvaluationError("model evaluation output invalid")
     measurements = _measurement_by_model(report)
     summaries: list[CandidateEvaluationSummary] = []
@@ -309,6 +312,7 @@ def summarize_model_report(report: Mapping[str, object]) -> tuple[str, tuple[Can
         if measurement is not None:
             if key in {
                 "multilingual_e5_small",
+                "multilingual_e5_base",
                 "qwen3_embedding_06b",
                 "bge_reranker_v2_m3",
                 "qwen3_reranker_06b",

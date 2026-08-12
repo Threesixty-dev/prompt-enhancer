@@ -1344,7 +1344,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "multilingual_e5_small" | "mdeberta_xnli" | "bge_m3" | "bge_reranker_v2_m3" | "qwen3_embedding_06b" | "qwen3_reranker_06b" | "qwen3_4b_rubric";
+            key: "multilingual_e5_small" | "multilingual_e5_base" | "mdeberta_xnli" | "bge_m3" | "bge_reranker_v2_m3" | "qwen3_embedding_06b" | "qwen3_reranker_06b" | "qwen3_4b_rubric";
             /** Peak Accelerator Memory Mb */
             peak_accelerator_memory_mb?: number | null;
             /** Primary Metric */
@@ -2181,7 +2181,7 @@ export interface components {
              * @default all
              * @enum {string}
              */
-            candidate: "all" | "session-link" | "e5" | "nli" | "bge-m3" | "bge-reranker" | "qwen-embedding" | "qwen-reranker" | "qwen-rubric";
+            candidate: "all" | "session-link" | "e5" | "e5-base" | "nli" | "bge-m3" | "bge-reranker" | "qwen-embedding" | "qwen-reranker" | "qwen-rubric";
             /**
              * Device
              * @default auto

@@ -1270,6 +1270,7 @@
           "key": {
             "enum": [
               "multilingual_e5_small",
+              "multilingual_e5_base",
               "mdeberta_xnli",
               "bge_m3",
               "bge_reranker_v2_m3",
@@ -3454,7 +3455,7 @@
             "items": {
               "$ref": "#/components/schemas/CandidateEvaluationSummaryDto"
             },
-            "maxItems": 7,
+            "maxItems": 8,
             "title": "Outcomes",
             "type": "array"
           },
@@ -3525,6 +3526,7 @@
               "all",
               "session-link",
               "e5",
+              "e5-base",
               "nli",
               "bge-m3",
               "bge-reranker",

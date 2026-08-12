@@ -64,6 +64,39 @@ def test_report_projection_is_content_free_and_typed() -> None:
     assert "must-not-cross-projection" not in repr(outcomes)
 
 
+def test_e5_base_projection_uses_its_own_pinned_candidate_identity() -> None:
+    report = {
+        "device": "cuda",
+        "candidate_outcomes": [
+            {
+                "key": "multilingual_e5_base",
+                "status": "evaluated",
+                "error_code": None,
+            }
+        ],
+        "retrieval": [
+            {
+                "backend_key": "multilingual_e5_base_cosine_v1",
+                "top1_accuracy": 0.833333,
+                "mean_reciprocal_rank": 0.902778,
+                "inference_latency_ms": 453.488,
+                "runtime": {"peak_cuda_allocated_mb": 1078.121},
+            }
+        ],
+        "reranking": [],
+        "nli": [],
+        "rubric": [],
+    }
+
+    device, outcomes = summarize_model_report(report)
+
+    assert device == "cuda"
+    assert outcomes[0].key == "multilingual_e5_base"
+    assert outcomes[0].primary_value == 0.833333
+    assert outcomes[0].secondary_value == 0.902778
+    assert outcomes[0].peak_accelerator_memory_mb == 1078.121
+
+
 def test_service_runs_one_daemon_job_and_rejects_concurrent_work() -> None:
     entered = Event()
     release = Event()
@@ -83,6 +116,13 @@ def test_service_runs_one_daemon_job_and_rejects_concurrent_work() -> None:
     assert completed.status == "completed"
     assert completed.resolved_device == "cuda"
     assert len(completed.outcomes) == 2
+
+
+def test_e5_base_is_an_explicit_bounded_request_choice() -> None:
+    request = ModelEvaluationRequest(candidate="e5-base", device="cuda", mode="full")
+
+    assert request.candidate == "e5-base"
+    assert request.allow_download is False
 
 
 def test_http_job_contract_is_bounded_and_content_free() -> None:
@@ -117,3 +157,15 @@ def test_http_job_contract_is_bounded_and_content_free() -> None:
     assert "must-not-cross-projection" not in serialized
     assert "prompt" not in serialized.casefold()
     assert "transcript" not in serialized.casefold()
+
+    e5_base = client.post(
+        "/v1/research/text-model-evaluations",
+        json={
+            "candidate": "e5-base",
+            "device": "cuda",
+            "mode": "full",
+            "allow_download": False,
+        },
+    )
+    assert e5_base.status_code == 202
+    assert e5_base.json()["candidate"]["candidate"] == "e5-base"

@@ -157,6 +157,7 @@ class ModelEvaluationRequestDto(HttpDto):
         "all",
         "session-link",
         "e5",
+        "e5-base",
         "nli",
         "bge-m3",
         "bge-reranker",
@@ -172,6 +173,7 @@ class ModelEvaluationRequestDto(HttpDto):
 class CandidateEvaluationSummaryDto(HttpDto):
     key: Literal[
         "multilingual_e5_small",
+        "multilingual_e5_base",
         "mdeberta_xnli",
         "bge_m3",
         "bge_reranker_v2_m3",
@@ -214,7 +216,7 @@ class ModelEvaluationJobDto(HttpDto):
     error_code: Literal[
         "candidate_evaluation_incomplete", "model_evaluation_failed"
     ] | None
-    outcomes: tuple[CandidateEvaluationSummaryDto, ...] = Field(max_length=7)
+    outcomes: tuple[CandidateEvaluationSummaryDto, ...] = Field(max_length=8)
 
 
 def _source(value: ResearchSource) -> ResearchSourceDto:

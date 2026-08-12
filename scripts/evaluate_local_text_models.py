@@ -56,6 +56,7 @@ from prompt_enhancer.infrastructure.text_models.loader import (
 from prompt_enhancer.infrastructure.text_models.manifests import (
     BGE_M3_BLOCKED,
     BGE_RERANKER_V2_M3,
+    E5_MULTILINGUAL_BASE,
     E5_MULTILINGUAL_SMALL,
     MDEBERTA_XNLI,
     QWEN3_4B_RUBRIC,
@@ -78,6 +79,7 @@ from prompt_enhancer.infrastructure.text_models.transformers_backends import (
 _CANDIDATE_KEYS = (
     "session-link",
     "e5",
+    "e5-base",
     "nli",
     "bge-m3",
     "bge-reranker",
@@ -297,6 +299,18 @@ def run(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
             cases=corpus.retrieval_cases,
             report_bucket="retrieval",
             backend_key=TransformersE5Scorer.key,
+            baseline=lexical,
+        )
+    if _selected(arguments, "e5-base"):
+        completed &= _evaluate_backend(
+            arguments=arguments,
+            report=report,
+            manifest=E5_MULTILINGUAL_BASE,
+            backend_factory=TransformersE5Scorer,
+            evaluator=evaluate_retrieval,
+            cases=corpus.retrieval_cases,
+            report_bucket="retrieval",
+            backend_key="multilingual_e5_base_cosine_v1",
             baseline=lexical,
         )
     if _selected(arguments, "qwen-embedding"):
