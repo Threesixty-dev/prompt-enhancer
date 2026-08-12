@@ -47,6 +47,7 @@ from prompt_enhancer.application.jobs import (
 )
 from prompt_enhancer.application.persistence import (
     MetricValueState,
+    SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
     SessionAnalysisCompletionAuthority,
     SessionAnalysisResultRecord,
     SessionAnalysisRunDraft,
@@ -223,7 +224,7 @@ def _completion_fixture(tmp_path) -> SimpleNamespace:
         metric_engine_version=COACHING_METRIC_ENGINE_VERSION,
         redactor_version="synthetic-redactor-v1",
         model_plan_fingerprint=model_plan_fingerprint,
-        schema_version=SCHEMA_VERSION,
+        schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
         analysis_window_fingerprint=window_fingerprint,
     )
     runs = database.session_analysis_run_repository()
@@ -251,7 +252,7 @@ def _completion_fixture(tmp_path) -> SimpleNamespace:
             metric_engine_version=COACHING_METRIC_ENGINE_VERSION,
             redactor_version="synthetic-redactor-v1",
             model_plan_fingerprint=model_plan_fingerprint,
-            schema_version=SCHEMA_VERSION,
+            schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
             started_at=BASE + timedelta(minutes=2, seconds=20),
         )
     )
@@ -323,7 +324,7 @@ def _completion_fixture(tmp_path) -> SimpleNamespace:
         router_version="synthetic-router-v1",
         router_sha256=_id("router-sha"),
         model_plan_fingerprint=model_plan_fingerprint,
-        analysis_run_schema_version=SCHEMA_VERSION,
+        analysis_run_schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
         full_run_metric_observation_count=1,
     )
     result = SessionAnalysisResultRecord(
@@ -380,7 +381,7 @@ def test_v21_schema_is_normalized_zero_backfill_and_auth_is_transient(tmp_path) 
     database = Database(tmp_path / "schema.sqlite3")
     database.initialize()
     with database._connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         temporal_tables = tuple(
             row["name"]
@@ -600,7 +601,7 @@ def test_populated_v20_migrates_to_v21_without_temporal_backfill(tmp_path) -> No
     database = Database(path)
     database.initialize()
     with database._connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
         after = tuple(
             (row["version"], row["checksum"])
             for row in connection.execute(
@@ -608,7 +609,7 @@ def test_populated_v20_migrates_to_v21_without_temporal_backfill(tmp_path) -> No
             )
         )
         assert after[:20] == before
-        assert len(after) == 21
+        assert len(after) == 22
         durable_tables = tuple(
             row["name"]
             for row in connection.execute(
@@ -1018,7 +1019,7 @@ def test_second_temporal_run_for_same_session_is_bounded_and_rolls_back(
         metric_engine_version=first_input.metric_engine_version,
         redactor_version=first_input.redactor_version,
         model_plan_fingerprint=first_input.model_plan_fingerprint,
-        schema_version=SCHEMA_VERSION,
+        schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
         analysis_window_fingerprint=window_fingerprint,
     )
     context.runs.begin(
@@ -1043,7 +1044,7 @@ def test_second_temporal_run_for_same_session_is_bounded_and_rolls_back(
             metric_engine_version=first_input.metric_engine_version,
             redactor_version=first_input.redactor_version,
             model_plan_fingerprint=first_input.model_plan_fingerprint,
-            schema_version=SCHEMA_VERSION,
+            schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
             started_at=BASE + timedelta(minutes=4, seconds=20),
         )
     )

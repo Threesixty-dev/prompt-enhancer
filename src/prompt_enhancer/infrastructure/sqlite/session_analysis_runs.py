@@ -17,6 +17,7 @@ from ...application.persistence import (
     SessionAnalysisResultRecord,
     SessionAnalysisRunDraft,
     SessionAnalysisRunRecord,
+    SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
     SessionEvidenceOrigin,
     SessionMetricAggregation,
     SessionMetricApplicability,
@@ -24,7 +25,7 @@ from ...application.persistence import (
     SessionMetricScopeState,
     SessionMetricSignalStatus,
 )
-from ...database import DatabaseInvariantError, SCHEMA_VERSION
+from ...database import DatabaseInvariantError
 from ...domain import DataTier, MetricObservation, MetricSource, Provider
 from ._common import (
     ConnectionScope,
@@ -41,6 +42,9 @@ if TYPE_CHECKING:
         SyntheticTemporalCompletionRequestV1,
     )
     from .temporal_history import SqliteTemporalHistoryRepository
+    from .temporal_comparison_strata import (
+        SqliteTemporalComparisonStratumRepository,
+    )
 
 
 class SqliteSessionAnalysisRunRepository:
@@ -52,6 +56,9 @@ class SqliteSessionAnalysisRunRepository:
         ensure_initialized: Callable[[], None],
         *,
         temporal_history_repository: SqliteTemporalHistoryRepository | None = None,
+        temporal_comparison_repository: (
+            SqliteTemporalComparisonStratumRepository | None
+        ) = None,
         begin_temporal_delete_authorization: (
             Callable[[str], tuple[str, str]] | None
         ) = None,
@@ -62,6 +69,7 @@ class SqliteSessionAnalysisRunRepository:
         self._connection_scope = connection_scope
         self._ensure_initialized = ensure_initialized
         self._temporal_history_repository = temporal_history_repository
+        self._temporal_comparison_repository = temporal_comparison_repository
         self._begin_temporal_delete_authorization = (
             begin_temporal_delete_authorization
         )
@@ -69,7 +77,7 @@ class SqliteSessionAnalysisRunRepository:
 
     def begin(self, draft: SessionAnalysisRunDraft) -> None:
         self._ensure_initialized()
-        if draft.schema_version != SCHEMA_VERSION:
+        if draft.schema_version != SESSION_ANALYSIS_RUN_SCHEMA_VERSION:
             raise DatabaseInvariantError(
                 "session analysis schema version does not match storage"
             )
@@ -179,6 +187,7 @@ class SqliteSessionAnalysisRunRepository:
 
         with self._connection_scope() as connection:
             sealed_batch = None
+            pending_comparison_seal = None
             try:
                 if temporal_completion_request is not None:
                     connection.execute("PRAGMA trusted_schema=ON")
@@ -191,6 +200,19 @@ class SqliteSessionAnalysisRunRepository:
                     """,
                     (run_id,),
                 ).fetchone()
+                has_comparison_preparation = connection.execute(
+                    """SELECT 1 FROM comparison_prepared_stratum_roots
+                       WHERE expected_analysis_run_id=?""",
+                    (run_id,),
+                ).fetchone() is not None
+                if has_comparison_preparation and (
+                    temporal_completion_request is None
+                    or completion_authority is None
+                    or self._temporal_comparison_repository is None
+                ):
+                    raise DatabaseInvariantError(
+                        "prepared comparison completion requires atomic temporal sealing"
+                    )
                 if (
                     run is not None
                     and run["status"] == AnalysisRunStatus.COMPLETED.value
@@ -207,6 +229,11 @@ class SqliteSessionAnalysisRunRepository:
                             completion_authority=completion_authority,
                         )
                     )
+                    if self._temporal_comparison_repository is not None:
+                        self._temporal_comparison_repository._replay_completed_locked(
+                            connection,
+                            sealed_batch=sealed_batch,
+                        )
                     connection.commit()
                     return sealed_batch
                 if run is None or run["status"] != AnalysisRunStatus.RUNNING.value:
@@ -422,6 +449,23 @@ class SqliteSessionAnalysisRunRepository:
                         finished_at=finished_at,
                         completion_authority=completion_authority,
                     )
+                if has_comparison_preparation:
+                    assert sealed_batch is not None
+                    assert completion_authority is not None
+                    assert self._temporal_comparison_repository is not None
+                    pending_comparison_seal = (
+                        self._temporal_comparison_repository
+                        ._authorize_completion_seal_locked(
+                            connection,
+                            sealed_batch=sealed_batch,
+                            completion_authority=completion_authority,
+                            finished_at=finished_at,
+                        )
+                    )
+                    if pending_comparison_seal is None:
+                        raise DatabaseInvariantError(
+                            "comparison preparation disappeared during completion"
+                        )
                 cursor = connection.execute(
                     """
                     UPDATE session_analysis_runs
@@ -433,6 +477,13 @@ class SqliteSessionAnalysisRunRepository:
                 if cursor.rowcount != 1:
                     raise DatabaseInvariantError(
                         "session analysis transition was rejected"
+                    )
+                if has_comparison_preparation:
+                    assert pending_comparison_seal is not None
+                    assert self._temporal_comparison_repository is not None
+                    self._temporal_comparison_repository._commit_completion_seal_locked(
+                        connection,
+                        pending_comparison_seal,
                     )
                 if sealed_batch is not None:
                     assert self._temporal_history_repository is not None
@@ -450,6 +501,13 @@ class SqliteSessionAnalysisRunRepository:
                 return sealed_batch
             except Exception:
                 connection.rollback()
+                if (
+                    pending_comparison_seal is not None
+                    and self._temporal_comparison_repository is not None
+                ):
+                    self._temporal_comparison_repository._cancel_completion_seal_authorization(
+                        pending_comparison_seal
+                    )
                 raise
             finally:
                 if temporal_completion_request is not None:
@@ -1002,7 +1060,12 @@ class SqliteSessionAnalysisRunRepository:
                            WHERE analysis_run_id=?""",
                         (run_id,),
                     ).fetchone() is not None
-                    if has_temporal_history:
+                    has_comparison_history = connection.execute(
+                        """SELECT 1 FROM comparison_prepared_stratum_roots
+                           WHERE expected_analysis_run_id=?""",
+                        (run_id,),
+                    ).fetchone() is not None
+                    if has_temporal_history or has_comparison_history:
                         if authorization is None:
                             raise DatabaseInvariantError(
                                 "temporal run privacy deletion is not authorized"
@@ -1015,7 +1078,13 @@ class SqliteSessionAnalysisRunRepository:
                         "DELETE FROM session_analysis_runs WHERE run_id=?",
                         (run_id,),
                     )
-                    if has_temporal_history:
+                    if has_comparison_history:
+                        connection.execute(
+                            """DELETE FROM comparison_prepared_stratum_roots
+                               WHERE expected_analysis_run_id=?""",
+                            (run_id,),
+                        )
+                    if has_temporal_history or has_comparison_history:
                         connection.execute(
                             """DELETE FROM temporal_run_delete_authorizations
                                WHERE operation_id=? AND run_id=?""",
@@ -1032,7 +1101,7 @@ class SqliteSessionAnalysisRunRepository:
                         raise DatabaseInvariantError(
                             "temporal privacy deletion committed; WAL purge pending"
                         )
-                    return cursor.rowcount == 1
+                    return cursor.rowcount == 1 or has_comparison_history
                 except Exception:
                     connection.rollback()
                     connection.execute("PRAGMA trusted_schema=OFF")

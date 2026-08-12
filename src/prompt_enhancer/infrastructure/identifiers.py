@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import json
 
 from ..application.discovery import CandidateIdentity
-from ..domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN
+from ..domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider
 from ..privacy import Pseudonymizer
 
 
@@ -87,6 +87,47 @@ class LocalArtifactIdFactory:
                     metric_pack_key,
                     str(metric_pack_version),
                 )
+            ),
+        )
+
+    def session_analysis_run_id(
+        self,
+        idempotency_key: str,
+        provider: Provider,
+        session_id: str,
+        metric_pack_key: str,
+        metric_pack_version: int,
+    ) -> str:
+        """Derive the shared retry-stable selected-session analysis run ID.
+
+        This is the single keyed issuance boundary used both by the analysis
+        command and by prospective comparison preparation. Keeping it on the
+        installation-local factory prevents an unkeyed caller digest from
+        becoming run authority.
+        """
+
+        if not SAFE_VERSION_PATTERN.fullmatch(idempotency_key):
+            raise ValueError("analysis idempotency key must be a safe identifier")
+        if not isinstance(provider, Provider):
+            raise ValueError("analysis provider must be a known provider")
+        if not PSEUDONYM_PATTERN.fullmatch(session_id):
+            raise ValueError("session identifier must be a safe pseudonym")
+        if not SAFE_VERSION_PATTERN.fullmatch(metric_pack_key):
+            raise ValueError("metric pack key must be a safe identifier")
+        if (
+            not isinstance(metric_pack_version, int)
+            or isinstance(metric_pack_version, bool)
+            or metric_pack_version < 1
+        ):
+            raise ValueError("metric pack version must be positive")
+        return self.fingerprint(
+            "session-analysis-run-v1",
+            (
+                idempotency_key,
+                provider.value,
+                session_id,
+                metric_pack_key,
+                str(metric_pack_version),
             ),
         )
 

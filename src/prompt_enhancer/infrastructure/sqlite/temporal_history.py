@@ -82,8 +82,9 @@ from ...application.persistence import (
     SessionMetricApplicability,
     SessionMetricDirection,
     SessionMetricSignalStatus,
+    SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
 )
-from ...database import DatabaseInvariantError, SCHEMA_VERSION
+from ...database import DatabaseInvariantError
 from ...domain import DataTier, MetricObservation, MetricSource, Provider
 from ._common import ConnectionScope, from_iso, require_safe_id, to_iso
 
@@ -1449,7 +1450,8 @@ class SqliteTemporalHistoryRepository:
             or input_receipt.metric_engine_version != run["metric_engine_version"]
             or input_receipt.redactor_version != run["redactor_version"]
             or input_receipt.model_plan_fingerprint != run["model_plan_fingerprint"]
-            or input_receipt.analysis_run_schema_version != SCHEMA_VERSION
+            or input_receipt.analysis_run_schema_version
+            != SESSION_ANALYSIS_RUN_SCHEMA_VERSION
             or input_receipt.provider_schema_version != job["provider_schema_version"]
             or input_receipt.selected_metric_keys != selected
             or input_receipt.full_run_metric_observation_count != len(results)

@@ -152,6 +152,15 @@ class SessionTextAnalysisIdFactory(Protocol):
 
     def fingerprint(self, namespace: str, values: tuple[str, ...]) -> str: ...
 
+    def session_analysis_run_id(
+        self,
+        idempotency_key: str,
+        provider: Provider,
+        session_id: str,
+        metric_pack_key: str,
+        metric_pack_version: int,
+    ) -> str: ...
+
 
 class SessionTextAnalysisSourceFactory(Protocol):
     """Create a provider source only after policy and idempotency gates pass."""
@@ -722,15 +731,12 @@ class SessionTextAnalysisService:
                 *_profile_fingerprint_values(task_profile),
             ),
         )
-        run_id = self._identifiers.fingerprint(
-            "session-analysis-run-v1",
-            (
-                idempotency_key,
-                provider.value,
-                session_id,
-                metric_pack_key,
-                str(metric_pack_version),
-            ),
+        run_id = self._identifiers.session_analysis_run_id(
+            idempotency_key,
+            provider,
+            session_id,
+            metric_pack_key,
+            metric_pack_version,
         )
 
         with self._command_lock:

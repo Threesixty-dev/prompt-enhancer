@@ -73,6 +73,7 @@ from prompt_enhancer.application.persistence import (
     SessionMetricDirection,
     SessionMetricScopeState,
     SessionMetricSignalStatus,
+    SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
     TaskRevisionRecord,
 )
 from prompt_enhancer.database import (
@@ -558,7 +559,7 @@ def _draft(
         metric_engine_version=TEXT_METRIC_ENGINE_VERSION,
         redactor_version="deterministic-redactor-v1",
         model_plan_fingerprint="c" * 64,
-        schema_version=SCHEMA_VERSION,
+        schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
         started_at=started_at,
     )
 
@@ -1145,7 +1146,7 @@ def test_v14_repairs_unprovable_v13_metric_scopes(tmp_path) -> None:
     assert foreign_v12.draft.selected_metric_keys == ()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
         assert connection.execute(
             "SELECT COUNT(*) FROM session_analysis_run_metrics"
         ).fetchone()[0] == 61
@@ -1214,7 +1215,7 @@ def test_backfilled_v12_and_new_v13_runs_share_result_level_cohort(tmp_path) -> 
         metric_engine_version="synthetic-engine-v1",
         redactor_version="synthetic-redactor-v1",
         model_plan_fingerprint="d" * 64,
-        schema_version=SCHEMA_VERSION,
+        schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
         started_at=NOW + timedelta(minutes=10),
     )
     result = _known_result(key="prompt.context_sufficiency").model_copy(

@@ -73,13 +73,14 @@ from prompt_enhancer.application.analysis.text_source import (
 )
 from prompt_enhancer.application.persistence import (
     AnalysisRunStatus,
+    SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
     SessionAnalysisCompletionAuthority,
     SessionAnalysisResultRecord,
     SessionAnalysisRunDraft,
     SessionAnalysisRunRecord,
 )
 from prompt_enhancer.domain import DataTier, Provider
-from prompt_enhancer.database import Database, SCHEMA_VERSION
+from prompt_enhancer.database import Database
 from prompt_enhancer.infrastructure.identifiers import LocalArtifactIdFactory
 from prompt_enhancer.ingestion import IngestionService
 from prompt_enhancer.privacy import Pseudonymizer
@@ -88,6 +89,43 @@ from prompt_enhancer.privacy import Pseudonymizer
 NOW = datetime(2042, 3, 4, 9, 0, tzinfo=UTC)
 SESSION_ID = "a" * 64
 WINDOW_ID = "b" * 64
+
+
+def test_session_analysis_schema_contract_is_decoupled_from_storage() -> None:
+    assert SESSION_ANALYSIS_RUN_SCHEMA_VERSION == 21
+
+
+def test_shared_session_run_id_issuance_matches_the_existing_domain() -> None:
+    factory = LocalArtifactIdFactory(Pseudonymizer(bytes(range(32))))
+    values = (
+        "synthetic-retry",
+        Provider.SYNTHETIC.value,
+        SESSION_ID,
+        "synthetic-pack-v1",
+        "1",
+    )
+    assert factory.session_analysis_run_id(
+        "synthetic-retry",
+        Provider.SYNTHETIC,
+        SESSION_ID,
+        "synthetic-pack-v1",
+        1,
+    ) == factory.fingerprint("session-analysis-run-v1", values)
+
+
+@pytest.mark.parametrize("invalid_version", (1.5, "1", None, True))
+def test_shared_session_run_id_rejects_non_integer_versions(
+    invalid_version: object,
+) -> None:
+    factory = LocalArtifactIdFactory(Pseudonymizer(bytes(range(32))))
+    with pytest.raises(ValueError, match="metric pack version must be positive"):
+        factory.session_analysis_run_id(
+            "synthetic-retry",
+            Provider.SYNTHETIC,
+            SESSION_ID,
+            "synthetic-pack-v1",
+            invalid_version,  # type: ignore[arg-type]
+        )
 
 
 class TickingClock:
@@ -943,7 +981,7 @@ def test_real_repository_aggregates_overlap_across_distinct_scope_plans(
         else (_ for _ in ()).throw(ValueError("unsupported synthetic provider")),
         MemoryCompatibilityPolicy(),
         LocalArtifactIdFactory(pseudonymizer),
-        schema_version=SCHEMA_VERSION,
+        schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
         clock=TickingClock(),
     )
     first_scope = ("prompt.context_sufficiency",)

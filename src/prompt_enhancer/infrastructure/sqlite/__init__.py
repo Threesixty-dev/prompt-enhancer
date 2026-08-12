@@ -4,6 +4,7 @@ __all__ = (
     "SqliteAnalysisRunRepository",
     "SqliteModelLinkExperimentRepository",
     "SqliteSessionAnalysisRunRepository",
+    "SqliteTemporalComparisonStratumRepository",
     "SqliteTemporalHistoryRepository",
     "SqliteTaskRepository",
 )
@@ -32,4 +33,10 @@ def __getattr__(name: str):
         from .temporal_history import SqliteTemporalHistoryRepository
 
         return SqliteTemporalHistoryRepository
+    if name == "SqliteTemporalComparisonStratumRepository":
+        from .temporal_comparison_strata import (
+            SqliteTemporalComparisonStratumRepository,
+        )
+
+        return SqliteTemporalComparisonStratumRepository
     raise AttributeError(name)

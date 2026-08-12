@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import hashlib
 import sqlite3
 
 from ...application.persistence import (
@@ -27,9 +28,128 @@ class SqliteTaskRepository:
         self,
         connection_scope: ConnectionScope,
         ensure_initialized: Callable[[], None],
+        *,
+        begin_comparison_task_delete_authorization: (
+            Callable[[str, str, str, str | None, str], tuple[str, str]] | None
+        ) = None,
+        end_comparison_task_delete_authorization: (
+            Callable[[str, str, str], None] | None
+        ) = None,
     ) -> None:
         self._connection_scope = connection_scope
         self._ensure_initialized = ensure_initialized
+        self._begin_comparison_task_delete_authorization = (
+            begin_comparison_task_delete_authorization
+        )
+        self._end_comparison_task_delete_authorization = (
+            end_comparison_task_delete_authorization
+        )
+
+    @staticmethod
+    def _comparison_task_delete_fingerprint(
+        *,
+        task_id: str,
+        prepared_stratum_id: str,
+        expected_run_id: str,
+        sealed_stratum_id: str | None,
+    ) -> str:
+        values = (
+            "comparison-task-delete-authorization-v1",
+            task_id,
+            prepared_stratum_id,
+            expected_run_id,
+            sealed_stratum_id or "explicit-none",
+        )
+        return hashlib.sha256("\x1f".join(values).encode("ascii")).hexdigest()
+
+    def _delete_comparison_graphs_for_tasks(
+        self,
+        connection: sqlite3.Connection,
+        task_ids: set[str],
+    ) -> list[tuple[str, str, str]]:
+        if not task_ids:
+            return []
+        placeholders = ",".join("?" for _ in task_ids)
+        rows = connection.execute(
+            f"""SELECT MIN(projection.task_id) AS task_id,
+                       prepared.prepared_stratum_id,
+                       prepared.expected_analysis_run_id,
+                       sealed.sealed_stratum_id
+                FROM comparison_prepared_task_projections projection
+                JOIN comparison_prepared_stratum_roots prepared
+                  ON prepared.prepared_stratum_id=projection.prepared_stratum_id
+                LEFT JOIN comparison_sealed_stratum_roots sealed
+                  ON sealed.prepared_stratum_id=prepared.prepared_stratum_id
+                WHERE projection.task_id IN ({placeholders})
+                GROUP BY prepared.prepared_stratum_id,
+                         prepared.expected_analysis_run_id,
+                         sealed.sealed_stratum_id
+                ORDER BY prepared.prepared_stratum_id""",
+            tuple(sorted(task_ids)),
+        ).fetchall()
+        if rows and (
+            self._begin_comparison_task_delete_authorization is None
+            or self._end_comparison_task_delete_authorization is None
+        ):
+            raise DatabaseInvariantError(
+                "comparison task privacy deletion is not authorized"
+            )
+        authorizations: list[tuple[str, str, str]] = []
+        try:
+            for row in rows:
+                fingerprint = self._comparison_task_delete_fingerprint(
+                    task_id=row["task_id"],
+                    prepared_stratum_id=row["prepared_stratum_id"],
+                    expected_run_id=row["expected_analysis_run_id"],
+                    sealed_stratum_id=row["sealed_stratum_id"],
+                )
+                assert self._begin_comparison_task_delete_authorization is not None
+                operation_id, tag = (
+                    self._begin_comparison_task_delete_authorization(
+                        row["task_id"],
+                        row["prepared_stratum_id"],
+                        row["expected_analysis_run_id"],
+                        row["sealed_stratum_id"],
+                        fingerprint,
+                    )
+                )
+                authorizations.append((operation_id, fingerprint, tag))
+                connection.execute(
+                    """INSERT INTO comparison_task_delete_authorizations(
+                           operation_id,task_id,prepared_stratum_id,
+                           expected_analysis_run_id,sealed_stratum_id,
+                           authorization_fingerprint,authorization_tag)
+                       VALUES(?,?,?,?,?,?,?)""",
+                    (
+                        operation_id,
+                        row["task_id"],
+                        row["prepared_stratum_id"],
+                        row["expected_analysis_run_id"],
+                        row["sealed_stratum_id"],
+                        fingerprint,
+                        tag,
+                    ),
+                )
+            for prepared_stratum_id in dict.fromkeys(
+                str(row["prepared_stratum_id"]) for row in rows
+            ):
+                connection.execute(
+                    """DELETE FROM comparison_prepared_stratum_roots
+                       WHERE prepared_stratum_id=?""",
+                    (prepared_stratum_id,),
+                )
+            for operation_id, _, _ in authorizations:
+                connection.execute(
+                    """DELETE FROM comparison_task_delete_authorizations
+                       WHERE operation_id=?""",
+                    (operation_id,),
+                )
+            return authorizations
+        except Exception:
+            if self._end_comparison_task_delete_authorization is not None:
+                for authorization in authorizations:
+                    self._end_comparison_task_delete_authorization(*authorization)
+            raise
 
     @staticmethod
     def _assert_sessions_in_project(
@@ -683,37 +803,103 @@ class SqliteTaskRepository:
     def delete_candidate_for_privacy(self, candidate_id: str) -> bool:
         self._ensure_initialized()
         require_safe_id(candidate_id)
+        authorizations: list[tuple[str, str, str]] = []
         with self._connection_scope() as connection:
             try:
+                connection.execute("PRAGMA secure_delete=ON")
+                if int(connection.execute("PRAGMA secure_delete").fetchone()[0]) != 1:
+                    raise DatabaseInvariantError(
+                        "task privacy deletion requires SQLite secure_delete"
+                    )
+                connection.execute("PRAGMA trusted_schema=ON")
                 connection.execute("BEGIN IMMEDIATE")
                 existed = connection.execute(
                     "SELECT 1 FROM task_candidates WHERE candidate_id = ?",
                     (candidate_id,),
                 ).fetchone() is not None
+                _, component_task_ids, _ = self._privacy_component(
+                    connection,
+                    candidate_ids={candidate_id},
+                    task_ids=set(),
+                )
+                authorizations = self._delete_comparison_graphs_for_tasks(
+                    connection,
+                    component_task_ids,
+                )
                 self._delete_privacy_component(
                     connection, candidate_ids={candidate_id}, task_ids=set()
                 )
                 connection.commit()
+                connection.execute("PRAGMA trusted_schema=OFF")
+                checkpoint = connection.execute(
+                    "PRAGMA wal_checkpoint(TRUNCATE)"
+                ).fetchone()
+                if checkpoint is None or tuple(
+                    int(value) for value in checkpoint
+                ) != (0, 0, 0):
+                    raise DatabaseInvariantError(
+                        "task privacy deletion committed; WAL purge pending"
+                    )
                 return existed
             except Exception:
                 connection.rollback()
+                connection.execute("PRAGMA trusted_schema=OFF")
                 raise
+            finally:
+                if self._end_comparison_task_delete_authorization is not None:
+                    for authorization in authorizations:
+                        self._end_comparison_task_delete_authorization(
+                            *authorization
+                        )
 
     def delete_task_for_privacy(self, task_id: str) -> bool:
         self._ensure_initialized()
         require_safe_id(task_id)
+        authorizations: list[tuple[str, str, str]] = []
         with self._connection_scope() as connection:
             try:
+                connection.execute("PRAGMA secure_delete=ON")
+                if int(connection.execute("PRAGMA secure_delete").fetchone()[0]) != 1:
+                    raise DatabaseInvariantError(
+                        "task privacy deletion requires SQLite secure_delete"
+                    )
+                connection.execute("PRAGMA trusted_schema=ON")
                 connection.execute("BEGIN IMMEDIATE")
                 existed = connection.execute(
                     "SELECT 1 FROM tasks WHERE task_id = ?",
                     (task_id,),
                 ).fetchone() is not None
+                _, component_task_ids, _ = self._privacy_component(
+                    connection,
+                    candidate_ids=set(),
+                    task_ids={task_id},
+                )
+                authorizations = self._delete_comparison_graphs_for_tasks(
+                    connection,
+                    component_task_ids,
+                )
                 self._delete_privacy_component(
                     connection, candidate_ids=set(), task_ids={task_id}
                 )
                 connection.commit()
+                connection.execute("PRAGMA trusted_schema=OFF")
+                checkpoint = connection.execute(
+                    "PRAGMA wal_checkpoint(TRUNCATE)"
+                ).fetchone()
+                if checkpoint is None or tuple(
+                    int(value) for value in checkpoint
+                ) != (0, 0, 0):
+                    raise DatabaseInvariantError(
+                        "task privacy deletion committed; WAL purge pending"
+                    )
                 return existed
             except Exception:
                 connection.rollback()
+                connection.execute("PRAGMA trusted_schema=OFF")
                 raise
+            finally:
+                if self._end_comparison_task_delete_authorization is not None:
+                    for authorization in authorizations:
+                        self._end_comparison_task_delete_authorization(
+                            *authorization
+                        )

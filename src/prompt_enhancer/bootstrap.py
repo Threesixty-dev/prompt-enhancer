@@ -208,7 +208,7 @@ class LocalApplication:
         """Construct the explicit, one-session local P1 analysis command."""
 
         from .application.analysis import SessionTextAnalysisService
-        from .database import SCHEMA_VERSION
+        from .application.persistence import SESSION_ANALYSIS_RUN_SCHEMA_VERSION
         from .domain import Provider
         from .infrastructure.identifiers import LocalArtifactIdFactory
         from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
@@ -224,7 +224,7 @@ class LocalApplication:
             source_factory,
             compatibility_policy,
             LocalArtifactIdFactory(self.pseudonymizer),
-            schema_version=SCHEMA_VERSION,
+            schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
         )
 
     def create_metric_readiness_service(
@@ -483,9 +483,14 @@ def bootstrap_local_application(settings: AppSettings) -> LocalApplication:
     """Build the local modular monolith and enforce private-state prerequisites."""
 
     prepare_app_home(settings)
-    database = Database(settings.database_path)
-    database.initialize()
     pseudonymizer = load_or_create_pseudonymizer(settings.pseudonym_key_path)
+    from .infrastructure.identifiers import LocalArtifactIdFactory
+
+    database = Database(settings.database_path)
+    database.configure_local_artifact_id_factory(
+        LocalArtifactIdFactory(pseudonymizer)
+    )
+    database.initialize()
 
     # Initialization promises that every CLI command leaves a complete local
     # installation. Discard the value so it cannot leak through the composition

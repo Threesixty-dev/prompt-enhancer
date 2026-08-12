@@ -34,6 +34,12 @@ _SAFE_CODE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$")
 _SAFE_LABEL = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
+# This is the immutable application contract carried by selected-session run
+# rows, not the SQLite migration level. Database-only additive migrations must
+# not silently rewrite the provenance identity of an existing analysis plan.
+SESSION_ANALYSIS_RUN_SCHEMA_VERSION = 21
+
+
 def _pseudonym(value: str) -> str:
     if not _HEX_64.fullmatch(value):
         raise ValueError("persistent identifiers must be 64-character safe identifiers")

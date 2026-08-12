@@ -18,7 +18,10 @@ import re
 import secrets
 import sqlite3
 import threading
-from typing import Iterable, Iterator
+from typing import TYPE_CHECKING, Iterable, Iterator
+
+if TYPE_CHECKING:
+    from .infrastructure.identifiers import LocalArtifactIdFactory
 
 from .application.persistence import PersistenceConflictError
 from .application.display_labels import (
@@ -84,10 +87,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_19,
     MIGRATION_20,
     MIGRATION_21,
+    MIGRATION_22,
 )
 
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -410,7 +414,242 @@ class Database:
             tuple[str, str, str]
         ] = set()
         self._temporal_run_delete_authorization_lock = threading.Lock()
+        self._comparison_prepare_authorization_secret = secrets.token_bytes(32)
+        self._comparison_prepare_authorizations: set[tuple[object, ...]] = set()
+        self._comparison_prepare_authorization_lock = threading.Lock()
+        self._comparison_seal_authorization_secret = secrets.token_bytes(32)
+        self._comparison_seal_authorizations: set[tuple[object, ...]] = set()
+        self._comparison_seal_authorization_lock = threading.Lock()
+        self._comparison_task_delete_authorization_secret = secrets.token_bytes(32)
+        self._comparison_task_delete_authorizations: set[tuple[object, ...]] = set()
+        self._comparison_task_delete_authorization_lock = threading.Lock()
+        self._local_artifact_id_factory: LocalArtifactIdFactory | None = None
         self._initialization_lock = threading.Lock()
+
+    def configure_local_artifact_id_factory(
+        self,
+        factory: LocalArtifactIdFactory,
+    ) -> None:
+        """Install the process-local keyed artifact issuer exactly once."""
+
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+
+        if not isinstance(factory, LocalArtifactIdFactory):
+            raise TypeError("local artifact ID factory is invalid")
+        if self._local_artifact_id_factory is not None:
+            if self._local_artifact_id_factory is factory:
+                return
+            raise DatabaseInvariantError(
+                "local artifact ID factory is already configured"
+            )
+        self._local_artifact_id_factory = factory
+
+    @staticmethod
+    def _authorization_lookup(
+        values: tuple[object, ...],
+        *,
+        active: set[tuple[object, ...]],
+        lock: threading.Lock,
+        exact_length: int,
+    ) -> str:
+        with lock:
+            if len(values) == exact_length:
+                match = next(
+                    (item for item in active if item[:-1] == values),
+                    None,
+                )
+            elif len(values) == 2:
+                operation_id, authorization_fingerprint = values
+                match = next(
+                    (
+                        item
+                        for item in active
+                        if item[0] == operation_id
+                        and item[-2] == authorization_fingerprint
+                    ),
+                    None,
+                )
+            else:
+                match = None
+        return "" if match is None else str(match[-1])
+
+    def _comparison_prepare_authorization_tag(self, *values: object) -> str:
+        return self._authorization_lookup(
+            values,
+            active=self._comparison_prepare_authorizations,
+            lock=self._comparison_prepare_authorization_lock,
+            exact_length=9,
+        )
+
+    def _begin_comparison_prepare_authorization(
+        self,
+        job_id: str,
+        grant_id: str,
+        prepared_scope_id: str,
+        prepared_stratum_id: str,
+        expected_run_id: str,
+        bridge_fingerprint: str,
+        prepared_fingerprint: str,
+        authorization_fingerprint: str,
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        lineage: tuple[object, ...] = (
+            operation_id,
+            job_id,
+            grant_id,
+            prepared_scope_id,
+            prepared_stratum_id,
+            expected_run_id,
+            bridge_fingerprint,
+            prepared_fingerprint,
+            authorization_fingerprint,
+        )
+        tag = hmac.new(
+            self._comparison_prepare_authorization_secret,
+            json.dumps(
+                ("comparison-prepare-write-v1", *lineage),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._comparison_prepare_authorization_lock:
+            self._comparison_prepare_authorizations.add((*lineage, tag))
+        return operation_id, tag
+
+    def _end_comparison_prepare_authorization(
+        self,
+        operation_id: str,
+        authorization_fingerprint: str,
+        tag: str,
+    ) -> None:
+        with self._comparison_prepare_authorization_lock:
+            matches = {
+                item
+                for item in self._comparison_prepare_authorizations
+                if item[0] == operation_id
+                and item[-2] == authorization_fingerprint
+                and item[-1] == tag
+            }
+            self._comparison_prepare_authorizations.difference_update(matches)
+
+    def _comparison_seal_authorization_tag(self, *values: object) -> str:
+        return self._authorization_lookup(
+            values,
+            active=self._comparison_seal_authorizations,
+            lock=self._comparison_seal_authorization_lock,
+            exact_length=11,
+        )
+
+    def _begin_comparison_seal_authorization(
+        self,
+        prepared_stratum_id: str,
+        analysis_run_id: str,
+        sealed_batch_id: str,
+        sealed_stratum_id: str,
+        prepared_fingerprint: str,
+        run_authority_fingerprint: str,
+        sealed_batch_fingerprint: str,
+        revalidation_fingerprint: str,
+        sealed_fingerprint: str,
+        authorization_fingerprint: str,
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        lineage: tuple[object, ...] = (
+            operation_id,
+            prepared_stratum_id,
+            analysis_run_id,
+            sealed_batch_id,
+            sealed_stratum_id,
+            prepared_fingerprint,
+            run_authority_fingerprint,
+            sealed_batch_fingerprint,
+            revalidation_fingerprint,
+            sealed_fingerprint,
+            authorization_fingerprint,
+        )
+        tag = hmac.new(
+            self._comparison_seal_authorization_secret,
+            json.dumps(
+                ("comparison-seal-write-v1", *lineage),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._comparison_seal_authorization_lock:
+            self._comparison_seal_authorizations.add((*lineage, tag))
+        return operation_id, tag
+
+    def _end_comparison_seal_authorization(
+        self,
+        operation_id: str,
+        authorization_fingerprint: str,
+        tag: str,
+    ) -> None:
+        with self._comparison_seal_authorization_lock:
+            matches = {
+                item
+                for item in self._comparison_seal_authorizations
+                if item[0] == operation_id
+                and item[-2] == authorization_fingerprint
+                and item[-1] == tag
+            }
+            self._comparison_seal_authorizations.difference_update(matches)
+
+    def _comparison_task_delete_authorization_tag(self, *values: object) -> str:
+        return self._authorization_lookup(
+            values,
+            active=self._comparison_task_delete_authorizations,
+            lock=self._comparison_task_delete_authorization_lock,
+            exact_length=6,
+        )
+
+    def _begin_comparison_task_delete_authorization(
+        self,
+        task_id: str,
+        prepared_stratum_id: str,
+        expected_run_id: str,
+        sealed_stratum_id: str | None,
+        authorization_fingerprint: str,
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        lineage: tuple[object, ...] = (
+            operation_id,
+            task_id,
+            prepared_stratum_id,
+            expected_run_id,
+            sealed_stratum_id,
+            authorization_fingerprint,
+        )
+        tag = hmac.new(
+            self._comparison_task_delete_authorization_secret,
+            json.dumps(
+                ("comparison-task-delete-v1", *lineage),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._comparison_task_delete_authorization_lock:
+            self._comparison_task_delete_authorizations.add((*lineage, tag))
+        return operation_id, tag
+
+    def _end_comparison_task_delete_authorization(
+        self,
+        operation_id: str,
+        authorization_fingerprint: str,
+        tag: str,
+    ) -> None:
+        with self._comparison_task_delete_authorization_lock:
+            matches = {
+                item
+                for item in self._comparison_task_delete_authorizations
+                if item[0] == operation_id
+                and item[-2] == authorization_fingerprint
+                and item[-1] == tag
+            }
+            self._comparison_task_delete_authorizations.difference_update(matches)
 
     def _temporal_scope_authorization_tag(
         self,
@@ -1005,6 +1244,42 @@ class Database:
                 deterministic=False,
             )
             connection.create_function(
+                "comparison_prepare_authorization_tag",
+                2,
+                self._comparison_prepare_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "comparison_prepare_authorization_tag",
+                9,
+                self._comparison_prepare_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "comparison_seal_authorization_tag",
+                2,
+                self._comparison_seal_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "comparison_task_delete_authorization_tag",
+                2,
+                self._comparison_task_delete_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "comparison_task_delete_authorization_tag",
+                6,
+                self._comparison_task_delete_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "comparison_seal_authorization_tag",
+                11,
+                self._comparison_seal_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
                 "temporal_safe_code",
                 1,
                 _temporal_safe_code,
@@ -1067,6 +1342,7 @@ class Database:
                 (19, MIGRATION_19),
                 (20, MIGRATION_20),
                 (21, MIGRATION_21),
+                (22, MIGRATION_22),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1175,7 +1451,16 @@ class Database:
         from .infrastructure.sqlite.tasks import SqliteTaskRepository
 
         self._ensure_initialized()
-        return SqliteTaskRepository(self._connection, self._ensure_initialized)
+        return SqliteTaskRepository(
+            self._connection,
+            self._ensure_initialized,
+            begin_comparison_task_delete_authorization=(
+                self._begin_comparison_task_delete_authorization
+            ),
+            end_comparison_task_delete_authorization=(
+                self._end_comparison_task_delete_authorization
+            ),
+        )
 
     def analysis_run_repository(self):
         """Return the immutable task-analysis persistence adapter."""
@@ -1197,6 +1482,11 @@ class Database:
             self._connection,
             self._ensure_initialized,
             temporal_history_repository=self.temporal_history_repository(),
+            temporal_comparison_repository=(
+                None
+                if self._local_artifact_id_factory is None
+                else self.temporal_comparison_stratum_repository()
+            ),
             begin_temporal_delete_authorization=(
                 self._begin_temporal_run_delete_authorization
             ),
@@ -1220,6 +1510,32 @@ class Database:
             end_scope_authorization=self._end_temporal_scope_authorization,
             begin_history_authorization=self._begin_temporal_history_authorization,
             end_history_authorization=self._end_temporal_history_authorization,
+        )
+
+    def temporal_comparison_stratum_repository(self):
+        """Return repository-issued synthetic comparison-stratum persistence."""
+
+        from .infrastructure.sqlite.temporal_comparison_strata import (
+            SqliteTemporalComparisonStratumRepository,
+        )
+
+        self._ensure_initialized()
+        identifiers = self._local_artifact_id_factory
+        if identifiers is None:
+            raise DatabaseInvariantError(
+                "comparison persistence requires local keyed ID issuance"
+            )
+        return SqliteTemporalComparisonStratumRepository(
+            self._connection,
+            self._ensure_initialized,
+            temporal_history_repository=self.temporal_history_repository(),
+            identifiers=identifiers,
+            begin_prepare_authorization=(
+                self._begin_comparison_prepare_authorization
+            ),
+            end_prepare_authorization=self._end_comparison_prepare_authorization,
+            begin_seal_authorization=self._begin_comparison_seal_authorization,
+            end_seal_authorization=self._end_comparison_seal_authorization,
         )
 
     def model_link_experiment_repository(self):

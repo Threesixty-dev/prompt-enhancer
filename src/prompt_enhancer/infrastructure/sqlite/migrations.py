@@ -7678,3 +7678,753 @@ CREATE INDEX temporal_revision_session_idx ON temporal_observation_batches(revis
 CREATE INDEX temporal_sealed_batch_request_idx ON temporal_sealed_batch_roots(completion_request_id);
 COMMIT;
 """
+
+
+MIGRATION_22 = r"""
+BEGIN IMMEDIATE;
+
+-- Repository-issued comparison strata are prospective and zero-backfill.
+-- The two authorization tables are transient, process-HMAC-gated, and are
+-- deliberately not FK parents of durable rows. No table accepts JSON, BLOBs,
+-- source text, paths, lease owners, lease tokens, or unrelated session IDs.
+CREATE TABLE comparison_prepare_append_authorizations (
+    operation_id TEXT PRIMARY KEY CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    analysis_job_id TEXT NOT NULL CHECK(length(analysis_job_id)=64 AND analysis_job_id NOT GLOB '*[^0-9a-f]*'),
+    automation_grant_id TEXT NOT NULL CHECK(length(automation_grant_id)=64 AND automation_grant_id NOT GLOB '*[^0-9a-f]*'),
+    prepared_scope_id TEXT NOT NULL CHECK(length(prepared_scope_id)=64 AND prepared_scope_id NOT GLOB '*[^0-9a-f]*'),
+    prepared_stratum_id TEXT NOT NULL CHECK(length(prepared_stratum_id)=64 AND prepared_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    expected_analysis_run_id TEXT NOT NULL CHECK(length(expected_analysis_run_id)=64 AND expected_analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    bridge_fingerprint TEXT NOT NULL CHECK(length(bridge_fingerprint)=64 AND bridge_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    prepared_fingerprint TEXT NOT NULL CHECK(length(prepared_fingerprint)=64 AND prepared_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    authorization_fingerprint TEXT NOT NULL CHECK(length(authorization_fingerprint)=64 AND authorization_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    authorization_tag TEXT NOT NULL CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TRIGGER comparison_prepare_authorization_validate
+BEFORE INSERT ON comparison_prepare_append_authorizations
+WHEN NEW.authorization_tag<>comparison_prepare_authorization_tag(
+    NEW.operation_id,NEW.analysis_job_id,NEW.automation_grant_id,
+    NEW.prepared_scope_id,NEW.prepared_stratum_id,
+    NEW.expected_analysis_run_id,NEW.bridge_fingerprint,
+    NEW.prepared_fingerprint,NEW.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'comparison preparation authorization is invalid'); END;
+CREATE TRIGGER comparison_prepare_authorization_no_update
+BEFORE UPDATE ON comparison_prepare_append_authorizations
+BEGIN SELECT RAISE(ABORT,'comparison preparation authorization is immutable'); END;
+CREATE TRIGGER comparison_prepare_authorization_delete_guard
+BEFORE DELETE ON comparison_prepare_append_authorizations
+WHEN OLD.authorization_tag<>comparison_prepare_authorization_tag(
+    OLD.operation_id,OLD.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'comparison preparation authorization delete is invalid'); END;
+
+CREATE TABLE comparison_seal_append_authorizations (
+    operation_id TEXT PRIMARY KEY CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    prepared_stratum_id TEXT NOT NULL CHECK(length(prepared_stratum_id)=64 AND prepared_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    analysis_run_id TEXT NOT NULL CHECK(length(analysis_run_id)=64 AND analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    sealed_batch_id TEXT NOT NULL CHECK(length(sealed_batch_id)=64 AND sealed_batch_id NOT GLOB '*[^0-9a-f]*'),
+    sealed_stratum_id TEXT NOT NULL CHECK(length(sealed_stratum_id)=64 AND sealed_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    prepared_fingerprint TEXT NOT NULL CHECK(length(prepared_fingerprint)=64 AND prepared_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    run_authority_fingerprint TEXT NOT NULL CHECK(length(run_authority_fingerprint)=64 AND run_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    sealed_batch_fingerprint TEXT NOT NULL CHECK(length(sealed_batch_fingerprint)=64 AND sealed_batch_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    revalidation_fingerprint TEXT NOT NULL CHECK(length(revalidation_fingerprint)=64 AND revalidation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    sealed_fingerprint TEXT NOT NULL CHECK(length(sealed_fingerprint)=64 AND sealed_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    authorization_fingerprint TEXT NOT NULL CHECK(length(authorization_fingerprint)=64 AND authorization_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    authorization_tag TEXT NOT NULL CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TRIGGER comparison_seal_authorization_validate
+BEFORE INSERT ON comparison_seal_append_authorizations
+WHEN NEW.authorization_tag<>comparison_seal_authorization_tag(
+    NEW.operation_id,NEW.prepared_stratum_id,NEW.analysis_run_id,
+    NEW.sealed_batch_id,NEW.sealed_stratum_id,NEW.prepared_fingerprint,
+    NEW.run_authority_fingerprint,NEW.sealed_batch_fingerprint,
+    NEW.revalidation_fingerprint,NEW.sealed_fingerprint,
+    NEW.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'comparison seal authorization is invalid'); END;
+CREATE TRIGGER comparison_seal_authorization_no_update
+BEFORE UPDATE ON comparison_seal_append_authorizations
+BEGIN SELECT RAISE(ABORT,'comparison seal authorization is immutable'); END;
+CREATE TRIGGER comparison_seal_authorization_delete_guard
+BEFORE DELETE ON comparison_seal_append_authorizations
+WHEN OLD.authorization_tag<>comparison_seal_authorization_tag(
+    OLD.operation_id,OLD.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'comparison seal authorization delete is invalid'); END;
+
+CREATE TABLE comparison_task_delete_authorizations (
+    operation_id TEXT PRIMARY KEY CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    task_id TEXT NOT NULL CHECK(length(task_id)=64 AND task_id NOT GLOB '*[^0-9a-f]*'),
+    prepared_stratum_id TEXT NOT NULL CHECK(length(prepared_stratum_id)=64 AND prepared_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    expected_analysis_run_id TEXT NOT NULL CHECK(length(expected_analysis_run_id)=64 AND expected_analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    sealed_stratum_id TEXT CHECK(sealed_stratum_id IS NULL OR (length(sealed_stratum_id)=64 AND sealed_stratum_id NOT GLOB '*[^0-9a-f]*')),
+    authorization_fingerprint TEXT NOT NULL CHECK(length(authorization_fingerprint)=64 AND authorization_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    authorization_tag TEXT NOT NULL CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TRIGGER comparison_task_delete_authorization_validate
+BEFORE INSERT ON comparison_task_delete_authorizations
+WHEN NEW.authorization_tag<>comparison_task_delete_authorization_tag(
+    NEW.operation_id,NEW.task_id,NEW.prepared_stratum_id,
+    NEW.expected_analysis_run_id,NEW.sealed_stratum_id,
+    NEW.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'comparison task deletion authorization is invalid'); END;
+CREATE TRIGGER comparison_task_delete_authorization_no_update
+BEFORE UPDATE ON comparison_task_delete_authorizations
+BEGIN SELECT RAISE(ABORT,'comparison task deletion authorization is immutable'); END;
+CREATE TRIGGER comparison_task_delete_authorization_delete_guard
+BEFORE DELETE ON comparison_task_delete_authorizations
+WHEN OLD.authorization_tag<>comparison_task_delete_authorization_tag(
+    OLD.operation_id,OLD.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'comparison task deletion authorization delete is invalid'); END;
+
+-- A repository-expected run may become completed only while the exact
+-- full-lineage seal authorization is live.  This closes the otherwise
+-- unavoidable gap between the run terminal UPDATE and the final root-last
+-- comparison marker inside their one transaction.
+CREATE TRIGGER comparison_expected_run_completion_guard
+BEFORE UPDATE OF status ON session_analysis_runs
+WHEN OLD.status='running' AND NEW.status='completed'
+ AND EXISTS (
+    SELECT 1 FROM comparison_prepared_stratum_roots p
+    WHERE p.expected_analysis_run_id=NEW.run_id)
+ AND NOT EXISTS (
+    SELECT 1
+    FROM comparison_prepared_stratum_roots p
+    JOIN comparison_seal_append_authorizations a
+      ON a.prepared_stratum_id=p.prepared_stratum_id
+     AND a.analysis_run_id=NEW.run_id
+     AND a.prepared_fingerprint=p.prepared_fingerprint
+    WHERE p.expected_analysis_run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'comparison run completion requires its atomic seal'); END;
+
+-- INSERT OR REPLACE deletes an existing row before inserting its replacement.
+-- With recursive triggers disabled SQLite does not run the parent DELETE guard,
+-- so reject replacement of a repository-expected run at its INSERT boundary.
+-- The repository's initial run issuance remains valid because no row exists yet.
+CREATE TRIGGER comparison_expected_run_replace_guard
+BEFORE INSERT ON session_analysis_runs
+WHEN EXISTS (
+    SELECT 1 FROM session_analysis_runs existing
+    JOIN comparison_prepared_stratum_roots prepared
+      ON prepared.expected_analysis_run_id=existing.run_id
+    WHERE existing.run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'comparison expected run cannot be replaced'); END;
+
+CREATE TRIGGER comparison_expected_run_delete_guard
+BEFORE DELETE ON session_analysis_runs
+WHEN EXISTS (
+    SELECT 1 FROM comparison_prepared_stratum_roots p
+    WHERE p.expected_analysis_run_id=OLD.run_id)
+ AND NOT EXISTS (
+    SELECT 1 FROM temporal_run_delete_authorizations a
+    WHERE a.run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'comparison run requires authorized privacy deletion'); END;
+
+-- Children are inserted first with deferred FKs; the prepared root is the
+-- final visibility marker and verifies exact MAX+1 query completeness.
+CREATE TABLE comparison_prepared_stratum_roots (
+    prepared_stratum_id TEXT PRIMARY KEY CHECK(length(prepared_stratum_id)=64 AND prepared_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    operation_id TEXT NOT NULL CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL,
+    prepared_scope_id TEXT NOT NULL REFERENCES temporal_prepared_scope_roots(prepared_scope_id),
+    prepared_scope_fingerprint TEXT NOT NULL CHECK(length(prepared_scope_fingerprint)=64 AND prepared_scope_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    analysis_job_id TEXT NOT NULL UNIQUE CHECK(length(analysis_job_id)=64 AND analysis_job_id NOT GLOB '*[^0-9a-f]*'),
+    analysis_job_fingerprint TEXT NOT NULL CHECK(length(analysis_job_fingerprint)=64 AND analysis_job_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    job_dedupe_key TEXT NOT NULL CHECK(length(job_dedupe_key)=64 AND job_dedupe_key NOT GLOB '*[^0-9a-f]*'),
+    job_stored_authority_fingerprint TEXT NOT NULL CHECK(length(job_stored_authority_fingerprint)=64 AND job_stored_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    job_kind TEXT NOT NULL CHECK(job_kind='session_quality'),
+    job_provider TEXT NOT NULL CHECK(job_provider='synthetic'),
+    job_project_id TEXT NOT NULL CHECK(length(job_project_id)=64 AND job_project_id NOT GLOB '*[^0-9a-f]*'),
+    job_session_id TEXT NOT NULL CHECK(length(job_session_id)=64 AND job_session_id NOT GLOB '*[^0-9a-f]*'),
+    job_input_fingerprint TEXT NOT NULL CHECK(length(job_input_fingerprint)=64 AND job_input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    job_provenance_fingerprint TEXT NOT NULL CHECK(length(job_provenance_fingerprint)=64 AND job_provenance_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    job_metric_count INTEGER NOT NULL CHECK(job_metric_count BETWEEN 1 AND 100),
+    job_estimator_plan_version TEXT NOT NULL,
+    job_redactor_version TEXT NOT NULL,
+    job_provider_schema_version TEXT NOT NULL,
+    job_automation_grant_id TEXT NOT NULL CHECK(length(job_automation_grant_id)=64 AND job_automation_grant_id NOT GLOB '*[^0-9a-f]*'),
+    job_local_only INTEGER NOT NULL CHECK(job_local_only=1),
+    job_max_attempts INTEGER NOT NULL CHECK(job_max_attempts BETWEEN 1 AND 5),
+    job_created_at_us INTEGER NOT NULL,
+    job_state_at_preparation TEXT NOT NULL CHECK(job_state_at_preparation IN ('preprocessing','stage_n')),
+    job_lease_verified_at_us INTEGER NOT NULL,
+    job_lease_expires_at_us INTEGER NOT NULL,
+    job_lease_authority_fingerprint TEXT NOT NULL CHECK(length(job_lease_authority_fingerprint)=64 AND job_lease_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    expected_run_authority_receipt_id TEXT NOT NULL CHECK(length(expected_run_authority_receipt_id)=64 AND expected_run_authority_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    expected_run_request_fingerprint TEXT NOT NULL CHECK(length(expected_run_request_fingerprint)=64 AND expected_run_request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    expected_run_derivation_fingerprint TEXT NOT NULL CHECK(length(expected_run_derivation_fingerprint)=64 AND expected_run_derivation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    expected_analysis_run_id TEXT NOT NULL UNIQUE CHECK(length(expected_analysis_run_id)=64 AND expected_analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    expected_run_idempotency_key TEXT NOT NULL,
+    expected_run_metric_pack_key TEXT NOT NULL,
+    expected_run_metric_pack_version INTEGER NOT NULL CHECK(expected_run_metric_pack_version>=1),
+    expected_run_issued_at_us INTEGER NOT NULL,
+    expected_run_verifier_version TEXT NOT NULL,
+    expected_run_verifier_fingerprint TEXT NOT NULL CHECK(length(expected_run_verifier_fingerprint)=64 AND expected_run_verifier_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    session_authority_fingerprint TEXT NOT NULL CHECK(length(session_authority_fingerprint)=64 AND session_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    installation_id TEXT NOT NULL CHECK(length(installation_id)=64 AND installation_id NOT GLOB '*[^0-9a-f]*'),
+    project_id TEXT NOT NULL CHECK(length(project_id)=64 AND project_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id),
+    session_provider TEXT NOT NULL CHECK(session_provider='synthetic'),
+    session_provider_version TEXT NOT NULL,
+    session_adapter_version TEXT NOT NULL,
+    session_source_schema_version TEXT NOT NULL,
+    session_started_at_us INTEGER NOT NULL,
+    session_ended_at_us INTEGER NOT NULL,
+    session_terminal_state TEXT NOT NULL CHECK(session_terminal_state='completed'),
+    session_events_complete INTEGER NOT NULL CHECK(session_events_complete=1),
+    automation_grant_id TEXT NOT NULL CHECK(length(automation_grant_id)=64 AND automation_grant_id NOT GLOB '*[^0-9a-f]*'),
+    automation_grant_revision INTEGER NOT NULL CHECK(automation_grant_revision>=1),
+    automation_grant_authority_fingerprint TEXT NOT NULL CHECK(length(automation_grant_authority_fingerprint)=64 AND automation_grant_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    automation_grant_scope_fingerprint TEXT NOT NULL CHECK(length(automation_grant_scope_fingerprint)=64 AND automation_grant_scope_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    grant_provider TEXT NOT NULL CHECK(grant_provider='synthetic'),
+    grant_project_id TEXT NOT NULL CHECK(length(grant_project_id)=64 AND grant_project_id NOT GLOB '*[^0-9a-f]*'),
+    grant_metric_count INTEGER NOT NULL CHECK(grant_metric_count BETWEEN 1 AND 100),
+    grant_newest_session_limit INTEGER NOT NULL,
+    grant_check_interval_seconds INTEGER NOT NULL,
+    grant_route TEXT NOT NULL,
+    grant_max_gpu_workers INTEGER NOT NULL,
+    grant_max_cpu_workers INTEGER NOT NULL,
+    grant_pause_on_battery INTEGER NOT NULL CHECK(grant_pause_on_battery IN (0,1)),
+    grant_maximum_session_seconds INTEGER NOT NULL,
+    grant_local_only INTEGER NOT NULL CHECK(grant_local_only=1),
+    grant_remote_requires_fresh_approval INTEGER NOT NULL CHECK(grant_remote_requires_fresh_approval=1),
+    grant_created_at_us INTEGER NOT NULL,
+    grant_renewed_at_us INTEGER NOT NULL,
+    grant_expires_at_us INTEGER NOT NULL,
+    grant_observed_active_at_us INTEGER NOT NULL,
+    grant_state_at_preparation TEXT NOT NULL CHECK(grant_state_at_preparation='active'),
+    bridge_contract_version TEXT NOT NULL,
+    temporal_snapshot_fingerprint TEXT NOT NULL CHECK(length(temporal_snapshot_fingerprint)=64 AND temporal_snapshot_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    bridge_verifier_version TEXT NOT NULL,
+    bridge_verifier_fingerprint TEXT NOT NULL CHECK(length(bridge_verifier_fingerprint)=64 AND bridge_verifier_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    bridge_fingerprint TEXT NOT NULL CHECK(length(bridge_fingerprint)=64 AND bridge_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    task_selection_request_id TEXT NOT NULL CHECK(length(task_selection_request_id)=64 AND task_selection_request_id NOT GLOB '*[^0-9a-f]*'),
+    task_selection_request_fingerprint TEXT NOT NULL CHECK(length(task_selection_request_fingerprint)=64 AND task_selection_request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    task_query_evidence_fingerprint TEXT NOT NULL CHECK(length(task_query_evidence_fingerprint)=64 AND task_query_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    task_query_limit INTEGER NOT NULL CHECK(task_query_limit=101),
+    task_count INTEGER NOT NULL CHECK(task_count BETWEEN 0 AND 100),
+    task_manifest_fingerprint TEXT NOT NULL CHECK(length(task_manifest_fingerprint)=64 AND task_manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    dimensions_fingerprint TEXT NOT NULL CHECK(length(dimensions_fingerprint)=64 AND dimensions_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    task_type_state TEXT NOT NULL,
+    task_type TEXT,
+    task_mix_bucket TEXT NOT NULL,
+    task_type_policy_fingerprint TEXT NOT NULL CHECK(length(task_type_policy_fingerprint)=64 AND task_type_policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    automation_run_binding_policy_fingerprint TEXT NOT NULL CHECK(length(automation_run_binding_policy_fingerprint)=64 AND automation_run_binding_policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    matching_policy_fingerprint TEXT NOT NULL CHECK(length(matching_policy_fingerprint)=64 AND matching_policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    censoring_policy_fingerprint TEXT NOT NULL CHECK(length(censoring_policy_fingerprint)=64 AND censoring_policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    task_mix_policy_fingerprint TEXT NOT NULL CHECK(length(task_mix_policy_fingerprint)=64 AND task_mix_policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    policy_set_fingerprint TEXT NOT NULL CHECK(length(policy_set_fingerprint)=64 AND policy_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    repository_verifier_version TEXT NOT NULL,
+    repository_verifier_fingerprint TEXT NOT NULL CHECK(length(repository_verifier_fingerprint)=64 AND repository_verifier_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    prepared_at_us INTEGER NOT NULL,
+    graph_commitment_count INTEGER NOT NULL CHECK(graph_commitment_count BETWEEN 12 AND 112),
+    prepared_fingerprint TEXT NOT NULL CHECK(length(prepared_fingerprint)=64 AND prepared_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(job_automation_grant_id=automation_grant_id),
+    CHECK(job_project_id=project_id AND grant_project_id=project_id),
+    CHECK(job_session_id=session_id),
+    CHECK(job_provider=session_provider AND session_provider=grant_provider),
+    CHECK(job_metric_count=grant_metric_count),
+    CHECK(job_lease_verified_at_us=prepared_at_us),
+    CHECK(grant_observed_active_at_us=prepared_at_us),
+    CHECK(expected_run_issued_at_us=prepared_at_us),
+    CHECK(job_created_at_us<=prepared_at_us),
+    CHECK(job_lease_verified_at_us<job_lease_expires_at_us),
+    CHECK(grant_created_at_us<=grant_renewed_at_us AND grant_renewed_at_us<=grant_observed_active_at_us AND grant_observed_active_at_us<grant_expires_at_us)
+);
+
+CREATE TABLE comparison_prepared_task_projections (
+    prepared_stratum_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    expected_analysis_run_id TEXT NOT NULL CHECK(length(expected_analysis_run_id)=64 AND expected_analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    task_id TEXT NOT NULL CHECK(length(task_id)=64 AND task_id NOT GLOB '*[^0-9a-f]*'),
+    revision INTEGER NOT NULL CHECK(revision>=1),
+    project_id TEXT NOT NULL CHECK(length(project_id)=64 AND project_id NOT GLOB '*[^0-9a-f]*'),
+    target_session_id TEXT NOT NULL CHECK(length(target_session_id)=64 AND target_session_id NOT GLOB '*[^0-9a-f]*'),
+    task_type TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK(lifecycle_state='confirmed'),
+    created_at_us INTEGER NOT NULL,
+    projection_fingerprint TEXT NOT NULL CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(prepared_stratum_id,ordinal),
+    UNIQUE(prepared_stratum_id,task_id),
+    FOREIGN KEY(prepared_stratum_id) REFERENCES comparison_prepared_stratum_roots(prepared_stratum_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(target_session_id) REFERENCES sessions(session_id)
+);
+
+CREATE TABLE comparison_prepared_graph_commitments (
+    prepared_stratum_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    expected_analysis_run_id TEXT NOT NULL CHECK(length(expected_analysis_run_id)=64 AND expected_analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 111),
+    fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64 AND fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(prepared_stratum_id,ordinal),
+    UNIQUE(prepared_stratum_id,fingerprint),
+    FOREIGN KEY(prepared_stratum_id) REFERENCES comparison_prepared_stratum_roots(prepared_stratum_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TRIGGER comparison_prepared_root_safe_fields
+BEFORE INSERT ON comparison_prepared_stratum_roots
+WHEN temporal_safe_version(NEW.contract_version)<>1
+  OR temporal_safe_version(NEW.job_estimator_plan_version)<>1
+  OR temporal_safe_version(NEW.job_redactor_version)<>1
+  OR temporal_safe_version(NEW.job_provider_schema_version)<>1
+  OR temporal_safe_version(NEW.expected_run_idempotency_key)<>1
+  OR temporal_safe_code(NEW.expected_run_metric_pack_key)<>1
+  OR temporal_safe_version(NEW.expected_run_verifier_version)<>1
+  OR temporal_safe_version(NEW.session_provider_version)<>1
+  OR temporal_safe_version(NEW.session_adapter_version)<>1
+  OR temporal_safe_version(NEW.session_source_schema_version)<>1
+  OR temporal_safe_version(NEW.bridge_contract_version)<>1
+  OR temporal_safe_version(NEW.bridge_verifier_version)<>1
+  OR temporal_safe_version(NEW.task_type_state)<>1
+  OR (NEW.task_type IS NOT NULL AND temporal_safe_version(NEW.task_type)<>1)
+  OR temporal_safe_version(NEW.task_mix_bucket)<>1
+  OR temporal_safe_version(NEW.repository_verifier_version)<>1
+BEGIN SELECT RAISE(ABORT,'comparison prepared fields are not content-free codes'); END;
+
+CREATE TRIGGER comparison_prepared_task_safe_fields
+BEFORE INSERT ON comparison_prepared_task_projections
+WHEN temporal_safe_version(NEW.task_type)<>1
+  OR temporal_safe_version(NEW.lifecycle_state)<>1
+BEGIN SELECT RAISE(ABORT,'comparison task fields are not content-free codes'); END;
+
+CREATE TRIGGER comparison_prepared_task_insert_guard
+BEFORE INSERT ON comparison_prepared_task_projections
+WHEN EXISTS (SELECT 1 FROM comparison_prepared_stratum_roots p WHERE p.prepared_stratum_id=NEW.prepared_stratum_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM comparison_prepare_append_authorizations a
+    WHERE a.operation_id=NEW.operation_id
+      AND a.prepared_stratum_id=NEW.prepared_stratum_id
+      AND a.expected_analysis_run_id=NEW.expected_analysis_run_id
+      AND a.authorization_tag=comparison_prepare_authorization_tag(
+        a.operation_id,a.analysis_job_id,a.automation_grant_id,
+        a.prepared_scope_id,a.prepared_stratum_id,a.expected_analysis_run_id,
+        a.bridge_fingerprint,a.prepared_fingerprint,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison task projection insert is not authorized'); END;
+CREATE TRIGGER comparison_prepared_commitment_insert_guard
+BEFORE INSERT ON comparison_prepared_graph_commitments
+WHEN EXISTS (SELECT 1 FROM comparison_prepared_stratum_roots p WHERE p.prepared_stratum_id=NEW.prepared_stratum_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM comparison_prepare_append_authorizations a
+    WHERE a.operation_id=NEW.operation_id
+      AND a.prepared_stratum_id=NEW.prepared_stratum_id
+      AND a.expected_analysis_run_id=NEW.expected_analysis_run_id
+      AND a.authorization_tag=comparison_prepare_authorization_tag(
+        a.operation_id,a.analysis_job_id,a.automation_grant_id,
+        a.prepared_scope_id,a.prepared_stratum_id,a.expected_analysis_run_id,
+        a.bridge_fingerprint,a.prepared_fingerprint,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison graph commitment insert is not authorized'); END;
+
+CREATE TRIGGER comparison_prepared_root_insert_guard
+BEFORE INSERT ON comparison_prepared_stratum_roots
+WHEN NOT EXISTS (
+    SELECT 1 FROM comparison_prepare_append_authorizations a
+    WHERE a.operation_id=NEW.operation_id
+      AND a.analysis_job_id=NEW.analysis_job_id
+      AND a.automation_grant_id=NEW.automation_grant_id
+      AND a.prepared_scope_id=NEW.prepared_scope_id
+      AND a.prepared_stratum_id=NEW.prepared_stratum_id
+      AND a.expected_analysis_run_id=NEW.expected_analysis_run_id
+      AND a.bridge_fingerprint=NEW.bridge_fingerprint
+      AND a.prepared_fingerprint=NEW.prepared_fingerprint
+      AND a.authorization_tag=comparison_prepare_authorization_tag(
+        a.operation_id,a.analysis_job_id,a.automation_grant_id,
+        a.prepared_scope_id,a.prepared_stratum_id,a.expected_analysis_run_id,
+        a.bridge_fingerprint,a.prepared_fingerprint,a.authorization_fingerprint))
+ OR EXISTS (SELECT 1 FROM session_analysis_runs r WHERE r.run_id=NEW.expected_analysis_run_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_prepared_scope_roots scope
+    JOIN temporal_automation_grant_snapshots snapshot
+      ON snapshot.selection_revision_id=scope.selection_revision_id
+    WHERE scope.prepared_scope_id=NEW.prepared_scope_id
+      AND scope.prepared_scope_fingerprint=NEW.prepared_scope_fingerprint
+      AND scope.automation_grant_id=NEW.automation_grant_id
+      AND scope.automation_grant_revision=NEW.automation_grant_revision
+      AND scope.automation_grant_fingerprint=NEW.temporal_snapshot_fingerprint
+      AND snapshot.grant_fingerprint=NEW.temporal_snapshot_fingerprint
+      AND snapshot.provider=NEW.grant_provider
+      AND snapshot.project_id=NEW.grant_project_id
+      AND snapshot.newest_session_limit=NEW.grant_newest_session_limit
+      AND snapshot.check_interval_seconds=NEW.grant_check_interval_seconds
+      AND snapshot.route=NEW.grant_route
+      AND snapshot.max_gpu_workers=NEW.grant_max_gpu_workers
+      AND snapshot.max_cpu_workers=NEW.grant_max_cpu_workers
+      AND snapshot.pause_on_battery=NEW.grant_pause_on_battery
+      AND snapshot.maximum_session_seconds=NEW.grant_maximum_session_seconds
+      AND snapshot.local_only=NEW.grant_local_only
+      AND snapshot.remote_requires_fresh_approval=NEW.grant_remote_requires_fresh_approval
+      AND snapshot.state=NEW.grant_state_at_preparation
+      AND snapshot.created_at_us=NEW.grant_created_at_us
+      AND snapshot.renewed_at_us=NEW.grant_renewed_at_us
+      AND snapshot.expires_at_us=NEW.grant_expires_at_us
+      AND snapshot.metric_count=NEW.grant_metric_count)
+ OR NOT EXISTS (
+    SELECT 1 FROM analysis_jobs job
+    JOIN sessions session ON session.session_id=job.session_id
+    JOIN automation_grants grant ON grant.grant_id=job.automation_grant_id
+    WHERE job.job_id=NEW.analysis_job_id
+      AND job.automation_grant_id=NEW.automation_grant_id
+      AND job.state=NEW.job_state_at_preparation
+      AND job.provider_schema_version=NEW.job_provider_schema_version
+      AND job.lease_expires_at IS NOT NULL
+      AND temporal_iso_to_epoch_us(job.lease_expires_at)=NEW.job_lease_expires_at_us
+      AND job.cancel_requested=0 AND job.local_only=1
+      AND session.session_id=NEW.session_id
+      AND session.installation_id=NEW.installation_id
+      AND session.project_id=NEW.project_id
+      AND session.provider='synthetic'
+      AND session.source_schema_version=NEW.job_provider_schema_version
+      AND session.terminal_state='completed'
+      AND session.events_complete=1
+      AND session.ended_at IS NOT NULL
+      AND temporal_iso_to_epoch_us(session.ended_at)<=NEW.prepared_at_us
+      AND grant.grant_id=NEW.automation_grant_id
+      AND grant.revision=NEW.automation_grant_revision
+      AND grant.provider=NEW.grant_provider
+      AND grant.project_id=NEW.grant_project_id
+      AND grant.newest_session_limit=NEW.grant_newest_session_limit
+      AND grant.check_interval_seconds=NEW.grant_check_interval_seconds
+      AND grant.route=NEW.grant_route
+      AND grant.max_gpu_workers=NEW.grant_max_gpu_workers
+      AND grant.max_cpu_workers=NEW.grant_max_cpu_workers
+      AND grant.pause_on_battery=NEW.grant_pause_on_battery
+      AND grant.maximum_session_seconds=NEW.grant_maximum_session_seconds
+      AND grant.local_only=NEW.grant_local_only
+      AND grant.remote_requires_fresh_approval=NEW.grant_remote_requires_fresh_approval
+      AND grant.state='active'
+      AND temporal_iso_to_epoch_us(grant.created_at)=NEW.grant_created_at_us
+      AND temporal_iso_to_epoch_us(grant.renewed_at)=NEW.grant_renewed_at_us
+      AND temporal_iso_to_epoch_us(grant.expires_at)=NEW.grant_expires_at_us)
+ OR EXISTS (
+    SELECT metric_key FROM analysis_job_metrics
+    WHERE job_id=NEW.analysis_job_id
+    EXCEPT
+    SELECT metric_key FROM temporal_metric_selection_keys
+    WHERE selection_revision_id=(
+      SELECT selection_revision_id FROM temporal_prepared_scope_roots
+      WHERE prepared_scope_id=NEW.prepared_scope_id))
+ OR EXISTS (
+    SELECT metric_key FROM temporal_metric_selection_keys
+    WHERE selection_revision_id=(
+      SELECT selection_revision_id FROM temporal_prepared_scope_roots
+      WHERE prepared_scope_id=NEW.prepared_scope_id)
+    EXCEPT
+    SELECT metric_key FROM analysis_job_metrics
+    WHERE job_id=NEW.analysis_job_id)
+ OR EXISTS (
+    SELECT metric_key FROM automation_grant_metrics
+    WHERE grant_id=NEW.automation_grant_id
+    EXCEPT
+    SELECT metric_key FROM temporal_automation_grant_snapshot_metrics
+    WHERE selection_revision_id=(
+      SELECT selection_revision_id FROM temporal_prepared_scope_roots
+      WHERE prepared_scope_id=NEW.prepared_scope_id))
+ OR EXISTS (
+    SELECT metric_key FROM temporal_automation_grant_snapshot_metrics
+    WHERE selection_revision_id=(
+      SELECT selection_revision_id FROM temporal_prepared_scope_roots
+      WHERE prepared_scope_id=NEW.prepared_scope_id)
+    EXCEPT
+    SELECT metric_key FROM automation_grant_metrics
+    WHERE grant_id=NEW.automation_grant_id)
+ OR (SELECT COUNT(*) FROM comparison_prepared_task_projections t
+     WHERE t.prepared_stratum_id=NEW.prepared_stratum_id)<>NEW.task_count
+ OR EXISTS (
+    SELECT 1 FROM comparison_prepared_task_projections t
+    WHERE t.prepared_stratum_id=NEW.prepared_stratum_id
+      AND (t.operation_id<>NEW.operation_id
+           OR t.expected_analysis_run_id<>NEW.expected_analysis_run_id
+           OR t.project_id<>NEW.project_id
+           OR t.target_session_id<>NEW.session_id OR t.created_at_us>NEW.prepared_at_us))
+ OR EXISTS (
+    WITH latest AS (
+      SELECT revision.task_id,MAX(revision.revision) AS revision
+      FROM task_revisions revision
+      WHERE temporal_iso_to_epoch_us(revision.created_at)<=NEW.prepared_at_us
+      GROUP BY revision.task_id
+    ), selected AS (
+      SELECT latest.task_id,latest.revision,tasks.project_id,
+             revision.task_type,revision.lifecycle_state,
+             temporal_iso_to_epoch_us(revision.created_at) AS created_at_us
+      FROM latest
+      JOIN task_revisions revision
+        ON revision.task_id=latest.task_id AND revision.revision=latest.revision
+      JOIN tasks ON tasks.task_id=latest.task_id
+      JOIN task_revision_sessions member
+        ON member.task_id=latest.task_id AND member.revision=latest.revision
+      WHERE member.session_id=NEW.session_id
+    )
+    SELECT task_id,revision,project_id,task_type,lifecycle_state,created_at_us
+    FROM selected
+    EXCEPT
+    SELECT task_id,revision,project_id,task_type,lifecycle_state,created_at_us
+    FROM comparison_prepared_task_projections
+    WHERE prepared_stratum_id=NEW.prepared_stratum_id)
+ OR EXISTS (
+    WITH latest AS (
+      SELECT revision.task_id,MAX(revision.revision) AS revision
+      FROM task_revisions revision
+      WHERE temporal_iso_to_epoch_us(revision.created_at)<=NEW.prepared_at_us
+      GROUP BY revision.task_id
+    ), selected AS (
+      SELECT latest.task_id,latest.revision,tasks.project_id,
+             revision.task_type,revision.lifecycle_state,
+             temporal_iso_to_epoch_us(revision.created_at) AS created_at_us
+      FROM latest
+      JOIN task_revisions revision
+        ON revision.task_id=latest.task_id AND revision.revision=latest.revision
+      JOIN tasks ON tasks.task_id=latest.task_id
+      JOIN task_revision_sessions member
+        ON member.task_id=latest.task_id AND member.revision=latest.revision
+      WHERE member.session_id=NEW.session_id
+    )
+    SELECT task_id,revision,project_id,task_type,lifecycle_state,created_at_us
+    FROM comparison_prepared_task_projections
+    WHERE prepared_stratum_id=NEW.prepared_stratum_id
+    EXCEPT
+    SELECT task_id,revision,project_id,task_type,lifecycle_state,created_at_us
+    FROM selected)
+ OR (SELECT COUNT(*) FROM comparison_prepared_graph_commitments c
+     WHERE c.prepared_stratum_id=NEW.prepared_stratum_id)<>NEW.graph_commitment_count
+ OR EXISTS (
+    SELECT 1 FROM comparison_prepared_graph_commitments c
+    WHERE c.prepared_stratum_id=NEW.prepared_stratum_id
+      AND (c.operation_id<>NEW.operation_id
+           OR c.expected_analysis_run_id<>NEW.expected_analysis_run_id))
+ OR EXISTS (
+    WITH RECURSIVE ordinals(value) AS (
+      SELECT 0 UNION ALL SELECT value+1 FROM ordinals
+      WHERE value+1<NEW.graph_commitment_count)
+    SELECT value FROM ordinals
+    EXCEPT SELECT ordinal FROM comparison_prepared_graph_commitments
+           WHERE prepared_stratum_id=NEW.prepared_stratum_id)
+BEGIN SELECT RAISE(ABORT,'comparison prepared root is incomplete or unauthorized'); END;
+
+-- Seal-time revalidation and 12 ordered authority commitments are inserted
+-- before the final root. The source run must already be terminal-completed.
+CREATE TABLE comparison_automation_revalidations (
+    sealed_stratum_id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    analysis_run_id TEXT NOT NULL CHECK(length(analysis_run_id)=64 AND analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL,
+    authority_receipt_id TEXT NOT NULL UNIQUE CHECK(length(authority_receipt_id)=64 AND authority_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    prepared_stratum_id TEXT NOT NULL,
+    prepared_fingerprint TEXT NOT NULL CHECK(length(prepared_fingerprint)=64 AND prepared_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    analysis_job_id TEXT NOT NULL,
+    job_record_authority_fingerprint TEXT NOT NULL CHECK(length(job_record_authority_fingerprint)=64 AND job_record_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    current_job_state TEXT NOT NULL CHECK(current_job_state IN ('preprocessing','stage_n')),
+    current_job_lease_authority_fingerprint TEXT NOT NULL CHECK(length(current_job_lease_authority_fingerprint)=64 AND current_job_lease_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    current_job_lease_expires_at_us INTEGER NOT NULL,
+    automation_grant_id TEXT NOT NULL,
+    current_grant_revision INTEGER NOT NULL CHECK(current_grant_revision>=1),
+    current_grant_authority_fingerprint TEXT NOT NULL CHECK(length(current_grant_authority_fingerprint)=64 AND current_grant_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    current_grant_expires_at_us INTEGER NOT NULL,
+    reverified_at_us INTEGER NOT NULL,
+    repository_revalidation_authority_fingerprint TEXT NOT NULL CHECK(length(repository_revalidation_authority_fingerprint)=64 AND repository_revalidation_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    revalidation_fingerprint TEXT NOT NULL CHECK(length(revalidation_fingerprint)=64 AND revalidation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    FOREIGN KEY(sealed_stratum_id) REFERENCES comparison_sealed_stratum_roots(sealed_stratum_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(prepared_stratum_id) REFERENCES comparison_prepared_stratum_roots(prepared_stratum_id) ON DELETE CASCADE
+);
+
+CREATE TABLE comparison_seal_authority_commitments (
+    sealed_stratum_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    analysis_run_id TEXT NOT NULL CHECK(length(analysis_run_id)=64 AND analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 11),
+    fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64 AND fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(sealed_stratum_id,ordinal),
+    UNIQUE(sealed_stratum_id,fingerprint),
+    FOREIGN KEY(sealed_stratum_id) REFERENCES comparison_sealed_stratum_roots(sealed_stratum_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE comparison_sealed_stratum_roots (
+    sealed_stratum_id TEXT PRIMARY KEY CHECK(length(sealed_stratum_id)=64 AND sealed_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    operation_id TEXT NOT NULL CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL,
+    prepared_stratum_id TEXT NOT NULL UNIQUE REFERENCES comparison_prepared_stratum_roots(prepared_stratum_id) ON DELETE CASCADE,
+    prepared_fingerprint TEXT NOT NULL CHECK(length(prepared_fingerprint)=64 AND prepared_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    analysis_run_id TEXT NOT NULL UNIQUE REFERENCES session_analysis_runs(run_id) ON DELETE CASCADE,
+    run_authority_fingerprint TEXT NOT NULL CHECK(length(run_authority_fingerprint)=64 AND run_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    sealed_batch_id TEXT NOT NULL UNIQUE REFERENCES temporal_sealed_batch_roots(sealed_batch_id) ON DELETE CASCADE,
+    sealed_batch_fingerprint TEXT NOT NULL CHECK(length(sealed_batch_fingerprint)=64 AND sealed_batch_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    revalidation_fingerprint TEXT NOT NULL CHECK(length(revalidation_fingerprint)=64 AND revalidation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    repository_verifier_version TEXT NOT NULL,
+    repository_verifier_fingerprint TEXT NOT NULL CHECK(length(repository_verifier_fingerprint)=64 AND repository_verifier_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    sealed_at_us INTEGER NOT NULL,
+    authority_commitment_count INTEGER NOT NULL CHECK(authority_commitment_count=12),
+    sealed_fingerprint TEXT NOT NULL CHECK(length(sealed_fingerprint)=64 AND sealed_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TRIGGER comparison_revalidation_safe_fields
+BEFORE INSERT ON comparison_automation_revalidations
+WHEN temporal_safe_version(NEW.contract_version)<>1
+  OR temporal_safe_version(NEW.current_job_state)<>1
+BEGIN SELECT RAISE(ABORT,'comparison revalidation fields are not content-free codes'); END;
+
+CREATE TRIGGER comparison_sealed_root_safe_fields
+BEFORE INSERT ON comparison_sealed_stratum_roots
+WHEN temporal_safe_version(NEW.contract_version)<>1
+  OR temporal_safe_version(NEW.repository_verifier_version)<>1
+BEGIN SELECT RAISE(ABORT,'comparison sealed fields are not content-free codes'); END;
+
+CREATE TRIGGER comparison_revalidation_insert_guard
+BEFORE INSERT ON comparison_automation_revalidations
+WHEN EXISTS (SELECT 1 FROM comparison_sealed_stratum_roots s WHERE s.sealed_stratum_id=NEW.sealed_stratum_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM comparison_seal_append_authorizations a
+    WHERE a.operation_id=NEW.operation_id
+      AND a.sealed_stratum_id=NEW.sealed_stratum_id
+      AND a.prepared_stratum_id=NEW.prepared_stratum_id
+      AND a.analysis_run_id=NEW.analysis_run_id
+      AND a.revalidation_fingerprint=NEW.revalidation_fingerprint
+      AND a.authorization_tag=comparison_seal_authorization_tag(
+        a.operation_id,a.prepared_stratum_id,a.analysis_run_id,
+        a.sealed_batch_id,a.sealed_stratum_id,a.prepared_fingerprint,
+        a.run_authority_fingerprint,a.sealed_batch_fingerprint,
+        a.revalidation_fingerprint,a.sealed_fingerprint,
+        a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison revalidation insert is not authorized'); END;
+CREATE TRIGGER comparison_seal_commitment_insert_guard
+BEFORE INSERT ON comparison_seal_authority_commitments
+WHEN EXISTS (SELECT 1 FROM comparison_sealed_stratum_roots s WHERE s.sealed_stratum_id=NEW.sealed_stratum_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM comparison_seal_append_authorizations a
+    WHERE a.operation_id=NEW.operation_id
+      AND a.sealed_stratum_id=NEW.sealed_stratum_id
+      AND a.analysis_run_id=NEW.analysis_run_id
+      AND a.authorization_tag=comparison_seal_authorization_tag(
+        a.operation_id,a.prepared_stratum_id,a.analysis_run_id,
+        a.sealed_batch_id,a.sealed_stratum_id,a.prepared_fingerprint,
+        a.run_authority_fingerprint,a.sealed_batch_fingerprint,
+        a.revalidation_fingerprint,a.sealed_fingerprint,
+        a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison seal commitment insert is not authorized'); END;
+
+CREATE TRIGGER comparison_sealed_root_insert_guard
+BEFORE INSERT ON comparison_sealed_stratum_roots
+WHEN NOT EXISTS (
+    SELECT 1 FROM comparison_seal_append_authorizations a
+    WHERE a.operation_id=NEW.operation_id
+      AND a.prepared_stratum_id=NEW.prepared_stratum_id
+      AND a.analysis_run_id=NEW.analysis_run_id
+      AND a.sealed_batch_id=NEW.sealed_batch_id
+      AND a.sealed_stratum_id=NEW.sealed_stratum_id
+      AND a.prepared_fingerprint=NEW.prepared_fingerprint
+      AND a.run_authority_fingerprint=NEW.run_authority_fingerprint
+      AND a.sealed_batch_fingerprint=NEW.sealed_batch_fingerprint
+      AND a.revalidation_fingerprint=NEW.revalidation_fingerprint
+      AND a.sealed_fingerprint=NEW.sealed_fingerprint
+      AND a.authorization_tag=comparison_seal_authorization_tag(
+        a.operation_id,a.prepared_stratum_id,a.analysis_run_id,
+        a.sealed_batch_id,a.sealed_stratum_id,a.prepared_fingerprint,
+        a.run_authority_fingerprint,a.sealed_batch_fingerprint,
+        a.revalidation_fingerprint,a.sealed_fingerprint,
+        a.authorization_fingerprint))
+ OR NOT EXISTS (
+    SELECT 1 FROM comparison_prepared_stratum_roots prepared
+    JOIN session_analysis_runs run ON run.run_id=NEW.analysis_run_id
+    JOIN temporal_completion_requests request
+      ON request.analysis_run_id=run.run_id
+    JOIN temporal_sealed_batch_roots batch
+      ON batch.completion_request_id=request.completion_request_id
+    WHERE prepared.prepared_stratum_id=NEW.prepared_stratum_id
+      AND prepared.prepared_fingerprint=NEW.prepared_fingerprint
+      AND prepared.expected_analysis_run_id=run.run_id
+      AND run.status='completed' AND run.finished_at IS NOT NULL
+      AND temporal_iso_to_epoch_us(run.started_at)
+          <=temporal_iso_to_epoch_us(run.finished_at)
+      AND batch.sealed_batch_id=NEW.sealed_batch_id
+      AND batch.sealed_batch_fingerprint=NEW.sealed_batch_fingerprint
+      AND request.prepared_scope_id=prepared.prepared_scope_id
+      AND NEW.sealed_at_us>=temporal_iso_to_epoch_us(run.finished_at)
+      AND NEW.sealed_at_us>=batch.sealed_at_us)
+ OR NOT EXISTS (
+    SELECT 1 FROM comparison_automation_revalidations revalidation
+    WHERE revalidation.sealed_stratum_id=NEW.sealed_stratum_id
+      AND revalidation.operation_id=NEW.operation_id
+      AND revalidation.analysis_run_id=NEW.analysis_run_id
+      AND revalidation.prepared_stratum_id=NEW.prepared_stratum_id
+      AND revalidation.prepared_fingerprint=NEW.prepared_fingerprint
+      AND revalidation.revalidation_fingerprint=NEW.revalidation_fingerprint
+      AND revalidation.reverified_at_us=NEW.sealed_at_us
+      AND revalidation.reverified_at_us<revalidation.current_job_lease_expires_at_us
+      AND revalidation.reverified_at_us<revalidation.current_grant_expires_at_us)
+ OR (SELECT COUNT(*) FROM comparison_seal_authority_commitments c
+     WHERE c.sealed_stratum_id=NEW.sealed_stratum_id)<>12
+ OR EXISTS (
+    SELECT 1 FROM comparison_seal_authority_commitments c
+    WHERE c.sealed_stratum_id=NEW.sealed_stratum_id
+      AND (c.operation_id<>NEW.operation_id
+           OR c.analysis_run_id<>NEW.analysis_run_id))
+ OR EXISTS (
+    WITH RECURSIVE ordinals(value) AS (
+      SELECT 0 UNION ALL SELECT value+1 FROM ordinals WHERE value<11)
+    SELECT value FROM ordinals
+    EXCEPT SELECT ordinal FROM comparison_seal_authority_commitments
+           WHERE sealed_stratum_id=NEW.sealed_stratum_id)
+ OR EXISTS (
+    SELECT 1 FROM comparison_seal_authority_commitments c
+    WHERE c.sealed_stratum_id=NEW.sealed_stratum_id
+      AND c.operation_id<>NEW.operation_id)
+BEGIN SELECT RAISE(ABORT,'comparison sealed root is incomplete or unauthorized'); END;
+
+-- All durable comparison rows are immutable. Deletion is allowed only while
+-- the exact existing temporal run privacy capability remains live.
+CREATE TRIGGER comparison_prepared_root_no_update BEFORE UPDATE ON comparison_prepared_stratum_roots BEGIN SELECT RAISE(ABORT,'comparison preparation is immutable'); END;
+CREATE TRIGGER comparison_prepared_task_no_update BEFORE UPDATE ON comparison_prepared_task_projections BEGIN SELECT RAISE(ABORT,'comparison preparation is immutable'); END;
+CREATE TRIGGER comparison_prepared_commitment_no_update BEFORE UPDATE ON comparison_prepared_graph_commitments BEGIN SELECT RAISE(ABORT,'comparison preparation is immutable'); END;
+CREATE TRIGGER comparison_revalidation_no_update BEFORE UPDATE ON comparison_automation_revalidations BEGIN SELECT RAISE(ABORT,'comparison seal is immutable'); END;
+CREATE TRIGGER comparison_seal_commitment_no_update BEFORE UPDATE ON comparison_seal_authority_commitments BEGIN SELECT RAISE(ABORT,'comparison seal is immutable'); END;
+CREATE TRIGGER comparison_sealed_root_no_update BEFORE UPDATE ON comparison_sealed_stratum_roots BEGIN SELECT RAISE(ABORT,'comparison seal is immutable'); END;
+
+CREATE TRIGGER comparison_prepared_root_delete_guard BEFORE DELETE ON comparison_prepared_stratum_roots
+WHEN NOT EXISTS (SELECT 1 FROM temporal_run_delete_authorizations a WHERE a.run_id=OLD.expected_analysis_run_id AND a.authorization_tag=temporal_run_delete_authorization_tag(a.operation_id,a.run_id))
+ AND NOT EXISTS (SELECT 1 FROM comparison_task_delete_authorizations a JOIN comparison_prepared_task_projections p ON p.prepared_stratum_id=a.prepared_stratum_id AND p.task_id=a.task_id WHERE a.prepared_stratum_id=OLD.prepared_stratum_id AND a.expected_analysis_run_id=OLD.expected_analysis_run_id AND a.authorization_tag=comparison_task_delete_authorization_tag(a.operation_id,a.task_id,a.prepared_stratum_id,a.expected_analysis_run_id,a.sealed_stratum_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison preparation requires run privacy deletion'); END;
+CREATE TRIGGER comparison_prepared_task_delete_guard BEFORE DELETE ON comparison_prepared_task_projections
+WHEN NOT EXISTS (SELECT 1 FROM temporal_run_delete_authorizations a WHERE a.run_id=OLD.expected_analysis_run_id AND a.authorization_tag=temporal_run_delete_authorization_tag(a.operation_id,a.run_id))
+ AND NOT EXISTS (SELECT 1 FROM comparison_task_delete_authorizations a WHERE a.prepared_stratum_id=OLD.prepared_stratum_id AND a.expected_analysis_run_id=OLD.expected_analysis_run_id AND a.authorization_tag=comparison_task_delete_authorization_tag(a.operation_id,a.task_id,a.prepared_stratum_id,a.expected_analysis_run_id,a.sealed_stratum_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison preparation requires run privacy deletion'); END;
+CREATE TRIGGER comparison_prepared_commitment_delete_guard BEFORE DELETE ON comparison_prepared_graph_commitments
+WHEN NOT EXISTS (SELECT 1 FROM temporal_run_delete_authorizations a WHERE a.run_id=OLD.expected_analysis_run_id AND a.authorization_tag=temporal_run_delete_authorization_tag(a.operation_id,a.run_id))
+ AND NOT EXISTS (SELECT 1 FROM comparison_task_delete_authorizations a WHERE a.prepared_stratum_id=OLD.prepared_stratum_id AND a.expected_analysis_run_id=OLD.expected_analysis_run_id AND a.authorization_tag=comparison_task_delete_authorization_tag(a.operation_id,a.task_id,a.prepared_stratum_id,a.expected_analysis_run_id,a.sealed_stratum_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison preparation requires run privacy deletion'); END;
+CREATE TRIGGER comparison_revalidation_delete_guard BEFORE DELETE ON comparison_automation_revalidations
+WHEN NOT EXISTS (SELECT 1 FROM temporal_run_delete_authorizations a WHERE a.run_id=OLD.analysis_run_id AND a.authorization_tag=temporal_run_delete_authorization_tag(a.operation_id,a.run_id))
+ AND NOT EXISTS (SELECT 1 FROM comparison_task_delete_authorizations a WHERE a.prepared_stratum_id=OLD.prepared_stratum_id AND a.expected_analysis_run_id=OLD.analysis_run_id AND a.sealed_stratum_id=OLD.sealed_stratum_id AND a.authorization_tag=comparison_task_delete_authorization_tag(a.operation_id,a.task_id,a.prepared_stratum_id,a.expected_analysis_run_id,a.sealed_stratum_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison seal requires run privacy deletion'); END;
+CREATE TRIGGER comparison_seal_commitment_delete_guard BEFORE DELETE ON comparison_seal_authority_commitments
+WHEN NOT EXISTS (SELECT 1 FROM temporal_run_delete_authorizations a WHERE a.run_id=OLD.analysis_run_id AND a.authorization_tag=temporal_run_delete_authorization_tag(a.operation_id,a.run_id))
+ AND NOT EXISTS (SELECT 1 FROM comparison_task_delete_authorizations a WHERE a.expected_analysis_run_id=OLD.analysis_run_id AND a.sealed_stratum_id=OLD.sealed_stratum_id AND a.authorization_tag=comparison_task_delete_authorization_tag(a.operation_id,a.task_id,a.prepared_stratum_id,a.expected_analysis_run_id,a.sealed_stratum_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison seal requires run privacy deletion'); END;
+CREATE TRIGGER comparison_sealed_root_delete_guard BEFORE DELETE ON comparison_sealed_stratum_roots
+WHEN NOT EXISTS (SELECT 1 FROM temporal_run_delete_authorizations a WHERE a.run_id=OLD.analysis_run_id AND a.authorization_tag=temporal_run_delete_authorization_tag(a.operation_id,a.run_id))
+ AND NOT EXISTS (SELECT 1 FROM comparison_task_delete_authorizations a WHERE a.prepared_stratum_id=OLD.prepared_stratum_id AND a.expected_analysis_run_id=OLD.analysis_run_id AND a.sealed_stratum_id=OLD.sealed_stratum_id AND a.authorization_tag=comparison_task_delete_authorization_tag(a.operation_id,a.task_id,a.prepared_stratum_id,a.expected_analysis_run_id,a.sealed_stratum_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'comparison seal requires run privacy deletion'); END;
+
+CREATE TRIGGER comparison_task_parent_delete_guard BEFORE DELETE ON tasks
+WHEN EXISTS (SELECT 1 FROM comparison_prepared_task_projections p WHERE p.task_id=OLD.task_id)
+BEGIN SELECT RAISE(ABORT,'task privacy deletion requires comparison graph removal'); END;
+CREATE TRIGGER comparison_task_revision_parent_delete_guard BEFORE DELETE ON task_revisions
+WHEN EXISTS (SELECT 1 FROM comparison_prepared_task_projections p WHERE p.task_id=OLD.task_id AND p.revision=OLD.revision)
+BEGIN SELECT RAISE(ABORT,'task revision privacy deletion requires comparison graph removal'); END;
+CREATE TRIGGER comparison_task_parent_replace_guard BEFORE INSERT ON tasks
+WHEN EXISTS (SELECT 1 FROM comparison_prepared_task_projections p WHERE p.task_id=NEW.task_id)
+BEGIN SELECT RAISE(ABORT,'task replacement requires comparison graph removal'); END;
+CREATE TRIGGER comparison_task_revision_parent_replace_guard BEFORE INSERT ON task_revisions
+WHEN EXISTS (SELECT 1 FROM comparison_prepared_task_projections p WHERE p.task_id=NEW.task_id AND p.revision=NEW.revision)
+BEGIN SELECT RAISE(ABORT,'task revision replacement requires comparison graph removal'); END;
+
+-- REPLACE and raw parent deletion stay fail-closed even when recursive
+-- triggers are disabled. Prepared-only graphs intentionally have no implicit
+-- job/session/grant cleanup claim.
+CREATE TRIGGER comparison_prepared_root_replace_guard BEFORE INSERT ON comparison_prepared_stratum_roots
+WHEN EXISTS (SELECT 1 FROM comparison_prepared_stratum_roots p WHERE p.prepared_stratum_id=NEW.prepared_stratum_id)
+BEGIN SELECT RAISE(ABORT,'comparison preparation replacement is forbidden'); END;
+CREATE TRIGGER comparison_sealed_root_replace_guard BEFORE INSERT ON comparison_sealed_stratum_roots
+WHEN EXISTS (SELECT 1 FROM comparison_sealed_stratum_roots s WHERE s.sealed_stratum_id=NEW.sealed_stratum_id)
+BEGIN SELECT RAISE(ABORT,'comparison seal replacement is forbidden'); END;
+
+CREATE INDEX comparison_prepared_scope_idx ON comparison_prepared_stratum_roots(prepared_scope_id,prepared_at_us DESC);
+CREATE INDEX comparison_prepared_expected_run_idx ON comparison_prepared_stratum_roots(expected_analysis_run_id);
+CREATE INDEX comparison_prepared_session_idx ON comparison_prepared_stratum_roots(session_id,prepared_at_us DESC);
+CREATE INDEX comparison_sealed_batch_idx ON comparison_sealed_stratum_roots(sealed_batch_id);
+
+COMMIT;
+"""

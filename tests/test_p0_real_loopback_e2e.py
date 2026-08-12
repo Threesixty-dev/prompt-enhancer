@@ -43,6 +43,7 @@ from prompt_enhancer.application.jobs import (
     AnalysisJobWorker,
 )
 from prompt_enhancer.application.local_sources import CodexLocalSourceService
+from prompt_enhancer.application.persistence import SESSION_ANALYSIS_RUN_SCHEMA_VERSION
 from prompt_enhancer.application.providers import (
     CapabilityObservation,
     CapabilityState,
@@ -57,7 +58,7 @@ from prompt_enhancer.application.providers import (
     TrustedProviderRegistry,
 )
 from prompt_enhancer.config import AppSettings
-from prompt_enhancer.database import Database, SCHEMA_VERSION
+from prompt_enhancer.database import Database
 from prompt_enhancer.domain import (
     DataTier,
     EventKind,
@@ -432,7 +433,7 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
         else (_ for _ in ()).throw(ValueError("unsupported synthetic provider")),
         compatibility_policy,
         LocalArtifactIdFactory(pseudonymizer),
-        schema_version=SCHEMA_VERSION,
+        schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
         clock=job_clock,
     )
     readiness_service = MetricReadinessService(
