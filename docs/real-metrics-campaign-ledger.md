@@ -20,7 +20,7 @@ local runtime artifacts must never be added here.
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
 | P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, and repository-sealed non-activating gate decisions | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
-| P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum and supplied-set raw-aggregation drafts, and normalized synthetic-only temporal persistence with a repository graph seal | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
+| P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum and supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, and repository-issued synthetic comparison-stratum preparation and graph sealing | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
@@ -486,11 +486,65 @@ tests, and the full backend suite with 1,617 passed, 4 platform skips, and one
 existing Starlette deprecation warning. Independent adversarial review returned
 `PASS`; privacy, compile, and diff checks were green.
 
+Checkpoint `2330afd` adds schema-v22 normalized, content-free, zero-backfill
+persistence for repository-issued synthetic comparison-stratum preparations and
+graph seals. The committed V1 drafts and v21 temporal rows remain unchanged.
+Because the temporal grant snapshot and comparison grant authority deliberately
+use separate fingerprint domains, an explicit repository-verified bridge
+rederives both identities from the same full active grant instead of equating or
+rewriting them. The selected-session analysis-run contract remains pinned to
+schema 21 while the additive database schema advances to 22, and the analysis
+command and comparison repository share one keyed, installation-local expected
+run-ID issuance boundary.
+
+Preparation requires the exact live synthetic session-quality job lease and
+active local grant, prepared temporal scope, project, session, metric selection,
+pack, catalog, completed-session authority, and code-owned comparison policies.
+The repository derives the target-only reviewed-task manifest from the latest
+revision at or before its captured cutoff. Its MAX+1 query rejects an overflow
+rather than silently truncating the reviewed 100-task bound. Normalized children
+are written before the prepared root; exact retries and concurrent attempts
+rehydrate the same repository timestamp, identities, and fingerprint.
+
+Run completion, result persistence, temporal batch sealing, live job/grant
+revalidation, the terminal run transition, and the comparison graph seal occur
+in one SQLite transaction, with the comparison root written last. The public
+seal method is replay-only and cannot attach a comparison graph after completion.
+Hydration independently rederives the prepared, run, temporal-batch, and
+revalidation graph. Transient local HMAC authorization and raw-SQL guards reject
+late attachment, altered-lineage reuse, replacement, mutation, and unauthorized
+child deletion even with recursive triggers disabled; injected faults before or
+after the terminal update roll the entire transaction back.
+
+Run privacy deletion removes prepared-only or sealed comparison graphs through
+SQLite secure deletion and WAL truncation. Task and candidate privacy deletion
+expands the complete review-decision component, removes every affected comparison
+graph under transient authorization, and preserves an already completed run and
+its temporal history; an absent retry still checkpoints the WAL. Prepared and
+sealed receipts remain content-free and omit worker lease secrets.
+
+Repository ownership and graph verification do not make the comparison stratum
+complete. Source authority, product capture and history eligibility, pair
+matching, comparison, aggregate and snapshot materialization, recommendation and
+outcome evaluation, causal claims, activation, legacy inference, backfill,
+remote processing, private export, and team sharing all remain false. No HTTP,
+CLI, UI, product snapshot, recommendation, or activation surface was added.
+
+The checkpoint passed 109 focused v22 tests: 95 direct-contract tests and 14
+SQLite persistence tests. An independent frozen integration gate passed 178
+tests with one existing deprecation warning, and the full backend gate passed
+1,732 tests with 4 platform-only symlink skips and one existing Starlette
+deprecation warning. The privacy scanner, compileall, and diff validation passed;
+three independent contract, SQL, and integration reviews returned `PASS`. These
+results prove synthetic repository-graph integrity, not source truth, comparison
+validity, recommendation effectiveness, adverse-effect safety, or calibration.
+
 P2 remains in progress: the product-source boundary is still blocked by missing
 authoritative per-item timestamps and stable provider snapshot/cursor
-boundaries, and there are still no product snapshots, recommendations, or
-empirical recommendation-outcome/adverse-effect results. P3 and P4 remain
-deferred in phase order.
+boundaries. The repository graph is not a complete or product comparison
+stratum, and there are still no product comparisons, aggregates, snapshots,
+recommendations, or empirical recommendation-outcome/adverse-effect results.
+P3 and P4 remain deferred in phase order.
 
 ## Version inventory
 
