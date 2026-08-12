@@ -80,6 +80,9 @@ class AnalysisJobExecutionResult(StrictModel):
             AnalysisJobState.AWAITING_APPROVAL,
             AnalysisJobState.COMPLETED,
             AnalysisJobState.PARTIAL,
+            AnalysisJobState.FAILED,
+            AnalysisJobState.CANCELLED,
+            AnalysisJobState.SUPERSEDED,
         }:
             raise ValueError("handler returned an unsupported queue state")
         if self.progress_completed > self.progress_total:
@@ -103,6 +106,8 @@ class AnalysisJobHandler(Protocol):
 Clock = Callable[[], datetime]
 AuthorizationCheck = Callable[[AnalysisJobRecord], bool]
 FingerprintResolver = Callable[[AnalysisJobRecord], tuple[str, str] | None]
+ExecutionStopCallback = Callable[[AnalysisJobRecord, AnalysisJobState, str], None]
+ExecutionRecoveryCallback = Callable[[datetime], None]
 
 
 def _utc_now() -> datetime:
@@ -146,6 +151,8 @@ class AnalysisJobService:
         *,
         max_attempts: int = 3,
     ) -> AnalysisJobEnqueueResult:
+        if identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION:
+            raise AnalysisJobConflictError()
         if isinstance(max_attempts, bool) or not 1 <= max_attempts <= 5:
             raise ValueError("max attempts must be between one and five")
         dedupe_key = _identity_digest(identity, max_attempts)
@@ -209,14 +216,18 @@ class AnalysisJobService:
             raise AnalysisJobNotFoundError() from None
 
     def cancel(self, job_id: str) -> AnalysisJobRecord:
-        self.get(job_id)
+        job = self.get(job_id)
+        if job.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION:
+            raise AnalysisJobConflictError()
         try:
             return self._repository.request_cancel(job_id, now=self._clock())
         except DatabaseInvariantError:
             raise AnalysisJobConflictError() from None
 
     def resume_after_approval(self, job_id: str) -> AnalysisJobRecord:
-        self.get(job_id)
+        job = self.get(job_id)
+        if job.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION:
+            raise AnalysisJobConflictError()
         try:
             return self._repository.resume_after_approval(
                 job_id,
@@ -236,6 +247,8 @@ class AnalysisJobService:
             )
         except ValueError:
             raise AnalysisJobNotFoundError() from None
+        except DatabaseInvariantError:
+            raise AnalysisJobConflictError() from None
 
     def supersede_if_changed(
         self,
@@ -245,6 +258,8 @@ class AnalysisJobService:
         provenance_fingerprint: str,
     ) -> AnalysisJobRecord:
         job = self.get(job_id)
+        if job.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION:
+            raise AnalysisJobConflictError()
         if job.state in TERMINAL_ANALYSIS_JOB_STATES:
             return job
         reason: str | None = None
@@ -281,6 +296,7 @@ class AnalysisJobExecutionContext:
         lease_duration: timedelta,
         authorization_check: AuthorizationCheck,
         fingerprint_resolver: FingerprintResolver,
+        execution_stop_callback: ExecutionStopCallback,
     ) -> None:
         self._repository = repository
         self._job = job
@@ -289,6 +305,7 @@ class AnalysisJobExecutionContext:
         self._lease_duration = lease_duration
         self._authorization_check = authorization_check
         self._fingerprint_resolver = fingerprint_resolver
+        self._execution_stop_callback = execution_stop_callback
         self._lock = Lock()
 
     @property
@@ -304,6 +321,9 @@ class AnalysisJobExecutionContext:
         state: AnalysisJobState,
         reason_code: str,
     ) -> None:
+        # Persist the execution ledger first.  If that append fails, the queue
+        # remains leased and can be reconciled without a false terminal state.
+        self._execution_stop_callback(self._job, state, reason_code)
         self._job = self._repository.finish(
             self._lease,
             now=self._clock(),
@@ -386,6 +406,10 @@ class AnalysisJobWorker:
         *,
         authorization_check: AuthorizationCheck = lambda _job: False,
         fingerprint_resolver: FingerprintResolver = lambda _job: None,
+        execution_stop_callback: ExecutionStopCallback = (
+            lambda _job, _state, _reason: None
+        ),
+        execution_recovery_callback: ExecutionRecoveryCallback = lambda _now: None,
         clock: Clock = _utc_now,
         lease_duration: timedelta = DEFAULT_ANALYSIS_JOB_LEASE,
         poll_seconds: float = DEFAULT_ANALYSIS_JOB_POLL_SECONDS,
@@ -397,6 +421,8 @@ class AnalysisJobWorker:
         self._handlers = dict(handlers)
         self._authorization_check = authorization_check
         self._fingerprint_resolver = fingerprint_resolver
+        self._execution_stop_callback = execution_stop_callback
+        self._execution_recovery_callback = execution_recovery_callback
         self._clock = clock
         self._lease_duration = lease_duration
         self._poll_seconds = poll_seconds
@@ -409,7 +435,9 @@ class AnalysisJobWorker:
         with self._lifecycle_lock:
             if self._thread is not None and self._thread.is_alive():
                 return
-            self._repository.recover_expired(now=self._clock())
+            now = self._clock()
+            self._execution_recovery_callback(now)
+            self._repository.recover_expired(now=now)
             self._stop_event.clear()
             self._thread = Thread(
                 target=self._run,
@@ -437,6 +465,7 @@ class AnalysisJobWorker:
 
     def run_once(self) -> bool:
         now = self._clock()
+        self._execution_recovery_callback(now)
         token = secrets.token_hex(32)
         job = self._repository.claim_next(
             owner=self._worker_id,
@@ -456,11 +485,8 @@ class AnalysisJobWorker:
         )
         handler = self._handlers.get((job.identity.kind, job.identity.provider))
         if handler is None:
-            self._repository.retry_or_fail(
-                lease,
-                now=self._clock(),
-                error_code="execution_handler_unavailable",
-                retryable=False,
+            self._retry_safely(
+                lease, "execution_handler_unavailable", retryable=False
             )
             return True
         context = AnalysisJobExecutionContext(
@@ -471,6 +497,7 @@ class AnalysisJobWorker:
             lease_duration=self._lease_duration,
             authorization_check=self._authorization_check,
             fingerprint_resolver=self._fingerprint_resolver,
+            execution_stop_callback=self._execution_stop_callback,
         )
         try:
             context.enter_stage(1, progress_completed=0, progress_total=1)
@@ -485,6 +512,9 @@ class AnalysisJobWorker:
                     progress_total=result.progress_total,
                 )
             else:
+                self._execution_stop_callback(
+                    context.job, result.state, result.reason_code
+                )
                 self._repository.finish(
                     context.lease,
                     now=self._clock(),
@@ -508,6 +538,26 @@ class AnalysisJobWorker:
         retryable: bool,
     ) -> None:
         try:
+            current = self._repository.get(lease.job_id)
+            if current is None:
+                return
+            terminal_state: AnalysisJobState | None = None
+            terminal_reason = error_code
+            if current.cancel_requested:
+                terminal_reason = (
+                    current.last_error_code or "cancellation_requested"
+                )
+                terminal_state = (
+                    AnalysisJobState.SUPERSEDED
+                    if terminal_reason in {"input_changed", "provenance_changed"}
+                    else AnalysisJobState.CANCELLED
+                )
+            elif not retryable or current.attempt_count >= current.max_attempts:
+                terminal_state = AnalysisJobState.FAILED
+            if terminal_state is not None:
+                self._execution_stop_callback(
+                    current, terminal_state, terminal_reason
+                )
             self._repository.retry_or_fail(
                 lease,
                 now=self._clock(),

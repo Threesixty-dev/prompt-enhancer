@@ -148,6 +148,10 @@ class SqliteAnalysisJobRepository:
 
     def enqueue(self, draft: AnalysisJobDraft) -> AnalysisJobEnqueueResult:
         self._ensure_initialized()
+        if draft.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION:
+            raise DatabaseInvariantError(
+                "estimator execution requires the atomic runtime launch boundary"
+            )
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
@@ -319,6 +323,7 @@ class SqliteAnalysisJobRepository:
                    last_error_code
             FROM analysis_jobs
             WHERE state IN ('preprocessing', 'stage_n')
+              AND kind <> 'estimator_execution'
               AND lease_expires_at <= ?
             ORDER BY lease_expires_at, job_id
             """,
@@ -615,6 +620,13 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                current = self._get_locked(connection, job_id)
+                if current is None:
+                    raise DatabaseInvariantError("analysis job does not exist")
+                if current.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION:
+                    raise DatabaseInvariantError(
+                        "estimator execution approval requires its runtime boundary"
+                    )
                 cursor = connection.execute(
                     """
                     UPDATE analysis_jobs SET
@@ -649,6 +661,10 @@ class SqliteAnalysisJobRepository:
                 current = self._get_locked(connection, job_id)
                 if current is None:
                     raise DatabaseInvariantError("analysis job does not exist")
+                if current.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION:
+                    raise DatabaseInvariantError(
+                        "estimator execution cancellation requires its runtime boundary"
+                    )
                 if current.state in TERMINAL_ANALYSIS_JOB_STATES:
                     connection.commit()
                     return current
@@ -697,6 +713,19 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                if connection.execute(
+                    """
+                    SELECT 1 FROM analysis_jobs
+                    WHERE automation_grant_id=? AND kind='estimator_execution'
+                      AND state NOT IN (
+                          'completed','partial','failed','cancelled','superseded'
+                      ) LIMIT 1
+                    """,
+                    (automation_grant_id,),
+                ).fetchone() is not None:
+                    raise DatabaseInvariantError(
+                        "estimator execution grant revocation requires its runtime boundary"
+                    )
                 cancelled = connection.execute(
                     """
                     UPDATE analysis_jobs SET
@@ -748,6 +777,10 @@ class SqliteAnalysisJobRepository:
                 current = self._get_locked(connection, job_id)
                 if current is None:
                     raise DatabaseInvariantError("analysis job does not exist")
+                if current.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION:
+                    raise DatabaseInvariantError(
+                        "estimator execution supersession requires its runtime boundary"
+                    )
                 if current.state in TERMINAL_ANALYSIS_JOB_STATES:
                     connection.commit()
                     return current

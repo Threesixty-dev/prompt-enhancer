@@ -48,6 +48,15 @@ class AnalysisJobCreateRequest(StrictModel):
     provider_schema_version: str
     max_attempts: int = Field(default=3, ge=1, le=5)
 
+    @field_validator("kind")
+    @classmethod
+    def public_kind(cls, value: AnalysisJobKind) -> AnalysisJobKind:
+        if value is AnalysisJobKind.ESTIMATOR_EXECUTION:
+            raise ValueError(
+                "estimator execution requires the approved runtime launch boundary"
+            )
+        return value
+
     @field_validator(
         "project_id",
         "session_id",

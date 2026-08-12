@@ -79,10 +79,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_15,
     MIGRATION_16,
     MIGRATION_17,
+    MIGRATION_18,
 )
 
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -327,7 +328,68 @@ class Database:
             tuple[str, str, str]
         ] = set()
         self._estimator_evidence_authorization_lock = threading.Lock()
+        self._estimator_runtime_authorization_secret = secrets.token_bytes(32)
+        self._estimator_runtime_authorizations: set[
+            tuple[str, str, str, str, str]
+        ] = set()
+        self._estimator_runtime_authorization_lock = threading.Lock()
         self._initialization_lock = threading.Lock()
+
+    def _estimator_runtime_authorization_tag(
+        self,
+        operation_id: str,
+        authorization_id: str,
+        execution_id: str,
+        job_id: str,
+    ) -> str:
+        candidate = hmac.new(
+            self._estimator_runtime_authorization_secret,
+            (
+                "estimator-runtime-write-v2:"
+                f"{operation_id}:{authorization_id}:{execution_id}:{job_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_runtime_authorization_lock:
+            active = (
+                operation_id,
+                authorization_id,
+                execution_id,
+                job_id,
+                candidate,
+            ) in self._estimator_runtime_authorizations
+        return candidate if active else ""
+
+    def _begin_estimator_runtime_authorization(
+        self, authorization_id: str, execution_id: str, job_id: str
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        tag = hmac.new(
+            self._estimator_runtime_authorization_secret,
+            (
+                "estimator-runtime-write-v2:"
+                f"{operation_id}:{authorization_id}:{execution_id}:{job_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_runtime_authorization_lock:
+            self._estimator_runtime_authorizations.add(
+                (operation_id, authorization_id, execution_id, job_id, tag)
+            )
+        return operation_id, tag
+
+    def _end_estimator_runtime_authorization(
+        self,
+        operation_id: str,
+        authorization_id: str,
+        execution_id: str,
+        job_id: str,
+        tag: str,
+    ) -> None:
+        with self._estimator_runtime_authorization_lock:
+            self._estimator_runtime_authorizations.discard(
+                (operation_id, authorization_id, execution_id, job_id, tag)
+            )
 
     def _prepare_private_path(self) -> None:
         try:
@@ -466,6 +528,12 @@ class Database:
                 self._estimator_evidence_delete_authorization_tag,
                 deterministic=False,
             )
+            connection.create_function(
+                "estimator_runtime_authorization_tag",
+                4,
+                self._estimator_runtime_authorization_tag,
+                deterministic=False,
+            )
             if readonly:
                 connection.execute("PRAGMA query_only = ON")
             yield connection
@@ -501,6 +569,7 @@ class Database:
                 (15, MIGRATION_15),
                 (16, MIGRATION_16),
                 (17, MIGRATION_17),
+                (18, MIGRATION_18),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -673,6 +742,21 @@ class Database:
 
         self._ensure_initialized()
         return SqliteAnalysisJobRepository(self._connection, self._ensure_initialized)
+
+    def estimator_runtime_repository(self):
+        """Return the execution-only, content-free estimator runtime adapter."""
+
+        from .infrastructure.sqlite.estimator_runtime import (
+            SqliteEstimatorRuntimeRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteEstimatorRuntimeRepository(
+            self._connection,
+            self._ensure_initialized,
+            begin_write_authorization=self._begin_estimator_runtime_authorization,
+            end_write_authorization=self._end_estimator_runtime_authorization,
+        )
 
     def automation_grant_repository(self):
         """Return renewable, content-free local automation grant storage."""

@@ -4775,3 +4775,439 @@ CREATE INDEX estimator_evidence_estimate_idx ON estimator_evidence_structured_es
 
 COMMIT;
 """
+
+
+MIGRATION_18 = r"""
+BEGIN IMMEDIATE;
+
+-- Rebuild the v11 queue with the same closed state machine and one additional
+-- reviewed kind. SQLite cannot extend a CHECK constraint in place.
+DROP TRIGGER analysis_jobs_identity_immutable;
+DROP TRIGGER analysis_jobs_closed_transitions;
+DROP TRIGGER analysis_jobs_terminal_immutable;
+DROP TRIGGER analysis_job_metrics_no_update;
+DROP INDEX analysis_jobs_claim_idx;
+DROP INDEX analysis_jobs_session_idx;
+DROP INDEX analysis_jobs_grant_idx;
+DROP INDEX analysis_jobs_lease_idx;
+ALTER TABLE analysis_job_metrics RENAME TO analysis_job_metrics_v11;
+ALTER TABLE analysis_jobs RENAME TO analysis_jobs_v11;
+
+CREATE TABLE analysis_jobs (
+    job_id TEXT PRIMARY KEY CHECK(length(job_id)=64 AND job_id NOT GLOB '*[^0-9a-f]*'),
+    dedupe_key TEXT NOT NULL UNIQUE CHECK(length(dedupe_key)=64 AND dedupe_key NOT GLOB '*[^0-9a-f]*'),
+    kind TEXT NOT NULL CHECK(kind IN ('session_quality','synthetic_validation','estimator_execution')),
+    provider TEXT NOT NULL CHECK(provider IN ('codex','claude_code','synthetic')),
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+    input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint)=64 AND input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    provenance_fingerprint TEXT NOT NULL CHECK(length(provenance_fingerprint)=64 AND provenance_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    estimator_plan_version TEXT NOT NULL CHECK(length(estimator_plan_version) BETWEEN 1 AND 128 AND estimator_plan_version GLOB '[A-Za-z0-9]*' AND estimator_plan_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    redactor_version TEXT NOT NULL CHECK(length(redactor_version) BETWEEN 1 AND 128 AND redactor_version GLOB '[A-Za-z0-9]*' AND redactor_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    provider_schema_version TEXT NOT NULL CHECK(length(provider_schema_version) BETWEEN 1 AND 128 AND provider_schema_version GLOB '[A-Za-z0-9]*' AND provider_schema_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    automation_grant_id TEXT CHECK(automation_grant_id IS NULL OR (length(automation_grant_id)=64 AND automation_grant_id NOT GLOB '*[^0-9a-f]*')),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    state TEXT NOT NULL CHECK(state IN ('queued','preprocessing','stage_n','awaiting_approval','completed','partial','failed','cancelled','superseded')),
+    stage_number INTEGER CHECK(stage_number BETWEEN 1 AND 32),
+    progress_completed INTEGER NOT NULL CHECK(progress_completed BETWEEN 0 AND 1000000),
+    progress_total INTEGER NOT NULL CHECK(progress_total BETWEEN 1 AND 1000000),
+    attempt_count INTEGER NOT NULL CHECK(attempt_count BETWEEN 0 AND 5),
+    max_attempts INTEGER NOT NULL CHECK(max_attempts BETWEEN 1 AND 5),
+    available_at TEXT NOT NULL,
+    cancel_requested INTEGER NOT NULL CHECK(cancel_requested IN (0,1)),
+    lease_owner TEXT CHECK(lease_owner IS NULL OR (length(lease_owner)=64 AND lease_owner NOT GLOB '*[^0-9a-f]*')),
+    lease_token TEXT CHECK(lease_token IS NULL OR (length(lease_token)=64 AND lease_token NOT GLOB '*[^0-9a-f]*')),
+    lease_expires_at TEXT,
+    last_error_code TEXT CHECK(last_error_code IS NULL OR (length(last_error_code) BETWEEN 1 AND 128 AND last_error_code GLOB '[A-Za-z0-9]*' AND last_error_code NOT GLOB '*[^A-Za-z0-9._+:/-]*')),
+    terminal_reason_code TEXT CHECK(terminal_reason_code IS NULL OR (length(terminal_reason_code) BETWEEN 1 AND 128 AND terminal_reason_code GLOB '[A-Za-z0-9]*' AND terminal_reason_code NOT GLOB '*[^A-Za-z0-9._+:/-]*')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    terminal_at TEXT,
+    CHECK(attempt_count<=max_attempts),
+    CHECK(progress_completed<=progress_total),
+    CHECK((state='stage_n')=(stage_number IS NOT NULL)),
+    CHECK((state IN ('preprocessing','stage_n') AND lease_owner IS NOT NULL AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL) OR (state NOT IN ('preprocessing','stage_n') AND lease_owner IS NULL AND lease_token IS NULL AND lease_expires_at IS NULL)),
+    CHECK((state IN ('completed','partial','failed','cancelled','superseded') AND terminal_at IS NOT NULL AND terminal_reason_code IS NOT NULL) OR (state NOT IN ('completed','partial','failed','cancelled','superseded') AND terminal_at IS NULL AND terminal_reason_code IS NULL))
+);
+INSERT INTO analysis_jobs SELECT * FROM analysis_jobs_v11;
+
+CREATE TABLE analysis_job_metrics (
+    job_id TEXT NOT NULL REFERENCES analysis_jobs(job_id) ON DELETE CASCADE,
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key GLOB '[A-Za-z0-9]*' AND metric_key NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    PRIMARY KEY(job_id,metric_key), UNIQUE(job_id,ordinal)
+);
+INSERT INTO analysis_job_metrics SELECT * FROM analysis_job_metrics_v11;
+DROP TABLE analysis_job_metrics_v11;
+DROP TABLE analysis_jobs_v11;
+
+CREATE INDEX analysis_jobs_claim_idx ON analysis_jobs(state,available_at,created_at,job_id);
+CREATE INDEX analysis_jobs_session_idx ON analysis_jobs(session_id,created_at DESC,job_id DESC);
+CREATE INDEX analysis_jobs_grant_idx ON analysis_jobs(automation_grant_id,state,created_at) WHERE automation_grant_id IS NOT NULL;
+CREATE INDEX analysis_jobs_lease_idx ON analysis_jobs(state,lease_expires_at) WHERE state IN ('preprocessing','stage_n');
+CREATE TRIGGER analysis_jobs_identity_immutable BEFORE UPDATE ON analysis_jobs
+WHEN NEW.job_id IS NOT OLD.job_id OR NEW.dedupe_key IS NOT OLD.dedupe_key OR NEW.kind IS NOT OLD.kind OR NEW.provider IS NOT OLD.provider OR NEW.project_id IS NOT OLD.project_id OR NEW.session_id IS NOT OLD.session_id OR NEW.input_fingerprint IS NOT OLD.input_fingerprint OR NEW.provenance_fingerprint IS NOT OLD.provenance_fingerprint OR NEW.estimator_plan_version IS NOT OLD.estimator_plan_version OR NEW.redactor_version IS NOT OLD.redactor_version OR NEW.provider_schema_version IS NOT OLD.provider_schema_version OR NEW.automation_grant_id IS NOT OLD.automation_grant_id OR NEW.local_only IS NOT OLD.local_only OR NEW.max_attempts IS NOT OLD.max_attempts OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT,'analysis job identity is immutable'); END;
+CREATE TRIGGER analysis_jobs_closed_transitions BEFORE UPDATE ON analysis_jobs
+WHEN NEW.state<>OLD.state AND NOT ((OLD.state='queued' AND NEW.state IN ('preprocessing','cancelled','superseded')) OR (OLD.state='preprocessing' AND NEW.state IN ('queued','stage_n','awaiting_approval','completed','partial','failed','cancelled','superseded')) OR (OLD.state='stage_n' AND NEW.state IN ('queued','awaiting_approval','completed','partial','failed','cancelled','superseded')) OR (OLD.state='awaiting_approval' AND NEW.state IN ('queued','failed','cancelled','superseded')))
+BEGIN SELECT RAISE(ABORT,'analysis job state transition is invalid'); END;
+CREATE TRIGGER analysis_jobs_terminal_immutable BEFORE UPDATE ON analysis_jobs WHEN OLD.state IN ('completed','partial','failed','cancelled','superseded') BEGIN SELECT RAISE(ABORT,'terminal analysis jobs are immutable'); END;
+CREATE TRIGGER analysis_job_metrics_no_update BEFORE UPDATE ON analysis_job_metrics BEGIN SELECT RAISE(ABORT,'analysis job metric selections are immutable'); END;
+
+-- The transient authorization row is accepted only when the application-held
+-- HMAC capability is active. It is deleted before every repository call returns.
+CREATE TABLE estimator_runtime_write_authorizations (
+    operation_id TEXT PRIMARY KEY CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    authorization_id TEXT NOT NULL CHECK(length(authorization_id)=64 AND authorization_id NOT GLOB '*[^0-9a-f]*'),
+    execution_id TEXT NOT NULL CHECK(length(execution_id)=64 AND execution_id NOT GLOB '*[^0-9a-f]*'),
+    job_id TEXT NOT NULL CHECK(length(job_id)=64 AND job_id NOT GLOB '*[^0-9a-f]*'),
+    authorization_tag TEXT NOT NULL CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*'),
+    UNIQUE(authorization_id,execution_id,job_id)
+);
+CREATE TRIGGER estimator_runtime_write_authorization_validate BEFORE INSERT ON estimator_runtime_write_authorizations
+WHEN NEW.authorization_tag<>estimator_runtime_authorization_tag(NEW.operation_id,NEW.authorization_id,NEW.execution_id,NEW.job_id)
+BEGIN SELECT RAISE(ABORT,'estimator runtime write authorization is invalid'); END;
+CREATE TRIGGER estimator_runtime_write_authorization_no_update BEFORE UPDATE ON estimator_runtime_write_authorizations BEGIN SELECT RAISE(ABORT,'estimator runtime write authorization is immutable'); END;
+CREATE TRIGGER estimator_runtime_write_authorization_delete_validate BEFORE DELETE ON estimator_runtime_write_authorizations
+WHEN OLD.authorization_tag<>estimator_runtime_authorization_tag(OLD.operation_id,OLD.authorization_id,OLD.execution_id,OLD.job_id)
+BEGIN SELECT RAISE(ABORT,'estimator runtime write authorization is invalid'); END;
+
+CREATE TABLE estimator_runtime_authorizations (
+    authorization_id TEXT PRIMARY KEY CHECK(length(authorization_id)=64 AND authorization_id NOT GLOB '*[^0-9a-f]*'),
+    authorization_fingerprint TEXT NOT NULL UNIQUE CHECK(length(authorization_fingerprint)=64 AND authorization_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(length(contract_version) BETWEEN 1 AND 128 AND contract_version NOT GLOB '*[^A-Za-z0-9._+-]*'),
+    job_id TEXT NOT NULL UNIQUE REFERENCES analysis_jobs(job_id) ON DELETE CASCADE,
+    execution_id TEXT NOT NULL UNIQUE CHECK(length(execution_id)=64 AND execution_id NOT GLOB '*[^0-9a-f]*'),
+    kind TEXT NOT NULL CHECK(kind IN ('manual_once','automation_once','synthetic_test')),
+    provider TEXT NOT NULL CHECK(provider IN ('codex','claude_code','synthetic')),
+    destination TEXT NOT NULL CHECK(destination IN ('local_device','openai_api','anthropic_api','codex_cli','claude_api','manual_import','synthetic_test')),
+    retention_class TEXT NOT NULL CHECK(retention_class IN ('local_ephemeral','provider_zero_day','provider_30_day','provider_disclosed_other','manual_export','synthetic')),
+    project_id TEXT NOT NULL REFERENCES projects(project_id),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id),
+    session_revision_id TEXT NOT NULL CHECK(length(session_revision_id)=64 AND session_revision_id NOT GLOB '*[^0-9a-f]*'),
+    window_fingerprint TEXT NOT NULL CHECK(length(window_fingerprint)=64 AND window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint)=64 AND input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    provenance_fingerprint TEXT NOT NULL CHECK(length(provenance_fingerprint)=64 AND provenance_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint),
+    route TEXT NOT NULL CHECK(route IN ('fast','balanced','deep')),
+    provider_schema_version TEXT NOT NULL CHECK(length(provider_schema_version) BETWEEN 1 AND 128 AND provider_schema_version GLOB '[A-Za-z0-9]*' AND provider_schema_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(provider_schema_version,'..')=0),
+    redactor_version TEXT NOT NULL CHECK(length(redactor_version) BETWEEN 1 AND 128 AND redactor_version GLOB '[A-Za-z0-9]*' AND redactor_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(redactor_version,'..')=0),
+    redactor_sha256 TEXT NOT NULL CHECK(length(redactor_sha256)=64 AND redactor_sha256 NOT GLOB '*[^0-9a-f]*'),
+    automation_grant_id TEXT CHECK(automation_grant_id IS NULL OR (length(automation_grant_id)=64 AND automation_grant_id NOT GLOB '*[^0-9a-f]*')),
+    issued_at_us INTEGER NOT NULL CHECK(typeof(issued_at_us)='integer' AND issued_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    expires_at_us INTEGER NOT NULL CHECK(typeof(expires_at_us)='integer' AND expires_at_us BETWEEN -62135596800000000 AND 253402300799999999 AND expires_at_us>issued_at_us AND expires_at_us-issued_at_us<=600000000),
+    packet_count INTEGER NOT NULL CHECK(packet_count BETWEEN 1 AND 100),
+    one_shot INTEGER NOT NULL CHECK(one_shot=1),
+    preview_text_retained INTEGER NOT NULL CHECK(preview_text_retained=0),
+    execution_only INTEGER NOT NULL CHECK(execution_only=1),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    product_metric_write_allowed INTEGER NOT NULL CHECK(product_metric_write_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    CHECK((kind='automation_once')=(automation_grant_id IS NOT NULL)),
+    CHECK(kind<>'automation_once' OR destination NOT IN ('openai_api','anthropic_api','codex_cli','claude_api')),
+    CHECK((destination='local_device' AND retention_class='local_ephemeral') OR (destination='synthetic_test' AND provider='synthetic' AND retention_class='synthetic') OR (destination='manual_import' AND retention_class='manual_export') OR (destination IN ('openai_api','anthropic_api','codex_cli','claude_api') AND retention_class IN ('provider_zero_day','provider_30_day','provider_disclosed_other')))
+);
+
+CREATE TABLE estimator_runtime_authorization_packets (
+    authorization_id TEXT NOT NULL REFERENCES estimator_runtime_authorizations(authorization_id) ON DELETE CASCADE,
+    execution_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key GLOB '[a-z]*' AND metric_key NOT GLOB '*[^a-z0-9_.:-]*'),
+    metric_question_fingerprint TEXT NOT NULL REFERENCES estimator_metric_questions(question_fingerprint),
+    evidence_packet_fingerprint TEXT NOT NULL CHECK(length(evidence_packet_fingerprint)=64 AND evidence_packet_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(authorization_id,metric_key), UNIQUE(authorization_id,ordinal), UNIQUE(authorization_id,evidence_packet_fingerprint)
+);
+
+CREATE TABLE estimator_runtime_authorization_consumptions (
+    authorization_id TEXT PRIMARY KEY REFERENCES estimator_runtime_authorizations(authorization_id) ON DELETE CASCADE,
+    execution_id TEXT NOT NULL UNIQUE,
+    job_id TEXT NOT NULL UNIQUE REFERENCES analysis_jobs(job_id) ON DELETE CASCADE,
+    consumed_at_us INTEGER NOT NULL CHECK(typeof(consumed_at_us)='integer' AND consumed_at_us BETWEEN -62135596800000000 AND 253402300799999999)
+);
+
+CREATE TABLE estimator_runtime_authorization_revocations (
+    authorization_id TEXT PRIMARY KEY REFERENCES estimator_runtime_authorizations(authorization_id) ON DELETE CASCADE,
+    execution_id TEXT NOT NULL UNIQUE,
+    revoked_at_us INTEGER NOT NULL CHECK(typeof(revoked_at_us)='integer' AND revoked_at_us BETWEEN -62135596800000000 AND 253402300799999999)
+);
+
+CREATE TABLE estimator_runtime_executions (
+    execution_id TEXT PRIMARY KEY CHECK(length(execution_id)=64 AND execution_id NOT GLOB '*[^0-9a-f]*'),
+    authorization_id TEXT NOT NULL UNIQUE REFERENCES estimator_runtime_authorizations(authorization_id) ON DELETE CASCADE,
+    job_id TEXT NOT NULL UNIQUE REFERENCES analysis_jobs(job_id) ON DELETE CASCADE,
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint),
+    route TEXT NOT NULL CHECK(route IN ('fast','balanced','deep')),
+    provider TEXT NOT NULL CHECK(provider IN ('codex','claude_code','synthetic')),
+    project_id TEXT NOT NULL REFERENCES projects(project_id),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id),
+    session_revision_id TEXT NOT NULL CHECK(length(session_revision_id)=64 AND session_revision_id NOT GLOB '*[^0-9a-f]*'),
+    window_fingerprint TEXT NOT NULL CHECK(length(window_fingerprint)=64 AND window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint)=64 AND input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    provenance_fingerprint TEXT NOT NULL CHECK(length(provenance_fingerprint)=64 AND provenance_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    created_at_us INTEGER NOT NULL CHECK(typeof(created_at_us)='integer' AND created_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    execution_only INTEGER NOT NULL CHECK(execution_only=1), activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0), product_metric_write_allowed INTEGER NOT NULL CHECK(product_metric_write_allowed=0), private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0), team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0)
+);
+
+CREATE TABLE estimator_runtime_job_bindings (
+    job_id TEXT PRIMARY KEY REFERENCES analysis_jobs(job_id) ON DELETE CASCADE,
+    execution_id TEXT NOT NULL UNIQUE REFERENCES estimator_runtime_executions(execution_id) ON DELETE CASCADE,
+    authorization_id TEXT NOT NULL UNIQUE REFERENCES estimator_runtime_authorizations(authorization_id) ON DELETE CASCADE,
+    authorization_fingerprint TEXT NOT NULL CHECK(length(authorization_fingerprint)=64 AND authorization_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint),
+    route TEXT NOT NULL CHECK(route IN ('fast','balanced','deep')),
+    provider TEXT NOT NULL CHECK(provider IN ('codex','claude_code','synthetic')),
+    project_id TEXT NOT NULL REFERENCES projects(project_id), session_id TEXT NOT NULL REFERENCES sessions(session_id),
+    session_revision_id TEXT NOT NULL CHECK(length(session_revision_id)=64 AND session_revision_id NOT GLOB '*[^0-9a-f]*'),
+    window_fingerprint TEXT NOT NULL CHECK(length(window_fingerprint)=64 AND window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint)=64 AND input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    provenance_fingerprint TEXT NOT NULL CHECK(length(provenance_fingerprint)=64 AND provenance_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    created_at_us INTEGER NOT NULL CHECK(typeof(created_at_us)='integer' AND created_at_us BETWEEN -62135596800000000 AND 253402300799999999)
+);
+
+CREATE TABLE estimator_runtime_packet_receipts (
+    execution_id TEXT NOT NULL REFERENCES estimator_runtime_executions(execution_id) ON DELETE CASCADE,
+    authorization_id TEXT NOT NULL REFERENCES estimator_runtime_authorizations(authorization_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    packet_fingerprint TEXT NOT NULL CHECK(length(packet_fingerprint)=64 AND packet_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    packet_schema_version TEXT NOT NULL CHECK(length(packet_schema_version) BETWEEN 1 AND 128 AND packet_schema_version NOT GLOB '*[^A-Za-z0-9._+-]*'),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint), metric_key TEXT NOT NULL, metric_question_fingerprint TEXT NOT NULL REFERENCES estimator_metric_questions(question_fingerprint),
+    route TEXT NOT NULL CHECK(route IN ('fast','balanced','deep')),
+    scope_projection_fingerprint TEXT NOT NULL, scope_router_output_fingerprint TEXT NOT NULL, retrieval_query_fingerprint TEXT NOT NULL, requirements_sha256 TEXT NOT NULL, chronology_sha256 TEXT NOT NULL, retrieval_index_sha256 TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK(provider IN ('codex','claude_code','synthetic')),
+    adapter_version TEXT NOT NULL, provider_schema_version TEXT NOT NULL, preprocessing_version TEXT NOT NULL, preprocessing_sha256 TEXT NOT NULL, router_version TEXT NOT NULL, router_sha256 TEXT NOT NULL, redactor_version TEXT NOT NULL, redactor_sha256 TEXT NOT NULL,
+    source_record_count INTEGER NOT NULL CHECK(source_record_count BETWEEN 0 AND 10000000), requirement_count INTEGER NOT NULL CHECK(requirement_count BETWEEN 0 AND 1000000), chronology_count INTEGER NOT NULL CHECK(chronology_count BETWEEN 0 AND 10000000), action_count INTEGER NOT NULL CHECK(action_count BETWEEN 0 AND 1000000), decision_count INTEGER NOT NULL CHECK(decision_count BETWEEN 0 AND 1000000), feedback_count INTEGER NOT NULL CHECK(feedback_count BETWEEN 0 AND 1000000), verification_count INTEGER NOT NULL CHECK(verification_count BETWEEN 0 AND 1000000), evidence_ref_count INTEGER NOT NULL CHECK(evidence_ref_count BETWEEN 0 AND 512),
+    created_at_us INTEGER NOT NULL CHECK(typeof(created_at_us)='integer' AND created_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    ephemeral_payload_retained INTEGER NOT NULL CHECK(ephemeral_payload_retained=0), execution_only INTEGER NOT NULL CHECK(execution_only=1), activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0), private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0), team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    PRIMARY KEY(execution_id,packet_fingerprint), UNIQUE(execution_id,ordinal), UNIQUE(execution_id,metric_key),
+    CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key GLOB '[a-z]*' AND metric_key NOT GLOB '*[^a-z0-9_.:-]*'),
+    CHECK(length(scope_projection_fingerprint)=64 AND scope_projection_fingerprint NOT GLOB '*[^0-9a-f]*'), CHECK(length(scope_router_output_fingerprint)=64 AND scope_router_output_fingerprint NOT GLOB '*[^0-9a-f]*'), CHECK(length(retrieval_query_fingerprint)=64 AND retrieval_query_fingerprint NOT GLOB '*[^0-9a-f]*'), CHECK(length(requirements_sha256)=64 AND requirements_sha256 NOT GLOB '*[^0-9a-f]*'), CHECK(length(chronology_sha256)=64 AND chronology_sha256 NOT GLOB '*[^0-9a-f]*'), CHECK(length(retrieval_index_sha256)=64 AND retrieval_index_sha256 NOT GLOB '*[^0-9a-f]*'), CHECK(length(preprocessing_sha256)=64 AND preprocessing_sha256 NOT GLOB '*[^0-9a-f]*'), CHECK(length(router_sha256)=64 AND router_sha256 NOT GLOB '*[^0-9a-f]*'), CHECK(length(redactor_sha256)=64 AND redactor_sha256 NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_runtime_packet_refs (
+    execution_id TEXT NOT NULL, packet_fingerprint TEXT NOT NULL, authorization_id TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 511), evidence_reference_id TEXT NOT NULL CHECK(length(evidence_reference_id)=64 AND evidence_reference_id NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(execution_id,packet_fingerprint,ordinal), UNIQUE(execution_id,packet_fingerprint,evidence_reference_id),
+    FOREIGN KEY(execution_id,packet_fingerprint) REFERENCES estimator_runtime_packet_receipts(execution_id,packet_fingerprint) ON DELETE CASCADE
+);
+
+CREATE TABLE estimator_runtime_state_receipts (
+    state_receipt_id TEXT PRIMARY KEY CHECK(length(state_receipt_id)=64 AND state_receipt_id NOT GLOB '*[^0-9a-f]*'), execution_id TEXT NOT NULL REFERENCES estimator_runtime_executions(execution_id) ON DELETE CASCADE, authorization_id TEXT NOT NULL, sequence INTEGER NOT NULL CHECK(sequence BETWEEN 0 AND 1000000), previous_state_receipt_fingerprint TEXT, state TEXT NOT NULL CHECK(state IN ('created','running','partial','failed','cancelled','superseded')), reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9_.:-]*'), recorded_at_us INTEGER NOT NULL CHECK(typeof(recorded_at_us)='integer' AND recorded_at_us BETWEEN -62135596800000000 AND 253402300799999999), receipt_fingerprint TEXT NOT NULL UNIQUE CHECK(length(receipt_fingerprint)=64 AND receipt_fingerprint NOT GLOB '*[^0-9a-f]*'), UNIQUE(execution_id,sequence), CHECK((sequence=0)=(previous_state_receipt_fingerprint IS NULL)), CHECK(previous_state_receipt_fingerprint IS NULL OR (length(previous_state_receipt_fingerprint)=64 AND previous_state_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'))
+);
+CREATE TABLE estimator_runtime_stage_attempts (
+    attempt_id TEXT PRIMARY KEY CHECK(length(attempt_id)=64 AND attempt_id NOT GLOB '*[^0-9a-f]*'), execution_id TEXT NOT NULL REFERENCES estimator_runtime_executions(execution_id) ON DELETE CASCADE, authorization_id TEXT NOT NULL, metric_key TEXT NOT NULL, metric_question_fingerprint TEXT NOT NULL, evidence_packet_fingerprint TEXT NOT NULL, stage_ordinal INTEGER NOT NULL CHECK(stage_ordinal BETWEEN 1 AND 7), stage_kind TEXT NOT NULL CHECK(stage_kind IN ('objective_evidence','bm25_retrieval','embedding_retrieval','reranker','specialist','second_opinion','human_adjudication')), stage_fingerprint TEXT NOT NULL, attempt_ordinal INTEGER NOT NULL CHECK(attempt_ordinal BETWEEN 1 AND 100), started_at_us INTEGER NOT NULL CHECK(typeof(started_at_us)='integer' AND started_at_us BETWEEN -62135596800000000 AND 253402300799999999), UNIQUE(execution_id,metric_key,stage_ordinal,attempt_ordinal), CHECK(length(metric_question_fingerprint)=64 AND metric_question_fingerprint NOT GLOB '*[^0-9a-f]*'), CHECK(length(evidence_packet_fingerprint)=64 AND evidence_packet_fingerprint NOT GLOB '*[^0-9a-f]*'), CHECK(length(stage_fingerprint)=64 AND stage_fingerprint NOT GLOB '*[^0-9a-f]*'), CHECK((stage_ordinal=1 AND stage_kind='objective_evidence') OR (stage_ordinal=2 AND stage_kind='bm25_retrieval') OR (stage_ordinal=3 AND stage_kind='embedding_retrieval') OR (stage_ordinal=4 AND stage_kind='reranker') OR (stage_ordinal=5 AND stage_kind='specialist') OR (stage_ordinal=6 AND stage_kind='second_opinion') OR (stage_ordinal=7 AND stage_kind='human_adjudication'))
+);
+CREATE TABLE estimator_runtime_metric_observations (
+    observation_id TEXT PRIMARY KEY CHECK(length(observation_id)=64 AND observation_id NOT GLOB '*[^0-9a-f]*'), execution_id TEXT NOT NULL REFERENCES estimator_runtime_executions(execution_id) ON DELETE CASCADE, authorization_id TEXT NOT NULL, attempt_id TEXT NOT NULL UNIQUE REFERENCES estimator_runtime_stage_attempts(attempt_id) ON DELETE CASCADE, metric_key TEXT NOT NULL, metric_question_fingerprint TEXT NOT NULL, evidence_packet_fingerprint TEXT NOT NULL, stage_ordinal INTEGER NOT NULL CHECK(stage_ordinal=1), state TEXT NOT NULL CHECK(state IN ('known','unknown','abstained','not_applicable','failed')), value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous','fraction','binary','categorical')), numeric_value REAL CHECK(numeric_value IS NULL OR (typeof(numeric_value) IN ('real','integer') AND numeric_value BETWEEN -1.0e308 AND 1.0e308)), label_code TEXT, numerator INTEGER CHECK(numerator IS NULL OR (typeof(numerator)='integer' AND numerator>=0)), denominator INTEGER CHECK(denominator IS NULL OR (typeof(denominator)='integer' AND denominator>0)), reason_code TEXT, ref_count INTEGER NOT NULL CHECK(ref_count BETWEEN 0 AND 512), observed_at_us INTEGER NOT NULL CHECK(typeof(observed_at_us)='integer' AND observed_at_us BETWEEN -62135596800000000 AND 253402300799999999), observation_fingerprint TEXT NOT NULL UNIQUE, calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'), execution_only INTEGER NOT NULL CHECK(execution_only=1), activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0), product_metric_write_allowed INTEGER NOT NULL CHECK(product_metric_write_allowed=0), CHECK((state='known' AND reason_code IS NULL AND ((value_kind IN ('continuous','fraction') AND numeric_value IS NOT NULL AND label_code IS NULL) OR (value_kind IN ('binary','categorical') AND numeric_value IS NULL AND label_code IS NOT NULL))) OR (state<>'known' AND numeric_value IS NULL AND label_code IS NULL AND numerator IS NULL AND denominator IS NULL AND reason_code IS NOT NULL)), CHECK((numerator IS NULL)=(denominator IS NULL)), CHECK(numerator IS NULL OR (value_kind='fraction' AND numerator<=denominator AND abs(numeric_value-(1.0*numerator/denominator))<=0.000000001))
+);
+CREATE TABLE estimator_runtime_observation_refs (
+    observation_id TEXT NOT NULL REFERENCES estimator_runtime_metric_observations(observation_id) ON DELETE CASCADE, execution_id TEXT NOT NULL, authorization_id TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 511), evidence_reference_id TEXT NOT NULL CHECK(length(evidence_reference_id)=64 AND evidence_reference_id NOT GLOB '*[^0-9a-f]*'), PRIMARY KEY(observation_id,ordinal), UNIQUE(observation_id,evidence_reference_id)
+);
+CREATE TABLE estimator_runtime_retrievals (
+    retrieval_id TEXT PRIMARY KEY CHECK(length(retrieval_id)=64 AND retrieval_id NOT GLOB '*[^0-9a-f]*'), execution_id TEXT NOT NULL REFERENCES estimator_runtime_executions(execution_id) ON DELETE CASCADE, authorization_id TEXT NOT NULL, attempt_id TEXT NOT NULL UNIQUE REFERENCES estimator_runtime_stage_attempts(attempt_id) ON DELETE CASCADE, metric_key TEXT NOT NULL, metric_question_fingerprint TEXT NOT NULL, evidence_packet_fingerprint TEXT NOT NULL, stage_ordinal INTEGER NOT NULL CHECK(stage_ordinal=2), stage_kind TEXT NOT NULL CHECK(stage_kind='bm25_retrieval'), score_kind TEXT NOT NULL CHECK(score_kind='bm25_raw'), query_fingerprint TEXT NOT NULL, candidate_index_fingerprint TEXT NOT NULL, candidate_count INTEGER NOT NULL CHECK(candidate_count BETWEEN 0 AND 512), hit_count INTEGER NOT NULL CHECK(hit_count BETWEEN 0 AND 512 AND hit_count<=candidate_count), created_at_us INTEGER NOT NULL CHECK(typeof(created_at_us)='integer' AND created_at_us BETWEEN -62135596800000000 AND 253402300799999999), retrieval_fingerprint TEXT NOT NULL UNIQUE, calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'), execution_only INTEGER NOT NULL CHECK(execution_only=1), activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0)
+);
+CREATE TABLE estimator_runtime_retrieval_candidates (
+    retrieval_id TEXT NOT NULL REFERENCES estimator_runtime_retrievals(retrieval_id) ON DELETE CASCADE, execution_id TEXT NOT NULL, authorization_id TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 511), evidence_reference_id TEXT NOT NULL CHECK(length(evidence_reference_id)=64 AND evidence_reference_id NOT GLOB '*[^0-9a-f]*'), PRIMARY KEY(retrieval_id,ordinal), UNIQUE(retrieval_id,evidence_reference_id)
+);
+CREATE TABLE estimator_runtime_retrieval_hits (
+    retrieval_id TEXT NOT NULL REFERENCES estimator_runtime_retrievals(retrieval_id) ON DELETE CASCADE, execution_id TEXT NOT NULL, authorization_id TEXT NOT NULL, rank INTEGER NOT NULL CHECK(rank BETWEEN 1 AND 512), evidence_reference_id TEXT NOT NULL, raw_score REAL NOT NULL CHECK(typeof(raw_score) IN ('real','integer') AND raw_score BETWEEN -1.0e308 AND 1.0e308), PRIMARY KEY(retrieval_id,rank), UNIQUE(retrieval_id,evidence_reference_id)
+);
+CREATE TABLE estimator_runtime_stage_outcomes (
+    outcome_id TEXT PRIMARY KEY CHECK(length(outcome_id)=64 AND outcome_id NOT GLOB '*[^0-9a-f]*'), attempt_id TEXT NOT NULL UNIQUE REFERENCES estimator_runtime_stage_attempts(attempt_id) ON DELETE CASCADE, execution_id TEXT NOT NULL REFERENCES estimator_runtime_executions(execution_id) ON DELETE CASCADE, authorization_id TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('completed','failed','cancelled','interrupted')), reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9_.:-]*'), output_fingerprint TEXT, finished_at_us INTEGER NOT NULL CHECK(typeof(finished_at_us)='integer' AND finished_at_us BETWEEN -62135596800000000 AND 253402300799999999), CHECK((state='completed')=(output_fingerprint IS NOT NULL)), CHECK(output_fingerprint IS NULL OR (length(output_fingerprint)=64 AND output_fingerprint NOT GLOB '*[^0-9a-f]*'))
+);
+CREATE TABLE estimator_runtime_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY CHECK(length(checkpoint_id)=64 AND checkpoint_id NOT GLOB '*[^0-9a-f]*'), execution_id TEXT NOT NULL REFERENCES estimator_runtime_executions(execution_id) ON DELETE CASCADE, authorization_id TEXT NOT NULL, metric_key TEXT NOT NULL, sequence INTEGER NOT NULL CHECK(sequence BETWEEN 0 AND 1000000), previous_checkpoint_fingerprint TEXT, last_completed_stage_ordinal INTEGER NOT NULL CHECK(last_completed_stage_ordinal BETWEEN 0 AND 7), next_stage_ordinal INTEGER CHECK(next_stage_ordinal BETWEEN 1 AND 7), restart_generation INTEGER NOT NULL CHECK(restart_generation BETWEEN 0 AND 1000000), state TEXT NOT NULL CHECK(state IN ('created','running','partial','failed','cancelled','superseded')), reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9_.:-]*'), recorded_at_us INTEGER NOT NULL CHECK(typeof(recorded_at_us)='integer' AND recorded_at_us BETWEEN -62135596800000000 AND 253402300799999999), checkpoint_fingerprint TEXT NOT NULL UNIQUE, UNIQUE(execution_id,metric_key,sequence), CHECK((sequence=0)=(previous_checkpoint_fingerprint IS NULL)), CHECK((state IN ('partial','failed','cancelled','superseded'))=(next_stage_ordinal IS NULL)), CHECK(next_stage_ordinal IS NULL OR next_stage_ordinal=last_completed_stage_ordinal+1)
+);
+CREATE TABLE estimator_runtime_deletion_tombstones (
+    revocation_key TEXT PRIMARY KEY CHECK(length(revocation_key)=64 AND revocation_key NOT GLOB '*[^0-9a-f]*'),
+    retained_plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint),
+    deleted_at_us INTEGER NOT NULL CHECK(typeof(deleted_at_us)='integer' AND deleted_at_us BETWEEN -62135596800000000 AND 253402300799999999)
+);
+
+-- Every runtime insert/delete requires the transient application HMAC row.
+CREATE TRIGGER estimator_runtime_authorizations_insert_guard BEFORE INSERT ON estimator_runtime_authorizations WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_authorizations_update_guard BEFORE UPDATE ON estimator_runtime_authorizations BEGIN SELECT RAISE(ABORT,'estimator runtime authorization is immutable'); END;
+CREATE TRIGGER estimator_runtime_authorizations_delete_guard BEFORE DELETE ON estimator_runtime_authorizations WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_packets_insert_guard BEFORE INSERT ON estimator_runtime_authorization_packets WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_consumption_insert_guard BEFORE INSERT ON estimator_runtime_authorization_consumptions WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_revocation_insert_guard BEFORE INSERT ON estimator_runtime_authorization_revocations WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_executions_insert_guard BEFORE INSERT ON estimator_runtime_executions WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_bindings_insert_guard BEFORE INSERT ON estimator_runtime_job_bindings WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_bindings_validate_seal BEFORE INSERT ON estimator_runtime_job_bindings WHEN
+    NOT EXISTS (SELECT 1 FROM estimator_runtime_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.job_id=NEW.job_id AND a.authorization_fingerprint=NEW.authorization_fingerprint AND a.plan_fingerprint=NEW.plan_fingerprint AND a.route=NEW.route AND a.provider=NEW.provider AND a.project_id=NEW.project_id AND a.session_id=NEW.session_id AND a.session_revision_id=NEW.session_revision_id AND a.window_fingerprint=NEW.window_fingerprint AND a.input_fingerprint=NEW.input_fingerprint AND a.provenance_fingerprint=NEW.provenance_fingerprint)
+    OR NOT EXISTS (SELECT 1 FROM estimator_runtime_executions e WHERE e.execution_id=NEW.execution_id AND e.authorization_id=NEW.authorization_id AND e.job_id=NEW.job_id AND e.plan_fingerprint=NEW.plan_fingerprint)
+    OR (SELECT packet_count FROM estimator_runtime_authorizations WHERE authorization_id=NEW.authorization_id)<>(SELECT COUNT(*) FROM estimator_runtime_packet_receipts WHERE execution_id=NEW.execution_id)
+    OR (SELECT packet_count FROM estimator_runtime_authorizations WHERE authorization_id=NEW.authorization_id)<>(SELECT COUNT(*) FROM analysis_job_metrics WHERE job_id=NEW.job_id)
+    OR EXISTS (SELECT 1 FROM estimator_runtime_authorization_packets ap WHERE ap.authorization_id=NEW.authorization_id AND NOT EXISTS (SELECT 1 FROM estimator_runtime_packet_receipts p WHERE p.execution_id=NEW.execution_id AND p.metric_key=ap.metric_key AND p.metric_question_fingerprint=ap.metric_question_fingerprint AND p.packet_fingerprint=ap.evidence_packet_fingerprint))
+    OR EXISTS (SELECT 1 FROM estimator_runtime_authorization_packets ap WHERE ap.authorization_id=NEW.authorization_id AND NOT EXISTS (SELECT 1 FROM analysis_job_metrics jm WHERE jm.job_id=NEW.job_id AND jm.metric_key=ap.metric_key AND jm.ordinal=ap.ordinal))
+    OR EXISTS (SELECT 1 FROM analysis_job_metrics jm WHERE jm.job_id=NEW.job_id AND NOT EXISTS (SELECT 1 FROM estimator_runtime_authorization_packets ap WHERE ap.authorization_id=NEW.authorization_id AND ap.metric_key=jm.metric_key AND ap.ordinal=jm.ordinal))
+    OR EXISTS (SELECT 1 FROM estimator_runtime_packet_receipts p WHERE p.execution_id=NEW.execution_id AND p.evidence_ref_count<>(SELECT COUNT(*) FROM estimator_runtime_packet_refs r WHERE r.execution_id=p.execution_id AND r.packet_fingerprint=p.packet_fingerprint))
+BEGIN SELECT RAISE(ABORT,'estimator runtime launch seal is inconsistent'); END;
+CREATE TRIGGER estimator_runtime_receipts_insert_guard BEFORE INSERT ON estimator_runtime_packet_receipts WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_refs_insert_guard BEFORE INSERT ON estimator_runtime_packet_refs WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_states_insert_guard BEFORE INSERT ON estimator_runtime_state_receipts WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_attempts_insert_guard BEFORE INSERT ON estimator_runtime_stage_attempts WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_observations_insert_guard BEFORE INSERT ON estimator_runtime_metric_observations WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_observation_refs_insert_guard BEFORE INSERT ON estimator_runtime_observation_refs WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_retrievals_insert_guard BEFORE INSERT ON estimator_runtime_retrievals WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_candidates_insert_guard BEFORE INSERT ON estimator_runtime_retrieval_candidates WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_hits_insert_guard BEFORE INSERT ON estimator_runtime_retrieval_hits WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_outcomes_insert_guard BEFORE INSERT ON estimator_runtime_stage_outcomes WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_checkpoints_insert_guard BEFORE INSERT ON estimator_runtime_checkpoints WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=NEW.authorization_id AND a.execution_id=NEW.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime append is not authorized'); END;
+CREATE TRIGGER estimator_runtime_packet_receipts_sealed BEFORE INSERT ON estimator_runtime_packet_receipts WHEN EXISTS (SELECT 1 FROM estimator_runtime_job_bindings b WHERE b.execution_id=NEW.execution_id) BEGIN SELECT RAISE(ABORT,'estimator runtime packet set is sealed'); END;
+CREATE TRIGGER estimator_runtime_packet_refs_sealed BEFORE INSERT ON estimator_runtime_packet_refs WHEN EXISTS (SELECT 1 FROM estimator_runtime_job_bindings b WHERE b.execution_id=NEW.execution_id) BEGIN SELECT RAISE(ABORT,'estimator runtime packet set is sealed'); END;
+CREATE TRIGGER estimator_runtime_tombstone_insert_guard BEFORE INSERT ON estimator_runtime_deletion_tombstones WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime deletion is not authorized'); END;
+
+-- Repository capabilities authorize a write, while these relational seals
+-- independently prove that every normalized child belongs to the same exact
+-- execution/authorization/packet lineage.
+CREATE TRIGGER estimator_runtime_states_validate_lineage BEFORE INSERT ON estimator_runtime_state_receipts
+WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_executions e WHERE e.execution_id=NEW.execution_id AND e.authorization_id=NEW.authorization_id)
+BEGIN SELECT RAISE(ABORT,'estimator runtime state lineage is inconsistent'); END;
+CREATE TRIGGER estimator_runtime_attempts_validate_lineage BEFORE INSERT ON estimator_runtime_stage_attempts
+WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_executions e WHERE e.execution_id=NEW.execution_id AND e.authorization_id=NEW.authorization_id)
+ OR NOT EXISTS (SELECT 1 FROM estimator_runtime_packet_receipts p WHERE p.execution_id=NEW.execution_id AND p.authorization_id=NEW.authorization_id AND p.metric_key=NEW.metric_key AND p.metric_question_fingerprint=NEW.metric_question_fingerprint AND p.packet_fingerprint=NEW.evidence_packet_fingerprint)
+BEGIN SELECT RAISE(ABORT,'estimator runtime attempt lineage is inconsistent'); END;
+CREATE TRIGGER estimator_runtime_observations_validate_lineage BEFORE INSERT ON estimator_runtime_metric_observations
+WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_stage_attempts a WHERE a.attempt_id=NEW.attempt_id AND a.execution_id=NEW.execution_id AND a.authorization_id=NEW.authorization_id AND a.metric_key=NEW.metric_key AND a.metric_question_fingerprint=NEW.metric_question_fingerprint AND a.evidence_packet_fingerprint=NEW.evidence_packet_fingerprint AND a.stage_ordinal=1)
+BEGIN SELECT RAISE(ABORT,'estimator runtime observation lineage is inconsistent'); END;
+CREATE TRIGGER estimator_runtime_observation_refs_validate_lineage BEFORE INSERT ON estimator_runtime_observation_refs
+WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_metric_observations o WHERE o.observation_id=NEW.observation_id AND o.execution_id=NEW.execution_id AND o.authorization_id=NEW.authorization_id)
+BEGIN SELECT RAISE(ABORT,'estimator runtime observation reference lineage is inconsistent'); END;
+CREATE TRIGGER estimator_runtime_retrievals_validate_lineage BEFORE INSERT ON estimator_runtime_retrievals
+WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_stage_attempts a WHERE a.attempt_id=NEW.attempt_id AND a.execution_id=NEW.execution_id AND a.authorization_id=NEW.authorization_id AND a.metric_key=NEW.metric_key AND a.metric_question_fingerprint=NEW.metric_question_fingerprint AND a.evidence_packet_fingerprint=NEW.evidence_packet_fingerprint AND a.stage_ordinal=2)
+BEGIN SELECT RAISE(ABORT,'estimator runtime retrieval lineage is inconsistent'); END;
+CREATE TRIGGER estimator_runtime_candidates_validate_lineage BEFORE INSERT ON estimator_runtime_retrieval_candidates
+WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_retrievals r WHERE r.retrieval_id=NEW.retrieval_id AND r.execution_id=NEW.execution_id AND r.authorization_id=NEW.authorization_id)
+BEGIN SELECT RAISE(ABORT,'estimator runtime candidate lineage is inconsistent'); END;
+CREATE TRIGGER estimator_runtime_hits_validate_lineage BEFORE INSERT ON estimator_runtime_retrieval_hits
+WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_retrievals r WHERE r.retrieval_id=NEW.retrieval_id AND r.execution_id=NEW.execution_id AND r.authorization_id=NEW.authorization_id)
+ OR NOT EXISTS (SELECT 1 FROM estimator_runtime_retrieval_candidates c WHERE c.retrieval_id=NEW.retrieval_id AND c.execution_id=NEW.execution_id AND c.authorization_id=NEW.authorization_id AND c.evidence_reference_id=NEW.evidence_reference_id)
+BEGIN SELECT RAISE(ABORT,'estimator runtime hit lineage is inconsistent'); END;
+CREATE TRIGGER estimator_runtime_outcomes_validate_lineage BEFORE INSERT ON estimator_runtime_stage_outcomes
+WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_stage_attempts a WHERE a.attempt_id=NEW.attempt_id AND a.execution_id=NEW.execution_id AND a.authorization_id=NEW.authorization_id)
+ OR (NEW.state='completed' AND NOT EXISTS (
+      SELECT 1 FROM estimator_runtime_metric_observations o
+      WHERE o.attempt_id=NEW.attempt_id AND o.observation_fingerprint=NEW.output_fingerprint
+        AND o.ref_count=(SELECT COUNT(*) FROM estimator_runtime_observation_refs x WHERE x.observation_id=o.observation_id)
+      UNION ALL
+      SELECT 1 FROM estimator_runtime_retrievals r
+      WHERE r.attempt_id=NEW.attempt_id AND r.retrieval_fingerprint=NEW.output_fingerprint
+        AND r.candidate_count=(SELECT COUNT(*) FROM estimator_runtime_retrieval_candidates c WHERE c.retrieval_id=r.retrieval_id)
+        AND r.hit_count=(SELECT COUNT(*) FROM estimator_runtime_retrieval_hits h WHERE h.retrieval_id=r.retrieval_id)))
+BEGIN SELECT RAISE(ABORT,'estimator runtime outcome lineage or child counts are inconsistent'); END;
+CREATE TRIGGER estimator_runtime_checkpoints_validate_lineage BEFORE INSERT ON estimator_runtime_checkpoints
+WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_executions e WHERE e.execution_id=NEW.execution_id AND e.authorization_id=NEW.authorization_id)
+ OR NOT EXISTS (SELECT 1 FROM estimator_runtime_packet_receipts p WHERE p.execution_id=NEW.execution_id AND p.authorization_id=NEW.authorization_id AND p.metric_key=NEW.metric_key)
+BEGIN SELECT RAISE(ABORT,'estimator runtime checkpoint lineage is inconsistent'); END;
+
+CREATE TRIGGER estimator_runtime_receipts_safe_metadata BEFORE INSERT ON estimator_runtime_packet_receipts
+WHEN NEW.packet_schema_version NOT GLOB '[A-Za-z0-9]*' OR NEW.packet_schema_version GLOB '*[^A-Za-z0-9._+-]*'
+ OR NEW.adapter_version NOT GLOB '[A-Za-z0-9]*' OR NEW.adapter_version GLOB '*[^A-Za-z0-9._+-]*'
+ OR NEW.provider_schema_version NOT GLOB '[A-Za-z0-9]*' OR NEW.provider_schema_version GLOB '*[^A-Za-z0-9._+-]*'
+ OR NEW.preprocessing_version NOT GLOB '[A-Za-z0-9]*' OR NEW.preprocessing_version GLOB '*[^A-Za-z0-9._+-]*'
+ OR NEW.router_version NOT GLOB '[A-Za-z0-9]*' OR NEW.router_version GLOB '*[^A-Za-z0-9._+-]*'
+ OR NEW.redactor_version NOT GLOB '[A-Za-z0-9]*' OR NEW.redactor_version GLOB '*[^A-Za-z0-9._+-]*'
+ OR instr(NEW.packet_schema_version,'..')>0 OR instr(NEW.adapter_version,'..')>0
+ OR instr(NEW.provider_schema_version,'..')>0 OR instr(NEW.preprocessing_version,'..')>0
+ OR instr(NEW.router_version,'..')>0 OR instr(NEW.redactor_version,'..')>0
+ OR instr(NEW.packet_schema_version,'://')>0 OR instr(NEW.adapter_version,'://')>0
+ OR instr(NEW.provider_schema_version,'://')>0 OR instr(NEW.preprocessing_version,'://')>0
+ OR instr(NEW.router_version,'://')>0 OR instr(NEW.redactor_version,'://')>0
+ OR NEW.packet_schema_version GLOB '[A-Za-z]:*' OR NEW.adapter_version GLOB '[A-Za-z]:*'
+ OR NEW.provider_schema_version GLOB '[A-Za-z]:*' OR NEW.preprocessing_version GLOB '[A-Za-z]:*'
+ OR NEW.router_version GLOB '[A-Za-z]:*' OR NEW.redactor_version GLOB '[A-Za-z]:*'
+BEGIN SELECT RAISE(ABORT,'estimator runtime metadata must be content-free'); END;
+CREATE TRIGGER estimator_runtime_observations_safe_codes BEFORE INSERT ON estimator_runtime_metric_observations
+WHEN NEW.observation_fingerprint IS NULL OR length(NEW.observation_fingerprint)<>64 OR NEW.observation_fingerprint GLOB '*[^0-9a-f]*'
+ OR (NEW.label_code IS NOT NULL AND (length(NEW.label_code) NOT BETWEEN 1 AND 128 OR NEW.label_code NOT GLOB '[a-z]*' OR NEW.label_code GLOB '*[^a-z0-9_.:-]*'))
+ OR (NEW.reason_code IS NOT NULL AND (length(NEW.reason_code) NOT BETWEEN 1 AND 128 OR NEW.reason_code NOT GLOB '[a-z]*' OR NEW.reason_code GLOB '*[^a-z0-9_.:-]*'))
+BEGIN SELECT RAISE(ABORT,'estimator runtime observation codes are invalid'); END;
+CREATE TRIGGER estimator_runtime_retrievals_safe_digests BEFORE INSERT ON estimator_runtime_retrievals
+WHEN length(NEW.query_fingerprint)<>64 OR NEW.query_fingerprint GLOB '*[^0-9a-f]*'
+ OR length(NEW.candidate_index_fingerprint)<>64 OR NEW.candidate_index_fingerprint GLOB '*[^0-9a-f]*'
+ OR length(NEW.retrieval_fingerprint)<>64 OR NEW.retrieval_fingerprint GLOB '*[^0-9a-f]*'
+BEGIN SELECT RAISE(ABORT,'estimator runtime retrieval digests are invalid'); END;
+
+CREATE TRIGGER estimator_runtime_packets_no_mutation BEFORE UPDATE ON estimator_runtime_authorization_packets BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_consumptions_no_mutation BEFORE UPDATE ON estimator_runtime_authorization_consumptions BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_revocations_no_mutation BEFORE UPDATE ON estimator_runtime_authorization_revocations BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_executions_no_mutation BEFORE UPDATE ON estimator_runtime_executions BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_bindings_no_mutation BEFORE UPDATE ON estimator_runtime_job_bindings BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_packet_receipts_no_mutation BEFORE UPDATE ON estimator_runtime_packet_receipts BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_packet_refs_no_mutation BEFORE UPDATE ON estimator_runtime_packet_refs BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_states_no_mutation BEFORE UPDATE ON estimator_runtime_state_receipts BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_attempts_no_mutation BEFORE UPDATE ON estimator_runtime_stage_attempts BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_observations_no_mutation BEFORE UPDATE ON estimator_runtime_metric_observations BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_observation_refs_no_mutation BEFORE UPDATE ON estimator_runtime_observation_refs BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_retrievals_no_mutation BEFORE UPDATE ON estimator_runtime_retrievals BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_candidates_no_mutation BEFORE UPDATE ON estimator_runtime_retrieval_candidates BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_hits_no_mutation BEFORE UPDATE ON estimator_runtime_retrieval_hits BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_outcomes_no_mutation BEFORE UPDATE ON estimator_runtime_stage_outcomes BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_checkpoints_no_mutation BEFORE UPDATE ON estimator_runtime_checkpoints BEGIN SELECT RAISE(ABORT,'estimator runtime receipt is immutable'); END;
+CREATE TRIGGER estimator_runtime_tombstones_no_mutation BEFORE UPDATE ON estimator_runtime_deletion_tombstones BEGIN SELECT RAISE(ABORT,'estimator runtime tombstone is immutable'); END;
+CREATE TRIGGER estimator_runtime_tombstones_no_delete BEFORE DELETE ON estimator_runtime_deletion_tombstones BEGIN SELECT RAISE(ABORT,'estimator runtime tombstone cannot be deleted'); END;
+
+-- Estimator queue roots and their selected metric set are writable only while
+-- the private runtime capability is live.  Public/generic queue paths never
+-- obtain this capability, and a binding seals the exact metric set forever.
+CREATE TRIGGER analysis_jobs_runtime_insert_guard BEFORE INSERT ON analysis_jobs
+WHEN NEW.kind='estimator_execution' AND NOT EXISTS (
+    SELECT 1 FROM estimator_runtime_write_authorizations a
+    WHERE a.job_id=NEW.job_id)
+BEGIN SELECT RAISE(ABORT,'estimator execution requires atomic runtime launch'); END;
+CREATE TRIGGER analysis_jobs_runtime_delete_guard BEFORE DELETE ON analysis_jobs
+WHEN OLD.kind='estimator_execution' AND NOT EXISTS (
+    SELECT 1 FROM estimator_runtime_write_authorizations a
+    JOIN estimator_runtime_authorizations r
+      ON r.authorization_id=a.authorization_id AND r.execution_id=a.execution_id
+    WHERE a.job_id=OLD.job_id AND r.job_id=OLD.job_id)
+BEGIN SELECT RAISE(ABORT,'estimator execution delete is not authorized'); END;
+CREATE TRIGGER analysis_job_metrics_runtime_insert_guard BEFORE INSERT ON analysis_job_metrics
+WHEN (SELECT kind FROM analysis_jobs WHERE job_id=NEW.job_id)='estimator_execution'
+ AND (EXISTS (SELECT 1 FROM estimator_runtime_job_bindings WHERE job_id=NEW.job_id)
+      OR NOT EXISTS (
+        SELECT 1 FROM estimator_runtime_authorizations r
+        JOIN estimator_runtime_write_authorizations a
+          ON a.authorization_id=r.authorization_id AND a.execution_id=r.execution_id
+        WHERE a.job_id=NEW.job_id AND r.job_id=NEW.job_id))
+BEGIN SELECT RAISE(ABORT,'estimator execution metric set is sealed'); END;
+CREATE TRIGGER analysis_job_metrics_runtime_delete_guard BEFORE DELETE ON analysis_job_metrics
+WHEN (SELECT kind FROM analysis_jobs WHERE job_id=OLD.job_id)='estimator_execution'
+ AND NOT EXISTS (
+    SELECT 1 FROM estimator_runtime_authorizations r
+    JOIN estimator_runtime_write_authorizations a
+      ON a.authorization_id=r.authorization_id AND a.execution_id=r.execution_id
+    WHERE a.job_id=OLD.job_id AND r.job_id=OLD.job_id)
+BEGIN SELECT RAISE(ABORT,'estimator execution metric delete is not authorized'); END;
+CREATE TRIGGER analysis_jobs_runtime_terminal_seal BEFORE UPDATE OF state ON analysis_jobs
+WHEN OLD.kind='estimator_execution'
+ AND NEW.state IN ('partial','failed','cancelled','superseded')
+ AND NOT EXISTS (
+    SELECT 1 FROM estimator_runtime_job_bindings b
+    JOIN estimator_runtime_state_receipts s ON s.execution_id=b.execution_id
+    WHERE b.job_id=OLD.job_id AND s.sequence=(
+        SELECT MAX(latest.sequence) FROM estimator_runtime_state_receipts latest
+        WHERE latest.execution_id=b.execution_id)
+      AND s.state=NEW.state AND s.reason_code=NEW.terminal_reason_code)
+BEGIN SELECT RAISE(ABORT,'estimator queue terminal state lacks exact runtime receipt'); END;
+
+CREATE TRIGGER estimator_runtime_packets_delete_guard BEFORE DELETE ON estimator_runtime_authorization_packets WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_consumptions_delete_guard BEFORE DELETE ON estimator_runtime_authorization_consumptions WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_revocations_delete_guard BEFORE DELETE ON estimator_runtime_authorization_revocations WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_executions_delete_guard BEFORE DELETE ON estimator_runtime_executions WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_bindings_delete_guard BEFORE DELETE ON estimator_runtime_job_bindings WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_receipts_delete_guard BEFORE DELETE ON estimator_runtime_packet_receipts WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_refs_delete_guard BEFORE DELETE ON estimator_runtime_packet_refs WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_states_delete_guard BEFORE DELETE ON estimator_runtime_state_receipts WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_attempts_delete_guard BEFORE DELETE ON estimator_runtime_stage_attempts WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_observations_delete_guard BEFORE DELETE ON estimator_runtime_metric_observations WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_observation_refs_delete_guard BEFORE DELETE ON estimator_runtime_observation_refs WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_retrievals_delete_guard BEFORE DELETE ON estimator_runtime_retrievals WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_candidates_delete_guard BEFORE DELETE ON estimator_runtime_retrieval_candidates WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_hits_delete_guard BEFORE DELETE ON estimator_runtime_retrieval_hits WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_outcomes_delete_guard BEFORE DELETE ON estimator_runtime_stage_outcomes WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+CREATE TRIGGER estimator_runtime_checkpoints_delete_guard BEFORE DELETE ON estimator_runtime_checkpoints WHEN NOT EXISTS (SELECT 1 FROM estimator_runtime_write_authorizations a WHERE a.authorization_id=OLD.authorization_id AND a.execution_id=OLD.execution_id AND a.authorization_tag=estimator_runtime_authorization_tag(a.operation_id,a.authorization_id,a.execution_id,a.job_id)) BEGIN SELECT RAISE(ABORT,'estimator runtime delete is not authorized'); END;
+
+CREATE INDEX estimator_runtime_session_idx ON estimator_runtime_executions(session_id,created_at_us DESC);
+CREATE INDEX estimator_runtime_attempt_idx ON estimator_runtime_stage_attempts(execution_id,metric_key,stage_ordinal);
+COMMIT;
+"""

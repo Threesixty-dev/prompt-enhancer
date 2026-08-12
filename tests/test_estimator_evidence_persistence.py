@@ -601,7 +601,7 @@ def test_campaign_privacy_delete_cascades_partial_and_final_evidence(tmp_path) -
 
 def test_schema_17_is_normalized_content_free_and_non_activating(tmp_path) -> None:
     database, _, _, _, _ = _registered(tmp_path)
-    assert SCHEMA_VERSION == 17
+    assert SCHEMA_VERSION == 18
     forbidden = {"json", "blob", "prompt", "excerpt", "rationale", "commentary", "prose", "path", "uri"}
     with database._connection(readonly=True) as connection:
         tables = connection.execute(
@@ -658,13 +658,14 @@ def test_v16_to_v17_preserves_campaign_and_seals_migration_ledger(tmp_path) -> N
     database = Database(path)
     database.initialize()
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
         rows = connection.execute(
             "SELECT version, checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert [row[0] for row in rows] == list(range(1, 18))
+        assert [row[0] for row in rows] == list(range(1, 19))
         assert rows[15][1] == hashlib.sha256(migrations.MIGRATION_16.encode()).hexdigest()
         assert rows[16][1] == hashlib.sha256(migrations.MIGRATION_17.encode()).hexdigest()
+        assert rows[17][1] == hashlib.sha256(migrations.MIGRATION_18.encode()).hexdigest()
         assert connection.execute("SELECT COUNT(*) FROM installations").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM estimator_evidence_submissions").fetchone()[0] == 0
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

@@ -30,6 +30,7 @@ MAX_ANALYSIS_JOB_STAGES = 32
 class AnalysisJobKind(StrEnum):
     SESSION_QUALITY = "session_quality"
     SYNTHETIC_VALIDATION = "synthetic_validation"
+    ESTIMATOR_EXECUTION = "estimator_execution"
 
 
 class AnalysisJobState(StrEnum):
