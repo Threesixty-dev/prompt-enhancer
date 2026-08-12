@@ -5781,3 +5781,277 @@ CREATE INDEX estimator_calibration_reports_campaign_idx ON estimator_calibration
 CREATE INDEX estimator_calibration_reports_submission_idx ON estimator_calibration_report_drafts(submission_id);
 COMMIT;
 """
+
+
+MIGRATION_20 = r"""
+BEGIN IMMEDIATE;
+
+-- V20 records only content-free, normalized gate checks derived from already
+-- sealed v16/v17/v19 rows.  It has no JSON/BLOB/prose column and deliberately
+-- creates no activation, enablement, comparison, export, or team-sharing slot.
+CREATE TABLE estimator_gate_decision_definitions (
+    definition_fingerprint TEXT PRIMARY KEY
+        CHECK(definition_fingerprint='745c8d174852c657b3aaca621a59d817a8cddca0af2ddab7700bd98060171ce3'),
+    contract_version TEXT NOT NULL CHECK(contract_version='gate-decision-definition-v1'),
+    definition_version TEXT NOT NULL CHECK(definition_version='repository-gate-policy-v1'),
+    evaluator_version TEXT NOT NULL CHECK(evaluator_version='repository-gate-evaluator-v1'),
+    lineage_version TEXT NOT NULL CHECK(lineage_version='sealed-v16-v17-v19-lineage-v1'),
+    missingness_version TEXT NOT NULL CHECK(missingness_version='unknown-never-zero-or-fail-v1'),
+    outcome_version TEXT NOT NULL CHECK(outcome_version='reject-or-insufficient-only-v1'),
+    threshold_version TEXT NOT NULL CHECK(threshold_version='preregistered-boundaries-v1'),
+    vocabulary_version TEXT NOT NULL CHECK(vocabulary_version='registered-policy-expanded-v1'),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0)
+);
+INSERT INTO estimator_gate_decision_definitions VALUES (
+    '745c8d174852c657b3aaca621a59d817a8cddca0af2ddab7700bd98060171ce3',
+    'gate-decision-definition-v1','repository-gate-policy-v1',
+    'repository-gate-evaluator-v1','sealed-v16-v17-v19-lineage-v1',
+    'unknown-never-zero-or-fail-v1','reject-or-insufficient-only-v1',
+    'preregistered-boundaries-v1','registered-policy-expanded-v1',0
+);
+CREATE TRIGGER estimator_gate_decision_definition_no_insert
+BEFORE INSERT ON estimator_gate_decision_definitions
+BEGIN SELECT RAISE(ABORT,'gate decision definition is sealed'); END;
+CREATE TRIGGER estimator_gate_decision_definition_no_update
+BEFORE UPDATE ON estimator_gate_decision_definitions
+BEGIN SELECT RAISE(ABORT,'gate decision definition is immutable'); END;
+CREATE TRIGGER estimator_gate_decision_definition_no_delete
+BEFORE DELETE ON estimator_gate_decision_definitions
+BEGIN SELECT RAISE(ABORT,'gate decision definition is retained'); END;
+
+CREATE TABLE estimator_gate_decision_append_authorizations (
+    operation_id TEXT PRIMARY KEY
+        CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    report_id TEXT NOT NULL REFERENCES estimator_calibration_report_roots(report_id) ON DELETE CASCADE,
+    decision_id TEXT NOT NULL
+        CHECK(length(decision_id)=64 AND decision_id NOT GLOB '*[^0-9a-f]*'),
+    job_id TEXT NOT NULL
+        CHECK(length(job_id)=64 AND job_id NOT GLOB '*[^0-9a-f]*'),
+    authorization_tag TEXT NOT NULL
+        CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*'),
+    UNIQUE(report_id,decision_id,job_id)
+);
+CREATE TRIGGER estimator_gate_decision_authorization_validate
+BEFORE INSERT ON estimator_gate_decision_append_authorizations
+WHEN NEW.authorization_tag<>estimator_gate_decision_authorization_tag(
+    NEW.operation_id,NEW.report_id,NEW.decision_id,NEW.job_id)
+BEGIN SELECT RAISE(ABORT,'gate decision append authorization is invalid'); END;
+CREATE TRIGGER estimator_gate_decision_authorization_no_update
+BEFORE UPDATE ON estimator_gate_decision_append_authorizations
+BEGIN SELECT RAISE(ABORT,'gate decision append authorization is immutable'); END;
+CREATE TRIGGER estimator_gate_decision_authorization_no_delete
+BEFORE DELETE ON estimator_gate_decision_append_authorizations
+WHEN OLD.authorization_tag<>estimator_gate_decision_authorization_tag(
+    OLD.operation_id,OLD.report_id,OLD.decision_id,OLD.job_id)
+BEGIN SELECT RAISE(ABORT,'gate decision append authorization deletion is invalid'); END;
+
+CREATE TABLE estimator_gate_decision_drafts (
+    decision_id TEXT PRIMARY KEY
+        CHECK(length(decision_id)=64 AND decision_id NOT GLOB '*[^0-9a-f]*'),
+    report_id TEXT NOT NULL UNIQUE REFERENCES estimator_calibration_report_roots(report_id) ON DELETE CASCADE,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    campaign_fingerprint TEXT NOT NULL CHECK(length(campaign_fingerprint)=64 AND campaign_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    stored_plan_fingerprint TEXT NOT NULL CHECK(length(stored_plan_fingerprint)=64 AND stored_plan_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64 AND policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    assignment_manifest_fingerprint TEXT NOT NULL CHECK(length(assignment_manifest_fingerprint)=64 AND assignment_manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    split_fingerprint TEXT NOT NULL CHECK(length(split_fingerprint)=64 AND split_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    preregistration_fingerprint TEXT NOT NULL CHECK(length(preregistration_fingerprint)=64 AND preregistration_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    preregistration_v2_fingerprint TEXT NOT NULL CHECK(length(preregistration_v2_fingerprint)=64 AND preregistration_v2_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    constellation_fingerprint TEXT NOT NULL CHECK(length(constellation_fingerprint)=64 AND constellation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    submission_id TEXT NOT NULL UNIQUE REFERENCES estimator_evidence_submissions(submission_id) ON DELETE CASCADE,
+    submission_fingerprint TEXT NOT NULL CHECK(length(submission_fingerprint)=64 AND submission_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    report_receipt_id TEXT NOT NULL UNIQUE CHECK(length(report_receipt_id)=64 AND report_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    report_fingerprint TEXT NOT NULL UNIQUE CHECK(length(report_fingerprint)=64 AND report_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    report_receipt_fingerprint TEXT NOT NULL UNIQUE CHECK(length(report_receipt_fingerprint)=64 AND report_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    report_definition_fingerprint TEXT NOT NULL REFERENCES estimator_calibration_report_definitions(definition_fingerprint),
+    report_source_bundle_fingerprint TEXT NOT NULL CHECK(length(report_source_bundle_fingerprint)=64 AND report_source_bundle_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    definition_fingerprint TEXT NOT NULL REFERENCES estimator_gate_decision_definitions(definition_fingerprint),
+    evaluator_version TEXT NOT NULL CHECK(evaluator_version='repository-gate-evaluator-v1'),
+    check_set_fingerprint TEXT NOT NULL UNIQUE CHECK(length(check_set_fingerprint)=64 AND check_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    outcome TEXT NOT NULL CHECK(outcome IN ('rejected','insufficient_data')),
+    check_count INTEGER NOT NULL CHECK(check_count BETWEEN 1 AND 65535),
+    campaign_registered_at_us INTEGER NOT NULL CHECK(typeof(campaign_registered_at_us)='integer' AND campaign_registered_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    submission_submitted_at_us INTEGER NOT NULL CHECK(typeof(submission_submitted_at_us)='integer' AND submission_submitted_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    report_derived_at_us INTEGER NOT NULL CHECK(typeof(report_derived_at_us)='integer' AND report_derived_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    derived_at_us INTEGER NOT NULL CHECK(typeof(derived_at_us)='integer' AND derived_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    CHECK(campaign_registered_at_us<=submission_submitted_at_us),
+    CHECK(submission_submitted_at_us<=report_derived_at_us),
+    CHECK(report_derived_at_us<=derived_at_us)
+);
+CREATE TRIGGER estimator_gate_decision_draft_insert_guard
+BEFORE INSERT ON estimator_gate_decision_drafts
+WHEN EXISTS (SELECT 1 FROM estimator_gate_decision_roots WHERE decision_id=NEW.decision_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM estimator_gate_decision_append_authorizations a
+    WHERE a.report_id=NEW.report_id AND a.decision_id=NEW.decision_id
+      AND a.authorization_tag=estimator_gate_decision_authorization_tag(
+          a.operation_id,a.report_id,a.decision_id,a.job_id))
+BEGIN SELECT RAISE(ABORT,'gate decision draft append is not authorized or is sealed'); END;
+
+CREATE TABLE estimator_gate_decision_checks (
+    decision_id TEXT NOT NULL REFERENCES estimator_gate_decision_drafts(decision_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 65534),
+    contract_version TEXT NOT NULL CHECK(contract_version='gate-decision-check-v1'),
+    check_key TEXT NOT NULL CHECK(length(check_key) BETWEEN 1 AND 192 AND check_key GLOB '[a-z]*' AND check_key NOT GLOB '*[^a-z0-9._-]*'),
+    category TEXT NOT NULL CHECK(category IN ('integrity','policy')),
+    outcome TEXT NOT NULL CHECK(outcome IN ('pass','fail','insufficient_data','unsupported')),
+    operator TEXT NOT NULL CHECK(operator IN ('eq','gte','gt','lte','lt')),
+    actual_shape TEXT NOT NULL CHECK(actual_shape IN ('none','count','scalar','rate')),
+    actual_unit_code TEXT NOT NULL CHECK(length(actual_unit_code) BETWEEN 1 AND 192 AND actual_unit_code GLOB '[a-z]*' AND actual_unit_code NOT GLOB '*[^a-z0-9._-]*'),
+    actual_integer_value INTEGER CHECK(actual_integer_value BETWEEN -9007199254740991 AND 9007199254740991),
+    actual_scalar_value REAL CHECK(actual_scalar_value IS NULL OR typeof(actual_scalar_value)='real'),
+    threshold_shape TEXT NOT NULL CHECK(threshold_shape IN ('none','count','scalar','rate')),
+    threshold_unit_code TEXT NOT NULL CHECK(length(threshold_unit_code) BETWEEN 1 AND 192 AND threshold_unit_code GLOB '[a-z]*' AND threshold_unit_code NOT GLOB '*[^a-z0-9._-]*'),
+    threshold_integer_value INTEGER CHECK(threshold_integer_value BETWEEN -9007199254740991 AND 9007199254740991),
+    threshold_scalar_value REAL CHECK(threshold_scalar_value IS NULL OR typeof(threshold_scalar_value)='real'),
+    reason_code TEXT CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 192 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9._-]*')),
+    check_fingerprint TEXT NOT NULL CHECK(length(check_fingerprint)=64 AND check_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(decision_id,ordinal), UNIQUE(decision_id,check_key), UNIQUE(decision_id,check_fingerprint),
+    CHECK(
+      (actual_shape='none' AND actual_unit_code='none' AND actual_integer_value IS NULL AND actual_scalar_value IS NULL)
+      OR (actual_shape='count' AND actual_unit_code<>'none' AND actual_integer_value IS NOT NULL AND actual_integer_value>=0 AND actual_scalar_value IS NULL)
+      OR (actual_shape='scalar' AND actual_unit_code<>'none' AND actual_integer_value IS NULL AND actual_scalar_value IS NOT NULL)
+      OR (actual_shape='rate' AND actual_unit_code='ratio' AND actual_integer_value IS NULL AND actual_scalar_value BETWEEN 0.0 AND 1.0)
+    ),
+    CHECK(
+      (threshold_shape='none' AND threshold_unit_code='none' AND threshold_integer_value IS NULL AND threshold_scalar_value IS NULL)
+      OR (threshold_shape='count' AND threshold_unit_code<>'none' AND threshold_integer_value IS NOT NULL AND threshold_integer_value>=0 AND threshold_scalar_value IS NULL)
+      OR (threshold_shape='scalar' AND threshold_unit_code<>'none' AND threshold_integer_value IS NULL AND threshold_scalar_value IS NOT NULL)
+      OR (threshold_shape='rate' AND threshold_unit_code='ratio' AND threshold_integer_value IS NULL AND threshold_scalar_value BETWEEN 0.0 AND 1.0)
+    ),
+    CHECK(
+      (outcome IN ('pass','fail') AND actual_shape<>'none'
+       AND actual_shape=threshold_shape AND actual_unit_code=threshold_unit_code
+       AND ((outcome='pass' AND reason_code IS NULL) OR (outcome='fail' AND reason_code IS NOT NULL)))
+      OR (outcome IN ('insufficient_data','unsupported') AND actual_shape='none'
+          AND reason_code IS NOT NULL)
+    ),
+    CHECK(
+      outcome IN ('insufficient_data','unsupported') OR
+      (operator='eq' AND ((actual_integer_value IS NOT NULL AND (outcome='pass')=(actual_integer_value=threshold_integer_value)) OR (actual_scalar_value IS NOT NULL AND (outcome='pass')=(actual_scalar_value=threshold_scalar_value)))) OR
+      (operator='gte' AND ((actual_integer_value IS NOT NULL AND (outcome='pass')=(actual_integer_value>=threshold_integer_value)) OR (actual_scalar_value IS NOT NULL AND (outcome='pass')=(actual_scalar_value>=threshold_scalar_value)))) OR
+      (operator='gt' AND ((actual_integer_value IS NOT NULL AND (outcome='pass')=(actual_integer_value>threshold_integer_value)) OR (actual_scalar_value IS NOT NULL AND (outcome='pass')=(actual_scalar_value>threshold_scalar_value)))) OR
+      (operator='lte' AND ((actual_integer_value IS NOT NULL AND (outcome='pass')=(actual_integer_value<=threshold_integer_value)) OR (actual_scalar_value IS NOT NULL AND (outcome='pass')=(actual_scalar_value<=threshold_scalar_value)))) OR
+      (operator='lt' AND ((actual_integer_value IS NOT NULL AND (outcome='pass')=(actual_integer_value<threshold_integer_value)) OR (actual_scalar_value IS NOT NULL AND (outcome='pass')=(actual_scalar_value<threshold_scalar_value))))
+    )
+);
+CREATE TRIGGER estimator_gate_decision_check_insert_guard
+BEFORE INSERT ON estimator_gate_decision_checks
+WHEN EXISTS (SELECT 1 FROM estimator_gate_decision_roots WHERE decision_id=NEW.decision_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM estimator_gate_decision_drafts d
+    JOIN estimator_gate_decision_append_authorizations a
+      ON a.report_id=d.report_id AND a.decision_id=d.decision_id
+    WHERE d.decision_id=NEW.decision_id
+      AND a.authorization_tag=estimator_gate_decision_authorization_tag(
+          a.operation_id,a.report_id,a.decision_id,a.job_id))
+BEGIN SELECT RAISE(ABORT,'gate decision check append is not authorized or is sealed'); END;
+
+CREATE TABLE estimator_gate_decision_roots (
+    decision_id TEXT PRIMARY KEY REFERENCES estimator_gate_decision_drafts(decision_id) ON DELETE CASCADE,
+    contract_version TEXT NOT NULL CHECK(contract_version='repository-sealed-gate-decision-v1'),
+    decision_fingerprint TEXT NOT NULL UNIQUE CHECK(length(decision_fingerprint)=64 AND decision_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    check_set_fingerprint TEXT NOT NULL UNIQUE CHECK(length(check_set_fingerprint)=64 AND check_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    definition_fingerprint TEXT NOT NULL REFERENCES estimator_gate_decision_definitions(definition_fingerprint),
+    evaluator_version TEXT NOT NULL CHECK(evaluator_version='repository-gate-evaluator-v1'),
+    outcome TEXT NOT NULL CHECK(outcome IN ('rejected','insufficient_data')),
+    check_count INTEGER NOT NULL CHECK(check_count BETWEEN 1 AND 65535),
+    derived_at_us INTEGER NOT NULL CHECK(typeof(derived_at_us)='integer' AND derived_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    repository_owned INTEGER NOT NULL CHECK(repository_owned=1),
+    repository_sealed INTEGER NOT NULL CHECK(repository_sealed=1),
+    persistence_state TEXT NOT NULL CHECK(persistence_state='repository_sealed'),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    activation_slot_written INTEGER NOT NULL CHECK(activation_slot_written=0),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0)
+);
+CREATE TRIGGER estimator_gate_decision_root_insert_guard
+BEFORE INSERT ON estimator_gate_decision_roots
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM estimator_gate_decision_drafts d
+    JOIN estimator_calibration_report_drafts rd ON rd.report_id=d.report_id
+    JOIN estimator_calibration_report_roots rr ON rr.report_id=d.report_id
+    JOIN estimator_evidence_submissions s ON s.submission_id=d.submission_id
+    JOIN estimator_gate_campaigns c ON c.campaign_id=d.campaign_id
+    JOIN estimator_gate_decision_append_authorizations a
+      ON a.report_id=d.report_id AND a.decision_id=d.decision_id
+    WHERE d.decision_id=NEW.decision_id
+      AND d.check_set_fingerprint=NEW.check_set_fingerprint
+      AND d.definition_fingerprint=NEW.definition_fingerprint
+      AND d.evaluator_version=NEW.evaluator_version
+      AND d.outcome=NEW.outcome AND d.check_count=NEW.check_count
+      AND d.derived_at_us=NEW.derived_at_us
+      AND c.campaign_fingerprint=d.campaign_fingerprint
+      AND c.stored_plan_fingerprint=d.stored_plan_fingerprint
+      AND c.policy_fingerprint=d.policy_fingerprint
+      AND c.assignment_manifest_fingerprint=d.assignment_manifest_fingerprint
+      AND c.split_fingerprint=d.split_fingerprint
+      AND c.legacy_preregistration_fingerprint=d.preregistration_fingerprint
+      AND c.preregistration_v2_fingerprint=d.preregistration_v2_fingerprint
+      AND c.constellation_fingerprint=d.constellation_fingerprint
+      AND s.campaign_id=d.campaign_id AND s.submission_fingerprint=d.submission_fingerprint
+      AND rd.campaign_id=d.campaign_id AND rd.campaign_fingerprint=d.campaign_fingerprint
+      AND rd.submission_id=d.submission_id AND rd.submission_fingerprint=d.submission_fingerprint
+      AND rd.stored_plan_fingerprint=d.stored_plan_fingerprint
+      AND rd.policy_fingerprint=d.policy_fingerprint
+      AND rd.assignment_manifest_fingerprint=d.assignment_manifest_fingerprint
+      AND rd.split_fingerprint=d.split_fingerprint
+      AND rd.preregistration_fingerprint=d.preregistration_fingerprint
+      AND rd.preregistration_v2_fingerprint=d.preregistration_v2_fingerprint
+      AND rd.constellation_fingerprint=d.constellation_fingerprint
+      AND rd.source_bundle_fingerprint=d.report_source_bundle_fingerprint
+      AND rd.report_fingerprint=d.report_fingerprint
+      AND rd.definition_fingerprint=d.report_definition_fingerprint
+      AND rr.receipt_id=d.report_receipt_id
+      AND rr.report_fingerprint=d.report_fingerprint
+      AND rr.receipt_fingerprint=d.report_receipt_fingerprint
+      AND rr.definition_fingerprint=d.report_definition_fingerprint
+      AND rr.derived_at_us=d.report_derived_at_us
+      AND rr.repository_owned=1 AND rr.repository_sealed=1
+      AND rr.comparison_allowed=0 AND rr.activation_allowed=0
+      AND rr.private_export_allowed=0 AND rr.team_share_allowed=0
+      AND a.authorization_tag=estimator_gate_decision_authorization_tag(
+          a.operation_id,a.report_id,a.decision_id,a.job_id))
+ OR NEW.check_count<>(SELECT COUNT(*) FROM estimator_gate_decision_checks WHERE decision_id=NEW.decision_id)
+ OR (SELECT MIN(ordinal) FROM estimator_gate_decision_checks WHERE decision_id=NEW.decision_id)<>0
+ OR (SELECT MAX(ordinal) FROM estimator_gate_decision_checks WHERE decision_id=NEW.decision_id)<>NEW.check_count-1
+ OR (NEW.outcome='rejected' AND NOT EXISTS (SELECT 1 FROM estimator_gate_decision_checks WHERE decision_id=NEW.decision_id AND outcome='fail'))
+ OR (NEW.outcome='insufficient_data' AND (EXISTS (SELECT 1 FROM estimator_gate_decision_checks WHERE decision_id=NEW.decision_id AND outcome='fail') OR NOT EXISTS (SELECT 1 FROM estimator_gate_decision_checks WHERE decision_id=NEW.decision_id AND outcome IN ('insufficient_data','unsupported'))))
+BEGIN SELECT RAISE(ABORT,'gate decision root lineage, checks, or outcome are inconsistent'); END;
+
+CREATE TRIGGER estimator_gate_decision_draft_no_update
+BEFORE UPDATE ON estimator_gate_decision_drafts
+BEGIN SELECT RAISE(ABORT,'gate decision is immutable'); END;
+CREATE TRIGGER estimator_gate_decision_check_no_update
+BEFORE UPDATE ON estimator_gate_decision_checks
+BEGIN SELECT RAISE(ABORT,'gate decision is immutable'); END;
+CREATE TRIGGER estimator_gate_decision_root_no_update
+BEFORE UPDATE ON estimator_gate_decision_roots
+BEGIN SELECT RAISE(ABORT,'gate decision is immutable'); END;
+CREATE TRIGGER estimator_gate_decision_draft_no_delete
+BEFORE DELETE ON estimator_gate_decision_drafts
+WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns c WHERE c.campaign_id=OLD.campaign_id)
+BEGIN SELECT RAISE(ABORT,'gate decision requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_gate_decision_check_no_delete
+BEFORE DELETE ON estimator_gate_decision_checks
+WHEN EXISTS (
+    SELECT 1 FROM estimator_gate_decision_drafts d
+    JOIN estimator_gate_campaigns c ON c.campaign_id=d.campaign_id
+    WHERE d.decision_id=OLD.decision_id)
+BEGIN SELECT RAISE(ABORT,'gate decision requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_gate_decision_root_no_delete
+BEFORE DELETE ON estimator_gate_decision_roots
+WHEN EXISTS (
+    SELECT 1 FROM estimator_gate_decision_drafts d
+    JOIN estimator_gate_campaigns c ON c.campaign_id=d.campaign_id
+    WHERE d.decision_id=OLD.decision_id)
+BEGIN SELECT RAISE(ABORT,'gate decision requires campaign privacy deletion'); END;
+
+CREATE INDEX estimator_gate_decision_campaign_idx
+    ON estimator_gate_decision_drafts(campaign_id,derived_at_us DESC);
+CREATE INDEX estimator_gate_decision_report_idx
+    ON estimator_gate_decision_drafts(report_id);
+COMMIT;
+"""

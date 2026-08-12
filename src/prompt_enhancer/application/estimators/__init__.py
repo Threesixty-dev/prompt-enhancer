@@ -137,6 +137,27 @@ from .calibration_report_persistence import (
     repository_calibration_receipt_id,
     revalidate_repository_sealed_calibration_report_v1,
 )
+from .gate_decision_contracts import (
+    FIXED_GATE_DECISION_DEFINITION,
+    GATE_DECISION_EVALUATOR_V1,
+    REPOSITORY_SEALED_GATE_DECISION_V1,
+    GateDecisionCheckCategory,
+    GateDecisionCheckOutcome,
+    GateDecisionCheckV1,
+    GateDecisionDefinitionV1,
+    GateDecisionOperator,
+    GateDecisionOutcome,
+    GateDecisionRepository,
+    GateDecisionValueShape,
+    GateDecisionValueV1,
+    RepositorySealedGateDecisionV1,
+    repository_gate_decision_id,
+    revalidate_repository_sealed_gate_decision_v1,
+)
+from .gate_decision_evaluation import (
+    derive_repository_sealed_gate_decision_v1,
+    repository_gate_check_vocabulary,
+)
 
 __all__ = (
     "ADJUDICATION_CONTRACT_VERSION",
@@ -266,4 +287,21 @@ __all__ = (
     "RepositorySealedCalibrationReportV1",
     "repository_calibration_receipt_id",
     "revalidate_repository_sealed_calibration_report_v1",
+    "FIXED_GATE_DECISION_DEFINITION",
+    "GATE_DECISION_EVALUATOR_V1",
+    "REPOSITORY_SEALED_GATE_DECISION_V1",
+    "GateDecisionCheckCategory",
+    "GateDecisionCheckOutcome",
+    "GateDecisionCheckV1",
+    "GateDecisionDefinitionV1",
+    "GateDecisionOperator",
+    "GateDecisionOutcome",
+    "GateDecisionRepository",
+    "GateDecisionValueShape",
+    "GateDecisionValueV1",
+    "RepositorySealedGateDecisionV1",
+    "repository_gate_decision_id",
+    "revalidate_repository_sealed_gate_decision_v1",
+    "derive_repository_sealed_gate_decision_v1",
+    "repository_gate_check_vocabulary",
 )

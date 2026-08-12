@@ -919,11 +919,11 @@ def test_v15_to_v16_preserves_rows_and_seals_migration_ledger(tmp_path) -> None:
 
     Database(path).initialize()
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         rows = connection.execute(
             "SELECT version, checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert [row[0] for row in rows] == list(range(1, 20))
+        assert [row[0] for row in rows] == list(range(1, 21))
         assert rows[14][1] == expected_v15_checksum
         assert rows[15][1] == hashlib.sha256(
             migrations.MIGRATION_16.encode()
@@ -943,10 +943,10 @@ def test_v15_to_v16_preserves_rows_and_seals_migration_ledger(tmp_path) -> None:
 
 def test_schema_16_is_normalized_and_has_no_content_columns(tmp_path) -> None:
     database, _ = _repository(tmp_path)
-    assert SCHEMA_VERSION == 19
+    assert SCHEMA_VERSION == 20
     forbidden = {"json", "blob", "prompt", "excerpt", "response", "rationale", "commentary", "prose"}
     with database._connection(readonly=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         tables = (
             "estimator_gate_policies",
             "estimator_gate_policy_strata",

@@ -81,10 +81,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_17,
     MIGRATION_18,
     MIGRATION_19,
+    MIGRATION_20,
 )
 
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -341,7 +342,68 @@ class Database:
             tuple[str, str, str, str, str]
         ] = set()
         self._estimator_calibration_report_authorization_lock = threading.Lock()
+        self._estimator_gate_decision_authorization_secret = secrets.token_bytes(32)
+        self._estimator_gate_decision_authorizations: set[
+            tuple[str, str, str, str, str]
+        ] = set()
+        self._estimator_gate_decision_authorization_lock = threading.Lock()
         self._initialization_lock = threading.Lock()
+
+    def _estimator_gate_decision_authorization_tag(
+        self,
+        operation_id: str,
+        report_id: str,
+        decision_id: str,
+        job_id: str,
+    ) -> str:
+        candidate = hmac.new(
+            self._estimator_gate_decision_authorization_secret,
+            (
+                "estimator-gate-decision-write-v1:"
+                f"{operation_id}:{report_id}:{decision_id}:{job_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_gate_decision_authorization_lock:
+            active = (
+                operation_id,
+                report_id,
+                decision_id,
+                job_id,
+                candidate,
+            ) in self._estimator_gate_decision_authorizations
+        return candidate if active else ""
+
+    def _begin_estimator_gate_decision_authorization(
+        self, report_id: str, decision_id: str, job_id: str
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        tag = hmac.new(
+            self._estimator_gate_decision_authorization_secret,
+            (
+                "estimator-gate-decision-write-v1:"
+                f"{operation_id}:{report_id}:{decision_id}:{job_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_gate_decision_authorization_lock:
+            self._estimator_gate_decision_authorizations.add(
+                (operation_id, report_id, decision_id, job_id, tag)
+            )
+        return operation_id, tag
+
+    def _end_estimator_gate_decision_authorization(
+        self,
+        operation_id: str,
+        report_id: str,
+        decision_id: str,
+        job_id: str,
+        tag: str,
+    ) -> None:
+        with self._estimator_gate_decision_authorization_lock:
+            self._estimator_gate_decision_authorizations.discard(
+                (operation_id, report_id, decision_id, job_id, tag)
+            )
 
     def _estimator_calibration_report_authorization_tag(
         self,
@@ -604,6 +666,12 @@ class Database:
                 self._estimator_calibration_report_authorization_tag,
                 deterministic=False,
             )
+            connection.create_function(
+                "estimator_gate_decision_authorization_tag",
+                4,
+                self._estimator_gate_decision_authorization_tag,
+                deterministic=False,
+            )
             if readonly:
                 connection.execute("PRAGMA query_only = ON")
             yield connection
@@ -641,6 +709,7 @@ class Database:
                 (17, MIGRATION_17),
                 (18, MIGRATION_18),
                 (19, MIGRATION_19),
+                (20, MIGRATION_20),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -845,6 +914,25 @@ class Database:
             ),
             end_write_authorization=(
                 self._end_estimator_calibration_report_authorization
+            ),
+        )
+
+    def gate_decision_repository(self):
+        """Return repository-sealed, non-activating gate decisions."""
+
+        from .infrastructure.sqlite.gate_decisions import (
+            SqliteGateDecisionRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteGateDecisionRepository(
+            self._connection,
+            self._ensure_initialized,
+            begin_write_authorization=(
+                self._begin_estimator_gate_decision_authorization
+            ),
+            end_write_authorization=(
+                self._end_estimator_gate_decision_authorization
             ),
         )
 
