@@ -19,7 +19,7 @@ local runtime artifacts must never be added here.
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
-| P1 | In progress | Sealed v17 calibration evidence plus an untrusted, non-activating calibration-report foundation; serialized runtime persistence is not yet a committed checkpoint | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, repository-derived report, sealed gate decision, or product-enabled estimator |
+| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, plus an untrusted, non-activating calibration-report foundation | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, repository-derived report, sealed gate decision, calibrated model-stage runtime, or product-enabled estimator |
 | P2 | In progress | Prospective, untrusted temporal contracts and capture-lineage foundations only | Prospective comparable recommendation outcomes with missingness and adverse effects visible | No temporal persistence, repository-materialized snapshots, recommendations, or model/job/history views; no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
@@ -301,6 +301,28 @@ added by `c261ed2`. Its focused 20-test contract suite, compile checks, privacy
 scan, diff validation, and adversarial review passed; none converts the output
 into trusted calibration evidence.
 
+Checkpoint `0fabec0` adds the first durable estimator execution runtime without
+weakening the synthetic-calibration or product-metric boundaries. A one-shot,
+local authorization is consumed atomically with an exact job, session, project,
+provider, plan, question, metric, redactor, source-window, and packet binding.
+The worker persists append-only state, stage-attempt, terminal-outcome,
+checkpoint, objective-observation, and BM25 retrieval receipts. Queue scope,
+grant scope, packet provenance, stage fingerprints, attempt order, and terminal
+state are independently sealed in application and SQLite boundaries.
+
+This runtime deliberately stops after objective/readiness and BM25 with state
+`partial` and reason `local_model_runtime_not_enabled`. It does not enter local
+embedding, reranking, specialist, second-opinion, or adjudication stages; it
+does not create calibrated votes or estimates; and it never writes the product
+`metric_results` projection. Crash and lease recovery record interrupted
+attempts or repair already-durable outputs into exact outcomes and checkpoints
+without duplicate receipts. Generic queue APIs cannot create or mutate an
+orphan estimator execution. Secure deletion retains only the registered safe
+plan and does not report physical purge until the WAL is truncated. The final
+gate passed 1,223 backend tests with 4 platform skips, privacy and compile
+checks, and two adversarial review rounds. These results prove the bounded
+runtime implementation, not model validity or activation eligibility.
+
 ## P2 foundation evidence
 
 Checkpoints `249f6c0` and `4db7052` define a prospective, content-free temporal
@@ -315,6 +337,20 @@ batch, observation scope, provider identity, and preprocessing/redaction/router
 provenance to agree rather than inferring compatibility from timestamps or row
 counts. The combined contract gate passed 67 focused tests plus the privacy and
 compile checks.
+
+Checkpoint `083ce8f` corrects the prospective capture vocabulary before any
+schema depends on it. It distinguishes the keyed selected-redacted-message
+window from separate selected-window and post-floor observed-source manifests,
+binds selection identity to the exact pack, catalog, and source authority, and
+binds session revisions to both predecessor ID and fingerprint. The first
+repository implementation may classify only first, provenance-boundary, or
+changed/reordered revisions; it cannot claim an append prefix from increasing
+counts. Zero-of-zero evidence coverage has an explicit versioned state rather
+than being silently dropped or coerced. The public batch-seal draft remains
+untrusted, unsealed, repository-verification-required, comparison-disabled,
+snapshot-disabled, and activation-disabled. Its 82-test combined temporal gate
+and adversarial review passed, including a coordinated chronology/fingerprint
+forgery; no temporal storage or authority was added.
 
 These are contracts, not temporal storage. A history root requires a
 server-clock floor and rejects pre-floor data; selections and input receipts are
