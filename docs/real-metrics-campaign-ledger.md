@@ -18,8 +18,8 @@ local runtime artifacts must never be added here.
 | Phase | Status | Current scope | Acceptance gate | Open blockers |
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
-| P0 | In progress | Runtime truth, metric readiness, radar fallback, one-shot preview/approval, typed evidence contracts, durable local jobs, local automation, Job Centre, and real-loopback recovery/privacy E2E are complete | Full-browser local-transport E2E plus strict selected-metric automation scope, revocation, cancellation, supersession, change-during-run, and no-private-persistence tests | Project Automation settings UI and selected-metric execution integrity remain; Codex exposes only documented request/response/plan coaching text, so 7 of 20 structures stay unsupported |
-| P1 | Blocked by P0 gate | Serialized estimator cascade, generic run/vote records, calibration, reviewed runners, and model comparison | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout; no estimator is product-enabled |
+| P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
+| P1 | In progress | Serialized estimator cascade, generic run/vote records, calibration, reviewed runners, and model comparison | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout; no estimator is product-enabled |
 | P2 | Blocked by P1 gate | Immutable temporal snapshots, compatible aggregation, recommendations, and model/job/history views | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Requires calibrated P1 estimates and completed P0 provenance boundaries |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
@@ -81,11 +81,36 @@ The combined continuation gate passed 703 Python tests with 4 platform skips,
 frontend build, and the privacy scanner. The exact test totals belong to this
 checkpoint only; they are not estimator-calibration evidence.
 
-P0 remains open. Automation grants already bind a selected metric set into the
-job identity, but execution must prove that unselected metrics are neither
-computed nor persisted. The project Automation settings UI and a full-browser
-local-HTTP synthetic-provider path also remain. Unsupported provider evidence
-continues to abstain; neither an LLM nor a deterministic rule fills it.
+The subsequent P0 checkpoints ending at `9afdedb`, `22752c7`, and `d4e129f`
+closed the remaining scope, preview, and revocation conditions:
+
+1. immutable analysis runs now persist their exact selected metric set;
+2. `{A}` and `{A,B}` runs combine for compatible observations of `A`, while
+   omission of `B` remains distinct from missing, failed, and legacy-unknown;
+3. migrated scope is marked exact only when it can be proven, and migration 14
+   repairs unprovable schema-13 classifications without changing migration-13
+   checksums;
+4. preview expiry uses both UTC receipt time and an internal monotonic deadline,
+   with atomic one-shot redemption and rollback-clock tests;
+5. automation result activation validates the exact job, grant, worker lease,
+   provider, project, session, and metric scope in the same SQLite write
+   transaction. A revocation that wins that transaction publishes no results;
+6. project Automation settings, selected-metric execution, Job Centre, packaged
+   route refresh, synthetic browser coverage, and local-real browser coverage
+   are implemented.
+
+The final P0 backend gate passed 795 tests with 4 platform-only symlink skips.
+The last unchanged frontend gate passed 362 unit tests, the production build,
+13 synthetic-browser tests, and 3 local-real browser tests. The privacy scanner,
+compile checks, and staged-diff validation passed. These are engineering and
+privacy gates, not calibration evidence.
+
+Blinded, content-free P0 review packets were evaluated by GPT-5.6 Sol, Claude
+Opus 5, and Claude Fable 5. All three returned `pass_with_conditions` with no
+P0 blocker. Their bounded conditions are carried into P1/P2: persist a complete
+gate manifest, measure performance and usability budgets, and never activate a
+model without representative human calibration. Reviewer agreement is advisory
+and is not ground truth.
 
 ## Version inventory
 
