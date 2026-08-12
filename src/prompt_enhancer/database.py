@@ -73,10 +73,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_11,
     MIGRATION_12,
     MIGRATION_13,
+    MIGRATION_14,
 )
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -319,6 +320,7 @@ class Database:
                 (11, MIGRATION_11),
                 (12, MIGRATION_12),
                 (13, MIGRATION_13),
+                (14, MIGRATION_14),
             )
             with self._connection() as connection:
                 database_version = int(

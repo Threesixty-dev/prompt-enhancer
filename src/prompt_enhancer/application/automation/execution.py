@@ -27,6 +27,7 @@ from ..jobs import (
     AnalysisJobRecord,
     AnalysisJobState,
 )
+from ..persistence import SessionAnalysisCompletionAuthority
 from .contracts import (
     AutomationCandidateSource,
     AutomationGrantRepository,
@@ -105,6 +106,18 @@ class SessionQualityAutomationHandler:
         context: AnalysisJobExecutionContext,
     ) -> AnalysisJobExecutionResult:
         context.enter_stage(2, progress_completed=0, progress_total=1)
+        grant_id = job.identity.automation_grant_id
+        if grant_id is None:
+            raise AnalysisJobExecutionError(
+                "automation_authorization_revoked",
+                retryable=False,
+            )
+        completion_authority = SessionAnalysisCompletionAuthority(
+            job_id=job.job_id,
+            automation_grant_id=grant_id,
+            lease_owner=context.lease.owner,
+            lease_token=context.lease.token,
+        )
         try:
             outcome = self._analyses.run_preset(
                 provider=job.identity.provider,
@@ -116,6 +129,7 @@ class SessionQualityAutomationHandler:
                 confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
                 idempotency_key=f"automation-{job.job_id}",
                 selected_metric_keys=job.identity.metric_keys,
+                completion_authority=completion_authority,
             )
         except (
             SessionTextAnalysisConsentError,

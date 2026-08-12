@@ -18,6 +18,7 @@ from typing import Protocol
 from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTERN
 from ..persistence import (
     AnalysisRunStatus,
+    SessionAnalysisCompletionAuthority,
     SessionAnalysisEvidenceRecord,
     SessionAnalysisSignalRecord,
     SessionAnalysisResultRecord,
@@ -457,6 +458,7 @@ class SessionTextAnalysisService:
         confirmation: str,
         idempotency_key: str,
         selected_metric_keys: tuple[str, ...] | None = None,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
     ) -> SessionTextAnalysisOutcome:
         """Resolve a versioned server-owned profile before any provider access.
 
@@ -482,6 +484,7 @@ class SessionTextAnalysisService:
             metric_pack_key=preset.metric_pack_key,
             metric_pack_version=preset.metric_pack_version,
             selected_metric_keys=selected_metric_keys,
+            completion_authority=completion_authority,
         )
 
     def prepare_preset_preview(
@@ -657,6 +660,7 @@ class SessionTextAnalysisService:
         metric_pack_version: int,
         selected_metric_keys: tuple[str, ...] | None = None,
         prepared_context: P1TextAnalysisInput | None = None,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
     ) -> SessionTextAnalysisOutcome:
         effective_metric_keys = _resolve_metric_selection(
             metric_engine,
@@ -752,6 +756,7 @@ class SessionTextAnalysisService:
                 ),
                 run_id=run_id,
                 prepared_context=prepared_context,
+                completion_authority=completion_authority,
             )
 
     def _run_locked(
@@ -774,6 +779,7 @@ class SessionTextAnalysisService:
         calculator_selected_metric_keys: tuple[str, ...] | None,
         run_id: str,
         prepared_context: P1TextAnalysisInput | None,
+        completion_authority: SessionAnalysisCompletionAuthority | None,
     ) -> SessionTextAnalysisOutcome:
 
         existing = self._get_run(run_id)
@@ -891,7 +897,12 @@ class SessionTextAnalysisService:
             ) from None
 
         try:
-            self._analyses.complete(run_id, records, finished_at=finished_at)
+            self._analyses.complete(
+                run_id,
+                records,
+                finished_at=finished_at,
+                completion_authority=completion_authority,
+            )
         except Exception:
             self._mark_failed(run_id, SessionTextAnalysisPersistenceError.code)
             raise SessionTextAnalysisPersistenceError(

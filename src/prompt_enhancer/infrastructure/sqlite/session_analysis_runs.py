@@ -8,6 +8,7 @@ from datetime import datetime
 from ...application.persistence import (
     AnalysisRunStatus,
     MetricValueState,
+    SessionAnalysisCompletionAuthority,
     SessionAnalysisAggregationResultRecord,
     SessionAnalysisAggregationSnapshotRecord,
     SessionAnalysisEvidenceRecord,
@@ -135,6 +136,7 @@ class SqliteSessionAnalysisRunRepository:
         results: tuple[SessionAnalysisResultRecord, ...],
         *,
         finished_at: datetime,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
     ) -> None:
         self._ensure_initialized()
         require_safe_id(run_id)
@@ -181,6 +183,89 @@ class SqliteSessionAnalysisRunRepository:
                     raise DatabaseInvariantError(
                         "session analysis results do not match selected metric scope"
                     )
+                if completion_authority is not None:
+                    authorized = connection.execute(
+                        """
+                        SELECT 1
+                        FROM analysis_jobs AS job
+                        JOIN automation_grants AS grant
+                          ON grant.grant_id = job.automation_grant_id
+                        JOIN sessions AS target
+                          ON target.session_id = job.session_id
+                        JOIN session_analysis_runs AS analysis
+                          ON analysis.run_id = ?
+                        WHERE job.job_id = ?
+                          AND job.automation_grant_id = ?
+                          AND job.kind = 'session_quality'
+                          AND job.state IN ('preprocessing', 'stage_n')
+                          AND job.cancel_requested = 0
+                          AND job.lease_owner = ?
+                          AND job.lease_token = ?
+                          AND job.lease_expires_at > ?
+                          AND job.local_only = 1
+                          AND grant.state = 'active'
+                          AND grant.expires_at > ?
+                          AND grant.local_only = 1
+                          AND grant.remote_requires_fresh_approval = 1
+                          AND analysis.status = 'running'
+                          AND analysis.local_only = 1
+                          AND analysis.session_id = job.session_id
+                          AND analysis.provider = job.provider
+                          AND target.project_id = job.project_id
+                          AND target.provider = job.provider
+                          AND grant.project_id = job.project_id
+                          AND grant.provider = job.provider
+                          AND NOT EXISTS (
+                              SELECT metric_key
+                              FROM session_analysis_run_metrics
+                              WHERE run_id = analysis.run_id
+                              EXCEPT
+                              SELECT metric_key
+                              FROM analysis_job_metrics
+                              WHERE job_id = job.job_id
+                          )
+                          AND NOT EXISTS (
+                              SELECT metric_key
+                              FROM analysis_job_metrics
+                              WHERE job_id = job.job_id
+                              EXCEPT
+                              SELECT metric_key
+                              FROM session_analysis_run_metrics
+                              WHERE run_id = analysis.run_id
+                          )
+                          AND NOT EXISTS (
+                              SELECT metric_key
+                              FROM session_analysis_run_metrics
+                              WHERE run_id = analysis.run_id
+                              EXCEPT
+                              SELECT metric_key
+                              FROM automation_grant_metrics
+                              WHERE grant_id = grant.grant_id
+                          )
+                          AND NOT EXISTS (
+                              SELECT metric_key
+                              FROM automation_grant_metrics
+                              WHERE grant_id = grant.grant_id
+                              EXCEPT
+                              SELECT metric_key
+                              FROM session_analysis_run_metrics
+                              WHERE run_id = analysis.run_id
+                          )
+                        """,
+                        (
+                            run_id,
+                            completion_authority.job_id,
+                            completion_authority.automation_grant_id,
+                            completion_authority.lease_owner,
+                            completion_authority.lease_token,
+                            to_iso(finished_at),
+                            to_iso(finished_at),
+                        ),
+                    ).fetchone()
+                    if authorized is None:
+                        raise DatabaseInvariantError(
+                            "automation completion authority is no longer valid"
+                        )
                 started_at = from_iso(run["started_at"])
                 if started_at is None or finished_at < started_at:
                     raise DatabaseInvariantError(

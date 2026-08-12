@@ -73,6 +73,7 @@ from prompt_enhancer.application.analysis.text_source import (
 )
 from prompt_enhancer.application.persistence import (
     AnalysisRunStatus,
+    SessionAnalysisCompletionAuthority,
     SessionAnalysisResultRecord,
     SessionAnalysisRunDraft,
     SessionAnalysisRunRecord,
@@ -175,7 +176,9 @@ class MemorySessionAnalysisRepository:
         results: tuple[SessionAnalysisResultRecord, ...],
         *,
         finished_at: datetime,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
     ) -> None:
+        del completion_authority
         self.complete_count += 1
         current = self.runs[run_id]
         if current.status is not AnalysisRunStatus.RUNNING:

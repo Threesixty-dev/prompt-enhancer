@@ -1509,3 +1509,251 @@ END;
 
 COMMIT;
 """
+
+
+MIGRATION_14 = r"""
+BEGIN IMMEDIATE;
+
+-- Migration 13 recovered completed legacy scopes from result keys. Repair only
+-- the classifications that cannot prove the historical request boundary:
+-- pre-v12 partial packs and v12 rows containing keys outside the recognized
+-- pack. Legitimate v12 subsets and complete pre-v12 packs remain exact.
+DROP TRIGGER session_analysis_runs_terminal_transition_only;
+DROP TRIGGER session_analysis_run_metrics_privacy_delete_only;
+
+CREATE TEMP TABLE migration14_recognized_metrics (
+    analysis_profile_key TEXT NOT NULL,
+    analysis_profile_version INTEGER NOT NULL,
+    metric_pack_key TEXT NOT NULL,
+    metric_pack_version INTEGER NOT NULL,
+    metric_key TEXT NOT NULL,
+    PRIMARY KEY(
+        analysis_profile_key,
+        analysis_profile_version,
+        metric_pack_key,
+        metric_pack_version,
+        metric_key
+    )
+) WITHOUT ROWID;
+
+INSERT INTO migration14_recognized_metrics(
+    analysis_profile_key,
+    analysis_profile_version,
+    metric_pack_key,
+    metric_pack_version,
+    metric_key
+) VALUES
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.conversation_loop_closure'),
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.decision_rationale_coverage'),
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.plan_state_accounting'),
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.requirement_action_traceability'),
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'logic.scoped_consistency_candidate_rate'),
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.completion_evaluability'),
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.constraint_resolution'),
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.deliverable_contract'),
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.goal_definition'),
+('standard_engineering', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.open_decision_load'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.conversation_loop_closure'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.decision_rationale_coverage'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.plan_state_accounting'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.requirement_action_traceability'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'logic.scoped_consistency_candidate_rate'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.completion_evaluability'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.constraint_resolution'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.deliverable_contract'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.goal_definition'),
+('explicit.user-profile', 1, 'core.redacted-text.prompt-logic', 1, 'prompt.open_decision_load'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.ambiguity_resolution'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.clarification_yield'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.exploration_conversion'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.rework_candidate_rate'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'collaboration.scope_change_discipline'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.decision_rationale_coverage'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.decomposition_coverage'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.hypothesis_test_linkage'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.open_loop_closure'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'logic.requirement_action_traceability'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'outcome.agent_claim_grounding'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'outcome.first_pass_verification'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'outcome.verification_strategy_adequacy'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'outcome.verified_requirement_coverage'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.acceptance_testability'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.constraint_precision'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.context_sufficiency'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.deliverable_contract'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.problem_evidence_quality'),
+('coaching_profile', 1, 'experimental.redacted-text.coaching', 3, 'prompt.task_definition_coverage');
+
+CREATE TEMP TABLE migration14_untrusted_scope_runs (
+    run_id TEXT PRIMARY KEY
+) WITHOUT ROWID;
+
+INSERT INTO migration14_untrusted_scope_runs(run_id)
+SELECT run.run_id
+FROM session_analysis_runs AS run
+WHERE run.status = 'completed'
+  AND run.metric_scope_state = 'exact'
+  AND run.schema_version <= 12
+  AND (
+      NOT EXISTS (
+          SELECT 1
+          FROM migration14_recognized_metrics AS recognized
+          WHERE recognized.analysis_profile_key = run.analysis_profile_key
+            AND recognized.analysis_profile_version = run.analysis_profile_version
+            AND recognized.metric_pack_key = run.metric_pack_key
+            AND recognized.metric_pack_version = run.metric_pack_version
+      )
+      OR NOT EXISTS (
+          SELECT 1
+          FROM session_analysis_run_metrics AS selected
+          WHERE selected.run_id = run.run_id
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM session_analysis_run_metrics AS selected
+          WHERE selected.run_id = run.run_id
+            AND NOT EXISTS (
+                SELECT 1
+                FROM migration14_recognized_metrics AS recognized
+                WHERE recognized.analysis_profile_key = run.analysis_profile_key
+                  AND recognized.analysis_profile_version = run.analysis_profile_version
+                  AND recognized.metric_pack_key = run.metric_pack_key
+                  AND recognized.metric_pack_version = run.metric_pack_version
+                  AND recognized.metric_key = selected.metric_key
+            )
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM session_analysis_results AS result
+          WHERE result.run_id = run.run_id
+            AND NOT EXISTS (
+                SELECT 1
+                FROM migration14_recognized_metrics AS recognized
+                WHERE recognized.analysis_profile_key = run.analysis_profile_key
+                  AND recognized.analysis_profile_version = run.analysis_profile_version
+                  AND recognized.metric_pack_key = run.metric_pack_key
+                  AND recognized.metric_pack_version = run.metric_pack_version
+                  AND recognized.metric_key = result.key
+            )
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM session_analysis_results AS result
+          WHERE result.run_id = run.run_id
+            AND NOT EXISTS (
+                SELECT 1
+                FROM session_analysis_run_metrics AS selected
+                WHERE selected.run_id = run.run_id
+                  AND selected.metric_key = result.key
+            )
+      )
+      OR EXISTS (
+          SELECT 1
+          FROM session_analysis_run_metrics AS selected
+          WHERE selected.run_id = run.run_id
+            AND NOT EXISTS (
+                SELECT 1
+                FROM session_analysis_results AS result
+                WHERE result.run_id = run.run_id
+                  AND result.key = selected.metric_key
+            )
+      )
+      OR (
+          run.schema_version <= 11
+          AND EXISTS (
+              SELECT 1
+              FROM migration14_recognized_metrics AS recognized
+              WHERE recognized.analysis_profile_key = run.analysis_profile_key
+                AND recognized.analysis_profile_version = run.analysis_profile_version
+                AND recognized.metric_pack_key = run.metric_pack_key
+                AND recognized.metric_pack_version = run.metric_pack_version
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM session_analysis_run_metrics AS selected
+                    WHERE selected.run_id = run.run_id
+                      AND selected.metric_key = recognized.metric_key
+                )
+          )
+      )
+  );
+
+DELETE FROM session_analysis_run_metrics
+WHERE run_id IN (SELECT run_id FROM migration14_untrusted_scope_runs);
+
+UPDATE session_analysis_runs
+SET metric_scope_state = 'legacy_unknown'
+WHERE run_id IN (SELECT run_id FROM migration14_untrusted_scope_runs);
+
+DROP TABLE migration14_untrusted_scope_runs;
+DROP TABLE migration14_recognized_metrics;
+
+CREATE TRIGGER session_analysis_runs_terminal_transition_only
+BEFORE UPDATE ON session_analysis_runs
+WHEN OLD.status <> 'running'
+    OR NEW.status NOT IN ('completed', 'failed')
+    OR NEW.run_id IS NOT OLD.run_id
+    OR NEW.session_id IS NOT OLD.session_id
+    OR NEW.request_fingerprint IS NOT OLD.request_fingerprint
+    OR NEW.input_fingerprint IS NOT OLD.input_fingerprint
+    OR NEW.analysis_profile_key IS NOT OLD.analysis_profile_key
+    OR NEW.analysis_profile_version IS NOT OLD.analysis_profile_version
+    OR NEW.metric_pack_key IS NOT OLD.metric_pack_key
+    OR NEW.metric_pack_version IS NOT OLD.metric_pack_version
+    OR NEW.metric_scope_state IS NOT OLD.metric_scope_state
+    OR NEW.data_tier IS NOT OLD.data_tier
+    OR NEW.consent_purpose IS NOT OLD.consent_purpose
+    OR NEW.consent_policy_version IS NOT OLD.consent_policy_version
+    OR NEW.provider IS NOT OLD.provider
+    OR NEW.provider_version IS NOT OLD.provider_version
+    OR NEW.adapter_version IS NOT OLD.adapter_version
+    OR NEW.source_schema_version IS NOT OLD.source_schema_version
+    OR NEW.content_schema_version IS NOT OLD.content_schema_version
+    OR NEW.metric_engine_version IS NOT OLD.metric_engine_version
+    OR NEW.redactor_version IS NOT OLD.redactor_version
+    OR NEW.model_plan_fingerprint IS NOT OLD.model_plan_fingerprint
+    OR NEW.schema_version IS NOT OLD.schema_version
+    OR NEW.local_only IS NOT OLD.local_only
+    OR NEW.started_at IS NOT OLD.started_at
+    OR NEW.finished_at IS NULL
+    OR (NEW.status = 'completed' AND (
+        OLD.metric_scope_state <> 'exact'
+        OR NOT EXISTS (
+            SELECT 1 FROM session_analysis_results WHERE run_id = OLD.run_id
+        )
+        OR EXISTS (
+            SELECT 1 FROM session_analysis_results AS result
+            WHERE result.run_id = OLD.run_id
+              AND NOT EXISTS (
+                  SELECT 1 FROM session_analysis_run_metrics AS selected
+                  WHERE selected.run_id = OLD.run_id
+                    AND selected.metric_key = result.key
+              )
+        )
+        OR EXISTS (
+            SELECT 1 FROM session_analysis_run_metrics AS selected
+            WHERE selected.run_id = OLD.run_id
+              AND NOT EXISTS (
+                  SELECT 1 FROM session_analysis_results AS result
+                  WHERE result.run_id = OLD.run_id
+                    AND result.key = selected.metric_key
+              )
+        )
+    ))
+    OR (NEW.status = 'failed' AND EXISTS (
+        SELECT 1 FROM session_analysis_results WHERE run_id = OLD.run_id
+    ))
+BEGIN
+    SELECT RAISE(ABORT, 'session analysis run transition is invalid');
+END;
+
+CREATE TRIGGER session_analysis_run_metrics_privacy_delete_only
+BEFORE DELETE ON session_analysis_run_metrics
+WHEN EXISTS (
+    SELECT 1 FROM session_analysis_runs WHERE run_id = OLD.run_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'session analysis metric scope requires parent privacy deletion');
+END;
+
+COMMIT;
+"""

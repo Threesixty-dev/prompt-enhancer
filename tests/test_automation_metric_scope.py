@@ -16,6 +16,7 @@ from prompt_enhancer.application.jobs import (
     AnalysisJobExecutionError,
     AnalysisJobIdentity,
     AnalysisJobKind,
+    AnalysisJobLease,
     AnalysisJobRecord,
     AnalysisJobState,
 )
@@ -104,6 +105,12 @@ class RecordingContext:
     def __init__(self) -> None:
         self.stages: list[tuple[int, int, int]] = []
         self.heartbeats = 0
+        self.lease = AnalysisJobLease(
+            job_id="1" * 64,
+            owner="8" * 64,
+            token="9" * 64,
+            expires_at=NOW + timedelta(minutes=1),
+        )
 
     def enter_stage(
         self,
@@ -134,6 +141,11 @@ def test_automation_handler_forwards_exact_immutable_metric_scope(
 
     assert analyses.calls[0]["selected_metric_keys"] == metric_keys
     assert analyses.calls[0]["idempotency_key"] == f"automation-{'1' * 64}"
+    authority = analyses.calls[0]["completion_authority"]
+    assert authority.job_id == "1" * 64  # type: ignore[union-attr]
+    assert authority.automation_grant_id == "7" * 64  # type: ignore[union-attr]
+    assert "8" * 64 not in repr(authority)
+    assert "9" * 64 not in repr(authority)
     assert context.stages == [(2, 0, 1)]
     assert context.heartbeats == 1
     assert result.state is AnalysisJobState.COMPLETED

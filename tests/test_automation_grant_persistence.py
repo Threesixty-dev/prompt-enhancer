@@ -64,7 +64,7 @@ def test_grant_round_trip_due_renew_revoke_and_restart(tmp_path) -> None:
     else:
         raise AssertionError("one project cannot hold two active grants")
 
-    assert SCHEMA_VERSION == 13
+    assert SCHEMA_VERSION == 14
     assert record.is_due(NOW)
     assert repository.list_due(now=NOW, limit=10) == (record,)
     checked = repository.record_check(

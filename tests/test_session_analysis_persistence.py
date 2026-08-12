@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 import hashlib
 import sqlite3
+from threading import Event
 
 import pytest
 from pydantic import ValidationError
@@ -37,9 +39,30 @@ from prompt_enhancer.application.analysis.session_quality_aggregation import (
     SessionQualityCompatibilityState,
     SessionQualitySelection,
 )
+from prompt_enhancer.application.analysis.session_text_service import (
+    SessionTextAnalysisOutcome,
+    SessionTextAnalysisPersistenceError,
+)
+from prompt_enhancer.application.automation import (
+    AUTOMATION_GRANT_LIFETIME,
+    AutomationGrantDraft,
+    AutomationGrantService,
+    AutomationGrantScope,
+    AutomationGrantState,
+    SessionQualityAutomationHandler,
+)
+from prompt_enhancer.application.jobs import (
+    AnalysisJobIdentity,
+    AnalysisJobKind,
+    AnalysisJobLease,
+    AnalysisJobService,
+    AnalysisJobState,
+    AnalysisJobWorker,
+)
 from prompt_enhancer.application.persistence import (
     AnalysisRunStatus,
     MetricValueState,
+    SessionAnalysisCompletionAuthority,
     SessionAnalysisEvidenceRecord,
     SessionAnalysisSignalRecord,
     SessionAnalysisResultRecord,
@@ -74,7 +97,9 @@ from prompt_enhancer.infrastructure.sqlite.migrations import (
     MIGRATION_10,
     MIGRATION_11,
     MIGRATION_12,
+    MIGRATION_13,
 )
+from prompt_enhancer.infrastructure.automation import QueueAutomationJobSink
 
 
 NOW = datetime(2040, 1, 2, 10, 0, tzinfo=UTC)
@@ -217,7 +242,7 @@ def _create_v12_scope_runs(
     path,
     *,
     duplicate_versions: bool = False,
-) -> tuple[str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, str, str, str]:
     migrations = (
         (1, _MIGRATION_1),
         (2, MIGRATION_2),
@@ -239,6 +264,9 @@ def _create_v12_scope_runs(
     failed_coaching_run_id = "7" * 64
     unknown_run_id = "8" * 64
     ambiguous_v12_run_id = "9" * 64
+    full_v11_run_id = "d" * 64
+    incomplete_v11_run_id = "e" * 64
+    foreign_v12_run_id = "f" * 64
     timestamp = NOW.isoformat()
     with sqlite3.connect(path) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
@@ -337,7 +365,7 @@ def _create_v12_scope_runs(
                 ),
             )
 
-        def complete_with_result(
+        def insert_result(
             run_id: str,
             metric_key: str,
             *,
@@ -383,6 +411,7 @@ def _create_v12_scope_runs(
                     """,
                     (run_id, metric_key, version, timestamp),
                 )
+        def complete(run_id: str) -> None:
             connection.execute(
                 """
                 UPDATE session_analysis_runs
@@ -391,6 +420,15 @@ def _create_v12_scope_runs(
                 """,
                 (timestamp, run_id),
             )
+
+        def complete_with_result(
+            run_id: str,
+            metric_key: str,
+            *,
+            versions: tuple[int, ...] = (1,),
+        ) -> None:
+            insert_result(run_id, metric_key, versions=versions)
+            complete(run_id)
 
         insert_running(
             subset_run_id,
@@ -448,6 +486,36 @@ def _create_v12_scope_runs(
         fail(ambiguous_v12_run_id)
         insert_running(unknown_run_id, "unknown_profile", "unknown.pack", 1)
         complete_with_result(unknown_run_id, "unknown.metric")
+        insert_running(
+            incomplete_v11_run_id,
+            "coaching_profile",
+            COACHING_METRIC_PACK_KEY,
+            COACHING_METRIC_PACK_VERSION,
+            schema_version=11,
+        )
+        complete_with_result(
+            incomplete_v11_run_id,
+            "prompt.context_sufficiency",
+        )
+        insert_running(
+            full_v11_run_id,
+            "coaching_profile",
+            COACHING_METRIC_PACK_KEY,
+            COACHING_METRIC_PACK_VERSION,
+            schema_version=11,
+        )
+        for definition in COACHING_METRIC_DEFINITIONS:
+            insert_result(full_v11_run_id, definition.key, versions=(99,))
+        complete(full_v11_run_id)
+        insert_running(
+            foreign_v12_run_id,
+            "coaching_profile",
+            COACHING_METRIC_PACK_KEY,
+            COACHING_METRIC_PACK_VERSION,
+        )
+        insert_result(foreign_v12_run_id, "prompt.context_sufficiency")
+        insert_result(foreign_v12_run_id, "synthetic.foreign_metric")
+        complete(foreign_v12_run_id)
         connection.commit()
     return (
         subset_run_id,
@@ -456,6 +524,9 @@ def _create_v12_scope_runs(
         failed_coaching_run_id,
         unknown_run_id,
         ambiguous_v12_run_id,
+        full_v11_run_id,
+        incomplete_v11_run_id,
+        foreign_v12_run_id,
     )
 
 
@@ -559,6 +630,364 @@ def _known_result(
     )
 
 
+def _automation_queued_fixture(tmp_path):  # type: ignore[no-untyped-def]
+    database, session_id = _database_and_session(tmp_path)
+    session = next(
+        item
+        for item in database.list_sessions(limit=10)
+        if item["session_id"] == session_id
+    )
+    metric_keys = ("prompt.goal_definition",)
+    grant_id = "6" * 64
+    database.automation_grant_repository().create(
+        AutomationGrantDraft(
+            grant_id=grant_id,
+            scope=AutomationGrantScope(
+                provider=Provider.SYNTHETIC,
+                project_id=str(session["project_id"]),
+                metric_keys=metric_keys,
+            ),
+            created_at=NOW,
+            expires_at=NOW + AUTOMATION_GRANT_LIFETIME,
+        )
+    )
+    job_repository = database.analysis_job_repository()
+    job_service = AnalysisJobService(job_repository, clock=lambda: NOW)
+    queued = job_service.enqueue(
+        AnalysisJobIdentity(
+            kind=AnalysisJobKind.SESSION_QUALITY,
+            provider=Provider.SYNTHETIC,
+            project_id=str(session["project_id"]),
+            session_id=session_id,
+            input_fingerprint="1" * 64,
+            provenance_fingerprint="2" * 64,
+            metric_keys=metric_keys,
+            estimator_plan_version="synthetic-plan-v1",
+            redactor_version="synthetic-redactor-v1",
+            provider_schema_version="synthetic-schema-v1",
+            automation_grant_id=grant_id,
+        )
+    ).job
+    run_repository = database.session_analysis_run_repository()
+    draft = _draft(
+        session_id,
+        identity="5",
+        selected_metric_keys=metric_keys,
+    )
+    result = _known_result()
+    return (
+        database,
+        job_service,
+        job_repository,
+        queued,
+        run_repository,
+        draft,
+        result,
+        grant_id,
+    )
+
+
+def _automation_completion_fixture(tmp_path):  # type: ignore[no-untyped-def]
+    (
+        database,
+        job_service,
+        job_repository,
+        queued,
+        run_repository,
+        draft,
+        result,
+        grant_id,
+    ) = _automation_queued_fixture(tmp_path)
+    claimed = job_repository.claim_next(
+        owner="3" * 64,
+        token="4" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=5),
+    )
+    assert claimed is not None and claimed.job_id == queued.job_id
+    assert claimed.lease_owner is not None
+    assert claimed.lease_token is not None
+    assert claimed.lease_expires_at is not None
+    lease = AnalysisJobLease(
+        job_id=claimed.job_id,
+        owner=claimed.lease_owner,
+        token=claimed.lease_token,
+        expires_at=claimed.lease_expires_at,
+    )
+    staged = job_repository.advance_stage(
+        lease,
+        now=NOW,
+        stage_number=2,
+        progress_completed=0,
+        progress_total=1,
+    )
+    assert staged.lease_owner is not None and staged.lease_token is not None
+    authority = SessionAnalysisCompletionAuthority(
+        job_id=staged.job_id,
+        automation_grant_id=grant_id,
+        lease_owner=staged.lease_owner,
+        lease_token=staged.lease_token,
+    )
+    run_repository.begin(draft)
+    return (
+        database,
+        job_service,
+        job_repository,
+        lease,
+        run_repository,
+        draft,
+        result,
+        authority,
+        grant_id,
+    )
+
+
+class _RepositoryBackedBlockingAnalysis:
+    """Synthetic compute seam that exercises the real atomic result repository."""
+
+    def __init__(
+        self,
+        repository,  # type: ignore[no-untyped-def]
+        draft: SessionAnalysisRunDraft,
+        result: SessionAnalysisResultRecord,
+    ) -> None:
+        self._repository = repository
+        self._draft = draft
+        self._result = result
+        self.compute_started = Event()
+        self.release_compute = Event()
+
+    def run_preset(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        preset_id: object,
+        confirmation: str,
+        idempotency_key: str,
+        selected_metric_keys: tuple[str, ...],
+        completion_authority: SessionAnalysisCompletionAuthority,
+    ) -> SessionTextAnalysisOutcome:
+        del preset_id, confirmation, idempotency_key
+        assert provider is self._draft.provider
+        assert session_id == self._draft.session_id
+        assert selected_metric_keys == self._draft.selected_metric_keys
+        self._repository.begin(self._draft)
+        self.compute_started.set()
+        assert self.release_compute.wait(timeout=5)
+        try:
+            self._repository.complete(
+                self._draft.run_id,
+                (self._result,),
+                finished_at=NOW + timedelta(minutes=1),
+                completion_authority=completion_authority,
+            )
+        except DatabaseInvariantError:
+            self._repository.fail(
+                self._draft.run_id,
+                finished_at=NOW + timedelta(minutes=1),
+                failure_code="automation_authorization_revoked",
+            )
+            raise SessionTextAnalysisPersistenceError(
+                "analysis results could not be stored"
+            ) from None
+        return SessionTextAnalysisOutcome(
+            run_id=self._draft.run_id,
+            status=AnalysisRunStatus.COMPLETED,
+            result_count=1,
+            applied=True,
+            analysis_profile_key=self._draft.analysis_profile_key,
+            analysis_profile_version=self._draft.analysis_profile_version,
+        )
+
+
+def _revocation_service(
+    database,  # type: ignore[no-untyped-def]
+    jobs,  # type: ignore[no-untyped-def]
+    *,
+    now: datetime = NOW + timedelta(seconds=30),
+):  # type: ignore[no-untyped-def]
+    """Build only the real revocation path; other scheduler ports stay unused."""
+
+    return AutomationGrantService(
+        database.automation_grant_repository(),
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        QueueAutomationJobSink(
+            jobs,
+            estimator_plan_version="synthetic-plan-v1",
+            redactor_version="synthetic-redactor-v1",
+        ),
+        None,  # type: ignore[arg-type]
+        clock=lambda: now,
+    )
+
+
+def test_revocation_during_compute_rejects_result_commit_atomically(tmp_path) -> None:
+    (
+        database,
+        job_service,
+        job_repository,
+        lease,
+        run_repository,
+        draft,
+        result,
+        authority,
+        grant_id,
+    ) = _automation_completion_fixture(tmp_path)
+    compute_started = Event()
+    release_compute = Event()
+
+    def finish_after_compute() -> str:
+        compute_started.set()
+        assert release_compute.wait(timeout=5)
+        try:
+            run_repository.complete(
+                draft.run_id,
+                (result,),
+                finished_at=NOW + timedelta(minutes=1),
+                completion_authority=authority,
+            )
+        except DatabaseInvariantError:
+            run_repository.fail(
+                draft.run_id,
+                finished_at=NOW + timedelta(minutes=1),
+                failure_code="automation_authorization_revoked",
+            )
+            return "rejected"
+        return "committed"
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(finish_after_compute)
+        assert compute_started.wait(timeout=5)
+        _revocation_service(database, job_service).revoke(grant_id)
+        release_compute.set()
+        assert future.result(timeout=5) == "rejected"
+
+    terminal_job = job_repository.finish(
+        lease,
+        now=NOW + timedelta(minutes=1),
+        state=AnalysisJobState.COMPLETED,
+        reason_code="local_analysis_completed",
+        progress_completed=1,
+        progress_total=1,
+    )
+    stored = run_repository.get(draft.run_id)
+    assert terminal_job.state is AnalysisJobState.CANCELLED
+    assert stored is not None and stored.status is AnalysisRunStatus.FAILED
+    assert run_repository.get_results(draft.run_id) == ()
+
+
+def test_worker_revocation_during_compute_cannot_publish_results(tmp_path) -> None:
+    (
+        database,
+        job_service,
+        job_repository,
+        queued,
+        run_repository,
+        draft,
+        result,
+        grant_id,
+    ) = _automation_queued_fixture(tmp_path)
+    analyses = _RepositoryBackedBlockingAnalysis(run_repository, draft, result)
+
+    def authorization_check(job):  # type: ignore[no-untyped-def]
+        grant = database.automation_grant_repository().get(
+            job.identity.automation_grant_id
+        )
+        return grant is not None and grant.state is AutomationGrantState.ACTIVE
+
+    worker = AnalysisJobWorker(
+        job_repository,
+        {
+            (AnalysisJobKind.SESSION_QUALITY, Provider.SYNTHETIC): (
+                SessionQualityAutomationHandler(analyses)  # type: ignore[arg-type]
+            )
+        },
+        authorization_check=authorization_check,
+        fingerprint_resolver=lambda job: (
+            job.identity.input_fingerprint,
+            job.identity.provenance_fingerprint,
+        ),
+        clock=lambda: NOW,
+        lease_duration=timedelta(minutes=5),
+        worker_id="3" * 64,
+    )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(worker.run_once)
+        assert analyses.compute_started.wait(timeout=5)
+        revoked = _revocation_service(database, job_service).revoke(grant_id)
+        analyses.release_compute.set()
+        assert future.result(timeout=5) is True
+
+    terminal_job = job_repository.get(queued.job_id)
+    stored = run_repository.get(draft.run_id)
+    assert revoked.state is AutomationGrantState.REVOKED
+    assert terminal_job is not None
+    assert terminal_job.state is AnalysisJobState.CANCELLED
+    assert stored is not None and stored.status is AnalysisRunStatus.FAILED
+    assert run_repository.get_results(draft.run_id) == ()
+
+
+def test_completion_wins_before_later_revocation_and_keeps_ordered_evidence(
+    tmp_path,
+) -> None:
+    (
+        database,
+        job_service,
+        job_repository,
+        lease,
+        run_repository,
+        draft,
+        result,
+        authority,
+        grant_id,
+    ) = _automation_completion_fixture(tmp_path)
+    result = result.model_copy(
+        update={
+            "evidence": (
+                SessionAnalysisEvidenceRecord(
+                    message_id="e" * 64,
+                    origin=SessionEvidenceOrigin.INHERITED,
+                ),
+                *result.evidence,
+            )
+        }
+    )
+    finished_at = NOW + timedelta(minutes=1)
+    run_repository.complete(
+        draft.run_id,
+        (result,),
+        finished_at=finished_at,
+        completion_authority=authority,
+    )
+    completed_job = job_repository.finish(
+        lease,
+        now=finished_at,
+        state=AnalysisJobState.COMPLETED,
+        reason_code="local_analysis_completed",
+        progress_completed=1,
+        progress_total=1,
+    )
+    revoked = _revocation_service(
+        database,
+        job_service,
+        now=finished_at + timedelta(seconds=1),
+    ).revoke(grant_id)
+
+    stored = run_repository.get(draft.run_id)
+    persisted = run_repository.get_results(draft.run_id)
+    assert completed_job.state is AnalysisJobState.COMPLETED
+    assert stored is not None and stored.status is AnalysisRunStatus.COMPLETED
+    assert len(persisted) == 1
+    assert revoked.revoked_at is not None
+    assert persisted[0].computed_at <= revoked.revoked_at
+    assert persisted[0].evidence == result.evidence
+    assert persisted[0].signals == result.signals
+
+
 def _not_applicable_result() -> SessionAnalysisResultRecord:
     return SessionAnalysisResultRecord(
         observation=MetricObservation(
@@ -613,7 +1042,7 @@ def test_v8_migration_marks_legacy_analysis_profile_without_guessing(tmp_path) -
             )
 
 
-def test_v13_backfills_only_recoverable_metric_scopes(tmp_path) -> None:
+def test_v14_repairs_unprovable_v13_metric_scopes(tmp_path) -> None:
     path = tmp_path / "scope-migration.sqlite3"
     (
         subset_run_id,
@@ -622,7 +1051,38 @@ def test_v13_backfills_only_recoverable_metric_scopes(tmp_path) -> None:
         failed_coaching_run_id,
         unknown_run_id,
         ambiguous_v12_run_id,
+        full_v11_run_id,
+        incomplete_v11_run_id,
+        foreign_v12_run_id,
     ) = _create_v12_scope_runs(path)
+
+    # Reproduce the already-published schema-13 state and checksum before the
+    # repair migration runs. Migration 13 intentionally remains byte-stable.
+    with sqlite3.connect(path) as connection:
+        connection.executescript(MIGRATION_13)
+        connection.execute(
+            """
+            INSERT INTO schema_migrations(version, checksum, applied_at)
+            VALUES (13, ?, ?)
+            """,
+            (hashlib.sha256(MIGRATION_13.encode("utf-8")).hexdigest(), NOW.isoformat()),
+        )
+        connection.execute("PRAGMA user_version = 13")
+        connection.commit()
+        assert connection.execute(
+            """
+            SELECT metric_scope_state FROM session_analysis_runs
+            WHERE run_id = ?
+            """,
+            (incomplete_v11_run_id,),
+        ).fetchone()[0] == "exact"
+        assert connection.execute(
+            """
+            SELECT metric_scope_state FROM session_analysis_runs
+            WHERE run_id = ?
+            """,
+            (foreign_v12_run_id,),
+        ).fetchone()[0] == "exact"
 
     database = Database(path)
     database.initialize()
@@ -633,6 +1093,9 @@ def test_v13_backfills_only_recoverable_metric_scopes(tmp_path) -> None:
     failed_coaching = repository.get(failed_coaching_run_id)
     unknown = repository.get(unknown_run_id)
     ambiguous_v12 = repository.get(ambiguous_v12_run_id)
+    full_v11 = repository.get(full_v11_run_id)
+    incomplete_v11 = repository.get(incomplete_v11_run_id)
+    foreign_v12 = repository.get(foreign_v12_run_id)
 
     assert subset is not None
     assert subset.draft.metric_scope_state is SessionMetricScopeState.EXACT
@@ -665,12 +1128,27 @@ def test_v13_backfills_only_recoverable_metric_scopes(tmp_path) -> None:
         is SessionMetricScopeState.LEGACY_UNKNOWN
     )
     assert ambiguous_v12.draft.selected_metric_keys == ()
+    assert full_v11 is not None
+    assert full_v11.draft.metric_scope_state is SessionMetricScopeState.EXACT
+    assert full_v11.draft.selected_metric_keys == expected_coaching
+    assert incomplete_v11 is not None
+    assert (
+        incomplete_v11.draft.metric_scope_state
+        is SessionMetricScopeState.LEGACY_UNKNOWN
+    )
+    assert incomplete_v11.draft.selected_metric_keys == ()
+    assert foreign_v12 is not None
+    assert (
+        foreign_v12.draft.metric_scope_state
+        is SessionMetricScopeState.LEGACY_UNKNOWN
+    )
+    assert foreign_v12.draft.selected_metric_keys == ()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
         assert connection.execute(
             "SELECT COUNT(*) FROM session_analysis_run_metrics"
-        ).fetchone()[0] == 41
+        ).fetchone()[0] == 61
 
 
 def test_v13_collapses_legacy_metric_versions_to_one_scope_key(tmp_path) -> None:

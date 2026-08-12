@@ -104,6 +104,27 @@ class SessionMetricScopeState(StrEnum):
     LEGACY_UNKNOWN = "legacy_unknown"
 
 
+class SessionAnalysisCompletionAuthority(StrictModel):
+    """Ephemeral queue authority checked atomically with result persistence.
+
+    The identifiers are content-free and are never stored with the analysis
+    snapshot.  SQLite uses them only to prove that the exact local automation
+    grant and worker lease are still live in the result-commit transaction.
+    """
+
+    job_id: str
+    automation_grant_id: str
+    lease_owner: str = Field(repr=False)
+    lease_token: str = Field(repr=False)
+
+    _validate_ids = field_validator(
+        "job_id",
+        "automation_grant_id",
+        "lease_owner",
+        "lease_token",
+    )(_pseudonym)
+
+
 class MetricValueState(StrEnum):
     KNOWN = "known"
     UNKNOWN = "unknown"
@@ -910,6 +931,7 @@ class SessionAnalysisRunRepository(Protocol):
         results: tuple[SessionAnalysisResultRecord, ...],
         *,
         finished_at: datetime,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
     ) -> None: ...
 
     def fail(self, run_id: str, *, finished_at: datetime, failure_code: str) -> None: ...
