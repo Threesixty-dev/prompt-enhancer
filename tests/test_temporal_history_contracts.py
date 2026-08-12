@@ -25,6 +25,7 @@ from prompt_enhancer.application.history import (
     RevisionEffectiveTimeBasis,
     SampledProportionObservationValue,
     SessionRevisionProvenance,
+    SessionRevisionRelation,
     SessionRevisionReceipt,
     SnapshotMetricCompatibilityState,
     TemporalAggregationSemantics,
@@ -115,6 +116,7 @@ def _identity(
         provider_adapter_version="adapter-v1",
         provider_schema_version="provider-schema-v1",
         source_schema_version="source-schema-v1",
+        content_schema_version="content-schema-v1",
         privacy_policy_version="privacy-v1",
     )
 
@@ -167,6 +169,7 @@ def _model_identity(**overrides: object) -> MetricComparisonIdentity:
         "provider_adapter_version": "adapter-v1",
         "provider_schema_version": "provider-schema-v1",
         "source_schema_version": "source-schema-v1",
+        "content_schema_version": "content-schema-v1",
         "privacy_policy_version": "privacy-v1",
     }
     values.update(overrides)
@@ -178,12 +181,26 @@ def _revision(*, ordinal: int = 1) -> SessionRevisionReceipt:
     ended = captured - timedelta(minutes=1)
     return SessionRevisionReceipt(
         revision_id=_id(f"revision-{ordinal}"),
+        root_receipt_id=_id("history-root"),
+        root_receipt_fingerprint=_id("history-root-fingerprint"),
         project_id=_id("project"),
         session_id=_id("session"),
         revision_ordinal=ordinal,
         predecessor_revision_id=(
             _id(f"revision-{ordinal - 1}") if ordinal > 1 else None
         ),
+        analysis_input_receipt_id=_id(f"analysis-input-{ordinal}"),
+        analysis_input_receipt_fingerprint=_id(
+            f"analysis-input-fingerprint-{ordinal}"
+        ),
+        input_provenance_fingerprint=_id("input-provenance"),
+        relation=(
+            SessionRevisionRelation.FIRST
+            if ordinal == 1
+            else SessionRevisionRelation.CHANGED_OR_REORDERED
+        ),
+        persisted_prefix_root=_id(f"source-manifest-{ordinal}"),
+        persisted_prefix_event_count=4,
         analysis_window_fingerprint=_id(f"analysis-window-{ordinal}"),
         analysis_window_fingerprint_version="canonical-events-v1",
         analysis_window_started_at=ended - timedelta(hours=1),
@@ -208,6 +225,9 @@ def _known_observation(
     return TemporalMetricObservation(
         observation_id=_id("observation"),
         revision_id=_id("revision-1"),
+        analysis_run_id=_id("analysis-run"),
+        analysis_input_receipt_id=_id("analysis-input"),
+        analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
         comparison_identity=comparison,
         selection_state=TemporalSelectionState.SELECTED,
         source_state=TemporalSourceState.PRESENT,
@@ -430,6 +450,9 @@ def test_count_identity_binds_exposure_unit_and_observation_must_match() -> None
     observation = TemporalMetricObservation(
         observation_id=_id("count-observation"),
         revision_id=_id("revision-1"),
+        analysis_run_id=_id("analysis-run"),
+        analysis_input_receipt_id=_id("analysis-input"),
+        analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
         comparison_identity=identity,
         selection_state=TemporalSelectionState.SELECTED,
         source_state=TemporalSourceState.PRESENT,
@@ -472,6 +495,9 @@ def test_sampled_proportion_uncertainty_uses_exact_identity_interval_method() ->
     values = {
         "observation_id": _id("sampled-proportion-observation"),
         "revision_id": _id("revision-1"),
+        "analysis_run_id": _id("analysis-run"),
+        "analysis_input_receipt_id": _id("analysis-input"),
+        "analysis_input_receipt_fingerprint": _id("analysis-input-fingerprint"),
         "comparison_identity": identity,
         "selection_state": TemporalSelectionState.SELECTED,
         "source_state": TemporalSourceState.PRESENT,
@@ -605,6 +631,9 @@ def test_observation_keeps_selection_source_and_value_states_independent() -> No
     missing = TemporalMetricObservation(
         observation_id=_id("missing-observation"),
         revision_id=_id("revision-1"),
+        analysis_run_id=_id("analysis-run"),
+        analysis_input_receipt_id=_id("analysis-input"),
+        analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
         comparison_identity=_identity(),
         selection_state=TemporalSelectionState.SELECTED,
         source_state=TemporalSourceState.SOURCE_MISSING,
@@ -615,6 +644,9 @@ def test_observation_keeps_selection_source_and_value_states_independent() -> No
     not_selected = TemporalMetricObservation(
         observation_id=_id("not-selected-observation"),
         revision_id=_id("revision-1"),
+        analysis_run_id=_id("analysis-run"),
+        analysis_input_receipt_id=_id("analysis-input"),
+        analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
         comparison_identity=_identity(),
         selection_state=TemporalSelectionState.NOT_SELECTED,
         source_state=TemporalSourceState.NOT_REQUESTED,
@@ -688,6 +720,9 @@ def test_source_to_value_matrix_rejects_cross_axis_reclassification(
         TemporalMetricObservation(
             observation_id=_id(f"invalid-{source_state}-{value_state}"),
             revision_id=_id("revision-1"),
+            analysis_run_id=_id("analysis-run"),
+            analysis_input_receipt_id=_id("analysis-input"),
+            analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
             comparison_identity=_identity(),
             selection_state=TemporalSelectionState.SELECTED,
             source_state=source_state,
@@ -704,6 +739,9 @@ def test_observation_batch_binds_exact_selection_revision_and_source_state() -> 
         project_id=_id("project"),
         session_id=_id("session"),
         revision_id=_id("revision-1"),
+        analysis_run_id=_id("analysis-run"),
+        analysis_input_receipt_id=_id("analysis-input"),
+        analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
         selection_revision_id=_id("selection"),
         scope_state=TemporalScopeState.EXACT_SELECTION_RECEIPT,
         source_state=TemporalSourceState.PRESENT,
@@ -733,6 +771,9 @@ def test_batch_preserves_per_metric_source_states_without_conflation() -> None:
     missing = TemporalMetricObservation(
         observation_id=_id("missing-verification-observation"),
         revision_id=_id("revision-1"),
+        analysis_run_id=_id("analysis-run"),
+        analysis_input_receipt_id=_id("analysis-input"),
+        analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
         comparison_identity=missing_identity,
         selection_state=TemporalSelectionState.SELECTED,
         source_state=TemporalSourceState.SOURCE_MISSING,
@@ -745,6 +786,9 @@ def test_batch_preserves_per_metric_source_states_without_conflation() -> None:
         project_id=_id("project"),
         session_id=_id("session"),
         revision_id=_id("revision-1"),
+        analysis_run_id=_id("analysis-run"),
+        analysis_input_receipt_id=_id("analysis-input"),
+        analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
         selection_revision_id=_id("selection"),
         scope_state=TemporalScopeState.EXACT_SELECTION_RECEIPT,
         source_state=TemporalSourceState.PRESENT,
@@ -790,6 +834,9 @@ def test_batch_rejects_partial_selected_scope_and_revision_mismatch() -> None:
         "project_id": _id("project"),
         "session_id": _id("session"),
         "revision_id": _id("revision-1"),
+        "analysis_run_id": _id("analysis-run"),
+        "analysis_input_receipt_id": _id("analysis-input"),
+        "analysis_input_receipt_fingerprint": _id("analysis-input-fingerprint"),
         "selection_revision_id": _id("selection"),
         "scope_state": TemporalScopeState.EXACT_SELECTION_RECEIPT,
         "source_state": TemporalSourceState.PRESENT,
@@ -820,6 +867,9 @@ def test_batch_recording_never_precedes_an_observation() -> None:
             project_id=_id("project"),
             session_id=_id("session"),
             revision_id=_id("revision-1"),
+            analysis_run_id=_id("analysis-run"),
+            analysis_input_receipt_id=_id("analysis-input"),
+            analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
             selection_revision_id=_id("selection"),
             scope_state=TemporalScopeState.EXACT_SELECTION_RECEIPT,
             source_state=TemporalSourceState.PRESENT,
@@ -1279,6 +1329,9 @@ def test_observation_batch_boundary_and_revision_revalidate_nested_copies() -> N
     observation = TemporalMetricObservation(
         observation_id=_id("distribution-observation"),
         revision_id=_id("revision-1"),
+        analysis_run_id=_id("analysis-run"),
+        analysis_input_receipt_id=_id("analysis-input"),
+        analysis_input_receipt_fingerprint=_id("analysis-input-fingerprint"),
         comparison_identity=distribution_identity,
         selection_state=TemporalSelectionState.SELECTED,
         source_state=TemporalSourceState.PRESENT,
@@ -1299,6 +1352,9 @@ def test_observation_batch_boundary_and_revision_revalidate_nested_copies() -> N
         "project_id": _id("project"),
         "session_id": _id("session"),
         "revision_id": _id("revision-1"),
+        "analysis_run_id": _id("analysis-run"),
+        "analysis_input_receipt_id": _id("analysis-input"),
+        "analysis_input_receipt_fingerprint": _id("analysis-input-fingerprint"),
         "selection_revision_id": _id("selection"),
         "scope_state": TemporalScopeState.EXACT_SELECTION_RECEIPT,
         "source_state": TemporalSourceState.PRESENT,
