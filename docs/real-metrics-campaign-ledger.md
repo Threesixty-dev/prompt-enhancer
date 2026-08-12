@@ -20,7 +20,7 @@ local runtime artifacts must never be added here.
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
 | P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, and repository-sealed non-activating gate decisions | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
-| P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, and normalized synthetic-only temporal persistence with a repository graph seal | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
+| P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum and supplied-set raw-aggregation drafts, and normalized synthetic-only temporal persistence with a repository graph seal | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
@@ -455,8 +455,42 @@ primary adjacent history/capture/session/grant/job tests, 26 SQL-adjacent tests,
 and the full 1,584-test backend suite with 4 platform skips. The privacy scanner
 and diff validation passed, and two independent read-only reviews returned
 `PASS`. These are implementation-integrity results, not empirical comparison,
-recommendation-outcome, adverse-effect, or calibration evidence. P2 therefore
-remains in progress; P3 and P4 remain deferred.
+recommendation-outcome, adverse-effect, or calibration evidence.
+
+Pushed checkpoint `339878d` (`Add synthetic temporal aggregation drafts`) adds
+a pure, deterministic, supplied-set-only synthetic raw descriptive aggregation
+draft. It implements all four typed raw semantics without averaging incompatible
+values: fraction ratio-of-sums, count and exposure sums with preserved units,
+pooled distribution samples with code-owned Type-7 quartiles, and summed
+sampled-proportion successes and trials with a recomputed code-owned two-sided
+95% Wilson interval. Code-owned policy identity also fixes half-open temporal
+windows, prospective-floor clipping, last-N revision ordering, finite numeric
+handling, compatibility segmentation, and non-pooling task-mix behavior.
+
+Selection, source, value, evidence-coverage eligibility, and evidence-coverage
+state remain separate and fully counted. Known zero-of-zero evidence coverage
+stays known with an absent ratio; unknown, not-applicable, missing, failed,
+abstained, incompatible, not-selected, and selection-unknown states are never
+coerced to zero. Reviewed task buckets remain visible and unpooled. Full
+comparison-identity changes create contiguous run-length segments, so
+`A -> B -> A` remains three runs, while an identity-unavailable gap visibly
+breaks a run without inventing a compatibility change.
+
+The draft describes only the bounded set supplied by its caller; collection and
+population completeness remain unknown. It is not repository-owned or sealed,
+has no source or product-history authority, and grants no comparison, pair
+matching, aggregate or snapshot materialization, recommendation, outcome
+evaluation, causal claim, activation, private export, or team-sharing authority.
+The checkpoint passed 33 focused/adversarial aggregation tests, 415 temporal
+tests, and the full backend suite with 1,617 passed, 4 platform skips, and one
+existing Starlette deprecation warning. Independent adversarial review returned
+`PASS`; privacy, compile, and diff checks were green.
+
+P2 remains in progress: the product-source boundary is still blocked by missing
+authoritative per-item timestamps and stable provider snapshot/cursor
+boundaries, and there are still no product snapshots, recommendations, or
+empirical recommendation-outcome/adverse-effect results. P3 and P4 remain
+deferred in phase order.
 
 ## Version inventory
 
