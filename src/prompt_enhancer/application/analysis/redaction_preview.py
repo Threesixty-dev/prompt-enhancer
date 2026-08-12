@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from secrets import token_hex
 from threading import Lock
+from time import monotonic
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 
@@ -211,6 +212,7 @@ class ApprovedRedactedAnalysis:
 class _PreviewEntry:
     receipt: RedactionPreviewReceipt
     context: P1TextAnalysisInput = field(repr=False)
+    expires_monotonic: float
 
 
 class InMemoryRedactionPreviewStore:
@@ -220,12 +222,14 @@ class InMemoryRedactionPreviewStore:
         self,
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        monotonic_clock: Callable[[], float] = monotonic,
         token_factory: Callable[[], str] = lambda: token_hex(32),
         max_active: int = MAX_ACTIVE_REDACTION_PREVIEWS,
     ) -> None:
         if not 1 <= max_active <= MAX_ACTIVE_REDACTION_PREVIEWS:
             raise ValueError("preview capacity is outside the reviewed bound")
         self._clock = clock
+        self._monotonic_clock = monotonic_clock
         self._token_factory = token_factory
         self._max_active = max_active
         self._entries: dict[str, _PreviewEntry] = {}
@@ -238,9 +242,10 @@ class InMemoryRedactionPreviewStore:
         binding: RedactionPreviewBinding,
     ) -> RedactionPreviewReceipt:
         self._validate_context_binding(context, binding)
-        now = _utc(self._clock())
         with self._lock:
-            self._expire_locked(now)
+            now = _utc(self._clock())
+            monotonic_now = self._monotonic_clock()
+            self._expire_locked(now, monotonic_now)
             if len(self._entries) >= self._max_active:
                 raise RedactionPreviewCapacityError()
             preview_id = self._token_factory()
@@ -256,14 +261,23 @@ class InMemoryRedactionPreviewStore:
                 expires_at=now + REDACTION_PREVIEW_TTL,
                 binding=binding,
             )
-            self._entries[preview_id] = _PreviewEntry(receipt=receipt, context=context)
+            self._entries[preview_id] = _PreviewEntry(
+                receipt=receipt,
+                context=context,
+                expires_monotonic=(
+                    monotonic_now + REDACTION_PREVIEW_TTL.total_seconds()
+                ),
+            )
             return receipt
 
     def inspect(self, preview_id: str) -> RedactionPreviewInspection:
         _safe_pseudonym(preview_id)
-        now = _utc(self._clock())
         with self._lock:
-            entry = self._require_active_locked(preview_id, now)
+            entry = self._require_active_locked(
+                preview_id,
+                _utc(self._clock()),
+                self._monotonic_clock(),
+            )
             messages = tuple(
                 RedactionPreviewMessage(
                     role=message.role,
@@ -276,9 +290,12 @@ class InMemoryRedactionPreviewStore:
             return RedactionPreviewInspection(entry.receipt, messages)
 
     def consume(self, approval: AnalysisApproval) -> ApprovedRedactedAnalysis:
-        now = _utc(self._clock())
         with self._lock:
-            entry = self._require_active_locked(approval.preview_id, now)
+            entry = self._require_active_locked(
+                approval.preview_id,
+                _utc(self._clock()),
+                self._monotonic_clock(),
+            )
             if approval.expected_binding != entry.receipt.binding:
                 raise RedactionPreviewMismatchError()
             del self._entries[approval.preview_id]
@@ -299,10 +316,12 @@ class InMemoryRedactionPreviewStore:
             return True
 
     def purge_expired(self) -> int:
-        now = _utc(self._clock())
         with self._lock:
             before = len(self._entries)
-            self._expire_locked(now)
+            self._expire_locked(
+                _utc(self._clock()),
+                self._monotonic_clock(),
+            )
             return before - len(self._entries)
 
     @staticmethod
@@ -325,10 +344,16 @@ class InMemoryRedactionPreviewStore:
             raise RedactionPreviewMismatchError()
 
     def _require_active_locked(
-        self, preview_id: str, now: datetime
+        self,
+        preview_id: str,
+        now: datetime,
+        monotonic_now: float,
     ) -> _PreviewEntry:
         entry = self._entries.get(preview_id)
-        if entry is not None and now >= entry.receipt.expires_at:
+        if entry is not None and (
+            now >= entry.receipt.expires_at
+            or monotonic_now >= entry.expires_monotonic
+        ):
             del self._entries[preview_id]
             self._add_tombstone_locked(preview_id, "expired")
             raise RedactionPreviewExpiredError()
@@ -341,11 +366,14 @@ class InMemoryRedactionPreviewStore:
             raise RedactionPreviewConsumedError()
         raise RedactionPreviewNotFoundError()
 
-    def _expire_locked(self, now: datetime) -> None:
+    def _expire_locked(self, now: datetime, monotonic_now: float) -> None:
         expired = tuple(
             preview_id
             for preview_id, entry in self._entries.items()
-            if now >= entry.receipt.expires_at
+            if (
+                now >= entry.receipt.expires_at
+                or monotonic_now >= entry.expires_monotonic
+            )
         )
         for preview_id in expired:
             del self._entries[preview_id]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -44,6 +45,14 @@ class MutableClock:
         self.now = NOW
 
     def __call__(self) -> datetime:
+        return self.now
+
+
+class MutableMonotonicClock:
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
         return self.now
 
 
@@ -112,7 +121,9 @@ def _approval(binding: RedactionPreviewBinding) -> AnalysisApproval:
     )
 
 
-def test_preview_is_exactly_ten_minutes_and_secret_by_default() -> None:
+def test_preview_is_exactly_ten_minutes_and_secret_by_default(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     clock = MutableClock()
     store = InMemoryRedactionPreviewStore(
         clock=clock,
@@ -123,8 +134,10 @@ def test_preview_is_exactly_ten_minutes_and_secret_by_default() -> None:
     assert receipt.expires_at - receipt.created_at == timedelta(minutes=10)
     inspection = store.inspect(PREVIEW_ID)
     assert TEXT_CANARY not in repr(store)
+    assert TEXT_CANARY not in repr(store._entries)
     assert TEXT_CANARY not in repr(inspection)
     assert TEXT_CANARY not in repr(inspection.messages)
+    assert TEXT_CANARY not in caplog.text
     assert inspection.messages[0].text.get_secret_value() == TEXT_CANARY
 
 
@@ -144,6 +157,28 @@ def test_expired_preview_is_removed_and_cannot_be_consumed() -> None:
         store.inspect(PREVIEW_ID)
 
 
+def test_wall_clock_rollback_cannot_extend_monotonic_expiry() -> None:
+    clock = MutableClock()
+    monotonic_clock = MutableMonotonicClock()
+    store = InMemoryRedactionPreviewStore(
+        clock=clock,
+        monotonic_clock=monotonic_clock,
+        token_factory=lambda: PREVIEW_ID,
+    )
+    binding = _binding()
+    receipt = store.create(_context(), binding)
+
+    clock.now -= timedelta(days=1)
+    monotonic_clock.now += timedelta(minutes=10).total_seconds()
+
+    with pytest.raises(RedactionPreviewExpiredError) as expired:
+        store.consume(_approval(binding))
+    assert TEXT_CANARY not in str(expired.value)
+    assert TEXT_CANARY not in repr(expired.value)
+    assert receipt.created_at == NOW
+    assert receipt.expires_at == NOW + timedelta(minutes=10)
+
+
 def test_binding_mismatch_does_not_consume_preview() -> None:
     store = InMemoryRedactionPreviewStore(
         clock=lambda: NOW,
@@ -153,8 +188,10 @@ def test_binding_mismatch_does_not_consume_preview() -> None:
     store.create(_context(), binding)
     wrong = _binding(metric_keys=("logic.open_loop_closure",))
 
-    with pytest.raises(RedactionPreviewMismatchError):
+    with pytest.raises(RedactionPreviewMismatchError) as mismatch:
         store.consume(_approval(wrong))
+    assert TEXT_CANARY not in str(mismatch.value)
+    assert TEXT_CANARY not in repr(mismatch.value)
 
     approved = store.consume(_approval(binding))
     assert approved.context.analysis_window_fingerprint == WINDOW_ID
@@ -168,8 +205,10 @@ def test_only_one_concurrent_exact_approval_can_consume() -> None:
     )
     binding = _binding()
     store.create(_context(), binding)
+    start = Barrier(2)
 
     def consume() -> str:
+        start.wait(timeout=5)
         try:
             store.consume(_approval(binding))
             return "approved"
@@ -180,6 +219,10 @@ def test_only_one_concurrent_exact_approval_can_consume() -> None:
         outcomes = tuple(pool.map(lambda _: consume(), range(2)))
 
     assert sorted(outcomes) == ["approved", "consumed"]
+    with pytest.raises(RedactionPreviewConsumedError) as consumed:
+        store.consume(_approval(binding))
+    assert TEXT_CANARY not in str(consumed.value)
+    assert TEXT_CANARY not in repr(consumed.value)
 
 
 def test_remote_preview_requires_disclosed_remote_retention_and_cost_shape() -> None:
