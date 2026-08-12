@@ -19,8 +19,8 @@ local runtime artifacts must never be added here.
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
-| P1 | In progress | Serialized estimator cascade, generic run/vote records, calibration, reviewed runners, and model comparison | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout; no estimator is product-enabled |
-| P2 | Blocked by P1 gate | Immutable temporal snapshots, compatible aggregation, recommendations, and model/job/history views | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Requires calibrated P1 estimates and completed P0 provenance boundaries |
+| P1 | In progress | Sealed v17 calibration evidence plus an untrusted, non-activating calibration-report foundation; serialized runtime persistence is not yet a committed checkpoint | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, repository-derived report, sealed gate decision, or product-enabled estimator |
+| P2 | In progress | Prospective, untrusted temporal contracts and capture-lineage foundations only | Prospective comparable recommendation outcomes with missingness and adverse effects visible | No temporal persistence, repository-materialized snapshots, recommendations, or model/job/history views; no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
@@ -249,10 +249,83 @@ Campaign deletion securely removes all campaign-owned identifiers from the
 main database and SQLite WAL/SHM before reporting success. A domain-separated
 revocation digest prevents the same erased campaign identity from being
 recreated during or after checkpoint retry without retaining the original
-identifier. Global plans and gate policies remain immutable. The next P1 gate
-is the normalized v17 evidence journal for attempts, judgments, access events,
-privacy findings, and stability trials; reports, decisions, and activation
-remain later work.
+identifier. Global plans and gate policies remain immutable. That next gate,
+the normalized v17 evidence journal, is now implemented; repository-derived
+reports, sealed gate decisions, and activation remain later work.
+
+Checkpoint `2068b5a` implements that v17 journal as normalized, content-free
+SQLite evidence. It stores the exact expected-attempt manifest, launch and
+terminal receipts, served identities, independently verified structured
+estimate receipts, holdout-access events and gaps, objective truth, blind human
+judgments and adjudication, privacy findings and scans, stability trials, and
+bounded resource, token, queue, and cost provenance. Partial append/restart,
+exact replay, concurrent conflict handling, final sealing, hydration, and
+privacy deletion are covered without adding a generic payload, transcript,
+prompt, response, path, URI, or commentary field.
+
+The v17 trust boundary is repository-owned and fail-closed: structured
+estimates require an independent decoder, the sealed root is written last,
+hydration recomputes aggregate counts and fingerprints and revalidates the
+static v16 campaign lineage, and connection-bound authorization plus SQLite
+guards reject raw inserts, deletes, authorization hijacks, and post-seal
+appends. Secure deletion must also purge the WAL before success is reported.
+The schema contains no calibration-report, gate-decision, or activation table.
+Its checkpoint passed 1,143 backend tests with 4 platform skips, compile checks,
+the privacy scanner, and adversarial review; those gates prove implementation
+integrity, not calibration quality.
+
+Checkpoint `c261ed2` adds fixed calibration-report contracts and deterministic
+math over caller-supplied hydrated v17 domain objects. The comparison identity
+binds metric semantics, the stored plan, gate policy, assignments and split,
+preregistration, submission, served runtime identities, resource provenance,
+source bundle, and report-definition versions. Classification, coverage,
+selected-confidence calibration, selective risk, independent-human agreement,
+stability, missingness, and bounded operational measurements preserve explicit
+known, insufficient, unsupported, not-applicable, and incompatible states.
+Insufficient scopes emit no numeric detail rows, selective coverage uses the
+full eligible known-truth population, partial resource observation stays
+missing, human pairs must name distinct participants, and numeric truth is
+preserved without pretending that numeric performance has been evaluated.
+
+This report checkpoint is deliberately not trusted release evidence. Every
+report has `repository_owned=false`,
+`persistence_state=untrusted_projection`, `comparison_allowed=false`, and
+`activation_allowed=false`; private export and team sharing are also disabled.
+Brier score, log loss, calibration slope, retrieval quality, cold/warm latency,
+throughput, disk use, cascade stop rate, cascade incremental value, and numeric
+stability/tolerance remain unsupported when their required receipts are absent.
+A later repository migration must rederive the complete report from sealed
+rows using a repository clock and reproduce its fingerprint before comparison
+or gate evaluation. No report persistence, gate decision, or activation was
+added by `c261ed2`. Its focused 20-test contract suite, compile checks, privacy
+scan, diff validation, and adversarial review passed; none converts the output
+into trusted calibration evidence.
+
+## P2 foundation evidence
+
+Checkpoints `249f6c0` and `4db7052` define a prospective, content-free temporal
+history and capture-lineage vocabulary. The contracts cover exact last-N,
+rolling, and custom UTC windows; typed raw aggregation inputs and uncertainty;
+independent selection, source, and value states; fully versioned comparison
+identities; prospective history-root epochs; CAS-linked project metric
+selections; direct selected-window input receipts; conservative session
+revisions; typed observation batches; and an exact completion graph. The graph
+requires one root, project, session, selection, run, input window, revision,
+batch, observation scope, provider identity, and preprocessing/redaction/router
+provenance to agree rather than inferring compatibility from timestamps or row
+counts. The combined contract gate passed 67 focused tests plus the privacy and
+compile checks.
+
+These are contracts, not temporal storage. A history root requires a
+server-clock floor and rejects pre-floor data; selections and input receipts are
+direct-only; legacy inference and backfill are fixed false. Append-prefix proofs
+remain `untrusted_until_repository_verified`, unsealed, and unable to authorize
+comparison. Session revisions and completion projections likewise require
+repository verification and remain unsealed with comparison disabled. Snapshot
+specification and receipt shapes exist only as untrusted construction
+boundaries: no repository materializes or seals them, and activation remains
+false. There is no temporal migration or persistence, no generated snapshot,
+recommendation, or model/job/history view, and no claim about legacy history.
 
 ## Version inventory
 
