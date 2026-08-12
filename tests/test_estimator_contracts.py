@@ -523,9 +523,12 @@ def test_evidence_packet_receipt_is_opaque_canonical_and_ephemeral() -> None:
         chronology_sha256=digest("chronology"),
         retrieval_index_sha256=digest("retrieval"),
         provider=Provider.SYNTHETIC,
+        adapter_version="adapter-1",
         provider_schema_version="provider-schema-1",
         preprocessing_version="preprocessing-1",
+        preprocessing_sha256=digest("preprocessing"),
         redactor_version="redactor-1",
+        redactor_sha256=digest("redactor"),
         source_record_count=10,
         requirement_count=2,
         action_count=3,
@@ -548,6 +551,20 @@ def test_evidence_packet_receipt_is_opaque_canonical_and_ephemeral() -> None:
         EvidencePacketReceipt(**{**receipt.model_dump(), "created_at": NOW.replace(tzinfo=None)})
     with pytest.raises(ValidationError):
         EvidencePacketReceipt(**{**receipt.model_dump(), "ephemeral_payload_retained": True})
+
+
+@pytest.mark.parametrize(
+    "unsafe_id",
+    (
+        "C:/Users/Example/private-model",
+        "/private/model",
+        "org/../private-model",
+        "https://example.test/model",
+    ),
+)
+def test_model_identity_rejects_path_or_uri_shaped_ids(unsafe_id: str) -> None:
+    with pytest.raises(ValidationError, match="paths or URIs"):
+        synthetic_model(unsafe_id)
 
 
 def test_model_artifact_requires_pinned_local_hashes_and_disables_remote_code() -> None:

@@ -177,6 +177,33 @@ Recall@3 `1.0`, using `2,179.602 MiB` peak CUDA memory. It tied E5-small, traile
 E5-base and Qwen, and used more accelerator memory, so it remains an unpromoted,
 product-disabled challenger.
 
+The first P1 persistence checkpoint adds a normalized, content-free schema for
+synthetic estimator executions. Plans, immutable synthetic cases, evidence
+packet receipts, serialized stage receipts, model runs, votes, probabilities,
+opaque evidence references, and metric estimates are stored in relational
+tables with immutable-child and parent-cascade-only deletion guards. No prompt,
+excerpt, evidence body, model response, rationale, commentary, generic payload,
+JSON, or BLOB field is available in this schema.
+
+Execution integrity is checked independently by application contracts and
+SQLite constraints. The stored response schema must match its exact plan stage;
+always-run stages cannot be skipped; run and estimate timestamps must be inside
+their serialized execution interval; a final model-cascade state requires a
+selected vote supporting that state; known values require cited evidence; and
+failed, refused, timed-out, out-of-memory, and cancelled attempts remain
+distinct. Repeated stability executions are preserved, exact retries are
+idempotent, and early cascade stops retain their reached-stage prefix.
+
+Schema changes, checksum recording, and `user_version` advancement now commit
+as one SQLite transaction without rewriting historical migration checksums.
+Privacy deletion uses SQLite secure deletion and does not report completion
+until the case cascade is committed and the WAL is cleanly truncated; a busy
+reader produces a typed pending failure and a later retry proves durable purge.
+The schema still accepts only synthetic executions and exposes no activation
+write. Calibration cases, frozen private holdouts, adjudications, derived gate
+decisions, and activation slots remain a later P1 checkpoint, so all estimators
+remain product-disabled.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |

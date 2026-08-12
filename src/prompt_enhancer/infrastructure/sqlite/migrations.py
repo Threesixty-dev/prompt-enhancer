@@ -1757,3 +1757,1562 @@ END;
 
 COMMIT;
 """
+
+
+MIGRATION_15 = r"""
+BEGIN IMMEDIATE;
+
+-- P1 estimator persistence stores provenance and structured scalar judgments
+-- only.  There are deliberately no JSON, BLOB, prompt, excerpt, response,
+-- rationale, commentary, or evidence-body columns in this schema.
+CREATE TABLE estimator_model_artifacts (
+    artifact_fingerprint TEXT PRIMARY KEY
+        CHECK(length(artifact_fingerprint) = 64
+              AND artifact_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(
+        length(contract_version) BETWEEN 1 AND 128
+        AND contract_version GLOB '[A-Za-z0-9]*'
+        AND contract_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    source TEXT NOT NULL CHECK(source IN (
+        'local_weights', 'openai_api', 'anthropic_api', 'codex_cli',
+        'claude_cli', 'synthetic')),
+    requested_model_id TEXT NOT NULL CHECK(
+        length(requested_model_id) BETWEEN 1 AND 128
+        AND requested_model_id GLOB '[A-Za-z0-9]*'
+        AND requested_model_id NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    served_model_id TEXT NOT NULL CHECK(
+        length(served_model_id) BETWEEN 1 AND 128
+        AND served_model_id GLOB '[A-Za-z0-9]*'
+        AND served_model_id NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    requested_revision TEXT NOT NULL CHECK(
+        length(requested_revision) BETWEEN 1 AND 128
+        AND requested_revision GLOB '[A-Za-z0-9]*'
+        AND requested_revision NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    served_revision TEXT NOT NULL CHECK(
+        length(served_revision) BETWEEN 1 AND 128
+        AND served_revision GLOB '[A-Za-z0-9]*'
+        AND served_revision NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    requested_execution_mode TEXT NOT NULL
+        CHECK(requested_execution_mode IN ('standard', 'pro')),
+    served_execution_mode TEXT NOT NULL
+        CHECK(served_execution_mode IN ('standard', 'pro')),
+    weight_availability TEXT NOT NULL CHECK(weight_availability IN (
+        'pinned_hashes', 'provider_managed', 'synthetic_no_weights')),
+    weight_file_count INTEGER NOT NULL CHECK(weight_file_count BETWEEN 0 AND 256),
+    tokenizer_id TEXT NOT NULL CHECK(
+        length(tokenizer_id) BETWEEN 1 AND 128
+        AND tokenizer_id GLOB '[A-Za-z0-9]*'
+        AND tokenizer_id NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    tokenizer_revision TEXT NOT NULL CHECK(
+        length(tokenizer_revision) BETWEEN 1 AND 128
+        AND tokenizer_revision GLOB '[A-Za-z0-9]*'
+        AND tokenizer_revision NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    tokenizer_availability TEXT NOT NULL CHECK(tokenizer_availability IN (
+        'pinned_hashes', 'provider_managed', 'synthetic_no_weights')),
+    tokenizer_file_count INTEGER NOT NULL CHECK(tokenizer_file_count BETWEEN 0 AND 64),
+    license_id TEXT NOT NULL CHECK(
+        length(license_id) BETWEEN 1 AND 128
+        AND license_id GLOB '[A-Za-z0-9]*'
+        AND license_id NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    trust_remote_code INTEGER NOT NULL CHECK(trust_remote_code = 0)
+);
+
+CREATE TABLE estimator_model_weight_files (
+    artifact_fingerprint TEXT NOT NULL
+        REFERENCES estimator_model_artifacts(artifact_fingerprint)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 255),
+    file_name TEXT NOT NULL CHECK(
+        length(file_name) BETWEEN 1 AND 128
+        AND file_name GLOB '[A-Za-z0-9]*'
+        AND file_name NOT GLOB '*[^A-Za-z0-9._+-]*'),
+    sha256 TEXT NOT NULL CHECK(length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(artifact_fingerprint, ordinal),
+    UNIQUE(artifact_fingerprint, file_name)
+);
+
+CREATE TABLE estimator_model_tokenizer_files (
+    artifact_fingerprint TEXT NOT NULL
+        REFERENCES estimator_model_artifacts(artifact_fingerprint)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 63),
+    file_name TEXT NOT NULL CHECK(
+        length(file_name) BETWEEN 1 AND 128
+        AND file_name GLOB '[A-Za-z0-9]*'
+        AND file_name NOT GLOB '*[^A-Za-z0-9._+-]*'),
+    sha256 TEXT NOT NULL CHECK(length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(artifact_fingerprint, ordinal),
+    UNIQUE(artifact_fingerprint, file_name)
+);
+
+CREATE TRIGGER estimator_model_artifacts_validate_children
+BEFORE INSERT ON estimator_model_artifacts
+WHEN NEW.contract_version GLOB '[A-Za-z]:/*'
+    OR NEW.license_id GLOB '[A-Za-z]:/*'
+    OR NEW.requested_model_id GLOB '[A-Za-z]:/*'
+    OR NEW.served_model_id GLOB '[A-Za-z]:/*'
+    OR NEW.tokenizer_id GLOB '[A-Za-z]:/*'
+    OR NEW.requested_revision GLOB '[A-Za-z]:/*'
+    OR NEW.served_revision GLOB '[A-Za-z]:/*'
+    OR NEW.tokenizer_revision GLOB '[A-Za-z]:/*'
+    OR NEW.contract_version GLOB '/*' OR NEW.license_id GLOB '/*'
+    OR NEW.requested_model_id GLOB '/*' OR NEW.served_model_id GLOB '/*'
+    OR NEW.tokenizer_id GLOB '/*' OR NEW.requested_revision GLOB '/*'
+    OR NEW.served_revision GLOB '/*' OR NEW.tokenizer_revision GLOB '/*'
+    OR instr(NEW.requested_model_id, '://') > 0
+    OR instr(NEW.served_model_id, '://') > 0
+    OR instr(NEW.tokenizer_id, '://') > 0
+    OR instr(NEW.requested_revision, '://') > 0
+    OR instr(NEW.served_revision, '://') > 0
+    OR instr(NEW.tokenizer_revision, '://') > 0
+    OR instr(NEW.contract_version, '://') > 0
+    OR instr(NEW.license_id, '://') > 0
+    OR instr('/' || NEW.requested_model_id || '/', '/../') > 0
+    OR instr('/' || NEW.served_model_id || '/', '/../') > 0
+    OR instr('/' || NEW.tokenizer_id || '/', '/../') > 0
+    OR instr('/' || NEW.requested_revision || '/', '/../') > 0
+    OR instr('/' || NEW.served_revision || '/', '/../') > 0
+    OR instr('/' || NEW.tokenizer_revision || '/', '/../') > 0
+    OR instr('/' || NEW.contract_version || '/', '/../') > 0
+    OR instr('/' || NEW.license_id || '/', '/../') > 0
+    OR NEW.weight_file_count <> (
+        SELECT COUNT(*) FROM estimator_model_weight_files
+        WHERE artifact_fingerprint = NEW.artifact_fingerprint
+    )
+    OR NEW.tokenizer_file_count <> (
+        SELECT COUNT(*) FROM estimator_model_tokenizer_files
+        WHERE artifact_fingerprint = NEW.artifact_fingerprint
+    )
+    OR (NEW.source = 'local_weights' AND (
+        NEW.weight_availability <> 'pinned_hashes'
+        OR NEW.tokenizer_availability <> 'pinned_hashes'
+        OR NEW.weight_file_count = 0 OR NEW.tokenizer_file_count = 0))
+    OR (NEW.source = 'synthetic' AND (
+        NEW.weight_availability <> 'synthetic_no_weights'
+        OR NEW.tokenizer_availability <> 'synthetic_no_weights'
+        OR NEW.weight_file_count <> 0 OR NEW.tokenizer_file_count <> 0))
+    OR (NEW.source NOT IN ('local_weights', 'synthetic') AND (
+        NEW.weight_availability <> 'provider_managed'
+        OR NEW.tokenizer_availability <> 'provider_managed'
+        OR NEW.weight_file_count <> 0 OR NEW.tokenizer_file_count <> 0))
+BEGIN
+    SELECT RAISE(ABORT, 'estimator artifact children are inconsistent');
+END;
+
+CREATE TABLE estimator_metric_questions (
+    question_fingerprint TEXT PRIMARY KEY
+        CHECK(length(question_fingerprint) = 64
+              AND question_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(length(contract_version) BETWEEN 1 AND 128),
+    metric_key TEXT NOT NULL CHECK(
+        length(metric_key) BETWEEN 1 AND 128
+        AND metric_key GLOB '[a-z]*'
+        AND metric_key NOT GLOB '*[^a-z0-9_.:-]*'),
+    metric_definition_version TEXT NOT NULL CHECK(length(metric_definition_version) BETWEEN 1 AND 128),
+    question_id TEXT NOT NULL CHECK(
+        length(question_id) BETWEEN 1 AND 128
+        AND question_id GLOB '[a-z]*'
+        AND question_id NOT GLOB '*[^a-z0-9_.:-]*'),
+    question_version TEXT NOT NULL CHECK(length(question_version) BETWEEN 1 AND 128),
+    question_sha256 TEXT NOT NULL CHECK(length(question_sha256) = 64 AND question_sha256 NOT GLOB '*[^0-9a-f]*'),
+    prompt_template_id TEXT NOT NULL CHECK(
+        length(prompt_template_id) BETWEEN 1 AND 128
+        AND prompt_template_id GLOB '[a-z]*'
+        AND prompt_template_id NOT GLOB '*[^a-z0-9_.:-]*'),
+    prompt_template_version TEXT NOT NULL CHECK(length(prompt_template_version) BETWEEN 1 AND 128),
+    prompt_template_sha256 TEXT NOT NULL CHECK(length(prompt_template_sha256) = 64 AND prompt_template_sha256 NOT GLOB '*[^0-9a-f]*'),
+    rubric_id TEXT NOT NULL CHECK(
+        length(rubric_id) BETWEEN 1 AND 128
+        AND rubric_id GLOB '[a-z]*'
+        AND rubric_id NOT GLOB '*[^a-z0-9_.:-]*'),
+    rubric_version TEXT NOT NULL CHECK(length(rubric_version) BETWEEN 1 AND 128),
+    rubric_sha256 TEXT NOT NULL CHECK(length(rubric_sha256) = 64 AND rubric_sha256 NOT GLOB '*[^0-9a-f]*'),
+    output_schema_version TEXT NOT NULL CHECK(length(output_schema_version) BETWEEN 1 AND 128),
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous', 'fraction', 'binary', 'categorical')),
+    unit_code TEXT NOT NULL CHECK(
+        length(unit_code) BETWEEN 1 AND 128
+        AND unit_code GLOB '[a-z]*'
+        AND unit_code NOT GLOB '*[^a-z0-9_.:-]*'),
+    direction TEXT NOT NULL CHECK(direction IN ('higher_is_better', 'lower_is_better', 'descriptive')),
+    lower_bound REAL,
+    upper_bound REAL,
+    CHECK((value_kind IN ('continuous', 'fraction')
+           AND lower_bound IS NOT NULL AND upper_bound IS NOT NULL
+           AND lower_bound < upper_bound)
+          OR (value_kind IN ('binary', 'categorical')
+              AND lower_bound IS NULL AND upper_bound IS NULL)),
+    CHECK(value_kind <> 'fraction' OR (lower_bound = 0.0 AND upper_bound = 1.0))
+);
+
+CREATE TABLE estimator_plans (
+    plan_fingerprint TEXT PRIMARY KEY
+        CHECK(length(plan_fingerprint) = 64 AND plan_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(length(contract_version) BETWEEN 1 AND 128),
+    plan_key TEXT NOT NULL CHECK(
+        length(plan_key) BETWEEN 1 AND 128
+        AND plan_key GLOB '[a-z]*'
+        AND plan_key NOT GLOB '*[^a-z0-9_.:-]*'),
+    plan_version TEXT NOT NULL CHECK(length(plan_version) BETWEEN 1 AND 128),
+    route TEXT NOT NULL CHECK(route IN ('fast', 'balanced', 'deep')),
+    evidence_packet_schema_version TEXT NOT NULL CHECK(length(evidence_packet_schema_version) BETWEEN 1 AND 128),
+    preprocessing_version TEXT NOT NULL CHECK(length(preprocessing_version) BETWEEN 1 AND 128),
+    preprocessing_sha256 TEXT NOT NULL CHECK(length(preprocessing_sha256) = 64 AND preprocessing_sha256 NOT GLOB '*[^0-9a-f]*'),
+    reasoning_effort TEXT NOT NULL CHECK(reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')),
+    calibration_version TEXT NOT NULL CHECK(length(calibration_version) BETWEEN 1 AND 128),
+    calibration_sha256 TEXT NOT NULL CHECK(length(calibration_sha256) = 64 AND calibration_sha256 NOT GLOB '*[^0-9a-f]*'),
+    router_version TEXT NOT NULL CHECK(length(router_version) BETWEEN 1 AND 128),
+    router_sha256 TEXT NOT NULL CHECK(length(router_sha256) = 64 AND router_sha256 NOT GLOB '*[^0-9a-f]*'),
+    redactor_version TEXT NOT NULL CHECK(length(redactor_version) BETWEEN 1 AND 128),
+    redactor_sha256 TEXT NOT NULL CHECK(length(redactor_sha256) = 64 AND redactor_sha256 NOT GLOB '*[^0-9a-f]*'),
+    execution_mode TEXT NOT NULL CHECK(execution_mode = 'serial'),
+    model_load_policy TEXT NOT NULL CHECK(model_load_policy = 'one_at_a_time'),
+    max_loaded_models INTEGER NOT NULL CHECK(max_loaded_models = 1),
+    question_count INTEGER NOT NULL CHECK(question_count BETWEEN 1 AND 100),
+    provider_schema_count INTEGER NOT NULL CHECK(provider_schema_count >= 1),
+    candidate_family_count INTEGER NOT NULL CHECK(candidate_family_count BETWEEN 0 AND 100),
+    uses_synthetic_model INTEGER NOT NULL CHECK(uses_synthetic_model IN (0, 1)),
+    registered_at TEXT NOT NULL,
+    UNIQUE(plan_key, plan_version)
+);
+
+CREATE TABLE estimator_plan_questions (
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    question_fingerprint TEXT NOT NULL REFERENCES estimator_metric_questions(question_fingerprint)
+        DEFERRABLE INITIALLY DEFERRED,
+    PRIMARY KEY(plan_fingerprint, ordinal),
+    UNIQUE(plan_fingerprint, question_fingerprint)
+);
+
+CREATE TABLE estimator_plan_provider_schemas (
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    provider TEXT NOT NULL CHECK(provider IN ('codex', 'claude_code', 'synthetic')),
+    adapter_version TEXT NOT NULL CHECK(length(adapter_version) BETWEEN 1 AND 128),
+    provider_schema_version TEXT NOT NULL CHECK(length(provider_schema_version) BETWEEN 1 AND 128),
+    PRIMARY KEY(plan_fingerprint, ordinal),
+    UNIQUE(plan_fingerprint, provider, adapter_version, provider_schema_version)
+);
+
+CREATE TABLE estimator_candidate_families (
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    family_key TEXT NOT NULL CHECK(
+        length(family_key) BETWEEN 1 AND 128
+        AND family_key GLOB '[a-z]*'
+        AND family_key NOT GLOB '*[^a-z0-9_.:-]*'),
+    candidate_count INTEGER NOT NULL CHECK(candidate_count BETWEEN 1 AND 5),
+    promotion_count INTEGER NOT NULL CHECK(promotion_count BETWEEN 0 AND 2),
+    baseline_count INTEGER NOT NULL CHECK(baseline_count BETWEEN 0 AND 16),
+    PRIMARY KEY(plan_fingerprint, family_key),
+    UNIQUE(plan_fingerprint, ordinal)
+);
+
+CREATE TABLE estimator_candidate_models (
+    plan_fingerprint TEXT NOT NULL,
+    family_key TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 4),
+    artifact_fingerprint TEXT NOT NULL REFERENCES estimator_model_artifacts(artifact_fingerprint)
+        DEFERRABLE INITIALLY DEFERRED,
+    PRIMARY KEY(plan_fingerprint, family_key, ordinal),
+    UNIQUE(plan_fingerprint, family_key, artifact_fingerprint),
+    FOREIGN KEY(plan_fingerprint, family_key)
+        REFERENCES estimator_candidate_families(plan_fingerprint, family_key)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE estimator_candidate_promotions (
+    plan_fingerprint TEXT NOT NULL,
+    family_key TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 1),
+    artifact_fingerprint TEXT NOT NULL REFERENCES estimator_model_artifacts(artifact_fingerprint)
+        DEFERRABLE INITIALLY DEFERRED,
+    PRIMARY KEY(plan_fingerprint, family_key, ordinal),
+    UNIQUE(plan_fingerprint, family_key, artifact_fingerprint),
+    FOREIGN KEY(plan_fingerprint, family_key)
+        REFERENCES estimator_candidate_families(plan_fingerprint, family_key)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE estimator_candidate_baselines (
+    plan_fingerprint TEXT NOT NULL,
+    family_key TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 15),
+    baseline_id TEXT NOT NULL CHECK(
+        length(baseline_id) BETWEEN 1 AND 128
+        AND baseline_id GLOB '[A-Za-z0-9]*'
+        AND baseline_id NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    PRIMARY KEY(plan_fingerprint, family_key, ordinal),
+    UNIQUE(plan_fingerprint, family_key, baseline_id),
+    FOREIGN KEY(plan_fingerprint, family_key)
+        REFERENCES estimator_candidate_families(plan_fingerprint, family_key)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE estimator_plan_stages (
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 7),
+    kind TEXT NOT NULL CHECK(kind IN (
+        'objective_evidence', 'bm25_retrieval', 'embedding_retrieval',
+        'reranker', 'specialist', 'second_opinion', 'human_adjudication')),
+    condition_code TEXT NOT NULL CHECK(condition_code IN (
+        'always', 'disagreement_low_confidence_drift_audit_or_high_value',
+        'unresolved_disagreement')),
+    component_version TEXT NOT NULL CHECK(length(component_version) BETWEEN 1 AND 128),
+    configuration_sha256 TEXT NOT NULL CHECK(length(configuration_sha256) = 64 AND configuration_sha256 NOT GLOB '*[^0-9a-f]*'),
+    output_schema_version TEXT NOT NULL CHECK(length(output_schema_version) BETWEEN 1 AND 128),
+    artifact_fingerprint TEXT REFERENCES estimator_model_artifacts(artifact_fingerprint)
+        DEFERRABLE INITIALLY DEFERRED,
+    candidate_family_key TEXT,
+    PRIMARY KEY(plan_fingerprint, ordinal),
+    FOREIGN KEY(plan_fingerprint, candidate_family_key)
+        REFERENCES estimator_candidate_families(plan_fingerprint, family_key)
+        DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TRIGGER estimator_plans_validate_children
+BEFORE INSERT ON estimator_plans
+WHEN NEW.question_count <> (
+        SELECT COUNT(*) FROM estimator_plan_questions WHERE plan_fingerprint = NEW.plan_fingerprint)
+    OR NEW.provider_schema_count <> (
+        SELECT COUNT(*) FROM estimator_plan_provider_schemas WHERE plan_fingerprint = NEW.plan_fingerprint)
+    OR NEW.candidate_family_count <> (
+        SELECT COUNT(*) FROM estimator_candidate_families WHERE plan_fingerprint = NEW.plan_fingerprint)
+    OR 7 <> (SELECT COUNT(*) FROM estimator_plan_stages WHERE plan_fingerprint = NEW.plan_fingerprint)
+    OR NOT EXISTS (SELECT 1 FROM estimator_plan_stages WHERE plan_fingerprint = NEW.plan_fingerprint AND ordinal = 1 AND kind = 'objective_evidence' AND condition_code = 'always' AND artifact_fingerprint IS NULL AND candidate_family_key IS NULL)
+    OR NOT EXISTS (SELECT 1 FROM estimator_plan_stages WHERE plan_fingerprint = NEW.plan_fingerprint AND ordinal = 2 AND kind = 'bm25_retrieval' AND condition_code = 'always' AND artifact_fingerprint IS NULL AND candidate_family_key IS NULL)
+    OR NOT EXISTS (SELECT 1 FROM estimator_plan_stages WHERE plan_fingerprint = NEW.plan_fingerprint AND ordinal = 3 AND kind = 'embedding_retrieval' AND condition_code = 'always' AND artifact_fingerprint IS NOT NULL)
+    OR NOT EXISTS (SELECT 1 FROM estimator_plan_stages WHERE plan_fingerprint = NEW.plan_fingerprint AND ordinal = 4 AND kind = 'reranker' AND condition_code = 'always' AND artifact_fingerprint IS NOT NULL)
+    OR NOT EXISTS (SELECT 1 FROM estimator_plan_stages WHERE plan_fingerprint = NEW.plan_fingerprint AND ordinal = 5 AND kind = 'specialist' AND condition_code = 'always' AND artifact_fingerprint IS NOT NULL)
+    OR NOT EXISTS (SELECT 1 FROM estimator_plan_stages WHERE plan_fingerprint = NEW.plan_fingerprint AND ordinal = 6 AND kind = 'second_opinion' AND condition_code = 'disagreement_low_confidence_drift_audit_or_high_value' AND artifact_fingerprint IS NOT NULL)
+    OR NOT EXISTS (SELECT 1 FROM estimator_plan_stages WHERE plan_fingerprint = NEW.plan_fingerprint AND ordinal = 7 AND kind = 'human_adjudication' AND condition_code = 'unresolved_disagreement' AND artifact_fingerprint IS NULL AND candidate_family_key IS NULL)
+    OR EXISTS (
+        SELECT 1 FROM estimator_candidate_families AS family
+        WHERE family.plan_fingerprint = NEW.plan_fingerprint
+          AND (family.candidate_count <> (SELECT COUNT(*) FROM estimator_candidate_models AS candidate WHERE candidate.plan_fingerprint = family.plan_fingerprint AND candidate.family_key = family.family_key)
+               OR family.promotion_count <> (SELECT COUNT(*) FROM estimator_candidate_promotions AS promotion WHERE promotion.plan_fingerprint = family.plan_fingerprint AND promotion.family_key = family.family_key)
+               OR family.baseline_count <> (SELECT COUNT(*) FROM estimator_candidate_baselines AS baseline WHERE baseline.plan_fingerprint = family.plan_fingerprint AND baseline.family_key = family.family_key)
+               OR EXISTS (SELECT 1 FROM estimator_candidate_models AS candidate JOIN estimator_model_artifacts AS artifact ON artifact.artifact_fingerprint = candidate.artifact_fingerprint WHERE candidate.plan_fingerprint = family.plan_fingerprint AND candidate.family_key = family.family_key AND artifact.source <> 'local_weights')
+               OR EXISTS (SELECT 1 FROM estimator_candidate_promotions AS promotion WHERE promotion.plan_fingerprint = family.plan_fingerprint AND promotion.family_key = family.family_key AND NOT EXISTS (SELECT 1 FROM estimator_candidate_models AS candidate WHERE candidate.plan_fingerprint = promotion.plan_fingerprint AND candidate.family_key = promotion.family_key AND candidate.artifact_fingerprint = promotion.artifact_fingerprint)))
+    )
+    OR EXISTS (
+        SELECT 1 FROM estimator_plan_stages AS stage
+        JOIN estimator_model_artifacts AS artifact ON artifact.artifact_fingerprint = stage.artifact_fingerprint
+        WHERE stage.plan_fingerprint = NEW.plan_fingerprint
+          AND ((artifact.source = 'local_weights' AND (stage.candidate_family_key IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM estimator_candidate_promotions AS promotion
+                    WHERE promotion.plan_fingerprint = stage.plan_fingerprint
+                      AND promotion.family_key = stage.candidate_family_key
+                      AND promotion.artifact_fingerprint = stage.artifact_fingerprint)))
+               OR (artifact.source <> 'local_weights' AND stage.candidate_family_key IS NOT NULL))
+    )
+    OR NEW.uses_synthetic_model <> EXISTS(
+        SELECT 1 FROM estimator_plan_stages AS stage
+        JOIN estimator_model_artifacts AS artifact ON artifact.artifact_fingerprint = stage.artifact_fingerprint
+        WHERE stage.plan_fingerprint = NEW.plan_fingerprint AND artifact.source = 'synthetic')
+BEGIN
+    SELECT RAISE(ABORT, 'estimator plan children are inconsistent');
+END;
+
+CREATE TABLE estimator_synthetic_cases (
+    case_id TEXT PRIMARY KEY CHECK(length(case_id) = 64 AND case_id NOT GLOB '*[^0-9a-f]*'),
+    case_schema_version TEXT NOT NULL CHECK(length(case_schema_version) BETWEEN 1 AND 128),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint)
+        DEFERRABLE INITIALLY DEFERRED,
+    evidence_packet_fingerprint TEXT NOT NULL UNIQUE
+        CHECK(length(evidence_packet_fingerprint) = 64
+              AND evidence_packet_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    created_at TEXT NOT NULL,
+    source_kind TEXT NOT NULL CHECK(source_kind = 'synthetic'),
+    FOREIGN KEY(evidence_packet_fingerprint, case_id)
+        REFERENCES estimator_evidence_packets(packet_fingerprint, case_id)
+        DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE estimator_evidence_packets (
+    packet_fingerprint TEXT PRIMARY KEY
+        CHECK(length(packet_fingerprint) = 64 AND packet_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    case_id TEXT NOT NULL REFERENCES estimator_synthetic_cases(case_id)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    contract_version TEXT NOT NULL CHECK(length(contract_version) BETWEEN 1 AND 128),
+    packet_schema_version TEXT NOT NULL CHECK(length(packet_schema_version) BETWEEN 1 AND 128),
+    packet_sha256 TEXT NOT NULL CHECK(length(packet_sha256) = 64 AND packet_sha256 NOT GLOB '*[^0-9a-f]*'),
+    requirements_sha256 TEXT NOT NULL CHECK(length(requirements_sha256) = 64 AND requirements_sha256 NOT GLOB '*[^0-9a-f]*'),
+    chronology_sha256 TEXT NOT NULL CHECK(length(chronology_sha256) = 64 AND chronology_sha256 NOT GLOB '*[^0-9a-f]*'),
+    retrieval_index_sha256 TEXT NOT NULL CHECK(length(retrieval_index_sha256) = 64 AND retrieval_index_sha256 NOT GLOB '*[^0-9a-f]*'),
+    provider TEXT NOT NULL CHECK(provider IN ('codex', 'claude_code', 'synthetic')),
+    adapter_version TEXT NOT NULL CHECK(length(adapter_version) BETWEEN 1 AND 128),
+    provider_schema_version TEXT NOT NULL CHECK(length(provider_schema_version) BETWEEN 1 AND 128),
+    preprocessing_version TEXT NOT NULL CHECK(length(preprocessing_version) BETWEEN 1 AND 128),
+    preprocessing_sha256 TEXT NOT NULL CHECK(length(preprocessing_sha256) = 64 AND preprocessing_sha256 NOT GLOB '*[^0-9a-f]*'),
+    redactor_version TEXT NOT NULL CHECK(length(redactor_version) BETWEEN 1 AND 128),
+    redactor_sha256 TEXT NOT NULL CHECK(length(redactor_sha256) = 64 AND redactor_sha256 NOT GLOB '*[^0-9a-f]*'),
+    source_record_count INTEGER NOT NULL CHECK(source_record_count BETWEEN 0 AND 10000000),
+    requirement_count INTEGER NOT NULL CHECK(requirement_count BETWEEN 0 AND 1000000),
+    action_count INTEGER NOT NULL CHECK(action_count BETWEEN 0 AND 1000000),
+    decision_count INTEGER NOT NULL CHECK(decision_count BETWEEN 0 AND 1000000),
+    feedback_count INTEGER NOT NULL CHECK(feedback_count BETWEEN 0 AND 1000000),
+    verification_count INTEGER NOT NULL CHECK(verification_count BETWEEN 0 AND 1000000),
+    evidence_ref_count INTEGER NOT NULL CHECK(evidence_ref_count BETWEEN 0 AND 512),
+    created_at TEXT NOT NULL,
+    ephemeral_payload_retained INTEGER NOT NULL CHECK(ephemeral_payload_retained = 0),
+    UNIQUE(case_id),
+    UNIQUE(packet_fingerprint, case_id)
+);
+
+CREATE TABLE estimator_evidence_refs (
+    packet_fingerprint TEXT NOT NULL REFERENCES estimator_evidence_packets(packet_fingerprint)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 511),
+    evidence_ref TEXT NOT NULL CHECK(length(evidence_ref) = 64 AND evidence_ref NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(packet_fingerprint, ordinal),
+    UNIQUE(packet_fingerprint, evidence_ref)
+);
+
+CREATE TRIGGER estimator_evidence_packets_validate_children
+BEFORE INSERT ON estimator_evidence_packets
+WHEN NEW.evidence_ref_count <> (
+    SELECT COUNT(*) FROM estimator_evidence_refs WHERE packet_fingerprint = NEW.packet_fingerprint)
+BEGIN
+    SELECT RAISE(ABORT, 'estimator evidence receipt children are inconsistent');
+END;
+
+CREATE TABLE estimator_executions (
+    execution_id TEXT PRIMARY KEY CHECK(length(execution_id) = 64 AND execution_id NOT GLOB '*[^0-9a-f]*'),
+    case_id TEXT NOT NULL REFERENCES estimator_synthetic_cases(case_id)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    contract_version TEXT NOT NULL CHECK(length(contract_version) BETWEEN 1 AND 128),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint)
+        DEFERRABLE INITIALLY DEFERRED,
+    evidence_packet_fingerprint TEXT NOT NULL REFERENCES estimator_evidence_packets(packet_fingerprint)
+        DEFERRABLE INITIALLY DEFERRED,
+    route TEXT NOT NULL CHECK(route IN ('fast', 'balanced', 'deep')),
+    project_id TEXT CHECK(project_id IS NULL OR (length(project_id) = 64 AND project_id NOT GLOB '*[^0-9a-f]*')),
+    session_id TEXT CHECK(session_id IS NULL OR (length(session_id) = 64 AND session_id NOT GLOB '*[^0-9a-f]*')),
+    state TEXT NOT NULL CHECK(state = 'completed'),
+    created_at TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    cascade_stop_stage_ordinal INTEGER NOT NULL CHECK(cascade_stop_stage_ordinal BETWEEN 1 AND 7),
+    cascade_stop_stage_kind TEXT NOT NULL CHECK(cascade_stop_stage_kind IN (
+        'objective_evidence', 'bm25_retrieval', 'embedding_retrieval',
+        'reranker', 'specialist', 'second_opinion', 'human_adjudication')),
+    cascade_stop_reason_code TEXT NOT NULL CHECK(
+        length(cascade_stop_reason_code) BETWEEN 1 AND 128
+        AND cascade_stop_reason_code GLOB '[a-z]*'
+        AND cascade_stop_reason_code NOT GLOB '*[^a-z0-9_.:-]*'),
+    stage_receipt_count INTEGER NOT NULL CHECK(stage_receipt_count BETWEEN 1 AND 7),
+    model_run_count INTEGER NOT NULL CHECK(model_run_count BETWEEN 0 AND 1000),
+    model_vote_count INTEGER NOT NULL CHECK(model_vote_count BETWEEN 0 AND 10000),
+    metric_estimate_count INTEGER NOT NULL CHECK(metric_estimate_count BETWEEN 1 AND 100)
+);
+
+CREATE TABLE estimator_stage_receipts (
+    execution_id TEXT NOT NULL REFERENCES estimator_executions(execution_id)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 7),
+    kind TEXT NOT NULL CHECK(kind IN (
+        'objective_evidence', 'bm25_retrieval', 'embedding_retrieval',
+        'reranker', 'specialist', 'second_opinion', 'human_adjudication')),
+    state TEXT NOT NULL CHECK(state IN ('completed', 'skipped', 'failed', 'cancelled')),
+    outcome_code TEXT NOT NULL CHECK(
+        length(outcome_code) BETWEEN 1 AND 128
+        AND outcome_code GLOB '[a-z]*'
+        AND outcome_code NOT GLOB '*[^a-z0-9_.:-]*'),
+    started_at TEXT,
+    finished_at TEXT,
+    PRIMARY KEY(execution_id, ordinal),
+    CHECK((state = 'skipped' AND started_at IS NULL AND finished_at IS NULL)
+          OR (state <> 'skipped' AND started_at IS NOT NULL AND finished_at IS NOT NULL))
+);
+
+CREATE TABLE estimator_model_runs (
+    run_id TEXT PRIMARY KEY CHECK(length(run_id) = 64 AND run_id NOT GLOB '*[^0-9a-f]*'),
+    execution_id TEXT NOT NULL REFERENCES estimator_executions(execution_id)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    contract_version TEXT NOT NULL CHECK(length(contract_version) BETWEEN 1 AND 128),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    evidence_packet_fingerprint TEXT NOT NULL REFERENCES estimator_evidence_packets(packet_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    route TEXT NOT NULL CHECK(route IN ('fast', 'balanced', 'deep')),
+    stage_ordinal INTEGER NOT NULL CHECK(stage_ordinal BETWEEN 3 AND 6),
+    stage_kind TEXT NOT NULL CHECK(stage_kind IN ('embedding_retrieval', 'reranker', 'specialist', 'second_opinion')),
+    artifact_fingerprint TEXT NOT NULL REFERENCES estimator_model_artifacts(artifact_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    destination TEXT NOT NULL CHECK(destination IN ('local_device', 'openai_api', 'anthropic_api', 'codex_cli', 'claude_api', 'manual_import', 'synthetic_test')),
+    retention_class TEXT NOT NULL CHECK(retention_class IN ('local_ephemeral', 'provider_zero_day', 'provider_30_day', 'provider_disclosed_other', 'manual_export', 'synthetic')),
+    retention_days INTEGER CHECK(retention_days IS NULL OR retention_days BETWEEN 0 AND 3650),
+    disclosure_version TEXT NOT NULL CHECK(length(disclosure_version) BETWEEN 1 AND 128),
+    approval_receipt_id TEXT CHECK(approval_receipt_id IS NULL OR (length(approval_receipt_id) = 64 AND approval_receipt_id NOT GLOB '*[^0-9a-f]*')),
+    retention_acknowledged INTEGER NOT NULL CHECK(retention_acknowledged IN (0, 1)),
+    state TEXT NOT NULL CHECK(state IN ('completed', 'failed', 'refused', 'timed_out', 'out_of_memory', 'cancelled')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    cold_start INTEGER NOT NULL CHECK(cold_start IN (0, 1)),
+    queue_latency_ms INTEGER NOT NULL CHECK(queue_latency_ms >= 0),
+    latency_ms INTEGER NOT NULL CHECK(latency_ms >= 0),
+    input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens >= 0),
+    output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens >= 0),
+    peak_ram_mib INTEGER CHECK(peak_ram_mib IS NULL OR peak_ram_mib >= 0),
+    peak_vram_mib INTEGER CHECK(peak_vram_mib IS NULL OR peak_vram_mib >= 0),
+    disk_mib INTEGER CHECK(disk_mib IS NULL OR disk_mib >= 0),
+    energy_mwh INTEGER CHECK(energy_mwh IS NULL OR energy_mwh >= 0),
+    api_cost_microusd INTEGER CHECK(api_cost_microusd IS NULL OR api_cost_microusd >= 0),
+    throughput_unit_code TEXT CHECK(throughput_unit_code IS NULL OR (length(throughput_unit_code) BETWEEN 1 AND 128 AND throughput_unit_code GLOB '[a-z]*' AND throughput_unit_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    measured_unit_count INTEGER CHECK(measured_unit_count IS NULL OR measured_unit_count >= 0),
+    throughput_window_ms INTEGER CHECK(throughput_window_ms IS NULL OR throughput_window_ms > 0),
+    throughput_provenance_version TEXT CHECK(throughput_provenance_version IS NULL OR length(throughput_provenance_version) BETWEEN 1 AND 128),
+    usage_provenance_version TEXT NOT NULL CHECK(length(usage_provenance_version) BETWEEN 1 AND 128),
+    response_schema_version TEXT NOT NULL CHECK(length(response_schema_version) BETWEEN 1 AND 128),
+    structured_output_valid INTEGER NOT NULL CHECK(structured_output_valid IN (0, 1)),
+    fallback_used INTEGER NOT NULL CHECK(fallback_used IN (0, 1)),
+    fallback_reason_code TEXT CHECK(fallback_reason_code IS NULL OR (
+        length(fallback_reason_code) BETWEEN 1 AND 128
+        AND fallback_reason_code GLOB '[a-z]*'
+        AND fallback_reason_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    refusal_code TEXT CHECK(refusal_code IS NULL OR (
+        length(refusal_code) BETWEEN 1 AND 128
+        AND refusal_code GLOB '[a-z]*'
+        AND refusal_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    failure_code TEXT CHECK(failure_code IS NULL OR (
+        length(failure_code) BETWEEN 1 AND 128
+        AND failure_code GLOB '[a-z]*'
+        AND failure_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    CHECK((throughput_unit_code IS NULL AND measured_unit_count IS NULL AND throughput_window_ms IS NULL AND throughput_provenance_version IS NULL)
+          OR (throughput_unit_code IS NOT NULL AND measured_unit_count IS NOT NULL AND throughput_window_ms IS NOT NULL AND throughput_provenance_version IS NOT NULL))
+);
+
+CREATE TRIGGER estimator_model_runs_validate_shape
+BEFORE INSERT ON estimator_model_runs
+WHEN NEW.destination <> 'synthetic_test'
+    OR NEW.retention_class <> 'synthetic'
+    OR NEW.retention_days <> 0
+    OR NEW.approval_receipt_id IS NOT NULL
+    OR NEW.retention_acknowledged <> 0
+    OR NOT EXISTS (
+        SELECT 1 FROM estimator_model_artifacts AS artifact
+        WHERE artifact.artifact_fingerprint = NEW.artifact_fingerprint
+          AND artifact.source = 'synthetic'
+          AND NEW.fallback_used = (
+              artifact.requested_model_id <> artifact.served_model_id
+              OR artifact.requested_revision <> artifact.served_revision
+              OR artifact.requested_execution_mode <> artifact.served_execution_mode)
+          AND NEW.fallback_used = (NEW.fallback_reason_code IS NOT NULL))
+    OR NOT EXISTS (
+        SELECT 1 FROM estimator_plan_stages AS stage
+        WHERE stage.plan_fingerprint = NEW.plan_fingerprint
+          AND stage.ordinal = NEW.stage_ordinal
+          AND stage.kind = NEW.stage_kind
+          AND stage.artifact_fingerprint = NEW.artifact_fingerprint
+          AND stage.output_schema_version = NEW.response_schema_version)
+    OR (NEW.state = 'completed' AND (
+        NEW.structured_output_valid <> 1
+        OR NEW.refusal_code IS NOT NULL OR NEW.failure_code IS NOT NULL))
+    OR (NEW.state = 'refused' AND (
+        NEW.structured_output_valid <> 0
+        OR NEW.refusal_code IS NULL OR NEW.failure_code IS NOT NULL))
+    OR (NEW.state NOT IN ('completed', 'refused') AND (
+        NEW.structured_output_valid <> 0
+        OR NEW.failure_code IS NULL OR NEW.refusal_code IS NOT NULL))
+BEGIN
+    SELECT RAISE(ABORT, 'estimator model run shape is inconsistent');
+END;
+
+CREATE TABLE estimator_model_votes (
+    vote_id TEXT PRIMARY KEY CHECK(length(vote_id) = 64 AND vote_id NOT GLOB '*[^0-9a-f]*'),
+    execution_id TEXT NOT NULL REFERENCES estimator_executions(execution_id)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    model_run_id TEXT NOT NULL REFERENCES estimator_model_runs(run_id) DEFERRABLE INITIALLY DEFERRED,
+    contract_version TEXT NOT NULL CHECK(length(contract_version) BETWEEN 1 AND 128),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    evidence_packet_fingerprint TEXT NOT NULL REFERENCES estimator_evidence_packets(packet_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    metric_question_fingerprint TEXT NOT NULL REFERENCES estimator_metric_questions(question_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    metric_key TEXT NOT NULL CHECK(
+        length(metric_key) BETWEEN 1 AND 128
+        AND metric_key GLOB '[a-z]*'
+        AND metric_key NOT GLOB '*[^a-z0-9_.:-]*'),
+    state TEXT NOT NULL CHECK(state IN ('known', 'unknown', 'abstained', 'not_applicable', 'failed')),
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous', 'fraction', 'binary', 'categorical')),
+    numeric_value REAL,
+    label_code TEXT CHECK(label_code IS NULL OR (
+        length(label_code) BETWEEN 1 AND 128
+        AND label_code GLOB '[a-z]*'
+        AND label_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    confidence REAL CHECK(confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+    unknown_reason_code TEXT CHECK(unknown_reason_code IS NULL OR (
+        length(unknown_reason_code) BETWEEN 1 AND 128
+        AND unknown_reason_code GLOB '[a-z]*'
+        AND unknown_reason_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    abstention_reason_code TEXT CHECK(abstention_reason_code IS NULL OR (
+        length(abstention_reason_code) BETWEEN 1 AND 128
+        AND abstention_reason_code GLOB '[a-z]*'
+        AND abstention_reason_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    not_applicable_reason_code TEXT CHECK(not_applicable_reason_code IS NULL OR (
+        length(not_applicable_reason_code) BETWEEN 1 AND 128
+        AND not_applicable_reason_code GLOB '[a-z]*'
+        AND not_applicable_reason_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    failure_code TEXT CHECK(failure_code IS NULL OR (
+        length(failure_code) BETWEEN 1 AND 128
+        AND failure_code GLOB '[a-z]*'
+        AND failure_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    probability_count INTEGER NOT NULL CHECK(probability_count BETWEEN 0 AND 128),
+    evidence_ref_count INTEGER NOT NULL CHECK(evidence_ref_count BETWEEN 0 AND 512)
+);
+
+CREATE TABLE estimator_vote_probabilities (
+    vote_id TEXT NOT NULL REFERENCES estimator_model_votes(vote_id)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 127),
+    label_code TEXT NOT NULL CHECK(
+        length(label_code) BETWEEN 1 AND 128
+        AND label_code GLOB '[a-z]*'
+        AND label_code NOT GLOB '*[^a-z0-9_.:-]*'),
+    probability REAL NOT NULL CHECK(probability >= 0 AND probability <= 1),
+    PRIMARY KEY(vote_id, ordinal),
+    UNIQUE(vote_id, label_code)
+);
+
+CREATE TABLE estimator_vote_evidence_refs (
+    vote_id TEXT NOT NULL REFERENCES estimator_model_votes(vote_id)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 511),
+    evidence_ref TEXT NOT NULL CHECK(length(evidence_ref) = 64 AND evidence_ref NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(vote_id, ordinal),
+    UNIQUE(vote_id, evidence_ref)
+);
+
+CREATE TRIGGER estimator_model_votes_validate_children
+BEFORE INSERT ON estimator_model_votes
+WHEN NEW.probability_count <> (
+        SELECT COUNT(*) FROM estimator_vote_probabilities WHERE vote_id = NEW.vote_id)
+    OR NEW.evidence_ref_count <> (
+        SELECT COUNT(*) FROM estimator_vote_evidence_refs WHERE vote_id = NEW.vote_id)
+    OR (NEW.probability_count > 0 AND ABS(1.0 - (
+        SELECT SUM(probability) FROM estimator_vote_probabilities WHERE vote_id = NEW.vote_id)) > 0.000001)
+    OR (NEW.state = 'known' AND (
+        NEW.confidence IS NULL
+        OR NEW.evidence_ref_count = 0
+        OR NEW.unknown_reason_code IS NOT NULL
+        OR NEW.abstention_reason_code IS NOT NULL
+        OR NEW.not_applicable_reason_code IS NOT NULL
+        OR NEW.failure_code IS NOT NULL
+        OR (NEW.value_kind IN ('continuous', 'fraction') AND (
+            NEW.numeric_value IS NULL OR NEW.label_code IS NOT NULL
+            OR NEW.probability_count <> 0))
+        OR (NEW.value_kind IN ('binary', 'categorical') AND (
+            NEW.numeric_value IS NOT NULL OR NEW.label_code IS NULL
+            OR NEW.probability_count = 0
+            OR NOT EXISTS (
+                SELECT 1 FROM estimator_vote_probabilities AS probability
+                WHERE probability.vote_id = NEW.vote_id
+                  AND probability.label_code = NEW.label_code)))
+        OR (NEW.value_kind = 'fraction'
+            AND (NEW.numeric_value < 0 OR NEW.numeric_value > 1))))
+    OR (NEW.state <> 'known' AND (
+        NEW.numeric_value IS NOT NULL OR NEW.label_code IS NOT NULL
+        OR NEW.confidence IS NOT NULL OR NEW.probability_count <> 0
+        OR (NEW.state = 'unknown' AND (
+            NEW.unknown_reason_code IS NULL
+            OR NEW.abstention_reason_code IS NOT NULL
+            OR NEW.not_applicable_reason_code IS NOT NULL
+            OR NEW.failure_code IS NOT NULL))
+        OR (NEW.state = 'abstained' AND (
+            NEW.unknown_reason_code IS NOT NULL
+            OR NEW.abstention_reason_code IS NULL
+            OR NEW.not_applicable_reason_code IS NOT NULL
+            OR NEW.failure_code IS NOT NULL))
+        OR (NEW.state = 'not_applicable' AND (
+            NEW.unknown_reason_code IS NOT NULL
+            OR NEW.abstention_reason_code IS NOT NULL
+            OR NEW.not_applicable_reason_code IS NULL
+            OR NEW.failure_code IS NOT NULL))
+        OR (NEW.state = 'failed' AND (
+            NEW.unknown_reason_code IS NOT NULL
+            OR NEW.abstention_reason_code IS NOT NULL
+            OR NEW.not_applicable_reason_code IS NOT NULL
+            OR NEW.failure_code IS NULL))))
+BEGIN
+    SELECT RAISE(ABORT, 'estimator vote children are inconsistent');
+END;
+
+CREATE TABLE estimator_metric_estimates (
+    estimate_id TEXT PRIMARY KEY CHECK(length(estimate_id) = 64 AND estimate_id NOT GLOB '*[^0-9a-f]*'),
+    execution_id TEXT NOT NULL REFERENCES estimator_executions(execution_id)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    contract_version TEXT NOT NULL CHECK(length(contract_version) BETWEEN 1 AND 128),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    evidence_packet_fingerprint TEXT NOT NULL REFERENCES estimator_evidence_packets(packet_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    metric_question_fingerprint TEXT NOT NULL REFERENCES estimator_metric_questions(question_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    metric_key TEXT NOT NULL CHECK(
+        length(metric_key) BETWEEN 1 AND 128
+        AND metric_key GLOB '[a-z]*'
+        AND metric_key NOT GLOB '*[^a-z0-9_.:-]*'),
+    source TEXT NOT NULL CHECK(source IN ('objective_evidence', 'deterministic', 'model_cascade', 'human_adjudicated')),
+    state TEXT NOT NULL CHECK(state IN ('known', 'unknown', 'abstained', 'not_applicable', 'failed')),
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous', 'fraction', 'binary', 'categorical')),
+    unit_code TEXT NOT NULL CHECK(
+        length(unit_code) BETWEEN 1 AND 128
+        AND unit_code GLOB '[a-z]*'
+        AND unit_code NOT GLOB '*[^a-z0-9_.:-]*'),
+    numeric_value REAL,
+    label_code TEXT CHECK(label_code IS NULL OR (
+        length(label_code) BETWEEN 1 AND 128
+        AND label_code GLOB '[a-z]*'
+        AND label_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    numerator INTEGER CHECK(numerator IS NULL OR numerator >= 0),
+    denominator INTEGER CHECK(denominator IS NULL OR denominator > 0),
+    uncertainty_kind TEXT CHECK(uncertainty_kind IN ('confidence', 'interval', 'distribution', 'not_quantified')),
+    uncertainty_confidence REAL CHECK(uncertainty_confidence IS NULL OR (uncertainty_confidence >= 0 AND uncertainty_confidence <= 1)),
+    uncertainty_lower_bound REAL,
+    uncertainty_upper_bound REAL,
+    uncertainty_confidence_level REAL CHECK(uncertainty_confidence_level IS NULL OR (uncertainty_confidence_level > 0 AND uncertainty_confidence_level < 1)),
+    uncertainty_entropy REAL CHECK(uncertainty_entropy IS NULL OR uncertainty_entropy >= 0),
+    uncertainty_reason_code TEXT CHECK(uncertainty_reason_code IS NULL OR (
+        length(uncertainty_reason_code) BETWEEN 1 AND 128
+        AND uncertainty_reason_code GLOB '[a-z]*'
+        AND uncertainty_reason_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    evidence_coverage REAL NOT NULL CHECK(evidence_coverage >= 0 AND evidence_coverage <= 1),
+    adjudication_id TEXT CHECK(adjudication_id IS NULL OR (length(adjudication_id) = 64 AND adjudication_id NOT GLOB '*[^0-9a-f]*')),
+    unknown_reason_code TEXT CHECK(unknown_reason_code IS NULL OR (
+        length(unknown_reason_code) BETWEEN 1 AND 128
+        AND unknown_reason_code GLOB '[a-z]*'
+        AND unknown_reason_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    abstention_reason_code TEXT CHECK(abstention_reason_code IS NULL OR (
+        length(abstention_reason_code) BETWEEN 1 AND 128
+        AND abstention_reason_code GLOB '[a-z]*'
+        AND abstention_reason_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    not_applicable_reason_code TEXT CHECK(not_applicable_reason_code IS NULL OR (
+        length(not_applicable_reason_code) BETWEEN 1 AND 128
+        AND not_applicable_reason_code GLOB '[a-z]*'
+        AND not_applicable_reason_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    failure_code TEXT CHECK(failure_code IS NULL OR (
+        length(failure_code) BETWEEN 1 AND 128
+        AND failure_code GLOB '[a-z]*'
+        AND failure_code NOT GLOB '*[^a-z0-9_.:-]*')),
+    vote_count INTEGER NOT NULL CHECK(vote_count BETWEEN 0 AND 32),
+    created_at TEXT NOT NULL,
+    UNIQUE(execution_id, metric_question_fingerprint)
+);
+
+CREATE TABLE estimator_estimate_votes (
+    estimate_id TEXT NOT NULL REFERENCES estimator_metric_estimates(estimate_id)
+        ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 31),
+    vote_id TEXT NOT NULL REFERENCES estimator_model_votes(vote_id) DEFERRABLE INITIALLY DEFERRED,
+    PRIMARY KEY(estimate_id, ordinal),
+    UNIQUE(estimate_id, vote_id)
+);
+
+CREATE TRIGGER estimator_metric_estimates_validate_children
+BEFORE INSERT ON estimator_metric_estimates
+WHEN NEW.vote_count <> (
+    SELECT COUNT(*) FROM estimator_estimate_votes WHERE estimate_id = NEW.estimate_id)
+    OR (NEW.state = 'known' AND (
+        NEW.uncertainty_kind IS NULL
+        OR NEW.unknown_reason_code IS NOT NULL
+        OR NEW.abstention_reason_code IS NOT NULL
+        OR NEW.not_applicable_reason_code IS NOT NULL
+        OR NEW.failure_code IS NOT NULL
+        OR (NEW.value_kind IN ('continuous', 'fraction') AND (
+            NEW.numeric_value IS NULL OR NEW.label_code IS NOT NULL))
+        OR (NEW.value_kind IN ('binary', 'categorical') AND (
+            NEW.numeric_value IS NOT NULL OR NEW.label_code IS NULL))
+        OR (NEW.value_kind = 'fraction' AND (
+            NEW.numeric_value < 0 OR NEW.numeric_value > 1
+            OR (NEW.numerator IS NULL) <> (NEW.denominator IS NULL)
+            OR (NEW.numerator IS NOT NULL AND ABS(
+                NEW.numeric_value - (1.0 * NEW.numerator / NEW.denominator)
+            ) > 0.000000001)))
+        OR (NEW.value_kind <> 'fraction' AND (
+            NEW.numerator IS NOT NULL OR NEW.denominator IS NOT NULL))))
+    OR (NEW.state <> 'known' AND (
+        NEW.numeric_value IS NOT NULL OR NEW.label_code IS NOT NULL
+        OR NEW.numerator IS NOT NULL OR NEW.denominator IS NOT NULL
+        OR NEW.uncertainty_kind IS NOT NULL
+        OR NEW.uncertainty_confidence IS NOT NULL
+        OR NEW.uncertainty_lower_bound IS NOT NULL
+        OR NEW.uncertainty_upper_bound IS NOT NULL
+        OR NEW.uncertainty_confidence_level IS NOT NULL
+        OR NEW.uncertainty_entropy IS NOT NULL
+        OR NEW.uncertainty_reason_code IS NOT NULL
+        OR (NEW.state = 'unknown' AND (
+            NEW.unknown_reason_code IS NULL
+            OR NEW.abstention_reason_code IS NOT NULL
+            OR NEW.not_applicable_reason_code IS NOT NULL
+            OR NEW.failure_code IS NOT NULL))
+        OR (NEW.state = 'abstained' AND (
+            NEW.unknown_reason_code IS NOT NULL
+            OR NEW.abstention_reason_code IS NULL
+            OR NEW.not_applicable_reason_code IS NOT NULL
+            OR NEW.failure_code IS NOT NULL))
+        OR (NEW.state = 'not_applicable' AND (
+            NEW.unknown_reason_code IS NOT NULL
+            OR NEW.abstention_reason_code IS NOT NULL
+            OR NEW.not_applicable_reason_code IS NULL
+            OR NEW.failure_code IS NOT NULL))
+        OR (NEW.state = 'failed' AND (
+            NEW.unknown_reason_code IS NOT NULL
+            OR NEW.abstention_reason_code IS NOT NULL
+            OR NEW.not_applicable_reason_code IS NOT NULL
+            OR NEW.failure_code IS NULL))))
+    OR (NEW.state = 'known' AND (
+        (NEW.uncertainty_kind = 'confidence' AND (
+            NEW.uncertainty_confidence IS NULL
+            OR NEW.uncertainty_lower_bound IS NOT NULL
+            OR NEW.uncertainty_upper_bound IS NOT NULL
+            OR NEW.uncertainty_confidence_level IS NOT NULL
+            OR NEW.uncertainty_entropy IS NOT NULL
+            OR NEW.uncertainty_reason_code IS NOT NULL))
+        OR (NEW.uncertainty_kind = 'interval' AND (
+            NEW.uncertainty_confidence IS NOT NULL
+            OR NEW.uncertainty_lower_bound IS NULL
+            OR NEW.uncertainty_upper_bound IS NULL
+            OR NEW.uncertainty_lower_bound > NEW.uncertainty_upper_bound
+            OR NEW.uncertainty_confidence_level IS NULL
+            OR NEW.uncertainty_entropy IS NOT NULL
+            OR NEW.uncertainty_reason_code IS NOT NULL))
+        OR (NEW.uncertainty_kind = 'distribution' AND (
+            NEW.uncertainty_confidence IS NOT NULL
+            OR NEW.uncertainty_lower_bound IS NOT NULL
+            OR NEW.uncertainty_upper_bound IS NOT NULL
+            OR NEW.uncertainty_confidence_level IS NOT NULL
+            OR NEW.uncertainty_entropy IS NULL
+            OR NEW.uncertainty_reason_code IS NOT NULL))
+        OR (NEW.uncertainty_kind = 'not_quantified' AND (
+            NEW.uncertainty_confidence IS NOT NULL
+            OR NEW.uncertainty_lower_bound IS NOT NULL
+            OR NEW.uncertainty_upper_bound IS NOT NULL
+            OR NEW.uncertainty_confidence_level IS NOT NULL
+            OR NEW.uncertainty_entropy IS NOT NULL
+            OR NEW.uncertainty_reason_code IS NULL))))
+    OR (NEW.source = 'model_cascade' AND NEW.vote_count = 0)
+    OR (NEW.source = 'model_cascade' AND NEW.state = 'known'
+        AND NEW.evidence_coverage <= 0)
+    OR (NEW.source <> 'model_cascade' AND NEW.vote_count <> 0)
+    OR NEW.source = 'human_adjudicated'
+    OR NEW.adjudication_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'estimator estimate children are inconsistent');
+END;
+
+CREATE TRIGGER estimator_executions_validate_bundle
+BEFORE INSERT ON estimator_executions
+WHEN NEW.project_id IS NOT NULL OR NEW.session_id IS NOT NULL
+    OR NEW.created_at > NEW.started_at OR NEW.started_at > NEW.finished_at
+    OR julianday(NEW.created_at) IS NULL
+    OR julianday(NEW.started_at) IS NULL
+    OR julianday(NEW.finished_at) IS NULL
+    OR NOT EXISTS (
+        SELECT 1 FROM estimator_synthetic_cases AS test_case
+        JOIN estimator_plans AS plan ON plan.plan_fingerprint = test_case.plan_fingerprint
+        JOIN estimator_evidence_packets AS packet ON packet.case_id = test_case.case_id
+        WHERE test_case.case_id = NEW.case_id
+          AND test_case.plan_fingerprint = NEW.plan_fingerprint
+          AND test_case.evidence_packet_fingerprint = NEW.evidence_packet_fingerprint
+          AND packet.packet_fingerprint = NEW.evidence_packet_fingerprint
+          AND packet.packet_schema_version = plan.evidence_packet_schema_version
+          AND packet.preprocessing_version = plan.preprocessing_version
+          AND packet.preprocessing_sha256 = plan.preprocessing_sha256
+          AND packet.redactor_version = plan.redactor_version
+          AND packet.redactor_sha256 = plan.redactor_sha256
+          AND packet.created_at <= test_case.created_at
+          AND test_case.created_at <= NEW.created_at
+          AND plan.route = NEW.route
+          AND plan.uses_synthetic_model = 1
+          AND EXISTS (
+              SELECT 1 FROM estimator_plan_provider_schemas AS provider_schema
+              WHERE provider_schema.plan_fingerprint = plan.plan_fingerprint
+                AND provider_schema.provider = packet.provider
+                AND provider_schema.adapter_version = packet.adapter_version
+                AND provider_schema.provider_schema_version = packet.provider_schema_version))
+    OR NEW.stage_receipt_count <> (
+        SELECT COUNT(*) FROM estimator_stage_receipts WHERE execution_id = NEW.execution_id)
+    OR NOT EXISTS (
+        SELECT 1 FROM estimator_stage_receipts
+        WHERE execution_id = NEW.execution_id AND ordinal = 1)
+    OR NEW.stage_receipt_count <> (
+        SELECT MAX(ordinal) FROM estimator_stage_receipts
+        WHERE execution_id = NEW.execution_id)
+    OR EXISTS (
+        SELECT 1 FROM estimator_stage_receipts AS receipt
+        LEFT JOIN estimator_plan_stages AS stage
+          ON stage.plan_fingerprint = NEW.plan_fingerprint
+         AND stage.ordinal = receipt.ordinal
+        WHERE receipt.execution_id = NEW.execution_id
+          AND (stage.ordinal IS NULL OR stage.kind <> receipt.kind))
+    OR EXISTS (
+        SELECT 1 FROM estimator_stage_receipts AS receipt
+        WHERE receipt.execution_id = NEW.execution_id
+          AND receipt.state <> 'skipped'
+          AND (julianday(receipt.started_at) IS NULL
+               OR julianday(receipt.finished_at) IS NULL
+               OR receipt.started_at < NEW.started_at
+               OR receipt.started_at > receipt.finished_at
+               OR receipt.finished_at > NEW.finished_at))
+    OR EXISTS (
+        SELECT 1
+        FROM estimator_stage_receipts AS earlier
+        JOIN estimator_stage_receipts AS later
+          ON later.execution_id = earlier.execution_id
+         AND later.ordinal > earlier.ordinal
+        WHERE earlier.execution_id = NEW.execution_id
+          AND earlier.state <> 'skipped' AND later.state <> 'skipped'
+          AND later.started_at < earlier.finished_at)
+    OR NEW.cascade_stop_stage_ordinal <> NEW.stage_receipt_count
+    OR NOT EXISTS (
+        SELECT 1 FROM estimator_stage_receipts AS receipt
+        WHERE receipt.execution_id = NEW.execution_id
+          AND receipt.ordinal = NEW.cascade_stop_stage_ordinal
+          AND receipt.kind = NEW.cascade_stop_stage_kind)
+    OR NEW.model_run_count <> (
+        SELECT COUNT(*) FROM estimator_model_runs WHERE execution_id = NEW.execution_id)
+    OR EXISTS (
+        SELECT 1
+        FROM estimator_model_runs AS earlier
+        JOIN estimator_model_runs AS later
+          ON later.execution_id = earlier.execution_id
+         AND (later.stage_ordinal > earlier.stage_ordinal
+              OR (later.stage_ordinal = earlier.stage_ordinal
+                  AND (later.started_at > earlier.started_at
+                       OR (later.started_at = earlier.started_at
+                           AND (later.finished_at > earlier.finished_at
+                                OR (later.finished_at = earlier.finished_at
+                                    AND later.run_id > earlier.run_id))))))
+        WHERE earlier.execution_id = NEW.execution_id
+          AND later.started_at < earlier.finished_at)
+    OR NEW.model_vote_count <> (
+        SELECT COUNT(*) FROM estimator_model_votes WHERE execution_id = NEW.execution_id)
+    OR NEW.metric_estimate_count <> (
+        SELECT COUNT(*) FROM estimator_metric_estimates WHERE execution_id = NEW.execution_id)
+    OR NEW.metric_estimate_count <> (
+        SELECT question_count FROM estimator_plans WHERE plan_fingerprint = NEW.plan_fingerprint)
+    OR EXISTS (
+        SELECT 1 FROM estimator_model_runs AS run
+        WHERE run.execution_id = NEW.execution_id
+          AND (run.plan_fingerprint <> NEW.plan_fingerprint
+               OR run.evidence_packet_fingerprint <> NEW.evidence_packet_fingerprint
+               OR run.route <> NEW.route
+               OR run.destination <> 'synthetic_test'
+               OR NOT (
+                    NEW.started_at <= run.started_at
+                    AND run.started_at <= run.finished_at
+                    AND run.finished_at <= NEW.finished_at)
+               OR run.latency_ms <> CAST(
+                    (julianday(run.finished_at) - julianday(run.started_at))
+                    * 86400000.0 + 0.5 AS INTEGER)
+               OR NOT EXISTS (
+                    SELECT 1 FROM estimator_stage_receipts AS receipt
+                    WHERE receipt.execution_id = NEW.execution_id
+                      AND receipt.ordinal = run.stage_ordinal
+                      AND receipt.kind = run.stage_kind
+                      AND ((run.state = 'completed' AND receipt.state = 'completed')
+                           OR (run.state <> 'completed'
+                               AND receipt.state IN ('completed', 'failed', 'cancelled')))
+                      AND receipt.started_at <= run.started_at
+                      AND run.finished_at <= receipt.finished_at)
+               OR NOT EXISTS (
+                    SELECT 1 FROM estimator_plan_stages AS stage
+                    JOIN estimator_model_artifacts AS artifact
+                      ON artifact.artifact_fingerprint = stage.artifact_fingerprint
+                    WHERE stage.plan_fingerprint = NEW.plan_fingerprint
+                      AND stage.ordinal = run.stage_ordinal
+                      AND stage.kind = run.stage_kind
+                      AND stage.artifact_fingerprint = run.artifact_fingerprint
+                      AND stage.output_schema_version = run.response_schema_version
+                      AND artifact.source = 'synthetic')))
+    OR EXISTS (
+        SELECT 1 FROM estimator_stage_receipts AS receipt
+        JOIN estimator_plan_stages AS stage
+          ON stage.plan_fingerprint = NEW.plan_fingerprint
+         AND stage.ordinal = receipt.ordinal
+        WHERE receipt.execution_id = NEW.execution_id
+          AND receipt.state = 'skipped'
+          AND stage.condition_code = 'always')
+    OR EXISTS (
+        SELECT 1 FROM estimator_stage_receipts AS receipt
+        WHERE receipt.execution_id = NEW.execution_id
+          AND receipt.kind IN ('embedding_retrieval', 'reranker', 'specialist', 'second_opinion')
+          AND ((receipt.state = 'skipped' AND EXISTS (
+                    SELECT 1 FROM estimator_model_runs AS run
+                    WHERE run.execution_id = NEW.execution_id
+                      AND run.stage_ordinal = receipt.ordinal))
+               OR (receipt.state = 'completed' AND NOT EXISTS (
+                    SELECT 1 FROM estimator_model_runs AS run
+                    WHERE run.execution_id = NEW.execution_id
+                      AND run.stage_ordinal = receipt.ordinal
+                      AND run.state = 'completed'))
+               OR (receipt.state = 'failed' AND (
+                    NOT EXISTS (
+                        SELECT 1 FROM estimator_model_runs AS run
+                        WHERE run.execution_id = NEW.execution_id
+                          AND run.stage_ordinal = receipt.ordinal)
+                    OR EXISTS (
+                        SELECT 1 FROM estimator_model_runs AS run
+                        WHERE run.execution_id = NEW.execution_id
+                          AND run.stage_ordinal = receipt.ordinal
+                          AND run.state = 'completed')
+                    OR NOT EXISTS (
+                        SELECT 1 FROM estimator_model_runs AS run
+                        WHERE run.execution_id = NEW.execution_id
+                          AND run.stage_ordinal = receipt.ordinal
+                          AND run.state IN ('failed', 'refused', 'timed_out', 'out_of_memory'))))
+               OR (receipt.state = 'cancelled' AND (
+                    NOT EXISTS (
+                        SELECT 1 FROM estimator_model_runs AS run
+                        WHERE run.execution_id = NEW.execution_id
+                          AND run.stage_ordinal = receipt.ordinal)
+                    OR EXISTS (
+                        SELECT 1 FROM estimator_model_runs AS run
+                        WHERE run.execution_id = NEW.execution_id
+                          AND run.stage_ordinal = receipt.ordinal
+                          AND run.state <> 'cancelled')))))
+    OR EXISTS (
+        SELECT 1 FROM estimator_stage_receipts AS receipt
+        WHERE receipt.execution_id = NEW.execution_id
+          AND receipt.kind = 'human_adjudication'
+          AND receipt.state <> 'skipped')
+    OR EXISTS (
+        SELECT 1 FROM estimator_model_votes AS vote
+        WHERE vote.execution_id = NEW.execution_id
+          AND (vote.plan_fingerprint <> NEW.plan_fingerprint
+               OR vote.evidence_packet_fingerprint <> NEW.evidence_packet_fingerprint
+               OR NOT EXISTS (
+                    SELECT 1 FROM estimator_model_runs AS run
+                    WHERE run.run_id = vote.model_run_id
+                      AND run.execution_id = NEW.execution_id
+                      AND run.stage_kind IN ('specialist', 'second_opinion')
+                      AND ((vote.state IN ('known', 'unknown', 'not_applicable')
+                            AND run.state = 'completed'
+                            AND run.structured_output_valid = 1)
+                           OR (vote.state = 'abstained'
+                               AND ((run.state = 'completed'
+                                     AND run.structured_output_valid = 1)
+                                    OR (run.state = 'refused'
+                                        AND run.structured_output_valid = 0
+                                        AND vote.abstention_reason_code = run.refusal_code)))
+                           OR (vote.state = 'failed'
+                               AND run.state IN ('failed', 'timed_out', 'out_of_memory', 'cancelled')
+                               AND run.structured_output_valid = 0
+                               AND vote.failure_code = run.failure_code)))
+               OR NOT EXISTS (
+                    SELECT 1 FROM estimator_plan_questions AS selected
+                    JOIN estimator_metric_questions AS question
+                      ON question.question_fingerprint = selected.question_fingerprint
+                    WHERE selected.plan_fingerprint = NEW.plan_fingerprint
+                      AND selected.question_fingerprint = vote.metric_question_fingerprint
+                      AND question.metric_key = vote.metric_key
+                      AND question.value_kind = vote.value_kind
+                      AND (vote.numeric_value IS NULL OR (
+                          question.lower_bound IS NOT NULL
+                          AND vote.numeric_value >= question.lower_bound
+                          AND vote.numeric_value <= question.upper_bound)))
+               OR EXISTS (
+                    SELECT 1 FROM estimator_vote_evidence_refs AS reference
+                    WHERE reference.vote_id = vote.vote_id
+                      AND NOT EXISTS (
+                          SELECT 1 FROM estimator_evidence_refs AS packet_reference
+                            WHERE packet_reference.packet_fingerprint = NEW.evidence_packet_fingerprint
+                            AND packet_reference.evidence_ref = reference.evidence_ref))))
+    OR EXISTS (
+        SELECT 1 FROM estimator_model_runs AS run
+        WHERE run.execution_id = NEW.execution_id
+          AND run.stage_kind IN ('specialist', 'second_opinion')
+          AND run.state = 'completed'
+          AND NOT EXISTS (
+              SELECT 1 FROM estimator_model_votes AS vote
+              WHERE vote.model_run_id = run.run_id))
+    OR EXISTS (
+        SELECT 1 FROM estimator_model_votes AS vote
+        WHERE vote.execution_id = NEW.execution_id
+          AND NOT EXISTS (
+              SELECT 1 FROM estimator_estimate_votes AS selected_vote
+              WHERE selected_vote.vote_id = vote.vote_id))
+    OR EXISTS (
+        SELECT 1 FROM estimator_metric_estimates AS estimate
+        WHERE estimate.execution_id = NEW.execution_id
+          AND (estimate.plan_fingerprint <> NEW.plan_fingerprint
+               OR estimate.evidence_packet_fingerprint <> NEW.evidence_packet_fingerprint
+               OR estimate.created_at < NEW.started_at
+               OR estimate.created_at > NEW.finished_at
+               OR NOT EXISTS (
+                    SELECT 1 FROM estimator_plan_questions AS selected
+                    JOIN estimator_metric_questions AS question
+                      ON question.question_fingerprint = selected.question_fingerprint
+                    WHERE selected.plan_fingerprint = NEW.plan_fingerprint
+                      AND selected.question_fingerprint = estimate.metric_question_fingerprint
+                      AND question.metric_key = estimate.metric_key
+                      AND question.value_kind = estimate.value_kind
+                      AND question.unit_code = estimate.unit_code
+                      AND (estimate.numeric_value IS NULL OR (
+                          question.lower_bound IS NOT NULL
+                          AND estimate.numeric_value >= question.lower_bound
+                          AND estimate.numeric_value <= question.upper_bound)))
+               OR EXISTS (
+                    SELECT 1 FROM estimator_estimate_votes AS selected_vote
+                    JOIN estimator_model_votes AS vote ON vote.vote_id = selected_vote.vote_id
+                    WHERE selected_vote.estimate_id = estimate.estimate_id
+                      AND (vote.execution_id <> NEW.execution_id
+                           OR vote.metric_question_fingerprint <> estimate.metric_question_fingerprint)))
+               OR (estimate.source = 'model_cascade' AND NOT EXISTS (
+                    SELECT 1 FROM estimator_estimate_votes AS selected_vote
+                    JOIN estimator_model_votes AS vote ON vote.vote_id = selected_vote.vote_id
+                    WHERE selected_vote.estimate_id = estimate.estimate_id
+                      AND vote.state = estimate.state))
+               OR (estimate.source = 'model_cascade' AND EXISTS (
+                    SELECT 1 FROM estimator_estimate_votes AS selected_vote
+                    JOIN estimator_model_votes AS vote ON vote.vote_id = selected_vote.vote_id
+                    JOIN estimator_model_runs AS run ON run.run_id = vote.model_run_id
+                    WHERE selected_vote.estimate_id = estimate.estimate_id
+                      AND estimate.created_at < run.finished_at))
+               OR (estimate.source = 'model_cascade'
+                   AND estimate.state = 'known'
+                   AND NOT EXISTS (
+                       SELECT 1 FROM estimator_estimate_votes AS selected_vote
+                       JOIN estimator_model_votes AS vote ON vote.vote_id = selected_vote.vote_id
+                       WHERE selected_vote.estimate_id = estimate.estimate_id
+                         AND vote.state = 'known'
+                         AND vote.evidence_ref_count > 0)))
+    OR EXISTS (
+        SELECT 1 FROM estimator_metric_estimates AS estimate
+        JOIN estimator_metric_questions AS question
+          ON question.question_fingerprint = estimate.metric_question_fingerprint
+        WHERE estimate.execution_id = NEW.execution_id
+          AND estimate.state = 'known'
+          AND estimate.numeric_value IS NOT NULL
+          AND estimate.uncertainty_kind = 'interval'
+          AND NOT (
+              question.lower_bound <= estimate.uncertainty_lower_bound
+              AND estimate.uncertainty_lower_bound <= estimate.numeric_value
+              AND estimate.numeric_value <= estimate.uncertainty_upper_bound
+              AND estimate.uncertainty_upper_bound <= question.upper_bound))
+    OR EXISTS (
+        SELECT 1 FROM estimator_metric_estimates AS estimate
+        WHERE estimate.execution_id = NEW.execution_id
+          AND ((estimate.source = 'objective_evidence' AND NOT EXISTS (
+                    SELECT 1 FROM estimator_stage_receipts AS receipt
+                    WHERE receipt.execution_id = NEW.execution_id
+                      AND receipt.ordinal = 1 AND receipt.state = 'completed'))
+               OR (estimate.source = 'deterministic' AND NOT EXISTS (
+                    SELECT 1 FROM estimator_stage_receipts AS receipt
+                    WHERE receipt.execution_id = NEW.execution_id
+                      AND receipt.ordinal = 2 AND receipt.state = 'completed'))
+               OR (estimate.source = 'objective_evidence' AND EXISTS (
+                    SELECT 1 FROM estimator_stage_receipts AS receipt
+                    WHERE receipt.execution_id = NEW.execution_id
+                      AND receipt.ordinal = 1
+                      AND estimate.created_at < receipt.finished_at))
+               OR (estimate.source = 'deterministic' AND EXISTS (
+                    SELECT 1 FROM estimator_stage_receipts AS receipt
+                    WHERE receipt.execution_id = NEW.execution_id
+                      AND receipt.ordinal = 2
+                      AND estimate.created_at < receipt.finished_at))
+               OR (estimate.state = 'known'
+                   AND estimate.source IN ('objective_evidence', 'deterministic')
+                   AND (estimate.evidence_coverage <= 0
+                        OR NOT EXISTS (
+                            SELECT 1 FROM estimator_evidence_refs AS reference
+                            WHERE reference.packet_fingerprint = NEW.evidence_packet_fingerprint)
+                        OR (estimate.source = 'objective_evidence'
+                            AND NOT EXISTS (
+                                SELECT 1 FROM estimator_evidence_packets AS packet
+                                WHERE packet.packet_fingerprint = NEW.evidence_packet_fingerprint
+                                  AND packet.verification_count > 0))))))
+BEGIN
+    SELECT RAISE(ABORT, 'estimator execution bundle is inconsistent');
+END;
+
+-- Direct SQL is also a privacy boundary.  These triggers apply the same
+-- content-free identifier alphabet used by application contracts and require
+-- canonical microsecond UTC timestamps.  They prevent internal callers from
+-- repurposing version or timestamp fields as arbitrary text storage.
+CREATE TRIGGER estimator_metric_questions_safe_metadata
+BEFORE INSERT ON estimator_metric_questions
+WHEN NEW.contract_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.contract_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.metric_definition_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.metric_definition_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.question_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.question_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.prompt_template_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.prompt_template_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.rubric_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.rubric_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.output_schema_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.output_schema_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.contract_version GLOB '[A-Za-z]:/*'
+    OR NEW.metric_definition_version GLOB '[A-Za-z]:/*'
+    OR NEW.question_version GLOB '[A-Za-z]:/*'
+    OR NEW.prompt_template_version GLOB '[A-Za-z]:/*'
+    OR NEW.rubric_version GLOB '[A-Za-z]:/*'
+    OR NEW.output_schema_version GLOB '[A-Za-z]:/*'
+    OR NEW.contract_version GLOB '/*'
+    OR NEW.metric_definition_version GLOB '/*'
+    OR NEW.question_version GLOB '/*'
+    OR NEW.prompt_template_version GLOB '/*'
+    OR NEW.rubric_version GLOB '/*'
+    OR NEW.output_schema_version GLOB '/*'
+    OR instr(NEW.contract_version, '://') > 0
+    OR instr(NEW.metric_definition_version, '://') > 0
+    OR instr(NEW.question_version, '://') > 0
+    OR instr(NEW.prompt_template_version, '://') > 0
+    OR instr(NEW.rubric_version, '://') > 0
+    OR instr(NEW.output_schema_version, '://') > 0
+    OR instr('/' || NEW.contract_version || '/', '/../') > 0
+    OR instr('/' || NEW.metric_definition_version || '/', '/../') > 0
+    OR instr('/' || NEW.question_version || '/', '/../') > 0
+    OR instr('/' || NEW.prompt_template_version || '/', '/../') > 0
+    OR instr('/' || NEW.rubric_version || '/', '/../') > 0
+    OR instr('/' || NEW.output_schema_version || '/', '/../') > 0
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_plans_safe_metadata
+BEFORE INSERT ON estimator_plans
+WHEN NEW.contract_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.contract_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.plan_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.plan_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.plan_version GLOB '[A-Za-z]:/*'
+    OR NEW.contract_version GLOB '[A-Za-z]:/*'
+    OR NEW.evidence_packet_schema_version GLOB '[A-Za-z]:/*'
+    OR NEW.preprocessing_version GLOB '[A-Za-z]:/*'
+    OR NEW.calibration_version GLOB '[A-Za-z]:/*'
+    OR NEW.router_version GLOB '[A-Za-z]:/*'
+    OR NEW.redactor_version GLOB '[A-Za-z]:/*'
+    OR NEW.plan_version GLOB '/*' OR NEW.contract_version GLOB '/*'
+    OR NEW.evidence_packet_schema_version GLOB '/*'
+    OR NEW.preprocessing_version GLOB '/*' OR NEW.calibration_version GLOB '/*'
+    OR NEW.router_version GLOB '/*' OR NEW.redactor_version GLOB '/*'
+    OR instr(NEW.plan_version, '://') > 0
+    OR instr(NEW.contract_version, '://') > 0
+    OR instr(NEW.evidence_packet_schema_version, '://') > 0
+    OR instr(NEW.preprocessing_version, '://') > 0
+    OR instr(NEW.calibration_version, '://') > 0
+    OR instr(NEW.router_version, '://') > 0
+    OR instr(NEW.redactor_version, '://') > 0
+    OR instr('/' || NEW.plan_version || '/', '/../') > 0
+    OR instr('/' || NEW.contract_version || '/', '/../') > 0
+    OR instr('/' || NEW.evidence_packet_schema_version || '/', '/../') > 0
+    OR instr('/' || NEW.preprocessing_version || '/', '/../') > 0
+    OR instr('/' || NEW.calibration_version || '/', '/../') > 0
+    OR instr('/' || NEW.router_version || '/', '/../') > 0
+    OR instr('/' || NEW.redactor_version || '/', '/../') > 0
+    OR NEW.evidence_packet_schema_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.evidence_packet_schema_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.preprocessing_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.preprocessing_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.calibration_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.calibration_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.router_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.router_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.redactor_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.redactor_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.registered_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+    OR julianday(NEW.registered_at) IS NULL
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_plan_provider_schemas_safe_metadata
+BEFORE INSERT ON estimator_plan_provider_schemas
+WHEN NEW.adapter_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.adapter_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.provider_schema_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.provider_schema_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.adapter_version GLOB '[A-Za-z]:/*'
+    OR NEW.provider_schema_version GLOB '[A-Za-z]:/*'
+    OR NEW.adapter_version GLOB '/*' OR NEW.provider_schema_version GLOB '/*'
+    OR instr(NEW.adapter_version, '://') > 0
+    OR instr(NEW.provider_schema_version, '://') > 0
+    OR instr('/' || NEW.adapter_version || '/', '/../') > 0
+    OR instr('/' || NEW.provider_schema_version || '/', '/../') > 0
+    OR NEW.adapter_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.adapter_version GLOB '*[^A-Za-z0-9._+:/-]*'
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_plan_stages_safe_metadata
+BEFORE INSERT ON estimator_plan_stages
+WHEN NEW.component_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.component_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.output_schema_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.output_schema_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.component_version GLOB '[A-Za-z]:/*'
+    OR NEW.output_schema_version GLOB '[A-Za-z]:/*'
+    OR NEW.component_version GLOB '/*' OR NEW.output_schema_version GLOB '/*'
+    OR instr(NEW.component_version, '://') > 0
+    OR instr(NEW.output_schema_version, '://') > 0
+    OR instr('/' || NEW.component_version || '/', '/../') > 0
+    OR instr('/' || NEW.output_schema_version || '/', '/../') > 0
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_candidate_baselines_safe_metadata
+BEFORE INSERT ON estimator_candidate_baselines
+WHEN NEW.baseline_id GLOB '[A-Za-z]:/*'
+    OR NEW.baseline_id GLOB '/*'
+    OR instr(NEW.baseline_id, '://') > 0
+    OR instr('/' || NEW.baseline_id || '/', '/../') > 0
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_synthetic_cases_safe_metadata
+BEFORE INSERT ON estimator_synthetic_cases
+WHEN NEW.case_schema_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.case_schema_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.case_schema_version GLOB '[A-Za-z]:/*'
+    OR NEW.case_schema_version GLOB '/*'
+    OR instr(NEW.case_schema_version, '://') > 0
+    OR instr('/' || NEW.case_schema_version || '/', '/../') > 0
+    OR NEW.created_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+    OR julianday(NEW.created_at) IS NULL
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_evidence_packets_safe_metadata
+BEFORE INSERT ON estimator_evidence_packets
+WHEN NEW.contract_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.contract_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.packet_schema_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.packet_schema_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.adapter_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.adapter_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.provider_schema_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.provider_schema_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.preprocessing_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.preprocessing_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.redactor_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.redactor_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.contract_version GLOB '[A-Za-z]:/*'
+    OR NEW.packet_schema_version GLOB '[A-Za-z]:/*'
+    OR NEW.adapter_version GLOB '[A-Za-z]:/*'
+    OR NEW.provider_schema_version GLOB '[A-Za-z]:/*'
+    OR NEW.preprocessing_version GLOB '[A-Za-z]:/*'
+    OR NEW.redactor_version GLOB '[A-Za-z]:/*'
+    OR NEW.contract_version GLOB '/*' OR NEW.packet_schema_version GLOB '/*'
+    OR NEW.adapter_version GLOB '/*' OR NEW.provider_schema_version GLOB '/*'
+    OR NEW.preprocessing_version GLOB '/*' OR NEW.redactor_version GLOB '/*'
+    OR instr(NEW.contract_version, '://') > 0
+    OR instr(NEW.packet_schema_version, '://') > 0
+    OR instr(NEW.adapter_version, '://') > 0
+    OR instr(NEW.provider_schema_version, '://') > 0
+    OR instr(NEW.preprocessing_version, '://') > 0
+    OR instr(NEW.redactor_version, '://') > 0
+    OR instr('/' || NEW.contract_version || '/', '/../') > 0
+    OR instr('/' || NEW.packet_schema_version || '/', '/../') > 0
+    OR instr('/' || NEW.adapter_version || '/', '/../') > 0
+    OR instr('/' || NEW.provider_schema_version || '/', '/../') > 0
+    OR instr('/' || NEW.preprocessing_version || '/', '/../') > 0
+    OR instr('/' || NEW.redactor_version || '/', '/../') > 0
+    OR NEW.created_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+    OR julianday(NEW.created_at) IS NULL
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_executions_safe_metadata
+BEFORE INSERT ON estimator_executions
+WHEN NEW.contract_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.contract_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.contract_version GLOB '[A-Za-z]:/*'
+    OR NEW.contract_version GLOB '/*'
+    OR instr(NEW.contract_version, '://') > 0
+    OR instr('/' || NEW.contract_version || '/', '/../') > 0
+    OR NEW.created_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+    OR NEW.started_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+    OR NEW.finished_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+    OR julianday(NEW.created_at) IS NULL OR julianday(NEW.started_at) IS NULL
+    OR julianday(NEW.finished_at) IS NULL
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_stage_receipts_safe_metadata
+BEFORE INSERT ON estimator_stage_receipts
+WHEN (NEW.started_at IS NOT NULL AND NEW.started_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00')
+    OR (NEW.finished_at IS NOT NULL AND NEW.finished_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00')
+    OR (NEW.started_at IS NOT NULL AND julianday(NEW.started_at) IS NULL)
+    OR (NEW.finished_at IS NOT NULL AND julianday(NEW.finished_at) IS NULL)
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_model_runs_safe_metadata
+BEFORE INSERT ON estimator_model_runs
+WHEN NEW.contract_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.contract_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.disclosure_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.disclosure_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR (NEW.throughput_provenance_version IS NOT NULL AND (
+        NEW.throughput_provenance_version NOT GLOB '[A-Za-z0-9]*'
+        OR NEW.throughput_provenance_version GLOB '*[^A-Za-z0-9._+:/-]*'))
+    OR NEW.usage_provenance_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.usage_provenance_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.response_schema_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.response_schema_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.contract_version GLOB '[A-Za-z]:/*'
+    OR NEW.disclosure_version GLOB '[A-Za-z]:/*'
+    OR NEW.usage_provenance_version GLOB '[A-Za-z]:/*'
+    OR NEW.response_schema_version GLOB '[A-Za-z]:/*'
+    OR (NEW.throughput_provenance_version IS NOT NULL AND (
+        NEW.throughput_provenance_version GLOB '[A-Za-z]:/*'
+        OR NEW.throughput_provenance_version GLOB '/*'
+        OR instr(NEW.throughput_provenance_version, '://') > 0
+        OR instr('/' || NEW.throughput_provenance_version || '/', '/../') > 0))
+    OR NEW.contract_version GLOB '/*' OR NEW.disclosure_version GLOB '/*'
+    OR NEW.usage_provenance_version GLOB '/*'
+    OR NEW.response_schema_version GLOB '/*'
+    OR instr(NEW.contract_version, '://') > 0
+    OR instr(NEW.disclosure_version, '://') > 0
+    OR instr(NEW.usage_provenance_version, '://') > 0
+    OR instr(NEW.response_schema_version, '://') > 0
+    OR instr('/' || NEW.contract_version || '/', '/../') > 0
+    OR instr('/' || NEW.disclosure_version || '/', '/../') > 0
+    OR instr('/' || NEW.usage_provenance_version || '/', '/../') > 0
+    OR instr('/' || NEW.response_schema_version || '/', '/../') > 0
+    OR NEW.started_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+    OR NEW.finished_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+    OR julianday(NEW.started_at) IS NULL OR julianday(NEW.finished_at) IS NULL
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_model_votes_safe_metadata
+BEFORE INSERT ON estimator_model_votes
+WHEN NEW.contract_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.contract_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.contract_version GLOB '[A-Za-z]:/*'
+    OR NEW.contract_version GLOB '/*'
+    OR instr(NEW.contract_version, '://') > 0
+    OR instr('/' || NEW.contract_version || '/', '/../') > 0
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+CREATE TRIGGER estimator_metric_estimates_safe_metadata
+BEFORE INSERT ON estimator_metric_estimates
+WHEN NEW.contract_version NOT GLOB '[A-Za-z0-9]*'
+    OR NEW.contract_version GLOB '*[^A-Za-z0-9._+:/-]*'
+    OR NEW.contract_version GLOB '[A-Za-z]:/*'
+    OR NEW.contract_version GLOB '/*'
+    OR instr(NEW.contract_version, '://') > 0
+    OR instr('/' || NEW.contract_version || '/', '/../') > 0
+    OR NEW.created_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+    OR julianday(NEW.created_at) IS NULL
+BEGIN SELECT RAISE(ABORT, 'estimator metadata must be content-free'); END;
+
+-- Every estimator row is immutable.  Safe synthetic case deletion is the only
+-- removal surface; its descendants can disappear only through FK cascades.
+CREATE TRIGGER estimator_model_artifacts_no_update BEFORE UPDATE ON estimator_model_artifacts BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_model_weight_files_no_update BEFORE UPDATE ON estimator_model_weight_files BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_model_tokenizer_files_no_update BEFORE UPDATE ON estimator_model_tokenizer_files BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_metric_questions_no_update BEFORE UPDATE ON estimator_metric_questions BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_plans_no_update BEFORE UPDATE ON estimator_plans BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_plan_questions_no_update BEFORE UPDATE ON estimator_plan_questions BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_plan_provider_schemas_no_update BEFORE UPDATE ON estimator_plan_provider_schemas BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_candidate_families_no_update BEFORE UPDATE ON estimator_candidate_families BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_candidate_models_no_update BEFORE UPDATE ON estimator_candidate_models BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_candidate_promotions_no_update BEFORE UPDATE ON estimator_candidate_promotions BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_candidate_baselines_no_update BEFORE UPDATE ON estimator_candidate_baselines BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_plan_stages_no_update BEFORE UPDATE ON estimator_plan_stages BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_synthetic_cases_no_update BEFORE UPDATE ON estimator_synthetic_cases BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_evidence_packets_no_update BEFORE UPDATE ON estimator_evidence_packets BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_evidence_refs_no_update BEFORE UPDATE ON estimator_evidence_refs BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_executions_no_update BEFORE UPDATE ON estimator_executions BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_stage_receipts_no_update BEFORE UPDATE ON estimator_stage_receipts BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_model_runs_no_update BEFORE UPDATE ON estimator_model_runs BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_model_votes_no_update BEFORE UPDATE ON estimator_model_votes BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_vote_probabilities_no_update BEFORE UPDATE ON estimator_vote_probabilities BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_vote_evidence_refs_no_update BEFORE UPDATE ON estimator_vote_evidence_refs BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_metric_estimates_no_update BEFORE UPDATE ON estimator_metric_estimates BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+CREATE TRIGGER estimator_estimate_votes_no_update BEFORE UPDATE ON estimator_estimate_votes BEGIN SELECT RAISE(ABORT, 'estimator row is immutable'); END;
+
+-- Children are written before their validating parent.  Once the parent
+-- exists, no later transaction may append rows and silently change a snapshot.
+CREATE TRIGGER estimator_model_weight_files_parent_seals_insert BEFORE INSERT ON estimator_model_weight_files
+WHEN EXISTS (SELECT 1 FROM estimator_model_artifacts WHERE artifact_fingerprint = NEW.artifact_fingerprint)
+BEGIN SELECT RAISE(ABORT, 'estimator artifact is already sealed'); END;
+CREATE TRIGGER estimator_model_tokenizer_files_parent_seals_insert BEFORE INSERT ON estimator_model_tokenizer_files
+WHEN EXISTS (SELECT 1 FROM estimator_model_artifacts WHERE artifact_fingerprint = NEW.artifact_fingerprint)
+BEGIN SELECT RAISE(ABORT, 'estimator artifact is already sealed'); END;
+CREATE TRIGGER estimator_plan_questions_parent_seals_insert BEFORE INSERT ON estimator_plan_questions
+WHEN EXISTS (SELECT 1 FROM estimator_plans WHERE plan_fingerprint = NEW.plan_fingerprint)
+BEGIN SELECT RAISE(ABORT, 'estimator plan is already sealed'); END;
+CREATE TRIGGER estimator_plan_provider_schemas_parent_seals_insert BEFORE INSERT ON estimator_plan_provider_schemas
+WHEN EXISTS (SELECT 1 FROM estimator_plans WHERE plan_fingerprint = NEW.plan_fingerprint)
+BEGIN SELECT RAISE(ABORT, 'estimator plan is already sealed'); END;
+CREATE TRIGGER estimator_candidate_families_parent_seals_insert BEFORE INSERT ON estimator_candidate_families
+WHEN EXISTS (SELECT 1 FROM estimator_plans WHERE plan_fingerprint = NEW.plan_fingerprint)
+BEGIN SELECT RAISE(ABORT, 'estimator plan is already sealed'); END;
+CREATE TRIGGER estimator_candidate_models_parent_seals_insert BEFORE INSERT ON estimator_candidate_models
+WHEN EXISTS (SELECT 1 FROM estimator_candidate_families WHERE plan_fingerprint = NEW.plan_fingerprint AND family_key = NEW.family_key)
+BEGIN SELECT RAISE(ABORT, 'estimator candidate family is already sealed'); END;
+CREATE TRIGGER estimator_candidate_promotions_parent_seals_insert BEFORE INSERT ON estimator_candidate_promotions
+WHEN EXISTS (SELECT 1 FROM estimator_candidate_families WHERE plan_fingerprint = NEW.plan_fingerprint AND family_key = NEW.family_key)
+BEGIN SELECT RAISE(ABORT, 'estimator candidate family is already sealed'); END;
+CREATE TRIGGER estimator_candidate_baselines_parent_seals_insert BEFORE INSERT ON estimator_candidate_baselines
+WHEN EXISTS (SELECT 1 FROM estimator_candidate_families WHERE plan_fingerprint = NEW.plan_fingerprint AND family_key = NEW.family_key)
+BEGIN SELECT RAISE(ABORT, 'estimator candidate family is already sealed'); END;
+CREATE TRIGGER estimator_plan_stages_parent_seals_insert BEFORE INSERT ON estimator_plan_stages
+WHEN EXISTS (SELECT 1 FROM estimator_plans WHERE plan_fingerprint = NEW.plan_fingerprint)
+BEGIN SELECT RAISE(ABORT, 'estimator plan is already sealed'); END;
+CREATE TRIGGER estimator_evidence_refs_parent_seals_insert BEFORE INSERT ON estimator_evidence_refs
+WHEN EXISTS (SELECT 1 FROM estimator_evidence_packets WHERE packet_fingerprint = NEW.packet_fingerprint)
+BEGIN SELECT RAISE(ABORT, 'estimator evidence receipt is already sealed'); END;
+CREATE TRIGGER estimator_stage_receipts_parent_seals_insert BEFORE INSERT ON estimator_stage_receipts
+WHEN EXISTS (SELECT 1 FROM estimator_executions WHERE execution_id = NEW.execution_id)
+BEGIN SELECT RAISE(ABORT, 'estimator execution is already sealed'); END;
+CREATE TRIGGER estimator_model_runs_parent_seals_insert BEFORE INSERT ON estimator_model_runs
+WHEN EXISTS (SELECT 1 FROM estimator_executions WHERE execution_id = NEW.execution_id)
+BEGIN SELECT RAISE(ABORT, 'estimator execution is already sealed'); END;
+CREATE TRIGGER estimator_model_votes_parent_seals_insert BEFORE INSERT ON estimator_model_votes
+WHEN EXISTS (SELECT 1 FROM estimator_executions WHERE execution_id = NEW.execution_id)
+BEGIN SELECT RAISE(ABORT, 'estimator execution is already sealed'); END;
+CREATE TRIGGER estimator_vote_probabilities_parent_seals_insert BEFORE INSERT ON estimator_vote_probabilities
+WHEN EXISTS (SELECT 1 FROM estimator_model_votes WHERE vote_id = NEW.vote_id)
+BEGIN SELECT RAISE(ABORT, 'estimator model vote is already sealed'); END;
+CREATE TRIGGER estimator_vote_evidence_refs_parent_seals_insert BEFORE INSERT ON estimator_vote_evidence_refs
+WHEN EXISTS (SELECT 1 FROM estimator_model_votes WHERE vote_id = NEW.vote_id)
+BEGIN SELECT RAISE(ABORT, 'estimator model vote is already sealed'); END;
+CREATE TRIGGER estimator_metric_estimates_parent_seals_insert BEFORE INSERT ON estimator_metric_estimates
+WHEN EXISTS (SELECT 1 FROM estimator_executions WHERE execution_id = NEW.execution_id)
+BEGIN SELECT RAISE(ABORT, 'estimator execution is already sealed'); END;
+CREATE TRIGGER estimator_estimate_votes_parent_seals_insert BEFORE INSERT ON estimator_estimate_votes
+WHEN EXISTS (SELECT 1 FROM estimator_metric_estimates WHERE estimate_id = NEW.estimate_id)
+BEGIN SELECT RAISE(ABORT, 'estimator metric estimate is already sealed'); END;
+
+CREATE TRIGGER estimator_plans_no_delete BEFORE DELETE ON estimator_plans BEGIN SELECT RAISE(ABORT, 'estimator plan is immutable'); END;
+CREATE TRIGGER estimator_model_artifacts_no_delete BEFORE DELETE ON estimator_model_artifacts BEGIN SELECT RAISE(ABORT, 'estimator artifact is immutable'); END;
+CREATE TRIGGER estimator_metric_questions_no_delete BEFORE DELETE ON estimator_metric_questions BEGIN SELECT RAISE(ABORT, 'estimator question is immutable'); END;
+CREATE TRIGGER estimator_model_weight_files_no_delete BEFORE DELETE ON estimator_model_weight_files BEGIN SELECT RAISE(ABORT, 'estimator artifact file is immutable'); END;
+CREATE TRIGGER estimator_model_tokenizer_files_no_delete BEFORE DELETE ON estimator_model_tokenizer_files BEGIN SELECT RAISE(ABORT, 'estimator artifact file is immutable'); END;
+CREATE TRIGGER estimator_plan_questions_no_delete BEFORE DELETE ON estimator_plan_questions BEGIN SELECT RAISE(ABORT, 'estimator plan child is immutable'); END;
+CREATE TRIGGER estimator_plan_provider_schemas_no_delete BEFORE DELETE ON estimator_plan_provider_schemas BEGIN SELECT RAISE(ABORT, 'estimator plan child is immutable'); END;
+CREATE TRIGGER estimator_candidate_families_no_delete BEFORE DELETE ON estimator_candidate_families BEGIN SELECT RAISE(ABORT, 'estimator plan child is immutable'); END;
+CREATE TRIGGER estimator_candidate_models_no_delete BEFORE DELETE ON estimator_candidate_models BEGIN SELECT RAISE(ABORT, 'estimator plan child is immutable'); END;
+CREATE TRIGGER estimator_candidate_promotions_no_delete BEFORE DELETE ON estimator_candidate_promotions BEGIN SELECT RAISE(ABORT, 'estimator plan child is immutable'); END;
+CREATE TRIGGER estimator_candidate_baselines_no_delete BEFORE DELETE ON estimator_candidate_baselines BEGIN SELECT RAISE(ABORT, 'estimator plan child is immutable'); END;
+CREATE TRIGGER estimator_plan_stages_no_delete BEFORE DELETE ON estimator_plan_stages BEGIN SELECT RAISE(ABORT, 'estimator plan child is immutable'); END;
+CREATE TRIGGER estimator_evidence_packets_parent_delete_only BEFORE DELETE ON estimator_evidence_packets
+WHEN EXISTS (SELECT 1 FROM estimator_synthetic_cases WHERE case_id = OLD.case_id)
+BEGIN SELECT RAISE(ABORT, 'estimator evidence requires parent privacy deletion'); END;
+CREATE TRIGGER estimator_executions_parent_delete_only BEFORE DELETE ON estimator_executions
+WHEN EXISTS (SELECT 1 FROM estimator_synthetic_cases WHERE case_id = OLD.case_id)
+BEGIN SELECT RAISE(ABORT, 'estimator execution requires parent privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_refs_parent_delete_only BEFORE DELETE ON estimator_evidence_refs
+WHEN EXISTS (SELECT 1 FROM estimator_evidence_packets WHERE packet_fingerprint = OLD.packet_fingerprint)
+BEGIN SELECT RAISE(ABORT, 'estimator evidence reference requires parent privacy deletion'); END;
+CREATE TRIGGER estimator_stage_receipts_parent_delete_only BEFORE DELETE ON estimator_stage_receipts
+WHEN EXISTS (SELECT 1 FROM estimator_executions WHERE execution_id = OLD.execution_id)
+BEGIN SELECT RAISE(ABORT, 'estimator stage receipt requires parent privacy deletion'); END;
+CREATE TRIGGER estimator_model_runs_parent_delete_only BEFORE DELETE ON estimator_model_runs
+WHEN EXISTS (SELECT 1 FROM estimator_executions WHERE execution_id = OLD.execution_id)
+BEGIN SELECT RAISE(ABORT, 'estimator model run requires parent privacy deletion'); END;
+CREATE TRIGGER estimator_model_votes_parent_delete_only BEFORE DELETE ON estimator_model_votes
+WHEN EXISTS (SELECT 1 FROM estimator_executions WHERE execution_id = OLD.execution_id)
+BEGIN SELECT RAISE(ABORT, 'estimator vote requires parent privacy deletion'); END;
+CREATE TRIGGER estimator_vote_probabilities_parent_delete_only BEFORE DELETE ON estimator_vote_probabilities
+WHEN EXISTS (SELECT 1 FROM estimator_model_votes WHERE vote_id = OLD.vote_id)
+BEGIN SELECT RAISE(ABORT, 'estimator probability requires parent privacy deletion'); END;
+CREATE TRIGGER estimator_vote_evidence_refs_parent_delete_only BEFORE DELETE ON estimator_vote_evidence_refs
+WHEN EXISTS (SELECT 1 FROM estimator_model_votes WHERE vote_id = OLD.vote_id)
+BEGIN SELECT RAISE(ABORT, 'estimator vote evidence requires parent privacy deletion'); END;
+CREATE TRIGGER estimator_metric_estimates_parent_delete_only BEFORE DELETE ON estimator_metric_estimates
+WHEN EXISTS (SELECT 1 FROM estimator_executions WHERE execution_id = OLD.execution_id)
+BEGIN SELECT RAISE(ABORT, 'estimator estimate requires parent privacy deletion'); END;
+CREATE TRIGGER estimator_estimate_votes_parent_delete_only BEFORE DELETE ON estimator_estimate_votes
+WHEN EXISTS (SELECT 1 FROM estimator_metric_estimates WHERE estimate_id = OLD.estimate_id)
+BEGIN SELECT RAISE(ABORT, 'estimator estimate vote requires parent privacy deletion'); END;
+
+CREATE INDEX estimator_executions_plan_idx ON estimator_executions(plan_fingerprint, finished_at DESC);
+CREATE INDEX estimator_model_runs_execution_idx ON estimator_model_runs(execution_id, stage_ordinal, run_id);
+CREATE INDEX estimator_model_votes_execution_idx ON estimator_model_votes(execution_id, metric_key, vote_id);
+CREATE INDEX estimator_metric_estimates_execution_idx ON estimator_metric_estimates(execution_id, metric_key, estimate_id);
+
+COMMIT;
+"""

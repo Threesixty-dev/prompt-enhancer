@@ -1145,7 +1145,7 @@ def test_v14_repairs_unprovable_v13_metric_scopes(tmp_path) -> None:
     assert foreign_v12.draft.selected_metric_keys == ()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         assert connection.execute(
             "SELECT COUNT(*) FROM session_analysis_run_metrics"
         ).fetchone()[0] == 61

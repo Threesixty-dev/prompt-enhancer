@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path
+import re
 import secrets
 import sqlite3
 import threading
@@ -74,10 +75,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_12,
     MIGRATION_13,
     MIGRATION_14,
+    MIGRATION_15,
 )
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -251,6 +253,63 @@ def _definition_checksum(definition: MetricDefinition) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _migration_body(script: str) -> str:
+    """Remove only a migration's outer transaction without changing its checksum."""
+
+    stripped = script.strip()
+    for prefix in ("BEGIN IMMEDIATE;", "BEGIN;"):
+        if stripped.startswith(prefix):
+            if not stripped.endswith("COMMIT;"):
+                raise DatabaseInvariantError(
+                    "database migration transaction boundary is incomplete"
+                )
+            body = stripped[len(prefix) : -len("COMMIT;")].strip()
+            if re.search(
+                r"(?im)^\s*(?:BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?|"
+                r"COMMIT|END\s+TRANSACTION|ROLLBACK|SAVEPOINT|RELEASE)\s*;",
+                body,
+            ):
+                raise DatabaseInvariantError(
+                    "database migration contains a nested transaction boundary"
+                )
+            return body
+    if stripped.endswith("COMMIT;"):
+        raise DatabaseInvariantError("database migration transaction is malformed")
+    return stripped
+
+
+def _apply_migration_atomically(
+    connection: sqlite3.Connection,
+    *,
+    version: int,
+    script: str,
+    checksum: str,
+    applied_at: str,
+) -> None:
+    """Commit schema, checksum ledger, and user_version as one SQLite unit."""
+
+    if not (1 <= version <= SCHEMA_VERSION):
+        raise DatabaseInvariantError("database migration version is invalid")
+    if len(checksum) != 64 or any(character not in "0123456789abcdef" for character in checksum):
+        raise DatabaseInvariantError("database migration checksum is invalid")
+    if "'" in applied_at:
+        raise DatabaseInvariantError("database migration timestamp is invalid")
+    body = _migration_body(script)
+    transaction = f"""
+BEGIN IMMEDIATE;
+{body}
+INSERT INTO schema_migrations(version, checksum, applied_at)
+VALUES ({version}, '{checksum}', '{applied_at}');
+PRAGMA user_version = {version};
+COMMIT;
+"""
+    try:
+        connection.executescript(transaction)
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+
+
 class Database:
     """Small, parameterized persistence API with no arbitrary-SQL surface."""
 
@@ -321,6 +380,7 @@ class Database:
                 (12, MIGRATION_12),
                 (13, MIGRATION_13),
                 (14, MIGRATION_14),
+                (15, MIGRATION_15),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -369,13 +429,13 @@ class Database:
                         raise DatabaseInvariantError("database migration checksum mismatch")
                     if version <= database_version:
                         continue
-                    connection.executescript(script)
-                    connection.execute(
-                        "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, ?)",
-                        (version, checksum, _iso(_utc_now())),
+                    _apply_migration_atomically(
+                        connection,
+                        version=version,
+                        script=script,
+                        checksum=checksum,
+                        applied_at=_iso(_utc_now()),
                     )
-                    connection.execute(f"PRAGMA user_version = {version}")
-                    connection.commit()
                 self._seed_metric_definitions(connection)
                 connection.commit()
             try:
@@ -462,6 +522,14 @@ class Database:
         return SqliteModelLinkExperimentRepository(
             self._connection, self._ensure_initialized
         )
+
+    def estimator_repository(self):
+        """Return immutable, content-free P1 estimator persistence."""
+
+        from .infrastructure.sqlite.estimators import SqliteEstimatorRepository
+
+        self._ensure_initialized()
+        return SqliteEstimatorRepository(self._connection, self._ensure_initialized)
 
     def analysis_job_repository(self):
         """Return the mutable, content-free durable job queue adapter."""

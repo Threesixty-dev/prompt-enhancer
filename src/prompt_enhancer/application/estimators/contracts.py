@@ -48,6 +48,14 @@ SAFE_FILE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
 
 
 def _safe_version(value: str) -> str:
+    if (
+        value.startswith(("/", "\\"))
+        or re.match(r"^[A-Za-z]:[/\\]", value) is not None
+        or "\\" in value
+        or "://" in value
+        or ".." in value.split("/")
+    ):
+        raise ValueError("version identifiers cannot encode paths or URIs")
     if SAFE_VERSION_PATTERN.fullmatch(value) is None:
         raise ValueError("value must be a content-free version identifier")
     return value
@@ -264,9 +272,12 @@ class EvidencePacketReceipt(StrictModel):
     chronology_sha256: str
     retrieval_index_sha256: str
     provider: Provider
+    adapter_version: str
     provider_schema_version: str
     preprocessing_version: str
+    preprocessing_sha256: str
     redactor_version: str
+    redactor_sha256: str
     source_record_count: int = Field(ge=0, le=10_000_000)
     requirement_count: int = Field(ge=0, le=1_000_000)
     action_count: int = Field(ge=0, le=1_000_000)
@@ -281,6 +292,7 @@ class EvidencePacketReceipt(StrictModel):
 
     _safe_versions = field_validator(
         "packet_schema_version",
+        "adapter_version",
         "provider_schema_version",
         "preprocessing_version",
         "redactor_version",
@@ -290,6 +302,8 @@ class EvidencePacketReceipt(StrictModel):
         "requirements_sha256",
         "chronology_sha256",
         "retrieval_index_sha256",
+        "preprocessing_sha256",
+        "redactor_sha256",
     )(_sha256)
     _utc_created = field_validator("created_at")(_utc)
 

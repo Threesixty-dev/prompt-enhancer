@@ -54,6 +54,17 @@ from .contracts import (
     TokenizerIdentity,
     UncertaintyKind,
 )
+from .persistence import (
+    ESTIMATOR_BUNDLE_VERSION,
+    MODEL_LAB_SUMMARY_VERSION,
+    SYNTHETIC_ESTIMATOR_CASE_VERSION,
+    ActivationAttemptOutcome,
+    CompletedSyntheticEstimatorBundle,
+    EstimatorRepository,
+    ModelLabSummary,
+    PrivacyDeleteOutcome,
+    SyntheticEstimatorCase,
+)
 
 __all__ = (
     "ADJUDICATION_CONTRACT_VERSION",
@@ -108,4 +119,13 @@ __all__ = (
     "StageCondition",
     "TokenizerIdentity",
     "UncertaintyKind",
+    "ESTIMATOR_BUNDLE_VERSION",
+    "MODEL_LAB_SUMMARY_VERSION",
+    "SYNTHETIC_ESTIMATOR_CASE_VERSION",
+    "ActivationAttemptOutcome",
+    "CompletedSyntheticEstimatorBundle",
+    "EstimatorRepository",
+    "ModelLabSummary",
+    "PrivacyDeleteOutcome",
+    "SyntheticEstimatorCase",
 )
