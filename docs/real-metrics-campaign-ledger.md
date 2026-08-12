@@ -112,6 +112,28 @@ gate manifest, measure performance and usability budgets, and never activate a
 model without representative human calibration. Reviewer agreement is advisory
 and is not ground truth.
 
+## P1 foundation evidence
+
+The first P1 foundation defines a content-free, versioned serial-cascade
+contract and evaluation-math library. It records the complete estimator
+configuration, exact execution and stage lineage, requested and served model
+identity, local artifact digests, tokenizer and license identity, preprocessing,
+question, prompt/rubric digests, reasoning effort, calibration/router/redactor
+versions, fallback state, resource measurements, votes, uncertainty,
+adjudication, and distinct unavailable, abstained, failed, and not-applicable
+states. Candidate screening is capped at five models per family and promotion at
+two; local model stages are explicitly serialized.
+
+The evaluation functions cover correctness, retrieval, calibration, selective
+risk, false-confident errors, agreement, EN/PL and task/provider/project/time
+slices, repeat/order/format/injection stability, latency/resource/cost/failure
+telemetry, and incremental cascade value. Their activation-check projection is
+diagnostic only. It cannot write an activation slot, and its caller-supplied
+facts are not trusted as release evidence. P1 persistence must derive holdout,
+human-truth, privacy, and synthetic-origin facts from frozen immutable records
+before any estimator can become eligible. Until that vertical slice and the
+representative 100-200-judgment program exist, every estimator remains disabled.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
