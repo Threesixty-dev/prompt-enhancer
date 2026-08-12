@@ -80,10 +80,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_16,
     MIGRATION_17,
     MIGRATION_18,
+    MIGRATION_19,
 )
 
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -333,7 +334,70 @@ class Database:
             tuple[str, str, str, str, str]
         ] = set()
         self._estimator_runtime_authorization_lock = threading.Lock()
+        self._estimator_calibration_report_authorization_secret = (
+            secrets.token_bytes(32)
+        )
+        self._estimator_calibration_report_authorizations: set[
+            tuple[str, str, str, str, str]
+        ] = set()
+        self._estimator_calibration_report_authorization_lock = threading.Lock()
         self._initialization_lock = threading.Lock()
+
+    def _estimator_calibration_report_authorization_tag(
+        self,
+        operation_id: str,
+        report_id: str,
+        submission_id: str,
+        campaign_id: str,
+    ) -> str:
+        candidate = hmac.new(
+            self._estimator_calibration_report_authorization_secret,
+            (
+                "estimator-calibration-report-write-v1:"
+                f"{operation_id}:{report_id}:{submission_id}:{campaign_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_calibration_report_authorization_lock:
+            active = (
+                operation_id,
+                report_id,
+                submission_id,
+                campaign_id,
+                candidate,
+            ) in self._estimator_calibration_report_authorizations
+        return candidate if active else ""
+
+    def _begin_estimator_calibration_report_authorization(
+        self, report_id: str, submission_id: str, campaign_id: str
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        tag = hmac.new(
+            self._estimator_calibration_report_authorization_secret,
+            (
+                "estimator-calibration-report-write-v1:"
+                f"{operation_id}:{report_id}:{submission_id}:{campaign_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_calibration_report_authorization_lock:
+            self._estimator_calibration_report_authorizations.add(
+                (operation_id, report_id, submission_id, campaign_id, tag)
+            )
+        return operation_id, tag
+
+    def _end_estimator_calibration_report_authorization(
+        self,
+        operation_id: str,
+        report_id: str,
+        submission_id: str,
+        campaign_id: str,
+        tag: str,
+    ) -> None:
+        with self._estimator_calibration_report_authorization_lock:
+            self._estimator_calibration_report_authorizations.discard(
+                (operation_id, report_id, submission_id, campaign_id, tag)
+            )
 
     def _estimator_runtime_authorization_tag(
         self,
@@ -534,6 +598,12 @@ class Database:
                 self._estimator_runtime_authorization_tag,
                 deterministic=False,
             )
+            connection.create_function(
+                "estimator_calibration_report_authorization_tag",
+                4,
+                self._estimator_calibration_report_authorization_tag,
+                deterministic=False,
+            )
             if readonly:
                 connection.execute("PRAGMA query_only = ON")
             yield connection
@@ -570,6 +640,7 @@ class Database:
                 (16, MIGRATION_16),
                 (17, MIGRATION_17),
                 (18, MIGRATION_18),
+                (19, MIGRATION_19),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -756,6 +827,25 @@ class Database:
             self._ensure_initialized,
             begin_write_authorization=self._begin_estimator_runtime_authorization,
             end_write_authorization=self._end_estimator_runtime_authorization,
+        )
+
+    def calibration_report_repository(self):
+        """Return repository-owned, non-activating calibration reporting."""
+
+        from .infrastructure.sqlite.calibration_reports import (
+            SqliteCalibrationReportRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteCalibrationReportRepository(
+            self._connection,
+            self._ensure_initialized,
+            begin_write_authorization=(
+                self._begin_estimator_calibration_report_authorization
+            ),
+            end_write_authorization=(
+                self._end_estimator_calibration_report_authorization
+            ),
         )
 
     def automation_grant_repository(self):

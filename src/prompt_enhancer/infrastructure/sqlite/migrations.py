@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 
 MIGRATION_2 = r"""
 CREATE TABLE IF NOT EXISTS task_candidates (
@@ -5209,5 +5212,572 @@ CREATE TRIGGER estimator_runtime_checkpoints_delete_guard BEFORE DELETE ON estim
 
 CREATE INDEX estimator_runtime_session_idx ON estimator_runtime_executions(session_id,created_at_us DESC);
 CREATE INDEX estimator_runtime_attempt_idx ON estimator_runtime_stage_attempts(execution_id,metric_key,stage_ordinal);
+COMMIT;
+"""
+
+
+# The v19 report vocabulary is duplicated here intentionally.  Migrations are
+# immutable compatibility artifacts and must not import the live application
+# model when reproducing an historical checksum.
+_CALIBRATION_MEASUREMENT_SPECS_19 = (
+    ("agreement.human_human_kappa", "agreement", "scalar", "score"),
+    ("agreement.human_human_observed", "agreement", "rate", "ratio"),
+    ("agreement.model_human_kappa", "agreement", "scalar", "score"),
+    ("agreement.model_human_observed", "agreement", "rate", "ratio"),
+    ("calibration.brier_score", "calibration", "scalar", "score"),
+    ("calibration.false_confident_error_rate", "calibration", "rate", "ratio"),
+    ("calibration.log_loss", "calibration", "scalar", "score"),
+    ("calibration.selected_confidence_ece", "calibration", "scalar", "ratio"),
+    ("calibration.slope", "calibration", "scalar", "slope"),
+    ("cascade.incremental_value", "cascade", "scalar", "score"),
+    ("cascade.stop_rate", "cascade", "rate", "ratio"),
+    ("classification.accuracy", "classification", "rate", "ratio"),
+    ("classification.macro_f1", "classification", "scalar", "ratio"),
+    ("classification.macro_precision", "classification", "scalar", "ratio"),
+    ("classification.macro_recall", "classification", "scalar", "ratio"),
+    ("coverage.access_gaps", "coverage", "count", "gaps"),
+    ("coverage.baseline_known", "coverage", "count", "cases"),
+    ("coverage.candidate_known", "coverage", "count", "cases"),
+    ("coverage.fallback_attempts", "coverage", "count", "attempts"),
+    ("coverage.holdout_cases", "coverage", "count", "cases"),
+    ("coverage.human_adjudicated", "coverage", "count", "cases"),
+    ("coverage.objective_truth", "coverage", "count", "cases"),
+    ("coverage.privacy_findings", "coverage", "count", "findings"),
+    ("coverage.private_holdout_cases", "coverage", "count", "cases"),
+    ("coverage.resolved_human_truth", "coverage", "count", "cases"),
+    ("coverage.served_identity_unavailable", "coverage", "count", "attempts"),
+    ("coverage.truth_known", "coverage", "count", "cases"),
+    ("coverage.unauthorized_access", "coverage", "count", "events"),
+    ("coverage.unscanned_artifacts", "coverage", "count", "artifacts"),
+    ("numeric.mean_absolute_error", "numeric", "scalar", "error"),
+    ("numeric.root_mean_squared_error", "numeric", "scalar", "error"),
+    ("numeric.within_tolerance_rate", "numeric", "rate", "ratio"),
+    ("resource.attempt_count", "resource", "count", "attempts"),
+    ("resource.cancelled_rate", "resource", "rate", "ratio"),
+    ("resource.cold_latency_p95_ms", "resource", "scalar", "milliseconds"),
+    ("resource.cost_total_microusd", "resource", "scalar", "microusd"),
+    ("resource.disk_bytes", "resource", "scalar", "bytes"),
+    ("resource.energy_total_millijoules", "resource", "scalar", "millijoules"),
+    ("resource.error_rate", "resource", "rate", "ratio"),
+    ("resource.latency_p50_ms", "resource", "scalar", "milliseconds"),
+    ("resource.latency_p95_ms", "resource", "scalar", "milliseconds"),
+    ("resource.oom_rate", "resource", "rate", "ratio"),
+    ("resource.peak_ram_bytes", "resource", "scalar", "bytes"),
+    ("resource.peak_vram_bytes", "resource", "scalar", "bytes"),
+    ("resource.queue_p50_ms", "resource", "scalar", "milliseconds"),
+    ("resource.queue_p95_ms", "resource", "scalar", "milliseconds"),
+    ("resource.refusal_rate", "resource", "rate", "ratio"),
+    ("resource.throughput_per_second", "resource", "scalar", "items_per_second"),
+    ("resource.timeout_rate", "resource", "rate", "ratio"),
+    ("resource.token_total", "resource", "scalar", "tokens"),
+    ("resource.warm_latency_p95_ms", "resource", "scalar", "milliseconds"),
+    ("resource.worker_lost_rate", "resource", "rate", "ratio"),
+    ("retrieval.link_precision", "retrieval", "rate", "ratio"),
+    ("retrieval.mean_reciprocal_rank", "retrieval", "scalar", "score"),
+    ("retrieval.ndcg_at_k", "retrieval", "scalar", "score"),
+    ("retrieval.recall_at_k", "retrieval", "scalar", "ratio"),
+    ("stability.format", "stability", "rate", "ratio"),
+    ("stability.injection", "stability", "rate", "ratio"),
+    ("stability.order", "stability", "rate", "ratio"),
+    ("stability.repeat", "stability", "rate", "ratio"),
+)
+
+
+def _calibration_measurement_seed_rows_19() -> str:
+    rows: list[str] = []
+    definition_fingerprint = (
+        "a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0"
+    )
+    for ordinal, (key, family, shape, unit) in enumerate(
+        _CALIBRATION_MEASUREMENT_SPECS_19
+    ):
+        payload = {
+            "contract_version": "calibration-measurement-spec-v1",
+            "family": family,
+            "measurement_key": key,
+            "shape": shape,
+            "unit_code": unit,
+        }
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")
+        ).hexdigest()
+        rows.append(
+            "(" + ",".join(
+                (
+                    f"'{definition_fingerprint}'",
+                    str(ordinal),
+                    "'calibration-measurement-spec-v1'",
+                    f"'{key}'",
+                    f"'{family}'",
+                    f"'{shape}'",
+                    f"'{unit}'",
+                    f"'{fingerprint}'",
+                )
+            ) + ")"
+        )
+    return ",\n".join(rows)
+
+
+_CALIBRATION_REPORT_GUARDED_TABLES_19 = (
+    "estimator_calibration_report_metric_drafts",
+    "estimator_calibration_report_comparison_identities",
+    "estimator_calibration_report_label_vocabulary",
+    "estimator_calibration_report_scopes",
+    "estimator_calibration_report_measurements",
+    "estimator_calibration_report_confusion_cells",
+    "estimator_calibration_report_class_receipts",
+    "estimator_calibration_report_reliability_bins",
+    "estimator_calibration_report_selective_points",
+    "estimator_calibration_report_agreement_receipts",
+    "estimator_calibration_report_stability_receipts",
+    "estimator_calibration_report_resource_receipts",
+    "estimator_calibration_report_resource_keys",
+    "estimator_calibration_report_missingness",
+    "estimator_calibration_report_metric_roots",
+)
+
+
+def _calibration_report_guards_19() -> str:
+    statements: list[str] = []
+    for table in _CALIBRATION_REPORT_GUARDED_TABLES_19:
+        name = table.removeprefix("estimator_calibration_report_")
+        statements.extend(
+            (
+                f"""CREATE TRIGGER estimator_calibration_report_{name}_insert_guard BEFORE INSERT ON {table}
+WHEN EXISTS (SELECT 1 FROM estimator_calibration_report_roots WHERE report_id=NEW.report_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM estimator_calibration_report_append_authorizations a
+    JOIN estimator_calibration_report_drafts d
+      ON d.report_id=a.report_id AND d.submission_id=a.submission_id AND d.campaign_id=a.campaign_id
+    WHERE d.report_id=NEW.report_id
+      AND a.authorization_tag=estimator_calibration_report_authorization_tag(a.operation_id,a.report_id,a.submission_id,a.campaign_id))
+BEGIN SELECT RAISE(ABORT,'estimator calibration report append is not authorized or is sealed'); END;""",
+                f"CREATE TRIGGER estimator_calibration_report_{name}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT,'estimator calibration report is immutable'); END;",
+                f"""CREATE TRIGGER estimator_calibration_report_{name}_no_delete BEFORE DELETE ON {table}
+WHEN EXISTS (
+    SELECT 1 FROM estimator_calibration_report_drafts d
+    JOIN estimator_gate_campaigns c ON c.campaign_id=d.campaign_id
+    WHERE d.report_id=OLD.report_id)
+BEGIN SELECT RAISE(ABORT,'estimator calibration report requires campaign privacy deletion'); END;""",
+            )
+        )
+    return "\n".join(statements)
+
+
+MIGRATION_19 = r"""
+BEGIN IMMEDIATE;
+
+-- V19 persists only normalized scalar aggregates derived inside the repository
+-- from sealed v16/v17 rows.  No JSON, BLOB, prose, raw evidence, path, or URI
+-- column exists in this schema.
+CREATE TABLE estimator_calibration_report_definitions (
+    definition_fingerprint TEXT PRIMARY KEY CHECK(definition_fingerprint='a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0'),
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-report-definition-v1'),
+    definition_version TEXT NOT NULL CHECK(definition_version='calibration-report-math-v1'),
+    classification_version TEXT NOT NULL CHECK(classification_version='registered-vocabulary-classification-v1'),
+    confidence_calibration_version TEXT NOT NULL CHECK(confidence_calibration_version='selected-confidence-calibration-v1'),
+    truth_resolution_version TEXT NOT NULL CHECK(truth_resolution_version='objective-then-independent-human-v1'),
+    human_pairing_version TEXT NOT NULL CHECK(human_pairing_version='all-unordered-independent-pairs-v1'),
+    slice_version TEXT NOT NULL CHECK(slice_version='frozen-assignment-slices-v1'),
+    time_bucket_version TEXT NOT NULL CHECK(time_bucket_version='utc-calendar-month-v1'),
+    quantile_version TEXT NOT NULL CHECK(quantile_version='linear-interpolation-v1'),
+    reliability_bin_count INTEGER NOT NULL CHECK(reliability_bin_count=10),
+    selective_threshold_count INTEGER NOT NULL CHECK(selective_threshold_count=5),
+    retrieval_k_count INTEGER NOT NULL CHECK(retrieval_k_count=4),
+    full_probability_vector_required INTEGER NOT NULL CHECK(full_probability_vector_required=1),
+    false_confidence_threshold_source TEXT NOT NULL CHECK(false_confidence_threshold_source='campaign_policy'),
+    minimum_slice_size_source TEXT NOT NULL CHECK(minimum_slice_size_source='campaign_policy'),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0)
+);
+CREATE TABLE estimator_calibration_report_selective_thresholds (
+    definition_fingerprint TEXT NOT NULL REFERENCES estimator_calibration_report_definitions(definition_fingerprint),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 4),
+    threshold REAL NOT NULL CHECK(typeof(threshold)='real' AND threshold BETWEEN 0.0 AND 1.0),
+    PRIMARY KEY(definition_fingerprint,ordinal), UNIQUE(definition_fingerprint,threshold)
+);
+CREATE TABLE estimator_calibration_report_retrieval_ks (
+    definition_fingerprint TEXT NOT NULL REFERENCES estimator_calibration_report_definitions(definition_fingerprint),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 3),
+    retrieval_k INTEGER NOT NULL CHECK(retrieval_k IN (1,3,5,10)),
+    PRIMARY KEY(definition_fingerprint,ordinal), UNIQUE(definition_fingerprint,retrieval_k)
+);
+CREATE TABLE estimator_calibration_report_measurement_specs (
+    definition_fingerprint TEXT NOT NULL REFERENCES estimator_calibration_report_definitions(definition_fingerprint),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 59),
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-measurement-spec-v1'),
+    measurement_key TEXT NOT NULL CHECK(length(measurement_key) BETWEEN 1 AND 128 AND measurement_key NOT GLOB '*[^a-z0-9._-]*'),
+    family TEXT NOT NULL CHECK(family IN ('coverage','classification','calibration','agreement','stability','resource','retrieval','cascade','numeric')),
+    shape TEXT NOT NULL CHECK(shape IN ('count','scalar','rate')),
+    unit_code TEXT NOT NULL CHECK(length(unit_code) BETWEEN 1 AND 128 AND unit_code NOT GLOB '*[^a-z0-9._-]*'),
+    spec_fingerprint TEXT NOT NULL CHECK(length(spec_fingerprint)=64 AND spec_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(definition_fingerprint,measurement_key), UNIQUE(definition_fingerprint,ordinal), UNIQUE(measurement_key), UNIQUE(spec_fingerprint)
+);
+INSERT INTO estimator_calibration_report_definitions VALUES (
+    'a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',
+    'calibration-report-definition-v1','calibration-report-math-v1',
+    'registered-vocabulary-classification-v1','selected-confidence-calibration-v1',
+    'objective-then-independent-human-v1','all-unordered-independent-pairs-v1',
+    'frozen-assignment-slices-v1','utc-calendar-month-v1','linear-interpolation-v1',
+    10,5,4,1,'campaign_policy','campaign_policy',0
+);
+INSERT INTO estimator_calibration_report_selective_thresholds VALUES
+('a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',0,0.0),
+('a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',1,0.5),
+('a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',2,0.75),
+('a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',3,0.9),
+('a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',4,0.95);
+INSERT INTO estimator_calibration_report_retrieval_ks VALUES
+('a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',0,1),
+('a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',1,3),
+('a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',2,5),
+('a3cdde9764d7a7925843dd99168a5eb4161ce08adbc18c4aaf03a7d6c19c17e0',3,10);
+INSERT INTO estimator_calibration_report_measurement_specs VALUES
+""" + _calibration_measurement_seed_rows_19() + r""";
+
+CREATE TRIGGER estimator_calibration_report_definitions_no_insert BEFORE INSERT ON estimator_calibration_report_definitions BEGIN SELECT RAISE(ABORT,'calibration report definition is sealed'); END;
+CREATE TRIGGER estimator_calibration_report_definitions_no_update BEFORE UPDATE ON estimator_calibration_report_definitions BEGIN SELECT RAISE(ABORT,'calibration report definition is immutable'); END;
+CREATE TRIGGER estimator_calibration_report_definitions_no_delete BEFORE DELETE ON estimator_calibration_report_definitions BEGIN SELECT RAISE(ABORT,'calibration report definition is retained'); END;
+CREATE TRIGGER estimator_calibration_report_thresholds_no_insert BEFORE INSERT ON estimator_calibration_report_selective_thresholds BEGIN SELECT RAISE(ABORT,'calibration report definition is sealed'); END;
+CREATE TRIGGER estimator_calibration_report_thresholds_no_update BEFORE UPDATE ON estimator_calibration_report_selective_thresholds BEGIN SELECT RAISE(ABORT,'calibration report definition is immutable'); END;
+CREATE TRIGGER estimator_calibration_report_thresholds_no_delete BEFORE DELETE ON estimator_calibration_report_selective_thresholds BEGIN SELECT RAISE(ABORT,'calibration report definition is retained'); END;
+CREATE TRIGGER estimator_calibration_report_ks_no_insert BEFORE INSERT ON estimator_calibration_report_retrieval_ks BEGIN SELECT RAISE(ABORT,'calibration report definition is sealed'); END;
+CREATE TRIGGER estimator_calibration_report_ks_no_update BEFORE UPDATE ON estimator_calibration_report_retrieval_ks BEGIN SELECT RAISE(ABORT,'calibration report definition is immutable'); END;
+CREATE TRIGGER estimator_calibration_report_ks_no_delete BEFORE DELETE ON estimator_calibration_report_retrieval_ks BEGIN SELECT RAISE(ABORT,'calibration report definition is retained'); END;
+CREATE TRIGGER estimator_calibration_report_specs_no_insert BEFORE INSERT ON estimator_calibration_report_measurement_specs BEGIN SELECT RAISE(ABORT,'calibration report vocabulary is sealed'); END;
+CREATE TRIGGER estimator_calibration_report_specs_no_update BEFORE UPDATE ON estimator_calibration_report_measurement_specs BEGIN SELECT RAISE(ABORT,'calibration report vocabulary is immutable'); END;
+CREATE TRIGGER estimator_calibration_report_specs_no_delete BEFORE DELETE ON estimator_calibration_report_measurement_specs BEGIN SELECT RAISE(ABORT,'calibration report vocabulary is retained'); END;
+
+CREATE TABLE estimator_calibration_report_append_authorizations (
+    operation_id TEXT PRIMARY KEY CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    report_id TEXT NOT NULL CHECK(length(report_id)=64 AND report_id NOT GLOB '*[^0-9a-f]*'),
+    submission_id TEXT NOT NULL CHECK(length(submission_id)=64 AND submission_id NOT GLOB '*[^0-9a-f]*'),
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    authorization_tag TEXT NOT NULL CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*'),
+    UNIQUE(report_id,submission_id,campaign_id)
+);
+CREATE TRIGGER estimator_calibration_report_authorization_validate BEFORE INSERT ON estimator_calibration_report_append_authorizations
+WHEN NEW.authorization_tag<>estimator_calibration_report_authorization_tag(NEW.operation_id,NEW.report_id,NEW.submission_id,NEW.campaign_id)
+ OR NOT EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id AND campaign_id=NEW.campaign_id)
+BEGIN SELECT RAISE(ABORT,'estimator calibration report authorization is invalid'); END;
+CREATE TRIGGER estimator_calibration_report_authorization_no_update BEFORE UPDATE ON estimator_calibration_report_append_authorizations BEGIN SELECT RAISE(ABORT,'estimator calibration report authorization is immutable'); END;
+CREATE TRIGGER estimator_calibration_report_authorization_no_delete BEFORE DELETE ON estimator_calibration_report_append_authorizations
+WHEN OLD.authorization_tag<>estimator_calibration_report_authorization_tag(OLD.operation_id,OLD.report_id,OLD.submission_id,OLD.campaign_id)
+BEGIN SELECT RAISE(ABORT,'estimator calibration report authorization is invalid'); END;
+
+CREATE TABLE estimator_calibration_report_drafts (
+    report_id TEXT PRIMARY KEY CHECK(length(report_id)=64 AND report_id NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='untrusted-calibration-report-v1'),
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    campaign_fingerprint TEXT NOT NULL CHECK(length(campaign_fingerprint)=64 AND campaign_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    submission_id TEXT NOT NULL UNIQUE REFERENCES estimator_evidence_submissions(submission_id) ON DELETE CASCADE,
+    submission_fingerprint TEXT NOT NULL CHECK(length(submission_fingerprint)=64 AND submission_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    stored_plan_fingerprint TEXT NOT NULL CHECK(length(stored_plan_fingerprint)=64 AND stored_plan_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64 AND policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    assignment_manifest_fingerprint TEXT NOT NULL CHECK(length(assignment_manifest_fingerprint)=64 AND assignment_manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    split_fingerprint TEXT NOT NULL CHECK(length(split_fingerprint)=64 AND split_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    preregistration_fingerprint TEXT NOT NULL CHECK(length(preregistration_fingerprint)=64 AND preregistration_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    preregistration_v2_fingerprint TEXT NOT NULL CHECK(length(preregistration_v2_fingerprint)=64 AND preregistration_v2_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    constellation_fingerprint TEXT NOT NULL CHECK(length(constellation_fingerprint)=64 AND constellation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    source_bundle_fingerprint TEXT NOT NULL CHECK(length(source_bundle_fingerprint)=64 AND source_bundle_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    definition_fingerprint TEXT NOT NULL REFERENCES estimator_calibration_report_definitions(definition_fingerprint),
+    state TEXT NOT NULL CHECK(state IN ('ready','partial','insufficient_data')),
+    source_observed_at_us INTEGER NOT NULL CHECK(typeof(source_observed_at_us)='integer' AND source_observed_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    derived_at_us INTEGER CHECK(derived_at_us IS NULL),
+    report_fingerprint TEXT NOT NULL CHECK(length(report_fingerprint)=64 AND report_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    metric_count INTEGER NOT NULL CHECK(metric_count BETWEEN 1 AND 1024),
+    repository_owned INTEGER NOT NULL CHECK(repository_owned=0),
+    persistence_state TEXT NOT NULL CHECK(persistence_state='untrusted_projection'),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0)
+);
+CREATE TRIGGER estimator_calibration_report_draft_insert_guard BEFORE INSERT ON estimator_calibration_report_drafts
+WHEN EXISTS (SELECT 1 FROM estimator_calibration_report_roots WHERE report_id=NEW.report_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM estimator_calibration_report_append_authorizations a
+    WHERE a.report_id=NEW.report_id AND a.submission_id=NEW.submission_id AND a.campaign_id=NEW.campaign_id
+      AND a.authorization_tag=estimator_calibration_report_authorization_tag(a.operation_id,a.report_id,a.submission_id,a.campaign_id))
+ OR NOT EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id AND campaign_id=NEW.campaign_id AND submission_fingerprint=NEW.submission_fingerprint)
+BEGIN SELECT RAISE(ABORT,'estimator calibration report draft is not authorized or lineage is invalid'); END;
+
+CREATE TABLE estimator_calibration_report_metric_drafts (
+    report_id TEXT NOT NULL REFERENCES estimator_calibration_report_drafts(report_id) ON DELETE CASCADE,
+    metric_ordinal INTEGER NOT NULL CHECK(metric_ordinal BETWEEN 0 AND 1023),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 64 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-metric-report-v1'),
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous','fraction','binary','categorical')),
+    state TEXT NOT NULL CHECK(state IN ('ready','partial','insufficient_data')),
+    metric_fingerprint TEXT NOT NULL CHECK(length(metric_fingerprint)=64 AND metric_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    vocabulary_count INTEGER NOT NULL CHECK(vocabulary_count BETWEEN 0 AND 256),
+    scope_count INTEGER NOT NULL CHECK(scope_count BETWEEN 1 AND 100000),
+    measurement_count INTEGER NOT NULL CHECK(measurement_count BETWEEN 60 AND 6000000),
+    confusion_count INTEGER NOT NULL CHECK(confusion_count BETWEEN 0 AND 1000000),
+    class_count INTEGER NOT NULL CHECK(class_count BETWEEN 0 AND 1000000),
+    reliability_count INTEGER NOT NULL CHECK(reliability_count BETWEEN 0 AND 1000000),
+    selective_count INTEGER NOT NULL CHECK(selective_count BETWEEN 0 AND 1000000),
+    agreement_count INTEGER NOT NULL CHECK(agreement_count=2),
+    stability_count INTEGER NOT NULL CHECK(stability_count=4),
+    resource_key_count INTEGER NOT NULL CHECK(resource_key_count BETWEEN 0 AND 60),
+    missingness_count INTEGER NOT NULL CHECK(missingness_count BETWEEN 0 AND 60),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    PRIMARY KEY(report_id,metric_key), UNIQUE(report_id,metric_ordinal), UNIQUE(metric_fingerprint)
+);
+CREATE TABLE estimator_calibration_report_comparison_identities (
+    report_id TEXT NOT NULL,
+    metric_key TEXT NOT NULL,
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-comparison-identity-v1'),
+    metric_semantics_fingerprint TEXT NOT NULL,
+    evidence_scope_fingerprint TEXT NOT NULL,
+    pipeline_fingerprint TEXT NOT NULL,
+    gate_policy_fingerprint TEXT NOT NULL,
+    threshold_policy_fingerprint TEXT NOT NULL,
+    split_fingerprint TEXT NOT NULL,
+    submission_fingerprint TEXT NOT NULL,
+    served_runtime_identity_fingerprint TEXT NOT NULL,
+    measurement_provenance_fingerprint TEXT NOT NULL,
+    report_definition_fingerprint TEXT NOT NULL,
+    estimator_configuration_fingerprint TEXT NOT NULL,
+    constellation_fingerprint TEXT NOT NULL,
+    comparison_family_fingerprint TEXT NOT NULL,
+    observation_identity_fingerprint TEXT NOT NULL,
+    observation_source_fingerprint TEXT NOT NULL,
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    PRIMARY KEY(report_id,metric_key),
+    FOREIGN KEY(report_id,metric_key) REFERENCES estimator_calibration_report_metric_drafts(report_id,metric_key) ON DELETE CASCADE,
+    CHECK(length(metric_semantics_fingerprint)=64 AND metric_semantics_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(evidence_scope_fingerprint)=64 AND evidence_scope_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(pipeline_fingerprint)=64 AND pipeline_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(gate_policy_fingerprint)=64 AND gate_policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(threshold_policy_fingerprint)=64 AND threshold_policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(split_fingerprint)=64 AND split_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(submission_fingerprint)=64 AND submission_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(served_runtime_identity_fingerprint)=64 AND served_runtime_identity_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(measurement_provenance_fingerprint)=64 AND measurement_provenance_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(report_definition_fingerprint)=64 AND report_definition_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(estimator_configuration_fingerprint)=64 AND estimator_configuration_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(constellation_fingerprint)=64 AND constellation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(comparison_family_fingerprint)=64 AND comparison_family_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(observation_identity_fingerprint)=64 AND observation_identity_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(observation_source_fingerprint)=64 AND observation_source_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_calibration_report_label_vocabulary (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 255),
+    label_code TEXT NOT NULL CHECK(length(label_code) BETWEEN 1 AND 128 AND label_code GLOB '[a-z]*' AND label_code NOT GLOB '*[^a-z0-9._-]*'),
+    PRIMARY KEY(report_id,metric_key,label_code), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key) REFERENCES estimator_calibration_report_metric_drafts(report_id,metric_key) ON DELETE CASCADE
+);
+CREATE TABLE estimator_calibration_report_scopes (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99999),
+    scope_id TEXT NOT NULL CHECK(length(scope_id)=64 AND scope_id NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-report-scope-v1'),
+    dimension TEXT NOT NULL CHECK(dimension IN ('overall','task','language','provider','project','time','evidence_availability')),
+    bucket_code TEXT NOT NULL CHECK(length(bucket_code) BETWEEN 1 AND 128 AND bucket_code GLOB '[a-z]*' AND bucket_code NOT GLOB '*[^a-z0-9._-]*'),
+    case_count INTEGER NOT NULL CHECK(case_count BETWEEN 0 AND 9007199254740991),
+    minimum_required_count INTEGER NOT NULL CHECK(minimum_required_count BETWEEN 1 AND 9007199254740991),
+    state TEXT NOT NULL CHECK(state IN ('known','insufficient_data')),
+    reason_code TEXT CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9._-]*')),
+    scope_fingerprint TEXT NOT NULL CHECK(length(scope_fingerprint)=64 AND scope_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(report_id,metric_key,scope_id), UNIQUE(report_id,metric_key,ordinal), UNIQUE(report_id,scope_id),
+    FOREIGN KEY(report_id,metric_key) REFERENCES estimator_calibration_report_metric_drafts(report_id,metric_key) ON DELETE CASCADE
+);
+CREATE TABLE estimator_calibration_report_measurements (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 5999999),
+    scope_id TEXT NOT NULL, measurement_key TEXT NOT NULL,
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-measurement-v1'),
+    family TEXT NOT NULL CHECK(family IN ('coverage','classification','calibration','agreement','stability','resource','retrieval','cascade','numeric')),
+    shape TEXT NOT NULL CHECK(shape IN ('count','scalar','rate')),
+    unit_code TEXT NOT NULL CHECK(length(unit_code) BETWEEN 1 AND 128 AND unit_code NOT GLOB '*[^a-z0-9._-]*'),
+    state TEXT NOT NULL CHECK(state IN ('known','insufficient_data','unsupported','not_applicable','incompatible')),
+    scalar_value REAL CHECK(scalar_value IS NULL OR (typeof(scalar_value)='real' AND abs(scalar_value)<=1.7976931348623157e308)),
+    integer_value INTEGER CHECK(integer_value IS NULL OR (typeof(integer_value)='integer' AND integer_value BETWEEN 0 AND 9007199254740991)),
+    numerator INTEGER CHECK(numerator IS NULL OR (typeof(numerator)='integer' AND numerator BETWEEN 0 AND 9007199254740991)),
+    denominator INTEGER CHECK(denominator IS NULL OR (typeof(denominator)='integer' AND denominator BETWEEN 0 AND 9007199254740991)),
+    sample_count INTEGER NOT NULL CHECK(sample_count BETWEEN 0 AND 9007199254740991),
+    reason_code TEXT CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9._-]*')),
+    measurement_fingerprint TEXT NOT NULL CHECK(length(measurement_fingerprint)=64 AND measurement_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(report_id,metric_key,scope_id,measurement_key), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key,scope_id) REFERENCES estimator_calibration_report_scopes(report_id,metric_key,scope_id) ON DELETE CASCADE,
+    FOREIGN KEY(measurement_key) REFERENCES estimator_calibration_report_measurement_specs(measurement_key)
+);
+CREATE TABLE estimator_calibration_report_confusion_cells (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL, ordinal INTEGER NOT NULL,
+    scope_id TEXT NOT NULL, truth_label TEXT NOT NULL, predicted_label TEXT NOT NULL,
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-confusion-cell-v1'),
+    count INTEGER NOT NULL CHECK(count BETWEEN 0 AND 9007199254740991), row_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(report_id,metric_key,scope_id,truth_label,predicted_label), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key,scope_id) REFERENCES estimator_calibration_report_scopes(report_id,metric_key,scope_id) ON DELETE CASCADE,
+    CHECK(length(row_fingerprint)=64 AND row_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(truth_label) BETWEEN 1 AND 128 AND truth_label NOT GLOB '*[^a-z0-9._-]*'),
+    CHECK(length(predicted_label) BETWEEN 1 AND 128 AND predicted_label NOT GLOB '*[^a-z0-9._-]*')
+);
+CREATE TABLE estimator_calibration_report_class_receipts (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL, ordinal INTEGER NOT NULL,
+    scope_id TEXT NOT NULL, label_code TEXT NOT NULL,
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-class-receipt-v1'),
+    support INTEGER NOT NULL, predicted_count INTEGER NOT NULL, true_positive INTEGER NOT NULL, false_positive INTEGER NOT NULL, false_negative INTEGER NOT NULL,
+    precision REAL NOT NULL, recall REAL NOT NULL, f1 REAL NOT NULL, row_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(report_id,metric_key,scope_id,label_code), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key,scope_id) REFERENCES estimator_calibration_report_scopes(report_id,metric_key,scope_id) ON DELETE CASCADE,
+    CHECK(support BETWEEN 0 AND 9007199254740991 AND predicted_count BETWEEN 0 AND 9007199254740991 AND true_positive BETWEEN 0 AND 9007199254740991 AND false_positive BETWEEN 0 AND 9007199254740991 AND false_negative BETWEEN 0 AND 9007199254740991),
+    CHECK(precision BETWEEN 0.0 AND 1.0 AND recall BETWEEN 0.0 AND 1.0 AND f1 BETWEEN 0.0 AND 1.0),
+    CHECK(length(label_code) BETWEEN 1 AND 128 AND label_code NOT GLOB '*[^a-z0-9._-]*'), CHECK(length(row_fingerprint)=64 AND row_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_calibration_report_reliability_bins (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL, ordinal INTEGER NOT NULL,
+    scope_id TEXT NOT NULL, bin_index INTEGER NOT NULL CHECK(bin_index BETWEEN 0 AND 99),
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-reliability-bin-v1'),
+    lower_bound REAL NOT NULL CHECK(lower_bound BETWEEN 0.0 AND 1.0), upper_bound REAL NOT NULL CHECK(upper_bound BETWEEN 0.0 AND 1.0),
+    count INTEGER NOT NULL CHECK(count BETWEEN 0 AND 9007199254740991), mean_confidence REAL, accuracy REAL, absolute_gap REAL, row_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(report_id,metric_key,scope_id,bin_index), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key,scope_id) REFERENCES estimator_calibration_report_scopes(report_id,metric_key,scope_id) ON DELETE CASCADE,
+    CHECK(mean_confidence IS NULL OR mean_confidence BETWEEN 0.0 AND 1.0), CHECK(accuracy IS NULL OR accuracy BETWEEN 0.0 AND 1.0), CHECK(absolute_gap IS NULL OR absolute_gap BETWEEN 0.0 AND 1.0),
+    CHECK(length(row_fingerprint)=64 AND row_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_calibration_report_selective_points (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL, ordinal INTEGER NOT NULL,
+    scope_id TEXT NOT NULL, threshold REAL NOT NULL CHECK(threshold BETWEEN 0.0 AND 1.0),
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-selective-point-v1'), state TEXT NOT NULL CHECK(state IN ('known','insufficient_data')),
+    coverage_numerator INTEGER NOT NULL, coverage_denominator INTEGER NOT NULL, risk_numerator INTEGER NOT NULL, risk_denominator INTEGER NOT NULL,
+    reason_code TEXT, row_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(report_id,metric_key,scope_id,threshold), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key,scope_id) REFERENCES estimator_calibration_report_scopes(report_id,metric_key,scope_id) ON DELETE CASCADE,
+    CHECK(coverage_numerator BETWEEN 0 AND 9007199254740991 AND coverage_denominator BETWEEN 0 AND 9007199254740991 AND risk_numerator BETWEEN 0 AND 9007199254740991 AND risk_denominator BETWEEN 0 AND 9007199254740991),
+    CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code NOT GLOB '*[^a-z0-9._-]*')), CHECK(length(row_fingerprint)=64 AND row_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_calibration_report_agreement_receipts (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 1),
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-agreement-receipt-v1'), kind TEXT NOT NULL CHECK(kind IN ('human_human','model_human')),
+    state TEXT NOT NULL CHECK(state IN ('known','insufficient_data','unsupported','not_applicable','incompatible')),
+    case_count INTEGER NOT NULL, pair_count INTEGER NOT NULL, match_count INTEGER NOT NULL, observed_agreement REAL, cohen_kappa REAL, reason_code TEXT, row_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(report_id,metric_key,kind), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key) REFERENCES estimator_calibration_report_metric_drafts(report_id,metric_key) ON DELETE CASCADE,
+    CHECK(case_count BETWEEN 0 AND 9007199254740991 AND pair_count BETWEEN 0 AND 9007199254740991 AND match_count BETWEEN 0 AND 9007199254740991),
+    CHECK(observed_agreement IS NULL OR observed_agreement BETWEEN 0.0 AND 1.0), CHECK(cohen_kappa IS NULL OR cohen_kappa BETWEEN -1.0 AND 1.0),
+    CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code NOT GLOB '*[^a-z0-9._-]*')), CHECK(length(row_fingerprint)=64 AND row_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_calibration_report_stability_receipts (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 3),
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-stability-receipt-v1'), condition TEXT NOT NULL CHECK(condition IN ('repeat','order','format','injection')),
+    state TEXT NOT NULL CHECK(state IN ('known','insufficient_data','unsupported','not_applicable','incompatible')),
+    case_count INTEGER NOT NULL, pair_count INTEGER NOT NULL, match_count INTEGER NOT NULL, stability REAL, reason_code TEXT, row_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(report_id,metric_key,condition), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key) REFERENCES estimator_calibration_report_metric_drafts(report_id,metric_key) ON DELETE CASCADE,
+    CHECK(case_count BETWEEN 0 AND 9007199254740991 AND pair_count BETWEEN 0 AND 9007199254740991 AND match_count BETWEEN 0 AND 9007199254740991),
+    CHECK(stability IS NULL OR stability BETWEEN 0.0 AND 1.0), CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code NOT GLOB '*[^a-z0-9._-]*')), CHECK(length(row_fingerprint)=64 AND row_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_calibration_report_resource_receipts (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL,
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-resource-receipt-v1'),
+    attempt_count INTEGER NOT NULL, observed_usage_count INTEGER NOT NULL, observed_resource_count INTEGER NOT NULL, observed_cost_count INTEGER NOT NULL, terminal_state_count INTEGER NOT NULL,
+    measurement_key_count INTEGER NOT NULL CHECK(measurement_key_count BETWEEN 0 AND 60), row_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(report_id,metric_key), FOREIGN KEY(report_id,metric_key) REFERENCES estimator_calibration_report_metric_drafts(report_id,metric_key) ON DELETE CASCADE,
+    CHECK(attempt_count BETWEEN 0 AND 9007199254740991 AND observed_usage_count BETWEEN 0 AND 9007199254740991 AND observed_resource_count BETWEEN 0 AND 9007199254740991 AND observed_cost_count BETWEEN 0 AND 9007199254740991 AND terminal_state_count BETWEEN 0 AND 9007199254740991),
+    CHECK(length(row_fingerprint)=64 AND row_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_calibration_report_resource_keys (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 59), measurement_key TEXT NOT NULL,
+    PRIMARY KEY(report_id,metric_key,measurement_key), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key) REFERENCES estimator_calibration_report_resource_receipts(report_id,metric_key) ON DELETE CASCADE,
+    FOREIGN KEY(measurement_key) REFERENCES estimator_calibration_report_measurement_specs(measurement_key)
+);
+CREATE TABLE estimator_calibration_report_missingness (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 59), measurement_key TEXT NOT NULL,
+    contract_version TEXT NOT NULL CHECK(contract_version='calibration-missingness-receipt-v1'),
+    state TEXT NOT NULL CHECK(state IN ('insufficient_data','unsupported','not_applicable','incompatible')),
+    affected_count INTEGER NOT NULL CHECK(affected_count BETWEEN 0 AND 9007199254740991), reason_code TEXT NOT NULL, row_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(report_id,metric_key,measurement_key), UNIQUE(report_id,metric_key,ordinal),
+    FOREIGN KEY(report_id,metric_key) REFERENCES estimator_calibration_report_metric_drafts(report_id,metric_key) ON DELETE CASCADE,
+    FOREIGN KEY(measurement_key) REFERENCES estimator_calibration_report_measurement_specs(measurement_key),
+    CHECK(length(reason_code) BETWEEN 1 AND 128 AND reason_code NOT GLOB '*[^a-z0-9._-]*'), CHECK(length(row_fingerprint)=64 AND row_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_calibration_report_metric_roots (
+    report_id TEXT NOT NULL, metric_key TEXT NOT NULL, metric_ordinal INTEGER NOT NULL,
+    contract_version TEXT NOT NULL CHECK(contract_version='repository-sealed-calibration-metric-root-v1'),
+    metric_fingerprint TEXT NOT NULL, comparison_identity_fingerprint TEXT NOT NULL,
+    vocabulary_count INTEGER NOT NULL, scope_count INTEGER NOT NULL, measurement_count INTEGER NOT NULL,
+    confusion_count INTEGER NOT NULL, class_count INTEGER NOT NULL, reliability_count INTEGER NOT NULL, selective_count INTEGER NOT NULL,
+    agreement_count INTEGER NOT NULL, stability_count INTEGER NOT NULL, resource_key_count INTEGER NOT NULL, missingness_count INTEGER NOT NULL,
+    PRIMARY KEY(report_id,metric_key), UNIQUE(report_id,metric_ordinal),
+    FOREIGN KEY(report_id,metric_key) REFERENCES estimator_calibration_report_metric_drafts(report_id,metric_key) ON DELETE CASCADE,
+    CHECK(length(metric_fingerprint)=64 AND metric_fingerprint NOT GLOB '*[^0-9a-f]*'), CHECK(length(comparison_identity_fingerprint)=64 AND comparison_identity_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_calibration_report_roots (
+    report_id TEXT PRIMARY KEY REFERENCES estimator_calibration_report_drafts(report_id) ON DELETE CASCADE,
+    contract_version TEXT NOT NULL CHECK(contract_version='repository-sealed-calibration-report-v1'),
+    receipt_id TEXT NOT NULL UNIQUE CHECK(length(receipt_id)=64 AND receipt_id NOT GLOB '*[^0-9a-f]*'),
+    report_fingerprint TEXT NOT NULL UNIQUE CHECK(length(report_fingerprint)=64 AND report_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    definition_fingerprint TEXT NOT NULL REFERENCES estimator_calibration_report_definitions(definition_fingerprint),
+    metric_count INTEGER NOT NULL CHECK(metric_count BETWEEN 1 AND 1024),
+    derived_at_us INTEGER NOT NULL CHECK(typeof(derived_at_us)='integer' AND derived_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    receipt_fingerprint TEXT NOT NULL UNIQUE CHECK(length(receipt_fingerprint)=64 AND receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    repository_owned INTEGER NOT NULL CHECK(repository_owned=1), repository_sealed INTEGER NOT NULL CHECK(repository_sealed=1),
+    persistence_state TEXT NOT NULL CHECK(persistence_state='repository_sealed'),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0), activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0), team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0)
+);
+
+CREATE TRIGGER estimator_calibration_report_metric_root_counts BEFORE INSERT ON estimator_calibration_report_metric_roots
+WHEN NOT EXISTS (
+    SELECT 1 FROM estimator_calibration_report_metric_drafts d
+    WHERE d.report_id=NEW.report_id AND d.metric_key=NEW.metric_key AND d.metric_ordinal=NEW.metric_ordinal AND d.metric_fingerprint=NEW.metric_fingerprint
+      AND d.vocabulary_count=NEW.vocabulary_count AND d.scope_count=NEW.scope_count AND d.measurement_count=NEW.measurement_count
+      AND d.confusion_count=NEW.confusion_count AND d.class_count=NEW.class_count AND d.reliability_count=NEW.reliability_count AND d.selective_count=NEW.selective_count
+      AND d.agreement_count=NEW.agreement_count AND d.stability_count=NEW.stability_count AND d.resource_key_count=NEW.resource_key_count AND d.missingness_count=NEW.missingness_count)
+ OR NEW.vocabulary_count<>(SELECT COUNT(*) FROM estimator_calibration_report_label_vocabulary WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.scope_count<>(SELECT COUNT(*) FROM estimator_calibration_report_scopes WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.measurement_count<>(SELECT COUNT(*) FROM estimator_calibration_report_measurements WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.confusion_count<>(SELECT COUNT(*) FROM estimator_calibration_report_confusion_cells WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.class_count<>(SELECT COUNT(*) FROM estimator_calibration_report_class_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.reliability_count<>(SELECT COUNT(*) FROM estimator_calibration_report_reliability_bins WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.selective_count<>(SELECT COUNT(*) FROM estimator_calibration_report_selective_points WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.agreement_count<>(SELECT COUNT(*) FROM estimator_calibration_report_agreement_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.stability_count<>(SELECT COUNT(*) FROM estimator_calibration_report_stability_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.resource_key_count<>(SELECT COUNT(*) FROM estimator_calibration_report_resource_keys WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR NEW.missingness_count<>(SELECT COUNT(*) FROM estimator_calibration_report_missingness WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR 1<>(SELECT COUNT(*) FROM estimator_calibration_report_comparison_identities WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR 1<>(SELECT COUNT(*) FROM estimator_calibration_report_resource_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)
+ OR (NEW.vocabulary_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_label_vocabulary WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_label_vocabulary WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.vocabulary_count-1))
+ OR (NEW.scope_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_scopes WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_scopes WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.scope_count-1))
+ OR (NEW.measurement_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_measurements WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_measurements WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.measurement_count-1))
+ OR (NEW.confusion_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_confusion_cells WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_confusion_cells WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.confusion_count-1))
+ OR (NEW.class_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_class_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_class_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.class_count-1))
+ OR (NEW.reliability_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_reliability_bins WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_reliability_bins WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.reliability_count-1))
+ OR (NEW.selective_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_selective_points WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_selective_points WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.selective_count-1))
+ OR (NEW.agreement_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_agreement_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_agreement_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.agreement_count-1))
+ OR (NEW.stability_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_stability_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_stability_receipts WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.stability_count-1))
+ OR (NEW.resource_key_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_resource_keys WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_resource_keys WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.resource_key_count-1))
+ OR (NEW.missingness_count>0 AND ((SELECT MIN(ordinal) FROM estimator_calibration_report_missingness WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>0 OR (SELECT MAX(ordinal) FROM estimator_calibration_report_missingness WHERE report_id=NEW.report_id AND metric_key=NEW.metric_key)<>NEW.missingness_count-1))
+BEGIN SELECT RAISE(ABORT,'estimator calibration metric root counts are inconsistent'); END;
+CREATE TRIGGER estimator_calibration_report_root_insert_guard BEFORE INSERT ON estimator_calibration_report_roots
+WHEN NOT EXISTS (
+    SELECT 1 FROM estimator_calibration_report_drafts d
+    JOIN estimator_calibration_report_append_authorizations a ON a.report_id=d.report_id AND a.submission_id=d.submission_id AND a.campaign_id=d.campaign_id
+    WHERE d.report_id=NEW.report_id AND d.report_fingerprint=NEW.report_fingerprint AND d.definition_fingerprint=NEW.definition_fingerprint
+      AND d.metric_count=NEW.metric_count AND d.derived_at_us IS NULL AND d.source_observed_at_us=NEW.derived_at_us
+      AND a.authorization_tag=estimator_calibration_report_authorization_tag(a.operation_id,a.report_id,a.submission_id,a.campaign_id))
+ OR NEW.metric_count<>(SELECT COUNT(*) FROM estimator_calibration_report_metric_roots WHERE report_id=NEW.report_id)
+ OR (SELECT MIN(metric_ordinal) FROM estimator_calibration_report_metric_roots WHERE report_id=NEW.report_id)<>0
+ OR (SELECT MAX(metric_ordinal) FROM estimator_calibration_report_metric_roots WHERE report_id=NEW.report_id)<>NEW.metric_count-1
+BEGIN SELECT RAISE(ABORT,'estimator calibration report root lineage or counts are inconsistent'); END;
+CREATE TRIGGER estimator_calibration_report_root_no_update BEFORE UPDATE ON estimator_calibration_report_roots BEGIN SELECT RAISE(ABORT,'estimator calibration report is immutable'); END;
+CREATE TRIGGER estimator_calibration_report_root_no_delete BEFORE DELETE ON estimator_calibration_report_roots
+WHEN EXISTS (SELECT 1 FROM estimator_calibration_report_drafts d JOIN estimator_gate_campaigns c ON c.campaign_id=d.campaign_id WHERE d.report_id=OLD.report_id)
+BEGIN SELECT RAISE(ABORT,'estimator calibration report requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_calibration_report_draft_no_update BEFORE UPDATE ON estimator_calibration_report_drafts BEGIN SELECT RAISE(ABORT,'estimator calibration report is immutable'); END;
+CREATE TRIGGER estimator_calibration_report_draft_no_delete BEFORE DELETE ON estimator_calibration_report_drafts
+WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns c WHERE c.campaign_id=OLD.campaign_id)
+BEGIN SELECT RAISE(ABORT,'estimator calibration report requires campaign privacy deletion'); END;
+
+""" + _calibration_report_guards_19() + r"""
+
+CREATE INDEX estimator_calibration_reports_campaign_idx ON estimator_calibration_report_drafts(campaign_id,derived_at_us DESC);
+CREATE INDEX estimator_calibration_reports_submission_idx ON estimator_calibration_report_drafts(submission_id);
 COMMIT;
 """

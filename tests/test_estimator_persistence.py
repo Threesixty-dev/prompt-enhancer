@@ -226,7 +226,7 @@ def test_migration_1_to_15_and_database_factory_are_content_free(tmp_path) -> No
     repository = database.estimator_repository()
 
     assert repository.model_lab_summary(digest("unregistered-plan")).registered is False
-    assert database.summary()["schema_version"] == SCHEMA_VERSION == 18
+    assert database.summary()["schema_version"] == SCHEMA_VERSION == 19
 
     with sqlite3.connect(database.path) as connection:
         tables = {
@@ -253,7 +253,7 @@ def test_migration_14_to_15_adds_empty_tables_without_inference(tmp_path) -> Non
     Database(path).initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
         assert connection.execute(
             "SELECT COUNT(*) FROM estimator_plans"
         ).fetchone()[0] == 0

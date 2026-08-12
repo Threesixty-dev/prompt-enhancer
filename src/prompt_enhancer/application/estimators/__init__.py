@@ -130,6 +130,13 @@ from .runtime_persistence import (
     EstimatorRuntimeState,
     EstimatorRuntimeStateReceipt,
 )
+from .calibration_report_persistence import (
+    REPOSITORY_SEALED_CALIBRATION_REPORT_V1,
+    CalibrationReportRepository,
+    RepositorySealedCalibrationReportV1,
+    repository_calibration_receipt_id,
+    revalidate_repository_sealed_calibration_report_v1,
+)
 
 __all__ = (
     "ADJUDICATION_CONTRACT_VERSION",
@@ -254,4 +261,9 @@ __all__ = (
     "EstimatorRuntimeStageOutcomeState",
     "EstimatorRuntimeState",
     "EstimatorRuntimeStateReceipt",
+    "REPOSITORY_SEALED_CALIBRATION_REPORT_V1",
+    "CalibrationReportRepository",
+    "RepositorySealedCalibrationReportV1",
+    "repository_calibration_receipt_id",
+    "revalidate_repository_sealed_calibration_report_v1",
 )
