@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from ...application.persistence import (
     AnalysisRunStatus,
@@ -34,6 +35,13 @@ from ._common import (
     to_iso,
 )
 
+if TYPE_CHECKING:
+    from ...application.history.persistence import (
+        RepositorySealedTemporalBatchV1,
+        SyntheticTemporalCompletionRequestV1,
+    )
+    from .temporal_history import SqliteTemporalHistoryRepository
+
 
 class SqliteSessionAnalysisRunRepository:
     """Append a selected-window profile once; expose explicit privacy deletion."""
@@ -42,9 +50,22 @@ class SqliteSessionAnalysisRunRepository:
         self,
         connection_scope: ConnectionScope,
         ensure_initialized: Callable[[], None],
+        *,
+        temporal_history_repository: SqliteTemporalHistoryRepository | None = None,
+        begin_temporal_delete_authorization: (
+            Callable[[str], tuple[str, str]] | None
+        ) = None,
+        end_temporal_delete_authorization: (
+            Callable[[str, str, str], None] | None
+        ) = None,
     ) -> None:
         self._connection_scope = connection_scope
         self._ensure_initialized = ensure_initialized
+        self._temporal_history_repository = temporal_history_repository
+        self._begin_temporal_delete_authorization = (
+            begin_temporal_delete_authorization
+        )
+        self._end_temporal_delete_authorization = end_temporal_delete_authorization
 
     def begin(self, draft: SessionAnalysisRunDraft) -> None:
         self._ensure_initialized()
@@ -137,7 +158,8 @@ class SqliteSessionAnalysisRunRepository:
         *,
         finished_at: datetime,
         completion_authority: SessionAnalysisCompletionAuthority | None = None,
-    ) -> None:
+        temporal_completion_request: SyntheticTemporalCompletionRequestV1 | None = None,
+    ) -> RepositorySealedTemporalBatchV1 | None:
         self._ensure_initialized()
         require_safe_id(run_id)
         finished_at = require_utc(finished_at)
@@ -148,18 +170,45 @@ class SqliteSessionAnalysisRunRepository:
         }
         if len(identities) != len(results):
             raise DatabaseInvariantError("session analysis results contain duplicates")
+        if temporal_completion_request is not None and (
+            completion_authority is None or self._temporal_history_repository is None
+        ):
+            raise DatabaseInvariantError(
+                "synthetic temporal completion requires live repository authority"
+            )
 
         with self._connection_scope() as connection:
+            sealed_batch = None
             try:
+                if temporal_completion_request is not None:
+                    connection.execute("PRAGMA trusted_schema=ON")
                 connection.execute("BEGIN IMMEDIATE")
                 run = connection.execute(
                     """
-                    SELECT started_at, status, metric_scope_state
+                    SELECT started_at, finished_at, status, metric_scope_state
                     FROM session_analysis_runs
                     WHERE run_id = ?
                     """,
                     (run_id,),
                 ).fetchone()
+                if (
+                    run is not None
+                    and run["status"] == AnalysisRunStatus.COMPLETED.value
+                    and temporal_completion_request is not None
+                ):
+                    assert completion_authority is not None
+                    assert self._temporal_history_repository is not None
+                    sealed_batch = (
+                        self._temporal_history_repository._replay_completed_locked(
+                            connection,
+                            request=temporal_completion_request,
+                            results=results,
+                            finished_at=finished_at,
+                            completion_authority=completion_authority,
+                        )
+                    )
+                    connection.commit()
+                    return sealed_batch
                 if run is None or run["status"] != AnalysisRunStatus.RUNNING.value:
                     raise DatabaseInvariantError(
                         "session analysis run is missing or already terminal"
@@ -363,6 +412,16 @@ class SqliteSessionAnalysisRunRepository:
                             for ordinal, signal in enumerate(result.signals)
                         ),
                     )
+                if temporal_completion_request is not None:
+                    assert completion_authority is not None
+                    assert self._temporal_history_repository is not None
+                    sealed_batch = self._temporal_history_repository._complete_locked(
+                        connection,
+                        request=temporal_completion_request,
+                        results=results,
+                        finished_at=finished_at,
+                        completion_authority=completion_authority,
+                    )
                 cursor = connection.execute(
                     """
                     UPDATE session_analysis_runs
@@ -375,10 +434,26 @@ class SqliteSessionAnalysisRunRepository:
                     raise DatabaseInvariantError(
                         "session analysis transition was rejected"
                     )
+                if sealed_batch is not None:
+                    assert self._temporal_history_repository is not None
+                    verified = (
+                        self._temporal_history_repository._hydrate_sealed_locked(
+                            connection, sealed_batch.sealed_batch_id
+                        )
+                    )
+                    if verified != sealed_batch:
+                        raise DatabaseInvariantError(
+                            "completed temporal graph did not rederive exactly"
+                        )
+                    sealed_batch = verified
                 connection.commit()
+                return sealed_batch
             except Exception:
                 connection.rollback()
                 raise
+            finally:
+                if temporal_completion_request is not None:
+                    connection.execute("PRAGMA trusted_schema=OFF")
 
     def fail(self, run_id: str, *, finished_at: datetime, failure_code: str) -> None:
         self._ensure_initialized()
@@ -909,14 +984,64 @@ class SqliteSessionAnalysisRunRepository:
     def delete_for_privacy(self, run_id: str) -> bool:
         self._ensure_initialized()
         require_safe_id(run_id)
-        with self._connection_scope() as connection:
-            try:
-                connection.execute("BEGIN IMMEDIATE")
-                cursor = connection.execute(
-                    "DELETE FROM session_analysis_runs WHERE run_id = ?", (run_id,)
+        authorization: tuple[str, str] | None = None
+        if self._begin_temporal_delete_authorization is not None:
+            authorization = self._begin_temporal_delete_authorization(run_id)
+        try:
+            with self._connection_scope() as connection:
+                try:
+                    connection.execute("PRAGMA secure_delete=ON")
+                    if int(connection.execute("PRAGMA secure_delete").fetchone()[0]) != 1:
+                        raise DatabaseInvariantError(
+                            "temporal privacy deletion requires SQLite secure_delete"
+                        )
+                    connection.execute("PRAGMA trusted_schema=ON")
+                    connection.execute("BEGIN IMMEDIATE")
+                    has_temporal_history = connection.execute(
+                        """SELECT 1 FROM temporal_completion_requests
+                           WHERE analysis_run_id=?""",
+                        (run_id,),
+                    ).fetchone() is not None
+                    if has_temporal_history:
+                        if authorization is None:
+                            raise DatabaseInvariantError(
+                                "temporal run privacy deletion is not authorized"
+                            )
+                        connection.execute(
+                            "INSERT INTO temporal_run_delete_authorizations VALUES (?,?,?)",
+                            (authorization[0], run_id, authorization[1]),
+                        )
+                    cursor = connection.execute(
+                        "DELETE FROM session_analysis_runs WHERE run_id=?",
+                        (run_id,),
+                    )
+                    if has_temporal_history:
+                        connection.execute(
+                            """DELETE FROM temporal_run_delete_authorizations
+                               WHERE operation_id=? AND run_id=?""",
+                            (authorization[0], run_id),
+                        )
+                    connection.commit()
+                    connection.execute("PRAGMA trusted_schema=OFF")
+                    checkpoint = connection.execute(
+                        "PRAGMA wal_checkpoint(TRUNCATE)"
+                    ).fetchone()
+                    if checkpoint is None or tuple(
+                        int(value) for value in checkpoint
+                    ) != (0, 0, 0):
+                        raise DatabaseInvariantError(
+                            "temporal privacy deletion committed; WAL purge pending"
+                        )
+                    return cursor.rowcount == 1
+                except Exception:
+                    connection.rollback()
+                    connection.execute("PRAGMA trusted_schema=OFF")
+                    raise
+        finally:
+            if (
+                authorization is not None
+                and self._end_temporal_delete_authorization is not None
+            ):
+                self._end_temporal_delete_authorization(
+                    authorization[0], run_id, authorization[1]
                 )
-                connection.commit()
-                return cursor.rowcount == 1
-            except Exception:
-                connection.rollback()
-                raise

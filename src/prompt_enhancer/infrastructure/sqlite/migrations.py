@@ -6055,3 +6055,1626 @@ CREATE INDEX estimator_gate_decision_report_idx
     ON estimator_gate_decision_drafts(report_id);
 COMMIT;
 """
+
+
+MIGRATION_21 = r"""
+BEGIN IMMEDIATE;
+
+-- Prospective temporal history is deliberately zero-backfill.  No legacy
+-- session-analysis row is copied into these tables.  Repository authorization
+-- rows are HMAC-gated by process-local SQLite functions and are deleted before
+-- the transaction commits. Durable graph rows never reference auth rows.
+CREATE TABLE temporal_scope_append_authorizations (
+    operation_id TEXT PRIMARY KEY
+        CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    automation_grant_id TEXT NOT NULL,
+    automation_grant_revision INTEGER NOT NULL CHECK(automation_grant_revision BETWEEN 1 AND 9007199254740991),
+    automation_grant_fingerprint TEXT NOT NULL
+        CHECK(length(automation_grant_fingerprint)=64 AND automation_grant_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    project_id TEXT NOT NULL
+        CHECK(length(project_id)=64 AND project_id NOT GLOB '*[^0-9a-f]*'),
+    prepared_scope_id TEXT NOT NULL
+        CHECK(length(prepared_scope_id)=64 AND prepared_scope_id NOT GLOB '*[^0-9a-f]*'),
+    prepared_scope_fingerprint TEXT NOT NULL
+        CHECK(length(prepared_scope_fingerprint)=64 AND prepared_scope_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    root_receipt_id TEXT NOT NULL
+        CHECK(length(root_receipt_id)=64 AND root_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    root_receipt_fingerprint TEXT NOT NULL
+        CHECK(length(root_receipt_fingerprint)=64 AND root_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    selection_revision_id TEXT NOT NULL
+        CHECK(length(selection_revision_id)=64 AND selection_revision_id NOT GLOB '*[^0-9a-f]*'),
+    selection_revision_fingerprint TEXT NOT NULL
+        CHECK(length(selection_revision_fingerprint)=64 AND selection_revision_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    authorization_fingerprint TEXT NOT NULL
+        CHECK(length(authorization_fingerprint)=64 AND authorization_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    authorization_tag TEXT NOT NULL
+        CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*'),
+    UNIQUE(automation_grant_id,automation_grant_revision)
+);
+CREATE TRIGGER temporal_scope_authorization_validate
+BEFORE INSERT ON temporal_scope_append_authorizations
+WHEN NEW.authorization_tag<>temporal_scope_authorization_tag(
+    NEW.operation_id,NEW.automation_grant_id,NEW.automation_grant_revision,
+    NEW.automation_grant_fingerprint,NEW.project_id,NEW.prepared_scope_id,
+    NEW.prepared_scope_fingerprint,NEW.root_receipt_id,
+    NEW.root_receipt_fingerprint,NEW.selection_revision_id,
+    NEW.selection_revision_fingerprint,NEW.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'temporal scope append authorization is invalid'); END;
+CREATE TRIGGER temporal_scope_authorization_no_update BEFORE UPDATE ON temporal_scope_append_authorizations BEGIN SELECT RAISE(ABORT,'temporal scope authorization is immutable'); END;
+
+-- Privacy deletion authorization is transient and never an FK parent of
+-- durable temporal history.
+CREATE TABLE temporal_run_delete_authorizations (
+    operation_id TEXT PRIMARY KEY
+        CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    run_id TEXT NOT NULL UNIQUE
+        CHECK(length(run_id)=64 AND run_id NOT GLOB '*[^0-9a-f]*'),
+    authorization_tag TEXT NOT NULL
+        CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TRIGGER temporal_run_delete_authorization_validate
+BEFORE INSERT ON temporal_run_delete_authorizations
+WHEN NEW.authorization_tag<>temporal_run_delete_authorization_tag(
+    NEW.operation_id,NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'temporal run deletion authorization is invalid'); END;
+CREATE TRIGGER temporal_run_delete_authorization_no_update
+BEFORE UPDATE ON temporal_run_delete_authorizations
+BEGIN SELECT RAISE(ABORT,'temporal run deletion authorization is immutable'); END;
+
+CREATE TABLE temporal_history_root_drafts (
+    root_receipt_id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    contract_version TEXT NOT NULL CHECK(contract_version='temporal-history-root-receipt-v1'),
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    epoch_ordinal INTEGER NOT NULL CHECK(epoch_ordinal=1),
+    predecessor_root_id TEXT,
+    predecessor_root_fingerprint TEXT,
+    history_floor_at_us INTEGER NOT NULL CHECK(typeof(history_floor_at_us)='integer' AND history_floor_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    issued_at_us INTEGER NOT NULL CHECK(issued_at_us=history_floor_at_us),
+    root_fingerprint TEXT NOT NULL UNIQUE,
+    CHECK(length(root_receipt_id)=64 AND root_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(project_id)=64 AND project_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(root_fingerprint)=64 AND root_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK((predecessor_root_id IS NULL)=(predecessor_root_fingerprint IS NULL)),
+    CHECK(predecessor_root_id IS NULL OR (length(predecessor_root_id)=64 AND predecessor_root_id NOT GLOB '*[^0-9a-f]*')),
+    CHECK(predecessor_root_fingerprint IS NULL OR (length(predecessor_root_fingerprint)=64 AND predecessor_root_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    UNIQUE(project_id,epoch_ordinal),
+    CHECK(predecessor_root_id IS NULL AND predecessor_root_fingerprint IS NULL)
+);
+CREATE TRIGGER temporal_history_root_draft_insert_guard
+BEFORE INSERT ON temporal_history_root_drafts
+WHEN EXISTS (SELECT 1 FROM temporal_prepared_scope_roots WHERE root_receipt_id=NEW.root_receipt_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_scope_append_authorizations a
+    JOIN automation_grants g ON g.grant_id=a.automation_grant_id
+    WHERE a.operation_id=NEW.operation_id AND a.root_receipt_id=NEW.root_receipt_id
+      AND g.project_id=NEW.project_id AND g.state='active' AND g.local_only=1
+      AND g.remote_requires_fresh_approval=1
+      AND a.project_id=NEW.project_id
+      AND a.authorization_tag=temporal_scope_authorization_tag(
+          a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal history root append is not authorized'); END;
+
+CREATE TABLE temporal_automation_grant_snapshots (
+    selection_revision_id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    contract_version TEXT NOT NULL CHECK(contract_version='automation-grant-v1'),
+    grant_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 9007199254740991),
+    provider TEXT NOT NULL CHECK(provider='synthetic'),
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    newest_session_limit INTEGER NOT NULL CHECK(newest_session_limit BETWEEN 1 AND 100),
+    check_interval_seconds INTEGER NOT NULL CHECK(check_interval_seconds BETWEEN 60 AND 86400),
+    route TEXT NOT NULL CHECK(route IN ('fast','balanced','deep')),
+    max_gpu_workers INTEGER NOT NULL CHECK(max_gpu_workers=1),
+    max_cpu_workers INTEGER NOT NULL CHECK(max_cpu_workers BETWEEN 1 AND 4),
+    pause_on_battery INTEGER NOT NULL CHECK(pause_on_battery IN (0,1)),
+    maximum_session_seconds INTEGER NOT NULL CHECK(maximum_session_seconds BETWEEN 60 AND 14400),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    remote_requires_fresh_approval INTEGER NOT NULL CHECK(remote_requires_fresh_approval=1),
+    state TEXT NOT NULL CHECK(state='active'),
+    created_at_us INTEGER NOT NULL CHECK(typeof(created_at_us)='integer' AND created_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    renewed_at_us INTEGER NOT NULL CHECK(typeof(renewed_at_us)='integer' AND renewed_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    expires_at_us INTEGER NOT NULL CHECK(typeof(expires_at_us)='integer' AND expires_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    metric_count INTEGER NOT NULL CHECK(metric_count BETWEEN 1 AND 100),
+    grant_fingerprint TEXT NOT NULL UNIQUE,
+    UNIQUE(grant_id,revision),
+    CHECK(length(selection_revision_id)=64 AND selection_revision_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(grant_id)=64 AND grant_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(project_id)=64 AND project_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(grant_fingerprint)=64 AND grant_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(created_at_us<=renewed_at_us AND renewed_at_us<expires_at_us)
+);
+CREATE TABLE temporal_automation_grant_snapshot_metrics (
+    selection_revision_id TEXT NOT NULL REFERENCES temporal_automation_grant_snapshots(selection_revision_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 64 AND metric_key GLOB '[a-z]*' AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    PRIMARY KEY(selection_revision_id,metric_key),
+    UNIQUE(selection_revision_id,ordinal)
+);
+CREATE TRIGGER temporal_grant_snapshot_insert_guard BEFORE INSERT ON temporal_automation_grant_snapshots
+WHEN NOT EXISTS (
+    SELECT 1 FROM temporal_scope_append_authorizations a
+    JOIN automation_grants g ON g.grant_id=a.automation_grant_id
+    WHERE a.operation_id=NEW.operation_id AND a.selection_revision_id=NEW.selection_revision_id
+      AND a.automation_grant_id=NEW.grant_id AND a.automation_grant_revision=NEW.revision
+      AND a.automation_grant_fingerprint=NEW.grant_fingerprint
+      AND a.project_id=NEW.project_id AND g.grant_id=NEW.grant_id
+      AND g.revision=NEW.revision AND g.provider=NEW.provider AND g.project_id=NEW.project_id
+      AND g.newest_session_limit=NEW.newest_session_limit
+      AND g.check_interval_seconds=NEW.check_interval_seconds AND g.route=NEW.route
+      AND g.max_gpu_workers=NEW.max_gpu_workers AND g.max_cpu_workers=NEW.max_cpu_workers
+      AND g.pause_on_battery=NEW.pause_on_battery
+      AND g.maximum_session_seconds=NEW.maximum_session_seconds
+      AND g.local_only=1 AND g.remote_requires_fresh_approval=1 AND g.state='active'
+      AND temporal_iso_to_epoch_us(g.created_at)=NEW.created_at_us
+      AND temporal_iso_to_epoch_us(g.renewed_at)=NEW.renewed_at_us
+      AND temporal_iso_to_epoch_us(g.expires_at)=NEW.expires_at_us
+      AND a.authorization_tag=temporal_scope_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal grant snapshot is unauthorized or mismatched'); END;
+CREATE TRIGGER temporal_grant_snapshot_metric_insert_guard BEFORE INSERT ON temporal_automation_grant_snapshot_metrics
+WHEN NOT EXISTS (
+    SELECT 1 FROM temporal_automation_grant_snapshots s
+    JOIN temporal_scope_append_authorizations a ON a.operation_id=s.operation_id
+    JOIN automation_grant_metrics m ON m.grant_id=s.grant_id
+    WHERE s.selection_revision_id=NEW.selection_revision_id
+      AND m.ordinal=NEW.ordinal AND m.metric_key=NEW.metric_key
+      AND a.authorization_tag=temporal_scope_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal grant metric is unauthorized or mismatched'); END;
+
+-- Closed, code-owned Coaching-v3 comparison vocabulary.  Selection order is
+-- stored separately because grants may choose any canonical nonempty subset.
+CREATE TABLE temporal_coaching_identity_registry (
+    registry_ordinal INTEGER PRIMARY KEY CHECK(registry_ordinal BETWEEN 0 AND 19),
+    metric_key TEXT NOT NULL UNIQUE,
+    metric_definition_version TEXT NOT NULL,
+    metric_definition_sha256 TEXT NOT NULL,
+    metric_question_version TEXT NOT NULL,
+    metric_question_sha256 TEXT NOT NULL,
+    unit_code TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK(direction IN ('higher_is_better','lower_is_better')),
+    evidence_contract_version TEXT NOT NULL,
+    estimator_plan_version TEXT NOT NULL,
+    estimator_plan_sha256 TEXT NOT NULL,
+    calibration_version TEXT NOT NULL,
+    calibration_sha256 TEXT NOT NULL,
+    CHECK(length(metric_definition_sha256)=64 AND metric_definition_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_question_sha256)=64 AND metric_question_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(estimator_plan_sha256)=64 AND estimator_plan_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(calibration_sha256)=64 AND calibration_sha256 NOT GLOB '*[^0-9a-f]*')
+);
+INSERT INTO temporal_coaching_identity_registry VALUES
+(0,'collaboration.ambiguity_resolution','coaching-definition-v2','73c3892daa37af5002afdd1c71d0c74872b1d4c5e8f8a6cf6e797a05ae078353','coaching-question-v2','6a131b97af8cc8a26deb6691427041574c2b473b2292b51396ef8aafb9d72af1','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','bf275a26437c61aa073eff72888ebaa89c8673a37631531a1c79796aa84e6903','not-calibrated-v1','efd24dea897d49dccfb6413382d999759dd325168742bd9ac3cedb1b50f8cb8a'),
+(1,'collaboration.clarification_yield','coaching-definition-v2','97e0bf088cfede65ae48384f54ba3adf3dd2358f2b97ef5de153ad29292c98c4','coaching-question-v2','9a623d378f2df80a7460c31496d895bc6e765b94e84d2ff163656355fa0ffbec','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','403ef0e0f1ae03121601a38b20b04b1ecd881bb596d3b4277c409526ebde3242','not-calibrated-v1','7020cb8a52b4920c3fae755fd7021cf8c4e5fb0a08c06af0c74ed16e974ae8ed'),
+(2,'collaboration.exploration_conversion','coaching-definition-v2','d378c3e1f2c403246850b232d655c635f80156994115a1645f356e4124009bfa','coaching-question-v2','995a2d5801d102f8fbb7fd74447c78953b728ff4caec0b2304969c1b606f9dfc','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','fd0c47fd5b1d321627bfb2cef8c20c642b5842ee81618db062093e41c8d0f7d2','not-calibrated-v1','f26176ec5d86706d459db4c5b3bbfe33e95502afbc133e92da580f05db878769'),
+(3,'collaboration.rework_candidate_rate','coaching-definition-v2','b6f84f4569f9b05d7a52b10a47610f24163987c1133d40db0e0ab04dddd2914f','coaching-question-v2','b20aaff19ff43dec10a6993bbc480cb88822a8aacf29536d3f8ab809d58dad6f','risk_ratio','lower_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','c6f9a126a088404582d175324085a004e8e116cec5b1deb24205d63f513be01c','not-calibrated-v1','1e1b3b47e34539f50f1eafa08afe22a476953d5b6c006043f76be5c0d9bb80bc'),
+(4,'collaboration.scope_change_discipline','coaching-definition-v2','3d4ba79ce25e46b12b22d9d48a83b15af87b19110e483492a633abeb721ac135','coaching-question-v2','74f337e628989bf6d671ac69dd89b8cd4fb3c7043bde7fd4527fc4b71f92ca42','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','8089c8ef97cc68d6a8dfc7aa91675ef5627b69e9cbac085b89072a2b8fff6987','not-calibrated-v1','1187bd32c49ead3424703831769cc1320f7fcf353dd1fbc4fdf3d1e5fb944893'),
+(5,'logic.decision_rationale_coverage','coaching-definition-v3','117c0cecaa28d653f82dfcc843204ce98e57f47ddc5994bb7373da2ec4ea515d','coaching-question-v3','8dc387e9ddc2b522b9e33bc8feb1fa01b47373ac4c3540f1aeef551ceee3060b','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','72e65e5e905b2eb24a747eade1cf5885fde9ed5e264a635fc60e4a749dd91f89','not-calibrated-v1','a2ecaa23ad97d082a610ecbd9499f71e8778a8684e2de09b795eb94c68c46cf2'),
+(6,'logic.decomposition_coverage','coaching-definition-v2','3cd2d6b493e0bf3270faf69c9a75443c9d5d1d76a54046853eaba06c9a06faf8','coaching-question-v2','535ece1504f96f8bda1da77269fb8fb1d88a6fecf0d545c947b576df583ded04','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','829ab1acffc83c710e591cbbb5e26ee0e55e5081820782ca9d0d676692b8af94','not-calibrated-v1','8af19b5d4d44815eef83a4c9124cd7b41d3045f4890430d6bb50e61834412b48'),
+(7,'logic.hypothesis_test_linkage','coaching-definition-v2','fa7a897a151360146950d05c5534d3e8069149ddff2cae183e8e2b53086f3d2b','coaching-question-v2','11bd0f1e7d9eb5addb2474e3fa3eec226fbe69f08a0b3c1f605089e3903f94b5','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','961d3a7db32fea9280715d48cd7e471a3f42c6301a4d1770e8ae68b58de20035','not-calibrated-v1','e34bea7f3a16173d758e245f798ac9e34cd605ee24c87dac7473e7daef6d1824'),
+(8,'logic.open_loop_closure','coaching-definition-v2','a3f0da18c5c82d4985a2dcf6179caae127cf8262a323dfc12e3fd0f23d24e346','coaching-question-v2','889b3e61b592bc2be9c685175a86f1d32d6844faf456bfcce7a5e9c40f99117d','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','32008a4a17aae787b749d324be1793bdb71fb900a096fd08a41913c76e0a3a65','not-calibrated-v1','2ff0060db7ec127b7e52ede0c27ec6d59fe4858bfb45f3fc8d02ba1ccef72918'),
+(9,'logic.requirement_action_traceability','coaching-definition-v3','d47c1f232cb70441f3ab85f734ea8b38d1f9dd89c759c2ab98d94d653ff808aa','coaching-question-v3','a180acfa39f15df820a53c3f728f239e2298472002478684d0ed941b1a4846a7','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','32c94e02ada83acbadb12aecc2964f45064747867c86aabdf29e97481d643c76','not-calibrated-v1','95cbba14a86cfdc0d24fef48a214e95391563386108564b8ba39f9803ad42334'),
+(10,'outcome.agent_claim_grounding','coaching-definition-v2','700c779a3931c6cbc72c72f7342a7778f4809adf764c0633c225ab191f6629f8','coaching-question-v2','e1903ded9ee90b01fac2f8f21cd58435121acecf2a6ef8565651e292c60c0b65','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','2086665375b8af355f6964dbbe4058d5e2de3c3b5fa0e99000a269c339a6054f','not-calibrated-v1','518e87421384d9bae6ac70a2ef741240f4bfe756c00b8853dbe08041731e0b9d'),
+(11,'outcome.first_pass_verification','coaching-definition-v2','fc99197c5ad7440ab05742668c8c20175768c5fdba057ef2e392ea10900d33f8','coaching-question-v2','3e460ab3db7269bdb2905a34106663d86091ea973384fca474bc59b0867a7795','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','f7953dc85b7bb50c978dfdaa32a9f628925f789edd527bde8d1a8b6cb17bc9a0','not-calibrated-v1','602a23c03139c4ab195b73c4c1c609fa66af316c8b3635ffa4ee28b011bf4e7c'),
+(12,'outcome.verification_strategy_adequacy','coaching-definition-v2','2cc7cb9b0e9b6005132deb84f2af1d616e765abea576bc940c29a682c88bdfee','coaching-question-v2','a5a618f99ac78a11cbf87458d393157bc0208b4b30a802b945ed628892a64764','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','59579afb88737cd920e8012645850cabd48f6783ca682db5917fdc6d9d7fa6aa','not-calibrated-v1','cca0c4bafad6b97b4efdd3eb8befb0c0f952c228cc1541a23e549cdab785c4e9'),
+(13,'outcome.verified_requirement_coverage','coaching-definition-v2','af27bd335c78c62252e054620fbcfd62b3c2ebef6294d1183378ba971ed557e9','coaching-question-v2','f2349587fd7e1d93d1e76c0ec3ce322b0055edc260d2aca929abf65306a6e0bd','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','b20e2ac187f68c915a90a52d73524e5acd737e48af9cb5af7717c0b1cfd834af','not-calibrated-v1','5b4f18616079723299ee603dff3966fc1632e363d7eb1ac7201324cb35c2576b'),
+(14,'prompt.acceptance_testability','coaching-definition-v2','98df63b64d453f62b6fce624d08a31c5e5ceb377169e1e882d8af2ee5096a72e','coaching-question-v2','0237d3a9266ea5fa16f19e4ad08f88ee2cfb7077779437f38b688b92a2f68dca','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','15e90d305cca432fa0508512ac9602b1796b5696d21c866387f168428a278611','not-calibrated-v1','67d991b3107ea0e89dc281617694f2b485e23794f77f8a7451a3ce6d65bf1c80'),
+(15,'prompt.constraint_precision','coaching-definition-v2','0643bada97daa73f71f0e4ef0553615dc482d1e889f29224556ac15b86f01b28','coaching-question-v2','cb69f331230c23cb4eaf5da8f036cd36a0a8cc7cee0516d1bd51fd03b919c69e','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','c77d83ab09a2227cde040186c53a2651c327c63231b8aee27cdc9f1c2d50579d','not-calibrated-v1','e2bf53dbfd9a8fba1b303b0991e5df064b5240cb35bda6145b7bdb8703114f3b'),
+(16,'prompt.context_sufficiency','coaching-definition-v2','ce33bf9f459a3d02d9d39ad4e632ae7c1e20ac50c2875550fa08666334c2e360','coaching-question-v2','91d177c38a2d4a19b62829cc7e80a73ab223440deb2cb304f6b60a38e6a34405','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','d64e2e56c708a5d0b68d4d07da52fc17aa301c40ea911228c1f985b2fd630847','not-calibrated-v1','7c620a6ebc01970e000102cb1cb12bd261e568a7ee6f62b5740d1c41c37b1aad'),
+(17,'prompt.deliverable_contract','coaching-definition-v3','7191f907958fae040ff9ff860ed7625e5ae770faba6bd46cc7263abbf71761e1','coaching-question-v3','fa5fdb958d4c4c745ebe1e00f041cc9295d1e8e1f27967712779082cc94d29f0','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','ee56967bdaa357d96d46df68be866a463ef3b414758cc41a3ba35453286f0ef9','not-calibrated-v1','8a9b55b602e51d0f1c00692f6e477a2ba4c63ccaef7c4199c71da3d539f74a32'),
+(18,'prompt.problem_evidence_quality','coaching-definition-v2','a6103198f120977cf1c3e866564e3a6ec8ca735688ee0d1d680518056a1d8083','coaching-question-v2','5d0a0cabbef5734bef39dcda77283fabd06327e436bf0b8babbff04ca4b5853c','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','5f8cdf23715435889c64e3313a8ffe2e79279364bc76ed2f348c7b66f65bbf60','not-calibrated-v1','18573f27b88a3227ff69e0241b9b2165dbc75bbf1e95bc68582b7a33fd3f75ed'),
+(19,'prompt.task_definition_coverage','coaching-definition-v2','205276a1cb178e6d998d6b295b97565d9bce796c9f409fc0dc104369ea971b03','coaching-question-v2','65bf3fa549e08b62e13ef2bfb143eb8229ff459f4d6f95a96f6d2db6bdc3c79c','ratio','higher_is_better','coaching-evidence-capabilities-v1','coaching-deterministic-plan-v1','32864157e12e782688b047dd1e2e7190e6332ba45e0c2e19b979c2f44bab3e7b','not-calibrated-v1','1f7ef9be8e4f2cf3044fb31872154d70aeba25fc3e87cfce20c13d5027e7fe70');
+CREATE TRIGGER temporal_coaching_registry_no_update BEFORE UPDATE ON temporal_coaching_identity_registry BEGIN SELECT RAISE(ABORT,'temporal Coaching registry is immutable'); END;
+CREATE TRIGGER temporal_coaching_registry_no_delete BEFORE DELETE ON temporal_coaching_identity_registry BEGIN SELECT RAISE(ABORT,'temporal Coaching registry is immutable'); END;
+-- REPLACE performs a hidden delete only when recursive_triggers is enabled.
+-- The registry is fully seeded above, so every later INSERT is an attempted
+-- extension or replacement and must fail independently of that pragma.
+CREATE TRIGGER temporal_coaching_registry_no_insert BEFORE INSERT ON temporal_coaching_identity_registry BEGIN SELECT RAISE(ABORT,'temporal Coaching registry is closed'); END;
+
+CREATE TABLE temporal_metric_selection_drafts (
+    selection_revision_id TEXT PRIMARY KEY
+        CHECK(length(selection_revision_id)=64 AND selection_revision_id NOT GLOB '*[^0-9a-f]*'),
+    operation_id TEXT NOT NULL UNIQUE,
+    contract_version TEXT NOT NULL CHECK(contract_version='project-metric-selection-revision-v2'),
+    root_receipt_id TEXT NOT NULL REFERENCES temporal_history_root_drafts(root_receipt_id) ON DELETE CASCADE,
+    root_receipt_fingerprint TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    selection_ordinal INTEGER NOT NULL CHECK(selection_ordinal BETWEEN 1 AND 9007199254740991),
+    predecessor_selection_id TEXT,
+    predecessor_selection_fingerprint TEXT,
+    source TEXT NOT NULL CHECK(source='automation_grant'),
+    effective_at_us INTEGER NOT NULL CHECK(typeof(effective_at_us)='integer' AND effective_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    recorded_at_us INTEGER NOT NULL CHECK(typeof(recorded_at_us)='integer' AND recorded_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    metric_pack_key TEXT NOT NULL,
+    metric_pack_version INTEGER NOT NULL CHECK(metric_pack_version BETWEEN 1 AND 9007199254740991),
+    metric_pack_sha256 TEXT NOT NULL,
+    metric_catalog_version TEXT NOT NULL,
+    metric_catalog_sha256 TEXT NOT NULL,
+    source_authority_kind TEXT NOT NULL CHECK(source_authority_kind='automation_grant'),
+    source_authority_id TEXT NOT NULL,
+    source_authority_fingerprint TEXT NOT NULL,
+    source_authority_version TEXT NOT NULL,
+    metric_count INTEGER NOT NULL CHECK(metric_count BETWEEN 1 AND 100),
+    metric_set_fingerprint TEXT NOT NULL,
+    selection_fingerprint TEXT NOT NULL UNIQUE,
+    UNIQUE(root_receipt_id,selection_ordinal),
+    CHECK(effective_at_us<=recorded_at_us),
+    CHECK(length(root_receipt_fingerprint)=64 AND root_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(project_id)=64 AND project_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_pack_key) BETWEEN 1 AND 64 AND metric_pack_key NOT GLOB '*[^a-z0-9._-]*'),
+    CHECK(length(metric_pack_sha256)=64 AND metric_pack_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_catalog_sha256)=64 AND metric_catalog_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(source_authority_id)=64 AND source_authority_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(source_authority_fingerprint)=64 AND source_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_set_fingerprint)=64 AND metric_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selection_fingerprint)=64 AND selection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK((predecessor_selection_id IS NULL)=(predecessor_selection_fingerprint IS NULL)),
+    CHECK((selection_ordinal=1 AND predecessor_selection_id IS NULL) OR (selection_ordinal>1 AND predecessor_selection_id IS NOT NULL))
+);
+CREATE TABLE temporal_metric_selection_keys (
+    selection_revision_id TEXT NOT NULL REFERENCES temporal_metric_selection_drafts(selection_revision_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 64 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    PRIMARY KEY(selection_revision_id,metric_key),
+    UNIQUE(selection_revision_id,ordinal)
+);
+CREATE TRIGGER temporal_metric_selection_draft_insert_guard
+BEFORE INSERT ON temporal_metric_selection_drafts
+WHEN EXISTS (SELECT 1 FROM temporal_prepared_scope_roots WHERE selection_revision_id=NEW.selection_revision_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_scope_append_authorizations a
+    JOIN temporal_history_root_drafts r ON r.root_receipt_id=a.root_receipt_id
+    JOIN temporal_automation_grant_snapshots gs ON gs.selection_revision_id=NEW.selection_revision_id
+    JOIN automation_grants g ON g.grant_id=a.automation_grant_id
+    WHERE a.operation_id=NEW.operation_id AND NEW.root_receipt_id=r.root_receipt_id
+      AND NEW.root_receipt_fingerprint=r.root_fingerprint AND NEW.project_id=r.project_id
+      AND NEW.selection_fingerprint=a.selection_revision_fingerprint
+      AND NEW.source_authority_id=g.grant_id
+      AND NEW.source_authority_fingerprint=gs.grant_fingerprint
+      AND NEW.metric_pack_key='experimental.redacted-text.coaching'
+      AND NEW.metric_pack_version=3
+      AND NEW.metric_pack_sha256='938c2d1cdd47bc814640544babedcf13c46b759749882b84c1c9839ea4fdb1b9'
+      AND NEW.metric_catalog_version='coaching-temporal-identity-catalog-v1'
+      AND NEW.metric_catalog_sha256='346c8c859402269c0e5e978cf6b1f579a8d7feef73672f3b5e1af3e8f177b82a'
+      AND NEW.source_authority_version='automation-grant-v1.revision-'||g.revision
+      AND a.authorization_tag=temporal_scope_authorization_tag(
+          a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal metric selection append is not authorized'); END;
+CREATE TRIGGER temporal_metric_selection_key_insert_guard
+BEFORE INSERT ON temporal_metric_selection_keys
+WHEN EXISTS (SELECT 1 FROM temporal_prepared_scope_roots WHERE selection_revision_id=NEW.selection_revision_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_metric_selection_drafts s
+    JOIN temporal_scope_append_authorizations a ON a.operation_id=s.operation_id
+    JOIN temporal_coaching_identity_registry registry ON registry.metric_key=NEW.metric_key
+    WHERE s.selection_revision_id=NEW.selection_revision_id
+      AND a.authorization_tag=temporal_scope_authorization_tag(
+          a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal metric key append is not authorized'); END;
+
+CREATE TABLE temporal_prepared_scope_roots (
+    prepared_scope_id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    contract_version TEXT NOT NULL CHECK(contract_version='repository-prepared-temporal-scope-v1'),
+    root_receipt_id TEXT NOT NULL REFERENCES temporal_history_root_drafts(root_receipt_id) ON DELETE CASCADE,
+    selection_revision_id TEXT NOT NULL UNIQUE REFERENCES temporal_metric_selection_drafts(selection_revision_id) ON DELETE CASCADE,
+    automation_grant_id TEXT NOT NULL,
+    automation_grant_fingerprint TEXT NOT NULL,
+    automation_grant_revision INTEGER NOT NULL CHECK(automation_grant_revision BETWEEN 1 AND 9007199254740991),
+    prepared_at_us INTEGER NOT NULL CHECK(typeof(prepared_at_us)='integer' AND prepared_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    prepared_scope_fingerprint TEXT NOT NULL UNIQUE,
+    repository_owned INTEGER NOT NULL CHECK(repository_owned=1),
+    repository_graph_verified INTEGER NOT NULL CHECK(repository_graph_verified=1),
+    selection_authority_verified INTEGER NOT NULL CHECK(selection_authority_verified=1),
+    repository_sealed INTEGER NOT NULL CHECK(repository_sealed=1),
+    product_history_eligible INTEGER NOT NULL CHECK(product_history_eligible=0),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    snapshot_materialization_allowed INTEGER NOT NULL CHECK(snapshot_materialization_allowed=0),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    UNIQUE(automation_grant_id,automation_grant_revision),
+    CHECK(length(prepared_scope_id)=64 AND prepared_scope_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(automation_grant_id)=64 AND automation_grant_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(automation_grant_fingerprint)=64 AND automation_grant_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(prepared_scope_fingerprint)=64 AND prepared_scope_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TRIGGER temporal_prepared_scope_root_insert_guard
+BEFORE INSERT ON temporal_prepared_scope_roots
+WHEN NOT EXISTS (
+    SELECT 1 FROM temporal_scope_append_authorizations a
+    JOIN temporal_history_root_drafts r ON r.root_receipt_id=a.root_receipt_id
+    JOIN temporal_metric_selection_drafts s ON s.operation_id=a.operation_id
+    JOIN temporal_automation_grant_snapshots gs ON gs.selection_revision_id=s.selection_revision_id
+    JOIN automation_grants g ON g.grant_id=a.automation_grant_id
+    WHERE a.operation_id=NEW.operation_id AND a.prepared_scope_id=NEW.prepared_scope_id
+      AND a.root_receipt_id=NEW.root_receipt_id
+      AND NEW.selection_revision_id=s.selection_revision_id
+      AND a.selection_revision_id=s.selection_revision_id
+      AND a.selection_revision_fingerprint=s.selection_fingerprint
+      AND NEW.automation_grant_id=g.grant_id
+      AND NEW.automation_grant_revision=g.revision
+      AND NEW.automation_grant_fingerprint=s.source_authority_fingerprint
+      AND gs.grant_id=g.grant_id AND gs.revision=g.revision
+      AND gs.grant_fingerprint=NEW.automation_grant_fingerprint
+      AND s.metric_count=(SELECT COUNT(*) FROM temporal_metric_selection_keys k WHERE k.selection_revision_id=s.selection_revision_id)
+      AND gs.metric_count=s.metric_count
+      AND (SELECT MIN(ordinal) FROM temporal_metric_selection_keys k WHERE k.selection_revision_id=s.selection_revision_id)=0
+      AND (SELECT MAX(ordinal) FROM temporal_metric_selection_keys k WHERE k.selection_revision_id=s.selection_revision_id)=s.metric_count-1
+      AND NOT EXISTS (
+          SELECT ordinal,metric_key FROM temporal_metric_selection_keys WHERE selection_revision_id=s.selection_revision_id
+          EXCEPT
+          SELECT ordinal,metric_key FROM temporal_automation_grant_snapshot_metrics WHERE selection_revision_id=s.selection_revision_id)
+      AND NOT EXISTS (
+          SELECT ordinal,metric_key FROM temporal_automation_grant_snapshot_metrics WHERE selection_revision_id=s.selection_revision_id
+          EXCEPT
+          SELECT ordinal,metric_key FROM temporal_metric_selection_keys WHERE selection_revision_id=s.selection_revision_id)
+      AND NOT EXISTS (
+          SELECT ordinal,metric_key FROM automation_grant_metrics WHERE grant_id=g.grant_id
+          EXCEPT
+          SELECT ordinal,metric_key FROM temporal_automation_grant_snapshot_metrics WHERE selection_revision_id=s.selection_revision_id)
+      AND NOT EXISTS (
+          SELECT ordinal,metric_key FROM temporal_automation_grant_snapshot_metrics WHERE selection_revision_id=s.selection_revision_id
+          EXCEPT
+          SELECT ordinal,metric_key FROM automation_grant_metrics WHERE grant_id=g.grant_id)
+      AND (
+          (s.selection_ordinal=1 AND s.predecessor_selection_id IS NULL
+           AND NOT EXISTS (SELECT 1 FROM temporal_metric_selection_drafts prior WHERE prior.root_receipt_id=s.root_receipt_id AND prior.selection_revision_id<>s.selection_revision_id))
+          OR
+          (s.selection_ordinal>1 AND EXISTS (
+              SELECT 1 FROM temporal_metric_selection_drafts prior
+              WHERE prior.root_receipt_id=s.root_receipt_id
+                AND prior.selection_ordinal=s.selection_ordinal-1
+                AND prior.selection_revision_id=s.predecessor_selection_id
+                AND prior.selection_fingerprint=s.predecessor_selection_fingerprint
+                AND s.effective_at_us>=prior.recorded_at_us
+                AND s.recorded_at_us>=prior.recorded_at_us)
+           AND s.selection_ordinal=(SELECT COUNT(*) FROM temporal_metric_selection_drafts all_s WHERE all_s.root_receipt_id=s.root_receipt_id))
+      )
+      AND s.effective_at_us>=r.history_floor_at_us
+      AND s.recorded_at_us>=r.history_floor_at_us
+      AND NEW.prepared_at_us>=s.recorded_at_us
+      AND gs.created_at_us<=gs.renewed_at_us
+      AND gs.renewed_at_us<=NEW.prepared_at_us
+      AND gs.expires_at_us>NEW.prepared_at_us
+      AND NEW.prepared_scope_fingerprint=a.prepared_scope_fingerprint
+      AND a.authorization_tag=temporal_scope_authorization_tag(
+          a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal prepared scope graph is incomplete or unauthorized'); END;
+
+CREATE TABLE temporal_history_append_authorizations (
+    operation_id TEXT PRIMARY KEY
+        CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    job_id TEXT NOT NULL,
+    automation_grant_id TEXT NOT NULL,
+    automation_grant_revision INTEGER NOT NULL CHECK(automation_grant_revision BETWEEN 1 AND 9007199254740991),
+    automation_grant_fingerprint TEXT NOT NULL,
+    analysis_run_id TEXT NOT NULL,
+    analysis_run_fingerprint TEXT NOT NULL
+        CHECK(length(analysis_run_fingerprint)=64 AND analysis_run_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    root_receipt_id TEXT NOT NULL,
+    root_receipt_fingerprint TEXT NOT NULL
+        CHECK(length(root_receipt_fingerprint)=64 AND root_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    selection_revision_id TEXT NOT NULL,
+    selection_revision_fingerprint TEXT NOT NULL,
+    prepared_scope_id TEXT NOT NULL,
+    prepared_scope_fingerprint TEXT NOT NULL,
+    completion_request_id TEXT NOT NULL,
+    completion_request_fingerprint TEXT NOT NULL,
+    seal_draft_id TEXT NOT NULL,
+    seal_draft_fingerprint TEXT NOT NULL,
+    sealed_batch_id TEXT NOT NULL,
+    sealed_batch_fingerprint TEXT NOT NULL,
+    authorization_fingerprint TEXT NOT NULL,
+    authorization_tag TEXT NOT NULL
+        CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(job_id)=64 AND job_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(automation_grant_id)=64 AND automation_grant_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(automation_grant_fingerprint)=64 AND automation_grant_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(root_receipt_id)=64 AND root_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(root_receipt_fingerprint)=64 AND root_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selection_revision_id)=64 AND selection_revision_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selection_revision_fingerprint)=64 AND selection_revision_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(prepared_scope_id)=64 AND prepared_scope_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(prepared_scope_fingerprint)=64 AND prepared_scope_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(completion_request_id)=64 AND completion_request_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(completion_request_fingerprint)=64 AND completion_request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(seal_draft_id)=64 AND seal_draft_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(seal_draft_fingerprint)=64 AND seal_draft_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(sealed_batch_id)=64 AND sealed_batch_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(sealed_batch_fingerprint)=64 AND sealed_batch_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(authorization_fingerprint)=64 AND authorization_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TRIGGER temporal_history_authorization_validate
+BEFORE INSERT ON temporal_history_append_authorizations
+WHEN NEW.authorization_tag<>temporal_history_authorization_tag(
+    NEW.operation_id,NEW.job_id,NEW.automation_grant_id,
+    NEW.automation_grant_revision,NEW.automation_grant_fingerprint,
+    NEW.analysis_run_id,NEW.analysis_run_fingerprint,NEW.root_receipt_id,
+    NEW.root_receipt_fingerprint,NEW.selection_revision_id,
+    NEW.selection_revision_fingerprint,NEW.prepared_scope_id,
+    NEW.prepared_scope_fingerprint,NEW.completion_request_id,
+    NEW.completion_request_fingerprint,NEW.seal_draft_id,
+    NEW.seal_draft_fingerprint,NEW.sealed_batch_id,
+    NEW.sealed_batch_fingerprint,NEW.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'temporal history append authorization is invalid'); END;
+CREATE TRIGGER temporal_history_authorization_no_update BEFORE UPDATE ON temporal_history_append_authorizations BEGIN SELECT RAISE(ABORT,'temporal history authorization is immutable'); END;
+
+CREATE TABLE temporal_completion_requests (
+    completion_request_id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    contract_version TEXT NOT NULL CHECK(contract_version='synthetic-temporal-completion-request-v1'),
+    prepared_scope_id TEXT NOT NULL REFERENCES temporal_prepared_scope_roots(prepared_scope_id) ON DELETE CASCADE,
+    prepared_scope_fingerprint TEXT NOT NULL,
+    analysis_input_receipt_id TEXT NOT NULL UNIQUE,
+    analysis_input_fingerprint TEXT NOT NULL UNIQUE,
+    analysis_run_id TEXT NOT NULL UNIQUE REFERENCES session_analysis_runs(run_id) ON DELETE CASCADE,
+    analysis_run_fingerprint TEXT NOT NULL,
+    completion_request_fingerprint TEXT NOT NULL UNIQUE,
+    captured_at_us INTEGER NOT NULL CHECK(typeof(captured_at_us)='integer' AND captured_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    synthetic_test_only INTEGER NOT NULL CHECK(synthetic_test_only=1),
+    product_history_eligible INTEGER NOT NULL CHECK(product_history_eligible=0),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    snapshot_materialization_allowed INTEGER NOT NULL CHECK(snapshot_materialization_allowed=0),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    CHECK(length(completion_request_id)=64 AND completion_request_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(prepared_scope_fingerprint)=64 AND prepared_scope_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_input_receipt_id)=64 AND analysis_input_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_input_fingerprint)=64 AND analysis_input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_run_id)=64 AND analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_run_fingerprint)=64 AND analysis_run_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(completion_request_fingerprint)=64 AND completion_request_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TRIGGER temporal_completion_request_insert_guard
+BEFORE INSERT ON temporal_completion_requests
+WHEN EXISTS (SELECT 1 FROM temporal_sealed_batch_roots WHERE completion_request_id=NEW.completion_request_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_history_append_authorizations a
+    JOIN temporal_prepared_scope_roots p ON p.prepared_scope_id=NEW.prepared_scope_id
+    JOIN temporal_metric_selection_drafts s ON s.selection_revision_id=p.selection_revision_id
+    JOIN temporal_history_root_drafts h ON h.root_receipt_id=p.root_receipt_id
+    JOIN temporal_automation_grant_snapshots gs ON gs.selection_revision_id=s.selection_revision_id
+    JOIN session_analysis_runs r ON r.run_id=a.analysis_run_id
+    WHERE a.operation_id=NEW.operation_id AND a.completion_request_id=NEW.completion_request_id
+      AND NEW.completion_request_fingerprint=a.completion_request_fingerprint
+      AND NEW.analysis_run_id=a.analysis_run_id
+      AND NEW.analysis_run_fingerprint=a.analysis_run_fingerprint
+      AND NEW.prepared_scope_id=a.prepared_scope_id
+      AND NEW.prepared_scope_fingerprint=p.prepared_scope_fingerprint
+      AND p.prepared_scope_fingerprint=a.prepared_scope_fingerprint
+      AND p.root_receipt_id=a.root_receipt_id AND h.root_fingerprint=a.root_receipt_fingerprint
+      AND p.selection_revision_id=a.selection_revision_id
+      AND s.selection_fingerprint=a.selection_revision_fingerprint
+      AND p.automation_grant_id=a.automation_grant_id
+      AND p.automation_grant_revision=a.automation_grant_revision
+      AND p.automation_grant_fingerprint=a.automation_grant_fingerprint
+      AND gs.grant_fingerprint=a.automation_grant_fingerprint
+      AND r.status='running' AND r.provider='synthetic'
+      AND a.authorization_tag=temporal_history_authorization_tag(
+          a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'synthetic temporal completion request is unauthorized'); END;
+
+-- Contract-shaped scalar rows: no JSON, BLOB, generic field name, or caller-
+-- selected scalar kind exists in the temporal schema.
+CREATE TABLE temporal_analysis_inputs (
+    completion_request_id TEXT PRIMARY KEY REFERENCES temporal_completion_requests(completion_request_id) ON DELETE CASCADE,
+    contract_version TEXT NOT NULL CHECK(contract_version='analysis-input-receipt-v2'),
+    input_receipt_id TEXT NOT NULL UNIQUE,
+    input_fingerprint TEXT NOT NULL UNIQUE,
+    provenance_fingerprint TEXT NOT NULL,
+    root_receipt_id TEXT NOT NULL,
+    root_receipt_fingerprint TEXT NOT NULL,
+    selection_revision_id TEXT NOT NULL,
+    selection_revision_fingerprint TEXT NOT NULL,
+    selection_scope_fingerprint TEXT NOT NULL,
+    analysis_run_id TEXT NOT NULL UNIQUE,
+    analysis_run_fingerprint TEXT NOT NULL,
+    analysis_run_fingerprint_version TEXT NOT NULL,
+    analysis_run_request_fingerprint TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    selected_metric_count INTEGER NOT NULL CHECK(selected_metric_count BETWEEN 1 AND 100),
+    analysis_window_fingerprint TEXT NOT NULL,
+    analysis_window_fingerprint_basis TEXT NOT NULL CHECK(analysis_window_fingerprint_basis='keyed_selected_redacted_message_window'),
+    analysis_window_fingerprint_version TEXT NOT NULL CHECK(analysis_window_fingerprint_version='keyed-selected-redacted-message-window-v1'),
+    selected_window_manifest_root TEXT NOT NULL,
+    selected_window_manifest_version TEXT NOT NULL CHECK(selected_window_manifest_version='selected-window-manifest-v1'),
+    selected_window_manifest_entry_count INTEGER NOT NULL CHECK(selected_window_manifest_entry_count BETWEEN 0 AND 9007199254740991),
+    selected_window_manifest_identity_fingerprint TEXT NOT NULL,
+    observed_source_manifest_root TEXT NOT NULL,
+    observed_source_manifest_version TEXT NOT NULL CHECK(observed_source_manifest_version='post-floor-observed-allowlisted-source-manifest-v1'),
+    observed_source_manifest_entry_count INTEGER NOT NULL CHECK(observed_source_manifest_entry_count BETWEEN 0 AND 9007199254740991),
+    observed_source_manifest_identity_fingerprint TEXT NOT NULL,
+    successfully_extracted_source_entry_count INTEGER NOT NULL CHECK(successfully_extracted_source_entry_count BETWEEN 0 AND 9007199254740991),
+    selection_eligible_entry_count INTEGER NOT NULL CHECK(selection_eligible_entry_count BETWEEN 0 AND 9007199254740991),
+    extraction_completeness TEXT NOT NULL CHECK(extraction_completeness IN ('complete','partial','not_applicable_empty_source')),
+    selection_coverage TEXT NOT NULL CHECK(selection_coverage IN ('complete','partial','not_applicable_empty_eligible_set')),
+    analysis_window_started_at_us INTEGER NOT NULL CHECK(typeof(analysis_window_started_at_us)='integer' AND analysis_window_started_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    analysis_window_ended_at_us INTEGER NOT NULL CHECK(typeof(analysis_window_ended_at_us)='integer' AND analysis_window_ended_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    analysis_run_completed_at_us INTEGER NOT NULL CHECK(typeof(analysis_run_completed_at_us)='integer' AND analysis_run_completed_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    captured_at_us INTEGER NOT NULL CHECK(typeof(captured_at_us)='integer' AND captured_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    capture_source TEXT NOT NULL CHECK(capture_source='documented_provider_adapter'),
+    capture_contract_version TEXT NOT NULL,
+    analysis_profile_key TEXT NOT NULL,
+    analysis_profile_version INTEGER NOT NULL CHECK(analysis_profile_version BETWEEN 1 AND 9007199254740991),
+    analysis_profile_sha256 TEXT NOT NULL,
+    metric_pack_key TEXT NOT NULL,
+    metric_pack_version INTEGER NOT NULL CHECK(metric_pack_version BETWEEN 1 AND 9007199254740991),
+    metric_pack_sha256 TEXT NOT NULL,
+    metric_engine_version TEXT NOT NULL,
+    metric_engine_sha256 TEXT NOT NULL,
+    metric_catalog_version TEXT NOT NULL,
+    metric_catalog_sha256 TEXT NOT NULL,
+    data_tier TEXT NOT NULL CHECK(data_tier='redacted_content'),
+    consent_purpose TEXT NOT NULL CHECK(consent_purpose='text_analysis'),
+    consent_policy_version TEXT NOT NULL,
+    consent_receipt_id TEXT NOT NULL,
+    consent_receipt_fingerprint TEXT NOT NULL,
+    privacy_policy_version TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK(provider='synthetic'),
+    provider_version TEXT NOT NULL,
+    provider_adapter_version TEXT NOT NULL,
+    provider_schema_version TEXT NOT NULL,
+    source_schema_version TEXT NOT NULL,
+    content_schema_version TEXT NOT NULL,
+    redactor_version TEXT NOT NULL,
+    redactor_sha256 TEXT NOT NULL,
+    preprocessing_version TEXT NOT NULL,
+    preprocessing_sha256 TEXT NOT NULL,
+    router_version TEXT NOT NULL,
+    router_sha256 TEXT NOT NULL,
+    model_plan_fingerprint TEXT NOT NULL,
+    analysis_run_schema_version INTEGER NOT NULL CHECK(analysis_run_schema_version=21),
+    full_run_metric_observation_count INTEGER NOT NULL CHECK(full_run_metric_observation_count BETWEEN 1 AND 100),
+    full_run_completed INTEGER NOT NULL CHECK(full_run_completed=1),
+    direct_selected_window INTEGER NOT NULL CHECK(direct_selected_window=1),
+    legacy_inference_allowed INTEGER NOT NULL CHECK(legacy_inference_allowed=0),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    repository_sealed INTEGER NOT NULL CHECK(repository_sealed=0),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    snapshot_materialization_allowed INTEGER NOT NULL CHECK(snapshot_materialization_allowed=0),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    contains_local_content INTEGER NOT NULL CHECK(contains_local_content=0),
+    remote_processing_allowed INTEGER NOT NULL CHECK(remote_processing_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    CHECK(length(input_receipt_id)=64 AND input_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(input_fingerprint)=64 AND input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(provenance_fingerprint)=64 AND provenance_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(root_receipt_id)=64 AND root_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(root_receipt_fingerprint)=64 AND root_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selection_revision_id)=64 AND selection_revision_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selection_revision_fingerprint)=64 AND selection_revision_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selection_scope_fingerprint)=64 AND selection_scope_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_run_id)=64 AND analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_run_fingerprint)=64 AND analysis_run_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_run_request_fingerprint)=64 AND analysis_run_request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(project_id)=64 AND project_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_window_fingerprint)=64 AND analysis_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selected_window_manifest_root)=64 AND selected_window_manifest_root NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selected_window_manifest_identity_fingerprint)=64 AND selected_window_manifest_identity_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(observed_source_manifest_root)=64 AND observed_source_manifest_root NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(observed_source_manifest_identity_fingerprint)=64 AND observed_source_manifest_identity_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_profile_sha256)=64 AND analysis_profile_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_pack_sha256)=64 AND metric_pack_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_engine_sha256)=64 AND metric_engine_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_catalog_sha256)=64 AND metric_catalog_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(consent_receipt_id)=64 AND consent_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(consent_receipt_fingerprint)=64 AND consent_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(redactor_sha256)=64 AND redactor_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(preprocessing_sha256)=64 AND preprocessing_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(router_sha256)=64 AND router_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(model_plan_fingerprint)=64 AND model_plan_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(analysis_window_started_at_us<=analysis_window_ended_at_us AND analysis_window_ended_at_us<=analysis_run_completed_at_us AND analysis_run_completed_at_us<=captured_at_us),
+    CHECK(analysis_window_fingerprint<>selected_window_manifest_root AND analysis_window_fingerprint<>observed_source_manifest_root AND selected_window_manifest_root<>observed_source_manifest_root),
+    CHECK(successfully_extracted_source_entry_count<=observed_source_manifest_entry_count),
+    CHECK(selection_eligible_entry_count<=successfully_extracted_source_entry_count),
+    CHECK(selected_window_manifest_entry_count<=selection_eligible_entry_count),
+    CHECK((observed_source_manifest_entry_count=0 AND successfully_extracted_source_entry_count=0 AND extraction_completeness='not_applicable_empty_source')
+       OR (observed_source_manifest_entry_count>0 AND successfully_extracted_source_entry_count=observed_source_manifest_entry_count AND extraction_completeness='complete')
+       OR (observed_source_manifest_entry_count>0 AND successfully_extracted_source_entry_count<observed_source_manifest_entry_count AND extraction_completeness='partial')),
+    CHECK((selection_eligible_entry_count=0 AND selected_window_manifest_entry_count=0 AND selection_coverage='not_applicable_empty_eligible_set')
+       OR (selection_eligible_entry_count>0 AND selected_window_manifest_entry_count=selection_eligible_entry_count AND selection_coverage='complete')
+       OR (selection_eligible_entry_count>0 AND selected_window_manifest_entry_count<selection_eligible_entry_count AND selection_coverage='partial')),
+    CHECK(full_run_metric_observation_count=selected_metric_count)
+);
+CREATE TABLE temporal_analysis_input_selected_metrics (
+    completion_request_id TEXT NOT NULL REFERENCES temporal_analysis_inputs(completion_request_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 64 AND metric_key GLOB '[a-z]*' AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    PRIMARY KEY(completion_request_id,metric_key),
+    UNIQUE(completion_request_id,ordinal)
+);
+
+CREATE TABLE temporal_session_revisions (
+    completion_request_id TEXT PRIMARY KEY REFERENCES temporal_completion_requests(completion_request_id) ON DELETE CASCADE,
+    contract_version TEXT NOT NULL CHECK(contract_version='session-revision-receipt-v3'),
+    revision_id TEXT NOT NULL UNIQUE,
+    revision_fingerprint TEXT NOT NULL UNIQUE,
+    root_receipt_id TEXT NOT NULL,
+    root_receipt_fingerprint TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    revision_ordinal INTEGER NOT NULL CHECK(revision_ordinal BETWEEN 1 AND 9007199254740991),
+    predecessor_revision_id TEXT,
+    predecessor_revision_fingerprint TEXT,
+    predecessor_link_fingerprint TEXT,
+    analysis_input_receipt_id TEXT NOT NULL,
+    analysis_input_receipt_fingerprint TEXT NOT NULL,
+    input_provenance_fingerprint TEXT NOT NULL,
+    analysis_run_id TEXT NOT NULL,
+    analysis_run_fingerprint TEXT NOT NULL,
+    relation TEXT NOT NULL CHECK(relation IN ('first','changed_or_reordered','provenance_boundary')),
+    selected_window_manifest_root TEXT NOT NULL,
+    selected_window_manifest_version TEXT NOT NULL CHECK(selected_window_manifest_version='selected-window-manifest-v1'),
+    selected_window_manifest_entry_count INTEGER NOT NULL CHECK(selected_window_manifest_entry_count BETWEEN 0 AND 9007199254740991),
+    analysis_window_fingerprint TEXT NOT NULL,
+    analysis_window_fingerprint_basis TEXT NOT NULL CHECK(analysis_window_fingerprint_basis='keyed_selected_redacted_message_window'),
+    analysis_window_fingerprint_version TEXT NOT NULL CHECK(analysis_window_fingerprint_version='keyed-selected-redacted-message-window-v1'),
+    analysis_window_started_at_us INTEGER NOT NULL CHECK(typeof(analysis_window_started_at_us)='integer' AND analysis_window_started_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    analysis_window_ended_at_us INTEGER NOT NULL CHECK(typeof(analysis_window_ended_at_us)='integer' AND analysis_window_ended_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    effective_at_us INTEGER NOT NULL CHECK(typeof(effective_at_us)='integer' AND effective_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    captured_at_us INTEGER NOT NULL CHECK(typeof(captured_at_us)='integer' AND captured_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    effective_time_basis TEXT NOT NULL CHECK(effective_time_basis IN ('session_ended_at','revision_captured_at')),
+    provenance TEXT NOT NULL CHECK(provenance='direct_analysis_window_receipt'),
+    provider TEXT NOT NULL CHECK(provider='synthetic'),
+    provider_adapter_version TEXT NOT NULL,
+    provider_schema_version TEXT NOT NULL,
+    source_schema_version TEXT NOT NULL,
+    content_schema_version TEXT NOT NULL,
+    redactor_version TEXT NOT NULL,
+    legacy_inference_allowed INTEGER NOT NULL CHECK(legacy_inference_allowed=0),
+    repository_verification_required INTEGER NOT NULL CHECK(repository_verification_required=1),
+    repository_sealed INTEGER NOT NULL CHECK(repository_sealed=0),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    snapshot_materialization_allowed INTEGER NOT NULL CHECK(snapshot_materialization_allowed=0),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    contains_local_content INTEGER NOT NULL CHECK(contains_local_content=0),
+    remote_processing_allowed INTEGER NOT NULL CHECK(remote_processing_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    UNIQUE(root_receipt_id,session_id,revision_ordinal),
+    CHECK(length(revision_id)=64 AND revision_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(revision_fingerprint)=64 AND revision_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK((predecessor_revision_id IS NULL)=(predecessor_revision_fingerprint IS NULL) AND (predecessor_revision_id IS NULL)=(predecessor_link_fingerprint IS NULL)),
+    CHECK((revision_ordinal=1 AND predecessor_revision_id IS NULL AND relation='first') OR (revision_ordinal>1 AND predecessor_revision_id IS NOT NULL AND relation<>'first')),
+    CHECK(analysis_window_started_at_us<=analysis_window_ended_at_us AND analysis_window_ended_at_us<=captured_at_us AND effective_at_us<=captured_at_us),
+    CHECK((effective_time_basis='session_ended_at' AND effective_at_us=analysis_window_ended_at_us) OR (effective_time_basis='revision_captured_at' AND effective_at_us=captured_at_us))
+);
+CREATE TABLE temporal_comparison_identities (
+    completion_request_id TEXT NOT NULL REFERENCES temporal_completion_requests(completion_request_id) ON DELETE CASCADE,
+    metric_ordinal INTEGER NOT NULL CHECK(metric_ordinal BETWEEN 0 AND 99),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 64 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    metric_definition_version TEXT NOT NULL,
+    metric_definition_sha256 TEXT NOT NULL,
+    metric_question_version TEXT NOT NULL,
+    metric_question_sha256 TEXT NOT NULL,
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('fraction','count_with_exposure','distribution_sample','sampled_proportion')),
+    unit_code TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK(direction IN ('higher_is_better','lower_is_better','neutral')),
+    aggregation_semantics TEXT NOT NULL CHECK(aggregation_semantics IN ('ratio_of_sums','count_sum_with_exposure','median_and_quantiles','proportion_interval_from_sums')),
+    exposure_unit_code TEXT,
+    trend_method TEXT NOT NULL CHECK(trend_method IN ('none','rolling_median','ewma')),
+    trend_rolling_observation_count INTEGER CHECK(trend_rolling_observation_count BETWEEN 2 AND 10000),
+    trend_ewma_alpha REAL CHECK(trend_ewma_alpha>0.0 AND trend_ewma_alpha<=1.0 AND abs(trend_ewma_alpha)<=1.7976931348623157e308),
+    interval_method_version TEXT,
+    evidence_tier TEXT NOT NULL CHECK(evidence_tier IN ('metadata','redacted_content','objective_artifact','human_adjudicated')),
+    evidence_contract_version TEXT NOT NULL,
+    estimator_kind TEXT NOT NULL CHECK(estimator_kind IN ('deterministic','model_assisted')),
+    estimator_plan_version TEXT NOT NULL,
+    estimator_plan_sha256 TEXT NOT NULL,
+    estimator_lifecycle TEXT NOT NULL CHECK(estimator_lifecycle IN ('provisional','activated','retired')),
+    activation_receipt_sha256 TEXT,
+    model_provider TEXT,
+    requested_model_key TEXT,
+    requested_model_revision TEXT,
+    served_model_key TEXT,
+    served_model_revision TEXT,
+    served_model_fallback INTEGER CHECK(served_model_fallback IN (0,1)),
+    model_weight_identity_state TEXT,
+    model_weight_set_sha256 TEXT,
+    tokenizer_key TEXT,
+    tokenizer_revision TEXT,
+    tokenizer_identity_state TEXT,
+    tokenizer_sha256 TEXT,
+    model_license_code TEXT,
+    reasoning_effort TEXT,
+    preprocessing_version TEXT NOT NULL,
+    preprocessing_sha256 TEXT NOT NULL,
+    prompt_template_version TEXT,
+    prompt_template_sha256 TEXT,
+    rubric_version TEXT,
+    rubric_sha256 TEXT,
+    calibration_version TEXT NOT NULL,
+    calibration_sha256 TEXT NOT NULL,
+    router_version TEXT NOT NULL,
+    router_sha256 TEXT NOT NULL,
+    redactor_version TEXT NOT NULL,
+    redactor_sha256 TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK(provider='synthetic'),
+    provider_adapter_version TEXT NOT NULL,
+    provider_schema_version TEXT NOT NULL,
+    source_schema_version TEXT NOT NULL,
+    content_schema_version TEXT NOT NULL,
+    privacy_policy_version TEXT NOT NULL,
+    observation_contract_version TEXT NOT NULL CHECK(observation_contract_version='temporal-history-v1'),
+    identity_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(completion_request_id,metric_key),
+    UNIQUE(completion_request_id,metric_ordinal),
+    UNIQUE(completion_request_id,identity_fingerprint),
+    CHECK(length(identity_fingerprint)=64 AND identity_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_definition_sha256)=64 AND metric_definition_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_question_sha256)=64 AND metric_question_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(estimator_plan_sha256)=64 AND estimator_plan_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(preprocessing_sha256)=64 AND preprocessing_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(calibration_sha256)=64 AND calibration_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(router_sha256)=64 AND router_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(redactor_sha256)=64 AND redactor_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(activation_receipt_sha256 IS NULL OR (length(activation_receipt_sha256)=64 AND activation_receipt_sha256 NOT GLOB '*[^0-9a-f]*')),
+    CHECK(model_weight_set_sha256 IS NULL OR (length(model_weight_set_sha256)=64 AND model_weight_set_sha256 NOT GLOB '*[^0-9a-f]*')),
+    CHECK(tokenizer_sha256 IS NULL OR (length(tokenizer_sha256)=64 AND tokenizer_sha256 NOT GLOB '*[^0-9a-f]*')),
+    CHECK(prompt_template_sha256 IS NULL OR (length(prompt_template_sha256)=64 AND prompt_template_sha256 NOT GLOB '*[^0-9a-f]*')),
+    CHECK(rubric_sha256 IS NULL OR (length(rubric_sha256)=64 AND rubric_sha256 NOT GLOB '*[^0-9a-f]*')),
+    CHECK(model_provider IS NULL OR model_provider IN ('local','openai','anthropic','synthetic')),
+    CHECK(model_weight_identity_state IS NULL OR model_weight_identity_state IN ('pinned_sha256','provider_managed_unavailable','synthetic_no_artifact')),
+    CHECK(tokenizer_identity_state IS NULL OR tokenizer_identity_state IN ('pinned_sha256','provider_managed_unavailable','synthetic_no_artifact')),
+    CHECK(reasoning_effort IS NULL OR reasoning_effort IN ('none','low','medium','high','xhigh','max','ultra')),
+    CHECK((value_kind='fraction' AND aggregation_semantics='ratio_of_sums' AND exposure_unit_code IS NULL AND interval_method_version IS NULL)
+       OR (value_kind='count_with_exposure' AND aggregation_semantics='count_sum_with_exposure' AND exposure_unit_code IS NOT NULL AND interval_method_version IS NULL)
+       OR (value_kind='distribution_sample' AND aggregation_semantics='median_and_quantiles' AND exposure_unit_code IS NULL AND interval_method_version IS NULL)
+       OR (value_kind='sampled_proportion' AND aggregation_semantics='proportion_interval_from_sums' AND exposure_unit_code IS NULL AND interval_method_version IS NOT NULL)),
+    CHECK((trend_method='none' AND trend_rolling_observation_count IS NULL AND trend_ewma_alpha IS NULL)
+       OR (trend_method='rolling_median' AND trend_rolling_observation_count IS NOT NULL AND trend_ewma_alpha IS NULL)
+       OR (trend_method='ewma' AND trend_rolling_observation_count IS NULL AND trend_ewma_alpha IS NOT NULL)),
+    CHECK((estimator_lifecycle='provisional' AND activation_receipt_sha256 IS NULL) OR (estimator_lifecycle<>'provisional' AND activation_receipt_sha256 IS NOT NULL)),
+    CHECK((estimator_kind='deterministic' AND model_provider IS NULL AND requested_model_key IS NULL AND requested_model_revision IS NULL AND served_model_key IS NULL AND served_model_revision IS NULL AND served_model_fallback IS NULL AND model_weight_identity_state IS NULL AND model_weight_set_sha256 IS NULL AND tokenizer_key IS NULL AND tokenizer_revision IS NULL AND tokenizer_identity_state IS NULL AND tokenizer_sha256 IS NULL AND model_license_code IS NULL AND reasoning_effort IS NULL AND prompt_template_version IS NULL AND prompt_template_sha256 IS NULL AND rubric_version IS NULL AND rubric_sha256 IS NULL)
+       OR estimator_kind='model_assisted')
+);
+
+CREATE TABLE temporal_observation_batches (
+    batch_id TEXT PRIMARY KEY,
+    contract_version TEXT NOT NULL CHECK(contract_version='temporal-observation-batch-v2'),
+    completion_request_id TEXT NOT NULL UNIQUE REFERENCES temporal_completion_requests(completion_request_id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    root_receipt_id TEXT NOT NULL,
+    root_receipt_fingerprint TEXT NOT NULL,
+    revision_id TEXT NOT NULL UNIQUE,
+    revision_fingerprint TEXT NOT NULL UNIQUE,
+    analysis_run_id TEXT NOT NULL,
+    analysis_run_fingerprint TEXT NOT NULL,
+    analysis_input_receipt_id TEXT NOT NULL,
+    analysis_input_receipt_fingerprint TEXT NOT NULL,
+    selection_revision_id TEXT NOT NULL,
+    selection_revision_fingerprint TEXT NOT NULL,
+    scope_state TEXT NOT NULL CHECK(scope_state='exact_selection_receipt'),
+    source_state TEXT NOT NULL CHECK(source_state='present'),
+    selected_metric_count INTEGER NOT NULL CHECK(selected_metric_count BETWEEN 1 AND 100),
+    batch_fingerprint TEXT NOT NULL UNIQUE,
+    recorded_at_us INTEGER NOT NULL CHECK(typeof(recorded_at_us)='integer' AND recorded_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    observation_count INTEGER NOT NULL CHECK(observation_count BETWEEN 1 AND 100),
+    direct_receipt_only INTEGER NOT NULL CHECK(direct_receipt_only=1),
+    legacy_inference_allowed INTEGER NOT NULL CHECK(legacy_inference_allowed=0),
+    repository_verification_required INTEGER NOT NULL CHECK(repository_verification_required=1),
+    repository_sealed INTEGER NOT NULL CHECK(repository_sealed=0),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    snapshot_materialization_allowed INTEGER NOT NULL CHECK(snapshot_materialization_allowed=0),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    contains_local_content INTEGER NOT NULL CHECK(contains_local_content=0),
+    remote_processing_allowed INTEGER NOT NULL CHECK(remote_processing_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    CHECK(length(batch_id)=64 AND batch_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(project_id)=64 AND project_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(root_receipt_id)=64 AND root_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(root_receipt_fingerprint)=64 AND root_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(revision_id)=64 AND revision_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(revision_fingerprint)=64 AND revision_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_run_id)=64 AND analysis_run_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_run_fingerprint)=64 AND analysis_run_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_input_receipt_id)=64 AND analysis_input_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(analysis_input_receipt_fingerprint)=64 AND analysis_input_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selection_revision_id)=64 AND selection_revision_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(selection_revision_fingerprint)=64 AND selection_revision_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(batch_fingerprint)=64 AND batch_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE temporal_observations (
+    observation_id TEXT PRIMARY KEY,
+    contract_version TEXT NOT NULL CHECK(contract_version='temporal-metric-observation-v2'),
+    batch_id TEXT NOT NULL REFERENCES temporal_observation_batches(batch_id) ON DELETE CASCADE,
+    completion_request_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    metric_key TEXT NOT NULL,
+    identity_fingerprint TEXT NOT NULL,
+    observation_fingerprint TEXT NOT NULL UNIQUE,
+    revision_id TEXT NOT NULL,
+    analysis_run_id TEXT NOT NULL,
+    analysis_input_receipt_id TEXT NOT NULL,
+    analysis_input_receipt_fingerprint TEXT NOT NULL,
+    selection_state TEXT NOT NULL CHECK(selection_state='selected'),
+    source_state TEXT NOT NULL CHECK(source_state IN ('present','source_missing','source_failed','source_incompatible')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','abstained','not_applicable','failed','incompatible')),
+    value_kind TEXT CHECK(value_kind IN ('fraction','count_with_exposure','distribution_sample','sampled_proportion')),
+    unavailable_reason_code TEXT,
+    evidence_coverage_eligibility TEXT NOT NULL CHECK(evidence_coverage_eligibility IN ('eligible','not_eligible','unknown')),
+    evidence_coverage_state TEXT NOT NULL CHECK(evidence_coverage_state IN ('known','unknown','not_applicable')),
+    evidence_numerator INTEGER CHECK(evidence_numerator BETWEEN 0 AND 9007199254740991),
+    evidence_denominator INTEGER CHECK(evidence_denominator BETWEEN 0 AND 9007199254740991),
+    uncertainty_lower REAL,
+    uncertainty_upper REAL,
+    uncertainty_confidence REAL,
+    uncertainty_method_version TEXT,
+    observed_at_us INTEGER NOT NULL CHECK(typeof(observed_at_us)='integer' AND observed_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    follow_up_window_end_at_us INTEGER,
+    contains_local_content INTEGER NOT NULL CHECK(contains_local_content=0),
+    remote_processing_allowed INTEGER NOT NULL CHECK(remote_processing_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    UNIQUE(batch_id,ordinal),
+    UNIQUE(batch_id,metric_key),
+    FOREIGN KEY(completion_request_id,metric_key) REFERENCES temporal_comparison_identities(completion_request_id,metric_key) ON DELETE CASCADE,
+    CHECK(length(observation_id)=64 AND observation_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(identity_fingerprint)=64 AND identity_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(observation_fingerprint)=64 AND observation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK((evidence_numerator IS NULL)=(evidence_denominator IS NULL)),
+    CHECK(evidence_numerator IS NULL OR evidence_numerator<=evidence_denominator),
+    CHECK((value_state='known')=(value_kind IS NOT NULL)),
+    CHECK((value_state='known')=(unavailable_reason_code IS NULL)),
+    CHECK((source_state='present' AND value_state IN ('known','unknown','abstained','not_applicable'))
+       OR (source_state='source_missing' AND value_state='unknown')
+       OR (source_state='source_failed' AND value_state='failed')
+       OR (source_state='source_incompatible' AND value_state='incompatible')),
+    CHECK(source_state='present' OR evidence_numerator IS NULL),
+    CHECK((evidence_coverage_eligibility='eligible' AND evidence_coverage_state='known' AND evidence_numerator IS NOT NULL)
+       OR (evidence_coverage_eligibility='eligible' AND evidence_coverage_state='unknown' AND evidence_numerator IS NULL)
+       OR (evidence_coverage_eligibility='not_eligible' AND evidence_coverage_state='not_applicable' AND evidence_numerator IS NULL)
+       OR (evidence_coverage_eligibility='unknown' AND evidence_coverage_state='unknown' AND evidence_numerator IS NULL)),
+    CHECK((uncertainty_lower IS NULL)=(uncertainty_upper IS NULL)),
+    CHECK((uncertainty_lower IS NULL)=(uncertainty_confidence IS NULL)),
+    CHECK((uncertainty_lower IS NULL)=(uncertainty_method_version IS NULL)),
+    CHECK(uncertainty_lower IS NULL OR (abs(uncertainty_lower)<=1.7976931348623157e308 AND abs(uncertainty_upper)<=1.7976931348623157e308 AND uncertainty_lower<=uncertainty_upper AND uncertainty_confidence>0.0 AND uncertainty_confidence<1.0)),
+    CHECK(follow_up_window_end_at_us IS NULL OR follow_up_window_end_at_us>=observed_at_us)
+);
+CREATE TABLE temporal_fraction_values (
+    observation_id TEXT PRIMARY KEY REFERENCES temporal_observations(observation_id) ON DELETE CASCADE,
+    numerator INTEGER NOT NULL CHECK(numerator BETWEEN 0 AND 9007199254740991),
+    denominator INTEGER NOT NULL CHECK(denominator BETWEEN 1 AND 9007199254740991),
+    CHECK(numerator<=denominator)
+);
+CREATE TABLE temporal_count_exposure_values (
+    observation_id TEXT PRIMARY KEY REFERENCES temporal_observations(observation_id) ON DELETE CASCADE,
+    count_value INTEGER NOT NULL CHECK(count_value BETWEEN 0 AND 9007199254740991),
+    exposure REAL NOT NULL CHECK(typeof(exposure)='real' AND exposure>0.0 AND abs(exposure)<=1.7976931348623157e308),
+    exposure_unit_code TEXT NOT NULL CHECK(length(exposure_unit_code) BETWEEN 1 AND 64 AND exposure_unit_code NOT GLOB '*[^a-z0-9._-]*')
+);
+CREATE TABLE temporal_distribution_sample_values (
+    observation_id TEXT PRIMARY KEY REFERENCES temporal_observations(observation_id) ON DELETE CASCADE,
+    sample REAL NOT NULL CHECK(typeof(sample)='real' AND abs(sample)<=1.7976931348623157e308)
+);
+CREATE TABLE temporal_sampled_proportion_values (
+    observation_id TEXT PRIMARY KEY REFERENCES temporal_observations(observation_id) ON DELETE CASCADE,
+    successes INTEGER NOT NULL CHECK(successes BETWEEN 0 AND 9007199254740991),
+    trials INTEGER NOT NULL CHECK(trials BETWEEN 1 AND 9007199254740991),
+    CHECK(successes<=trials)
+);
+
+CREATE TABLE temporal_seal_drafts (
+    seal_draft_id TEXT PRIMARY KEY,
+    contract_version TEXT NOT NULL CHECK(contract_version='repository-temporal-batch-seal-draft-v1'),
+    completion_request_id TEXT NOT NULL UNIQUE REFERENCES temporal_completion_requests(completion_request_id) ON DELETE CASCADE,
+    batch_id TEXT NOT NULL UNIQUE REFERENCES temporal_observation_batches(batch_id) ON DELETE CASCADE,
+    analysis_run_id TEXT NOT NULL,
+    analysis_run_fingerprint TEXT NOT NULL,
+    seal_draft_fingerprint TEXT NOT NULL UNIQUE,
+    verifier_version TEXT NOT NULL,
+    verifier_fingerprint TEXT NOT NULL,
+    drafted_at_us INTEGER NOT NULL CHECK(typeof(drafted_at_us)='integer' AND drafted_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    observation_count INTEGER NOT NULL CHECK(observation_count BETWEEN 1 AND 100),
+    direct_receipts_only INTEGER NOT NULL CHECK(direct_receipts_only=1),
+    legacy_backfill_allowed INTEGER NOT NULL CHECK(legacy_backfill_allowed=0),
+    repository_verification_required INTEGER NOT NULL CHECK(repository_verification_required=1),
+    issuance_required INTEGER NOT NULL CHECK(issuance_required=1),
+    persistence_state TEXT NOT NULL CHECK(persistence_state='untrusted_seal_draft'),
+    repository_verified INTEGER NOT NULL CHECK(repository_verified=0),
+    repository_sealed INTEGER NOT NULL CHECK(repository_sealed=0),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    snapshot_materialization_allowed INTEGER NOT NULL CHECK(snapshot_materialization_allowed=0),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    contains_local_content INTEGER NOT NULL CHECK(contains_local_content=0),
+    remote_processing_allowed INTEGER NOT NULL CHECK(remote_processing_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    CHECK(length(seal_draft_id)=64 AND seal_draft_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(seal_draft_fingerprint)=64 AND seal_draft_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(verifier_fingerprint)=64 AND verifier_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE temporal_seal_observation_commitments (
+    seal_draft_id TEXT NOT NULL REFERENCES temporal_seal_drafts(seal_draft_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    observation_id TEXT NOT NULL UNIQUE REFERENCES temporal_observations(observation_id) ON DELETE CASCADE,
+    observation_fingerprint TEXT NOT NULL UNIQUE,
+    PRIMARY KEY(seal_draft_id,ordinal),
+    CHECK(length(observation_fingerprint)=64 AND observation_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE temporal_seal_graph_commitments (
+    seal_draft_id TEXT NOT NULL REFERENCES temporal_seal_drafts(seal_draft_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 106),
+    graph_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(seal_draft_id,ordinal),
+    UNIQUE(seal_draft_id,graph_fingerprint),
+    CHECK(length(graph_fingerprint)=64 AND graph_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE temporal_sealed_batch_roots (
+    sealed_batch_id TEXT PRIMARY KEY,
+    completion_request_id TEXT NOT NULL UNIQUE REFERENCES temporal_completion_requests(completion_request_id) ON DELETE CASCADE,
+    seal_draft_id TEXT NOT NULL UNIQUE REFERENCES temporal_seal_drafts(seal_draft_id) ON DELETE CASCADE,
+    contract_version TEXT NOT NULL CHECK(contract_version='repository-sealed-temporal-batch-v1'),
+    prepared_scope_fingerprint TEXT NOT NULL,
+    completion_request_fingerprint TEXT NOT NULL,
+    seal_draft_fingerprint TEXT NOT NULL,
+    repository_verifier_version TEXT NOT NULL,
+    repository_verifier_fingerprint TEXT NOT NULL,
+    sealed_at_us INTEGER NOT NULL CHECK(typeof(sealed_at_us)='integer' AND sealed_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    graph_fingerprint_count INTEGER NOT NULL CHECK(graph_fingerprint_count BETWEEN 8 AND 107),
+    source_authority_state TEXT NOT NULL CHECK(source_authority_state='synthetic_test_only'),
+    repository_owned INTEGER NOT NULL CHECK(repository_owned=1),
+    repository_graph_verified INTEGER NOT NULL CHECK(repository_graph_verified=1),
+    repository_sealed INTEGER NOT NULL CHECK(repository_sealed=1),
+    source_authority_verified INTEGER NOT NULL CHECK(source_authority_verified=0),
+    product_history_eligible INTEGER NOT NULL CHECK(product_history_eligible=0),
+    comparison_allowed INTEGER NOT NULL CHECK(comparison_allowed=0),
+    snapshot_materialization_allowed INTEGER NOT NULL CHECK(snapshot_materialization_allowed=0),
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed=0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed=0),
+    sealed_batch_fingerprint TEXT NOT NULL UNIQUE,
+    CHECK(length(sealed_batch_id)=64 AND sealed_batch_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(prepared_scope_fingerprint)=64 AND prepared_scope_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(completion_request_fingerprint)=64 AND completion_request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(seal_draft_fingerprint)=64 AND seal_draft_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(repository_verifier_fingerprint)=64 AND repository_verifier_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(sealed_batch_fingerprint)=64 AND sealed_batch_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+
+-- Pydantic's path-free code/version and canonical-float rules are repeated at
+-- the raw SQL boundary.  These UDF-backed triggers execute only during the
+-- repository's short trusted-schema authorization window; ordinary database
+-- activity remains under trusted_schema=OFF.
+CREATE TRIGGER temporal_selection_safe_fields BEFORE INSERT ON temporal_metric_selection_drafts
+WHEN temporal_safe_code(NEW.metric_pack_key)<>1
+  OR temporal_safe_version(NEW.metric_catalog_version)<>1
+  OR temporal_safe_version(NEW.source_authority_version)<>1
+BEGIN SELECT RAISE(ABORT,'temporal selection contains an unsafe code or version'); END;
+
+CREATE TRIGGER temporal_analysis_input_safe_fields BEFORE INSERT ON temporal_analysis_inputs
+WHEN temporal_safe_version(NEW.analysis_run_fingerprint_version)<>1
+  OR temporal_safe_version(NEW.capture_contract_version)<>1
+  OR temporal_safe_code(NEW.analysis_profile_key)<>1
+  OR temporal_safe_code(NEW.metric_pack_key)<>1
+  OR temporal_safe_version(NEW.metric_engine_version)<>1
+  OR temporal_safe_version(NEW.metric_catalog_version)<>1
+  OR temporal_safe_version(NEW.consent_policy_version)<>1
+  OR temporal_safe_version(NEW.privacy_policy_version)<>1
+  OR temporal_safe_version(NEW.provider_version)<>1
+  OR temporal_safe_version(NEW.provider_adapter_version)<>1
+  OR temporal_safe_version(NEW.provider_schema_version)<>1
+  OR temporal_safe_version(NEW.source_schema_version)<>1
+  OR temporal_safe_version(NEW.content_schema_version)<>1
+  OR temporal_safe_version(NEW.redactor_version)<>1
+  OR temporal_safe_version(NEW.preprocessing_version)<>1
+  OR temporal_safe_version(NEW.router_version)<>1
+BEGIN SELECT RAISE(ABORT,'temporal analysis input contains an unsafe code or version'); END;
+
+CREATE TRIGGER temporal_session_revision_safe_fields BEFORE INSERT ON temporal_session_revisions
+WHEN temporal_safe_version(NEW.provider_adapter_version)<>1
+  OR temporal_safe_version(NEW.provider_schema_version)<>1
+  OR temporal_safe_version(NEW.source_schema_version)<>1
+  OR temporal_safe_version(NEW.content_schema_version)<>1
+  OR temporal_safe_version(NEW.redactor_version)<>1
+BEGIN SELECT RAISE(ABORT,'temporal session revision contains an unsafe version'); END;
+
+CREATE TRIGGER temporal_comparison_identity_safe_fields BEFORE INSERT ON temporal_comparison_identities
+WHEN temporal_safe_code(NEW.metric_key)<>1
+  OR temporal_safe_version(NEW.metric_definition_version)<>1
+  OR temporal_safe_version(NEW.metric_question_version)<>1
+  OR temporal_safe_code(NEW.unit_code)<>1
+  OR (NEW.exposure_unit_code IS NOT NULL AND temporal_safe_code(NEW.exposure_unit_code)<>1)
+  OR (NEW.interval_method_version IS NOT NULL AND temporal_safe_version(NEW.interval_method_version)<>1)
+  OR temporal_safe_version(NEW.evidence_contract_version)<>1
+  OR temporal_safe_version(NEW.estimator_plan_version)<>1
+  OR (NEW.requested_model_key IS NOT NULL AND temporal_safe_code(NEW.requested_model_key)<>1)
+  OR (NEW.requested_model_revision IS NOT NULL AND temporal_safe_version(NEW.requested_model_revision)<>1)
+  OR (NEW.served_model_key IS NOT NULL AND temporal_safe_code(NEW.served_model_key)<>1)
+  OR (NEW.served_model_revision IS NOT NULL AND temporal_safe_version(NEW.served_model_revision)<>1)
+  OR (NEW.tokenizer_key IS NOT NULL AND temporal_safe_code(NEW.tokenizer_key)<>1)
+  OR (NEW.tokenizer_revision IS NOT NULL AND temporal_safe_version(NEW.tokenizer_revision)<>1)
+  OR (NEW.model_license_code IS NOT NULL AND temporal_safe_code(NEW.model_license_code)<>1)
+  OR temporal_safe_version(NEW.preprocessing_version)<>1
+  OR (NEW.prompt_template_version IS NOT NULL AND temporal_safe_version(NEW.prompt_template_version)<>1)
+  OR (NEW.rubric_version IS NOT NULL AND temporal_safe_version(NEW.rubric_version)<>1)
+  OR temporal_safe_version(NEW.calibration_version)<>1
+  OR temporal_safe_version(NEW.router_version)<>1
+  OR temporal_safe_version(NEW.redactor_version)<>1
+  OR temporal_safe_version(NEW.provider_adapter_version)<>1
+  OR temporal_safe_version(NEW.provider_schema_version)<>1
+  OR temporal_safe_version(NEW.source_schema_version)<>1
+  OR temporal_safe_version(NEW.content_schema_version)<>1
+  OR temporal_safe_version(NEW.privacy_policy_version)<>1
+  OR (NEW.trend_ewma_alpha IS NOT NULL AND temporal_real_is_canonical(NEW.trend_ewma_alpha)<>1)
+BEGIN SELECT RAISE(ABORT,'temporal comparison identity contains an unsafe scalar'); END;
+
+CREATE TRIGGER temporal_observation_safe_fields BEFORE INSERT ON temporal_observations
+WHEN (NEW.unavailable_reason_code IS NOT NULL AND temporal_safe_code(NEW.unavailable_reason_code)<>1)
+  OR (NEW.uncertainty_method_version IS NOT NULL AND temporal_safe_version(NEW.uncertainty_method_version)<>1)
+  OR (NEW.uncertainty_lower IS NOT NULL AND temporal_real_is_canonical(NEW.uncertainty_lower)<>1)
+  OR (NEW.uncertainty_upper IS NOT NULL AND temporal_real_is_canonical(NEW.uncertainty_upper)<>1)
+  OR (NEW.uncertainty_confidence IS NOT NULL AND temporal_real_is_canonical(NEW.uncertainty_confidence)<>1)
+BEGIN SELECT RAISE(ABORT,'temporal observation contains an unsafe scalar'); END;
+
+CREATE TRIGGER temporal_count_exposure_safe_fields BEFORE INSERT ON temporal_count_exposure_values
+WHEN temporal_real_is_canonical(NEW.exposure)<>1
+  OR temporal_safe_code(NEW.exposure_unit_code)<>1
+BEGIN SELECT RAISE(ABORT,'temporal count exposure contains an unsafe scalar'); END;
+
+CREATE TRIGGER temporal_distribution_safe_fields BEFORE INSERT ON temporal_distribution_sample_values
+WHEN temporal_real_is_canonical(NEW.sample)<>1
+BEGIN SELECT RAISE(ABORT,'temporal distribution contains a noncanonical scalar'); END;
+
+CREATE TRIGGER temporal_seal_draft_safe_fields BEFORE INSERT ON temporal_seal_drafts
+WHEN temporal_safe_version(NEW.verifier_version)<>1
+BEGIN SELECT RAISE(ABORT,'temporal seal draft contains an unsafe version'); END;
+CREATE TRIGGER temporal_sealed_root_safe_fields BEFORE INSERT ON temporal_sealed_batch_roots
+WHEN temporal_safe_version(NEW.repository_verifier_version)<>1
+BEGIN SELECT RAISE(ABORT,'temporal sealed root contains an unsafe version'); END;
+
+-- Every completion child append rechecks the live job/run/root HMAC and refuses
+-- additions after the sealed root exists.  One trigger covers each normalized
+-- child table without making a public graph-write capability.
+CREATE TRIGGER temporal_analysis_input_insert_guard BEFORE INSERT ON temporal_analysis_inputs
+WHEN EXISTS (SELECT 1 FROM temporal_sealed_batch_roots WHERE completion_request_id=NEW.completion_request_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_completion_requests q
+    JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id
+    JOIN temporal_prepared_scope_roots p ON p.prepared_scope_id=q.prepared_scope_id
+    JOIN temporal_history_root_drafts root ON root.root_receipt_id=p.root_receipt_id
+    JOIN temporal_metric_selection_drafts selection ON selection.selection_revision_id=p.selection_revision_id
+    WHERE q.completion_request_id=NEW.completion_request_id
+      AND q.analysis_input_receipt_id=NEW.input_receipt_id
+      AND q.analysis_input_fingerprint=NEW.input_fingerprint
+      AND q.analysis_run_id=NEW.analysis_run_id
+      AND q.analysis_run_fingerprint=NEW.analysis_run_fingerprint
+      AND q.captured_at_us=NEW.captured_at_us
+      AND NEW.root_receipt_id=root.root_receipt_id
+      AND NEW.root_receipt_fingerprint=root.root_fingerprint
+      AND NEW.selection_revision_id=selection.selection_revision_id
+      AND NEW.selection_revision_fingerprint=selection.selection_fingerprint
+      AND NEW.selection_scope_fingerprint=selection.metric_set_fingerprint
+      AND NEW.project_id=root.project_id
+      AND NEW.selected_metric_count=selection.metric_count
+      AND NEW.analysis_window_started_at_us>=root.history_floor_at_us
+      AND NEW.captured_at_us>=p.prepared_at_us
+      AND NEW.analysis_run_completed_at_us=NEW.captured_at_us
+      AND NEW.analysis_profile_key='coaching_profile' AND NEW.analysis_profile_version=1
+      AND NEW.analysis_profile_sha256='8412c793f46de36b29164a02dd49a0b79c798b810d9859f0427c9da49c185b75'
+      AND NEW.metric_pack_key=selection.metric_pack_key
+      AND NEW.metric_pack_version=selection.metric_pack_version
+      AND NEW.metric_pack_sha256=selection.metric_pack_sha256
+      AND NEW.metric_engine_version='coaching-rules-en-pl-2'
+      AND NEW.metric_engine_sha256='c9ea35b1c0449e14417437e98ba99e2e5b144e4bf02562a9db1bda28a99816f4'
+      AND NEW.metric_catalog_version=selection.metric_catalog_version
+      AND NEW.metric_catalog_sha256=selection.metric_catalog_sha256
+      AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal analysis input append is unauthorized or sealed'); END;
+CREATE TRIGGER temporal_analysis_input_metric_insert_guard BEFORE INSERT ON temporal_analysis_input_selected_metrics
+WHEN EXISTS (SELECT 1 FROM temporal_sealed_batch_roots WHERE completion_request_id=NEW.completion_request_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_analysis_inputs i
+    JOIN temporal_completion_requests q ON q.completion_request_id=i.completion_request_id
+    JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id
+    JOIN temporal_prepared_scope_roots p ON p.prepared_scope_id=q.prepared_scope_id
+    JOIN temporal_metric_selection_keys selected ON selected.selection_revision_id=p.selection_revision_id
+    WHERE i.completion_request_id=NEW.completion_request_id
+      AND selected.ordinal=NEW.ordinal AND selected.metric_key=NEW.metric_key
+      AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal analysis input metric is unauthorized or mismatched'); END;
+CREATE TRIGGER temporal_session_revision_insert_guard BEFORE INSERT ON temporal_session_revisions
+WHEN EXISTS (SELECT 1 FROM temporal_sealed_batch_roots WHERE completion_request_id=NEW.completion_request_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_completion_requests q
+    JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id
+    JOIN temporal_analysis_inputs i ON i.completion_request_id=q.completion_request_id
+    JOIN temporal_prepared_scope_roots p ON p.prepared_scope_id=q.prepared_scope_id
+    JOIN temporal_history_root_drafts root ON root.root_receipt_id=p.root_receipt_id
+    WHERE q.completion_request_id=NEW.completion_request_id
+      AND NEW.root_receipt_id=root.root_receipt_id
+      AND NEW.root_receipt_fingerprint=root.root_fingerprint
+      AND NEW.project_id=i.project_id AND NEW.session_id=i.session_id
+      AND NEW.analysis_input_receipt_id=i.input_receipt_id
+      AND NEW.analysis_input_receipt_fingerprint=i.input_fingerprint
+      AND NEW.input_provenance_fingerprint=i.provenance_fingerprint
+      AND NEW.analysis_run_id=i.analysis_run_id
+      AND NEW.analysis_run_fingerprint=i.analysis_run_fingerprint
+      AND NEW.selected_window_manifest_root=i.selected_window_manifest_root
+      AND NEW.selected_window_manifest_version=i.selected_window_manifest_version
+      AND NEW.selected_window_manifest_entry_count=i.selected_window_manifest_entry_count
+      AND NEW.analysis_window_fingerprint=i.analysis_window_fingerprint
+      AND NEW.analysis_window_fingerprint_basis=i.analysis_window_fingerprint_basis
+      AND NEW.analysis_window_fingerprint_version=i.analysis_window_fingerprint_version
+      AND NEW.analysis_window_started_at_us=i.analysis_window_started_at_us
+      AND NEW.analysis_window_ended_at_us=i.analysis_window_ended_at_us
+      AND NEW.captured_at_us=i.captured_at_us
+      AND NEW.provider=i.provider
+      AND NEW.provider_adapter_version=i.provider_adapter_version
+      AND NEW.provider_schema_version=i.provider_schema_version
+      AND NEW.source_schema_version=i.source_schema_version
+      AND NEW.content_schema_version=i.content_schema_version
+      AND NEW.redactor_version=i.redactor_version
+      AND NEW.revision_ordinal=1
+      AND NEW.predecessor_revision_id IS NULL
+      AND NEW.predecessor_revision_fingerprint IS NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM temporal_session_revisions prior
+          WHERE prior.root_receipt_id=NEW.root_receipt_id
+            AND prior.session_id=NEW.session_id)
+      AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal session revision append is unauthorized or sealed'); END;
+CREATE TRIGGER temporal_comparison_identity_insert_guard BEFORE INSERT ON temporal_comparison_identities
+WHEN EXISTS (SELECT 1 FROM temporal_sealed_batch_roots WHERE completion_request_id=NEW.completion_request_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_completion_requests q
+    JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id
+    JOIN temporal_analysis_inputs i ON i.completion_request_id=q.completion_request_id
+    JOIN temporal_analysis_input_selected_metrics selected
+      ON selected.completion_request_id=q.completion_request_id
+     AND selected.ordinal=NEW.metric_ordinal AND selected.metric_key=NEW.metric_key
+    JOIN temporal_coaching_identity_registry registry ON registry.metric_key=NEW.metric_key
+    WHERE q.completion_request_id=NEW.completion_request_id
+      AND NEW.metric_definition_version=registry.metric_definition_version
+      AND NEW.metric_definition_sha256=registry.metric_definition_sha256
+      AND NEW.metric_question_version=registry.metric_question_version
+      AND NEW.metric_question_sha256=registry.metric_question_sha256
+      AND NEW.value_kind='fraction' AND NEW.unit_code=registry.unit_code
+      AND NEW.direction=registry.direction AND NEW.aggregation_semantics='ratio_of_sums'
+      AND NEW.exposure_unit_code IS NULL AND NEW.trend_method='none'
+      AND NEW.trend_rolling_observation_count IS NULL AND NEW.trend_ewma_alpha IS NULL
+      AND NEW.interval_method_version IS NULL AND NEW.evidence_tier='redacted_content'
+      AND NEW.evidence_contract_version=registry.evidence_contract_version
+      AND NEW.estimator_kind='deterministic'
+      AND NEW.estimator_plan_version=registry.estimator_plan_version
+      AND NEW.estimator_plan_sha256=registry.estimator_plan_sha256
+      AND NEW.estimator_lifecycle='provisional' AND NEW.activation_receipt_sha256 IS NULL
+      AND NEW.model_provider IS NULL AND NEW.requested_model_key IS NULL
+      AND NEW.requested_model_revision IS NULL AND NEW.served_model_key IS NULL
+      AND NEW.served_model_revision IS NULL AND NEW.served_model_fallback IS NULL
+      AND NEW.model_weight_identity_state IS NULL AND NEW.model_weight_set_sha256 IS NULL
+      AND NEW.tokenizer_key IS NULL AND NEW.tokenizer_revision IS NULL
+      AND NEW.tokenizer_identity_state IS NULL AND NEW.tokenizer_sha256 IS NULL
+      AND NEW.model_license_code IS NULL AND NEW.reasoning_effort IS NULL
+      AND NEW.preprocessing_version=i.preprocessing_version
+      AND NEW.preprocessing_sha256=i.preprocessing_sha256
+      AND NEW.prompt_template_version IS NULL AND NEW.prompt_template_sha256 IS NULL
+      AND NEW.rubric_version IS NULL AND NEW.rubric_sha256 IS NULL
+      AND NEW.calibration_version=registry.calibration_version
+      AND NEW.calibration_sha256=registry.calibration_sha256
+      AND NEW.router_version=i.router_version AND NEW.router_sha256=i.router_sha256
+      AND NEW.redactor_version=i.redactor_version AND NEW.redactor_sha256=i.redactor_sha256
+      AND NEW.provider=i.provider AND NEW.provider_adapter_version=i.provider_adapter_version
+      AND NEW.provider_schema_version=i.provider_schema_version
+      AND NEW.source_schema_version=i.source_schema_version
+      AND NEW.content_schema_version=i.content_schema_version
+      AND NEW.privacy_policy_version=i.privacy_policy_version
+      AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal comparison identity append is unauthorized or sealed'); END;
+CREATE TRIGGER temporal_observation_batch_insert_guard BEFORE INSERT ON temporal_observation_batches
+WHEN EXISTS (SELECT 1 FROM temporal_sealed_batch_roots WHERE completion_request_id=NEW.completion_request_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_completion_requests q
+    JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id
+    JOIN temporal_analysis_inputs i ON i.completion_request_id=q.completion_request_id
+    JOIN temporal_session_revisions revision ON revision.completion_request_id=q.completion_request_id
+    WHERE q.completion_request_id=NEW.completion_request_id
+      AND NEW.project_id=i.project_id AND NEW.session_id=i.session_id
+      AND NEW.root_receipt_id=i.root_receipt_id
+      AND NEW.root_receipt_fingerprint=i.root_receipt_fingerprint
+      AND NEW.revision_id=revision.revision_id
+      AND NEW.revision_fingerprint=revision.revision_fingerprint
+      AND NEW.analysis_run_id=i.analysis_run_id
+      AND NEW.analysis_run_fingerprint=i.analysis_run_fingerprint
+      AND NEW.analysis_input_receipt_id=i.input_receipt_id
+      AND NEW.analysis_input_receipt_fingerprint=i.input_fingerprint
+      AND NEW.selection_revision_id=i.selection_revision_id
+      AND NEW.selection_revision_fingerprint=i.selection_revision_fingerprint
+      AND NEW.selected_metric_count=i.selected_metric_count
+      AND NEW.observation_count=i.selected_metric_count
+      AND NEW.recorded_at_us>=i.captured_at_us
+      AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal observation batch append is unauthorized or sealed'); END;
+CREATE TRIGGER temporal_observation_insert_guard BEFORE INSERT ON temporal_observations
+WHEN EXISTS (SELECT 1 FROM temporal_observation_batches b JOIN temporal_sealed_batch_roots z ON z.completion_request_id=b.completion_request_id WHERE b.batch_id=NEW.batch_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM temporal_observation_batches b
+    JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id
+    JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id
+    JOIN temporal_analysis_inputs i ON i.completion_request_id=q.completion_request_id
+    JOIN temporal_analysis_input_selected_metrics selected
+      ON selected.completion_request_id=q.completion_request_id
+     AND selected.ordinal=NEW.ordinal AND selected.metric_key=NEW.metric_key
+    JOIN temporal_comparison_identities identity
+      ON identity.completion_request_id=q.completion_request_id
+     AND identity.metric_ordinal=NEW.ordinal AND identity.metric_key=NEW.metric_key
+    JOIN temporal_session_revisions revision ON revision.completion_request_id=q.completion_request_id
+    WHERE b.batch_id=NEW.batch_id AND NEW.completion_request_id=q.completion_request_id
+      AND NEW.identity_fingerprint=identity.identity_fingerprint
+      AND NEW.revision_id=revision.revision_id
+      AND NEW.analysis_run_id=i.analysis_run_id
+      AND NEW.analysis_input_receipt_id=i.input_receipt_id
+      AND NEW.analysis_input_receipt_fingerprint=i.input_fingerprint
+      AND NEW.observed_at_us=i.captured_at_us
+      AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal observation append is unauthorized or sealed'); END;
+CREATE TRIGGER temporal_fraction_value_insert_guard BEFORE INSERT ON temporal_fraction_values
+WHEN NOT EXISTS (SELECT 1 FROM temporal_observations o JOIN temporal_observation_batches b ON b.batch_id=o.batch_id JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id WHERE o.observation_id=NEW.observation_id AND o.value_kind='fraction' AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint) AND NOT EXISTS (SELECT 1 FROM temporal_sealed_batch_roots z WHERE z.completion_request_id=q.completion_request_id))
+BEGIN SELECT RAISE(ABORT,'temporal fraction append is unauthorized or mismatched'); END;
+CREATE TRIGGER temporal_count_exposure_value_insert_guard BEFORE INSERT ON temporal_count_exposure_values
+WHEN NOT EXISTS (SELECT 1 FROM temporal_observations o JOIN temporal_observation_batches b ON b.batch_id=o.batch_id JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id WHERE o.observation_id=NEW.observation_id AND o.value_kind='count_with_exposure' AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint) AND NOT EXISTS (SELECT 1 FROM temporal_sealed_batch_roots z WHERE z.completion_request_id=q.completion_request_id))
+BEGIN SELECT RAISE(ABORT,'temporal count exposure append is unauthorized or mismatched'); END;
+CREATE TRIGGER temporal_distribution_value_insert_guard BEFORE INSERT ON temporal_distribution_sample_values
+WHEN NOT EXISTS (SELECT 1 FROM temporal_observations o JOIN temporal_observation_batches b ON b.batch_id=o.batch_id JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id WHERE o.observation_id=NEW.observation_id AND o.value_kind='distribution_sample' AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint) AND NOT EXISTS (SELECT 1 FROM temporal_sealed_batch_roots z WHERE z.completion_request_id=q.completion_request_id))
+BEGIN SELECT RAISE(ABORT,'temporal distribution append is unauthorized or mismatched'); END;
+CREATE TRIGGER temporal_sampled_proportion_value_insert_guard BEFORE INSERT ON temporal_sampled_proportion_values
+WHEN NOT EXISTS (SELECT 1 FROM temporal_observations o JOIN temporal_observation_batches b ON b.batch_id=o.batch_id JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id WHERE o.observation_id=NEW.observation_id AND o.value_kind='sampled_proportion' AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint) AND NOT EXISTS (SELECT 1 FROM temporal_sealed_batch_roots z WHERE z.completion_request_id=q.completion_request_id))
+BEGIN SELECT RAISE(ABORT,'temporal sampled proportion append is unauthorized or mismatched'); END;
+CREATE TRIGGER temporal_seal_draft_insert_guard BEFORE INSERT ON temporal_seal_drafts
+WHEN EXISTS (SELECT 1 FROM temporal_sealed_batch_roots WHERE completion_request_id=NEW.completion_request_id)
+ OR NOT EXISTS (SELECT 1 FROM temporal_completion_requests q JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id JOIN temporal_observation_batches b ON b.completion_request_id=q.completion_request_id WHERE q.completion_request_id=NEW.completion_request_id AND b.batch_id=NEW.batch_id AND NEW.analysis_run_id=q.analysis_run_id AND NEW.analysis_run_fingerprint=q.analysis_run_fingerprint AND NEW.observation_count=b.observation_count AND NEW.drafted_at_us>=b.recorded_at_us AND a.seal_draft_id=NEW.seal_draft_id AND a.seal_draft_fingerprint=NEW.seal_draft_fingerprint AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal seal draft append is unauthorized or sealed'); END;
+CREATE TRIGGER temporal_seal_observation_commitment_insert_guard BEFORE INSERT ON temporal_seal_observation_commitments
+WHEN NOT EXISTS (SELECT 1 FROM temporal_seal_drafts d JOIN temporal_completion_requests q ON q.completion_request_id=d.completion_request_id JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id JOIN temporal_observations o ON o.batch_id=d.batch_id WHERE d.seal_draft_id=NEW.seal_draft_id AND o.ordinal=NEW.ordinal AND o.observation_id=NEW.observation_id AND o.observation_fingerprint=NEW.observation_fingerprint AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint) AND NOT EXISTS (SELECT 1 FROM temporal_sealed_batch_roots z WHERE z.seal_draft_id=d.seal_draft_id))
+BEGIN SELECT RAISE(ABORT,'temporal observation commitment append is unauthorized or sealed'); END;
+CREATE TRIGGER temporal_seal_graph_commitment_insert_guard BEFORE INSERT ON temporal_seal_graph_commitments
+WHEN NOT EXISTS (SELECT 1 FROM temporal_seal_drafts d JOIN temporal_completion_requests q ON q.completion_request_id=d.completion_request_id JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id WHERE d.seal_draft_id=NEW.seal_draft_id AND a.authorization_tag=temporal_history_authorization_tag(a.operation_id,a.authorization_fingerprint) AND NOT EXISTS (SELECT 1 FROM temporal_sealed_batch_roots z WHERE z.seal_draft_id=d.seal_draft_id))
+BEGIN SELECT RAISE(ABORT,'temporal graph commitment append is unauthorized or sealed'); END;
+
+CREATE TRIGGER temporal_sealed_batch_root_insert_guard
+BEFORE INSERT ON temporal_sealed_batch_roots
+WHEN NOT EXISTS (
+    SELECT 1 FROM temporal_seal_drafts d
+    JOIN temporal_completion_requests q ON q.completion_request_id=d.completion_request_id
+    JOIN temporal_history_append_authorizations a ON a.operation_id=q.operation_id
+    JOIN temporal_observation_batches b ON b.batch_id=d.batch_id
+    JOIN temporal_analysis_inputs i ON i.completion_request_id=q.completion_request_id
+    JOIN temporal_session_revisions revision ON revision.completion_request_id=q.completion_request_id
+    JOIN temporal_prepared_scope_roots p ON p.prepared_scope_id=q.prepared_scope_id
+    JOIN temporal_history_root_drafts root ON root.root_receipt_id=p.root_receipt_id
+    JOIN temporal_metric_selection_drafts selection ON selection.selection_revision_id=p.selection_revision_id
+    JOIN session_analysis_runs run ON run.run_id=q.analysis_run_id
+    JOIN analysis_jobs job ON job.job_id=a.job_id
+    JOIN automation_grants grant ON grant.grant_id=a.automation_grant_id
+    WHERE d.seal_draft_id=NEW.seal_draft_id AND q.completion_request_id=NEW.completion_request_id
+      AND a.seal_draft_id=d.seal_draft_id
+      AND a.seal_draft_fingerprint=d.seal_draft_fingerprint
+      AND a.sealed_batch_id=NEW.sealed_batch_id
+      AND a.sealed_batch_fingerprint=NEW.sealed_batch_fingerprint
+      AND NEW.prepared_scope_fingerprint=q.prepared_scope_fingerprint
+      AND NEW.completion_request_fingerprint=q.completion_request_fingerprint
+      AND NEW.seal_draft_fingerprint=d.seal_draft_fingerprint
+      AND NEW.repository_verifier_version=d.verifier_version
+      AND NEW.repository_verifier_fingerprint=d.verifier_fingerprint
+      AND NEW.sealed_at_us>=d.drafted_at_us
+      AND d.analysis_run_id=i.analysis_run_id
+      AND d.analysis_run_fingerprint=i.analysis_run_fingerprint
+      AND b.completion_request_id=q.completion_request_id
+      AND b.revision_id=revision.revision_id
+      AND b.revision_fingerprint=revision.revision_fingerprint
+      AND b.root_receipt_id=root.root_receipt_id
+      AND b.root_receipt_fingerprint=root.root_fingerprint
+      AND b.selection_revision_id=selection.selection_revision_id
+      AND b.selection_revision_fingerprint=selection.selection_fingerprint
+      AND run.run_id=q.analysis_run_id AND run.status='running' AND run.provider='synthetic'
+      AND run.session_id=i.session_id AND run.request_fingerprint=i.analysis_run_request_fingerprint
+      AND job.automation_grant_id=grant.grant_id
+      AND job.session_id=run.session_id AND job.project_id=i.project_id
+      AND job.provider='synthetic' AND job.state IN ('preprocessing','stage_n')
+      AND job.cancel_requested=0 AND job.local_only=1
+      AND job.estimator_plan_version='coaching-v3-coaching-rules-en-pl-2-coaching-observables-rubric-2'
+      AND job.redactor_version=i.redactor_version
+      AND temporal_iso_to_epoch_us(job.lease_expires_at)>NEW.sealed_at_us
+      AND grant.grant_id=p.automation_grant_id AND grant.revision=p.automation_grant_revision
+      AND grant.project_id=i.project_id AND grant.provider='synthetic'
+      AND grant.state='active' AND grant.local_only=1
+      AND grant.remote_requires_fresh_approval=1
+      AND temporal_iso_to_epoch_us(grant.expires_at)>NEW.sealed_at_us
+      -- Job, grant, and run are seal-time-only authority.  Prove all three
+      -- ordered scopes equal the durable prepared selection before consuming
+      -- the transient capability; none becomes a durable public pointer.
+      AND selection.metric_count=(SELECT COUNT(*) FROM analysis_job_metrics jm WHERE jm.job_id=job.job_id)
+      AND selection.metric_count=(SELECT COUNT(*) FROM automation_grant_metrics gm WHERE gm.grant_id=grant.grant_id)
+      AND selection.metric_count=(SELECT COUNT(*) FROM session_analysis_run_metrics rm WHERE rm.run_id=run.run_id)
+      AND NOT EXISTS (
+          SELECT 1 FROM temporal_metric_selection_keys sk
+          WHERE sk.selection_revision_id=selection.selection_revision_id
+            AND NOT EXISTS (SELECT 1 FROM analysis_job_metrics jm WHERE jm.job_id=job.job_id AND jm.ordinal=sk.ordinal AND jm.metric_key=sk.metric_key))
+      AND NOT EXISTS (
+          SELECT 1 FROM temporal_metric_selection_keys sk
+          WHERE sk.selection_revision_id=selection.selection_revision_id
+            AND NOT EXISTS (SELECT 1 FROM automation_grant_metrics gm WHERE gm.grant_id=grant.grant_id AND gm.ordinal=sk.ordinal AND gm.metric_key=sk.metric_key))
+      AND NOT EXISTS (
+          SELECT 1 FROM temporal_metric_selection_keys sk
+          WHERE sk.selection_revision_id=selection.selection_revision_id
+            AND NOT EXISTS (SELECT 1 FROM session_analysis_run_metrics rm WHERE rm.run_id=run.run_id AND rm.ordinal=sk.ordinal AND rm.metric_key=sk.metric_key))
+      AND d.observation_count=b.observation_count
+      AND d.observation_count=(SELECT COUNT(*) FROM temporal_observations o WHERE o.batch_id=b.batch_id)
+      AND d.observation_count=(SELECT COUNT(*) FROM temporal_seal_observation_commitments c WHERE c.seal_draft_id=d.seal_draft_id)
+      AND NEW.graph_fingerprint_count=(SELECT COUNT(*) FROM temporal_seal_graph_commitments c WHERE c.seal_draft_id=d.seal_draft_id)
+      AND NEW.graph_fingerprint_count=7+d.observation_count
+      AND (SELECT graph_fingerprint FROM temporal_seal_graph_commitments c WHERE c.seal_draft_id=d.seal_draft_id AND c.ordinal=0)=p.prepared_scope_fingerprint
+      AND (SELECT graph_fingerprint FROM temporal_seal_graph_commitments c WHERE c.seal_draft_id=d.seal_draft_id AND c.ordinal=1)=q.completion_request_fingerprint
+      AND (SELECT graph_fingerprint FROM temporal_seal_graph_commitments c WHERE c.seal_draft_id=d.seal_draft_id AND c.ordinal=2)=root.root_fingerprint
+      AND (SELECT graph_fingerprint FROM temporal_seal_graph_commitments c WHERE c.seal_draft_id=d.seal_draft_id AND c.ordinal=3)=selection.selection_fingerprint
+      AND (SELECT graph_fingerprint FROM temporal_seal_graph_commitments c WHERE c.seal_draft_id=d.seal_draft_id AND c.ordinal=4)=i.input_fingerprint
+      AND (SELECT graph_fingerprint FROM temporal_seal_graph_commitments c WHERE c.seal_draft_id=d.seal_draft_id AND c.ordinal=5)=revision.revision_fingerprint
+      AND (SELECT graph_fingerprint FROM temporal_seal_graph_commitments c WHERE c.seal_draft_id=d.seal_draft_id AND c.ordinal=6)=b.batch_fingerprint
+      AND NOT EXISTS (
+          SELECT 1 FROM temporal_observations o
+          WHERE o.batch_id=b.batch_id AND NOT EXISTS (
+              SELECT 1 FROM temporal_seal_observation_commitments commitment
+              WHERE commitment.seal_draft_id=d.seal_draft_id
+                AND commitment.ordinal=o.ordinal
+                AND commitment.observation_id=o.observation_id
+                AND commitment.observation_fingerprint=o.observation_fingerprint))
+      AND NOT EXISTS (
+          SELECT 1 FROM temporal_observations o
+          WHERE o.batch_id=b.batch_id AND NOT EXISTS (
+              SELECT 1 FROM temporal_seal_graph_commitments graph
+              WHERE graph.seal_draft_id=d.seal_draft_id
+                AND graph.ordinal=7+o.ordinal
+                AND graph.graph_fingerprint=o.observation_fingerprint))
+      AND NOT EXISTS (SELECT 1 FROM temporal_observations o WHERE o.batch_id=b.batch_id AND o.value_kind<>'fraction')
+      AND NOT EXISTS (
+          SELECT 1 FROM temporal_observations o WHERE o.batch_id=b.batch_id
+          AND (
+              o.source_state NOT IN ('present','source_failed')
+              OR o.uncertainty_lower IS NOT NULL
+              OR o.uncertainty_upper IS NOT NULL
+              OR o.uncertainty_confidence IS NOT NULL
+              OR o.uncertainty_method_version IS NOT NULL
+              OR o.follow_up_window_end_at_us IS NOT NULL
+              OR (o.source_state='present' AND (
+                    o.value_state NOT IN ('known','unknown','abstained','not_applicable')
+                    OR o.evidence_coverage_eligibility<>'eligible'
+                    OR o.evidence_coverage_state<>'known'
+                    OR o.evidence_numerator IS NULL
+                    OR o.evidence_denominator IS NULL
+                    OR (o.value_state='known' AND (
+                          o.value_kind IS NOT 'fraction'
+                          OR o.unavailable_reason_code IS NOT NULL))
+                    OR (o.value_state<>'known' AND (
+                          o.value_kind IS NOT NULL
+                          OR o.unavailable_reason_code IS NULL))))
+              OR (o.source_state='source_failed' AND (
+                    o.value_state<>'failed'
+                    OR o.value_kind IS NOT NULL
+                    OR o.unavailable_reason_code IS NULL
+                    OR o.evidence_coverage_eligibility<>'unknown'
+                    OR o.evidence_coverage_state<>'unknown'
+                    OR o.evidence_numerator IS NOT NULL
+                    OR o.evidence_denominator IS NOT NULL))
+          ))
+      AND NOT EXISTS (SELECT 1 FROM temporal_count_exposure_values v JOIN temporal_observations o ON o.observation_id=v.observation_id WHERE o.batch_id=b.batch_id)
+      AND NOT EXISTS (SELECT 1 FROM temporal_distribution_sample_values v JOIN temporal_observations o ON o.observation_id=v.observation_id WHERE o.batch_id=b.batch_id)
+      AND NOT EXISTS (SELECT 1 FROM temporal_sampled_proportion_values v JOIN temporal_observations o ON o.observation_id=v.observation_id WHERE o.batch_id=b.batch_id)
+      AND NOT EXISTS (
+          SELECT 1 FROM temporal_observations o WHERE o.batch_id=b.batch_id
+          AND ((o.value_kind='fraction')<>(EXISTS (SELECT 1 FROM temporal_fraction_values v WHERE v.observation_id=o.observation_id))
+            OR (o.value_kind='count_with_exposure')<>(EXISTS (SELECT 1 FROM temporal_count_exposure_values v WHERE v.observation_id=o.observation_id))
+            OR (o.value_kind='distribution_sample')<>(EXISTS (SELECT 1 FROM temporal_distribution_sample_values v WHERE v.observation_id=o.observation_id))
+            OR (o.value_kind='sampled_proportion')<>(EXISTS (SELECT 1 FROM temporal_sampled_proportion_values v WHERE v.observation_id=o.observation_id))))
+      AND a.authorization_tag=temporal_history_authorization_tag(
+          a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'temporal sealed root graph is incomplete or unauthorized'); END;
+
+-- Legacy completion remains unchanged.  A run that opted into the synthetic
+-- temporal request, however, may become completed only after its single
+-- repository-sealed commit marker has been appended in the same transaction.
+DROP TRIGGER session_analysis_runs_terminal_transition_only;
+CREATE TRIGGER session_analysis_runs_terminal_transition_only
+BEFORE UPDATE ON session_analysis_runs
+WHEN OLD.status <> 'running'
+    OR NEW.status NOT IN ('completed', 'failed')
+    OR NEW.run_id IS NOT OLD.run_id
+    OR NEW.session_id IS NOT OLD.session_id
+    OR NEW.request_fingerprint IS NOT OLD.request_fingerprint
+    OR NEW.input_fingerprint IS NOT OLD.input_fingerprint
+    OR NEW.analysis_profile_key IS NOT OLD.analysis_profile_key
+    OR NEW.analysis_profile_version IS NOT OLD.analysis_profile_version
+    OR NEW.metric_pack_key IS NOT OLD.metric_pack_key
+    OR NEW.metric_pack_version IS NOT OLD.metric_pack_version
+    OR NEW.metric_scope_state IS NOT OLD.metric_scope_state
+    OR NEW.data_tier IS NOT OLD.data_tier
+    OR NEW.consent_purpose IS NOT OLD.consent_purpose
+    OR NEW.consent_policy_version IS NOT OLD.consent_policy_version
+    OR NEW.provider IS NOT OLD.provider
+    OR NEW.provider_version IS NOT OLD.provider_version
+    OR NEW.adapter_version IS NOT OLD.adapter_version
+    OR NEW.source_schema_version IS NOT OLD.source_schema_version
+    OR NEW.content_schema_version IS NOT OLD.content_schema_version
+    OR NEW.metric_engine_version IS NOT OLD.metric_engine_version
+    OR NEW.redactor_version IS NOT OLD.redactor_version
+    OR NEW.model_plan_fingerprint IS NOT OLD.model_plan_fingerprint
+    OR NEW.schema_version IS NOT OLD.schema_version
+    OR NEW.local_only IS NOT OLD.local_only
+    OR NEW.started_at IS NOT OLD.started_at
+    OR NEW.finished_at IS NULL
+    OR (NEW.status = 'completed' AND (
+        OLD.metric_scope_state <> 'exact'
+        OR NOT EXISTS (SELECT 1 FROM session_analysis_results WHERE run_id=OLD.run_id)
+        OR EXISTS (
+            SELECT 1 FROM session_analysis_results result
+            WHERE result.run_id=OLD.run_id AND NOT EXISTS (
+                SELECT 1 FROM session_analysis_run_metrics selected
+                WHERE selected.run_id=OLD.run_id AND selected.metric_key=result.key))
+        OR EXISTS (
+            SELECT 1 FROM session_analysis_run_metrics selected
+            WHERE selected.run_id=OLD.run_id AND NOT EXISTS (
+                SELECT 1 FROM session_analysis_results result
+                WHERE result.run_id=OLD.run_id AND result.key=selected.metric_key))
+        OR (EXISTS (SELECT 1 FROM temporal_completion_requests q WHERE q.analysis_run_id=OLD.run_id)
+            AND 1<>(SELECT COUNT(*) FROM temporal_sealed_batch_roots sealed
+                    JOIN temporal_completion_requests q ON q.completion_request_id=sealed.completion_request_id
+                    WHERE q.analysis_run_id=OLD.run_id))
+    ))
+    OR (NEW.status = 'failed' AND (
+        EXISTS (SELECT 1 FROM session_analysis_results WHERE run_id=OLD.run_id)
+        OR EXISTS (SELECT 1 FROM temporal_completion_requests q WHERE q.analysis_run_id=OLD.run_id)
+    ))
+BEGIN SELECT RAISE(ABORT,'session analysis run transition is invalid'); END;
+
+-- Immutable except through an owning grant/run privacy cascade.  Direct child
+-- deletion remains blocked while its owning parent exists.
+CREATE TRIGGER temporal_history_root_no_update BEFORE UPDATE ON temporal_history_root_drafts BEGIN SELECT RAISE(ABORT,'temporal scope is immutable'); END;
+CREATE TRIGGER temporal_grant_snapshot_no_update BEFORE UPDATE ON temporal_automation_grant_snapshots BEGIN SELECT RAISE(ABORT,'temporal scope is immutable'); END;
+CREATE TRIGGER temporal_grant_snapshot_metric_no_update BEFORE UPDATE ON temporal_automation_grant_snapshot_metrics BEGIN SELECT RAISE(ABORT,'temporal scope is immutable'); END;
+CREATE TRIGGER temporal_metric_selection_no_update BEFORE UPDATE ON temporal_metric_selection_drafts BEGIN SELECT RAISE(ABORT,'temporal scope is immutable'); END;
+CREATE TRIGGER temporal_metric_selection_key_no_update BEFORE UPDATE ON temporal_metric_selection_keys BEGIN SELECT RAISE(ABORT,'temporal scope is immutable'); END;
+CREATE TRIGGER temporal_prepared_scope_no_update BEFORE UPDATE ON temporal_prepared_scope_roots BEGIN SELECT RAISE(ABORT,'temporal scope is immutable'); END;
+CREATE TRIGGER temporal_completion_request_no_update BEFORE UPDATE ON temporal_completion_requests BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_analysis_input_no_update BEFORE UPDATE ON temporal_analysis_inputs BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_analysis_input_metric_no_update BEFORE UPDATE ON temporal_analysis_input_selected_metrics BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_session_revision_no_update BEFORE UPDATE ON temporal_session_revisions BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_comparison_identity_no_update BEFORE UPDATE ON temporal_comparison_identities BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_observation_batch_no_update BEFORE UPDATE ON temporal_observation_batches BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_observation_no_update BEFORE UPDATE ON temporal_observations BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_fraction_value_no_update BEFORE UPDATE ON temporal_fraction_values BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_count_exposure_value_no_update BEFORE UPDATE ON temporal_count_exposure_values BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_distribution_value_no_update BEFORE UPDATE ON temporal_distribution_sample_values BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_sampled_proportion_value_no_update BEFORE UPDATE ON temporal_sampled_proportion_values BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_seal_draft_no_update BEFORE UPDATE ON temporal_seal_drafts BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_seal_observation_commitment_no_update BEFORE UPDATE ON temporal_seal_observation_commitments BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_seal_graph_commitment_no_update BEFORE UPDATE ON temporal_seal_graph_commitments BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+CREATE TRIGGER temporal_sealed_batch_root_no_update BEFORE UPDATE ON temporal_sealed_batch_roots BEGIN SELECT RAISE(ABORT,'temporal history is immutable'); END;
+
+CREATE TRIGGER temporal_prepared_scope_no_delete BEFORE DELETE ON temporal_prepared_scope_roots
+WHEN EXISTS (SELECT 1 FROM temporal_history_root_drafts r WHERE r.root_receipt_id=OLD.root_receipt_id)
+BEGIN SELECT RAISE(ABORT,'temporal scope requires project privacy deletion'); END;
+CREATE TRIGGER temporal_history_root_no_delete BEFORE DELETE ON temporal_history_root_drafts
+WHEN EXISTS (SELECT 1 FROM projects p WHERE p.project_id=OLD.project_id)
+BEGIN SELECT RAISE(ABORT,'temporal scope requires grant privacy deletion'); END;
+CREATE TRIGGER temporal_grant_snapshot_no_delete BEFORE DELETE ON temporal_automation_grant_snapshots
+WHEN EXISTS (SELECT 1 FROM projects p WHERE p.project_id=OLD.project_id)
+BEGIN SELECT RAISE(ABORT,'temporal scope requires project privacy deletion'); END;
+CREATE TRIGGER temporal_grant_snapshot_metric_no_delete BEFORE DELETE ON temporal_automation_grant_snapshot_metrics
+WHEN EXISTS (SELECT 1 FROM temporal_automation_grant_snapshots s WHERE s.selection_revision_id=OLD.selection_revision_id)
+BEGIN SELECT RAISE(ABORT,'temporal scope requires project privacy deletion'); END;
+CREATE TRIGGER temporal_metric_selection_no_delete BEFORE DELETE ON temporal_metric_selection_drafts
+WHEN EXISTS (SELECT 1 FROM temporal_history_root_drafts r WHERE r.root_receipt_id=OLD.root_receipt_id)
+BEGIN SELECT RAISE(ABORT,'temporal scope requires grant privacy deletion'); END;
+CREATE TRIGGER temporal_metric_selection_key_no_delete BEFORE DELETE ON temporal_metric_selection_keys
+WHEN EXISTS (SELECT 1 FROM temporal_metric_selection_drafts s WHERE s.selection_revision_id=OLD.selection_revision_id)
+BEGIN SELECT RAISE(ABORT,'temporal scope requires grant privacy deletion'); END;
+
+CREATE TRIGGER temporal_completion_request_no_delete BEFORE DELETE ON temporal_completion_requests
+WHEN EXISTS (SELECT 1 FROM session_analysis_runs r WHERE r.run_id=OLD.analysis_run_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_sealed_batch_root_no_delete BEFORE DELETE ON temporal_sealed_batch_roots
+WHEN EXISTS (SELECT 1 FROM temporal_completion_requests q JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE q.completion_request_id=OLD.completion_request_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_analysis_input_no_delete BEFORE DELETE ON temporal_analysis_inputs
+WHEN EXISTS (SELECT 1 FROM temporal_completion_requests q JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE q.completion_request_id=OLD.completion_request_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_analysis_input_metric_no_delete BEFORE DELETE ON temporal_analysis_input_selected_metrics
+WHEN EXISTS (SELECT 1 FROM temporal_completion_requests q JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE q.completion_request_id=OLD.completion_request_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_session_revision_no_delete BEFORE DELETE ON temporal_session_revisions
+WHEN EXISTS (SELECT 1 FROM temporal_completion_requests q JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE q.completion_request_id=OLD.completion_request_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_comparison_identity_no_delete BEFORE DELETE ON temporal_comparison_identities
+WHEN EXISTS (SELECT 1 FROM temporal_completion_requests q JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE q.completion_request_id=OLD.completion_request_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_observation_batch_no_delete BEFORE DELETE ON temporal_observation_batches
+WHEN EXISTS (SELECT 1 FROM temporal_completion_requests q JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE q.completion_request_id=OLD.completion_request_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_observation_no_delete BEFORE DELETE ON temporal_observations
+WHEN EXISTS (SELECT 1 FROM temporal_observation_batches b JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE b.batch_id=OLD.batch_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_fraction_value_no_delete BEFORE DELETE ON temporal_fraction_values
+WHEN EXISTS (SELECT 1 FROM temporal_observations o JOIN temporal_observation_batches b ON b.batch_id=o.batch_id JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE o.observation_id=OLD.observation_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_count_exposure_value_no_delete BEFORE DELETE ON temporal_count_exposure_values
+WHEN EXISTS (SELECT 1 FROM temporal_observations o JOIN temporal_observation_batches b ON b.batch_id=o.batch_id JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE o.observation_id=OLD.observation_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_distribution_value_no_delete BEFORE DELETE ON temporal_distribution_sample_values
+WHEN EXISTS (SELECT 1 FROM temporal_observations o JOIN temporal_observation_batches b ON b.batch_id=o.batch_id JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE o.observation_id=OLD.observation_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_sampled_proportion_value_no_delete BEFORE DELETE ON temporal_sampled_proportion_values
+WHEN EXISTS (SELECT 1 FROM temporal_observations o JOIN temporal_observation_batches b ON b.batch_id=o.batch_id JOIN temporal_completion_requests q ON q.completion_request_id=b.completion_request_id JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE o.observation_id=OLD.observation_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_seal_draft_no_delete BEFORE DELETE ON temporal_seal_drafts
+WHEN EXISTS (SELECT 1 FROM temporal_completion_requests q JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE q.completion_request_id=OLD.completion_request_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_seal_observation_commitment_no_delete BEFORE DELETE ON temporal_seal_observation_commitments
+WHEN EXISTS (SELECT 1 FROM temporal_seal_drafts d JOIN temporal_completion_requests q ON q.completion_request_id=d.completion_request_id JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE d.seal_draft_id=OLD.seal_draft_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+CREATE TRIGGER temporal_seal_graph_commitment_no_delete BEFORE DELETE ON temporal_seal_graph_commitments
+WHEN EXISTS (SELECT 1 FROM temporal_seal_drafts d JOIN temporal_completion_requests q ON q.completion_request_id=d.completion_request_id JOIN session_analysis_runs r ON r.run_id=q.analysis_run_id WHERE d.seal_draft_id=OLD.seal_draft_id)
+BEGIN SELECT RAISE(ABORT,'temporal history requires run privacy deletion'); END;
+
+-- Child guards cannot tell a raw parent deletion from an authorized cascade.
+-- Require an exact live run capability before a temporal parent disappears.
+CREATE TRIGGER temporal_session_analysis_run_parent_delete_guard
+BEFORE DELETE ON session_analysis_runs
+WHEN EXISTS (
+        SELECT 1 FROM temporal_completion_requests q
+        WHERE q.analysis_run_id=OLD.run_id
+    )
+ AND NOT EXISTS (
+        SELECT 1 FROM temporal_run_delete_authorizations a
+        WHERE a.run_id=OLD.run_id
+          AND a.authorization_tag=temporal_run_delete_authorization_tag(
+              a.operation_id,a.run_id)
+    )
+BEGIN SELECT RAISE(ABORT,'temporal run privacy deletion is not authorized'); END;
+
+-- With recursive_triggers=OFF an INSERT OR REPLACE can skip the parent DELETE
+-- trigger, cascade the committed graph, and recreate only the source row.  A
+-- normal new run has no temporal request, while a conflicting insert for a
+-- committed temporal run is always a forbidden replacement.
+CREATE TRIGGER temporal_session_analysis_run_parent_replace_guard
+BEFORE INSERT ON session_analysis_runs
+WHEN EXISTS (
+    SELECT 1 FROM temporal_completion_requests q
+    WHERE q.analysis_run_id=NEW.run_id
+)
+BEGIN SELECT RAISE(ABORT,'temporal run replacement is not authorized'); END;
+
+-- Schema v21 exposes no project-history purge capability.  Keep the root and
+-- all shared selections closed instead of treating a raw cascade as authority.
+CREATE TRIGGER temporal_project_parent_delete_guard
+BEFORE DELETE ON projects
+WHEN EXISTS (
+    SELECT 1 FROM temporal_history_root_drafts r
+    WHERE r.project_id=OLD.project_id
+)
+BEGIN SELECT RAISE(ABORT,'temporal project history deletion is not supported'); END;
+
+-- Apply the same REPLACE defense to a project that owns the shared temporal
+-- root.  Schema v21 has no project-history purge capability.
+CREATE TRIGGER temporal_project_parent_replace_guard
+BEFORE INSERT ON projects
+WHEN EXISTS (
+    SELECT 1 FROM temporal_history_root_drafts r
+    WHERE r.project_id=NEW.project_id
+)
+BEGIN SELECT RAISE(ABORT,'temporal project replacement is not supported'); END;
+
+-- A prepared grant snapshot is durable lineage.  No v21 API deletes it, and
+-- REPLACE must not bypass that fact by deleting the live grant's ordered
+-- metrics while leaving the temporal graph behind.
+CREATE INDEX temporal_prepared_scope_grant_idx ON temporal_prepared_scope_roots(automation_grant_id,automation_grant_revision DESC);
+CREATE INDEX temporal_revision_session_idx ON temporal_observation_batches(revision_id);
+CREATE INDEX temporal_sealed_batch_request_idx ON temporal_sealed_batch_roots(completion_request_id);
+COMMIT;
+"""

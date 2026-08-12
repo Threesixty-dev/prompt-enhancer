@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 import hashlib
 import hmac
 import json
+import math
 from pathlib import Path
 import re
 import secrets
@@ -82,10 +83,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_18,
     MIGRATION_19,
     MIGRATION_20,
+    MIGRATION_21,
 )
 
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -284,6 +286,52 @@ def _migration_body(script: str) -> str:
     return stripped
 
 
+def _temporal_safe_code(value: object) -> int:
+    return int(
+        isinstance(value, str)
+        and re.fullmatch(r"[a-z][a-z0-9._-]{0,127}", value) is not None
+    )
+
+
+def _temporal_safe_version(value: object) -> int:
+    return int(
+        isinstance(value, str)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}", value) is not None
+        and ".." not in value
+    )
+
+
+def _temporal_real_is_canonical(value: object) -> int:
+    return int(
+        isinstance(value, float)
+        and math.isfinite(value)
+        and not (value == 0.0 and math.copysign(1.0, value) < 0.0)
+    )
+
+
+def _temporal_iso_to_epoch_us(value: object) -> int | None:
+    """Parse the repository's canonical UTC ISO format for SQL parity checks."""
+
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(parsed):
+        return None
+    canonical = parsed.astimezone(UTC).isoformat(timespec="microseconds")
+    if canonical != value:
+        return None
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    delta = parsed - epoch
+    return (
+        delta.days * 86_400_000_000
+        + delta.seconds * 1_000_000
+        + delta.microseconds
+    )
+
+
 def _apply_migration_atomically(
     connection: sqlite3.Connection,
     *,
@@ -347,7 +395,261 @@ class Database:
             tuple[str, str, str, str, str]
         ] = set()
         self._estimator_gate_decision_authorization_lock = threading.Lock()
+        self._temporal_scope_authorization_secret = secrets.token_bytes(32)
+        self._temporal_scope_authorizations: set[
+            tuple[object, ...]
+        ] = set()
+        self._temporal_scope_authorization_lock = threading.Lock()
+        self._temporal_history_authorization_secret = secrets.token_bytes(32)
+        self._temporal_history_authorizations: set[
+            tuple[object, ...]
+        ] = set()
+        self._temporal_history_authorization_lock = threading.Lock()
+        self._temporal_run_delete_authorization_secret = secrets.token_bytes(32)
+        self._temporal_run_delete_authorizations: set[
+            tuple[str, str, str]
+        ] = set()
+        self._temporal_run_delete_authorization_lock = threading.Lock()
         self._initialization_lock = threading.Lock()
+
+    def _temporal_scope_authorization_tag(
+        self,
+        *values: object,
+    ) -> str:
+        with self._temporal_scope_authorization_lock:
+            if len(values) == 12:
+                match = next(
+                    (
+                        item
+                        for item in self._temporal_scope_authorizations
+                        if item[:-1] == values
+                    ),
+                    None,
+                )
+            elif len(values) == 2:
+                operation_id, authorization_fingerprint = values
+                match = next(
+                    (
+                        item
+                        for item in self._temporal_scope_authorizations
+                        if item[0] == operation_id
+                        and item[-2] == authorization_fingerprint
+                    ),
+                    None,
+                )
+            else:
+                match = None
+        return "" if match is None else str(match[-1])
+
+    def _begin_temporal_scope_authorization(
+        self,
+        automation_grant_id: str,
+        automation_grant_revision: int,
+        automation_grant_fingerprint: str,
+        project_id: str,
+        prepared_scope_id: str,
+        prepared_scope_fingerprint: str,
+        root_receipt_id: str,
+        root_receipt_fingerprint: str,
+        selection_revision_id: str,
+        selection_revision_fingerprint: str,
+        authorization_fingerprint: str,
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        lineage = (
+            operation_id,
+            automation_grant_id,
+            automation_grant_revision,
+            automation_grant_fingerprint,
+            project_id,
+            prepared_scope_id,
+            prepared_scope_fingerprint,
+            root_receipt_id,
+            root_receipt_fingerprint,
+            selection_revision_id,
+            selection_revision_fingerprint,
+            authorization_fingerprint,
+        )
+        tag = hmac.new(
+            self._temporal_scope_authorization_secret,
+            json.dumps(
+                ("temporal-scope-write-v1", *lineage),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._temporal_scope_authorization_lock:
+            self._temporal_scope_authorizations.add((*lineage, tag))
+        return operation_id, tag
+
+    def _end_temporal_scope_authorization(
+        self,
+        operation_id: str,
+        authorization_fingerprint: str,
+        tag: str,
+    ) -> None:
+        with self._temporal_scope_authorization_lock:
+            matches = {
+                item
+                for item in self._temporal_scope_authorizations
+                if item[0] == operation_id
+                and item[-2] == authorization_fingerprint
+                and item[-1] == tag
+            }
+            self._temporal_scope_authorizations.difference_update(matches)
+
+    def _temporal_history_authorization_tag(
+        self,
+        *values: object,
+    ) -> str:
+        with self._temporal_history_authorization_lock:
+            if len(values) == 20:
+                match = next(
+                    (
+                        item
+                        for item in self._temporal_history_authorizations
+                        if item[:-1] == values
+                    ),
+                    None,
+                )
+            elif len(values) == 2:
+                operation_id, authorization_fingerprint = values
+                match = next(
+                    (
+                        item
+                        for item in self._temporal_history_authorizations
+                        if item[0] == operation_id
+                        and item[-2] == authorization_fingerprint
+                    ),
+                    None,
+                )
+            else:
+                match = None
+        return "" if match is None else str(match[-1])
+
+    def _begin_temporal_history_authorization(
+        self,
+        job_id: str,
+        automation_grant_id: str,
+        automation_grant_revision: int,
+        automation_grant_fingerprint: str,
+        analysis_run_id: str,
+        analysis_run_fingerprint: str,
+        root_receipt_id: str,
+        root_receipt_fingerprint: str,
+        selection_revision_id: str,
+        selection_revision_fingerprint: str,
+        prepared_scope_id: str,
+        prepared_scope_fingerprint: str,
+        completion_request_id: str,
+        completion_request_fingerprint: str,
+        seal_draft_id: str,
+        seal_draft_fingerprint: str,
+        sealed_batch_id: str,
+        sealed_batch_fingerprint: str,
+        authorization_fingerprint: str,
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        lineage = (
+            operation_id,
+            job_id,
+            automation_grant_id,
+            automation_grant_revision,
+            automation_grant_fingerprint,
+            analysis_run_id,
+            analysis_run_fingerprint,
+            root_receipt_id,
+            root_receipt_fingerprint,
+            selection_revision_id,
+            selection_revision_fingerprint,
+            prepared_scope_id,
+            prepared_scope_fingerprint,
+            completion_request_id,
+            completion_request_fingerprint,
+            seal_draft_id,
+            seal_draft_fingerprint,
+            sealed_batch_id,
+            sealed_batch_fingerprint,
+            authorization_fingerprint,
+        )
+        tag = hmac.new(
+            self._temporal_history_authorization_secret,
+            json.dumps(
+                ("temporal-history-write-v1", *lineage),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._temporal_history_authorization_lock:
+            self._temporal_history_authorizations.add((*lineage, tag))
+        return operation_id, tag
+
+    def _end_temporal_history_authorization(
+        self,
+        operation_id: str,
+        authorization_fingerprint: str,
+        tag: str,
+    ) -> None:
+        with self._temporal_history_authorization_lock:
+            matches = {
+                item
+                for item in self._temporal_history_authorizations
+                if item[0] == operation_id
+                and item[-2] == authorization_fingerprint
+                and item[-1] == tag
+            }
+            self._temporal_history_authorizations.difference_update(matches)
+
+    def _temporal_run_delete_authorization_tag(
+        self,
+        operation_id: str,
+        run_id: str,
+    ) -> str:
+        candidate = hmac.new(
+            self._temporal_run_delete_authorization_secret,
+            f"temporal-run-delete-v1:{operation_id}:{run_id}".encode(
+                "ascii", errors="strict"
+            ),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._temporal_run_delete_authorization_lock:
+            active = (
+                operation_id,
+                run_id,
+                candidate,
+            ) in self._temporal_run_delete_authorizations
+        return candidate if active else ""
+
+    def _begin_temporal_run_delete_authorization(
+        self,
+        run_id: str,
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        tag = hmac.new(
+            self._temporal_run_delete_authorization_secret,
+            f"temporal-run-delete-v1:{operation_id}:{run_id}".encode(
+                "ascii", errors="strict"
+            ),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._temporal_run_delete_authorization_lock:
+            self._temporal_run_delete_authorizations.add(
+                (operation_id, run_id, tag)
+            )
+        return operation_id, tag
+
+    def _end_temporal_run_delete_authorization(
+        self,
+        operation_id: str,
+        run_id: str,
+        tag: str,
+    ) -> None:
+        with self._temporal_run_delete_authorization_lock:
+            self._temporal_run_delete_authorizations.discard(
+                (operation_id, run_id, tag)
+            )
 
     def _estimator_gate_decision_authorization_tag(
         self,
@@ -672,6 +974,60 @@ class Database:
                 self._estimator_gate_decision_authorization_tag,
                 deterministic=False,
             )
+            connection.create_function(
+                "temporal_scope_authorization_tag",
+                2,
+                self._temporal_scope_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "temporal_scope_authorization_tag",
+                12,
+                self._temporal_scope_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "temporal_history_authorization_tag",
+                2,
+                self._temporal_history_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "temporal_history_authorization_tag",
+                20,
+                self._temporal_history_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "temporal_run_delete_authorization_tag",
+                2,
+                self._temporal_run_delete_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "temporal_safe_code",
+                1,
+                _temporal_safe_code,
+                deterministic=True,
+            )
+            connection.create_function(
+                "temporal_safe_version",
+                1,
+                _temporal_safe_version,
+                deterministic=True,
+            )
+            connection.create_function(
+                "temporal_real_is_canonical",
+                1,
+                _temporal_real_is_canonical,
+                deterministic=True,
+            )
+            connection.create_function(
+                "temporal_iso_to_epoch_us",
+                1,
+                _temporal_iso_to_epoch_us,
+                deterministic=True,
+            )
             if readonly:
                 connection.execute("PRAGMA query_only = ON")
             yield connection
@@ -710,6 +1066,7 @@ class Database:
                 (18, MIGRATION_18),
                 (19, MIGRATION_19),
                 (20, MIGRATION_20),
+                (21, MIGRATION_21),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -837,7 +1194,32 @@ class Database:
 
         self._ensure_initialized()
         return SqliteSessionAnalysisRunRepository(
-            self._connection, self._ensure_initialized
+            self._connection,
+            self._ensure_initialized,
+            temporal_history_repository=self.temporal_history_repository(),
+            begin_temporal_delete_authorization=(
+                self._begin_temporal_run_delete_authorization
+            ),
+            end_temporal_delete_authorization=(
+                self._end_temporal_run_delete_authorization
+            ),
+        )
+
+    def temporal_history_repository(self):
+        """Return repository-owned prospective synthetic temporal persistence."""
+
+        from .infrastructure.sqlite.temporal_history import (
+            SqliteTemporalHistoryRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteTemporalHistoryRepository(
+            self._connection,
+            self._ensure_initialized,
+            begin_scope_authorization=self._begin_temporal_scope_authorization,
+            end_scope_authorization=self._end_temporal_scope_authorization,
+            begin_history_authorization=self._begin_temporal_history_authorization,
+            end_history_authorization=self._end_temporal_history_authorization,
         )
 
     def model_link_experiment_repository(self):

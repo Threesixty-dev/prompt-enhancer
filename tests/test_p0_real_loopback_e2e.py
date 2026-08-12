@@ -421,6 +421,7 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
         surface=ProviderSurface.TEXT_WINDOW,
         required_capabilities=descriptor.capabilities,
     )
+    job_clock = MutableClock(datetime.now(UTC))
     text_source = SyntheticCodexTextSource()
     run_repository = database.session_analysis_run_repository()
     text_service = SessionTextAnalysisService(
@@ -432,13 +433,13 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
         compatibility_policy,
         LocalArtifactIdFactory(pseudonymizer),
         schema_version=SCHEMA_VERSION,
+        clock=job_clock,
     )
     readiness_service = MetricReadinessService(
         database,
         run_repository,
         compatibility_catalog,
     )
-    job_clock = MutableClock(datetime.now(UTC))
     job_repository = database.analysis_job_repository()
     job_service = AnalysisJobService(job_repository, clock=job_clock)
 

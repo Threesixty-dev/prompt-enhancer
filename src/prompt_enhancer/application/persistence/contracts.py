@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 import re
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import Field, field_validator, model_validator
 
@@ -21,6 +21,12 @@ from ...domain import (
     SignalDirection,
     StrictModel,
 )
+
+if TYPE_CHECKING:
+    from ..history.persistence import (
+        RepositorySealedTemporalBatchV1,
+        SyntheticTemporalCompletionRequestV1,
+    )
 
 
 _HEX_64 = re.compile(r"^[a-f0-9]{64}$")
@@ -932,7 +938,8 @@ class SessionAnalysisRunRepository(Protocol):
         *,
         finished_at: datetime,
         completion_authority: SessionAnalysisCompletionAuthority | None = None,
-    ) -> None: ...
+        temporal_completion_request: SyntheticTemporalCompletionRequestV1 | None = None,
+    ) -> RepositorySealedTemporalBatchV1 | None: ...
 
     def fail(self, run_id: str, *, finished_at: datetime, failure_code: str) -> None: ...
 
