@@ -6,6 +6,7 @@ import { ResearchLab } from "./ResearchLab";
 describe("ResearchLab", () => {
   it("shows a compact metric roadmap without reading sessions or activating models", async () => {
     const transport = createSyntheticTransport();
+    const inventorySpy = vi.spyOn(transport, "getModelLabInventory");
     const catalogSpy = vi.spyOn(transport, "getTextAnalysisResearch");
     const sessionSpy = vi.spyOn(transport, "listCodexSessions");
     const analysisSpy = vi.spyOn(transport, "startSessionQualityAnalysis");
@@ -20,11 +21,13 @@ describe("ResearchLab", () => {
     expect(catalogSpy).toHaveBeenCalledTimes(1);
     expect(sessionSpy).not.toHaveBeenCalled();
     expect(analysisSpy).not.toHaveBeenCalled();
+    expect(inventorySpy).not.toHaveBeenCalled();
   });
 
   it("separates methods and candidate decisions into fast views", async () => {
     const transport = createSyntheticTransport();
     const modelStart = vi.spyOn(transport, "startTextModelEvaluation");
+    const inventorySpy = vi.spyOn(transport, "getModelLabInventory");
     const sessionSpy = vi.spyOn(transport, "listCodexSessions");
     render(<ResearchLab transport={transport} />);
     await screen.findByRole("heading", { name: "Build useful metrics, then earn trust" });
@@ -37,6 +40,8 @@ describe("ResearchLab", () => {
     expect(screen.getByRole("heading", { name: "Multilingual E5 small" })).toBeVisible();
     expect(screen.getAllByText("Rejected by gate").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Product use is off").length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Synthetic evaluation inventory" })).toBeVisible();
+    expect(inventorySpy).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("CUDA")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Test cached session models" }));
     expect(await screen.findByText("Screen complete")).toBeVisible();

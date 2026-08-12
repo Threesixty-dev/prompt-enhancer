@@ -474,6 +474,7 @@ class LocalApplication:
             analysis_job_worker=analysis_job_worker,
             automation_grant_service=automation_grant_service,
             automation_grant_worker=automation_grant_worker,
+            estimator_repository=self.database.estimator_repository(),
             static_directory=static_directory,
         )
 

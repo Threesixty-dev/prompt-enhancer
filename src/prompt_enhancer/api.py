@@ -32,6 +32,7 @@ from .application.analysis.session_text_service import SessionTextAnalysisServic
 from .application.jobs import AnalysisJobService, AnalysisJobWorker
 from .application.automation import AutomationGrantService, AutomationGrantWorker
 from .application.analysis.metric_readiness import MetricReadinessService
+from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
 )
@@ -59,6 +60,7 @@ from .interfaces.http import (
     create_model_link_experiment_router,
     create_analysis_job_router,
     create_automation_grant_router,
+    create_estimator_router,
     create_task_query_router,
 )
 from .interfaces.http.browser_session import (
@@ -285,6 +287,7 @@ def create_app(
     analysis_job_worker: AnalysisJobWorker | None = None,
     automation_grant_service: AutomationGrantService | None = None,
     automation_grant_worker: AutomationGrantWorker | None = None,
+    estimator_repository: EstimatorRepository | None = None,
     static_directory: Path | None = None,
     browser_session_manager: BrowserSessionManager | None = None,
 ) -> FastAPI:
@@ -362,6 +365,7 @@ def create_app(
                 "quality-analysis-previews",
                 "/analysis-jobs",
                 "/automation-grants",
+                "/estimators",
             )
         ):
             response.headers["Cache-Control"] = "no-store, private"
@@ -571,6 +575,10 @@ def create_app(
     app.include_router(
         create_research_router(require_local_token, model_evaluation_service)
     )
+    if estimator_repository is not None:
+        app.include_router(
+            create_estimator_router(require_local_token, estimator_repository)
+        )
     if provider_compatibility_catalog is not None:
         app.include_router(
             create_provider_compatibility_router(

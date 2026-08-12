@@ -5,6 +5,7 @@ import type {
   PromptEnhancerTransport,
   TextAnalysisResearchCatalog,
 } from "../../shared/api/contracts";
+import { ModelLabInventoryPanel } from "./ModelLabInventoryPanel";
 
 type LabView = "metrics" | "methods" | "models";
 type Metric = TextAnalysisResearchCatalog["metric_roadmap"][number];
@@ -340,6 +341,7 @@ function ModelsView({ catalog, transport }: { catalog: TextAnalysisResearchCatal
   const sources = new Map(catalog.sources.map((source) => [source.key, source]));
   return (
     <>
+      <ModelLabInventoryPanel transport={transport} />
       <ModelEvaluationPanel transport={transport} />
       <div className="research-model-list">
         {catalog.model_candidates.map((candidate) => {

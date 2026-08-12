@@ -30,6 +30,7 @@ import {
 } from "./syntheticFixtures";
 import { TransportError } from "./httpTransport";
 import { SYNTHETIC_TEXT_ANALYSIS_RESEARCH } from "./syntheticResearchFixture";
+import { SYNTHETIC_MODEL_LAB_INVENTORY } from "./syntheticModelLabFixture";
 
 function copy<T>(value: T): T {
   return structuredClone(value);
@@ -354,6 +355,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         subprocess_isolation: true as const,
         raw_session_data_accepted: false as const,
       };
+    },
+    async getModelLabInventory() {
+      return copy(SYNTHETIC_MODEL_LAB_INVENTORY);
     },
     async startTextModelEvaluation(request) {
       modelEvaluationJob = {

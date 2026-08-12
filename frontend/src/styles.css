@@ -1228,6 +1228,91 @@
 .research-method-card .research-method-card__limit { margin-top: auto; padding-top: 18px; color: #7b6131; font-size: 0.75rem; }
 
 .research-model-list { display: grid; gap: 14px; }
+.model-lab-inventory {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 21px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.model-lab-inventory > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.model-lab-inventory h2 { margin: 3px 0 6px; font-size: 1.18rem; }
+.model-lab-inventory p { margin: 0; color: var(--ink-650); line-height: 1.48; }
+.model-lab-inventory__totals {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.model-lab-inventory__totals div {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+.model-lab-inventory__totals dt,
+.model-lab-inventory__plans dt {
+  color: var(--ink-500);
+  font-size: 0.65rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.model-lab-inventory__totals dd {
+  margin: 3px 0 0;
+  color: var(--ink-900);
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+.model-lab-inventory__plans { display: grid; gap: 8px; }
+.model-lab-inventory__plans article {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(360px, 2fr);
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.model-lab-inventory__plans article > div { display: grid; gap: 3px; }
+.model-lab-inventory__plans article > div span {
+  color: var(--ink-650);
+  font-size: 0.76rem;
+  text-transform: capitalize;
+}
+.model-lab-inventory__plans dl {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.model-lab-inventory__plans dd {
+  margin: 2px 0 0;
+  color: var(--ink-800);
+  font-weight: 850;
+}
+.model-lab-inventory .model-lab-inventory__empty {
+  padding: 13px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+}
+.model-lab-inventory .model-lab-inventory__boundary {
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  color: #735a18;
+  font-size: 0.78rem;
+}
+.model-lab-inventory--unknown {
+  border-color: #ebc7c7;
+  background: var(--red-050);
+}
 .research-model-card {
   display: grid;
   grid-template-columns: minmax(220px, 0.7fr) minmax(330px, 1fr) minmax(290px, 0.8fr);
@@ -1317,6 +1402,10 @@
   .research-card-grid { grid-template-columns: 1fr; }
   .research-method-card { min-height: auto; }
   .research-model-card { grid-template-columns: 1fr; gap: 17px; padding: 18px; }
+  .model-lab-inventory > header { flex-direction: column; }
+  .model-lab-inventory__totals { grid-template-columns: 1fr 1fr; }
+  .model-lab-inventory__plans article { grid-template-columns: 1fr; }
+  .model-lab-inventory__plans dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .research-model-card__decision { grid-column: auto; }
   .research-benchmark { grid-column: auto; align-items: flex-start; flex-direction: column; gap: 5px; }
   .model-evaluation-panel { padding: 17px; }

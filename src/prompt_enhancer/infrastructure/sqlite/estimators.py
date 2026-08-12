@@ -46,6 +46,9 @@ from ...application.estimators.persistence import (
     ActivationAttemptOutcome,
     CompletedSyntheticEstimatorBundle,
     EstimatorRepository,
+    MAX_MODEL_LAB_PLANS,
+    ModelLabInventory,
+    ModelLabPlanSummary,
     ModelLabSummary,
     PrivacyDeleteOutcome,
     SyntheticEstimatorCase,
@@ -1340,6 +1343,70 @@ class SqliteEstimatorRepository(EstimatorRepository):
             metric_estimate_count=counts["estimate_count"],
             activation_outcome=ActivationAttemptOutcome.SYNTHETIC_OR_INSUFFICIENT,
             activation_allowed=False,
+        )
+
+    def model_lab_inventory(self) -> ModelLabInventory:
+        """Return bounded synthetic aggregates without hydrating private evidence."""
+
+        self._ensure_initialized()
+        with self._connection_scope(readonly=True) as connection:
+            rows = connection.execute(
+                """
+                SELECT plan.plan_fingerprint,
+                       plan.plan_key,
+                       plan.plan_version,
+                       plan.route,
+                       plan.question_count,
+                       COUNT(execution.execution_id) AS execution_count,
+                       COALESCE(SUM(execution.model_run_count), 0) AS run_count,
+                       COALESCE(SUM(execution.model_vote_count), 0) AS vote_count,
+                       COALESCE(SUM(execution.metric_estimate_count), 0)
+                           AS estimate_count
+                FROM estimator_plans AS plan
+                LEFT JOIN estimator_executions AS execution
+                  ON execution.plan_fingerprint = plan.plan_fingerprint
+                WHERE plan.uses_synthetic_model = 1
+                GROUP BY plan.plan_fingerprint,
+                         plan.plan_key,
+                         plan.plan_version,
+                         plan.route,
+                         plan.question_count
+                ORDER BY plan.plan_key, plan.plan_version, plan.plan_fingerprint
+                LIMIT ?
+                """,
+                (MAX_MODEL_LAB_PLANS + 1,),
+            ).fetchall()
+        if len(rows) > MAX_MODEL_LAB_PLANS:
+            raise DatabaseInvariantError("model lab plan inventory exceeds its safe bound")
+        plans = tuple(
+            ModelLabPlanSummary(
+                plan_fingerprint=row["plan_fingerprint"],
+                plan_key=row["plan_key"],
+                plan_version=row["plan_version"],
+                route=EstimatorRoute(row["route"]),
+                metric_question_count=row["question_count"],
+                synthetic_execution_count=row["execution_count"],
+                model_run_count=row["run_count"],
+                model_vote_count=row["vote_count"],
+                metric_estimate_count=row["estimate_count"],
+                activation_outcome=(
+                    ActivationAttemptOutcome.SYNTHETIC_OR_INSUFFICIENT
+                ),
+                activation_allowed=False,
+            )
+            for row in rows
+        )
+        return ModelLabInventory(
+            registered_plan_count=len(plans),
+            synthetic_execution_count=sum(
+                plan.synthetic_execution_count for plan in plans
+            ),
+            model_run_count=sum(plan.model_run_count for plan in plans),
+            model_vote_count=sum(plan.model_vote_count for plan in plans),
+            metric_estimate_count=sum(plan.metric_estimate_count for plan in plans),
+            activation_outcome=ActivationAttemptOutcome.SYNTHETIC_OR_INSUFFICIENT,
+            activation_allowed=False,
+            plans=plans,
         )
 
     def attempt_activation(self, plan_fingerprint: str) -> ModelLabSummary:

@@ -3571,6 +3571,179 @@
         "title": "ModelExperimentDevice",
         "type": "string"
       },
+      "ModelLabInventoryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "activation_allowed": {
+            "const": false,
+            "title": "Activation Allowed",
+            "type": "boolean"
+          },
+          "activation_outcome": {
+            "const": "synthetic_or_insufficient",
+            "title": "Activation Outcome",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "model-lab-inventory-v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "metric_estimate_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Metric Estimate Count",
+            "type": "integer"
+          },
+          "model_run_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Model Run Count",
+            "type": "integer"
+          },
+          "model_vote_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Model Vote Count",
+            "type": "integer"
+          },
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/ModelLabPlanSummaryDto"
+            },
+            "maxItems": 1000,
+            "title": "Plans",
+            "type": "array"
+          },
+          "private_evidence_returned": {
+            "const": false,
+            "title": "Private Evidence Returned",
+            "type": "boolean"
+          },
+          "registered_plan_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Registered Plan Count",
+            "type": "integer"
+          },
+          "scope": {
+            "const": "synthetic_only",
+            "title": "Scope",
+            "type": "string"
+          },
+          "session_data_read": {
+            "const": false,
+            "title": "Session Data Read",
+            "type": "boolean"
+          },
+          "synthetic_execution_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Synthetic Execution Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contract_version",
+          "scope",
+          "session_data_read",
+          "private_evidence_returned",
+          "registered_plan_count",
+          "synthetic_execution_count",
+          "model_run_count",
+          "model_vote_count",
+          "metric_estimate_count",
+          "activation_outcome",
+          "activation_allowed",
+          "plans"
+        ],
+        "title": "ModelLabInventoryDto",
+        "type": "object"
+      },
+      "ModelLabPlanSummaryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "activation_allowed": {
+            "const": false,
+            "title": "Activation Allowed",
+            "type": "boolean"
+          },
+          "activation_outcome": {
+            "const": "synthetic_or_insufficient",
+            "title": "Activation Outcome",
+            "type": "string"
+          },
+          "metric_estimate_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Metric Estimate Count",
+            "type": "integer"
+          },
+          "metric_question_count": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Metric Question Count",
+            "type": "integer"
+          },
+          "model_run_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Model Run Count",
+            "type": "integer"
+          },
+          "model_vote_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Model Vote Count",
+            "type": "integer"
+          },
+          "plan_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Plan Fingerprint",
+            "type": "string"
+          },
+          "plan_key": {
+            "pattern": "^[a-z][a-z0-9_.:-]{0,127}$",
+            "title": "Plan Key",
+            "type": "string"
+          },
+          "plan_version": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+            "title": "Plan Version",
+            "type": "string"
+          },
+          "route": {
+            "enum": [
+              "fast",
+              "balanced",
+              "deep"
+            ],
+            "title": "Route",
+            "type": "string"
+          },
+          "synthetic_execution_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Synthetic Execution Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plan_fingerprint",
+          "plan_key",
+          "plan_version",
+          "route",
+          "metric_question_count",
+          "synthetic_execution_count",
+          "model_run_count",
+          "model_vote_count",
+          "metric_estimate_count",
+          "activation_outcome",
+          "activation_allowed"
+        ],
+        "title": "ModelLabPlanSummaryDto",
+        "type": "object"
+      },
       "ModelLinkAnnotationDto": {
         "additionalProperties": false,
         "properties": {
@@ -9193,6 +9366,71 @@
         "summary": "Candidate Decisions",
         "tags": [
           "task-discovery"
+        ]
+      }
+    },
+    "/v1/estimators/plans": {
+      "get": {
+        "operationId": "list_estimator_plans_v1_estimators_plans_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLabInventoryDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Estimator Plans",
+        "tags": [
+          "estimators"
         ]
       }
     },

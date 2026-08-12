@@ -19,6 +19,7 @@ from .contracts import (
     EstimatorExecution,
     EstimatorExecutionState,
     EstimatorPlan,
+    EstimatorRoute,
     EstimatorStageKind,
     EvidencePacketReceipt,
     ExecutionDestination,
@@ -36,6 +37,9 @@ from .contracts import (
 SYNTHETIC_ESTIMATOR_CASE_VERSION = "synthetic-estimator-case-v1"
 ESTIMATOR_BUNDLE_VERSION = "estimator-bundle-v1"
 MODEL_LAB_SUMMARY_VERSION = "model-lab-summary-v1"
+MODEL_LAB_INVENTORY_VERSION = "model-lab-inventory-v1"
+MAX_MODEL_LAB_PLANS = 1_000
+MAX_MODEL_LAB_COUNT = 9_007_199_254_740_991
 
 
 def _digest(value: str) -> str:
@@ -552,6 +556,76 @@ class ModelLabSummary(StrictModel):
     _safe_plan = field_validator("plan_fingerprint")(_digest)
 
 
+class ModelLabPlanSummary(StrictModel):
+    """One synthetic plan's content-free persisted evaluation inventory."""
+
+    plan_fingerprint: str
+    plan_key: str = Field(pattern=r"^[a-z][a-z0-9_.:-]{0,127}$")
+    plan_version: str
+    route: EstimatorRoute
+    metric_question_count: int = Field(ge=1, le=100)
+    synthetic_execution_count: int = Field(ge=0, le=MAX_MODEL_LAB_COUNT)
+    model_run_count: int = Field(ge=0, le=MAX_MODEL_LAB_COUNT)
+    model_vote_count: int = Field(ge=0, le=MAX_MODEL_LAB_COUNT)
+    metric_estimate_count: int = Field(ge=0, le=MAX_MODEL_LAB_COUNT)
+    activation_outcome: Literal[
+        ActivationAttemptOutcome.SYNTHETIC_OR_INSUFFICIENT
+    ] = ActivationAttemptOutcome.SYNTHETIC_OR_INSUFFICIENT
+    activation_allowed: Literal[False] = False
+
+    _safe_plan = field_validator("plan_fingerprint")(_digest)
+    _safe_plan_version = field_validator("plan_version")(_version)
+
+
+class ModelLabInventory(StrictModel):
+    """Canonical synthetic-only aggregate; reading it never opens sessions."""
+
+    contract_version: Literal[MODEL_LAB_INVENTORY_VERSION] = (
+        MODEL_LAB_INVENTORY_VERSION
+    )
+    scope: Literal["synthetic_only"] = "synthetic_only"
+    session_data_read: Literal[False] = False
+    private_evidence_returned: Literal[False] = False
+    registered_plan_count: int = Field(ge=0, le=MAX_MODEL_LAB_PLANS)
+    synthetic_execution_count: int = Field(ge=0, le=MAX_MODEL_LAB_COUNT)
+    model_run_count: int = Field(ge=0, le=MAX_MODEL_LAB_COUNT)
+    model_vote_count: int = Field(ge=0, le=MAX_MODEL_LAB_COUNT)
+    metric_estimate_count: int = Field(ge=0, le=MAX_MODEL_LAB_COUNT)
+    activation_outcome: Literal[
+        ActivationAttemptOutcome.SYNTHETIC_OR_INSUFFICIENT
+    ] = ActivationAttemptOutcome.SYNTHETIC_OR_INSUFFICIENT
+    activation_allowed: Literal[False] = False
+    plans: tuple[ModelLabPlanSummary, ...] = Field(max_length=MAX_MODEL_LAB_PLANS)
+
+    @model_validator(mode="after")
+    def validate_canonical_totals(self) -> ModelLabInventory:
+        order = tuple(
+            (plan.plan_key, plan.plan_version, plan.plan_fingerprint)
+            for plan in self.plans
+        )
+        if order != tuple(sorted(order)) or len({item[2] for item in order}) != len(
+            order
+        ):
+            raise ValueError("model lab plans must be unique and canonically ordered")
+        expected = (
+            len(self.plans),
+            sum(plan.synthetic_execution_count for plan in self.plans),
+            sum(plan.model_run_count for plan in self.plans),
+            sum(plan.model_vote_count for plan in self.plans),
+            sum(plan.metric_estimate_count for plan in self.plans),
+        )
+        actual = (
+            self.registered_plan_count,
+            self.synthetic_execution_count,
+            self.model_run_count,
+            self.model_vote_count,
+            self.metric_estimate_count,
+        )
+        if actual != expected:
+            raise ValueError("model lab aggregate counts must equal the plan totals")
+        return self
+
+
 class EstimatorRepository(Protocol):
     def register_plan(self, plan: EstimatorPlan) -> str: ...
 
@@ -566,6 +640,8 @@ class EstimatorRepository(Protocol):
     ) -> CompletedSyntheticEstimatorBundle | None: ...
 
     def model_lab_summary(self, plan_fingerprint: str) -> ModelLabSummary: ...
+
+    def model_lab_inventory(self) -> ModelLabInventory: ...
 
     def attempt_activation(self, plan_fingerprint: str) -> ModelLabSummary: ...
 

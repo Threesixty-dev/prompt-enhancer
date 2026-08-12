@@ -280,6 +280,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/estimators/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Estimator Plans */
+        get: operations["list_estimator_plans_v1_estimators_plans_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-sources/codex": {
         parameters: {
             query?: never;
@@ -2200,6 +2217,85 @@ export interface components {
          * @enum {string}
          */
         ModelExperimentDevice: "auto" | "cpu" | "cuda" | "mps";
+        /** ModelLabInventoryDto */
+        ModelLabInventoryDto: {
+            /**
+             * Activation Allowed
+             * @constant
+             */
+            activation_allowed: false;
+            /**
+             * Activation Outcome
+             * @constant
+             */
+            activation_outcome: "synthetic_or_insufficient";
+            /**
+             * Contract Version
+             * @constant
+             */
+            contract_version: "model-lab-inventory-v1";
+            /** Metric Estimate Count */
+            metric_estimate_count: number;
+            /** Model Run Count */
+            model_run_count: number;
+            /** Model Vote Count */
+            model_vote_count: number;
+            /** Plans */
+            plans: components["schemas"]["ModelLabPlanSummaryDto"][];
+            /**
+             * Private Evidence Returned
+             * @constant
+             */
+            private_evidence_returned: false;
+            /** Registered Plan Count */
+            registered_plan_count: number;
+            /**
+             * Scope
+             * @constant
+             */
+            scope: "synthetic_only";
+            /**
+             * Session Data Read
+             * @constant
+             */
+            session_data_read: false;
+            /** Synthetic Execution Count */
+            synthetic_execution_count: number;
+        };
+        /** ModelLabPlanSummaryDto */
+        ModelLabPlanSummaryDto: {
+            /**
+             * Activation Allowed
+             * @constant
+             */
+            activation_allowed: false;
+            /**
+             * Activation Outcome
+             * @constant
+             */
+            activation_outcome: "synthetic_or_insufficient";
+            /** Metric Estimate Count */
+            metric_estimate_count: number;
+            /** Metric Question Count */
+            metric_question_count: number;
+            /** Model Run Count */
+            model_run_count: number;
+            /** Model Vote Count */
+            model_vote_count: number;
+            /** Plan Fingerprint */
+            plan_fingerprint: string;
+            /** Plan Key */
+            plan_key: string;
+            /** Plan Version */
+            plan_version: string;
+            /**
+             * Route
+             * @enum {string}
+             */
+            route: "fast" | "balanced" | "deep";
+            /** Synthetic Execution Count */
+            synthetic_execution_count: number;
+        };
         /** ModelLinkAnnotationDto */
         ModelLinkAnnotationDto: {
             /**
@@ -4326,6 +4422,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CandidateDecisionsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_estimator_plans_v1_estimators_plans_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLabInventoryDto"];
                 };
             };
             /** @description Validation Error */

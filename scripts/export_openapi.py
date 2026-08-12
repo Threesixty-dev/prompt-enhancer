@@ -184,6 +184,12 @@ class _SchemaAutomationGrantService:
     pass
 
 
+class _SchemaEstimatorRepository:
+    """Non-executing stand-in exposing the read-only Model Lab route."""
+
+    pass
+
+
 class _SchemaCodexSourceService:
     """Non-executing stand-in that exposes only local-source route signatures."""
 
@@ -230,6 +236,7 @@ def build_openapi_schema() -> dict[str, Any]:
         metric_readiness_service=_SchemaMetricReadinessService(),  # type: ignore[arg-type]
         analysis_job_service=_SchemaAnalysisJobService(),  # type: ignore[arg-type]
         automation_grant_service=_SchemaAutomationGrantService(),  # type: ignore[arg-type]
+        estimator_repository=_SchemaEstimatorRepository(),  # type: ignore[arg-type]
         codex_source_service=_SchemaCodexSourceService(),
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),

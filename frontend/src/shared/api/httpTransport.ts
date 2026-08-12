@@ -19,6 +19,7 @@ import type {
   CodexSessionListResponse,
   DisplayLabelEntityKind,
   ManualDisplayLabelResult,
+  ModelLabInventory,
   ModelLinkAnnotation,
   ModelLinkAnnotationRequest,
   ModelLinkExperiment,
@@ -147,6 +148,102 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "model_link_persistence_failed",
   "model_link_revision_conflict",
 ]);
+
+const MODEL_LAB_INVENTORY_KEYS = new Set([
+  "contract_version", "scope", "session_data_read", "private_evidence_returned",
+  "registered_plan_count", "synthetic_execution_count", "model_run_count",
+  "model_vote_count", "metric_estimate_count", "activation_outcome",
+  "activation_allowed", "plans",
+]);
+const MODEL_LAB_PLAN_KEYS = new Set([
+  "plan_fingerprint", "plan_key", "plan_version", "route",
+  "metric_question_count", "synthetic_execution_count", "model_run_count",
+  "model_vote_count", "metric_estimate_count", "activation_outcome",
+  "activation_allowed",
+]);
+const MODEL_LAB_PLAN_KEY = /^[a-z][a-z0-9_.:-]{0,127}$/;
+const MODEL_LAB_SAFE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$/;
+const MODEL_LAB_PSEUDONYM = /^[a-f0-9]{64}$/;
+const MAX_MODEL_LAB_PLANS = 1_000;
+
+function modelLabSafeInteger(value: unknown, maximum = Number.MAX_SAFE_INTEGER): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) &&
+    value >= 0 && value <= maximum;
+}
+
+function modelLabSafeVersion(value: unknown): value is string {
+  return typeof value === "string" && MODEL_LAB_SAFE_VERSION.test(value) &&
+    !value.startsWith("/") && !value.startsWith("\\") &&
+    !/^[A-Za-z]:[/\\]/.test(value) && !value.includes("\\") &&
+    !value.includes("://") && !value.split("/").includes("..");
+}
+
+function parseModelLabPlan(value: unknown): ModelLabInventory["plans"][number] {
+  if (
+    !isRecord(value) || !hasExactKeys(value, MODEL_LAB_PLAN_KEYS) ||
+    typeof value.plan_fingerprint !== "string" ||
+    !MODEL_LAB_PSEUDONYM.test(value.plan_fingerprint) ||
+    typeof value.plan_key !== "string" || !MODEL_LAB_PLAN_KEY.test(value.plan_key) ||
+    !modelLabSafeVersion(value.plan_version) ||
+    !["fast", "balanced", "deep"].includes(value.route as string) ||
+    !modelLabSafeInteger(value.metric_question_count, 100) ||
+    (value.metric_question_count as number) < 1 ||
+    !modelLabSafeInteger(value.synthetic_execution_count) ||
+    !modelLabSafeInteger(value.model_run_count) ||
+    !modelLabSafeInteger(value.model_vote_count) ||
+    !modelLabSafeInteger(value.metric_estimate_count) ||
+    value.activation_outcome !== "synthetic_or_insufficient" ||
+    value.activation_allowed !== false
+  ) {
+    throw new TransportError("Model Lab inventory response was invalid", 200);
+  }
+  return value as unknown as ModelLabInventory["plans"][number];
+}
+
+/** Strict content-free projection. Invalid or partial inventory is never shown as zero. */
+export function parseModelLabInventory(value: unknown): ModelLabInventory {
+  if (
+    !isRecord(value) || !hasExactKeys(value, MODEL_LAB_INVENTORY_KEYS) ||
+    value.contract_version !== "model-lab-inventory-v1" ||
+    value.scope !== "synthetic_only" || value.session_data_read !== false ||
+    value.private_evidence_returned !== false ||
+    !modelLabSafeInteger(value.registered_plan_count, MAX_MODEL_LAB_PLANS) ||
+    !modelLabSafeInteger(value.synthetic_execution_count) ||
+    !modelLabSafeInteger(value.model_run_count) ||
+    !modelLabSafeInteger(value.model_vote_count) ||
+    !modelLabSafeInteger(value.metric_estimate_count) ||
+    value.activation_outcome !== "synthetic_or_insufficient" ||
+    value.activation_allowed !== false || !Array.isArray(value.plans) ||
+    value.plans.length > MAX_MODEL_LAB_PLANS
+  ) {
+    throw new TransportError("Model Lab inventory response was invalid", 200);
+  }
+  const plans = value.plans.map(parseModelLabPlan);
+  const order = plans.map((plan) =>
+    `${plan.plan_key}\u0000${plan.plan_version}\u0000${plan.plan_fingerprint}`
+  );
+  const totals = plans.reduce(
+    (result, plan) => ({
+      executions: result.executions + plan.synthetic_execution_count,
+      runs: result.runs + plan.model_run_count,
+      votes: result.votes + plan.model_vote_count,
+      estimates: result.estimates + plan.metric_estimate_count,
+    }),
+    { executions: 0, runs: 0, votes: 0, estimates: 0 },
+  );
+  if (
+    value.registered_plan_count !== plans.length ||
+    new Set(plans.map((plan) => plan.plan_fingerprint)).size !== plans.length ||
+    order.some((item, index) => index > 0 && order[index - 1] > item) ||
+    !Object.values(totals).every(Number.isSafeInteger) ||
+    value.synthetic_execution_count !== totals.executions ||
+    value.model_run_count !== totals.runs || value.model_vote_count !== totals.votes ||
+    value.metric_estimate_count !== totals.estimates
+  ) {
+    throw new TransportError("Model Lab inventory response was invalid", 200);
+  }
+  return { ...value, plans } as ModelLabInventory;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -1737,6 +1834,16 @@ export function createHttpTransport(options: {
         { method: "GET" },
         signal,
       );
+    },
+    async getModelLabInventory(signal) {
+      const value = await request<unknown>(
+        "/v1/estimators/plans",
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return parseModelLabInventory(value);
     },
     startTextModelEvaluation(body, signal) {
       return request(
