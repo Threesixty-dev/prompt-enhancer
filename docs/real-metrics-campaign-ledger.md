@@ -145,6 +145,20 @@ does not provide a universal no-tool boundary. Claude consumer-subscription
 automation is absent; its only supported path is manual export/import. No BYOK
 or provider-network runner is implemented in this checkpoint.
 
+The derived gate manifest accepts no caller assertions about eligibility,
+holdout integrity, privacy, or synthetic origin. A pre-evaluation manifest
+freezes only static case membership and project/time/slice assignments; the
+completed cohort separately fingerprints predictions, confidence, run state,
+latency, and reference judgments. The gate exact-matches those two projections
+and requires split freeze and preregistration before every holdout evaluation.
+It then reconstructs eligibility from holdout-access receipts, independent
+truth/adjudication receipts, privacy scans, stability runs, performance, and
+operational measurements. Missing evidence stays insufficient; synthetic,
+consensus/self-reported truth, split leakage, fallback, privacy findings, or
+unverified external execution boundaries reject. Codex CLI, manual import,
+OpenAI API, and Anthropic API therefore remain activation-blocked until a
+separately reviewed execution boundary and immutable provenance exist.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
