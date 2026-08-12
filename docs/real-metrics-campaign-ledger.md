@@ -19,7 +19,7 @@ local runtime artifacts must never be added here.
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
-| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, plus an untrusted, non-activating calibration-report foundation | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, repository-derived report, sealed gate decision, calibrated model-stage runtime, or product-enabled estimator |
+| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, plus repository-sealed non-comparable calibration reports | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, sealed gate decision, calibrated model-stage runtime, or product-enabled estimator |
 | P2 | In progress | Prospective, untrusted temporal contracts and capture-lineage foundations only | Prospective comparable recommendation outcomes with missingness and adverse effects visible | No temporal persistence, repository-materialized snapshots, recommendations, or model/job/history views; no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
@@ -322,6 +322,26 @@ plan and does not report physical purge until the WAL is truncated. The final
 gate passed 1,223 backend tests with 4 platform skips, privacy and compile
 checks, and two adversarial review rounds. These results prove the bounded
 runtime implementation, not model validity or activation eligibility.
+
+Checkpoint `0b45b47` persists the complete calibration report as normalized
+schema-v19 data. Its sole write command accepts only a sealed v17 submission
+identifier; within one `BEGIN IMMEDIATE` transaction the repository hydrates
+and revalidates the exact v16 campaign and v17 evidence, captures one repository
+timestamp, rederives the unchanged untrusted report, writes every definition,
+scope, measurement, detail, resource, missingness, and metric root, then seals
+the report root last. Replay preserves the timestamp and fingerprint, while
+conflicting or partial writes fail atomically.
+
+The structurally constructible sealed receipt is explicitly not a capability.
+Repository reads rehydrate and fully rederive the v16/v17/report graph before
+returning it; connection-bound authorization guards reject stale, forged, or
+cross-report writes. Missing and unsupported measurements remain `NULL` with
+their explicit state and never become zero. Campaign privacy deletion cascades
+the report and still requires secure WAL truncation before success. The report
+remains `comparison_allowed=false`, `activation_allowed=false`, and private
+export/team sharing false. No gate-decision or activation table was added. The
+checkpoint passed 1,241 backend tests with 4 platform skips, focused/adjacent
+report gates, privacy and compile checks, and independent adversarial review.
 
 ## P2 foundation evidence
 
