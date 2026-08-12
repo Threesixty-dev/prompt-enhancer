@@ -1,14 +1,16 @@
-"""Content-free persistence boundary for immutable estimator evaluation bundles.
+"""Content-free persistence boundary for immutable estimator evaluation data.
 
-Only synthetic cases are accepted by this first vertical slice.  The types do
-not contain prompts, excerpts, evidence bodies, model responses, rationales, or
-commentary; those values must remain ephemeral outside the repository.
+V15 execution bundles remain synthetic-only. V16 additionally accepts only
+structured, content-free calibration commitments for representative cases; it
+does not accept prompts, excerpts, evidence bodies, model responses, rationales,
+or commentary. Those values must remain ephemeral outside the repository.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from enum import StrEnum
+import math
 import re
 from typing import Literal, Protocol
 
@@ -32,6 +34,12 @@ from .contracts import (
     ModelVote,
     StageCondition,
 )
+from .gate_contracts import CalibrationSplit, GatePolicy, GatePreregistration
+from .gate_v2_contracts import (
+    CaseAssignmentManifestV2,
+    ConstellationIdentityReceipt,
+    GatePreregistrationV2,
+)
 
 
 SYNTHETIC_ESTIMATOR_CASE_VERSION = "synthetic-estimator-case-v1"
@@ -40,6 +48,7 @@ MODEL_LAB_SUMMARY_VERSION = "model-lab-summary-v1"
 MODEL_LAB_INVENTORY_VERSION = "model-lab-inventory-v1"
 MAX_MODEL_LAB_PLANS = 1_000
 MAX_MODEL_LAB_COUNT = 9_007_199_254_740_991
+ESTIMATOR_GATE_CAMPAIGN_VERSION = "estimator-gate-campaign-v1"
 
 
 def _digest(value: str) -> str:
@@ -65,6 +74,94 @@ def _utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("timestamp must be UTC")
     return value
+
+
+def _v16_plan_identifier_values(plan: EstimatorPlan) -> tuple[str, ...]:
+    values = [
+        plan.plan_key,
+        plan.plan_version,
+        plan.evidence_packet_schema_version,
+        plan.preprocessing_version,
+        plan.calibration_version,
+        plan.router_version,
+        plan.redactor_version,
+        plan.execution_mode,
+        plan.model_load_policy,
+    ]
+    for provider in plan.provider_schemas:
+        values.extend(
+            (
+                provider.provider.value,
+                provider.adapter_version,
+                provider.provider_schema_version,
+            )
+        )
+    for question in plan.question_specs:
+        values.extend(
+            (
+                question.contract_version,
+                question.metric_key,
+                question.metric_definition_version,
+                question.question_id,
+                question.question_version,
+                question.prompt_template_id,
+                question.prompt_template_version,
+                question.rubric_id,
+                question.rubric_version,
+                question.output_schema_version,
+                question.unit_code,
+            )
+        )
+    artifacts = []
+    for stage in plan.stages:
+        values.extend(
+            (
+                stage.kind.value,
+                stage.condition.value,
+                stage.component_version,
+                stage.output_schema_version,
+            )
+        )
+        if stage.candidate_family_key is not None:
+            values.append(stage.candidate_family_key)
+        if stage.model_artifact is not None:
+            artifacts.append(stage.model_artifact)
+    for family in plan.candidate_families:
+        values.append(family.family_key)
+        values.extend(family.deterministic_baseline_ids)
+        artifacts.extend(family.screened_candidates)
+    for artifact in artifacts:
+        values.extend(
+            (
+                artifact.contract_version,
+                artifact.source.value,
+                artifact.requested_model_id,
+                artifact.served_model_id,
+                artifact.requested_revision,
+                artifact.served_revision,
+                artifact.requested_execution_mode.value,
+                artifact.served_execution_mode.value,
+                artifact.weight_availability.value,
+                artifact.tokenizer.tokenizer_id,
+                artifact.tokenizer.revision,
+                artifact.tokenizer.availability.value,
+                artifact.license_id,
+            )
+        )
+        values.extend(item.file_name for item in artifact.weight_artifacts)
+        values.extend(item.file_name for item in artifact.tokenizer.artifacts)
+    return tuple(values)
+
+
+def _v16_plan_has_unsafe_identifier(plan: EstimatorPlan) -> bool:
+    return any(
+        value.startswith(("/", "\\"))
+        or ":" in value
+        or "\\" in value
+        or ".." in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        for value in _v16_plan_identifier_values(plan)
+    )
 
 
 class SyntheticEstimatorCase(StrictModel):
@@ -540,6 +637,233 @@ class PrivacyDeleteOutcome(StrEnum):
     ALREADY_ABSENT_AND_PURGED = "already_absent_and_purged"
 
 
+class PreregisteredEstimatorCampaign(StrictModel):
+    """Immutable, content-free commitment made before holdout evaluation.
+
+    The complete legacy preregistration remains required because v2 binds its
+    fingerprint and the metric label vocabularies still live only in that v1
+    contract.  It is compatibility metadata, not an authoritative estimator
+    identity; the exact model constellation is the v2 receipt below. Privacy
+    deletion retains only a domain-separated digest of ``campaign_id`` plus
+    its deletion timestamp as a minimal revocation barrier so the same erased
+    scope cannot be resurrected without retaining its original identifier.
+    """
+
+    contract_version: Literal[ESTIMATOR_GATE_CAMPAIGN_VERSION] = (
+        ESTIMATOR_GATE_CAMPAIGN_VERSION
+    )
+    campaign_id: str
+    stored_plan: EstimatorPlan
+    policy: GatePolicy
+    assignment_manifest: CaseAssignmentManifestV2
+    split: CalibrationSplit
+    legacy_preregistration: GatePreregistration
+    preregistration_v2: GatePreregistrationV2
+    constellation_identity: ConstellationIdentityReceipt
+    registered_at: datetime
+    activation_allowed: Literal[False] = False
+    private_export_allowed: Literal[False] = False
+    team_share_allowed: Literal[False] = False
+
+    _safe_campaign = field_validator("campaign_id")(_digest)
+    _utc_registered = field_validator("registered_at")(_utc)
+
+    @model_validator(mode="after")
+    def validate_preregistered_lineage(self) -> PreregisteredEstimatorCampaign:
+        plan = self.stored_plan
+        plan_fingerprint = plan.canonical_fingerprint
+        policy_fingerprint = self.policy.fingerprint
+        manifest = self.assignment_manifest
+        manifest_fingerprint = manifest.fingerprint
+        split = self.split
+        split_fingerprint = split.fingerprint
+        legacy = self.legacy_preregistration
+        legacy_fingerprint = legacy.fingerprint
+        preregistration = self.preregistration_v2
+        constellation = self.constellation_identity
+        constellation_fingerprint = constellation.fingerprint
+
+        if _v16_plan_has_unsafe_identifier(plan):
+            raise ValueError(
+                "stored estimator plan contains unsafe v16 identifiers"
+            )
+
+        persisted_policy_reals = (
+            self.policy.minimum_baseline_margin,
+            self.policy.maximum_human_gap,
+            self.policy.maximum_ece,
+            self.policy.minimum_repeat_stability,
+            self.policy.minimum_selective_coverage,
+            self.policy.maximum_selective_risk,
+            self.policy.false_confidence_threshold,
+            self.policy.maximum_false_confident_error_rate,
+            self.policy.maximum_cold_p95_latency_ms,
+            self.policy.maximum_warm_p95_latency_ms,
+            self.policy.maximum_oom_rate,
+            self.policy.maximum_error_rate,
+            self.policy.maximum_refusal_rate,
+            self.policy.maximum_material_subgroup_regression,
+            *(rule.minimum_precision for rule in self.policy.high_risk_precision_rules),
+        )
+        if any(
+            value == 0.0 and math.copysign(1.0, value) < 0
+            for value in persisted_policy_reals
+        ):
+            raise ValueError(
+                "v16 persisted gate policy rejects noncanonical negative zero"
+            )
+
+        if plan.uses_synthetic_model:
+            raise ValueError("calibration campaigns require a non-synthetic stored plan")
+        if manifest.plan_fingerprint != plan_fingerprint:
+            raise ValueError("assignment manifest does not bind the stored plan")
+
+        questions = {
+            question.canonical_fingerprint: question for question in plan.question_specs
+        }
+        if len({question.metric_key for question in plan.question_specs}) != len(
+            plan.question_specs
+        ):
+            raise ValueError(
+                "v16 campaigns require exactly one metric question per metric key"
+            )
+        if any(
+            assignment.metric_question_fingerprint not in questions
+            or questions[assignment.metric_question_fingerprint].metric_key
+            != assignment.metric_key
+            for assignment in manifest.assignments
+        ):
+            raise ValueError("assignment metric question does not belong to the plan")
+        represented_questions = {
+            assignment.metric_question_fingerprint
+            for assignment in manifest.assignments
+        }
+        if represented_questions != set(questions):
+            raise ValueError(
+                "every stored-plan metric question must be represented in the manifest"
+            )
+        if len(plan.provider_schemas) != 1:
+            raise ValueError(
+                "v16 campaigns require exactly one stored provider schema identity"
+            )
+        stored_provider = plan.provider_schemas[0].provider
+        if any(
+            assignment.provider is not stored_provider
+            for assignment in manifest.assignments
+        ):
+            raise ValueError(
+                "every assignment provider must match the stored provider schema"
+            )
+
+        all_case_ids = {
+            *split.development_case_ids,
+            *split.active_learning_case_ids,
+            *split.holdout_case_ids,
+        }
+        manifest_case_ids = {item.case_id for item in manifest.assignments}
+        if all_case_ids != manifest_case_ids:
+            raise ValueError("calibration split must partition every manifest case exactly")
+        if split.assignment_manifest_fingerprint != manifest_fingerprint:
+            raise ValueError("calibration split does not bind the assignment manifest")
+
+        active_count = len(split.active_learning_case_ids)
+        if not (
+            self.policy.minimum_active_learning_count
+            <= active_count
+            <= self.policy.maximum_active_learning_count
+        ):
+            raise ValueError("active-learning partition violates preregistered bounds")
+        holdout = {
+            assignment.case_id: assignment
+            for assignment in manifest.assignments
+            if assignment.case_id in set(split.holdout_case_ids)
+        }
+        if len(holdout) < self.policy.minimum_holdout_count:
+            raise ValueError("holdout partition is below the preregistered minimum")
+        for metric_key in {item.metric_key for item in manifest.assignments}:
+            if (
+                sum(item.metric_key == metric_key for item in holdout.values())
+                < self.policy.minimum_holdout_per_metric
+            ):
+                raise ValueError("holdout metric slice is below its minimum")
+        for stratum in self.policy.required_strata:
+            if (
+                sum(item.task_stratum is stratum for item in holdout.values())
+                < self.policy.minimum_holdout_per_stratum
+            ):
+                raise ValueError("holdout task stratum is below its minimum")
+        for language in self.policy.required_languages:
+            if (
+                sum(item.language is language for item in holdout.values())
+                < self.policy.minimum_holdout_per_language
+            ):
+                raise ValueError("holdout language slice is below its minimum")
+
+        metric_keys = tuple(spec.metric_key for spec in legacy.metric_specs)
+        plan_metric_keys = tuple(sorted({item.metric_key for item in plan.question_specs}))
+        if metric_keys != plan_metric_keys:
+            raise ValueError("legacy metric specs must cover the stored plan exactly")
+        high_risk_metric_keys = {
+            spec.metric_key
+            for spec in legacy.metric_specs
+            if spec.risk_tier.value == "high"
+        }
+        policy_high_risk_metric_keys = {
+            rule.metric_key for rule in self.policy.high_risk_precision_rules
+        }
+        if high_risk_metric_keys != policy_high_risk_metric_keys:
+            raise ValueError(
+                "high-risk policy rules must exactly match legacy metric specs"
+            )
+        if (
+            legacy.policy_fingerprint != policy_fingerprint
+            or legacy.assignment_manifest_fingerprint != manifest_fingerprint
+            or legacy.split_fingerprint != split_fingerprint
+        ):
+            raise ValueError("legacy preregistration lineage is inconsistent")
+
+        expected_constellation = ConstellationIdentityReceipt.from_plan(
+            plan,
+            constellation_id=constellation.constellation_id,
+            frozen_at=constellation.frozen_at,
+        )
+        if constellation != expected_constellation:
+            raise ValueError("constellation is not the complete stored-plan projection")
+        if (
+            preregistration.policy_fingerprint != policy_fingerprint
+            or preregistration.assignment_manifest_fingerprint != manifest_fingerprint
+            or preregistration.split_fingerprint != split_fingerprint
+            or preregistration.stored_plan_fingerprint != plan_fingerprint
+            or preregistration.constellation_fingerprint != constellation_fingerprint
+            or preregistration.legacy_preregistration_fingerprint != legacy_fingerprint
+        ):
+            raise ValueError("v2 preregistration lineage is inconsistent")
+
+        if not (
+            manifest.frozen_at
+            <= split.frozen_at
+            <= constellation.frozen_at
+            <= legacy.registered_at
+            <= preregistration.registered_at
+            <= self.registered_at
+        ):
+            raise ValueError("campaign commitments are not chronological")
+        return self
+
+    @property
+    def fingerprint(self) -> str:
+        import hashlib
+        import json
+
+        payload = json.dumps(
+            self.model_dump(mode="json"),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+
 class ModelLabSummary(StrictModel):
     """Content-free inventory; it deliberately has no activation switch."""
 
@@ -647,4 +971,16 @@ class EstimatorRepository(Protocol):
 
     def delete_synthetic_case_for_privacy(
         self, case_id: str
+    ) -> PrivacyDeleteOutcome: ...
+
+    def register_preregistered_campaign(
+        self, campaign: PreregisteredEstimatorCampaign
+    ) -> str: ...
+
+    def get_preregistered_campaign(
+        self, campaign_id: str
+    ) -> PreregisteredEstimatorCampaign | None: ...
+
+    def delete_preregistered_campaign_for_privacy(
+        self, campaign_id: str
     ) -> PrivacyDeleteOutcome: ...

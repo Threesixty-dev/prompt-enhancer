@@ -56,6 +56,7 @@ from .contracts import (
 )
 from .persistence import (
     ESTIMATOR_BUNDLE_VERSION,
+    ESTIMATOR_GATE_CAMPAIGN_VERSION,
     MAX_MODEL_LAB_PLANS,
     MODEL_LAB_INVENTORY_VERSION,
     MODEL_LAB_SUMMARY_VERSION,
@@ -67,6 +68,7 @@ from .persistence import (
     ModelLabPlanSummary,
     ModelLabSummary,
     PrivacyDeleteOutcome,
+    PreregisteredEstimatorCampaign,
     SyntheticEstimatorCase,
 )
 
@@ -124,6 +126,7 @@ __all__ = (
     "TokenizerIdentity",
     "UncertaintyKind",
     "ESTIMATOR_BUNDLE_VERSION",
+    "ESTIMATOR_GATE_CAMPAIGN_VERSION",
     "MAX_MODEL_LAB_PLANS",
     "MODEL_LAB_INVENTORY_VERSION",
     "MODEL_LAB_SUMMARY_VERSION",
@@ -135,5 +138,6 @@ __all__ = (
     "ModelLabPlanSummary",
     "ModelLabSummary",
     "PrivacyDeleteOutcome",
+    "PreregisteredEstimatorCampaign",
     "SyntheticEstimatorCase",
 )

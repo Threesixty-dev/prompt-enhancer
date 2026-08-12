@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+import hashlib
 from typing import NoReturn
 
 from ...application.estimators.contracts import (
@@ -51,7 +52,27 @@ from ...application.estimators.persistence import (
     ModelLabPlanSummary,
     ModelLabSummary,
     PrivacyDeleteOutcome,
+    PreregisteredEstimatorCampaign,
     SyntheticEstimatorCase,
+    _v16_plan_has_unsafe_identifier,
+)
+from ...application.estimators.gate_contracts import (
+    CalibrationLanguage,
+    CalibrationSplit,
+    CalibrationTaskStratum,
+    GatePolicy,
+    GatePreregistration,
+    HighRiskPrecisionRule,
+    MetricGateSpec,
+    MetricRiskTier,
+    SubgroupDimension,
+)
+from ...application.estimators.gate_v2_contracts import (
+    CaseAssignmentManifestV2,
+    CaseAssignmentV2,
+    ConstellationIdentityReceipt,
+    ConstellationStageIdentity,
+    GatePreregistrationV2,
 )
 from ...database import DatabaseInvariantError
 from ...domain import Provider
@@ -63,6 +84,12 @@ def _required_time(value: str) -> datetime:
     if parsed is None:  # Defensive: schema requires these timestamps.
         raise DatabaseInvariantError("estimator timestamp is missing")
     return parsed
+
+
+def _campaign_revocation_key(campaign_id: str) -> str:
+    return hashlib.sha256(
+        f"estimator-campaign-revocation-v1:{campaign_id}".encode("ascii")
+    ).hexdigest()
 
 
 class SqliteEstimatorRepository(EstimatorRepository):
@@ -1413,6 +1440,694 @@ class SqliteEstimatorRepository(EstimatorRepository):
         """Fail closed; synthetic inventory can never create an activation row."""
 
         return self.model_lab_summary(plan_fingerprint)
+
+    def register_preregistered_campaign(
+        self, campaign: PreregisteredEstimatorCampaign
+    ) -> str:
+        """Atomically seal a non-synthetic campaign, writing its root last."""
+
+        self._ensure_initialized()
+        # ``model_copy(update=...)`` can bypass Pydantic validators. Rebuild the
+        # complete nested value at the trust boundary before fingerprinting or
+        # opening a write transaction.
+        campaign = PreregisteredEstimatorCampaign.model_validate(
+            campaign.model_dump(mode="python")
+        )
+        fingerprint = campaign.fingerprint
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                tombstone = connection.execute(
+                    "SELECT 1 FROM estimator_gate_campaign_tombstones WHERE revocation_key = ?",
+                    (_campaign_revocation_key(campaign.campaign_id),),
+                ).fetchone()
+                if tombstone is not None:
+                    self._conflict(
+                        "estimator campaign identifier was revoked by privacy deletion"
+                    )
+                existing = connection.execute(
+                    "SELECT campaign_fingerprint FROM estimator_gate_campaigns WHERE campaign_id = ?",
+                    (campaign.campaign_id,),
+                ).fetchone()
+                if existing is not None:
+                    if existing["campaign_fingerprint"] != fingerprint:
+                        self._conflict("estimator campaign identifier conflicts with storage")
+                    hydrated = self._hydrate_preregistered_campaign(
+                        connection, campaign.campaign_id
+                    )
+                    if hydrated != campaign:
+                        self._conflict("estimator campaign fingerprint conflicts with storage")
+                    connection.commit()
+                    return fingerprint
+
+                plan_fingerprint = campaign.stored_plan.canonical_fingerprint
+                plan_row = connection.execute(
+                    "SELECT uses_synthetic_model FROM estimator_plans WHERE plan_fingerprint = ?",
+                    (plan_fingerprint,),
+                ).fetchone()
+                if plan_row is None:
+                    self._conflict("estimator campaign requires a previously stored plan")
+                if bool(plan_row["uses_synthetic_model"]):
+                    self._conflict("estimator campaign plan must be non-synthetic")
+                if self._hydrate_plan(connection, plan_fingerprint) != campaign.stored_plan:
+                    self._conflict("stored estimator plan conflicts with campaign")
+                if _v16_plan_has_unsafe_identifier(campaign.stored_plan):
+                    self._conflict(
+                        "stored estimator plan contains path or URI shaped identifiers"
+                    )
+
+                connection.execute(
+                    "INSERT OR IGNORE INTO estimator_gate_safe_plan_audits(plan_fingerprint) VALUES (?)",
+                    (plan_fingerprint,),
+                )
+
+                self._insert_gate_policy(connection, campaign.policy)
+                self._insert_case_manifest(connection, campaign.assignment_manifest)
+                self._insert_calibration_split(connection, campaign.split)
+                self._insert_legacy_preregistration(
+                    connection, campaign.legacy_preregistration
+                )
+                self._insert_constellation(
+                    connection, campaign.constellation_identity
+                )
+                preregistration_v2 = campaign.preregistration_v2
+                connection.execute(
+                    """
+                    INSERT INTO estimator_preregistrations_v2(
+                        preregistration_fingerprint, contract_version,
+                        preregistration_id, policy_fingerprint,
+                        assignment_manifest_fingerprint, split_fingerprint,
+                        stored_plan_fingerprint, constellation_fingerprint,
+                        legacy_preregistration_fingerprint, registered_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        preregistration_v2.fingerprint,
+                        preregistration_v2.contract_version,
+                        preregistration_v2.preregistration_id,
+                        preregistration_v2.policy_fingerprint,
+                        preregistration_v2.assignment_manifest_fingerprint,
+                        preregistration_v2.split_fingerprint,
+                        preregistration_v2.stored_plan_fingerprint,
+                        preregistration_v2.constellation_fingerprint,
+                        preregistration_v2.legacy_preregistration_fingerprint,
+                        to_iso(preregistration_v2.registered_at),
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO estimator_gate_campaigns(
+                        campaign_id, campaign_fingerprint, contract_version,
+                        stored_plan_fingerprint, policy_fingerprint,
+                        assignment_manifest_fingerprint, split_fingerprint,
+                        legacy_preregistration_fingerprint,
+                        preregistration_v2_fingerprint,
+                        constellation_fingerprint, registered_at,
+                        activation_allowed, private_export_allowed,
+                        team_share_allowed
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0)
+                    """,
+                    (
+                        campaign.campaign_id,
+                        fingerprint,
+                        campaign.contract_version,
+                        plan_fingerprint,
+                        campaign.policy.fingerprint,
+                        campaign.assignment_manifest.fingerprint,
+                        campaign.split.fingerprint,
+                        campaign.legacy_preregistration.fingerprint,
+                        preregistration_v2.fingerprint,
+                        campaign.constellation_identity.fingerprint,
+                        to_iso(campaign.registered_at),
+                    ),
+                )
+                connection.commit()
+                return fingerprint
+            except Exception:
+                connection.rollback()
+                raise
+
+    def get_preregistered_campaign(
+        self, campaign_id: str
+    ) -> PreregisteredEstimatorCampaign | None:
+        self._ensure_initialized()
+        require_safe_id(campaign_id)
+        with self._connection_scope(readonly=True) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id = ?",
+                (campaign_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return self._hydrate_preregistered_campaign(connection, campaign_id)
+
+    def _insert_gate_policy(self, connection, policy: GatePolicy) -> None:
+        fingerprint = policy.fingerprint
+        existing = connection.execute(
+            "SELECT 1 FROM estimator_gate_policies WHERE policy_fingerprint = ?",
+            (fingerprint,),
+        ).fetchone()
+        if existing is not None:
+            if self._hydrate_gate_policy(connection, fingerprint) != policy:
+                self._conflict("estimator gate policy fingerprint conflicts with storage")
+            return
+        connection.executemany(
+            "INSERT INTO estimator_gate_policy_strata(policy_fingerprint, ordinal, task_stratum) VALUES (?, ?, ?)",
+            ((fingerprint, index, item.value) for index, item in enumerate(policy.required_strata)),
+        )
+        connection.executemany(
+            "INSERT INTO estimator_gate_policy_languages(policy_fingerprint, ordinal, language) VALUES (?, ?, ?)",
+            ((fingerprint, index, item.value) for index, item in enumerate(policy.required_languages)),
+        )
+        connection.executemany(
+            "INSERT INTO estimator_gate_policy_subgroups(policy_fingerprint, ordinal, dimension) VALUES (?, ?, ?)",
+            ((fingerprint, index, item.value) for index, item in enumerate(policy.subgroup_dimensions)),
+        )
+        connection.executemany(
+            """
+            INSERT INTO estimator_gate_policy_high_risk_rules(
+                policy_fingerprint, ordinal, metric_key, minimum_precision,
+                minimum_positive_predictions
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                (
+                    fingerprint,
+                    index,
+                    item.metric_key,
+                    item.minimum_precision,
+                    item.minimum_positive_predictions,
+                )
+                for index, item in enumerate(policy.high_risk_precision_rules)
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO estimator_gate_policies(
+                policy_fingerprint, contract_version, policy_id,
+                minimum_active_learning_count, maximum_active_learning_count,
+                minimum_holdout_count, minimum_holdout_per_metric,
+                minimum_holdout_per_stratum, minimum_holdout_per_language,
+                minimum_operational_samples_per_latency_class,
+                minimum_subgroup_size, minimum_baseline_margin,
+                maximum_human_gap, maximum_ece, minimum_repeat_stability,
+                minimum_selective_coverage, maximum_selective_risk,
+                false_confidence_threshold,
+                maximum_false_confident_error_rate,
+                maximum_cold_p95_latency_ms, maximum_warm_p95_latency_ms,
+                maximum_oom_rate, maximum_error_rate, maximum_refusal_rate,
+                maximum_material_subgroup_regression, required_strata_count,
+                required_language_count, subgroup_dimension_count,
+                high_risk_rule_count
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                fingerprint,
+                policy.contract_version,
+                policy.policy_id,
+                policy.minimum_active_learning_count,
+                policy.maximum_active_learning_count,
+                policy.minimum_holdout_count,
+                policy.minimum_holdout_per_metric,
+                policy.minimum_holdout_per_stratum,
+                policy.minimum_holdout_per_language,
+                policy.minimum_operational_samples_per_latency_class,
+                policy.minimum_subgroup_size,
+                policy.minimum_baseline_margin,
+                policy.maximum_human_gap,
+                policy.maximum_ece,
+                policy.minimum_repeat_stability,
+                policy.minimum_selective_coverage,
+                policy.maximum_selective_risk,
+                policy.false_confidence_threshold,
+                policy.maximum_false_confident_error_rate,
+                policy.maximum_cold_p95_latency_ms,
+                policy.maximum_warm_p95_latency_ms,
+                policy.maximum_oom_rate,
+                policy.maximum_error_rate,
+                policy.maximum_refusal_rate,
+                policy.maximum_material_subgroup_regression,
+                len(policy.required_strata),
+                len(policy.required_languages),
+                len(policy.subgroup_dimensions),
+                len(policy.high_risk_precision_rules),
+            ),
+        )
+
+    @staticmethod
+    def _insert_case_manifest(connection, manifest: CaseAssignmentManifestV2) -> None:
+        fingerprint = manifest.fingerprint
+        connection.executemany(
+            """
+            INSERT INTO estimator_case_assignments_v2(
+                manifest_fingerprint, ordinal, contract_version, case_id,
+                project_id, session_revision_id, metric_key, provider, origin,
+                task_stratum, language, evidence_tier, observed_at,
+                plan_fingerprint, metric_question_fingerprint,
+                evidence_packet_fingerprint
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                (
+                    fingerprint,
+                    index,
+                    item.contract_version,
+                    item.case_id,
+                    item.project_id,
+                    item.session_revision_id,
+                    item.metric_key,
+                    item.provider.value,
+                    item.origin.value,
+                    item.task_stratum.value,
+                    item.language.value,
+                    item.evidence_tier.value,
+                    to_iso(item.observed_at),
+                    item.plan_fingerprint,
+                    item.metric_question_fingerprint,
+                    item.evidence_packet_fingerprint,
+                )
+                for index, item in enumerate(manifest.assignments)
+            ),
+        )
+        connection.execute(
+            "INSERT INTO estimator_case_manifests_v2 VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                fingerprint,
+                manifest.contract_version,
+                manifest.manifest_id,
+                manifest.plan_fingerprint,
+                to_iso(manifest.frozen_at),
+                len(manifest.assignments),
+            ),
+        )
+
+    @staticmethod
+    def _insert_calibration_split(connection, split: CalibrationSplit) -> None:
+        fingerprint = split.fingerprint
+        for partition, case_ids in (
+            ("development", split.development_case_ids),
+            ("active_learning", split.active_learning_case_ids),
+            ("holdout", split.holdout_case_ids),
+        ):
+            connection.executemany(
+                "INSERT INTO estimator_calibration_split_cases VALUES (?, ?, ?, ?)",
+                (
+                    (fingerprint, partition, index, case_id)
+                    for index, case_id in enumerate(case_ids)
+                ),
+            )
+        connection.execute(
+            "INSERT INTO estimator_calibration_splits VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                fingerprint,
+                split.contract_version,
+                split.split_id,
+                split.assignment_manifest_fingerprint,
+                to_iso(split.frozen_at),
+                len(split.development_case_ids),
+                len(split.active_learning_case_ids),
+                len(split.holdout_case_ids),
+            ),
+        )
+
+    @staticmethod
+    def _insert_legacy_preregistration(
+        connection, preregistration: GatePreregistration
+    ) -> None:
+        fingerprint = preregistration.fingerprint
+        for spec_index, spec in enumerate(preregistration.metric_specs):
+            connection.executemany(
+                "INSERT INTO estimator_legacy_metric_labels VALUES (?, ?, ?, ?)",
+                (
+                    (fingerprint, spec.metric_key, index, label)
+                    for index, label in enumerate(spec.label_vocabulary)
+                ),
+            )
+            connection.execute(
+                "INSERT INTO estimator_legacy_metric_specs VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    fingerprint,
+                    spec_index,
+                    spec.metric_key,
+                    spec.risk_tier.value,
+                    spec.positive_label,
+                    len(spec.label_vocabulary),
+                ),
+            )
+        connection.execute(
+            "INSERT INTO estimator_legacy_preregistrations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                fingerprint,
+                preregistration.contract_version,
+                preregistration.preregistration_id,
+                preregistration.policy_fingerprint,
+                preregistration.assignment_manifest_fingerprint,
+                preregistration.split_fingerprint,
+                preregistration.estimator_identity_fingerprint,
+                to_iso(preregistration.registered_at),
+                len(preregistration.metric_specs),
+            ),
+        )
+
+    @staticmethod
+    def _insert_constellation(
+        connection, constellation: ConstellationIdentityReceipt
+    ) -> None:
+        fingerprint = constellation.fingerprint
+        connection.executemany(
+            """
+            INSERT INTO estimator_constellation_stages VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                (
+                    fingerprint,
+                    item.ordinal,
+                    item.contract_version,
+                    item.kind.value,
+                    item.source.value,
+                    item.stage_fingerprint,
+                    item.model_artifact_fingerprint,
+                    item.stage_configuration_sha256,
+                    item.component_version,
+                    item.output_schema_version,
+                )
+                for item in constellation.stages
+            ),
+        )
+        connection.execute(
+            "INSERT INTO estimator_constellations VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                fingerprint,
+                constellation.contract_version,
+                constellation.constellation_id,
+                constellation.plan_fingerprint,
+                to_iso(constellation.frozen_at),
+                len(constellation.stages),
+            ),
+        )
+
+    @staticmethod
+    def _hydrate_gate_policy(connection, fingerprint: str) -> GatePolicy:
+        row = connection.execute(
+            "SELECT * FROM estimator_gate_policies WHERE policy_fingerprint = ?",
+            (fingerprint,),
+        ).fetchone()
+        if row is None:
+            raise DatabaseInvariantError("estimator gate policy is missing")
+        strata = connection.execute(
+            "SELECT task_stratum FROM estimator_gate_policy_strata WHERE policy_fingerprint = ? ORDER BY ordinal",
+            (fingerprint,),
+        ).fetchall()
+        languages = connection.execute(
+            "SELECT language FROM estimator_gate_policy_languages WHERE policy_fingerprint = ? ORDER BY ordinal",
+            (fingerprint,),
+        ).fetchall()
+        subgroups = connection.execute(
+            "SELECT dimension FROM estimator_gate_policy_subgroups WHERE policy_fingerprint = ? ORDER BY ordinal",
+            (fingerprint,),
+        ).fetchall()
+        rules = connection.execute(
+            "SELECT * FROM estimator_gate_policy_high_risk_rules WHERE policy_fingerprint = ? ORDER BY ordinal",
+            (fingerprint,),
+        ).fetchall()
+        policy = GatePolicy(
+            contract_version=row["contract_version"],
+            policy_id=row["policy_id"],
+            minimum_active_learning_count=row["minimum_active_learning_count"],
+            maximum_active_learning_count=row["maximum_active_learning_count"],
+            minimum_holdout_count=row["minimum_holdout_count"],
+            minimum_holdout_per_metric=row["minimum_holdout_per_metric"],
+            minimum_holdout_per_stratum=row["minimum_holdout_per_stratum"],
+            minimum_holdout_per_language=row["minimum_holdout_per_language"],
+            minimum_operational_samples_per_latency_class=row["minimum_operational_samples_per_latency_class"],
+            minimum_subgroup_size=row["minimum_subgroup_size"],
+            minimum_baseline_margin=row["minimum_baseline_margin"],
+            maximum_human_gap=row["maximum_human_gap"],
+            maximum_ece=row["maximum_ece"],
+            minimum_repeat_stability=row["minimum_repeat_stability"],
+            minimum_selective_coverage=row["minimum_selective_coverage"],
+            maximum_selective_risk=row["maximum_selective_risk"],
+            false_confidence_threshold=row["false_confidence_threshold"],
+            maximum_false_confident_error_rate=row["maximum_false_confident_error_rate"],
+            maximum_cold_p95_latency_ms=row["maximum_cold_p95_latency_ms"],
+            maximum_warm_p95_latency_ms=row["maximum_warm_p95_latency_ms"],
+            maximum_oom_rate=row["maximum_oom_rate"],
+            maximum_error_rate=row["maximum_error_rate"],
+            maximum_refusal_rate=row["maximum_refusal_rate"],
+            maximum_material_subgroup_regression=row["maximum_material_subgroup_regression"],
+            required_strata=tuple(CalibrationTaskStratum(item["task_stratum"]) for item in strata),
+            required_languages=tuple(CalibrationLanguage(item["language"]) for item in languages),
+            subgroup_dimensions=tuple(SubgroupDimension(item["dimension"]) for item in subgroups),
+            high_risk_precision_rules=tuple(
+                HighRiskPrecisionRule(
+                    metric_key=item["metric_key"],
+                    minimum_precision=item["minimum_precision"],
+                    minimum_positive_predictions=item["minimum_positive_predictions"],
+                )
+                for item in rules
+            ),
+        )
+        if policy.fingerprint != fingerprint:
+            raise DatabaseInvariantError("estimator gate policy fingerprint is not reproducible")
+        return policy
+
+    def _hydrate_preregistered_campaign(
+        self, connection, campaign_id: str
+    ) -> PreregisteredEstimatorCampaign:
+        root = connection.execute(
+            "SELECT * FROM estimator_gate_campaigns WHERE campaign_id = ?",
+            (campaign_id,),
+        ).fetchone()
+        if root is None:
+            raise DatabaseInvariantError("estimator campaign is missing")
+        manifest_row = connection.execute(
+            "SELECT * FROM estimator_case_manifests_v2 WHERE manifest_fingerprint = ?",
+            (root["assignment_manifest_fingerprint"],),
+        ).fetchone()
+        assignment_rows = connection.execute(
+            "SELECT * FROM estimator_case_assignments_v2 WHERE manifest_fingerprint = ? ORDER BY ordinal",
+            (root["assignment_manifest_fingerprint"],),
+        ).fetchall()
+        manifest = CaseAssignmentManifestV2(
+            contract_version=manifest_row["contract_version"],
+            manifest_id=manifest_row["manifest_id"],
+            plan_fingerprint=manifest_row["plan_fingerprint"],
+            frozen_at=_required_time(manifest_row["frozen_at"]),
+            assignments=tuple(
+                CaseAssignmentV2(
+                    contract_version=item["contract_version"],
+                    case_id=item["case_id"],
+                    project_id=item["project_id"],
+                    session_revision_id=item["session_revision_id"],
+                    metric_key=item["metric_key"],
+                    provider=Provider(item["provider"]),
+                    origin=item["origin"],
+                    task_stratum=item["task_stratum"],
+                    language=item["language"],
+                    evidence_tier=item["evidence_tier"],
+                    observed_at=_required_time(item["observed_at"]),
+                    plan_fingerprint=item["plan_fingerprint"],
+                    metric_question_fingerprint=item["metric_question_fingerprint"],
+                    evidence_packet_fingerprint=item["evidence_packet_fingerprint"],
+                )
+                for item in assignment_rows
+            ),
+        )
+        split_row = connection.execute(
+            "SELECT * FROM estimator_calibration_splits WHERE split_fingerprint = ?",
+            (root["split_fingerprint"],),
+        ).fetchone()
+        split_cases = connection.execute(
+            "SELECT partition_code, case_id FROM estimator_calibration_split_cases WHERE split_fingerprint = ? ORDER BY partition_code, ordinal",
+            (root["split_fingerprint"],),
+        ).fetchall()
+        by_partition = {
+            key: tuple(item["case_id"] for item in split_cases if item["partition_code"] == key)
+            for key in ("development", "active_learning", "holdout")
+        }
+        split = CalibrationSplit(
+            contract_version=split_row["contract_version"],
+            split_id=split_row["split_id"],
+            assignment_manifest_fingerprint=split_row["assignment_manifest_fingerprint"],
+            frozen_at=_required_time(split_row["frozen_at"]),
+            development_case_ids=by_partition["development"],
+            active_learning_case_ids=by_partition["active_learning"],
+            holdout_case_ids=by_partition["holdout"],
+        )
+        legacy_row = connection.execute(
+            "SELECT * FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = ?",
+            (root["legacy_preregistration_fingerprint"],),
+        ).fetchone()
+        spec_rows = connection.execute(
+            "SELECT * FROM estimator_legacy_metric_specs WHERE preregistration_fingerprint = ? ORDER BY ordinal",
+            (root["legacy_preregistration_fingerprint"],),
+        ).fetchall()
+        specs = []
+        for item in spec_rows:
+            labels = connection.execute(
+                "SELECT label_code FROM estimator_legacy_metric_labels WHERE preregistration_fingerprint = ? AND metric_key = ? ORDER BY ordinal",
+                (root["legacy_preregistration_fingerprint"], item["metric_key"]),
+            ).fetchall()
+            specs.append(
+                MetricGateSpec(
+                    metric_key=item["metric_key"],
+                    label_vocabulary=tuple(label["label_code"] for label in labels),
+                    risk_tier=MetricRiskTier(item["risk_tier"]),
+                    positive_label=item["positive_label"],
+                )
+            )
+        legacy = GatePreregistration(
+            contract_version=legacy_row["contract_version"],
+            preregistration_id=legacy_row["preregistration_id"],
+            policy_fingerprint=legacy_row["policy_fingerprint"],
+            assignment_manifest_fingerprint=legacy_row["assignment_manifest_fingerprint"],
+            split_fingerprint=legacy_row["split_fingerprint"],
+            estimator_identity_fingerprint=legacy_row["estimator_identity_fingerprint"],
+            registered_at=_required_time(legacy_row["registered_at"]),
+            metric_specs=tuple(specs),
+        )
+        constellation_row = connection.execute(
+            "SELECT * FROM estimator_constellations WHERE constellation_fingerprint = ?",
+            (root["constellation_fingerprint"],),
+        ).fetchone()
+        stage_rows = connection.execute(
+            "SELECT * FROM estimator_constellation_stages WHERE constellation_fingerprint = ? ORDER BY ordinal",
+            (root["constellation_fingerprint"],),
+        ).fetchall()
+        constellation = ConstellationIdentityReceipt(
+            contract_version=constellation_row["contract_version"],
+            constellation_id=constellation_row["constellation_id"],
+            plan_fingerprint=constellation_row["plan_fingerprint"],
+            frozen_at=_required_time(constellation_row["frozen_at"]),
+            stages=tuple(
+                ConstellationStageIdentity(
+                    contract_version=item["contract_version"],
+                    ordinal=item["ordinal"],
+                    kind=item["kind"],
+                    source=item["source"],
+                    stage_fingerprint=item["stage_fingerprint"],
+                    model_artifact_fingerprint=item["model_artifact_fingerprint"],
+                    stage_configuration_sha256=item["stage_configuration_sha256"],
+                    component_version=item["component_version"],
+                    output_schema_version=item["output_schema_version"],
+                )
+                for item in stage_rows
+            ),
+        )
+        preregistration_row = connection.execute(
+            "SELECT * FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = ?",
+            (root["preregistration_v2_fingerprint"],),
+        ).fetchone()
+        preregistration_v2 = GatePreregistrationV2(
+            contract_version=preregistration_row["contract_version"],
+            preregistration_id=preregistration_row["preregistration_id"],
+            policy_fingerprint=preregistration_row["policy_fingerprint"],
+            assignment_manifest_fingerprint=preregistration_row["assignment_manifest_fingerprint"],
+            split_fingerprint=preregistration_row["split_fingerprint"],
+            stored_plan_fingerprint=preregistration_row["stored_plan_fingerprint"],
+            constellation_fingerprint=preregistration_row["constellation_fingerprint"],
+            legacy_preregistration_fingerprint=preregistration_row["legacy_preregistration_fingerprint"],
+            registered_at=_required_time(preregistration_row["registered_at"]),
+        )
+        campaign = PreregisteredEstimatorCampaign(
+            contract_version=root["contract_version"],
+            campaign_id=root["campaign_id"],
+            stored_plan=self._hydrate_plan(connection, root["stored_plan_fingerprint"]),
+            policy=self._hydrate_gate_policy(connection, root["policy_fingerprint"]),
+            assignment_manifest=manifest,
+            split=split,
+            legacy_preregistration=legacy,
+            preregistration_v2=preregistration_v2,
+            constellation_identity=constellation,
+            registered_at=_required_time(root["registered_at"]),
+            activation_allowed=bool(root["activation_allowed"]),
+            private_export_allowed=bool(root["private_export_allowed"]),
+            team_share_allowed=bool(root["team_share_allowed"]),
+        )
+        if campaign.fingerprint != root["campaign_fingerprint"]:
+            raise DatabaseInvariantError("estimator campaign fingerprint is not reproducible")
+        return campaign
+
+    def delete_preregistered_campaign_for_privacy(
+        self, campaign_id: str
+    ) -> PrivacyDeleteOutcome:
+        self._ensure_initialized()
+        require_safe_id(campaign_id)
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("PRAGMA secure_delete = ON")
+                if int(connection.execute("PRAGMA secure_delete").fetchone()[0]) != 1:
+                    raise DatabaseInvariantError(
+                        "privacy deletion requires SQLite secure_delete"
+                    )
+                connection.execute("BEGIN IMMEDIATE")
+                root = connection.execute(
+                    "SELECT * FROM estimator_gate_campaigns WHERE campaign_id = ?",
+                    (campaign_id,),
+                ).fetchone()
+                deleted = root is not None
+                # Retain only a domain-separated revocation digest and the
+                # first deletion time. No original campaign ID, plan, project,
+                # session, case, metric, packet, or constellation lineage
+                # survives in this record.
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO estimator_gate_campaign_tombstones(
+                        revocation_key, deleted_at
+                    ) VALUES (?, ?)
+                    """,
+                    (_campaign_revocation_key(campaign_id), to_iso(self._clock())),
+                )
+                if root is not None:
+                    connection.execute(
+                        "DELETE FROM estimator_gate_campaigns WHERE campaign_id = ?",
+                        (campaign_id,),
+                    )
+                    connection.execute(
+                        "DELETE FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = ?",
+                        (root["preregistration_v2_fingerprint"],),
+                    )
+                    connection.execute(
+                        "DELETE FROM estimator_constellations WHERE constellation_fingerprint = ?",
+                        (root["constellation_fingerprint"],),
+                    )
+                    connection.execute(
+                        "DELETE FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = ?",
+                        (root["legacy_preregistration_fingerprint"],),
+                    )
+                    connection.execute(
+                        "DELETE FROM estimator_calibration_splits WHERE split_fingerprint = ?",
+                        (root["split_fingerprint"],),
+                    )
+                    connection.execute(
+                        "DELETE FROM estimator_case_manifests_v2 WHERE manifest_fingerprint = ?",
+                        (root["assignment_manifest_fingerprint"],),
+                    )
+                connection.commit()
+                checkpoint = connection.execute(
+                    "PRAGMA wal_checkpoint(TRUNCATE)"
+                ).fetchone()
+                if checkpoint is None or tuple(int(value) for value in checkpoint) != (
+                    0,
+                    0,
+                    0,
+                ):
+                    raise DatabaseInvariantError(
+                        "privacy deletion committed but durable WAL purge is pending"
+                    )
+                return (
+                    PrivacyDeleteOutcome.DELETED_AND_PURGED
+                    if deleted
+                    else PrivacyDeleteOutcome.ALREADY_ABSENT_AND_PURGED
+                )
+            except Exception:
+                connection.rollback()
+                raise
 
     def delete_synthetic_case_for_privacy(self, case_id: str) -> PrivacyDeleteOutcome:
         """Delete one case and prove its WAL frames were durably truncated.

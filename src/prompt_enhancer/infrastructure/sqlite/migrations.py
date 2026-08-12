@@ -3316,3 +3316,617 @@ CREATE INDEX estimator_metric_estimates_execution_idx ON estimator_metric_estima
 
 COMMIT;
 """
+
+
+MIGRATION_16 = r"""
+BEGIN IMMEDIATE;
+
+-- P1 calibration preregistration contains scalar commitments only.  No JSON,
+-- BLOB, prompt, evidence body, model output, reviewer prose, or commentary is
+-- permitted in this normalized schema.
+CREATE TABLE estimator_gate_policies (
+    policy_fingerprint TEXT PRIMARY KEY CHECK(length(policy_fingerprint) = 64 AND policy_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version = 'gate-policy-v1'),
+    policy_id TEXT NOT NULL UNIQUE CHECK(length(policy_id) = 64 AND policy_id NOT GLOB '*[^0-9a-f]*'),
+    minimum_active_learning_count INTEGER NOT NULL CHECK(minimum_active_learning_count BETWEEN 100 AND 200),
+    maximum_active_learning_count INTEGER NOT NULL CHECK(maximum_active_learning_count BETWEEN 100 AND 200),
+    minimum_holdout_count INTEGER NOT NULL CHECK(minimum_holdout_count > 0),
+    minimum_holdout_per_metric INTEGER NOT NULL CHECK(minimum_holdout_per_metric > 0),
+    minimum_holdout_per_stratum INTEGER NOT NULL CHECK(minimum_holdout_per_stratum > 0),
+    minimum_holdout_per_language INTEGER NOT NULL CHECK(minimum_holdout_per_language > 0),
+    minimum_operational_samples_per_latency_class INTEGER NOT NULL CHECK(minimum_operational_samples_per_latency_class > 0),
+    minimum_subgroup_size INTEGER NOT NULL CHECK(minimum_subgroup_size > 0),
+    minimum_baseline_margin REAL NOT NULL CHECK(minimum_baseline_margin >= 0 AND minimum_baseline_margin <= 1.0e308),
+    maximum_human_gap REAL NOT NULL CHECK(maximum_human_gap BETWEEN 0 AND 1),
+    maximum_ece REAL NOT NULL CHECK(maximum_ece BETWEEN 0 AND 1),
+    minimum_repeat_stability REAL NOT NULL CHECK(minimum_repeat_stability BETWEEN 0 AND 1),
+    minimum_selective_coverage REAL NOT NULL CHECK(minimum_selective_coverage BETWEEN 0 AND 1),
+    maximum_selective_risk REAL NOT NULL CHECK(maximum_selective_risk BETWEEN 0 AND 1),
+    false_confidence_threshold REAL NOT NULL CHECK(false_confidence_threshold BETWEEN 0 AND 1),
+    maximum_false_confident_error_rate REAL NOT NULL CHECK(maximum_false_confident_error_rate BETWEEN 0 AND 1),
+    maximum_cold_p95_latency_ms REAL NOT NULL CHECK(maximum_cold_p95_latency_ms >= 0 AND maximum_cold_p95_latency_ms <= 1.0e308),
+    maximum_warm_p95_latency_ms REAL NOT NULL CHECK(maximum_warm_p95_latency_ms >= 0 AND maximum_warm_p95_latency_ms <= 1.0e308),
+    maximum_oom_rate REAL NOT NULL CHECK(maximum_oom_rate BETWEEN 0 AND 1),
+    maximum_error_rate REAL NOT NULL CHECK(maximum_error_rate BETWEEN 0 AND 1),
+    maximum_refusal_rate REAL NOT NULL CHECK(maximum_refusal_rate BETWEEN 0 AND 1),
+    maximum_material_subgroup_regression REAL NOT NULL CHECK(maximum_material_subgroup_regression BETWEEN 0 AND 1),
+    required_strata_count INTEGER NOT NULL CHECK(required_strata_count = 4),
+    required_language_count INTEGER NOT NULL CHECK(required_language_count = 2),
+    subgroup_dimension_count INTEGER NOT NULL CHECK(subgroup_dimension_count BETWEEN 1 AND 4),
+    high_risk_rule_count INTEGER NOT NULL CHECK(high_risk_rule_count BETWEEN 0 AND 100),
+    CHECK(minimum_active_learning_count <= maximum_active_learning_count)
+);
+
+CREATE TABLE estimator_gate_policy_strata (
+    policy_fingerprint TEXT NOT NULL REFERENCES estimator_gate_policies(policy_fingerprint) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 3),
+    task_stratum TEXT NOT NULL CHECK(task_stratum IN ('bug_fix', 'feature', 'code_review', 'research_design')),
+    PRIMARY KEY(policy_fingerprint, ordinal),
+    UNIQUE(policy_fingerprint, task_stratum)
+);
+CREATE TABLE estimator_gate_policy_languages (
+    policy_fingerprint TEXT NOT NULL REFERENCES estimator_gate_policies(policy_fingerprint) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 1),
+    language TEXT NOT NULL CHECK(language IN ('en', 'pl')),
+    PRIMARY KEY(policy_fingerprint, ordinal),
+    UNIQUE(policy_fingerprint, language)
+);
+CREATE TABLE estimator_gate_policy_subgroups (
+    policy_fingerprint TEXT NOT NULL REFERENCES estimator_gate_policies(policy_fingerprint) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 3),
+    dimension TEXT NOT NULL CHECK(dimension IN ('task_stratum', 'language', 'provider', 'evidence_tier')),
+    PRIMARY KEY(policy_fingerprint, ordinal),
+    UNIQUE(policy_fingerprint, dimension)
+);
+CREATE TABLE estimator_gate_policy_high_risk_rules (
+    policy_fingerprint TEXT NOT NULL REFERENCES estimator_gate_policies(policy_fingerprint) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 64 AND metric_key GLOB '[a-z0-9]*' AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    minimum_precision REAL NOT NULL CHECK(minimum_precision BETWEEN 0 AND 1),
+    minimum_positive_predictions INTEGER NOT NULL CHECK(minimum_positive_predictions > 0),
+    PRIMARY KEY(policy_fingerprint, ordinal),
+    UNIQUE(policy_fingerprint, metric_key)
+);
+
+CREATE TRIGGER estimator_gate_policies_validate_children BEFORE INSERT ON estimator_gate_policies
+WHEN NEW.required_strata_count <> (SELECT COUNT(*) FROM estimator_gate_policy_strata WHERE policy_fingerprint = NEW.policy_fingerprint)
+ OR NEW.required_language_count <> (SELECT COUNT(*) FROM estimator_gate_policy_languages WHERE policy_fingerprint = NEW.policy_fingerprint)
+ OR NEW.subgroup_dimension_count <> (SELECT COUNT(*) FROM estimator_gate_policy_subgroups WHERE policy_fingerprint = NEW.policy_fingerprint)
+ OR NEW.high_risk_rule_count <> (SELECT COUNT(*) FROM estimator_gate_policy_high_risk_rules WHERE policy_fingerprint = NEW.policy_fingerprint)
+ OR NOT EXISTS (SELECT 1 FROM estimator_gate_policy_strata WHERE policy_fingerprint = NEW.policy_fingerprint AND ordinal = 0 AND task_stratum = 'bug_fix')
+ OR NOT EXISTS (SELECT 1 FROM estimator_gate_policy_strata WHERE policy_fingerprint = NEW.policy_fingerprint AND ordinal = 1 AND task_stratum = 'feature')
+ OR NOT EXISTS (SELECT 1 FROM estimator_gate_policy_strata WHERE policy_fingerprint = NEW.policy_fingerprint AND ordinal = 2 AND task_stratum = 'code_review')
+ OR NOT EXISTS (SELECT 1 FROM estimator_gate_policy_strata WHERE policy_fingerprint = NEW.policy_fingerprint AND ordinal = 3 AND task_stratum = 'research_design')
+ OR NOT EXISTS (SELECT 1 FROM estimator_gate_policy_languages WHERE policy_fingerprint = NEW.policy_fingerprint AND ordinal = 0 AND language = 'en')
+ OR NOT EXISTS (SELECT 1 FROM estimator_gate_policy_languages WHERE policy_fingerprint = NEW.policy_fingerprint AND ordinal = 1 AND language = 'pl')
+BEGIN SELECT RAISE(ABORT, 'estimator gate policy children are inconsistent'); END;
+
+-- A campaign may bind a plan written under v15, whose general-purpose version
+-- grammar is intentionally broader. This sealed audit projects every bound
+-- TEXT identifier into one SQL-computable surface and applies v16's stricter
+-- no-colon/no-control/no-traversal policy before any campaign root can exist.
+CREATE VIEW estimator_gate_bound_plan_artifacts AS
+SELECT plan_fingerprint, artifact_fingerprint
+FROM estimator_plan_stages WHERE artifact_fingerprint IS NOT NULL
+UNION
+SELECT plan_fingerprint, artifact_fingerprint FROM estimator_candidate_models;
+
+CREATE VIEW estimator_gate_bound_plan_identifier_values AS
+SELECT plan_fingerprint, plan_fingerprint AS value FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, contract_version FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, plan_key FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, plan_version FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, evidence_packet_schema_version FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, preprocessing_version FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, preprocessing_sha256 FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, calibration_version FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, calibration_sha256 FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, router_version FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, router_sha256 FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, redactor_version FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, redactor_sha256 FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, execution_mode FROM estimator_plans
+UNION ALL SELECT plan_fingerprint, model_load_policy FROM estimator_plans
+UNION ALL SELECT link.plan_fingerprint, link.question_fingerprint FROM estimator_plan_questions AS link
+UNION ALL SELECT link.plan_fingerprint, question.contract_version FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.metric_key FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.metric_definition_version FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.question_id FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.question_version FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.question_sha256 FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.prompt_template_id FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.prompt_template_version FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.prompt_template_sha256 FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.rubric_id FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.rubric_version FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.rubric_sha256 FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.output_schema_version FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT link.plan_fingerprint, question.unit_code FROM estimator_plan_questions AS link JOIN estimator_metric_questions AS question USING(question_fingerprint)
+UNION ALL SELECT plan_fingerprint, provider FROM estimator_plan_provider_schemas
+UNION ALL SELECT plan_fingerprint, adapter_version FROM estimator_plan_provider_schemas
+UNION ALL SELECT plan_fingerprint, provider_schema_version FROM estimator_plan_provider_schemas
+UNION ALL SELECT plan_fingerprint, family_key FROM estimator_candidate_families
+UNION ALL SELECT plan_fingerprint, artifact_fingerprint FROM estimator_candidate_models
+UNION ALL SELECT plan_fingerprint, artifact_fingerprint FROM estimator_candidate_promotions
+UNION ALL SELECT plan_fingerprint, baseline_id FROM estimator_candidate_baselines
+UNION ALL SELECT plan_fingerprint, kind FROM estimator_plan_stages
+UNION ALL SELECT plan_fingerprint, condition_code FROM estimator_plan_stages
+UNION ALL SELECT plan_fingerprint, component_version FROM estimator_plan_stages
+UNION ALL SELECT plan_fingerprint, configuration_sha256 FROM estimator_plan_stages
+UNION ALL SELECT plan_fingerprint, output_schema_version FROM estimator_plan_stages
+UNION ALL SELECT plan_fingerprint, artifact_fingerprint FROM estimator_plan_stages WHERE artifact_fingerprint IS NOT NULL
+UNION ALL SELECT plan_fingerprint, candidate_family_key FROM estimator_plan_stages WHERE candidate_family_key IS NOT NULL
+UNION ALL SELECT bound.plan_fingerprint, artifact.artifact_fingerprint FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.contract_version FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.source FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.requested_model_id FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.served_model_id FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.requested_revision FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.served_revision FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.requested_execution_mode FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.served_execution_mode FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.weight_availability FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.tokenizer_id FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.tokenizer_revision FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.tokenizer_availability FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, artifact.license_id FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_artifacts AS artifact USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, weight.file_name FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_weight_files AS weight USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, weight.sha256 FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_weight_files AS weight USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, tokenizer.file_name FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_tokenizer_files AS tokenizer USING(artifact_fingerprint)
+UNION ALL SELECT bound.plan_fingerprint, tokenizer.sha256 FROM estimator_gate_bound_plan_artifacts AS bound JOIN estimator_model_tokenizer_files AS tokenizer USING(artifact_fingerprint);
+
+CREATE TABLE estimator_gate_safe_plan_audits (
+    plan_fingerprint TEXT PRIMARY KEY REFERENCES estimator_plans(plan_fingerprint) DEFERRABLE INITIALLY DEFERRED
+);
+CREATE TRIGGER estimator_gate_safe_plan_audits_validate BEFORE INSERT ON estimator_gate_safe_plan_audits
+WHEN NOT EXISTS (SELECT 1 FROM estimator_plans WHERE plan_fingerprint = NEW.plan_fingerprint)
+ OR EXISTS (
+    SELECT 1 FROM estimator_gate_bound_plan_identifier_values AS identifier
+    WHERE identifier.plan_fingerprint = NEW.plan_fingerprint AND (
+        identifier.value GLOB '/*'
+        OR instr(identifier.value, ':') > 0
+        OR instr(identifier.value, '\') > 0
+        OR instr(identifier.value, '..') > 0
+        OR EXISTS (
+            WITH RECURSIVE controls(code) AS (
+                SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31
+            )
+            SELECT 1 FROM controls
+            WHERE instr(identifier.value, char(code)) > 0
+        )
+        OR instr(identifier.value, char(127)) > 0
+    )
+ )
+ OR (SELECT question_count FROM estimator_plans WHERE plan_fingerprint = NEW.plan_fingerprint) <> (
+    SELECT COUNT(DISTINCT question.metric_key)
+    FROM estimator_plan_questions AS link
+    JOIN estimator_metric_questions AS question USING(question_fingerprint)
+    WHERE link.plan_fingerprint = NEW.plan_fingerprint
+ )
+ OR (SELECT provider_schema_count FROM estimator_plans WHERE plan_fingerprint = NEW.plan_fingerprint) <> 1
+BEGIN SELECT RAISE(ABORT, 'estimator plan is unsafe for a v16 campaign'); END;
+CREATE TRIGGER estimator_gate_safe_plan_audits_no_update BEFORE UPDATE ON estimator_gate_safe_plan_audits BEGIN SELECT RAISE(ABORT, 'estimator safe-plan audit is immutable'); END;
+CREATE TRIGGER estimator_gate_safe_plan_audits_no_delete BEFORE DELETE ON estimator_gate_safe_plan_audits BEGIN SELECT RAISE(ABORT, 'estimator safe-plan audit is retained'); END;
+
+CREATE TABLE estimator_case_manifests_v2 (
+    manifest_fingerprint TEXT PRIMARY KEY CHECK(length(manifest_fingerprint) = 64 AND manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version = 'case-assignment-manifest-v2'),
+    manifest_id TEXT NOT NULL UNIQUE CHECK(length(manifest_id) = 64 AND manifest_id NOT GLOB '*[^0-9a-f]*'),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    frozen_at TEXT NOT NULL,
+    assignment_count INTEGER NOT NULL CHECK(assignment_count BETWEEN 1 AND 1000000)
+);
+CREATE TABLE estimator_case_assignments_v2 (
+    manifest_fingerprint TEXT NOT NULL REFERENCES estimator_case_manifests_v2(manifest_fingerprint) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 999999),
+    contract_version TEXT NOT NULL CHECK(contract_version = 'case-assignment-v2'),
+    case_id TEXT NOT NULL CHECK(length(case_id) = 64 AND case_id NOT GLOB '*[^0-9a-f]*'),
+    project_id TEXT NOT NULL CHECK(length(project_id) = 64 AND project_id NOT GLOB '*[^0-9a-f]*'),
+    session_revision_id TEXT NOT NULL CHECK(length(session_revision_id) = 64 AND session_revision_id NOT GLOB '*[^0-9a-f]*'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 64 AND metric_key GLOB '[a-z0-9]*' AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    provider TEXT NOT NULL CHECK(provider IN ('codex', 'claude_code', 'synthetic')),
+    origin TEXT NOT NULL CHECK(origin IN ('private_representative', 'public_benchmark', 'synthetic')),
+    task_stratum TEXT NOT NULL CHECK(task_stratum IN ('bug_fix', 'feature', 'code_review', 'research_design')),
+    language TEXT NOT NULL CHECK(language IN ('en', 'pl')),
+    evidence_tier TEXT NOT NULL CHECK(evidence_tier IN ('objective', 'human', 'inferred')),
+    observed_at TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    metric_question_fingerprint TEXT NOT NULL REFERENCES estimator_metric_questions(question_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    evidence_packet_fingerprint TEXT NOT NULL CHECK(length(evidence_packet_fingerprint) = 64 AND evidence_packet_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(manifest_fingerprint, ordinal),
+    UNIQUE(manifest_fingerprint, case_id)
+);
+CREATE TRIGGER estimator_case_manifests_v2_validate_children BEFORE INSERT ON estimator_case_manifests_v2
+WHEN julianday(NEW.frozen_at) IS NULL
+ OR NEW.assignment_count <> (SELECT COUNT(*) FROM estimator_case_assignments_v2 WHERE manifest_fingerprint = NEW.manifest_fingerprint)
+ OR EXISTS (SELECT 1 FROM estimator_case_assignments_v2 AS item WHERE item.manifest_fingerprint = NEW.manifest_fingerprint AND (item.plan_fingerprint <> NEW.plan_fingerprint OR julianday(item.observed_at) IS NULL OR item.observed_at > NEW.frozen_at OR NOT EXISTS (SELECT 1 FROM estimator_plan_questions AS plan_question JOIN estimator_metric_questions AS question ON question.question_fingerprint = plan_question.question_fingerprint WHERE plan_question.plan_fingerprint = NEW.plan_fingerprint AND plan_question.question_fingerprint = item.metric_question_fingerprint AND question.metric_key = item.metric_key)))
+ OR EXISTS (SELECT 1 FROM estimator_case_assignments_v2 AS earlier JOIN estimator_case_assignments_v2 AS later ON later.manifest_fingerprint = earlier.manifest_fingerprint AND later.ordinal > earlier.ordinal WHERE earlier.manifest_fingerprint = NEW.manifest_fingerprint AND earlier.case_id >= later.case_id)
+BEGIN SELECT RAISE(ABORT, 'estimator case manifest children are inconsistent'); END;
+
+CREATE TABLE estimator_calibration_splits (
+    split_fingerprint TEXT PRIMARY KEY CHECK(length(split_fingerprint) = 64 AND split_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version = 'calibration-split-v1'),
+    split_id TEXT NOT NULL UNIQUE CHECK(length(split_id) = 64 AND split_id NOT GLOB '*[^0-9a-f]*'),
+    assignment_manifest_fingerprint TEXT NOT NULL REFERENCES estimator_case_manifests_v2(manifest_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    frozen_at TEXT NOT NULL,
+    development_count INTEGER NOT NULL CHECK(development_count BETWEEN 0 AND 1000000),
+    active_learning_count INTEGER NOT NULL CHECK(active_learning_count BETWEEN 1 AND 1000000),
+    holdout_count INTEGER NOT NULL CHECK(holdout_count BETWEEN 1 AND 1000000)
+);
+CREATE TABLE estimator_calibration_split_cases (
+    split_fingerprint TEXT NOT NULL REFERENCES estimator_calibration_splits(split_fingerprint) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    partition_code TEXT NOT NULL CHECK(partition_code IN ('development', 'active_learning', 'holdout')),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 999999),
+    case_id TEXT NOT NULL CHECK(length(case_id) = 64 AND case_id NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(split_fingerprint, partition_code, ordinal),
+    UNIQUE(split_fingerprint, case_id)
+);
+CREATE TRIGGER estimator_calibration_splits_validate_children BEFORE INSERT ON estimator_calibration_splits
+WHEN julianday(NEW.frozen_at) IS NULL
+ OR NEW.frozen_at < (SELECT frozen_at FROM estimator_case_manifests_v2 WHERE manifest_fingerprint = NEW.assignment_manifest_fingerprint)
+ OR NEW.development_count <> (SELECT COUNT(*) FROM estimator_calibration_split_cases WHERE split_fingerprint = NEW.split_fingerprint AND partition_code = 'development')
+ OR NEW.active_learning_count <> (SELECT COUNT(*) FROM estimator_calibration_split_cases WHERE split_fingerprint = NEW.split_fingerprint AND partition_code = 'active_learning')
+ OR NEW.holdout_count <> (SELECT COUNT(*) FROM estimator_calibration_split_cases WHERE split_fingerprint = NEW.split_fingerprint AND partition_code = 'holdout')
+ OR EXISTS (SELECT 1 FROM estimator_calibration_split_cases AS earlier JOIN estimator_calibration_split_cases AS later ON later.split_fingerprint = earlier.split_fingerprint AND later.partition_code = earlier.partition_code AND later.ordinal > earlier.ordinal WHERE earlier.split_fingerprint = NEW.split_fingerprint AND earlier.case_id >= later.case_id)
+ OR EXISTS (SELECT 1 FROM estimator_calibration_split_cases AS item WHERE item.split_fingerprint = NEW.split_fingerprint AND NOT EXISTS (SELECT 1 FROM estimator_case_assignments_v2 AS assignment WHERE assignment.manifest_fingerprint = NEW.assignment_manifest_fingerprint AND assignment.case_id = item.case_id))
+ OR EXISTS (SELECT 1 FROM estimator_case_assignments_v2 AS assignment WHERE assignment.manifest_fingerprint = NEW.assignment_manifest_fingerprint AND NOT EXISTS (SELECT 1 FROM estimator_calibration_split_cases AS item WHERE item.split_fingerprint = NEW.split_fingerprint AND item.case_id = assignment.case_id))
+BEGIN SELECT RAISE(ABORT, 'estimator calibration split children are inconsistent'); END;
+
+CREATE TABLE estimator_legacy_preregistrations (
+    preregistration_fingerprint TEXT PRIMARY KEY CHECK(length(preregistration_fingerprint) = 64 AND preregistration_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version = 'gate-preregistration-v1'),
+    preregistration_id TEXT NOT NULL UNIQUE CHECK(length(preregistration_id) = 64 AND preregistration_id NOT GLOB '*[^0-9a-f]*'),
+    policy_fingerprint TEXT NOT NULL REFERENCES estimator_gate_policies(policy_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    assignment_manifest_fingerprint TEXT NOT NULL REFERENCES estimator_case_manifests_v2(manifest_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    split_fingerprint TEXT NOT NULL REFERENCES estimator_calibration_splits(split_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    estimator_identity_fingerprint TEXT NOT NULL CHECK(length(estimator_identity_fingerprint) = 64 AND estimator_identity_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    registered_at TEXT NOT NULL,
+    metric_spec_count INTEGER NOT NULL CHECK(metric_spec_count BETWEEN 1 AND 100)
+);
+CREATE TABLE estimator_legacy_metric_specs (
+    preregistration_fingerprint TEXT NOT NULL REFERENCES estimator_legacy_preregistrations(preregistration_fingerprint) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 64 AND metric_key GLOB '[a-z0-9]*' AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    risk_tier TEXT NOT NULL CHECK(risk_tier IN ('standard', 'high')),
+    positive_label TEXT CHECK(positive_label IS NULL OR (length(positive_label) BETWEEN 1 AND 64 AND positive_label GLOB '[a-z0-9]*' AND positive_label NOT GLOB '*[^a-z0-9._-]*')),
+    label_count INTEGER NOT NULL CHECK(label_count BETWEEN 2 AND 100),
+    PRIMARY KEY(preregistration_fingerprint, ordinal),
+    UNIQUE(preregistration_fingerprint, metric_key),
+    CHECK((risk_tier = 'high' AND positive_label IS NOT NULL) OR (risk_tier = 'standard' AND positive_label IS NULL))
+);
+CREATE TABLE estimator_legacy_metric_labels (
+    preregistration_fingerprint TEXT NOT NULL,
+    metric_key TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 99),
+    label_code TEXT NOT NULL CHECK(length(label_code) BETWEEN 1 AND 64 AND label_code GLOB '[a-z0-9]*' AND label_code NOT GLOB '*[^a-z0-9._-]*'),
+    PRIMARY KEY(preregistration_fingerprint, metric_key, ordinal),
+    UNIQUE(preregistration_fingerprint, metric_key, label_code),
+    FOREIGN KEY(preregistration_fingerprint, metric_key) REFERENCES estimator_legacy_metric_specs(preregistration_fingerprint, metric_key) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+);
+CREATE TRIGGER estimator_legacy_metric_specs_validate_children BEFORE INSERT ON estimator_legacy_metric_specs
+WHEN NEW.label_count <> (SELECT COUNT(*) FROM estimator_legacy_metric_labels WHERE preregistration_fingerprint = NEW.preregistration_fingerprint AND metric_key = NEW.metric_key)
+ OR (NEW.positive_label IS NOT NULL AND NOT EXISTS (SELECT 1 FROM estimator_legacy_metric_labels WHERE preregistration_fingerprint = NEW.preregistration_fingerprint AND metric_key = NEW.metric_key AND label_code = NEW.positive_label))
+ OR EXISTS (SELECT 1 FROM estimator_legacy_metric_labels AS earlier JOIN estimator_legacy_metric_labels AS later ON later.preregistration_fingerprint = earlier.preregistration_fingerprint AND later.metric_key = earlier.metric_key AND later.ordinal > earlier.ordinal WHERE earlier.preregistration_fingerprint = NEW.preregistration_fingerprint AND earlier.metric_key = NEW.metric_key AND earlier.label_code >= later.label_code)
+BEGIN SELECT RAISE(ABORT, 'estimator legacy metric labels are inconsistent'); END;
+CREATE TRIGGER estimator_legacy_preregistrations_validate_children BEFORE INSERT ON estimator_legacy_preregistrations
+WHEN julianday(NEW.registered_at) IS NULL
+ OR NEW.metric_spec_count <> (SELECT COUNT(*) FROM estimator_legacy_metric_specs WHERE preregistration_fingerprint = NEW.preregistration_fingerprint)
+ OR NEW.assignment_manifest_fingerprint <> (SELECT assignment_manifest_fingerprint FROM estimator_calibration_splits WHERE split_fingerprint = NEW.split_fingerprint)
+ OR NEW.registered_at < (SELECT frozen_at FROM estimator_calibration_splits WHERE split_fingerprint = NEW.split_fingerprint)
+ OR EXISTS (SELECT 1 FROM estimator_legacy_metric_specs AS spec WHERE spec.preregistration_fingerprint = NEW.preregistration_fingerprint AND NOT EXISTS (SELECT 1 FROM estimator_case_assignments_v2 AS assignment WHERE assignment.manifest_fingerprint = NEW.assignment_manifest_fingerprint AND assignment.metric_key = spec.metric_key))
+ OR EXISTS (SELECT 1 FROM estimator_case_assignments_v2 AS assignment WHERE assignment.manifest_fingerprint = NEW.assignment_manifest_fingerprint AND NOT EXISTS (SELECT 1 FROM estimator_legacy_metric_specs AS spec WHERE spec.preregistration_fingerprint = NEW.preregistration_fingerprint AND spec.metric_key = assignment.metric_key))
+ OR EXISTS (SELECT 1 FROM estimator_legacy_metric_specs AS spec WHERE spec.preregistration_fingerprint = NEW.preregistration_fingerprint AND ((spec.risk_tier = 'high' AND NOT EXISTS (SELECT 1 FROM estimator_gate_policy_high_risk_rules AS rule WHERE rule.policy_fingerprint = NEW.policy_fingerprint AND rule.metric_key = spec.metric_key)) OR (spec.risk_tier = 'standard' AND EXISTS (SELECT 1 FROM estimator_gate_policy_high_risk_rules AS rule WHERE rule.policy_fingerprint = NEW.policy_fingerprint AND rule.metric_key = spec.metric_key))))
+ OR EXISTS (SELECT 1 FROM estimator_gate_policy_high_risk_rules AS rule WHERE rule.policy_fingerprint = NEW.policy_fingerprint AND NOT EXISTS (SELECT 1 FROM estimator_legacy_metric_specs AS spec WHERE spec.preregistration_fingerprint = NEW.preregistration_fingerprint AND spec.metric_key = rule.metric_key AND spec.risk_tier = 'high'))
+ OR EXISTS (SELECT 1 FROM estimator_legacy_metric_specs AS earlier JOIN estimator_legacy_metric_specs AS later ON later.preregistration_fingerprint = earlier.preregistration_fingerprint AND later.ordinal > earlier.ordinal WHERE earlier.preregistration_fingerprint = NEW.preregistration_fingerprint AND earlier.metric_key >= later.metric_key)
+BEGIN SELECT RAISE(ABORT, 'estimator legacy preregistration children are inconsistent'); END;
+
+CREATE TABLE estimator_constellations (
+    constellation_fingerprint TEXT PRIMARY KEY CHECK(length(constellation_fingerprint) = 64 AND constellation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version = 'constellation-identity-receipt-v1'),
+    constellation_id TEXT NOT NULL UNIQUE CHECK(length(constellation_id) = 64 AND constellation_id NOT GLOB '*[^0-9a-f]*'),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    frozen_at TEXT NOT NULL,
+    stage_count INTEGER NOT NULL CHECK(stage_count BETWEEN 1 AND 4)
+);
+CREATE TABLE estimator_constellation_stages (
+    constellation_fingerprint TEXT NOT NULL REFERENCES estimator_constellations(constellation_fingerprint) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 7),
+    contract_version TEXT NOT NULL CHECK(contract_version = 'constellation-stage-identity-v1'),
+    kind TEXT NOT NULL CHECK(kind IN ('embedding_retrieval', 'reranker', 'specialist', 'second_opinion')),
+    source TEXT NOT NULL CHECK(source IN ('local_weights', 'openai_api', 'anthropic_api', 'codex_cli', 'claude_cli')),
+    stage_fingerprint TEXT NOT NULL CHECK(length(stage_fingerprint) = 64 AND stage_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    model_artifact_fingerprint TEXT NOT NULL REFERENCES estimator_model_artifacts(artifact_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    stage_configuration_sha256 TEXT NOT NULL CHECK(length(stage_configuration_sha256) = 64 AND stage_configuration_sha256 NOT GLOB '*[^0-9a-f]*'),
+    component_version TEXT NOT NULL CHECK(length(component_version) BETWEEN 1 AND 128),
+    output_schema_version TEXT NOT NULL CHECK(length(output_schema_version) BETWEEN 1 AND 128),
+    PRIMARY KEY(constellation_fingerprint, ordinal),
+    UNIQUE(constellation_fingerprint, stage_fingerprint)
+);
+CREATE TRIGGER estimator_constellations_validate_children BEFORE INSERT ON estimator_constellations
+WHEN julianday(NEW.frozen_at) IS NULL
+ OR NEW.stage_count <> (SELECT COUNT(*) FROM estimator_constellation_stages WHERE constellation_fingerprint = NEW.constellation_fingerprint)
+ OR NEW.stage_count <> (SELECT COUNT(*) FROM estimator_plan_stages WHERE plan_fingerprint = NEW.plan_fingerprint AND artifact_fingerprint IS NOT NULL)
+ OR EXISTS (SELECT 1 FROM estimator_constellation_stages AS identity LEFT JOIN estimator_plan_stages AS stage ON stage.plan_fingerprint = NEW.plan_fingerprint AND stage.ordinal = identity.ordinal LEFT JOIN estimator_model_artifacts AS artifact ON artifact.artifact_fingerprint = identity.model_artifact_fingerprint WHERE identity.constellation_fingerprint = NEW.constellation_fingerprint AND (stage.ordinal IS NULL OR stage.kind <> identity.kind OR stage.artifact_fingerprint <> identity.model_artifact_fingerprint OR stage.configuration_sha256 <> identity.stage_configuration_sha256 OR stage.component_version <> identity.component_version OR stage.output_schema_version <> identity.output_schema_version OR artifact.source <> identity.source))
+ OR EXISTS (SELECT 1 FROM estimator_plan_stages AS stage WHERE stage.plan_fingerprint = NEW.plan_fingerprint AND stage.artifact_fingerprint IS NOT NULL AND NOT EXISTS (SELECT 1 FROM estimator_constellation_stages AS identity WHERE identity.constellation_fingerprint = NEW.constellation_fingerprint AND identity.ordinal = stage.ordinal))
+BEGIN SELECT RAISE(ABORT, 'estimator constellation children are inconsistent'); END;
+
+CREATE TABLE estimator_preregistrations_v2 (
+    preregistration_fingerprint TEXT PRIMARY KEY CHECK(length(preregistration_fingerprint) = 64 AND preregistration_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version = 'gate-preregistration-v2'),
+    preregistration_id TEXT NOT NULL UNIQUE CHECK(length(preregistration_id) = 64 AND preregistration_id NOT GLOB '*[^0-9a-f]*'),
+    policy_fingerprint TEXT NOT NULL REFERENCES estimator_gate_policies(policy_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    assignment_manifest_fingerprint TEXT NOT NULL REFERENCES estimator_case_manifests_v2(manifest_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    split_fingerprint TEXT NOT NULL REFERENCES estimator_calibration_splits(split_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    stored_plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    constellation_fingerprint TEXT NOT NULL REFERENCES estimator_constellations(constellation_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    legacy_preregistration_fingerprint TEXT NOT NULL REFERENCES estimator_legacy_preregistrations(preregistration_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    registered_at TEXT NOT NULL
+);
+CREATE TRIGGER estimator_preregistrations_v2_validate_lineage BEFORE INSERT ON estimator_preregistrations_v2
+WHEN julianday(NEW.registered_at) IS NULL
+ OR NEW.assignment_manifest_fingerprint <> (SELECT assignment_manifest_fingerprint FROM estimator_calibration_splits WHERE split_fingerprint = NEW.split_fingerprint)
+ OR NEW.stored_plan_fingerprint <> (SELECT plan_fingerprint FROM estimator_case_manifests_v2 WHERE manifest_fingerprint = NEW.assignment_manifest_fingerprint)
+ OR NEW.stored_plan_fingerprint <> (SELECT plan_fingerprint FROM estimator_constellations WHERE constellation_fingerprint = NEW.constellation_fingerprint)
+ OR NEW.policy_fingerprint <> (SELECT policy_fingerprint FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = NEW.legacy_preregistration_fingerprint)
+ OR NEW.assignment_manifest_fingerprint <> (SELECT assignment_manifest_fingerprint FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = NEW.legacy_preregistration_fingerprint)
+ OR NEW.split_fingerprint <> (SELECT split_fingerprint FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = NEW.legacy_preregistration_fingerprint)
+ OR NEW.registered_at < (SELECT registered_at FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = NEW.legacy_preregistration_fingerprint)
+ OR NEW.registered_at < (SELECT frozen_at FROM estimator_constellations WHERE constellation_fingerprint = NEW.constellation_fingerprint)
+ OR (SELECT frozen_at FROM estimator_calibration_splits WHERE split_fingerprint = NEW.split_fingerprint) > (SELECT frozen_at FROM estimator_constellations WHERE constellation_fingerprint = NEW.constellation_fingerprint)
+ OR (SELECT frozen_at FROM estimator_constellations WHERE constellation_fingerprint = NEW.constellation_fingerprint) > (SELECT registered_at FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = NEW.legacy_preregistration_fingerprint)
+BEGIN SELECT RAISE(ABORT, 'estimator v2 preregistration lineage is inconsistent'); END;
+
+CREATE TABLE estimator_gate_campaigns (
+    campaign_id TEXT PRIMARY KEY CHECK(length(campaign_id) = 64 AND campaign_id NOT GLOB '*[^0-9a-f]*'),
+    campaign_fingerprint TEXT NOT NULL UNIQUE CHECK(length(campaign_fingerprint) = 64 AND campaign_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version = 'estimator-gate-campaign-v1'),
+    stored_plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    policy_fingerprint TEXT NOT NULL REFERENCES estimator_gate_policies(policy_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    assignment_manifest_fingerprint TEXT NOT NULL UNIQUE REFERENCES estimator_case_manifests_v2(manifest_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    split_fingerprint TEXT NOT NULL UNIQUE REFERENCES estimator_calibration_splits(split_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    legacy_preregistration_fingerprint TEXT NOT NULL UNIQUE REFERENCES estimator_legacy_preregistrations(preregistration_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    preregistration_v2_fingerprint TEXT NOT NULL UNIQUE REFERENCES estimator_preregistrations_v2(preregistration_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    constellation_fingerprint TEXT NOT NULL UNIQUE REFERENCES estimator_constellations(constellation_fingerprint) DEFERRABLE INITIALLY DEFERRED,
+    registered_at TEXT NOT NULL,
+    activation_allowed INTEGER NOT NULL CHECK(activation_allowed = 0),
+    private_export_allowed INTEGER NOT NULL CHECK(private_export_allowed = 0),
+    team_share_allowed INTEGER NOT NULL CHECK(team_share_allowed = 0)
+);
+CREATE TABLE estimator_gate_campaign_tombstones (
+    revocation_key TEXT PRIMARY KEY CHECK(length(revocation_key) = 64 AND revocation_key NOT GLOB '*[^0-9a-f]*'),
+    deleted_at TEXT NOT NULL
+);
+CREATE TRIGGER estimator_gate_campaigns_validate_lineage BEFORE INSERT ON estimator_gate_campaigns
+WHEN julianday(NEW.registered_at) IS NULL
+ OR (SELECT uses_synthetic_model FROM estimator_plans WHERE plan_fingerprint = NEW.stored_plan_fingerprint) <> 0
+ OR NOT EXISTS (SELECT 1 FROM estimator_gate_safe_plan_audits WHERE plan_fingerprint = NEW.stored_plan_fingerprint)
+ OR NEW.policy_fingerprint <> (SELECT policy_fingerprint FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = NEW.preregistration_v2_fingerprint)
+ OR NEW.assignment_manifest_fingerprint <> (SELECT assignment_manifest_fingerprint FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = NEW.preregistration_v2_fingerprint)
+ OR NEW.split_fingerprint <> (SELECT split_fingerprint FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = NEW.preregistration_v2_fingerprint)
+ OR NEW.stored_plan_fingerprint <> (SELECT stored_plan_fingerprint FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = NEW.preregistration_v2_fingerprint)
+ OR NEW.constellation_fingerprint <> (SELECT constellation_fingerprint FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = NEW.preregistration_v2_fingerprint)
+ OR NEW.legacy_preregistration_fingerprint <> (SELECT legacy_preregistration_fingerprint FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = NEW.preregistration_v2_fingerprint)
+ OR NEW.registered_at < (SELECT registered_at FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = NEW.preregistration_v2_fingerprint)
+ OR EXISTS (SELECT 1 FROM estimator_plan_questions AS question WHERE question.plan_fingerprint = NEW.stored_plan_fingerprint AND NOT EXISTS (SELECT 1 FROM estimator_case_assignments_v2 AS assignment WHERE assignment.manifest_fingerprint = NEW.assignment_manifest_fingerprint AND assignment.metric_question_fingerprint = question.question_fingerprint))
+ OR EXISTS (SELECT 1 FROM estimator_case_assignments_v2 AS assignment WHERE assignment.manifest_fingerprint = NEW.assignment_manifest_fingerprint AND assignment.provider <> (SELECT provider FROM estimator_plan_provider_schemas WHERE plan_fingerprint = NEW.stored_plan_fingerprint))
+ OR (SELECT active_learning_count FROM estimator_calibration_splits WHERE split_fingerprint = NEW.split_fingerprint) < (SELECT minimum_active_learning_count FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint)
+ OR (SELECT active_learning_count FROM estimator_calibration_splits WHERE split_fingerprint = NEW.split_fingerprint) > (SELECT maximum_active_learning_count FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint)
+ OR (SELECT holdout_count FROM estimator_calibration_splits WHERE split_fingerprint = NEW.split_fingerprint) < (SELECT minimum_holdout_count FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint)
+ OR EXISTS (SELECT 1 FROM estimator_legacy_metric_specs AS spec WHERE spec.preregistration_fingerprint = NEW.legacy_preregistration_fingerprint AND (SELECT COUNT(*) FROM estimator_calibration_split_cases AS split_case JOIN estimator_case_assignments_v2 AS assignment ON assignment.manifest_fingerprint = NEW.assignment_manifest_fingerprint AND assignment.case_id = split_case.case_id WHERE split_case.split_fingerprint = NEW.split_fingerprint AND split_case.partition_code = 'holdout' AND assignment.metric_key = spec.metric_key) < (SELECT minimum_holdout_per_metric FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint))
+ OR EXISTS (SELECT 1 FROM estimator_gate_policy_strata AS required WHERE required.policy_fingerprint = NEW.policy_fingerprint AND (SELECT COUNT(*) FROM estimator_calibration_split_cases AS split_case JOIN estimator_case_assignments_v2 AS assignment ON assignment.manifest_fingerprint = NEW.assignment_manifest_fingerprint AND assignment.case_id = split_case.case_id WHERE split_case.split_fingerprint = NEW.split_fingerprint AND split_case.partition_code = 'holdout' AND assignment.task_stratum = required.task_stratum) < (SELECT minimum_holdout_per_stratum FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint))
+ OR EXISTS (SELECT 1 FROM estimator_gate_policy_languages AS required WHERE required.policy_fingerprint = NEW.policy_fingerprint AND (SELECT COUNT(*) FROM estimator_calibration_split_cases AS split_case JOIN estimator_case_assignments_v2 AS assignment ON assignment.manifest_fingerprint = NEW.assignment_manifest_fingerprint AND assignment.case_id = split_case.case_id WHERE split_case.split_fingerprint = NEW.split_fingerprint AND split_case.partition_code = 'holdout' AND assignment.language = required.language) < (SELECT minimum_holdout_per_language FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint))
+BEGIN SELECT RAISE(ABORT, 'estimator campaign lineage is inconsistent'); END;
+
+-- Every row is immutable.  Child collections seal when their parent root is
+-- inserted.  Global plans and policies are retained; campaign-owned rows may
+-- disappear only after the campaign root has been removed.
+CREATE TRIGGER estimator_gate_policies_no_update BEFORE UPDATE ON estimator_gate_policies BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_gate_policy_strata_no_update BEFORE UPDATE ON estimator_gate_policy_strata BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_gate_policy_languages_no_update BEFORE UPDATE ON estimator_gate_policy_languages BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_gate_policy_subgroups_no_update BEFORE UPDATE ON estimator_gate_policy_subgroups BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_gate_policy_high_risk_rules_no_update BEFORE UPDATE ON estimator_gate_policy_high_risk_rules BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_case_manifests_v2_no_update BEFORE UPDATE ON estimator_case_manifests_v2 BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_case_assignments_v2_no_update BEFORE UPDATE ON estimator_case_assignments_v2 BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_calibration_splits_no_update BEFORE UPDATE ON estimator_calibration_splits BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_calibration_split_cases_no_update BEFORE UPDATE ON estimator_calibration_split_cases BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_legacy_preregistrations_no_update BEFORE UPDATE ON estimator_legacy_preregistrations BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_legacy_metric_specs_no_update BEFORE UPDATE ON estimator_legacy_metric_specs BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_legacy_metric_labels_no_update BEFORE UPDATE ON estimator_legacy_metric_labels BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_constellations_no_update BEFORE UPDATE ON estimator_constellations BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_constellation_stages_no_update BEFORE UPDATE ON estimator_constellation_stages BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_preregistrations_v2_no_update BEFORE UPDATE ON estimator_preregistrations_v2 BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_gate_campaigns_no_update BEFORE UPDATE ON estimator_gate_campaigns BEGIN SELECT RAISE(ABORT, 'estimator gate row is immutable'); END;
+CREATE TRIGGER estimator_gate_campaign_tombstones_no_update BEFORE UPDATE ON estimator_gate_campaign_tombstones BEGIN SELECT RAISE(ABORT, 'estimator campaign tombstone is immutable'); END;
+
+CREATE TRIGGER estimator_gate_policy_strata_sealed_insert BEFORE INSERT ON estimator_gate_policy_strata WHEN EXISTS (SELECT 1 FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate policy is sealed'); END;
+CREATE TRIGGER estimator_gate_policy_languages_sealed_insert BEFORE INSERT ON estimator_gate_policy_languages WHEN EXISTS (SELECT 1 FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate policy is sealed'); END;
+CREATE TRIGGER estimator_gate_policy_subgroups_sealed_insert BEFORE INSERT ON estimator_gate_policy_subgroups WHEN EXISTS (SELECT 1 FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate policy is sealed'); END;
+CREATE TRIGGER estimator_gate_policy_high_risk_rules_sealed_insert BEFORE INSERT ON estimator_gate_policy_high_risk_rules WHEN EXISTS (SELECT 1 FROM estimator_gate_policies WHERE policy_fingerprint = NEW.policy_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate policy is sealed'); END;
+CREATE TRIGGER estimator_case_assignments_v2_sealed_insert BEFORE INSERT ON estimator_case_assignments_v2 WHEN EXISTS (SELECT 1 FROM estimator_case_manifests_v2 WHERE manifest_fingerprint = NEW.manifest_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator case manifest is sealed'); END;
+CREATE TRIGGER estimator_calibration_split_cases_sealed_insert BEFORE INSERT ON estimator_calibration_split_cases WHEN EXISTS (SELECT 1 FROM estimator_calibration_splits WHERE split_fingerprint = NEW.split_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator calibration split is sealed'); END;
+CREATE TRIGGER estimator_legacy_metric_labels_sealed_insert BEFORE INSERT ON estimator_legacy_metric_labels WHEN EXISTS (SELECT 1 FROM estimator_legacy_metric_specs WHERE preregistration_fingerprint = NEW.preregistration_fingerprint AND metric_key = NEW.metric_key) BEGIN SELECT RAISE(ABORT, 'estimator legacy metric spec is sealed'); END;
+CREATE TRIGGER estimator_legacy_metric_specs_sealed_insert BEFORE INSERT ON estimator_legacy_metric_specs WHEN EXISTS (SELECT 1 FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = NEW.preregistration_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator legacy preregistration is sealed'); END;
+CREATE TRIGGER estimator_constellation_stages_sealed_insert BEFORE INSERT ON estimator_constellation_stages WHEN EXISTS (SELECT 1 FROM estimator_constellations WHERE constellation_fingerprint = NEW.constellation_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator constellation is sealed'); END;
+
+CREATE TRIGGER estimator_gate_policies_no_delete BEFORE DELETE ON estimator_gate_policies BEGIN SELECT RAISE(ABORT, 'estimator gate policy is retained'); END;
+CREATE TRIGGER estimator_gate_campaign_tombstones_no_delete BEFORE DELETE ON estimator_gate_campaign_tombstones BEGIN SELECT RAISE(ABORT, 'estimator campaign tombstone is retained'); END;
+CREATE TRIGGER estimator_gate_policy_strata_no_delete BEFORE DELETE ON estimator_gate_policy_strata BEGIN SELECT RAISE(ABORT, 'estimator gate policy is retained'); END;
+CREATE TRIGGER estimator_gate_policy_languages_no_delete BEFORE DELETE ON estimator_gate_policy_languages BEGIN SELECT RAISE(ABORT, 'estimator gate policy is retained'); END;
+CREATE TRIGGER estimator_gate_policy_subgroups_no_delete BEFORE DELETE ON estimator_gate_policy_subgroups BEGIN SELECT RAISE(ABORT, 'estimator gate policy is retained'); END;
+CREATE TRIGGER estimator_gate_policy_high_risk_rules_no_delete BEFORE DELETE ON estimator_gate_policy_high_risk_rules BEGIN SELECT RAISE(ABORT, 'estimator gate policy is retained'); END;
+CREATE TRIGGER estimator_case_assignments_v2_parent_delete_only BEFORE DELETE ON estimator_case_assignments_v2 WHEN EXISTS (SELECT 1 FROM estimator_case_manifests_v2 WHERE manifest_fingerprint = OLD.manifest_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate child requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_calibration_split_cases_parent_delete_only BEFORE DELETE ON estimator_calibration_split_cases WHEN EXISTS (SELECT 1 FROM estimator_calibration_splits WHERE split_fingerprint = OLD.split_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate child requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_legacy_metric_specs_parent_delete_only BEFORE DELETE ON estimator_legacy_metric_specs WHEN EXISTS (SELECT 1 FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = OLD.preregistration_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate child requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_legacy_metric_labels_parent_delete_only BEFORE DELETE ON estimator_legacy_metric_labels WHEN EXISTS (SELECT 1 FROM estimator_legacy_metric_specs WHERE preregistration_fingerprint = OLD.preregistration_fingerprint AND metric_key = OLD.metric_key) BEGIN SELECT RAISE(ABORT, 'estimator gate child requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_constellation_stages_parent_delete_only BEFORE DELETE ON estimator_constellation_stages WHEN EXISTS (SELECT 1 FROM estimator_constellations WHERE constellation_fingerprint = OLD.constellation_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate child requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_case_manifests_v2_campaign_delete_only BEFORE DELETE ON estimator_case_manifests_v2 WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE assignment_manifest_fingerprint = OLD.manifest_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate root requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_calibration_splits_campaign_delete_only BEFORE DELETE ON estimator_calibration_splits WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE split_fingerprint = OLD.split_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate root requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_legacy_preregistrations_campaign_delete_only BEFORE DELETE ON estimator_legacy_preregistrations WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE legacy_preregistration_fingerprint = OLD.preregistration_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate root requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_constellations_campaign_delete_only BEFORE DELETE ON estimator_constellations WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE constellation_fingerprint = OLD.constellation_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate root requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_preregistrations_v2_campaign_delete_only BEFORE DELETE ON estimator_preregistrations_v2 WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE preregistration_v2_fingerprint = OLD.preregistration_fingerprint) BEGIN SELECT RAISE(ABORT, 'estimator gate root requires campaign privacy deletion'); END;
+
+-- Raw SQL receives the same canonical UTC and safe-version restrictions as the
+-- application contracts. Equivalent instants in another spelling are not an
+-- immutable identity, and path/URI-shaped versions are never provenance IDs.
+CREATE TRIGGER estimator_case_manifests_v2_safe_insert BEFORE INSERT ON estimator_case_manifests_v2
+WHEN NEW.frozen_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+ OR julianday(NEW.frozen_at) IS NULL
+ OR CAST(substr(NEW.frozen_at, 1, 4) AS INTEGER) NOT BETWEEN 1 AND 9999
+ OR date(substr(NEW.frozen_at, 1, 10), '+0 days') <> substr(NEW.frozen_at, 1, 10)
+ OR CAST(substr(NEW.frozen_at, 12, 2) AS INTEGER) NOT BETWEEN 0 AND 23
+ OR CAST(substr(NEW.frozen_at, 15, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+ OR CAST(substr(NEW.frozen_at, 18, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+BEGIN SELECT RAISE(ABORT, 'estimator gate timestamp is not canonical UTC'); END;
+CREATE TRIGGER estimator_case_assignments_v2_safe_insert BEFORE INSERT ON estimator_case_assignments_v2
+WHEN NEW.observed_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+ OR julianday(NEW.observed_at) IS NULL
+ OR CAST(substr(NEW.observed_at, 1, 4) AS INTEGER) NOT BETWEEN 1 AND 9999
+ OR date(substr(NEW.observed_at, 1, 10), '+0 days') <> substr(NEW.observed_at, 1, 10)
+ OR CAST(substr(NEW.observed_at, 12, 2) AS INTEGER) NOT BETWEEN 0 AND 23
+ OR CAST(substr(NEW.observed_at, 15, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+ OR CAST(substr(NEW.observed_at, 18, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+BEGIN SELECT RAISE(ABORT, 'estimator gate timestamp is not canonical UTC'); END;
+CREATE TRIGGER estimator_calibration_splits_safe_insert BEFORE INSERT ON estimator_calibration_splits
+WHEN NEW.frozen_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+ OR julianday(NEW.frozen_at) IS NULL
+ OR CAST(substr(NEW.frozen_at, 1, 4) AS INTEGER) NOT BETWEEN 1 AND 9999
+ OR date(substr(NEW.frozen_at, 1, 10), '+0 days') <> substr(NEW.frozen_at, 1, 10)
+ OR CAST(substr(NEW.frozen_at, 12, 2) AS INTEGER) NOT BETWEEN 0 AND 23
+ OR CAST(substr(NEW.frozen_at, 15, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+ OR CAST(substr(NEW.frozen_at, 18, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+BEGIN SELECT RAISE(ABORT, 'estimator gate timestamp is not canonical UTC'); END;
+CREATE TRIGGER estimator_legacy_preregistrations_safe_insert BEFORE INSERT ON estimator_legacy_preregistrations
+WHEN NEW.registered_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+ OR julianday(NEW.registered_at) IS NULL
+ OR CAST(substr(NEW.registered_at, 1, 4) AS INTEGER) NOT BETWEEN 1 AND 9999
+ OR date(substr(NEW.registered_at, 1, 10), '+0 days') <> substr(NEW.registered_at, 1, 10)
+ OR CAST(substr(NEW.registered_at, 12, 2) AS INTEGER) NOT BETWEEN 0 AND 23
+ OR CAST(substr(NEW.registered_at, 15, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+ OR CAST(substr(NEW.registered_at, 18, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+BEGIN SELECT RAISE(ABORT, 'estimator gate timestamp is not canonical UTC'); END;
+CREATE TRIGGER estimator_constellations_safe_insert BEFORE INSERT ON estimator_constellations
+WHEN NEW.frozen_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+ OR julianday(NEW.frozen_at) IS NULL
+ OR CAST(substr(NEW.frozen_at, 1, 4) AS INTEGER) NOT BETWEEN 1 AND 9999
+ OR date(substr(NEW.frozen_at, 1, 10), '+0 days') <> substr(NEW.frozen_at, 1, 10)
+ OR CAST(substr(NEW.frozen_at, 12, 2) AS INTEGER) NOT BETWEEN 0 AND 23
+ OR CAST(substr(NEW.frozen_at, 15, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+ OR CAST(substr(NEW.frozen_at, 18, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+BEGIN SELECT RAISE(ABORT, 'estimator gate timestamp is not canonical UTC'); END;
+CREATE TRIGGER estimator_preregistrations_v2_safe_insert BEFORE INSERT ON estimator_preregistrations_v2
+WHEN NEW.registered_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+ OR julianday(NEW.registered_at) IS NULL
+ OR CAST(substr(NEW.registered_at, 1, 4) AS INTEGER) NOT BETWEEN 1 AND 9999
+ OR date(substr(NEW.registered_at, 1, 10), '+0 days') <> substr(NEW.registered_at, 1, 10)
+ OR CAST(substr(NEW.registered_at, 12, 2) AS INTEGER) NOT BETWEEN 0 AND 23
+ OR CAST(substr(NEW.registered_at, 15, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+ OR CAST(substr(NEW.registered_at, 18, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+BEGIN SELECT RAISE(ABORT, 'estimator gate timestamp is not canonical UTC'); END;
+CREATE TRIGGER estimator_gate_campaigns_safe_insert BEFORE INSERT ON estimator_gate_campaigns
+WHEN NEW.registered_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+ OR julianday(NEW.registered_at) IS NULL
+ OR CAST(substr(NEW.registered_at, 1, 4) AS INTEGER) NOT BETWEEN 1 AND 9999
+ OR date(substr(NEW.registered_at, 1, 10), '+0 days') <> substr(NEW.registered_at, 1, 10)
+ OR CAST(substr(NEW.registered_at, 12, 2) AS INTEGER) NOT BETWEEN 0 AND 23
+ OR CAST(substr(NEW.registered_at, 15, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+ OR CAST(substr(NEW.registered_at, 18, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+BEGIN SELECT RAISE(ABORT, 'estimator gate timestamp is not canonical UTC'); END;
+CREATE TRIGGER estimator_constellation_stages_safe_insert BEFORE INSERT ON estimator_constellation_stages
+WHEN NEW.component_version NOT GLOB '[A-Za-z0-9]*'
+ OR NEW.component_version GLOB '*[^A-Za-z0-9._+:/-]*'
+ OR length(NEW.component_version) NOT BETWEEN 1 AND 128
+ OR NEW.output_schema_version NOT GLOB '[A-Za-z0-9]*'
+ OR NEW.output_schema_version GLOB '*[^A-Za-z0-9._+:/-]*'
+ OR length(NEW.output_schema_version) NOT BETWEEN 1 AND 128
+ OR instr(NEW.component_version, ':') > 0
+ OR instr(NEW.output_schema_version, ':') > 0
+ OR instr(NEW.component_version, '\') > 0
+ OR instr(NEW.output_schema_version, '\') > 0
+ OR instr('/' || NEW.component_version || '/', '/../') > 0
+ OR instr('/' || NEW.output_schema_version || '/', '/../') > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate version is path or URI shaped'); END;
+
+-- SQLite's length()/GLOB operators stop at embedded NUL.  Reject the entire
+-- ASCII control range (including NUL and DEL) from every v16 TEXT projection
+-- before any shape, digest, chronology, or lineage test can be bypassed.
+CREATE TRIGGER estimator_gate_policies_no_controls BEFORE INSERT ON estimator_gate_policies
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.policy_fingerprint || NEW.contract_version || NEW.policy_id, char(code)) > 0)
+ OR instr(NEW.policy_fingerprint || NEW.contract_version || NEW.policy_id, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_gate_policy_strata_no_controls BEFORE INSERT ON estimator_gate_policy_strata
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.policy_fingerprint || NEW.task_stratum, char(code)) > 0)
+ OR instr(NEW.policy_fingerprint || NEW.task_stratum, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_gate_policy_languages_no_controls BEFORE INSERT ON estimator_gate_policy_languages
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.policy_fingerprint || NEW.language, char(code)) > 0)
+ OR instr(NEW.policy_fingerprint || NEW.language, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_gate_policy_subgroups_no_controls BEFORE INSERT ON estimator_gate_policy_subgroups
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.policy_fingerprint || NEW.dimension, char(code)) > 0)
+ OR instr(NEW.policy_fingerprint || NEW.dimension, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_gate_policy_high_risk_rules_no_controls BEFORE INSERT ON estimator_gate_policy_high_risk_rules
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.policy_fingerprint || NEW.metric_key, char(code)) > 0)
+ OR instr(NEW.policy_fingerprint || NEW.metric_key, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_case_manifests_v2_no_controls BEFORE INSERT ON estimator_case_manifests_v2
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.manifest_fingerprint || NEW.contract_version || NEW.manifest_id || NEW.plan_fingerprint || NEW.frozen_at, char(code)) > 0)
+ OR instr(NEW.manifest_fingerprint || NEW.contract_version || NEW.manifest_id || NEW.plan_fingerprint || NEW.frozen_at, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_case_assignments_v2_no_controls BEFORE INSERT ON estimator_case_assignments_v2
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.manifest_fingerprint || NEW.contract_version || NEW.case_id || NEW.project_id || NEW.session_revision_id || NEW.metric_key || NEW.provider || NEW.origin || NEW.task_stratum || NEW.language || NEW.evidence_tier || NEW.observed_at || NEW.plan_fingerprint || NEW.metric_question_fingerprint || NEW.evidence_packet_fingerprint, char(code)) > 0)
+ OR instr(NEW.manifest_fingerprint || NEW.contract_version || NEW.case_id || NEW.project_id || NEW.session_revision_id || NEW.metric_key || NEW.provider || NEW.origin || NEW.task_stratum || NEW.language || NEW.evidence_tier || NEW.observed_at || NEW.plan_fingerprint || NEW.metric_question_fingerprint || NEW.evidence_packet_fingerprint, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_calibration_splits_no_controls BEFORE INSERT ON estimator_calibration_splits
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.split_fingerprint || NEW.contract_version || NEW.split_id || NEW.assignment_manifest_fingerprint || NEW.frozen_at, char(code)) > 0)
+ OR instr(NEW.split_fingerprint || NEW.contract_version || NEW.split_id || NEW.assignment_manifest_fingerprint || NEW.frozen_at, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_calibration_split_cases_no_controls BEFORE INSERT ON estimator_calibration_split_cases
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.split_fingerprint || NEW.partition_code || NEW.case_id, char(code)) > 0)
+ OR instr(NEW.split_fingerprint || NEW.partition_code || NEW.case_id, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_legacy_preregistrations_no_controls BEFORE INSERT ON estimator_legacy_preregistrations
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.preregistration_fingerprint || NEW.contract_version || NEW.preregistration_id || NEW.policy_fingerprint || NEW.assignment_manifest_fingerprint || NEW.split_fingerprint || NEW.estimator_identity_fingerprint || NEW.registered_at, char(code)) > 0)
+ OR instr(NEW.preregistration_fingerprint || NEW.contract_version || NEW.preregistration_id || NEW.policy_fingerprint || NEW.assignment_manifest_fingerprint || NEW.split_fingerprint || NEW.estimator_identity_fingerprint || NEW.registered_at, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_legacy_metric_specs_no_controls BEFORE INSERT ON estimator_legacy_metric_specs
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.preregistration_fingerprint || NEW.metric_key || NEW.risk_tier || coalesce(NEW.positive_label, ''), char(code)) > 0)
+ OR instr(NEW.preregistration_fingerprint || NEW.metric_key || NEW.risk_tier || coalesce(NEW.positive_label, ''), char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_legacy_metric_labels_no_controls BEFORE INSERT ON estimator_legacy_metric_labels
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.preregistration_fingerprint || NEW.metric_key || NEW.label_code, char(code)) > 0)
+ OR instr(NEW.preregistration_fingerprint || NEW.metric_key || NEW.label_code, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_constellations_no_controls BEFORE INSERT ON estimator_constellations
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.constellation_fingerprint || NEW.contract_version || NEW.constellation_id || NEW.plan_fingerprint || NEW.frozen_at, char(code)) > 0)
+ OR instr(NEW.constellation_fingerprint || NEW.contract_version || NEW.constellation_id || NEW.plan_fingerprint || NEW.frozen_at, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_constellation_stages_no_controls BEFORE INSERT ON estimator_constellation_stages
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.constellation_fingerprint || NEW.contract_version || NEW.kind || NEW.source || NEW.stage_fingerprint || NEW.model_artifact_fingerprint || NEW.stage_configuration_sha256 || NEW.component_version || NEW.output_schema_version, char(code)) > 0)
+ OR instr(NEW.constellation_fingerprint || NEW.contract_version || NEW.kind || NEW.source || NEW.stage_fingerprint || NEW.model_artifact_fingerprint || NEW.stage_configuration_sha256 || NEW.component_version || NEW.output_schema_version, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_preregistrations_v2_no_controls BEFORE INSERT ON estimator_preregistrations_v2
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.preregistration_fingerprint || NEW.contract_version || NEW.preregistration_id || NEW.policy_fingerprint || NEW.assignment_manifest_fingerprint || NEW.split_fingerprint || NEW.stored_plan_fingerprint || NEW.constellation_fingerprint || NEW.legacy_preregistration_fingerprint || NEW.registered_at, char(code)) > 0)
+ OR instr(NEW.preregistration_fingerprint || NEW.contract_version || NEW.preregistration_id || NEW.policy_fingerprint || NEW.assignment_manifest_fingerprint || NEW.split_fingerprint || NEW.stored_plan_fingerprint || NEW.constellation_fingerprint || NEW.legacy_preregistration_fingerprint || NEW.registered_at, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_gate_campaigns_no_controls BEFORE INSERT ON estimator_gate_campaigns
+WHEN EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.campaign_id || NEW.campaign_fingerprint || NEW.contract_version || NEW.stored_plan_fingerprint || NEW.policy_fingerprint || NEW.assignment_manifest_fingerprint || NEW.split_fingerprint || NEW.legacy_preregistration_fingerprint || NEW.preregistration_v2_fingerprint || NEW.constellation_fingerprint || NEW.registered_at, char(code)) > 0)
+ OR instr(NEW.campaign_id || NEW.campaign_fingerprint || NEW.contract_version || NEW.stored_plan_fingerprint || NEW.policy_fingerprint || NEW.assignment_manifest_fingerprint || NEW.split_fingerprint || NEW.legacy_preregistration_fingerprint || NEW.preregistration_v2_fingerprint || NEW.constellation_fingerprint || NEW.registered_at, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator gate text contains an ASCII control'); END;
+CREATE TRIGGER estimator_gate_campaign_tombstones_safe_insert BEFORE INSERT ON estimator_gate_campaign_tombstones
+WHEN NEW.deleted_at NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+ OR julianday(NEW.deleted_at) IS NULL
+ OR CAST(substr(NEW.deleted_at, 1, 4) AS INTEGER) NOT BETWEEN 1 AND 9999
+ OR date(substr(NEW.deleted_at, 1, 10), '+0 days') <> substr(NEW.deleted_at, 1, 10)
+ OR CAST(substr(NEW.deleted_at, 12, 2) AS INTEGER) NOT BETWEEN 0 AND 23
+ OR CAST(substr(NEW.deleted_at, 15, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+ OR CAST(substr(NEW.deleted_at, 18, 2) AS INTEGER) NOT BETWEEN 0 AND 59
+ OR EXISTS (WITH RECURSIVE controls(code) AS (SELECT 0 UNION ALL SELECT code + 1 FROM controls WHERE code < 31) SELECT 1 FROM controls WHERE instr(NEW.revocation_key || NEW.deleted_at, char(code)) > 0)
+ OR instr(NEW.revocation_key || NEW.deleted_at, char(127)) > 0
+BEGIN SELECT RAISE(ABORT, 'estimator campaign tombstone is unsafe'); END;
+
+CREATE INDEX estimator_gate_campaigns_plan_idx ON estimator_gate_campaigns(stored_plan_fingerprint, registered_at DESC);
+CREATE INDEX estimator_case_assignments_v2_metric_idx ON estimator_case_assignments_v2(manifest_fingerprint, metric_key, case_id);
+
+COMMIT;
+"""
