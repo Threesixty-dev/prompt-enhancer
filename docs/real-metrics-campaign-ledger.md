@@ -204,6 +204,19 @@ write. Calibration cases, frozen private holdouts, adjudications, derived gate
 decisions, and activation slots remain a later P1 checkpoint, so all estimators
 remain product-disabled.
 
+The first specialist foundation pre-screen is frozen before any private
+evaluation. Its runnable set is exactly a deterministic objective-evidence
+abstainer plus multilingual MiniLMv2 L6 and L12 NLI. The 24 fictional EN/PL
+cases are a bounded plumbing and operability screen, not the planned
+preregistered 96+ case promotion screen. Authored compatibility labels act as
+an oracle gate; no scope router is evaluated and router metrics stay unknown.
+The previously rejected multilingual mDeBERTa is historical only. BGE-M3
+zero-shot and bounded Qwen configurations remain future, unfrozen candidates.
+Retrieval models and similarity scores are not metric estimators and can never
+be promoted as quality scores. Promotion remains limited to at most two
+non-dominated configurations after the later preregistered screen; it is not
+product activation.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
