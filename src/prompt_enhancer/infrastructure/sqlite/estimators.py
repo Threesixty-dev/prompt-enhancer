@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
+import json
+import sqlite3
 from typing import NoReturn
 
 from ...application.estimators.contracts import (
@@ -54,7 +56,48 @@ from ...application.estimators.persistence import (
     PrivacyDeleteOutcome,
     PreregisteredEstimatorCampaign,
     SyntheticEstimatorCase,
+    StructuredEstimateVerifier,
     _v16_plan_has_unsafe_identifier,
+)
+from ...application.estimators.evidence_contracts import (
+    AttemptApprovalKind,
+    AttemptLaunchReceiptV1,
+    AttemptTerminalOutcomeV1,
+    AttemptTerminalState,
+    AuthoritativeCandidateProjectionV2,
+    AuthoritativeDeterministicBaselineProjectionV1,
+    BlindAdjudicationResolution,
+    BlindHumanAdjudicationInputV1,
+    BlindHumanJudgmentInputV1,
+    CalibrationEvidenceSubmissionV1,
+    CalibrationValueState,
+    CostProvenanceV1,
+    ExpectedAttemptManifestV2,
+    ExpectedAttemptV2,
+    HoldoutAccessAuditV1,
+    HoldoutAccessEventV1,
+    HoldoutAccessGapV1,
+    HoldoutAccessManifestV1,
+    HoldoutAccessKind,
+    HoldoutActorKind,
+    HumanParticipantKind,
+    MeasurementState,
+    ObjectiveTruthKind,
+    ObjectiveTruthProjectionV1,
+    PrivacyFindingCategory,
+    PrivacyFindingV1,
+    PrivacyScanManifestV1,
+    PrivacyScanReceiptV1,
+    QueueProvenanceV1,
+    ResourceUsageProvenanceV1,
+    ServedIdentityState,
+    ServedIdentityV1,
+    StabilitySeriesManifestV1,
+    StabilityTrialReceiptV1,
+    StructuredEstimateReceiptV1,
+    TokenUsageProvenanceV1,
+    revalidate_calibration_evidence_submission_v1,
+    revalidate_content_free_contract,
 )
 from ...application.estimators.gate_contracts import (
     CalibrationLanguage,
@@ -66,6 +109,7 @@ from ...application.estimators.gate_contracts import (
     MetricGateSpec,
     MetricRiskTier,
     SubgroupDimension,
+    StabilityCondition,
 )
 from ...application.estimators.gate_v2_contracts import (
     CaseAssignmentManifestV2,
@@ -92,6 +136,46 @@ def _campaign_revocation_key(campaign_id: str) -> str:
     ).hexdigest()
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _to_epoch_us(value: datetime) -> int:
+    delta = value - _EPOCH
+    return (
+        delta.days * 86_400_000_000
+        + delta.seconds * 1_000_000
+        + delta.microseconds
+    )
+
+
+def _from_epoch_us(value: int) -> datetime:
+    return _EPOCH + timedelta(microseconds=int(value))
+
+
+def _enum_value(value):
+    return value.value if hasattr(value, "value") else value
+
+
+def _projection_columns(value) -> dict[str, object]:
+    return {
+        "value_kind": value.value_kind.value,
+        "value_state": value.state.value,
+        "numeric_value": value.numeric_value,
+        "label_code": value.label_code,
+        "reason_code": value.reason_code,
+    }
+
+
+def _contract_fingerprint(value) -> str:
+    payload = json.dumps(
+        value.model_dump(mode="json"),
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 class SqliteEstimatorRepository(EstimatorRepository):
     """Append-only relational repository with an explicit privacy delete."""
 
@@ -101,10 +185,30 @@ class SqliteEstimatorRepository(EstimatorRepository):
         ensure_initialized: Callable[[], None],
         *,
         clock: Callable[[], datetime] | None = None,
+        structured_estimate_verifier: StructuredEstimateVerifier | None = None,
+        begin_evidence_authorization: (
+            Callable[[str, str], tuple[str, str]] | None
+        ) = None,
+        end_evidence_authorization: (
+            Callable[[str, str, str, str], None] | None
+        ) = None,
+        begin_evidence_delete_authorization: (
+            Callable[[str], tuple[str, str]] | None
+        ) = None,
+        end_evidence_delete_authorization: (
+            Callable[[str, str, str], None] | None
+        ) = None,
     ) -> None:
         self._connection_scope = connection_scope
         self._ensure_initialized = ensure_initialized
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._structured_estimate_verifier = structured_estimate_verifier
+        self._begin_evidence_authorization = begin_evidence_authorization
+        self._end_evidence_authorization = end_evidence_authorization
+        self._begin_evidence_delete_authorization = (
+            begin_evidence_delete_authorization
+        )
+        self._end_evidence_delete_authorization = end_evidence_delete_authorization
 
     @staticmethod
     def _conflict(message: str) -> NoReturn:
@@ -1581,6 +1685,1600 @@ class SqliteEstimatorRepository(EstimatorRepository):
                 return None
             return self._hydrate_preregistered_campaign(connection, campaign_id)
 
+    @classmethod
+    def _insert_exact(
+        cls,
+        connection,
+        table: str,
+        key: dict[str, object],
+        values: dict[str, object],
+    ) -> None:
+        """Append one immutable row, accepting only byte-for-byte replay."""
+
+        columns = tuple(values)
+        where = " AND ".join(f"{column} = ?" for column in key)
+        existing = connection.execute(
+            f"SELECT {', '.join(columns)} FROM {table} WHERE {where}",
+            tuple(key.values()),
+        ).fetchone()
+        expected = tuple(values[column] for column in columns)
+        if existing is not None:
+            if tuple(existing[column] for column in columns) != expected:
+                cls._conflict(f"{table} immutable identifier conflicts with storage")
+            return
+        placeholders = ", ".join("?" for _ in columns)
+        try:
+            connection.execute(
+                f"INSERT INTO {table}({', '.join(columns)}) VALUES ({placeholders})",
+                expected,
+            )
+        except sqlite3.IntegrityError:
+            cls._conflict(f"{table} evidence conflicts with sealed storage")
+
+    def append_calibration_evidence_submission(
+        self,
+        submission: CalibrationEvidenceSubmissionV1,
+        *,
+        seal: bool = True,
+    ) -> str | None:
+        """Append dynamic evidence and optionally write the final root last.
+
+        ``seal=False`` is a durable restart checkpoint: every supplied leaf and
+        component root is immutable, but readers still see no evidence set.
+        Replaying the exact submission with ``seal=True`` writes only the final
+        root. Conflicting replays fail atomically.
+        """
+
+        self._ensure_initialized()
+        submission = revalidate_calibration_evidence_submission_v1(submission)
+        require_safe_id(submission.submission_id)
+        require_safe_id(submission.campaign_id)
+        if (
+            self._begin_evidence_authorization is None
+            or self._end_evidence_authorization is None
+        ):
+            self._conflict("calibration evidence persistence is not authorized")
+        authorization_id, authorization_tag = self._begin_evidence_authorization(
+            submission.submission_id, submission.campaign_id
+        )
+        try:
+            with self._connection_scope() as connection:
+                try:
+                    # Python's sqlite3 API cannot mark registered functions
+                    # SQLITE_INNOCUOUS. Enable trusted-schema evaluation only
+                    # on this private connection while the non-SQL-forgeable
+                    # in-memory authorization is active, then disable it
+                    # before returning the connection.
+                    connection.execute("PRAGMA trusted_schema = ON")
+                    connection.execute("BEGIN IMMEDIATE")
+                    campaign = self._hydrate_preregistered_campaign(
+                        connection, submission.campaign_id
+                    )
+                    self._validate_evidence_campaign_lineage(
+                        campaign,
+                        submission,
+                        verifier=self._structured_estimate_verifier,
+                    )
+                    sealed = connection.execute(
+                        "SELECT submission_fingerprint FROM estimator_evidence_submissions WHERE submission_id = ?",
+                        (submission.submission_id,),
+                    ).fetchone()
+                    if sealed is not None:
+                        if sealed["submission_fingerprint"] != submission.fingerprint:
+                            self._conflict(
+                                "calibration evidence submission conflicts with storage"
+                            )
+                        hydrated = self._hydrate_calibration_evidence_submission(
+                            connection, submission.submission_id
+                        )
+                        if hydrated != submission:
+                            self._conflict(
+                                "calibration evidence fingerprint conflicts with storage"
+                            )
+                        connection.commit()
+                        connection.execute("PRAGMA trusted_schema = OFF")
+                        return submission.fingerprint if seal else None
+
+                    connection.execute(
+                        "INSERT INTO estimator_evidence_append_authorizations VALUES (?, ?, ?, ?)",
+                        (
+                            authorization_id,
+                            submission.submission_id,
+                            submission.campaign_id,
+                            authorization_tag,
+                        ),
+                    )
+                    self._append_calibration_evidence_rows(connection, submission)
+                    if seal:
+                        self._insert_evidence_submission_root(connection, submission)
+                    connection.execute(
+                        "DELETE FROM estimator_evidence_append_authorizations WHERE authorization_id = ?",
+                        (authorization_id,),
+                    )
+                    connection.commit()
+                    connection.execute("PRAGMA trusted_schema = OFF")
+                    return submission.fingerprint if seal else None
+                except Exception:
+                    connection.rollback()
+                    connection.execute("PRAGMA trusted_schema = OFF")
+                    raise
+        finally:
+            self._end_evidence_authorization(
+                authorization_id,
+                submission.submission_id,
+                submission.campaign_id,
+                authorization_tag,
+            )
+
+    def get_calibration_evidence_submission(
+        self, submission_id: str
+    ) -> CalibrationEvidenceSubmissionV1 | None:
+        self._ensure_initialized()
+        require_safe_id(submission_id)
+        with self._connection_scope(readonly=True) as connection:
+            row = connection.execute(
+                "SELECT 1 FROM estimator_evidence_submissions WHERE submission_id = ?",
+                (submission_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return self._hydrate_calibration_evidence_submission(
+                connection, submission_id
+            )
+
+    @classmethod
+    def _validate_evidence_campaign_lineage(
+        cls,
+        campaign: PreregisteredEstimatorCampaign,
+        submission: CalibrationEvidenceSubmissionV1,
+        *,
+        verifier: StructuredEstimateVerifier | None,
+    ) -> None:
+        cls._validate_evidence_campaign_static_lineage(campaign, submission)
+
+        launches = {item.attempt_id: item for item in submission.attempt_launches}
+        outcomes = {item.attempt_id: item for item in submission.attempt_outcomes}
+        if submission.structured_estimate_receipts and verifier is None:
+            cls._conflict(
+                "structured estimates require an independent output verifier"
+            )
+        for caller_receipt in submission.structured_estimate_receipts:
+            assert verifier is not None
+            independently_decoded = verifier.verify_structured_estimate(
+                launch=launches[caller_receipt.attempt_id],
+                outcome=outcomes[caller_receipt.attempt_id],
+            )
+            verified = revalidate_content_free_contract(
+                StructuredEstimateReceiptV1, independently_decoded
+            )
+            if verified != caller_receipt:
+                cls._conflict(
+                    "structured estimate does not match independent decoding"
+                )
+
+    @classmethod
+    def _validate_evidence_campaign_static_lineage(
+        cls,
+        campaign: PreregisteredEstimatorCampaign,
+        submission: CalibrationEvidenceSubmissionV1,
+    ) -> None:
+        """Recheck content-free campaign lineage without decoding model output.
+
+        This check deliberately runs both before append and after hydration. The
+        latter makes a stored evidence root fail closed if any retained v16
+        plan, split, question, packet, constellation, or model identity is
+        corrupted after sealing.
+        """
+        if submission.campaign_holdout_case_ids != campaign.split.holdout_case_ids:
+            cls._conflict(
+                "calibration evidence holdout does not match the sealed campaign"
+            )
+        if submission.expected_attempt_manifest.frozen_at < campaign.registered_at:
+            cls._conflict(
+                "expected attempts cannot freeze before campaign registration"
+            )
+        plan_fingerprint = campaign.stored_plan.canonical_fingerprint
+        assignments = {
+            item.case_id: item for item in campaign.assignment_manifest.assignments
+        }
+        constellation = {
+            item.stage_fingerprint: item
+            for item in campaign.constellation_identity.stages
+        }
+        artifacts = {
+            stage.ordinal: stage.model_artifact
+            for stage in campaign.stored_plan.stages
+            if stage.model_artifact is not None
+        }
+        launches = {item.attempt_id: item for item in submission.attempt_launches}
+        for expected in submission.expected_attempt_manifest.attempts:
+            assignment = assignments.get(expected.case_id)
+            stage = constellation.get(expected.constellation_stage_fingerprint)
+            launch = launches[expected.attempt_id]
+            artifact = artifacts.get(expected.stage_ordinal)
+            if (
+                assignment is None
+                or expected.plan_fingerprint != plan_fingerprint
+                or expected.metric_question_fingerprint
+                != assignment.metric_question_fingerprint
+                or expected.evidence_packet_fingerprint
+                != assignment.evidence_packet_fingerprint
+                or stage is None
+                or stage.ordinal != expected.stage_ordinal
+                or stage.kind is not expected.stage_kind
+                or stage.stage_configuration_sha256
+                != expected.stage_configuration_sha256
+                or artifact is None
+                or launch.model_artifact_fingerprint
+                != stage.model_artifact_fingerprint
+                or launch.requested_source is not artifact.source
+                or launch.requested_model_id != artifact.requested_model_id
+                or launch.requested_revision != artifact.requested_revision
+                or launch.requested_execution_mode
+                is not artifact.requested_execution_mode
+                or launch.response_schema_version != stage.output_schema_version
+            ):
+                cls._conflict(
+                    "calibration attempt does not match the sealed campaign lineage"
+                )
+
+    def _append_calibration_evidence_rows(
+        self, connection, submission: CalibrationEvidenceSubmissionV1
+    ) -> None:
+        sid = submission.submission_id
+        campaign_id = submission.campaign_id
+        for launch in submission.attempt_launches:
+            values = {
+                "submission_id": sid,
+                "launch_id": launch.launch_id,
+                "campaign_id": campaign_id,
+                "attempt_id": launch.attempt_id,
+                "execution_id": launch.execution_id,
+                "case_id": launch.case_id,
+                "plan_fingerprint": launch.plan_fingerprint,
+                "metric_question_fingerprint": launch.metric_question_fingerprint,
+                "evidence_packet_fingerprint": launch.evidence_packet_fingerprint,
+                "constellation_stage_fingerprint": launch.constellation_stage_fingerprint,
+                "stage_ordinal": launch.stage_ordinal,
+                "stage_kind": launch.stage_kind.value,
+                "stage_configuration_sha256": launch.stage_configuration_sha256,
+                "model_artifact_fingerprint": launch.model_artifact_fingerprint,
+                "requested_source": launch.requested_source.value,
+                "requested_model_id": launch.requested_model_id,
+                "requested_revision": launch.requested_revision,
+                "requested_execution_mode": launch.requested_execution_mode.value,
+                "runner_adapter_key": launch.runner_adapter_key,
+                "runner_adapter_version": launch.runner_adapter_version,
+                "runner_configuration_sha256": launch.runner_configuration_sha256,
+                "response_schema_version": launch.response_schema_version,
+                "destination": launch.destination.value,
+                "retention_class": launch.retention_class.value,
+                "approval_kind": launch.approval_kind.value,
+                "approval_id": launch.approval_id,
+                "redaction_preview_fingerprint": launch.redaction_preview_fingerprint,
+                "approved_at_us": (
+                    None
+                    if launch.approved_at is None
+                    else _to_epoch_us(launch.approved_at)
+                ),
+                "launched_at_us": _to_epoch_us(launch.launched_at),
+                "launch_fingerprint": launch.fingerprint,
+            }
+            self._insert_exact(
+                connection,
+                "estimator_evidence_attempt_launches",
+                {"submission_id": sid, "attempt_id": launch.attempt_id},
+                values,
+            )
+
+        for outcome in submission.attempt_outcomes:
+            served = outcome.served_identity
+            usage = outcome.usage
+            resources = outcome.resources
+            cost = outcome.cost
+            queue = outcome.queue
+            values = {
+                "submission_id": sid,
+                "outcome_id": outcome.outcome_id,
+                "outcome_fingerprint": outcome.fingerprint,
+                "campaign_id": campaign_id,
+                "attempt_id": outcome.attempt_id,
+                "execution_id": outcome.execution_id,
+                "case_id": outcome.case_id,
+                "plan_fingerprint": outcome.plan_fingerprint,
+                "metric_question_fingerprint": outcome.metric_question_fingerprint,
+                "evidence_packet_fingerprint": outcome.evidence_packet_fingerprint,
+                "terminal_state": outcome.state.value,
+                "structured_output_fingerprint": outcome.structured_output_fingerprint,
+                "terminal_reason_code": outcome.reason_code,
+                "served_state": served.state.value,
+                "served_source": _enum_value(served.served_source),
+                "served_model_id": served.served_model_id,
+                "served_revision": served.served_revision,
+                "served_execution_mode": _enum_value(served.served_execution_mode),
+                "fallback_used": (
+                    None if served.fallback_used is None else int(served.fallback_used)
+                ),
+                "fallback_reason_code": served.fallback_reason_code,
+                "served_unavailable_reason_code": served.unavailable_reason_code,
+                "token_state": usage.state.value,
+                "token_collector_version": usage.collector_version,
+                "input_tokens": usage.input_tokens,
+                "cached_input_tokens": usage.cached_input_tokens,
+                "output_tokens": usage.output_tokens,
+                "reasoning_output_tokens": usage.reasoning_output_tokens,
+                "total_tokens": usage.total_tokens,
+                "token_reason_code": usage.reason_code,
+                "resource_state": resources.state.value,
+                "resource_collector_version": resources.collector_version,
+                "peak_ram_bytes": resources.peak_ram_bytes,
+                "peak_vram_bytes": resources.peak_vram_bytes,
+                "energy_millijoules": resources.energy_millijoules,
+                "resource_reason_code": resources.reason_code,
+                "cost_state": cost.state.value,
+                "cost_collector_version": cost.collector_version,
+                "amount_microusd": cost.amount_microusd,
+                "cost_reason_code": cost.reason_code,
+                "queue_key": queue.queue_key,
+                "queue_version": queue.queue_version,
+                "worker_id": queue.worker_id,
+                "enqueued_at_us": _to_epoch_us(queue.enqueued_at),
+                "dequeued_at_us": _to_epoch_us(queue.dequeued_at),
+                "wait_ms": queue.wait_ms,
+                "started_at_us": _to_epoch_us(outcome.started_at),
+                "finished_at_us": _to_epoch_us(outcome.finished_at),
+                "latency_ms": outcome.latency_ms,
+            }
+            self._insert_exact(
+                connection,
+                "estimator_evidence_attempt_outcomes",
+                {"submission_id": sid, "attempt_id": outcome.attempt_id},
+                values,
+            )
+
+        expected_manifest = submission.expected_attempt_manifest
+        for ordinal, expected in enumerate(expected_manifest.attempts):
+            values = {
+                "submission_id": sid,
+                "manifest_id": expected_manifest.manifest_id,
+                "ordinal": ordinal,
+                "attempt_id": expected.attempt_id,
+                "execution_id": expected.execution_id,
+                "case_id": expected.case_id,
+                "plan_fingerprint": expected.plan_fingerprint,
+                "metric_question_fingerprint": expected.metric_question_fingerprint,
+                "evidence_packet_fingerprint": expected.evidence_packet_fingerprint,
+                "constellation_stage_fingerprint": expected.constellation_stage_fingerprint,
+                "stage_configuration_sha256": expected.stage_configuration_sha256,
+                "stage_ordinal": expected.stage_ordinal,
+                "stage_kind": expected.stage_kind.value,
+                "attempt_fingerprint": _contract_fingerprint(expected),
+                "campaign_id": campaign_id,
+            }
+            self._insert_exact(
+                connection,
+                "estimator_evidence_expected_attempts",
+                {"submission_id": sid, "ordinal": ordinal},
+                values,
+            )
+        self._insert_exact(
+            connection,
+            "estimator_evidence_expected_manifests",
+            {"submission_id": sid},
+            {
+                "submission_id": sid,
+                "manifest_id": expected_manifest.manifest_id,
+                "manifest_fingerprint": expected_manifest.fingerprint,
+                "execution_set_fingerprint": expected_manifest.execution_set_fingerprint,
+                "campaign_id": campaign_id,
+                "plan_fingerprint": expected_manifest.plan_fingerprint,
+                "frozen_at_us": _to_epoch_us(expected_manifest.frozen_at),
+                "attempt_count": len(expected_manifest.attempts),
+            },
+        )
+
+        audit = submission.holdout_access_audit
+        access_manifest = audit.manifest
+        for ordinal, event in enumerate(access_manifest.events):
+            self._insert_exact(
+                connection,
+                "estimator_evidence_access_events",
+                {
+                    "submission_id": sid,
+                    "manifest_id": access_manifest.manifest_id,
+                    "ordinal": ordinal,
+                },
+                {
+                    "submission_id": sid,
+                    "manifest_id": access_manifest.manifest_id,
+                    "ordinal": ordinal,
+                    "event_id": event.event_id,
+                    "event_fingerprint": event.fingerprint,
+                    "campaign_id": campaign_id,
+                    "case_id": event.case_id,
+                    "actor_id": event.actor_id,
+                    "actor_kind": event.actor_kind.value,
+                    "access_kind": event.access_kind.value,
+                    "occurred_at_us": _to_epoch_us(event.occurred_at),
+                },
+            )
+        for ordinal, gap in enumerate(access_manifest.gaps):
+            self._insert_exact(
+                connection,
+                "estimator_evidence_access_gaps",
+                {
+                    "submission_id": sid,
+                    "manifest_id": access_manifest.manifest_id,
+                    "ordinal": ordinal,
+                },
+                {
+                    "submission_id": sid,
+                    "manifest_id": access_manifest.manifest_id,
+                    "ordinal": ordinal,
+                    "gap_id": gap.gap_id,
+                    "campaign_id": campaign_id,
+                    "reason_code": gap.reason_code,
+                    "started_at_us": _to_epoch_us(gap.started_at),
+                    "ended_at_us": _to_epoch_us(gap.ended_at),
+                },
+            )
+        self._insert_exact(
+            connection,
+            "estimator_evidence_access_manifests",
+            {"submission_id": sid},
+            {
+                "submission_id": sid,
+                "manifest_id": access_manifest.manifest_id,
+                "manifest_fingerprint": access_manifest.fingerprint,
+                "event_set_fingerprint": access_manifest.event_set_fingerprint,
+                "gap_set_fingerprint": access_manifest.gap_set_fingerprint,
+                "campaign_id": campaign_id,
+                "auditor_version": access_manifest.auditor_version,
+                "coverage_started_at_us": _to_epoch_us(
+                    access_manifest.coverage_started_at
+                ),
+                "coverage_ended_at_us": _to_epoch_us(
+                    access_manifest.coverage_ended_at
+                ),
+                "frozen_at_us": _to_epoch_us(access_manifest.frozen_at),
+                "event_count": len(access_manifest.events),
+                "gap_count": len(access_manifest.gaps),
+            },
+        )
+        for ordinal, case_id in enumerate(audit.holdout_case_ids):
+            self._insert_exact(
+                connection,
+                "estimator_evidence_access_audit_cases",
+                {"submission_id": sid, "ordinal": ordinal},
+                {
+                    "submission_id": sid,
+                    "audit_id": audit.audit_id,
+                    "ordinal": ordinal,
+                    "case_id": case_id,
+                    "campaign_id": campaign_id,
+                },
+            )
+        self._insert_exact(
+            connection,
+            "estimator_evidence_access_audits",
+            {"submission_id": sid},
+            {
+                "submission_id": sid,
+                "audit_id": audit.audit_id,
+                "audit_fingerprint": audit.fingerprint,
+                "campaign_id": campaign_id,
+                "manifest_id": access_manifest.manifest_id,
+                "holdout_unsealed_at_us": _to_epoch_us(audit.holdout_unsealed_at),
+                "completed_at_us": _to_epoch_us(audit.completed_at),
+                "holdout_count": len(audit.holdout_case_ids),
+            },
+        )
+
+        scan = submission.privacy_scan
+        privacy_manifest = scan.manifest
+        for set_kind, artifacts in (
+            ("expected", privacy_manifest.expected_artifact_fingerprints),
+            ("scanned", privacy_manifest.scanned_artifact_fingerprints),
+        ):
+            for ordinal, artifact_fingerprint in enumerate(artifacts):
+                self._insert_exact(
+                    connection,
+                    "estimator_evidence_privacy_artifacts",
+                    {
+                        "submission_id": sid,
+                        "set_kind": set_kind,
+                        "ordinal": ordinal,
+                    },
+                    {
+                        "submission_id": sid,
+                        "manifest_id": privacy_manifest.manifest_id,
+                        "set_kind": set_kind,
+                        "ordinal": ordinal,
+                        "artifact_fingerprint": artifact_fingerprint,
+                        "campaign_id": campaign_id,
+                    },
+                )
+        for ordinal, finding in enumerate(privacy_manifest.findings):
+            self._insert_exact(
+                connection,
+                "estimator_evidence_privacy_findings",
+                {
+                    "submission_id": sid,
+                    "manifest_id": privacy_manifest.manifest_id,
+                    "ordinal": ordinal,
+                },
+                {
+                    "submission_id": sid,
+                    "manifest_id": privacy_manifest.manifest_id,
+                    "ordinal": ordinal,
+                    "finding_id": finding.finding_id,
+                    "finding_fingerprint": finding.fingerprint,
+                    "campaign_id": campaign_id,
+                    "artifact_fingerprint": finding.artifact_fingerprint,
+                    "detector_key": finding.detector_key,
+                    "detector_version": finding.detector_version,
+                    "category": finding.category.value,
+                    "occurrence_count": finding.occurrence_count,
+                    "detected_at_us": _to_epoch_us(finding.detected_at),
+                },
+            )
+        self._insert_exact(
+            connection,
+            "estimator_evidence_privacy_manifests",
+            {"submission_id": sid},
+            {
+                "submission_id": sid,
+                "manifest_id": privacy_manifest.manifest_id,
+                "manifest_fingerprint": privacy_manifest.fingerprint,
+                "finding_set_fingerprint": privacy_manifest.finding_set_fingerprint,
+                "campaign_id": campaign_id,
+                "frozen_at_us": _to_epoch_us(privacy_manifest.frozen_at),
+                "expected_count": len(
+                    privacy_manifest.expected_artifact_fingerprints
+                ),
+                "scanned_count": len(
+                    privacy_manifest.scanned_artifact_fingerprints
+                ),
+                "finding_row_count": len(privacy_manifest.findings),
+                "finding_occurrence_count": privacy_manifest.finding_count,
+            },
+        )
+        self._insert_exact(
+            connection,
+            "estimator_evidence_privacy_scans",
+            {"submission_id": sid},
+            {
+                "submission_id": sid,
+                "scan_id": scan.scan_id,
+                "scan_fingerprint": scan.fingerprint,
+                "campaign_id": campaign_id,
+                "manifest_id": privacy_manifest.manifest_id,
+                "scanner_version": scan.scanner_version,
+                "started_at_us": _to_epoch_us(scan.started_at),
+                "completed_at_us": _to_epoch_us(scan.completed_at),
+            },
+        )
+
+        for estimate in submission.structured_estimate_receipts:
+            self._insert_exact(
+                connection,
+                "estimator_evidence_structured_estimates",
+                {"submission_id": sid, "receipt_id": estimate.receipt_id},
+                {
+                    "submission_id": sid,
+                    "receipt_id": estimate.receipt_id,
+                    "receipt_fingerprint": estimate.fingerprint,
+                    "campaign_id": campaign_id,
+                    "case_id": estimate.case_id,
+                    "plan_fingerprint": estimate.plan_fingerprint,
+                    "metric_question_fingerprint": estimate.metric_question_fingerprint,
+                    "evidence_packet_fingerprint": estimate.evidence_packet_fingerprint,
+                    "attempt_id": estimate.attempt_id,
+                    "outcome_id": estimate.outcome_id,
+                    "outcome_fingerprint": estimate.outcome_fingerprint,
+                    "structured_output_fingerprint": estimate.structured_output_fingerprint,
+                    "value_kind": estimate.value_kind.value,
+                    "value_state": estimate.state.value,
+                    "numeric_value": estimate.numeric_value,
+                    "label_code": estimate.label_code,
+                    "confidence": estimate.confidence,
+                    "reason_code": estimate.reason_code,
+                    "recorded_at_us": _to_epoch_us(estimate.recorded_at),
+                },
+            )
+
+        self._append_projection_rows(connection, submission)
+
+        for judgment in submission.blind_human_judgments:
+            values = {
+                "submission_id": sid,
+                "judgment_id": judgment.judgment_id,
+                "judgment_fingerprint": judgment.fingerprint,
+                "campaign_id": campaign_id,
+                "case_id": judgment.case_id,
+                "plan_fingerprint": judgment.plan_fingerprint,
+                "metric_question_fingerprint": judgment.metric_question_fingerprint,
+                "evidence_packet_fingerprint": judgment.evidence_packet_fingerprint,
+                "participant_id": judgment.participant_id,
+                "participant_kind": judgment.participant_kind.value,
+                "annotation_protocol_version": judgment.annotation_protocol_version,
+                **_projection_columns(judgment),
+                "created_at_us": _to_epoch_us(judgment.created_at),
+            }
+            self._insert_exact(
+                connection,
+                "estimator_evidence_blind_judgments",
+                {"submission_id": sid, "judgment_id": judgment.judgment_id},
+                values,
+            )
+        for adjudication in submission.blind_human_adjudications:
+            for ordinal, judgment_id in enumerate(adjudication.judgment_ids):
+                self._insert_exact(
+                    connection,
+                    "estimator_evidence_adjudication_judgments",
+                    {
+                        "submission_id": sid,
+                        "adjudication_id": adjudication.adjudication_id,
+                        "ordinal": ordinal,
+                    },
+                    {
+                        "submission_id": sid,
+                        "adjudication_id": adjudication.adjudication_id,
+                        "ordinal": ordinal,
+                        "judgment_id": judgment_id,
+                        "campaign_id": campaign_id,
+                    },
+                )
+            values = {
+                "submission_id": sid,
+                "adjudication_id": adjudication.adjudication_id,
+                "adjudication_fingerprint": adjudication.fingerprint,
+                "campaign_id": campaign_id,
+                "case_id": adjudication.case_id,
+                "plan_fingerprint": adjudication.plan_fingerprint,
+                "metric_question_fingerprint": adjudication.metric_question_fingerprint,
+                "evidence_packet_fingerprint": adjudication.evidence_packet_fingerprint,
+                "resolver_id": adjudication.adjudicator_id,
+                "resolution": adjudication.resolution.value,
+                "annotation_protocol_version": adjudication.annotation_protocol_version,
+                **_projection_columns(adjudication),
+                "completed_at_us": _to_epoch_us(adjudication.completed_at),
+                "judgment_count": len(adjudication.judgment_ids),
+            }
+            self._insert_exact(
+                connection,
+                "estimator_evidence_blind_adjudications",
+                {
+                    "submission_id": sid,
+                    "adjudication_id": adjudication.adjudication_id,
+                },
+                values,
+            )
+
+        for series in submission.stability_series:
+            for trial in series.trials:
+                self._insert_exact(
+                    connection,
+                    "estimator_evidence_stability_trials",
+                    {
+                        "submission_id": sid,
+                        "series_id": series.series_id,
+                        "trial_ordinal": trial.trial_ordinal,
+                    },
+                    {
+                        "submission_id": sid,
+                        "series_id": series.series_id,
+                        "trial_ordinal": trial.trial_ordinal,
+                        "receipt_id": trial.receipt_id,
+                        "receipt_fingerprint": trial.fingerprint,
+                        "campaign_id": campaign_id,
+                        "case_id": trial.case_id,
+                        "plan_fingerprint": trial.plan_fingerprint,
+                        "metric_question_fingerprint": trial.metric_question_fingerprint,
+                        "evidence_packet_fingerprint": trial.evidence_packet_fingerprint,
+                        "condition_code": trial.condition.value,
+                        "attempt_id": trial.attempt_id,
+                        "outcome_id": trial.outcome_id,
+                        "outcome_fingerprint": trial.outcome_fingerprint,
+                        "estimate_receipt_id": trial.estimate_receipt_id,
+                        "estimate_receipt_fingerprint": trial.estimate_receipt_fingerprint,
+                        "recorded_at_us": _to_epoch_us(trial.recorded_at),
+                    },
+                )
+            self._insert_exact(
+                connection,
+                "estimator_evidence_stability_series",
+                {"submission_id": sid, "series_id": series.series_id},
+                {
+                    "submission_id": sid,
+                    "series_id": series.series_id,
+                    "series_fingerprint": series.fingerprint,
+                    "trial_set_fingerprint": series.trial_set_fingerprint,
+                    "campaign_id": campaign_id,
+                    "case_id": series.case_id,
+                    "plan_fingerprint": series.plan_fingerprint,
+                    "metric_question_fingerprint": series.metric_question_fingerprint,
+                    "evidence_packet_fingerprint": series.evidence_packet_fingerprint,
+                    "condition_code": series.condition.value,
+                    "frozen_at_us": _to_epoch_us(series.frozen_at),
+                    "trial_count": len(series.trials),
+                },
+            )
+
+        for ordinal, case_id in enumerate(submission.campaign_holdout_case_ids):
+            self._insert_exact(
+                connection,
+                "estimator_evidence_submission_holdout_cases",
+                {"submission_id": sid, "ordinal": ordinal},
+                {
+                    "submission_id": sid,
+                    "ordinal": ordinal,
+                    "case_id": case_id,
+                    "campaign_id": campaign_id,
+                },
+            )
+
+    def _append_projection_rows(
+        self, connection, submission: CalibrationEvidenceSubmissionV1
+    ) -> None:
+        sid = submission.submission_id
+        campaign_id = submission.campaign_id
+        for projection in submission.candidate_projections:
+            self._insert_exact(
+                connection,
+                "estimator_evidence_candidate_projections",
+                {"submission_id": sid, "projection_id": projection.projection_id},
+                {
+                    "submission_id": sid,
+                    "projection_id": projection.projection_id,
+                    "projection_fingerprint": projection.fingerprint,
+                    "campaign_id": campaign_id,
+                    "case_id": projection.case_id,
+                    "plan_fingerprint": projection.plan_fingerprint,
+                    "metric_question_fingerprint": projection.metric_question_fingerprint,
+                    "evidence_packet_fingerprint": projection.evidence_packet_fingerprint,
+                    "attempt_id": projection.attempt_id,
+                    "outcome_id": projection.outcome_id,
+                    "outcome_fingerprint": projection.outcome_fingerprint,
+                    "estimate_receipt_id": projection.estimate_receipt_id,
+                    "estimate_receipt_fingerprint": projection.estimate_receipt_fingerprint,
+                    "stage_ordinal": projection.stage_ordinal,
+                    "stage_kind": projection.stage_kind.value,
+                    "selected_at_us": _to_epoch_us(projection.selected_at),
+                },
+            )
+        for projection in submission.deterministic_baseline_projections:
+            values = {
+                "submission_id": sid,
+                "projection_id": projection.projection_id,
+                "projection_fingerprint": projection.fingerprint,
+                "campaign_id": campaign_id,
+                "case_id": projection.case_id,
+                "plan_fingerprint": projection.plan_fingerprint,
+                "metric_question_fingerprint": projection.metric_question_fingerprint,
+                "evidence_packet_fingerprint": projection.evidence_packet_fingerprint,
+                "baseline_id": projection.baseline_id,
+                "baseline_version": projection.baseline_version,
+                "baseline_configuration_sha256": projection.baseline_configuration_sha256,
+                "final_estimate_fingerprint": projection.final_estimate_fingerprint,
+                **_projection_columns(projection),
+                "evaluated_at_us": _to_epoch_us(projection.evaluated_at),
+            }
+            self._insert_exact(
+                connection,
+                "estimator_evidence_baseline_projections",
+                {"submission_id": sid, "projection_id": projection.projection_id},
+                values,
+            )
+        for projection in submission.objective_truth_projections:
+            values = {
+                "submission_id": sid,
+                "projection_id": projection.projection_id,
+                "projection_fingerprint": projection.fingerprint,
+                "campaign_id": campaign_id,
+                "case_id": projection.case_id,
+                "plan_fingerprint": projection.plan_fingerprint,
+                "metric_question_fingerprint": projection.metric_question_fingerprint,
+                "evidence_packet_fingerprint": projection.evidence_packet_fingerprint,
+                "truth_kind": projection.truth_kind.value,
+                "objective_evidence_fingerprint": projection.objective_evidence_fingerprint,
+                "verification_adapter_version": projection.verification_adapter_version,
+                **_projection_columns(projection),
+                "observed_at_us": _to_epoch_us(projection.observed_at),
+            }
+            self._insert_exact(
+                connection,
+                "estimator_evidence_objective_projections",
+                {"submission_id": sid, "projection_id": projection.projection_id},
+                values,
+            )
+
+    def _insert_evidence_submission_root(
+        self, connection, submission: CalibrationEvidenceSubmissionV1
+    ) -> None:
+        self._insert_exact(
+            connection,
+            "estimator_evidence_submissions",
+            {"submission_id": submission.submission_id},
+            {
+                "submission_id": submission.submission_id,
+                "submission_fingerprint": submission.fingerprint,
+                "campaign_id": submission.campaign_id,
+                "expected_manifest_id": submission.expected_attempt_manifest.manifest_id,
+                "access_audit_id": submission.holdout_access_audit.audit_id,
+                "privacy_scan_id": submission.privacy_scan.scan_id,
+                "submitted_at_us": _to_epoch_us(submission.submitted_at),
+                "holdout_count": len(submission.campaign_holdout_case_ids),
+                "launch_count": len(submission.attempt_launches),
+                "outcome_count": len(submission.attempt_outcomes),
+                "structured_estimate_count": len(
+                    submission.structured_estimate_receipts
+                ),
+                "candidate_projection_count": len(submission.candidate_projections),
+                "baseline_projection_count": len(
+                    submission.deterministic_baseline_projections
+                ),
+                "objective_projection_count": len(
+                    submission.objective_truth_projections
+                ),
+                "judgment_count": len(submission.blind_human_judgments),
+                "adjudication_count": len(submission.blind_human_adjudications),
+                "stability_series_count": len(submission.stability_series),
+                "activation_allowed": 0,
+                "private_export_allowed": 0,
+                "team_share_allowed": 0,
+            },
+        )
+
+    @staticmethod
+    def _assert_stored_fingerprint(
+        actual: str, stored: str, label: str
+    ) -> None:
+        if actual != stored:
+            raise DatabaseInvariantError(f"{label} fingerprint is not reproducible")
+
+    @staticmethod
+    def _assert_stored_count(actual: int, stored: int, label: str) -> None:
+        if actual != stored:
+            raise DatabaseInvariantError(f"{label} count is not reproducible")
+
+    def _hydrate_calibration_evidence_submission(
+        self, connection, submission_id: str
+    ) -> CalibrationEvidenceSubmissionV1:
+        root = connection.execute(
+            "SELECT * FROM estimator_evidence_submissions WHERE submission_id = ?",
+            (submission_id,),
+        ).fetchone()
+        if root is None:
+            raise DatabaseInvariantError("calibration evidence submission is missing")
+
+        launch_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_attempt_launches WHERE submission_id = ? ORDER BY attempt_id",
+            (submission_id,),
+        ).fetchall()
+        launches = tuple(self._hydrate_evidence_launch(row) for row in launch_rows)
+        for value, row in zip(launches, launch_rows, strict=True):
+            self._assert_stored_fingerprint(
+                value.fingerprint, row["launch_fingerprint"], "attempt launch"
+            )
+
+        outcome_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_attempt_outcomes WHERE submission_id = ? ORDER BY attempt_id",
+            (submission_id,),
+        ).fetchall()
+        outcomes = tuple(self._hydrate_evidence_outcome(row) for row in outcome_rows)
+        for value, row in zip(outcomes, outcome_rows, strict=True):
+            self._assert_stored_fingerprint(
+                value.fingerprint, row["outcome_fingerprint"], "attempt outcome"
+            )
+
+        expected_root = connection.execute(
+            "SELECT * FROM estimator_evidence_expected_manifests WHERE submission_id = ?",
+            (submission_id,),
+        ).fetchone()
+        expected_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_expected_attempts WHERE submission_id = ? ORDER BY ordinal",
+            (submission_id,),
+        ).fetchall()
+        expected_manifest = ExpectedAttemptManifestV2(
+            manifest_id=expected_root["manifest_id"],
+            campaign_id=expected_root["campaign_id"],
+            attempts=tuple(
+                ExpectedAttemptV2(
+                    attempt_id=row["attempt_id"],
+                    execution_id=row["execution_id"],
+                    case_id=row["case_id"],
+                    plan_fingerprint=row["plan_fingerprint"],
+                    metric_question_fingerprint=row[
+                        "metric_question_fingerprint"
+                    ],
+                    evidence_packet_fingerprint=row[
+                        "evidence_packet_fingerprint"
+                    ],
+                    constellation_stage_fingerprint=row[
+                        "constellation_stage_fingerprint"
+                    ],
+                    stage_configuration_sha256=row[
+                        "stage_configuration_sha256"
+                    ],
+                    stage_ordinal=row["stage_ordinal"],
+                    stage_kind=row["stage_kind"],
+                )
+                for row in expected_rows
+            ),
+            frozen_at=_from_epoch_us(expected_root["frozen_at_us"]),
+        )
+        for expected, row in zip(
+            expected_manifest.attempts, expected_rows, strict=True
+        ):
+            self._assert_stored_fingerprint(
+                _contract_fingerprint(expected),
+                row["attempt_fingerprint"],
+                "expected attempt",
+            )
+        self._assert_stored_count(
+            len(expected_manifest.attempts),
+            expected_root["attempt_count"],
+            "expected attempt manifest",
+        )
+        self._assert_stored_fingerprint(
+            expected_manifest.fingerprint,
+            expected_root["manifest_fingerprint"],
+            "expected attempt manifest",
+        )
+        self._assert_stored_fingerprint(
+            expected_manifest.execution_set_fingerprint,
+            expected_root["execution_set_fingerprint"],
+            "expected execution set",
+        )
+
+        audit = self._hydrate_evidence_access_audit(connection, submission_id)
+        scan = self._hydrate_evidence_privacy_scan(connection, submission_id)
+
+        estimate_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_structured_estimates WHERE submission_id = ? ORDER BY recorded_at_us, receipt_id",
+            (submission_id,),
+        ).fetchall()
+        estimates = tuple(
+            StructuredEstimateReceiptV1(
+                receipt_id=row["receipt_id"],
+                campaign_id=row["campaign_id"],
+                case_id=row["case_id"],
+                plan_fingerprint=row["plan_fingerprint"],
+                metric_question_fingerprint=row["metric_question_fingerprint"],
+                evidence_packet_fingerprint=row["evidence_packet_fingerprint"],
+                attempt_id=row["attempt_id"],
+                outcome_id=row["outcome_id"],
+                outcome_fingerprint=row["outcome_fingerprint"],
+                structured_output_fingerprint=row[
+                    "structured_output_fingerprint"
+                ],
+                value_kind=row["value_kind"],
+                state=row["value_state"],
+                numeric_value=row["numeric_value"],
+                label_code=row["label_code"],
+                confidence=row["confidence"],
+                reason_code=row["reason_code"],
+                recorded_at=_from_epoch_us(row["recorded_at_us"]),
+            )
+            for row in estimate_rows
+        )
+        for value, row in zip(estimates, estimate_rows, strict=True):
+            self._assert_stored_fingerprint(
+                value.fingerprint, row["receipt_fingerprint"], "structured estimate"
+            )
+
+        candidate_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_candidate_projections WHERE submission_id = ? ORDER BY case_id, metric_question_fingerprint",
+            (submission_id,),
+        ).fetchall()
+        candidates = tuple(
+            AuthoritativeCandidateProjectionV2(
+                projection_id=row["projection_id"],
+                campaign_id=row["campaign_id"],
+                case_id=row["case_id"],
+                plan_fingerprint=row["plan_fingerprint"],
+                metric_question_fingerprint=row["metric_question_fingerprint"],
+                evidence_packet_fingerprint=row["evidence_packet_fingerprint"],
+                attempt_id=row["attempt_id"],
+                outcome_id=row["outcome_id"],
+                outcome_fingerprint=row["outcome_fingerprint"],
+                estimate_receipt_id=row["estimate_receipt_id"],
+                estimate_receipt_fingerprint=row[
+                    "estimate_receipt_fingerprint"
+                ],
+                stage_ordinal=row["stage_ordinal"],
+                stage_kind=row["stage_kind"],
+                selected_at=_from_epoch_us(row["selected_at_us"]),
+            )
+            for row in candidate_rows
+        )
+        baseline_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_baseline_projections WHERE submission_id = ? ORDER BY case_id, metric_question_fingerprint",
+            (submission_id,),
+        ).fetchall()
+        baselines = tuple(
+            AuthoritativeDeterministicBaselineProjectionV1(
+                projection_id=row["projection_id"],
+                campaign_id=row["campaign_id"],
+                case_id=row["case_id"],
+                plan_fingerprint=row["plan_fingerprint"],
+                metric_question_fingerprint=row["metric_question_fingerprint"],
+                evidence_packet_fingerprint=row["evidence_packet_fingerprint"],
+                baseline_id=row["baseline_id"],
+                baseline_version=row["baseline_version"],
+                baseline_configuration_sha256=row[
+                    "baseline_configuration_sha256"
+                ],
+                final_estimate_fingerprint=row["final_estimate_fingerprint"],
+                value_kind=row["value_kind"],
+                state=row["value_state"],
+                numeric_value=row["numeric_value"],
+                label_code=row["label_code"],
+                reason_code=row["reason_code"],
+                evaluated_at=_from_epoch_us(row["evaluated_at_us"]),
+            )
+            for row in baseline_rows
+        )
+        objective_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_objective_projections WHERE submission_id = ? ORDER BY case_id, metric_question_fingerprint",
+            (submission_id,),
+        ).fetchall()
+        objectives = tuple(
+            ObjectiveTruthProjectionV1(
+                projection_id=row["projection_id"],
+                campaign_id=row["campaign_id"],
+                case_id=row["case_id"],
+                plan_fingerprint=row["plan_fingerprint"],
+                metric_question_fingerprint=row["metric_question_fingerprint"],
+                evidence_packet_fingerprint=row["evidence_packet_fingerprint"],
+                truth_kind=row["truth_kind"],
+                objective_evidence_fingerprint=row[
+                    "objective_evidence_fingerprint"
+                ],
+                verification_adapter_version=row[
+                    "verification_adapter_version"
+                ],
+                value_kind=row["value_kind"],
+                state=row["value_state"],
+                numeric_value=row["numeric_value"],
+                label_code=row["label_code"],
+                reason_code=row["reason_code"],
+                observed_at=_from_epoch_us(row["observed_at_us"]),
+            )
+            for row in objective_rows
+        )
+        for values, rows, label in (
+            (candidates, candidate_rows, "candidate projection"),
+            (baselines, baseline_rows, "baseline projection"),
+            (objectives, objective_rows, "objective projection"),
+        ):
+            for value, row in zip(values, rows, strict=True):
+                self._assert_stored_fingerprint(
+                    value.fingerprint, row["projection_fingerprint"], label
+                )
+
+        judgment_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_blind_judgments WHERE submission_id = ? ORDER BY created_at_us, judgment_id",
+            (submission_id,),
+        ).fetchall()
+        judgments = tuple(
+            BlindHumanJudgmentInputV1(
+                judgment_id=row["judgment_id"],
+                campaign_id=row["campaign_id"],
+                case_id=row["case_id"],
+                plan_fingerprint=row["plan_fingerprint"],
+                metric_question_fingerprint=row["metric_question_fingerprint"],
+                evidence_packet_fingerprint=row["evidence_packet_fingerprint"],
+                participant_id=row["participant_id"],
+                participant_kind=row["participant_kind"],
+                annotation_protocol_version=row[
+                    "annotation_protocol_version"
+                ],
+                value_kind=row["value_kind"],
+                state=row["value_state"],
+                numeric_value=row["numeric_value"],
+                label_code=row["label_code"],
+                reason_code=row["reason_code"],
+                created_at=_from_epoch_us(row["created_at_us"]),
+            )
+            for row in judgment_rows
+        )
+        for value, row in zip(judgments, judgment_rows, strict=True):
+            self._assert_stored_fingerprint(
+                value.fingerprint, row["judgment_fingerprint"], "blind judgment"
+            )
+
+        adjudication_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_blind_adjudications WHERE submission_id = ? ORDER BY case_id, metric_question_fingerprint",
+            (submission_id,),
+        ).fetchall()
+        adjudications = []
+        for row in adjudication_rows:
+            links = connection.execute(
+                "SELECT judgment_id FROM estimator_evidence_adjudication_judgments WHERE submission_id = ? AND adjudication_id = ? ORDER BY ordinal",
+                (submission_id, row["adjudication_id"]),
+            ).fetchall()
+            value = BlindHumanAdjudicationInputV1(
+                adjudication_id=row["adjudication_id"],
+                campaign_id=row["campaign_id"],
+                case_id=row["case_id"],
+                plan_fingerprint=row["plan_fingerprint"],
+                metric_question_fingerprint=row["metric_question_fingerprint"],
+                evidence_packet_fingerprint=row["evidence_packet_fingerprint"],
+                adjudicator_id=row["resolver_id"],
+                adjudicator_kind=HumanParticipantKind.ADJUDICATOR,
+                resolution=row["resolution"],
+                judgment_ids=tuple(item["judgment_id"] for item in links),
+                annotation_protocol_version=row[
+                    "annotation_protocol_version"
+                ],
+                value_kind=row["value_kind"],
+                state=row["value_state"],
+                numeric_value=row["numeric_value"],
+                label_code=row["label_code"],
+                reason_code=row["reason_code"],
+                completed_at=_from_epoch_us(row["completed_at_us"]),
+            )
+            self._assert_stored_fingerprint(
+                value.fingerprint,
+                row["adjudication_fingerprint"],
+                "blind adjudication",
+            )
+            self._assert_stored_count(
+                len(value.judgment_ids),
+                row["judgment_count"],
+                "blind adjudication judgment",
+            )
+            adjudications.append(value)
+
+        series_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_stability_series WHERE submission_id = ? ORDER BY case_id, condition_code, series_id",
+            (submission_id,),
+        ).fetchall()
+        stability_series = []
+        for row in series_rows:
+            trial_rows = connection.execute(
+                "SELECT * FROM estimator_evidence_stability_trials WHERE submission_id = ? AND series_id = ? ORDER BY trial_ordinal",
+                (submission_id, row["series_id"]),
+            ).fetchall()
+            trials = tuple(
+                StabilityTrialReceiptV1(
+                    receipt_id=item["receipt_id"],
+                    campaign_id=item["campaign_id"],
+                    case_id=item["case_id"],
+                    plan_fingerprint=item["plan_fingerprint"],
+                    metric_question_fingerprint=item[
+                        "metric_question_fingerprint"
+                    ],
+                    evidence_packet_fingerprint=item[
+                        "evidence_packet_fingerprint"
+                    ],
+                    condition=item["condition_code"],
+                    trial_ordinal=item["trial_ordinal"],
+                    attempt_id=item["attempt_id"],
+                    outcome_id=item["outcome_id"],
+                    outcome_fingerprint=item["outcome_fingerprint"],
+                    estimate_receipt_id=item["estimate_receipt_id"],
+                    estimate_receipt_fingerprint=item[
+                        "estimate_receipt_fingerprint"
+                    ],
+                    recorded_at=_from_epoch_us(item["recorded_at_us"]),
+                )
+                for item in trial_rows
+            )
+            for trial, trial_row in zip(trials, trial_rows, strict=True):
+                self._assert_stored_fingerprint(
+                    trial.fingerprint,
+                    trial_row["receipt_fingerprint"],
+                    "stability trial",
+                )
+            series = StabilitySeriesManifestV1(
+                series_id=row["series_id"],
+                campaign_id=row["campaign_id"],
+                case_id=row["case_id"],
+                plan_fingerprint=row["plan_fingerprint"],
+                metric_question_fingerprint=row["metric_question_fingerprint"],
+                evidence_packet_fingerprint=row["evidence_packet_fingerprint"],
+                condition=row["condition_code"],
+                trials=trials,
+                frozen_at=_from_epoch_us(row["frozen_at_us"]),
+            )
+            self._assert_stored_fingerprint(
+                series.fingerprint, row["series_fingerprint"], "stability series"
+            )
+            self._assert_stored_fingerprint(
+                series.trial_set_fingerprint,
+                row["trial_set_fingerprint"],
+                "stability trial set",
+            )
+            self._assert_stored_count(
+                len(series.trials), row["trial_count"], "stability trial"
+            )
+            stability_series.append(series)
+
+        holdout_rows = connection.execute(
+            "SELECT case_id FROM estimator_evidence_submission_holdout_cases WHERE submission_id = ? ORDER BY ordinal",
+            (submission_id,),
+        ).fetchall()
+        submission = CalibrationEvidenceSubmissionV1(
+            submission_id=root["submission_id"],
+            campaign_id=root["campaign_id"],
+            campaign_holdout_case_ids=tuple(row["case_id"] for row in holdout_rows),
+            expected_attempt_manifest=expected_manifest,
+            attempt_launches=launches,
+            attempt_outcomes=outcomes,
+            structured_estimate_receipts=estimates,
+            holdout_access_audit=audit,
+            privacy_scan=scan,
+            candidate_projections=candidates,
+            deterministic_baseline_projections=baselines,
+            objective_truth_projections=objectives,
+            blind_human_judgments=judgments,
+            blind_human_adjudications=tuple(adjudications),
+            stability_series=tuple(stability_series),
+            submitted_at=_from_epoch_us(root["submitted_at_us"]),
+            activation_allowed=bool(root["activation_allowed"]),
+            private_export_allowed=bool(root["private_export_allowed"]),
+            team_share_allowed=bool(root["team_share_allowed"]),
+        )
+        for actual, column, label in (
+            (len(submission.campaign_holdout_case_ids), "holdout_count", "submission holdout"),
+            (len(submission.attempt_launches), "launch_count", "submission launch"),
+            (len(submission.attempt_outcomes), "outcome_count", "submission outcome"),
+            (
+                len(submission.structured_estimate_receipts),
+                "structured_estimate_count",
+                "submission structured estimate",
+            ),
+            (
+                len(submission.candidate_projections),
+                "candidate_projection_count",
+                "submission candidate projection",
+            ),
+            (
+                len(submission.deterministic_baseline_projections),
+                "baseline_projection_count",
+                "submission baseline projection",
+            ),
+            (
+                len(submission.objective_truth_projections),
+                "objective_projection_count",
+                "submission objective projection",
+            ),
+            (
+                len(submission.blind_human_judgments),
+                "judgment_count",
+                "submission blind judgment",
+            ),
+            (
+                len(submission.blind_human_adjudications),
+                "adjudication_count",
+                "submission blind adjudication",
+            ),
+            (
+                len(submission.stability_series),
+                "stability_series_count",
+                "submission stability series",
+            ),
+        ):
+            self._assert_stored_count(actual, root[column], label)
+        self._assert_stored_fingerprint(
+            submission.fingerprint,
+            root["submission_fingerprint"],
+            "calibration evidence submission",
+        )
+        campaign = self._hydrate_preregistered_campaign(
+            connection, submission.campaign_id
+        )
+        self._validate_evidence_campaign_static_lineage(campaign, submission)
+        return submission
+
+    @staticmethod
+    def _hydrate_evidence_launch(row) -> AttemptLaunchReceiptV1:
+        return AttemptLaunchReceiptV1(
+            launch_id=row["launch_id"],
+            campaign_id=row["campaign_id"],
+            attempt_id=row["attempt_id"],
+            execution_id=row["execution_id"],
+            case_id=row["case_id"],
+            plan_fingerprint=row["plan_fingerprint"],
+            metric_question_fingerprint=row["metric_question_fingerprint"],
+            evidence_packet_fingerprint=row["evidence_packet_fingerprint"],
+            constellation_stage_fingerprint=row[
+                "constellation_stage_fingerprint"
+            ],
+            stage_ordinal=row["stage_ordinal"],
+            stage_kind=row["stage_kind"],
+            stage_configuration_sha256=row["stage_configuration_sha256"],
+            model_artifact_fingerprint=row["model_artifact_fingerprint"],
+            requested_source=row["requested_source"],
+            requested_model_id=row["requested_model_id"],
+            requested_revision=row["requested_revision"],
+            requested_execution_mode=row["requested_execution_mode"],
+            runner_adapter_key=row["runner_adapter_key"],
+            runner_adapter_version=row["runner_adapter_version"],
+            runner_configuration_sha256=row["runner_configuration_sha256"],
+            response_schema_version=row["response_schema_version"],
+            destination=row["destination"],
+            retention_class=row["retention_class"],
+            approval_kind=row["approval_kind"],
+            approval_id=row["approval_id"],
+            redaction_preview_fingerprint=row["redaction_preview_fingerprint"],
+            approved_at=(
+                None
+                if row["approved_at_us"] is None
+                else _from_epoch_us(row["approved_at_us"])
+            ),
+            launched_at=_from_epoch_us(row["launched_at_us"]),
+        )
+
+    @staticmethod
+    def _hydrate_evidence_outcome(row) -> AttemptTerminalOutcomeV1:
+        return AttemptTerminalOutcomeV1(
+            outcome_id=row["outcome_id"],
+            campaign_id=row["campaign_id"],
+            attempt_id=row["attempt_id"],
+            execution_id=row["execution_id"],
+            case_id=row["case_id"],
+            plan_fingerprint=row["plan_fingerprint"],
+            metric_question_fingerprint=row["metric_question_fingerprint"],
+            evidence_packet_fingerprint=row["evidence_packet_fingerprint"],
+            state=row["terminal_state"],
+            served_identity=ServedIdentityV1(
+                state=row["served_state"],
+                served_source=row["served_source"],
+                served_model_id=row["served_model_id"],
+                served_revision=row["served_revision"],
+                served_execution_mode=row["served_execution_mode"],
+                fallback_used=(
+                    None
+                    if row["fallback_used"] is None
+                    else bool(row["fallback_used"])
+                ),
+                fallback_reason_code=row["fallback_reason_code"],
+                unavailable_reason_code=row["served_unavailable_reason_code"],
+            ),
+            structured_output_fingerprint=row["structured_output_fingerprint"],
+            reason_code=row["terminal_reason_code"],
+            usage=TokenUsageProvenanceV1(
+                state=row["token_state"],
+                collector_version=row["token_collector_version"],
+                input_tokens=row["input_tokens"],
+                cached_input_tokens=row["cached_input_tokens"],
+                output_tokens=row["output_tokens"],
+                reasoning_output_tokens=row["reasoning_output_tokens"],
+                total_tokens=row["total_tokens"],
+                reason_code=row["token_reason_code"],
+            ),
+            resources=ResourceUsageProvenanceV1(
+                state=row["resource_state"],
+                collector_version=row["resource_collector_version"],
+                peak_ram_bytes=row["peak_ram_bytes"],
+                peak_vram_bytes=row["peak_vram_bytes"],
+                energy_millijoules=row["energy_millijoules"],
+                reason_code=row["resource_reason_code"],
+            ),
+            cost=CostProvenanceV1(
+                state=row["cost_state"],
+                collector_version=row["cost_collector_version"],
+                amount_microusd=row["amount_microusd"],
+                reason_code=row["cost_reason_code"],
+            ),
+            queue=QueueProvenanceV1(
+                queue_key=row["queue_key"],
+                queue_version=row["queue_version"],
+                worker_id=row["worker_id"],
+                enqueued_at=_from_epoch_us(row["enqueued_at_us"]),
+                dequeued_at=_from_epoch_us(row["dequeued_at_us"]),
+                wait_ms=row["wait_ms"],
+            ),
+            started_at=_from_epoch_us(row["started_at_us"]),
+            finished_at=_from_epoch_us(row["finished_at_us"]),
+            latency_ms=row["latency_ms"],
+        )
+
+    def _hydrate_evidence_access_audit(
+        self, connection, submission_id: str
+    ) -> HoldoutAccessAuditV1:
+        audit_row = connection.execute(
+            "SELECT * FROM estimator_evidence_access_audits WHERE submission_id = ?",
+            (submission_id,),
+        ).fetchone()
+        manifest_row = connection.execute(
+            "SELECT * FROM estimator_evidence_access_manifests WHERE submission_id = ?",
+            (submission_id,),
+        ).fetchone()
+        event_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_access_events WHERE submission_id = ? ORDER BY ordinal",
+            (submission_id,),
+        ).fetchall()
+        gap_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_access_gaps WHERE submission_id = ? ORDER BY ordinal",
+            (submission_id,),
+        ).fetchall()
+        events = tuple(
+            HoldoutAccessEventV1(
+                event_id=row["event_id"],
+                campaign_id=row["campaign_id"],
+                case_id=row["case_id"],
+                actor_id=row["actor_id"],
+                actor_kind=row["actor_kind"],
+                access_kind=row["access_kind"],
+                occurred_at=_from_epoch_us(row["occurred_at_us"]),
+            )
+            for row in event_rows
+        )
+        for event, row in zip(events, event_rows, strict=True):
+            self._assert_stored_fingerprint(
+                event.fingerprint, row["event_fingerprint"], "access event"
+            )
+        gaps = tuple(
+            HoldoutAccessGapV1(
+                gap_id=row["gap_id"],
+                campaign_id=row["campaign_id"],
+                reason_code=row["reason_code"],
+                started_at=_from_epoch_us(row["started_at_us"]),
+                ended_at=_from_epoch_us(row["ended_at_us"]),
+            )
+            for row in gap_rows
+        )
+        manifest = HoldoutAccessManifestV1(
+            manifest_id=manifest_row["manifest_id"],
+            campaign_id=manifest_row["campaign_id"],
+            auditor_version=manifest_row["auditor_version"],
+            coverage_started_at=_from_epoch_us(
+                manifest_row["coverage_started_at_us"]
+            ),
+            coverage_ended_at=_from_epoch_us(
+                manifest_row["coverage_ended_at_us"]
+            ),
+            events=events,
+            gaps=gaps,
+            frozen_at=_from_epoch_us(manifest_row["frozen_at_us"]),
+        )
+        self._assert_stored_count(
+            len(manifest.events), manifest_row["event_count"], "access event"
+        )
+        self._assert_stored_count(
+            len(manifest.gaps), manifest_row["gap_count"], "access gap"
+        )
+        self._assert_stored_fingerprint(
+            manifest.fingerprint,
+            manifest_row["manifest_fingerprint"],
+            "access manifest",
+        )
+        self._assert_stored_fingerprint(
+            manifest.event_set_fingerprint,
+            manifest_row["event_set_fingerprint"],
+            "access event set",
+        )
+        self._assert_stored_fingerprint(
+            manifest.gap_set_fingerprint,
+            manifest_row["gap_set_fingerprint"],
+            "access gap set",
+        )
+        case_rows = connection.execute(
+            "SELECT case_id FROM estimator_evidence_access_audit_cases WHERE submission_id = ? ORDER BY ordinal",
+            (submission_id,),
+        ).fetchall()
+        audit = HoldoutAccessAuditV1(
+            audit_id=audit_row["audit_id"],
+            campaign_id=audit_row["campaign_id"],
+            manifest=manifest,
+            holdout_case_ids=tuple(row["case_id"] for row in case_rows),
+            holdout_unsealed_at=_from_epoch_us(
+                audit_row["holdout_unsealed_at_us"]
+            ),
+            completed_at=_from_epoch_us(audit_row["completed_at_us"]),
+        )
+        self._assert_stored_count(
+            len(audit.holdout_case_ids),
+            audit_row["holdout_count"],
+            "access audit holdout",
+        )
+        self._assert_stored_fingerprint(
+            audit.fingerprint, audit_row["audit_fingerprint"], "access audit"
+        )
+        return audit
+
+    def _hydrate_evidence_privacy_scan(
+        self, connection, submission_id: str
+    ) -> PrivacyScanReceiptV1:
+        scan_row = connection.execute(
+            "SELECT * FROM estimator_evidence_privacy_scans WHERE submission_id = ?",
+            (submission_id,),
+        ).fetchone()
+        manifest_row = connection.execute(
+            "SELECT * FROM estimator_evidence_privacy_manifests WHERE submission_id = ?",
+            (submission_id,),
+        ).fetchone()
+        artifacts = connection.execute(
+            "SELECT set_kind, artifact_fingerprint FROM estimator_evidence_privacy_artifacts WHERE submission_id = ? ORDER BY set_kind, ordinal",
+            (submission_id,),
+        ).fetchall()
+        finding_rows = connection.execute(
+            "SELECT * FROM estimator_evidence_privacy_findings WHERE submission_id = ? ORDER BY ordinal",
+            (submission_id,),
+        ).fetchall()
+        findings = tuple(
+            PrivacyFindingV1(
+                finding_id=row["finding_id"],
+                campaign_id=row["campaign_id"],
+                artifact_fingerprint=row["artifact_fingerprint"],
+                detector_key=row["detector_key"],
+                detector_version=row["detector_version"],
+                category=row["category"],
+                occurrence_count=row["occurrence_count"],
+                detected_at=_from_epoch_us(row["detected_at_us"]),
+            )
+            for row in finding_rows
+        )
+        for finding, row in zip(findings, finding_rows, strict=True):
+            self._assert_stored_fingerprint(
+                finding.fingerprint,
+                row["finding_fingerprint"],
+                "privacy finding",
+            )
+        manifest = PrivacyScanManifestV1(
+            manifest_id=manifest_row["manifest_id"],
+            campaign_id=manifest_row["campaign_id"],
+            expected_artifact_fingerprints=tuple(
+                row["artifact_fingerprint"]
+                for row in artifacts
+                if row["set_kind"] == "expected"
+            ),
+            scanned_artifact_fingerprints=tuple(
+                row["artifact_fingerprint"]
+                for row in artifacts
+                if row["set_kind"] == "scanned"
+            ),
+            findings=findings,
+            frozen_at=_from_epoch_us(manifest_row["frozen_at_us"]),
+        )
+        self._assert_stored_count(
+            len(manifest.expected_artifact_fingerprints),
+            manifest_row["expected_count"],
+            "privacy expected artifact",
+        )
+        self._assert_stored_count(
+            len(manifest.scanned_artifact_fingerprints),
+            manifest_row["scanned_count"],
+            "privacy scanned artifact",
+        )
+        self._assert_stored_count(
+            len(manifest.findings),
+            manifest_row["finding_row_count"],
+            "privacy finding row",
+        )
+        self._assert_stored_count(
+            manifest.finding_count,
+            manifest_row["finding_occurrence_count"],
+            "privacy finding occurrence",
+        )
+        self._assert_stored_fingerprint(
+            manifest.fingerprint,
+            manifest_row["manifest_fingerprint"],
+            "privacy manifest",
+        )
+        self._assert_stored_fingerprint(
+            manifest.finding_set_fingerprint,
+            manifest_row["finding_set_fingerprint"],
+            "privacy finding set",
+        )
+        scan = PrivacyScanReceiptV1(
+            scan_id=scan_row["scan_id"],
+            campaign_id=scan_row["campaign_id"],
+            scanner_version=scan_row["scanner_version"],
+            manifest=manifest,
+            started_at=_from_epoch_us(scan_row["started_at_us"]),
+            completed_at=_from_epoch_us(scan_row["completed_at_us"]),
+        )
+        self._assert_stored_fingerprint(
+            scan.fingerprint, scan_row["scan_fingerprint"], "privacy scan"
+        )
+        return scan
+
     def _insert_gate_policy(self, connection, policy: GatePolicy) -> None:
         fingerprint = policy.fingerprint
         existing = connection.execute(
@@ -2058,76 +3756,99 @@ class SqliteEstimatorRepository(EstimatorRepository):
     ) -> PrivacyDeleteOutcome:
         self._ensure_initialized()
         require_safe_id(campaign_id)
-        with self._connection_scope() as connection:
-            try:
-                connection.execute("PRAGMA secure_delete = ON")
-                if int(connection.execute("PRAGMA secure_delete").fetchone()[0]) != 1:
-                    raise DatabaseInvariantError(
-                        "privacy deletion requires SQLite secure_delete"
-                    )
-                connection.execute("BEGIN IMMEDIATE")
-                root = connection.execute(
-                    "SELECT * FROM estimator_gate_campaigns WHERE campaign_id = ?",
-                    (campaign_id,),
-                ).fetchone()
-                deleted = root is not None
-                # Retain only a domain-separated revocation digest and the
-                # first deletion time. No original campaign ID, plan, project,
-                # session, case, metric, packet, or constellation lineage
-                # survives in this record.
-                connection.execute(
-                    """
-                    INSERT OR IGNORE INTO estimator_gate_campaign_tombstones(
-                        revocation_key, deleted_at
-                    ) VALUES (?, ?)
-                    """,
-                    (_campaign_revocation_key(campaign_id), to_iso(self._clock())),
-                )
-                if root is not None:
-                    connection.execute(
-                        "DELETE FROM estimator_gate_campaigns WHERE campaign_id = ?",
+        authorization: tuple[str, str] | None = None
+        if self._begin_evidence_delete_authorization is not None:
+            authorization = self._begin_evidence_delete_authorization(campaign_id)
+        try:
+            with self._connection_scope() as connection:
+                try:
+                    connection.execute("PRAGMA trusted_schema = ON")
+                    connection.execute("PRAGMA secure_delete = ON")
+                    if int(connection.execute("PRAGMA secure_delete").fetchone()[0]) != 1:
+                        raise DatabaseInvariantError(
+                            "privacy deletion requires SQLite secure_delete"
+                        )
+                    connection.execute("BEGIN IMMEDIATE")
+                    root = connection.execute(
+                        "SELECT * FROM estimator_gate_campaigns WHERE campaign_id = ?",
                         (campaign_id,),
-                    )
+                    ).fetchone()
+                    deleted = root is not None
+                    # Retain only a domain-separated revocation digest and the
+                    # first deletion time. No original campaign ID, plan, project,
+                    # session, case, metric, packet, or constellation lineage
+                    # survives in this record.
                     connection.execute(
-                        "DELETE FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = ?",
-                        (root["preregistration_v2_fingerprint"],),
+                        """
+                        INSERT OR IGNORE INTO estimator_gate_campaign_tombstones(
+                            revocation_key, deleted_at
+                        ) VALUES (?, ?)
+                        """,
+                        (_campaign_revocation_key(campaign_id), to_iso(self._clock())),
                     )
-                    connection.execute(
-                        "DELETE FROM estimator_constellations WHERE constellation_fingerprint = ?",
-                        (root["constellation_fingerprint"],),
+                    if root is not None:
+                        if authorization is None:
+                            self._conflict(
+                                "estimator evidence privacy deletion is not authorized"
+                            )
+                        connection.execute(
+                            "INSERT INTO estimator_evidence_delete_authorizations VALUES (?, ?, ?)",
+                            (authorization[0], campaign_id, authorization[1]),
+                        )
+                        connection.execute(
+                            "DELETE FROM estimator_gate_campaigns WHERE campaign_id = ?",
+                            (campaign_id,),
+                        )
+                        connection.execute(
+                            "DELETE FROM estimator_preregistrations_v2 WHERE preregistration_fingerprint = ?",
+                            (root["preregistration_v2_fingerprint"],),
+                        )
+                        connection.execute(
+                            "DELETE FROM estimator_constellations WHERE constellation_fingerprint = ?",
+                            (root["constellation_fingerprint"],),
+                        )
+                        connection.execute(
+                            "DELETE FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = ?",
+                            (root["legacy_preregistration_fingerprint"],),
+                        )
+                        connection.execute(
+                            "DELETE FROM estimator_calibration_splits WHERE split_fingerprint = ?",
+                            (root["split_fingerprint"],),
+                        )
+                        connection.execute(
+                            "DELETE FROM estimator_case_manifests_v2 WHERE manifest_fingerprint = ?",
+                            (root["assignment_manifest_fingerprint"],),
+                        )
+                    connection.commit()
+                    connection.execute("PRAGMA trusted_schema = OFF")
+                    checkpoint = connection.execute(
+                        "PRAGMA wal_checkpoint(TRUNCATE)"
+                    ).fetchone()
+                    if checkpoint is None or tuple(int(value) for value in checkpoint) != (
+                        0,
+                        0,
+                        0,
+                    ):
+                        raise DatabaseInvariantError(
+                            "privacy deletion committed but durable WAL purge is pending"
+                        )
+                    return (
+                        PrivacyDeleteOutcome.DELETED_AND_PURGED
+                        if deleted
+                        else PrivacyDeleteOutcome.ALREADY_ABSENT_AND_PURGED
                     )
-                    connection.execute(
-                        "DELETE FROM estimator_legacy_preregistrations WHERE preregistration_fingerprint = ?",
-                        (root["legacy_preregistration_fingerprint"],),
-                    )
-                    connection.execute(
-                        "DELETE FROM estimator_calibration_splits WHERE split_fingerprint = ?",
-                        (root["split_fingerprint"],),
-                    )
-                    connection.execute(
-                        "DELETE FROM estimator_case_manifests_v2 WHERE manifest_fingerprint = ?",
-                        (root["assignment_manifest_fingerprint"],),
-                    )
-                connection.commit()
-                checkpoint = connection.execute(
-                    "PRAGMA wal_checkpoint(TRUNCATE)"
-                ).fetchone()
-                if checkpoint is None or tuple(int(value) for value in checkpoint) != (
-                    0,
-                    0,
-                    0,
-                ):
-                    raise DatabaseInvariantError(
-                        "privacy deletion committed but durable WAL purge is pending"
-                    )
-                return (
-                    PrivacyDeleteOutcome.DELETED_AND_PURGED
-                    if deleted
-                    else PrivacyDeleteOutcome.ALREADY_ABSENT_AND_PURGED
+                except Exception:
+                    connection.rollback()
+                    connection.execute("PRAGMA trusted_schema = OFF")
+                    raise
+        finally:
+            if (
+                authorization is not None
+                and self._end_evidence_delete_authorization is not None
+            ):
+                self._end_evidence_delete_authorization(
+                    authorization[0], campaign_id, authorization[1]
                 )
-            except Exception:
-                connection.rollback()
-                raise
 
     def delete_synthetic_case_for_privacy(self, case_id: str) -> PrivacyDeleteOutcome:
         """Delete one case and prove its WAL frames were durably truncated.

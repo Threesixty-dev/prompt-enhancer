@@ -3930,3 +3930,848 @@ CREATE INDEX estimator_case_assignments_v2_metric_idx ON estimator_case_assignme
 
 COMMIT;
 """
+
+
+MIGRATION_17 = r"""
+BEGIN IMMEDIATE;
+
+-- V17 stores only normalized, content-free scalar calibration evidence. Raw
+-- outputs, prompts, evidence bodies, paths, URIs, prose, and arbitrary JSON or
+-- BLOB payloads have no column in this schema. Timestamps are canonical UTC
+-- microseconds from the Unix epoch, eliminating textual calendar aliases.
+CREATE TABLE estimator_evidence_attempt_launches (
+    submission_id TEXT NOT NULL CHECK(length(submission_id) = 64 AND submission_id NOT GLOB '*[^0-9a-f]*' AND instr(submission_id, char(0)) = 0),
+    launch_id TEXT NOT NULL CHECK(length(launch_id) = 64 AND launch_id NOT GLOB '*[^0-9a-f]*' AND instr(launch_id, char(0)) = 0),
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    attempt_id TEXT NOT NULL CHECK(length(attempt_id) = 64 AND attempt_id NOT GLOB '*[^0-9a-f]*' AND instr(attempt_id, char(0)) = 0),
+    execution_id TEXT NOT NULL CHECK(length(execution_id) = 64 AND execution_id NOT GLOB '*[^0-9a-f]*' AND instr(execution_id, char(0)) = 0),
+    case_id TEXT NOT NULL CHECK(length(case_id) = 64 AND case_id NOT GLOB '*[^0-9a-f]*' AND instr(case_id, char(0)) = 0),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint),
+    metric_question_fingerprint TEXT NOT NULL REFERENCES estimator_metric_questions(question_fingerprint),
+    evidence_packet_fingerprint TEXT NOT NULL CHECK(length(evidence_packet_fingerprint) = 64 AND evidence_packet_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    constellation_stage_fingerprint TEXT NOT NULL CHECK(length(constellation_stage_fingerprint) = 64 AND constellation_stage_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    stage_ordinal INTEGER NOT NULL CHECK(stage_ordinal BETWEEN 1 AND 7),
+    stage_kind TEXT NOT NULL CHECK(stage_kind IN ('embedding_retrieval','reranker','specialist','second_opinion')),
+    stage_configuration_sha256 TEXT NOT NULL CHECK(length(stage_configuration_sha256) = 64 AND stage_configuration_sha256 NOT GLOB '*[^0-9a-f]*'),
+    model_artifact_fingerprint TEXT NOT NULL REFERENCES estimator_model_artifacts(artifact_fingerprint),
+    requested_source TEXT NOT NULL CHECK(requested_source IN ('local_weights','openai_api','anthropic_api','codex_cli','claude_cli','synthetic')),
+    requested_model_id TEXT NOT NULL CHECK(length(requested_model_id) BETWEEN 1 AND 128 AND requested_model_id GLOB '[A-Za-z0-9]*' AND requested_model_id NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(requested_model_id, '..') = 0),
+    requested_revision TEXT NOT NULL CHECK(length(requested_revision) BETWEEN 1 AND 128 AND requested_revision GLOB '[A-Za-z0-9]*' AND requested_revision NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(requested_revision, '..') = 0),
+    requested_execution_mode TEXT NOT NULL CHECK(requested_execution_mode IN ('standard','pro')),
+    runner_adapter_key TEXT NOT NULL CHECK(length(runner_adapter_key) BETWEEN 1 AND 128 AND runner_adapter_key GLOB '[A-Za-z0-9]*' AND runner_adapter_key NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(runner_adapter_key, '..') = 0),
+    runner_adapter_version TEXT NOT NULL CHECK(length(runner_adapter_version) BETWEEN 1 AND 128 AND runner_adapter_version GLOB '[A-Za-z0-9]*' AND runner_adapter_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(runner_adapter_version, '..') = 0),
+    runner_configuration_sha256 TEXT NOT NULL CHECK(length(runner_configuration_sha256) = 64 AND runner_configuration_sha256 NOT GLOB '*[^0-9a-f]*'),
+    response_schema_version TEXT NOT NULL CHECK(length(response_schema_version) BETWEEN 1 AND 128 AND response_schema_version GLOB '[A-Za-z0-9]*' AND response_schema_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(response_schema_version, '..') = 0),
+    destination TEXT NOT NULL CHECK(destination IN ('local_device','openai_api','anthropic_api','codex_cli','claude_api','manual_import','synthetic_test')),
+    retention_class TEXT NOT NULL CHECK(retention_class IN ('local_ephemeral','provider_zero_day','provider_30_day','provider_disclosed_other','manual_export','synthetic')),
+    approval_kind TEXT NOT NULL CHECK(approval_kind IN ('not_required_local','fresh_redaction_preview','manual_import','synthetic_test')),
+    approval_id TEXT CHECK(approval_id IS NULL OR (length(approval_id) = 64 AND approval_id NOT GLOB '*[^0-9a-f]*')),
+    redaction_preview_fingerprint TEXT CHECK(redaction_preview_fingerprint IS NULL OR (length(redaction_preview_fingerprint) = 64 AND redaction_preview_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    approved_at_us INTEGER CHECK(approved_at_us IS NULL OR typeof(approved_at_us) = 'integer'),
+    launched_at_us INTEGER NOT NULL CHECK(typeof(launched_at_us) = 'integer'),
+    launch_fingerprint TEXT NOT NULL CHECK(length(launch_fingerprint) = 64 AND launch_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(submission_id, attempt_id),
+    UNIQUE(submission_id, launch_id),
+    CHECK((destination = 'local_device' AND requested_source = 'local_weights' AND retention_class = 'local_ephemeral' AND approval_kind = 'not_required_local' AND approval_id IS NULL AND redaction_preview_fingerprint IS NULL AND approved_at_us IS NULL)
+       OR (destination = 'synthetic_test' AND requested_source = 'synthetic' AND retention_class = 'synthetic' AND approval_kind = 'synthetic_test' AND approval_id IS NULL AND redaction_preview_fingerprint IS NULL AND approved_at_us IS NULL)
+       OR (destination = 'manual_import' AND requested_source = 'claude_cli' AND retention_class = 'manual_export' AND approval_kind = 'manual_import' AND approval_id IS NULL AND redaction_preview_fingerprint IS NULL AND approved_at_us IS NULL)
+       OR (destination IN ('openai_api','anthropic_api','codex_cli','claude_api') AND approval_kind = 'fresh_redaction_preview' AND approval_id IS NOT NULL AND redaction_preview_fingerprint IS NOT NULL AND approved_at_us IS NOT NULL AND approved_at_us <= launched_at_us
+           AND ((destination = 'openai_api' AND requested_source = 'openai_api') OR (destination IN ('anthropic_api','claude_api') AND requested_source = 'anthropic_api') OR (destination = 'codex_cli' AND requested_source = 'codex_cli'))
+           AND retention_class IN ('provider_zero_day','provider_30_day','provider_disclosed_other')))
+);
+
+CREATE TABLE estimator_evidence_append_authorizations (
+    authorization_id TEXT PRIMARY KEY CHECK(length(authorization_id)=64 AND authorization_id NOT GLOB '*[^0-9a-f]*'),
+    submission_id TEXT NOT NULL CHECK(length(submission_id)=64 AND submission_id NOT GLOB '*[^0-9a-f]*'),
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    authorization_tag TEXT NOT NULL CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*'),
+    UNIQUE(submission_id, campaign_id)
+);
+CREATE TRIGGER estimator_evidence_append_authorizations_validate BEFORE INSERT ON estimator_evidence_append_authorizations WHEN NEW.authorization_tag<>estimator_evidence_authorization_tag(NEW.authorization_id,NEW.submission_id,NEW.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence authorization is invalid'); END;
+CREATE TRIGGER estimator_evidence_append_authorizations_no_update BEFORE UPDATE ON estimator_evidence_append_authorizations BEGIN SELECT RAISE(ABORT,'estimator evidence authorization is immutable'); END;
+CREATE TRIGGER estimator_evidence_append_authorizations_no_delete BEFORE DELETE ON estimator_evidence_append_authorizations WHEN OLD.authorization_tag<>estimator_evidence_authorization_tag(OLD.authorization_id,OLD.submission_id,OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence authorization is invalid'); END;
+
+CREATE TABLE estimator_evidence_delete_authorizations (
+    authorization_id TEXT PRIMARY KEY CHECK(length(authorization_id)=64 AND authorization_id NOT GLOB '*[^0-9a-f]*'),
+    campaign_id TEXT NOT NULL UNIQUE REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    authorization_tag TEXT NOT NULL CHECK(length(authorization_tag)=64 AND authorization_tag NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TRIGGER estimator_evidence_delete_authorizations_validate BEFORE INSERT ON estimator_evidence_delete_authorizations WHEN NEW.authorization_tag<>estimator_evidence_delete_authorization_tag(NEW.authorization_id,NEW.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence delete authorization is invalid'); END;
+CREATE TRIGGER estimator_evidence_delete_authorizations_no_update BEFORE UPDATE ON estimator_evidence_delete_authorizations BEGIN SELECT RAISE(ABORT,'estimator evidence delete authorization is immutable'); END;
+CREATE TRIGGER estimator_evidence_delete_authorizations_no_delete BEFORE DELETE ON estimator_evidence_delete_authorizations WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) AND OLD.authorization_tag<>estimator_evidence_delete_authorization_tag(OLD.authorization_id,OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence delete authorization is invalid'); END;
+
+CREATE TABLE estimator_evidence_attempt_outcomes (
+    submission_id TEXT NOT NULL,
+    outcome_id TEXT NOT NULL CHECK(length(outcome_id) = 64 AND outcome_id NOT GLOB '*[^0-9a-f]*'),
+    outcome_fingerprint TEXT NOT NULL CHECK(length(outcome_fingerprint) = 64 AND outcome_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    attempt_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL CHECK(length(execution_id) = 64 AND execution_id NOT GLOB '*[^0-9a-f]*'),
+    case_id TEXT NOT NULL CHECK(length(case_id) = 64 AND case_id NOT GLOB '*[^0-9a-f]*'),
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint),
+    metric_question_fingerprint TEXT NOT NULL REFERENCES estimator_metric_questions(question_fingerprint),
+    evidence_packet_fingerprint TEXT NOT NULL CHECK(length(evidence_packet_fingerprint) = 64 AND evidence_packet_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    terminal_state TEXT NOT NULL CHECK(terminal_state IN ('success','refusal','error','oom','timeout','cancelled','worker_lost')),
+    structured_output_fingerprint TEXT CHECK(structured_output_fingerprint IS NULL OR (length(structured_output_fingerprint) = 64 AND structured_output_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    terminal_reason_code TEXT CHECK(terminal_reason_code IS NULL OR (length(terminal_reason_code) BETWEEN 1 AND 128 AND terminal_reason_code GLOB '[a-z]*' AND terminal_reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(terminal_reason_code, '..') = 0)),
+    served_state TEXT NOT NULL CHECK(served_state IN ('observed','unavailable')),
+    served_source TEXT CHECK(served_source IS NULL OR served_source IN ('local_weights','openai_api','anthropic_api','codex_cli','claude_cli','synthetic')),
+    served_model_id TEXT CHECK(served_model_id IS NULL OR (length(served_model_id) BETWEEN 1 AND 128 AND served_model_id GLOB '[A-Za-z0-9]*' AND served_model_id NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(served_model_id, '..') = 0)),
+    served_revision TEXT CHECK(served_revision IS NULL OR (length(served_revision) BETWEEN 1 AND 128 AND served_revision GLOB '[A-Za-z0-9]*' AND served_revision NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(served_revision, '..') = 0)),
+    served_execution_mode TEXT CHECK(served_execution_mode IS NULL OR served_execution_mode IN ('standard','pro')),
+    fallback_used INTEGER CHECK(fallback_used IS NULL OR fallback_used IN (0,1)),
+    fallback_reason_code TEXT CHECK(fallback_reason_code IS NULL OR (length(fallback_reason_code) BETWEEN 1 AND 128 AND fallback_reason_code GLOB '[a-z]*' AND fallback_reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(fallback_reason_code, '..') = 0)),
+    served_unavailable_reason_code TEXT CHECK(served_unavailable_reason_code IS NULL OR (length(served_unavailable_reason_code) BETWEEN 1 AND 128 AND served_unavailable_reason_code GLOB '[a-z]*' AND served_unavailable_reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(served_unavailable_reason_code, '..') = 0)),
+    token_state TEXT NOT NULL CHECK(token_state IN ('observed','unavailable','not_applicable')),
+    token_collector_version TEXT NOT NULL CHECK(length(token_collector_version) BETWEEN 1 AND 128 AND token_collector_version GLOB '[A-Za-z0-9]*' AND token_collector_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(token_collector_version,'..')=0),
+    input_tokens INTEGER CHECK(input_tokens IS NULL OR (typeof(input_tokens) = 'integer' AND input_tokens BETWEEN 0 AND 9007199254740991)),
+    cached_input_tokens INTEGER CHECK(cached_input_tokens IS NULL OR (typeof(cached_input_tokens) = 'integer' AND cached_input_tokens BETWEEN 0 AND 9007199254740991)),
+    output_tokens INTEGER CHECK(output_tokens IS NULL OR (typeof(output_tokens) = 'integer' AND output_tokens BETWEEN 0 AND 9007199254740991)),
+    reasoning_output_tokens INTEGER CHECK(reasoning_output_tokens IS NULL OR (typeof(reasoning_output_tokens) = 'integer' AND reasoning_output_tokens BETWEEN 0 AND 9007199254740991)),
+    total_tokens INTEGER CHECK(total_tokens IS NULL OR (typeof(total_tokens) = 'integer' AND total_tokens BETWEEN 0 AND 9007199254740991)),
+    token_reason_code TEXT CHECK(token_reason_code IS NULL OR (length(token_reason_code) BETWEEN 1 AND 128 AND token_reason_code GLOB '[a-z]*' AND token_reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(token_reason_code,'..')=0)),
+    resource_state TEXT NOT NULL CHECK(resource_state IN ('observed','unavailable','not_applicable')),
+    resource_collector_version TEXT NOT NULL CHECK(length(resource_collector_version) BETWEEN 1 AND 128 AND resource_collector_version GLOB '[A-Za-z0-9]*' AND resource_collector_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(resource_collector_version,'..')=0),
+    peak_ram_bytes INTEGER CHECK(peak_ram_bytes IS NULL OR (typeof(peak_ram_bytes) = 'integer' AND peak_ram_bytes BETWEEN 0 AND 9007199254740991)),
+    peak_vram_bytes INTEGER CHECK(peak_vram_bytes IS NULL OR (typeof(peak_vram_bytes) = 'integer' AND peak_vram_bytes BETWEEN 0 AND 9007199254740991)),
+    energy_millijoules REAL CHECK(energy_millijoules IS NULL OR (typeof(energy_millijoules) IN ('real','integer') AND energy_millijoules BETWEEN 0 AND 1.0e308)),
+    resource_reason_code TEXT CHECK(resource_reason_code IS NULL OR (length(resource_reason_code) BETWEEN 1 AND 128 AND resource_reason_code GLOB '[a-z]*' AND resource_reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(resource_reason_code,'..')=0)),
+    cost_state TEXT NOT NULL CHECK(cost_state IN ('observed','unavailable','not_applicable')),
+    cost_collector_version TEXT NOT NULL CHECK(length(cost_collector_version) BETWEEN 1 AND 128 AND cost_collector_version GLOB '[A-Za-z0-9]*' AND cost_collector_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(cost_collector_version,'..')=0),
+    amount_microusd INTEGER CHECK(amount_microusd IS NULL OR (typeof(amount_microusd) = 'integer' AND amount_microusd BETWEEN 0 AND 9007199254740991)),
+    cost_reason_code TEXT CHECK(cost_reason_code IS NULL OR (length(cost_reason_code) BETWEEN 1 AND 128 AND cost_reason_code GLOB '[a-z]*' AND cost_reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(cost_reason_code,'..')=0)),
+    queue_key TEXT NOT NULL CHECK(length(queue_key) BETWEEN 1 AND 128 AND queue_key GLOB '[a-z]*' AND queue_key NOT GLOB '*[^a-z0-9._-]*' AND instr(queue_key, '..') = 0),
+    queue_version TEXT NOT NULL CHECK(length(queue_version) BETWEEN 1 AND 128 AND queue_version GLOB '[A-Za-z0-9]*' AND queue_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(queue_version,'..')=0),
+    worker_id TEXT NOT NULL CHECK(length(worker_id) = 64 AND worker_id NOT GLOB '*[^0-9a-f]*'),
+    enqueued_at_us INTEGER NOT NULL CHECK(typeof(enqueued_at_us) = 'integer'),
+    dequeued_at_us INTEGER NOT NULL CHECK(typeof(dequeued_at_us) = 'integer'),
+    wait_ms INTEGER NOT NULL CHECK(typeof(wait_ms) = 'integer' AND wait_ms BETWEEN 0 AND 604800000),
+    started_at_us INTEGER NOT NULL CHECK(typeof(started_at_us) = 'integer'),
+    finished_at_us INTEGER NOT NULL CHECK(typeof(finished_at_us) = 'integer'),
+    latency_ms INTEGER NOT NULL CHECK(typeof(latency_ms) = 'integer' AND latency_ms BETWEEN 0 AND 604800000),
+    PRIMARY KEY(submission_id, attempt_id),
+    UNIQUE(submission_id, outcome_id),
+    FOREIGN KEY(submission_id, attempt_id) REFERENCES estimator_evidence_attempt_launches(submission_id, attempt_id) ON DELETE CASCADE,
+    CHECK(dequeued_at_us >= enqueued_at_us AND started_at_us >= dequeued_at_us AND finished_at_us >= started_at_us),
+    CHECK(abs((dequeued_at_us - enqueued_at_us) - wait_ms * 1000) <= 500),
+    CHECK(abs((finished_at_us - started_at_us) - latency_ms * 1000) <= 500),
+    CHECK((terminal_state = 'success' AND structured_output_fingerprint IS NOT NULL AND terminal_reason_code IS NULL AND served_state = 'observed') OR (terminal_state <> 'success' AND structured_output_fingerprint IS NULL AND terminal_reason_code IS NOT NULL)),
+    CHECK((served_state = 'observed' AND served_source IS NOT NULL AND served_model_id IS NOT NULL AND served_revision IS NOT NULL AND served_execution_mode IS NOT NULL AND fallback_used IS NOT NULL AND served_unavailable_reason_code IS NULL AND ((fallback_used = 1 AND fallback_reason_code IS NOT NULL) OR (fallback_used = 0 AND fallback_reason_code IS NULL))) OR (served_state = 'unavailable' AND served_source IS NULL AND served_model_id IS NULL AND served_revision IS NULL AND served_execution_mode IS NULL AND fallback_used IS NULL AND fallback_reason_code IS NULL AND served_unavailable_reason_code IS NOT NULL)),
+    CHECK((token_state = 'observed' AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL AND total_tokens = input_tokens + output_tokens AND token_reason_code IS NULL AND (cached_input_tokens IS NULL OR cached_input_tokens <= input_tokens) AND (reasoning_output_tokens IS NULL OR reasoning_output_tokens <= output_tokens)) OR (token_state <> 'observed' AND input_tokens IS NULL AND cached_input_tokens IS NULL AND output_tokens IS NULL AND reasoning_output_tokens IS NULL AND total_tokens IS NULL AND token_reason_code IS NOT NULL)),
+    CHECK((resource_state = 'observed' AND (peak_ram_bytes IS NOT NULL OR peak_vram_bytes IS NOT NULL OR energy_millijoules IS NOT NULL) AND resource_reason_code IS NULL) OR (resource_state <> 'observed' AND peak_ram_bytes IS NULL AND peak_vram_bytes IS NULL AND energy_millijoules IS NULL AND resource_reason_code IS NOT NULL)),
+    CHECK((cost_state = 'observed' AND amount_microusd IS NOT NULL AND cost_reason_code IS NULL) OR (cost_state <> 'observed' AND amount_microusd IS NULL AND cost_reason_code IS NOT NULL))
+);
+
+CREATE TABLE estimator_evidence_expected_attempts (
+    submission_id TEXT NOT NULL,
+    manifest_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 19999),
+    attempt_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    case_id TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL,
+    metric_question_fingerprint TEXT NOT NULL,
+    evidence_packet_fingerprint TEXT NOT NULL,
+    constellation_stage_fingerprint TEXT NOT NULL,
+    stage_configuration_sha256 TEXT NOT NULL,
+    stage_ordinal INTEGER NOT NULL CHECK(stage_ordinal BETWEEN 1 AND 7),
+    stage_kind TEXT NOT NULL CHECK(stage_kind IN ('embedding_retrieval','reranker','specialist','second_opinion')),
+    attempt_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    PRIMARY KEY(submission_id, ordinal),
+    UNIQUE(submission_id, attempt_id),
+    CHECK(length(manifest_id)=64 AND manifest_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(attempt_id)=64 AND attempt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(execution_id)=64 AND execution_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(case_id)=64 AND case_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(plan_fingerprint)=64 AND plan_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(metric_question_fingerprint)=64 AND metric_question_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(evidence_packet_fingerprint)=64 AND evidence_packet_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(constellation_stage_fingerprint)=64 AND constellation_stage_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(stage_configuration_sha256)=64 AND stage_configuration_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(attempt_fingerprint)=64 AND attempt_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_expected_manifests (
+    submission_id TEXT PRIMARY KEY,
+    manifest_id TEXT NOT NULL UNIQUE,
+    manifest_fingerprint TEXT NOT NULL UNIQUE,
+    execution_set_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    plan_fingerprint TEXT NOT NULL REFERENCES estimator_plans(plan_fingerprint),
+    frozen_at_us INTEGER NOT NULL CHECK(typeof(frozen_at_us)='integer'),
+    attempt_count INTEGER NOT NULL CHECK(attempt_count BETWEEN 1 AND 20000),
+    CHECK(length(submission_id)=64 AND submission_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(manifest_id)=64 AND manifest_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(manifest_fingerprint)=64 AND manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(execution_set_fingerprint)=64 AND execution_set_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE estimator_evidence_access_events (
+    submission_id TEXT NOT NULL,
+    manifest_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 19999),
+    event_id TEXT NOT NULL,
+    event_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    case_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    actor_kind TEXT NOT NULL CHECK(actor_kind IN ('candidate_runner','deterministic_baseline','independent_labeler','adjudicator','system_auditor')),
+    access_kind TEXT NOT NULL CHECK(access_kind IN ('case_input_read','candidate_output_read','reference_truth_read','objective_truth_read','label_write')),
+    occurred_at_us INTEGER NOT NULL CHECK(typeof(occurred_at_us)='integer'),
+    PRIMARY KEY(submission_id, manifest_id, ordinal),
+    UNIQUE(submission_id, event_id),
+    CHECK(length(event_id)=64 AND event_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(event_fingerprint)=64 AND event_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(case_id)=64 AND case_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(actor_id)=64 AND actor_id NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_access_gaps (
+    submission_id TEXT NOT NULL,
+    manifest_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 19999),
+    gap_id TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(reason_code,'..')=0),
+    started_at_us INTEGER NOT NULL CHECK(typeof(started_at_us)='integer'),
+    ended_at_us INTEGER NOT NULL CHECK(typeof(ended_at_us)='integer' AND ended_at_us > started_at_us),
+    PRIMARY KEY(submission_id, manifest_id, ordinal),
+    UNIQUE(submission_id, gap_id),
+    CHECK(length(gap_id)=64 AND gap_id NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_access_manifests (
+    submission_id TEXT PRIMARY KEY,
+    manifest_id TEXT NOT NULL UNIQUE,
+    manifest_fingerprint TEXT NOT NULL UNIQUE,
+    event_set_fingerprint TEXT NOT NULL,
+    gap_set_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    auditor_version TEXT NOT NULL CHECK(length(auditor_version) BETWEEN 1 AND 128 AND auditor_version GLOB '[A-Za-z0-9]*' AND auditor_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(auditor_version,'..')=0),
+    coverage_started_at_us INTEGER NOT NULL CHECK(typeof(coverage_started_at_us)='integer'),
+    coverage_ended_at_us INTEGER NOT NULL CHECK(typeof(coverage_ended_at_us)='integer' AND coverage_ended_at_us >= coverage_started_at_us),
+    frozen_at_us INTEGER NOT NULL CHECK(typeof(frozen_at_us)='integer' AND frozen_at_us >= coverage_ended_at_us),
+    event_count INTEGER NOT NULL CHECK(event_count BETWEEN 1 AND 20000),
+    gap_count INTEGER NOT NULL CHECK(gap_count BETWEEN 0 AND 20000),
+    CHECK(length(manifest_id)=64 AND manifest_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(manifest_fingerprint)=64 AND manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(event_set_fingerprint)=64 AND event_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(gap_set_fingerprint)=64 AND gap_set_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_access_audit_cases (
+    submission_id TEXT NOT NULL,
+    audit_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 999999),
+    case_id TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    PRIMARY KEY(submission_id, ordinal),
+    UNIQUE(submission_id, case_id),
+    CHECK(length(audit_id)=64 AND audit_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(case_id)=64 AND case_id NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_access_audits (
+    submission_id TEXT PRIMARY KEY,
+    audit_id TEXT NOT NULL UNIQUE,
+    audit_fingerprint TEXT NOT NULL UNIQUE,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    manifest_id TEXT NOT NULL,
+    holdout_unsealed_at_us INTEGER NOT NULL CHECK(typeof(holdout_unsealed_at_us)='integer'),
+    completed_at_us INTEGER NOT NULL CHECK(typeof(completed_at_us)='integer'),
+    holdout_count INTEGER NOT NULL CHECK(holdout_count BETWEEN 1 AND 1000000),
+    CHECK(length(audit_id)=64 AND audit_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(audit_fingerprint)=64 AND audit_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE estimator_evidence_privacy_artifacts (
+    submission_id TEXT NOT NULL,
+    manifest_id TEXT NOT NULL,
+    set_kind TEXT NOT NULL CHECK(set_kind IN ('expected','scanned')),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 19999),
+    artifact_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    PRIMARY KEY(submission_id, set_kind, ordinal),
+    UNIQUE(submission_id, set_kind, artifact_fingerprint),
+    CHECK(length(artifact_fingerprint)=64 AND artifact_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_privacy_findings (
+    submission_id TEXT NOT NULL,
+    manifest_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 19999),
+    finding_id TEXT NOT NULL,
+    finding_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    artifact_fingerprint TEXT NOT NULL,
+    detector_key TEXT NOT NULL CHECK(length(detector_key) BETWEEN 1 AND 128 AND detector_key GLOB '[a-z]*' AND detector_key NOT GLOB '*[^a-z0-9._-]*' AND instr(detector_key,'..')=0),
+    detector_version TEXT NOT NULL CHECK(length(detector_version) BETWEEN 1 AND 128 AND detector_version GLOB '[A-Za-z0-9]*' AND detector_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(detector_version,'..')=0),
+    category TEXT NOT NULL CHECK(category IN ('prompt_text','evidence_text','model_output_text','reasoning_trace','reviewer_prose','filesystem_path','uri','credential','personal_data','provider_identifier')),
+    occurrence_count INTEGER NOT NULL CHECK(typeof(occurrence_count)='integer' AND occurrence_count BETWEEN 1 AND 1000000),
+    detected_at_us INTEGER NOT NULL CHECK(typeof(detected_at_us)='integer'),
+    PRIMARY KEY(submission_id, manifest_id, ordinal),
+    UNIQUE(submission_id, finding_id),
+    CHECK(length(finding_id)=64 AND finding_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(finding_fingerprint)=64 AND finding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(artifact_fingerprint)=64 AND artifact_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_privacy_manifests (
+    submission_id TEXT PRIMARY KEY,
+    manifest_id TEXT NOT NULL UNIQUE,
+    manifest_fingerprint TEXT NOT NULL UNIQUE,
+    finding_set_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    frozen_at_us INTEGER NOT NULL CHECK(typeof(frozen_at_us)='integer'),
+    expected_count INTEGER NOT NULL CHECK(expected_count BETWEEN 1 AND 20000),
+    scanned_count INTEGER NOT NULL CHECK(scanned_count BETWEEN 1 AND 20000),
+    finding_row_count INTEGER NOT NULL CHECK(finding_row_count BETWEEN 0 AND 20000),
+    finding_occurrence_count INTEGER NOT NULL CHECK(finding_occurrence_count BETWEEN 0 AND 20000000000),
+    CHECK(length(manifest_id)=64 AND manifest_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(manifest_fingerprint)=64 AND manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(finding_set_fingerprint)=64 AND finding_set_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_privacy_scans (
+    submission_id TEXT PRIMARY KEY,
+    scan_id TEXT NOT NULL UNIQUE,
+    scan_fingerprint TEXT NOT NULL UNIQUE,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    manifest_id TEXT NOT NULL,
+    scanner_version TEXT NOT NULL CHECK(length(scanner_version) BETWEEN 1 AND 128 AND scanner_version GLOB '[A-Za-z0-9]*' AND scanner_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(scanner_version,'..')=0),
+    started_at_us INTEGER NOT NULL CHECK(typeof(started_at_us)='integer'),
+    completed_at_us INTEGER NOT NULL CHECK(typeof(completed_at_us)='integer' AND completed_at_us >= started_at_us),
+    CHECK(length(scan_id)=64 AND scan_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(scan_fingerprint)=64 AND scan_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE estimator_evidence_structured_estimates (
+    submission_id TEXT NOT NULL,
+    receipt_id TEXT NOT NULL,
+    receipt_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    case_id TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL,
+    metric_question_fingerprint TEXT NOT NULL,
+    evidence_packet_fingerprint TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    outcome_id TEXT NOT NULL,
+    outcome_fingerprint TEXT NOT NULL,
+    structured_output_fingerprint TEXT NOT NULL,
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous','fraction','binary','categorical')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','abstained','not_applicable')),
+    numeric_value REAL CHECK(numeric_value IS NULL OR (typeof(numeric_value) IN ('real','integer') AND numeric_value BETWEEN -1.0e308 AND 1.0e308)),
+    label_code TEXT CHECK(label_code IS NULL OR (length(label_code) BETWEEN 1 AND 128 AND label_code GLOB '[a-z]*' AND label_code NOT GLOB '*[^a-z0-9._-]*' AND instr(label_code,'..')=0)),
+    confidence REAL CHECK(confidence IS NULL OR (typeof(confidence) IN ('real','integer') AND confidence BETWEEN 0 AND 1)),
+    reason_code TEXT CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(reason_code,'..')=0)),
+    recorded_at_us INTEGER NOT NULL CHECK(typeof(recorded_at_us)='integer'),
+    PRIMARY KEY(submission_id, receipt_id),
+    UNIQUE(submission_id, receipt_fingerprint),
+    CHECK(length(receipt_id)=64 AND receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(receipt_fingerprint)=64 AND receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK((value_state='known' AND reason_code IS NULL AND confidence IS NOT NULL AND ((value_kind IN ('continuous','fraction') AND numeric_value IS NOT NULL AND label_code IS NULL) OR (value_kind IN ('binary','categorical') AND numeric_value IS NULL AND label_code IS NOT NULL))) OR (value_state<>'known' AND numeric_value IS NULL AND label_code IS NULL AND confidence IS NULL AND reason_code IS NOT NULL)),
+    CHECK(value_kind<>'fraction' OR numeric_value IS NULL OR numeric_value BETWEEN 0 AND 1)
+);
+
+CREATE TABLE estimator_evidence_candidate_projections (
+    submission_id TEXT NOT NULL,
+    projection_id TEXT NOT NULL,
+    projection_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    case_id TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL,
+    metric_question_fingerprint TEXT NOT NULL,
+    evidence_packet_fingerprint TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    outcome_id TEXT NOT NULL,
+    outcome_fingerprint TEXT NOT NULL,
+    estimate_receipt_id TEXT NOT NULL,
+    estimate_receipt_fingerprint TEXT NOT NULL,
+    stage_ordinal INTEGER NOT NULL CHECK(stage_ordinal IN (5,6)),
+    stage_kind TEXT NOT NULL CHECK(stage_kind IN ('specialist','second_opinion')),
+    selected_at_us INTEGER NOT NULL CHECK(typeof(selected_at_us)='integer'),
+    PRIMARY KEY(submission_id, projection_id),
+    UNIQUE(submission_id, case_id, metric_question_fingerprint),
+    CHECK(length(projection_id)=64 AND projection_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE estimator_evidence_baseline_projections (
+    submission_id TEXT NOT NULL,
+    projection_id TEXT NOT NULL,
+    projection_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    case_id TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL,
+    metric_question_fingerprint TEXT NOT NULL,
+    evidence_packet_fingerprint TEXT NOT NULL,
+    baseline_id TEXT NOT NULL CHECK(length(baseline_id) BETWEEN 1 AND 128 AND baseline_id GLOB '[A-Za-z0-9]*' AND baseline_id NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(baseline_id,'..')=0),
+    baseline_version TEXT NOT NULL CHECK(length(baseline_version) BETWEEN 1 AND 128 AND baseline_version GLOB '[A-Za-z0-9]*' AND baseline_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(baseline_version,'..')=0),
+    baseline_configuration_sha256 TEXT NOT NULL,
+    final_estimate_fingerprint TEXT NOT NULL,
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous','fraction','binary','categorical')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','abstained','not_applicable')),
+    numeric_value REAL CHECK(numeric_value IS NULL OR (typeof(numeric_value) IN ('real','integer') AND numeric_value BETWEEN -1.0e308 AND 1.0e308)),
+    label_code TEXT CHECK(label_code IS NULL OR (length(label_code) BETWEEN 1 AND 128 AND label_code GLOB '[a-z]*' AND label_code NOT GLOB '*[^a-z0-9._-]*' AND instr(label_code,'..')=0)),
+    reason_code TEXT CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(reason_code,'..')=0)),
+    evaluated_at_us INTEGER NOT NULL CHECK(typeof(evaluated_at_us)='integer'),
+    PRIMARY KEY(submission_id, projection_id),
+    UNIQUE(submission_id, case_id, metric_question_fingerprint),
+    CHECK(length(projection_id)=64 AND projection_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK((value_state='known' AND reason_code IS NULL AND ((value_kind IN ('continuous','fraction') AND numeric_value IS NOT NULL AND label_code IS NULL) OR (value_kind IN ('binary','categorical') AND numeric_value IS NULL AND label_code IS NOT NULL))) OR (value_state<>'known' AND numeric_value IS NULL AND label_code IS NULL AND reason_code IS NOT NULL))
+);
+
+CREATE TABLE estimator_evidence_objective_projections (
+    submission_id TEXT NOT NULL,
+    projection_id TEXT NOT NULL,
+    projection_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    case_id TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL,
+    metric_question_fingerprint TEXT NOT NULL,
+    evidence_packet_fingerprint TEXT NOT NULL,
+    truth_kind TEXT NOT NULL CHECK(truth_kind IN ('test_result','acceptance_artifact','provider_verification','human_verified_artifact')),
+    objective_evidence_fingerprint TEXT NOT NULL,
+    verification_adapter_version TEXT NOT NULL CHECK(length(verification_adapter_version) BETWEEN 1 AND 128 AND verification_adapter_version GLOB '[A-Za-z0-9]*' AND verification_adapter_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(verification_adapter_version,'..')=0),
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous','fraction','binary','categorical')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','abstained','not_applicable')),
+    numeric_value REAL CHECK(numeric_value IS NULL OR (typeof(numeric_value) IN ('real','integer') AND numeric_value BETWEEN -1.0e308 AND 1.0e308)),
+    label_code TEXT CHECK(label_code IS NULL OR (length(label_code) BETWEEN 1 AND 128 AND label_code GLOB '[a-z]*' AND label_code NOT GLOB '*[^a-z0-9._-]*' AND instr(label_code,'..')=0)),
+    reason_code TEXT CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(reason_code,'..')=0)),
+    observed_at_us INTEGER NOT NULL CHECK(typeof(observed_at_us)='integer'),
+    PRIMARY KEY(submission_id, projection_id),
+    UNIQUE(submission_id, case_id, metric_question_fingerprint),
+    CHECK(length(projection_id)=64 AND projection_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(objective_evidence_fingerprint)=64 AND objective_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK((value_state='known' AND reason_code IS NULL AND ((value_kind IN ('continuous','fraction') AND numeric_value IS NOT NULL AND label_code IS NULL) OR (value_kind IN ('binary','categorical') AND numeric_value IS NULL AND label_code IS NOT NULL))) OR (value_state<>'known' AND numeric_value IS NULL AND label_code IS NULL AND reason_code IS NOT NULL))
+);
+
+CREATE TABLE estimator_evidence_blind_judgments (
+    submission_id TEXT NOT NULL,
+    judgment_id TEXT NOT NULL,
+    judgment_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    case_id TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL,
+    metric_question_fingerprint TEXT NOT NULL,
+    evidence_packet_fingerprint TEXT NOT NULL,
+    participant_id TEXT NOT NULL,
+    participant_kind TEXT NOT NULL CHECK(participant_kind IN ('independent_annotator','domain_expert')),
+    annotation_protocol_version TEXT NOT NULL CHECK(length(annotation_protocol_version) BETWEEN 1 AND 128 AND annotation_protocol_version GLOB '[A-Za-z0-9]*' AND annotation_protocol_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(annotation_protocol_version,'..')=0),
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous','fraction','binary','categorical')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','abstained','not_applicable')),
+    numeric_value REAL CHECK(numeric_value IS NULL OR (typeof(numeric_value) IN ('real','integer') AND numeric_value BETWEEN -1.0e308 AND 1.0e308)),
+    label_code TEXT CHECK(label_code IS NULL OR (length(label_code) BETWEEN 1 AND 128 AND label_code GLOB '[a-z]*' AND label_code NOT GLOB '*[^a-z0-9._-]*' AND instr(label_code,'..')=0)),
+    reason_code TEXT CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(reason_code,'..')=0)),
+    created_at_us INTEGER NOT NULL CHECK(typeof(created_at_us)='integer'),
+    PRIMARY KEY(submission_id, judgment_id),
+    CHECK(length(judgment_id)=64 AND judgment_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(judgment_fingerprint)=64 AND judgment_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(participant_id)=64 AND participant_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK((value_state='known' AND reason_code IS NULL AND ((value_kind IN ('continuous','fraction') AND numeric_value IS NOT NULL AND label_code IS NULL) OR (value_kind IN ('binary','categorical') AND numeric_value IS NULL AND label_code IS NOT NULL))) OR (value_state<>'known' AND numeric_value IS NULL AND label_code IS NULL AND reason_code IS NOT NULL))
+);
+CREATE TABLE estimator_evidence_adjudication_judgments (
+    submission_id TEXT NOT NULL,
+    adjudication_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 31),
+    judgment_id TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    PRIMARY KEY(submission_id, adjudication_id, ordinal),
+    UNIQUE(submission_id, adjudication_id, judgment_id)
+);
+CREATE TABLE estimator_evidence_blind_adjudications (
+    submission_id TEXT NOT NULL,
+    adjudication_id TEXT NOT NULL,
+    adjudication_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    case_id TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL,
+    metric_question_fingerprint TEXT NOT NULL,
+    evidence_packet_fingerprint TEXT NOT NULL,
+    resolver_id TEXT NOT NULL,
+    resolution TEXT NOT NULL CHECK(resolution IN ('resolved','unresolved')),
+    annotation_protocol_version TEXT NOT NULL CHECK(length(annotation_protocol_version) BETWEEN 1 AND 128 AND annotation_protocol_version GLOB '[A-Za-z0-9]*' AND annotation_protocol_version NOT GLOB '*[^A-Za-z0-9._+-]*' AND instr(annotation_protocol_version,'..')=0),
+    value_kind TEXT NOT NULL CHECK(value_kind IN ('continuous','fraction','binary','categorical')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown')),
+    numeric_value REAL CHECK(numeric_value IS NULL OR (typeof(numeric_value) IN ('real','integer') AND numeric_value BETWEEN -1.0e308 AND 1.0e308)),
+    label_code TEXT CHECK(label_code IS NULL OR (length(label_code) BETWEEN 1 AND 128 AND label_code GLOB '[a-z]*' AND label_code NOT GLOB '*[^a-z0-9._-]*' AND instr(label_code,'..')=0)),
+    reason_code TEXT CHECK(reason_code IS NULL OR (length(reason_code) BETWEEN 1 AND 128 AND reason_code GLOB '[a-z]*' AND reason_code NOT GLOB '*[^a-z0-9._-]*' AND instr(reason_code,'..')=0)),
+    completed_at_us INTEGER NOT NULL CHECK(typeof(completed_at_us)='integer'),
+    judgment_count INTEGER NOT NULL CHECK(judgment_count BETWEEN 2 AND 32),
+    PRIMARY KEY(submission_id, adjudication_id),
+    UNIQUE(submission_id, case_id, metric_question_fingerprint),
+    CHECK(length(adjudication_id)=64 AND adjudication_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(adjudication_fingerprint)=64 AND adjudication_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(resolver_id)=64 AND resolver_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK((resolution='resolved' AND value_state='known' AND reason_code IS NULL AND ((value_kind IN ('continuous','fraction') AND numeric_value IS NOT NULL AND label_code IS NULL) OR (value_kind IN ('binary','categorical') AND numeric_value IS NULL AND label_code IS NOT NULL))) OR (resolution='unresolved' AND value_state='unknown' AND numeric_value IS NULL AND label_code IS NULL AND reason_code IS NOT NULL))
+);
+
+CREATE TABLE estimator_evidence_stability_trials (
+    submission_id TEXT NOT NULL,
+    series_id TEXT NOT NULL,
+    trial_ordinal INTEGER NOT NULL CHECK(trial_ordinal BETWEEN 1 AND 20),
+    receipt_id TEXT NOT NULL,
+    receipt_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    case_id TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL,
+    metric_question_fingerprint TEXT NOT NULL,
+    evidence_packet_fingerprint TEXT NOT NULL,
+    condition_code TEXT NOT NULL CHECK(condition_code IN ('repeat','order','format','injection')),
+    attempt_id TEXT NOT NULL,
+    outcome_id TEXT NOT NULL,
+    outcome_fingerprint TEXT NOT NULL,
+    estimate_receipt_id TEXT NOT NULL,
+    estimate_receipt_fingerprint TEXT NOT NULL,
+    recorded_at_us INTEGER NOT NULL CHECK(typeof(recorded_at_us)='integer'),
+    PRIMARY KEY(submission_id, series_id, trial_ordinal),
+    UNIQUE(submission_id, receipt_id),
+    UNIQUE(submission_id, series_id, attempt_id),
+    CHECK(length(series_id)=64 AND series_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(receipt_id)=64 AND receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(receipt_fingerprint)=64 AND receipt_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_stability_series (
+    submission_id TEXT NOT NULL,
+    series_id TEXT NOT NULL,
+    series_fingerprint TEXT NOT NULL,
+    trial_set_fingerprint TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    case_id TEXT NOT NULL,
+    plan_fingerprint TEXT NOT NULL,
+    metric_question_fingerprint TEXT NOT NULL,
+    evidence_packet_fingerprint TEXT NOT NULL,
+    condition_code TEXT NOT NULL CHECK(condition_code IN ('repeat','order','format','injection')),
+    frozen_at_us INTEGER NOT NULL CHECK(typeof(frozen_at_us)='integer'),
+    trial_count INTEGER NOT NULL CHECK(trial_count BETWEEN 2 AND 20),
+    PRIMARY KEY(submission_id, series_id),
+    UNIQUE(submission_id, series_fingerprint),
+    CHECK(length(series_id)=64 AND series_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(series_fingerprint)=64 AND series_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(trial_set_fingerprint)=64 AND trial_set_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE estimator_evidence_submission_holdout_cases (
+    submission_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 999999),
+    case_id TEXT NOT NULL,
+    campaign_id TEXT NOT NULL REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    PRIMARY KEY(submission_id, ordinal),
+    UNIQUE(submission_id, case_id),
+    CHECK(length(submission_id)=64 AND submission_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(case_id)=64 AND case_id NOT GLOB '*[^0-9a-f]*')
+);
+CREATE TABLE estimator_evidence_submissions (
+    submission_id TEXT PRIMARY KEY,
+    submission_fingerprint TEXT NOT NULL UNIQUE,
+    campaign_id TEXT NOT NULL UNIQUE REFERENCES estimator_gate_campaigns(campaign_id) ON DELETE CASCADE,
+    expected_manifest_id TEXT NOT NULL,
+    access_audit_id TEXT NOT NULL,
+    privacy_scan_id TEXT NOT NULL,
+    submitted_at_us INTEGER NOT NULL CHECK(typeof(submitted_at_us)='integer'),
+    holdout_count INTEGER NOT NULL CHECK(holdout_count BETWEEN 1 AND 1000000),
+    launch_count INTEGER NOT NULL CHECK(launch_count BETWEEN 1 AND 20000),
+    outcome_count INTEGER NOT NULL CHECK(outcome_count BETWEEN 1 AND 20000),
+    structured_estimate_count INTEGER NOT NULL CHECK(structured_estimate_count BETWEEN 0 AND 20000),
+    candidate_projection_count INTEGER NOT NULL CHECK(candidate_projection_count BETWEEN 0 AND 20000),
+    baseline_projection_count INTEGER NOT NULL CHECK(baseline_projection_count BETWEEN 0 AND 20000),
+    objective_projection_count INTEGER NOT NULL CHECK(objective_projection_count BETWEEN 0 AND 20000),
+    judgment_count INTEGER NOT NULL CHECK(judgment_count BETWEEN 0 AND 20000),
+    adjudication_count INTEGER NOT NULL CHECK(adjudication_count BETWEEN 0 AND 20000),
+    stability_series_count INTEGER NOT NULL CHECK(stability_series_count BETWEEN 0 AND 20000),
+    activation_allowed INTEGER NOT NULL DEFAULT 0 CHECK(activation_allowed=0),
+    private_export_allowed INTEGER NOT NULL DEFAULT 0 CHECK(private_export_allowed=0),
+    team_share_allowed INTEGER NOT NULL DEFAULT 0 CHECK(team_share_allowed=0),
+    CHECK(length(submission_id)=64 AND submission_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(submission_fingerprint)=64 AND submission_fingerprint NOT GLOB '*[^0-9a-f]*')
+);
+
+-- Component roots are always written after their leaves and validate counts,
+-- campaign ownership, chronology, ordering, and frozen membership.
+CREATE TRIGGER estimator_evidence_expected_manifest_validate BEFORE INSERT ON estimator_evidence_expected_manifests
+WHEN NEW.attempt_count <> (SELECT COUNT(*) FROM estimator_evidence_expected_attempts WHERE submission_id=NEW.submission_id AND manifest_id=NEW.manifest_id)
+ OR NEW.plan_fingerprint <> (SELECT stored_plan_fingerprint FROM estimator_gate_campaigns WHERE campaign_id=NEW.campaign_id)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_expected_attempts WHERE submission_id=NEW.submission_id AND (campaign_id<>NEW.campaign_id OR plan_fingerprint<>NEW.plan_fingerprint))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_expected_attempts AS item LEFT JOIN estimator_constellation_stages AS stage ON stage.stage_fingerprint=item.constellation_stage_fingerprint WHERE item.submission_id=NEW.submission_id AND (stage.ordinal IS NULL OR stage.ordinal<>item.stage_ordinal OR stage.kind<>item.stage_kind OR stage.stage_configuration_sha256<>item.stage_configuration_sha256))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_attempt_launches AS launch JOIN estimator_evidence_expected_attempts AS expected USING(submission_id,attempt_id) WHERE launch.submission_id=NEW.submission_id AND launch.launched_at_us<NEW.frozen_at_us)
+ OR NEW.frozen_at_us < CAST((julianday((SELECT registered_at FROM estimator_gate_campaigns WHERE campaign_id=NEW.campaign_id)) - 2440587.5) * 86400000000 AS INTEGER) - 1
+ OR EXISTS (SELECT 1 FROM estimator_evidence_expected_attempts AS earlier JOIN estimator_evidence_expected_attempts AS later ON later.submission_id=earlier.submission_id AND later.ordinal=earlier.ordinal+1 WHERE earlier.submission_id=NEW.submission_id AND (earlier.case_id>later.case_id OR (earlier.case_id=later.case_id AND earlier.stage_ordinal>later.stage_ordinal) OR (earlier.case_id=later.case_id AND earlier.stage_ordinal=later.stage_ordinal AND earlier.execution_id>later.execution_id) OR (earlier.case_id=later.case_id AND earlier.stage_ordinal=later.stage_ordinal AND earlier.execution_id=later.execution_id AND earlier.attempt_id>=later.attempt_id)))
+BEGIN SELECT RAISE(ABORT,'estimator evidence expected manifest is inconsistent'); END;
+
+CREATE TRIGGER estimator_evidence_access_manifest_validate BEFORE INSERT ON estimator_evidence_access_manifests
+WHEN NEW.event_count <> (SELECT COUNT(*) FROM estimator_evidence_access_events WHERE submission_id=NEW.submission_id AND manifest_id=NEW.manifest_id)
+ OR NEW.gap_count <> (SELECT COUNT(*) FROM estimator_evidence_access_gaps WHERE submission_id=NEW.submission_id AND manifest_id=NEW.manifest_id)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_access_events WHERE submission_id=NEW.submission_id AND (campaign_id<>NEW.campaign_id OR occurred_at_us<NEW.coverage_started_at_us OR occurred_at_us>NEW.coverage_ended_at_us))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_access_gaps WHERE submission_id=NEW.submission_id AND (campaign_id<>NEW.campaign_id OR started_at_us<NEW.coverage_started_at_us OR ended_at_us>NEW.coverage_ended_at_us))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_access_events AS earlier JOIN estimator_evidence_access_events AS later ON later.submission_id=earlier.submission_id AND later.manifest_id=earlier.manifest_id AND later.ordinal=earlier.ordinal+1 WHERE earlier.submission_id=NEW.submission_id AND earlier.manifest_id=NEW.manifest_id AND (earlier.occurred_at_us>later.occurred_at_us OR (earlier.occurred_at_us=later.occurred_at_us AND earlier.event_id>=later.event_id)))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_access_gaps AS earlier JOIN estimator_evidence_access_gaps AS later ON later.submission_id=earlier.submission_id AND later.manifest_id=earlier.manifest_id AND later.ordinal=earlier.ordinal+1 WHERE earlier.submission_id=NEW.submission_id AND earlier.manifest_id=NEW.manifest_id AND (earlier.started_at_us>later.started_at_us OR (earlier.started_at_us=later.started_at_us AND (earlier.ended_at_us>later.ended_at_us OR (earlier.ended_at_us=later.ended_at_us AND earlier.gap_id>=later.gap_id))) OR later.started_at_us<earlier.ended_at_us))
+BEGIN SELECT RAISE(ABORT,'estimator evidence access manifest is inconsistent'); END;
+
+CREATE TRIGGER estimator_evidence_access_audit_validate BEFORE INSERT ON estimator_evidence_access_audits
+WHEN NEW.holdout_count <> (SELECT COUNT(*) FROM estimator_evidence_access_audit_cases WHERE submission_id=NEW.submission_id AND audit_id=NEW.audit_id)
+ OR NOT EXISTS (SELECT 1 FROM estimator_evidence_access_manifests WHERE submission_id=NEW.submission_id AND manifest_id=NEW.manifest_id AND campaign_id=NEW.campaign_id AND coverage_started_at_us<=NEW.holdout_unsealed_at_us AND coverage_ended_at_us>=NEW.holdout_unsealed_at_us AND frozen_at_us<=NEW.completed_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_access_audit_cases WHERE submission_id=NEW.submission_id AND campaign_id<>NEW.campaign_id)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_access_events AS event WHERE event.submission_id=NEW.submission_id AND NOT EXISTS (SELECT 1 FROM estimator_evidence_access_audit_cases AS item WHERE item.submission_id=NEW.submission_id AND item.case_id=event.case_id))
+BEGIN SELECT RAISE(ABORT,'estimator evidence access audit is inconsistent'); END;
+
+CREATE TRIGGER estimator_evidence_privacy_manifest_validate BEFORE INSERT ON estimator_evidence_privacy_manifests
+WHEN NEW.expected_count <> (SELECT COUNT(*) FROM estimator_evidence_privacy_artifacts WHERE submission_id=NEW.submission_id AND manifest_id=NEW.manifest_id AND set_kind='expected')
+ OR NEW.scanned_count <> (SELECT COUNT(*) FROM estimator_evidence_privacy_artifacts WHERE submission_id=NEW.submission_id AND manifest_id=NEW.manifest_id AND set_kind='scanned')
+ OR NEW.finding_row_count <> (SELECT COUNT(*) FROM estimator_evidence_privacy_findings WHERE submission_id=NEW.submission_id AND manifest_id=NEW.manifest_id)
+ OR NEW.finding_occurrence_count <> COALESCE((SELECT SUM(occurrence_count) FROM estimator_evidence_privacy_findings WHERE submission_id=NEW.submission_id AND manifest_id=NEW.manifest_id),0)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_privacy_artifacts AS scanned WHERE scanned.submission_id=NEW.submission_id AND scanned.set_kind='scanned' AND NOT EXISTS (SELECT 1 FROM estimator_evidence_privacy_artifacts AS expected WHERE expected.submission_id=scanned.submission_id AND expected.set_kind='expected' AND expected.artifact_fingerprint=scanned.artifact_fingerprint))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_privacy_findings AS finding WHERE finding.submission_id=NEW.submission_id AND (finding.campaign_id<>NEW.campaign_id OR finding.detected_at_us>NEW.frozen_at_us OR NOT EXISTS (SELECT 1 FROM estimator_evidence_privacy_artifacts AS scanned WHERE scanned.submission_id=finding.submission_id AND scanned.set_kind='scanned' AND scanned.artifact_fingerprint=finding.artifact_fingerprint)))
+BEGIN SELECT RAISE(ABORT,'estimator evidence privacy manifest is inconsistent'); END;
+
+CREATE TRIGGER estimator_evidence_privacy_scan_validate BEFORE INSERT ON estimator_evidence_privacy_scans
+WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_privacy_manifests WHERE submission_id=NEW.submission_id AND manifest_id=NEW.manifest_id AND campaign_id=NEW.campaign_id AND frozen_at_us<=NEW.completed_at_us)
+BEGIN SELECT RAISE(ABORT,'estimator evidence privacy scan is inconsistent'); END;
+
+CREATE TRIGGER estimator_evidence_adjudication_validate BEFORE INSERT ON estimator_evidence_blind_adjudications
+WHEN NEW.judgment_count <> (SELECT COUNT(*) FROM estimator_evidence_adjudication_judgments WHERE submission_id=NEW.submission_id AND adjudication_id=NEW.adjudication_id)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_adjudication_judgments AS link LEFT JOIN estimator_evidence_blind_judgments AS judgment ON judgment.submission_id=link.submission_id AND judgment.judgment_id=link.judgment_id WHERE link.submission_id=NEW.submission_id AND link.adjudication_id=NEW.adjudication_id AND (judgment.judgment_id IS NULL OR judgment.campaign_id<>NEW.campaign_id OR judgment.case_id<>NEW.case_id OR judgment.metric_question_fingerprint<>NEW.metric_question_fingerprint OR judgment.evidence_packet_fingerprint<>NEW.evidence_packet_fingerprint OR judgment.annotation_protocol_version<>NEW.annotation_protocol_version OR judgment.created_at_us>NEW.completed_at_us OR judgment.participant_id=NEW.resolver_id))
+ OR (SELECT COUNT(DISTINCT judgment.participant_id) FROM estimator_evidence_adjudication_judgments AS link JOIN estimator_evidence_blind_judgments AS judgment ON judgment.submission_id=link.submission_id AND judgment.judgment_id=link.judgment_id WHERE link.submission_id=NEW.submission_id AND link.adjudication_id=NEW.adjudication_id) < 2
+BEGIN SELECT RAISE(ABORT,'estimator evidence adjudication is inconsistent'); END;
+
+CREATE TRIGGER estimator_evidence_stability_series_validate BEFORE INSERT ON estimator_evidence_stability_series
+WHEN NEW.trial_count <> (SELECT COUNT(*) FROM estimator_evidence_stability_trials WHERE submission_id=NEW.submission_id AND series_id=NEW.series_id)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_stability_trials WHERE submission_id=NEW.submission_id AND series_id=NEW.series_id AND (campaign_id<>NEW.campaign_id OR case_id<>NEW.case_id OR plan_fingerprint<>NEW.plan_fingerprint OR metric_question_fingerprint<>NEW.metric_question_fingerprint OR evidence_packet_fingerprint<>NEW.evidence_packet_fingerprint OR condition_code<>NEW.condition_code OR recorded_at_us>NEW.frozen_at_us))
+BEGIN SELECT RAISE(ABORT,'estimator evidence stability series is inconsistent'); END;
+
+-- The final root is the only sealed evidence-set marker. It rechecks every
+-- aggregate from child rows and the exact v16 campaign holdout/lineage.
+CREATE TRIGGER estimator_evidence_submission_validate BEFORE INSERT ON estimator_evidence_submissions
+WHEN NOT EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=NEW.campaign_id)
+ OR NOT EXISTS (SELECT 1 FROM estimator_evidence_expected_manifests WHERE submission_id=NEW.submission_id AND manifest_id=NEW.expected_manifest_id AND campaign_id=NEW.campaign_id)
+ OR NOT EXISTS (SELECT 1 FROM estimator_evidence_access_audits WHERE submission_id=NEW.submission_id AND audit_id=NEW.access_audit_id AND campaign_id=NEW.campaign_id)
+ OR NOT EXISTS (SELECT 1 FROM estimator_evidence_privacy_scans WHERE submission_id=NEW.submission_id AND scan_id=NEW.privacy_scan_id AND campaign_id=NEW.campaign_id AND completed_at_us<=NEW.submitted_at_us)
+ OR NEW.holdout_count<>(SELECT COUNT(*) FROM estimator_evidence_submission_holdout_cases WHERE submission_id=NEW.submission_id)
+ OR NEW.launch_count<>(SELECT COUNT(*) FROM estimator_evidence_attempt_launches WHERE submission_id=NEW.submission_id)
+ OR NEW.outcome_count<>(SELECT COUNT(*) FROM estimator_evidence_attempt_outcomes WHERE submission_id=NEW.submission_id)
+ OR NEW.structured_estimate_count<>(SELECT COUNT(*) FROM estimator_evidence_structured_estimates WHERE submission_id=NEW.submission_id)
+ OR NEW.candidate_projection_count<>(SELECT COUNT(*) FROM estimator_evidence_candidate_projections WHERE submission_id=NEW.submission_id)
+ OR NEW.baseline_projection_count<>(SELECT COUNT(*) FROM estimator_evidence_baseline_projections WHERE submission_id=NEW.submission_id)
+ OR NEW.objective_projection_count<>(SELECT COUNT(*) FROM estimator_evidence_objective_projections WHERE submission_id=NEW.submission_id)
+ OR NEW.judgment_count<>(SELECT COUNT(*) FROM estimator_evidence_blind_judgments WHERE submission_id=NEW.submission_id)
+ OR NEW.adjudication_count<>(SELECT COUNT(*) FROM estimator_evidence_blind_adjudications WHERE submission_id=NEW.submission_id)
+ OR NEW.stability_series_count<>(SELECT COUNT(*) FROM estimator_evidence_stability_series WHERE submission_id=NEW.submission_id)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_submission_holdout_cases WHERE submission_id=NEW.submission_id AND campaign_id<>NEW.campaign_id)
+ OR EXISTS (SELECT 1 FROM estimator_calibration_split_cases AS split JOIN estimator_gate_campaigns AS campaign ON campaign.split_fingerprint=split.split_fingerprint WHERE campaign.campaign_id=NEW.campaign_id AND split.partition_code='holdout' AND NOT EXISTS (SELECT 1 FROM estimator_evidence_submission_holdout_cases AS item WHERE item.submission_id=NEW.submission_id AND item.case_id=split.case_id))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_submission_holdout_cases AS item WHERE item.submission_id=NEW.submission_id AND NOT EXISTS (SELECT 1 FROM estimator_calibration_split_cases AS split JOIN estimator_gate_campaigns AS campaign ON campaign.split_fingerprint=split.split_fingerprint WHERE campaign.campaign_id=NEW.campaign_id AND split.partition_code='holdout' AND split.case_id=item.case_id))
+ OR NEW.launch_count<>(SELECT attempt_count FROM estimator_evidence_expected_manifests WHERE submission_id=NEW.submission_id)
+ OR NEW.outcome_count<>(SELECT attempt_count FROM estimator_evidence_expected_manifests WHERE submission_id=NEW.submission_id)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_expected_attempts AS expected LEFT JOIN estimator_evidence_attempt_launches AS launch ON launch.submission_id=expected.submission_id AND launch.attempt_id=expected.attempt_id LEFT JOIN estimator_evidence_attempt_outcomes AS outcome ON outcome.submission_id=expected.submission_id AND outcome.attempt_id=expected.attempt_id LEFT JOIN estimator_gate_campaigns AS campaign ON campaign.campaign_id=NEW.campaign_id LEFT JOIN estimator_case_assignments_v2 AS assignment ON assignment.manifest_fingerprint=campaign.assignment_manifest_fingerprint AND assignment.case_id=expected.case_id LEFT JOIN estimator_constellation_stages AS stage ON stage.constellation_fingerprint=campaign.constellation_fingerprint AND stage.stage_fingerprint=expected.constellation_stage_fingerprint LEFT JOIN estimator_model_artifacts AS artifact ON artifact.artifact_fingerprint=stage.model_artifact_fingerprint WHERE expected.submission_id=NEW.submission_id AND (assignment.case_id IS NULL OR stage.stage_fingerprint IS NULL OR artifact.artifact_fingerprint IS NULL OR expected.campaign_id<>NEW.campaign_id OR expected.plan_fingerprint<>campaign.stored_plan_fingerprint OR expected.metric_question_fingerprint<>assignment.metric_question_fingerprint OR expected.evidence_packet_fingerprint<>assignment.evidence_packet_fingerprint OR stage.ordinal<>expected.stage_ordinal OR stage.kind<>expected.stage_kind OR stage.stage_configuration_sha256<>expected.stage_configuration_sha256 OR launch.attempt_id IS NULL OR outcome.attempt_id IS NULL OR launch.campaign_id<>NEW.campaign_id OR outcome.campaign_id<>NEW.campaign_id OR launch.execution_id<>expected.execution_id OR launch.case_id<>expected.case_id OR launch.plan_fingerprint<>expected.plan_fingerprint OR launch.metric_question_fingerprint<>expected.metric_question_fingerprint OR launch.evidence_packet_fingerprint<>expected.evidence_packet_fingerprint OR launch.constellation_stage_fingerprint<>expected.constellation_stage_fingerprint OR launch.stage_ordinal<>expected.stage_ordinal OR launch.stage_kind<>expected.stage_kind OR launch.stage_configuration_sha256<>expected.stage_configuration_sha256 OR launch.model_artifact_fingerprint<>stage.model_artifact_fingerprint OR launch.requested_source<>artifact.source OR launch.requested_model_id<>artifact.requested_model_id OR launch.requested_revision<>artifact.requested_revision OR launch.requested_execution_mode<>artifact.requested_execution_mode OR launch.response_schema_version<>stage.output_schema_version OR outcome.execution_id<>launch.execution_id OR outcome.case_id<>launch.case_id OR outcome.plan_fingerprint<>launch.plan_fingerprint OR outcome.metric_question_fingerprint<>launch.metric_question_fingerprint OR outcome.evidence_packet_fingerprint<>launch.evidence_packet_fingerprint OR outcome.started_at_us<>launch.launched_at_us OR (outcome.served_state='observed' AND outcome.fallback_used <> (outcome.served_source<>launch.requested_source OR outcome.served_model_id<>launch.requested_model_id OR outcome.served_revision<>launch.requested_revision OR outcome.served_execution_mode<>launch.requested_execution_mode))))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_structured_estimates AS estimate LEFT JOIN estimator_evidence_attempt_outcomes AS outcome ON outcome.submission_id=estimate.submission_id AND outcome.attempt_id=estimate.attempt_id WHERE estimate.submission_id=NEW.submission_id AND (outcome.attempt_id IS NULL OR outcome.terminal_state<>'success' OR estimate.campaign_id<>NEW.campaign_id OR estimate.outcome_id<>outcome.outcome_id OR estimate.outcome_fingerprint<>outcome.outcome_fingerprint OR estimate.structured_output_fingerprint<>outcome.structured_output_fingerprint OR estimate.case_id<>outcome.case_id OR estimate.plan_fingerprint<>outcome.plan_fingerprint OR estimate.metric_question_fingerprint<>outcome.metric_question_fingerprint OR estimate.evidence_packet_fingerprint<>outcome.evidence_packet_fingerprint OR estimate.recorded_at_us<outcome.finished_at_us))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_candidate_projections AS projection LEFT JOIN estimator_evidence_attempt_launches AS launch ON launch.submission_id=projection.submission_id AND launch.attempt_id=projection.attempt_id LEFT JOIN estimator_evidence_attempt_outcomes AS outcome ON outcome.submission_id=projection.submission_id AND outcome.attempt_id=projection.attempt_id LEFT JOIN estimator_evidence_structured_estimates AS estimate ON estimate.submission_id=projection.submission_id AND estimate.receipt_id=projection.estimate_receipt_id WHERE projection.submission_id=NEW.submission_id AND (launch.attempt_id IS NULL OR outcome.attempt_id IS NULL OR estimate.receipt_id IS NULL OR projection.campaign_id<>NEW.campaign_id OR projection.outcome_id<>outcome.outcome_id OR projection.outcome_fingerprint<>outcome.outcome_fingerprint OR projection.estimate_receipt_fingerprint<>estimate.receipt_fingerprint OR estimate.attempt_id<>projection.attempt_id OR estimate.outcome_id<>projection.outcome_id OR projection.case_id<>launch.case_id OR projection.plan_fingerprint<>launch.plan_fingerprint OR projection.metric_question_fingerprint<>launch.metric_question_fingerprint OR projection.evidence_packet_fingerprint<>launch.evidence_packet_fingerprint OR projection.stage_ordinal<>launch.stage_ordinal OR projection.stage_kind<>launch.stage_kind OR projection.selected_at_us<outcome.finished_at_us OR projection.selected_at_us<estimate.recorded_at_us))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_baseline_projections AS projection WHERE projection.submission_id=NEW.submission_id AND (projection.campaign_id<>NEW.campaign_id OR NOT EXISTS (SELECT 1 FROM estimator_evidence_expected_attempts AS expected WHERE expected.submission_id=projection.submission_id AND expected.case_id=projection.case_id AND expected.plan_fingerprint=projection.plan_fingerprint AND expected.metric_question_fingerprint=projection.metric_question_fingerprint AND expected.evidence_packet_fingerprint=projection.evidence_packet_fingerprint)))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_objective_projections AS projection WHERE projection.submission_id=NEW.submission_id AND (projection.campaign_id<>NEW.campaign_id OR NOT EXISTS (SELECT 1 FROM estimator_evidence_expected_attempts AS expected WHERE expected.submission_id=projection.submission_id AND expected.case_id=projection.case_id AND expected.plan_fingerprint=projection.plan_fingerprint AND expected.metric_question_fingerprint=projection.metric_question_fingerprint AND expected.evidence_packet_fingerprint=projection.evidence_packet_fingerprint)))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_blind_judgments AS judgment WHERE judgment.submission_id=NEW.submission_id AND (judgment.campaign_id<>NEW.campaign_id OR NOT EXISTS (SELECT 1 FROM estimator_evidence_expected_attempts AS expected WHERE expected.submission_id=judgment.submission_id AND expected.case_id=judgment.case_id AND expected.plan_fingerprint=judgment.plan_fingerprint AND expected.metric_question_fingerprint=judgment.metric_question_fingerprint AND expected.evidence_packet_fingerprint=judgment.evidence_packet_fingerprint)))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_blind_adjudications AS adjudication WHERE adjudication.submission_id=NEW.submission_id AND (adjudication.campaign_id<>NEW.campaign_id OR NOT EXISTS (SELECT 1 FROM estimator_evidence_expected_attempts AS expected WHERE expected.submission_id=adjudication.submission_id AND expected.case_id=adjudication.case_id AND expected.plan_fingerprint=adjudication.plan_fingerprint AND expected.metric_question_fingerprint=adjudication.metric_question_fingerprint AND expected.evidence_packet_fingerprint=adjudication.evidence_packet_fingerprint)))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_stability_trials AS trial LEFT JOIN estimator_evidence_attempt_launches AS launch ON launch.submission_id=trial.submission_id AND launch.attempt_id=trial.attempt_id LEFT JOIN estimator_evidence_attempt_outcomes AS outcome ON outcome.submission_id=trial.submission_id AND outcome.attempt_id=trial.attempt_id LEFT JOIN estimator_evidence_structured_estimates AS estimate ON estimate.submission_id=trial.submission_id AND estimate.receipt_id=trial.estimate_receipt_id WHERE trial.submission_id=NEW.submission_id AND (launch.attempt_id IS NULL OR outcome.attempt_id IS NULL OR estimate.receipt_id IS NULL OR launch.stage_kind NOT IN ('specialist','second_opinion') OR trial.campaign_id<>NEW.campaign_id OR trial.outcome_id<>outcome.outcome_id OR trial.outcome_fingerprint<>outcome.outcome_fingerprint OR trial.estimate_receipt_fingerprint<>estimate.receipt_fingerprint OR estimate.attempt_id<>trial.attempt_id OR estimate.outcome_id<>trial.outcome_id OR trial.case_id<>outcome.case_id OR trial.plan_fingerprint<>outcome.plan_fingerprint OR trial.metric_question_fingerprint<>outcome.metric_question_fingerprint OR trial.evidence_packet_fingerprint<>outcome.evidence_packet_fingerprint OR trial.recorded_at_us<outcome.finished_at_us OR trial.recorded_at_us<estimate.recorded_at_us))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_access_audit_cases AS audit_case WHERE audit_case.submission_id=NEW.submission_id AND NOT EXISTS (SELECT 1 FROM estimator_evidence_submission_holdout_cases AS holdout WHERE holdout.submission_id=audit_case.submission_id AND holdout.case_id=audit_case.case_id))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_submission_holdout_cases AS holdout WHERE holdout.submission_id=NEW.submission_id AND NOT EXISTS (SELECT 1 FROM estimator_evidence_access_audit_cases AS audit_case WHERE audit_case.submission_id=holdout.submission_id AND audit_case.case_id=holdout.case_id))
+ OR (SELECT coverage_started_at_us FROM estimator_evidence_access_manifests WHERE submission_id=NEW.submission_id) > (SELECT MIN(outcome.enqueued_at_us) FROM estimator_evidence_attempt_outcomes AS outcome JOIN estimator_evidence_submission_holdout_cases AS holdout ON holdout.submission_id=outcome.submission_id AND holdout.case_id=outcome.case_id WHERE outcome.submission_id=NEW.submission_id)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_attempt_outcomes AS outcome JOIN estimator_evidence_access_manifests AS access USING(submission_id) WHERE outcome.submission_id=NEW.submission_id AND outcome.finished_at_us>access.coverage_ended_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_structured_estimates AS estimate JOIN estimator_evidence_access_manifests AS access USING(submission_id) WHERE estimate.submission_id=NEW.submission_id AND estimate.recorded_at_us>access.coverage_ended_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_candidate_projections AS projection JOIN estimator_evidence_access_manifests AS access USING(submission_id) WHERE projection.submission_id=NEW.submission_id AND projection.selected_at_us>access.coverage_ended_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_baseline_projections AS projection JOIN estimator_evidence_access_manifests AS access USING(submission_id) WHERE projection.submission_id=NEW.submission_id AND projection.evaluated_at_us>access.coverage_ended_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_objective_projections AS projection JOIN estimator_evidence_access_manifests AS access USING(submission_id) WHERE projection.submission_id=NEW.submission_id AND projection.observed_at_us>access.coverage_ended_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_blind_judgments AS judgment JOIN estimator_evidence_access_manifests AS access USING(submission_id) WHERE judgment.submission_id=NEW.submission_id AND judgment.created_at_us>access.coverage_ended_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_blind_adjudications AS adjudication JOIN estimator_evidence_access_manifests AS access USING(submission_id) WHERE adjudication.submission_id=NEW.submission_id AND adjudication.completed_at_us>access.coverage_ended_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_stability_series AS series JOIN estimator_evidence_access_manifests AS access USING(submission_id) WHERE series.submission_id=NEW.submission_id AND series.frozen_at_us>access.coverage_ended_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_candidate_projections AS projection JOIN estimator_evidence_submission_holdout_cases AS holdout ON holdout.submission_id=projection.submission_id AND holdout.case_id=projection.case_id JOIN estimator_evidence_access_audits AS audit USING(submission_id) JOIN estimator_evidence_structured_estimates AS estimate ON estimate.submission_id=projection.submission_id AND estimate.receipt_id=projection.estimate_receipt_id WHERE projection.submission_id=NEW.submission_id AND (projection.selected_at_us>=audit.holdout_unsealed_at_us OR estimate.recorded_at_us>=audit.holdout_unsealed_at_us))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_baseline_projections AS projection JOIN estimator_evidence_submission_holdout_cases AS holdout ON holdout.submission_id=projection.submission_id AND holdout.case_id=projection.case_id JOIN estimator_evidence_access_audits AS audit USING(submission_id) WHERE projection.submission_id=NEW.submission_id AND projection.evaluated_at_us>=audit.holdout_unsealed_at_us)
+ OR EXISTS (SELECT 1 FROM estimator_evidence_stability_series AS series JOIN estimator_evidence_submission_holdout_cases AS holdout ON holdout.submission_id=series.submission_id AND holdout.case_id=series.case_id JOIN estimator_evidence_access_audits AS audit USING(submission_id) WHERE series.submission_id=NEW.submission_id AND (series.frozen_at_us>=audit.holdout_unsealed_at_us OR EXISTS (SELECT 1 FROM estimator_evidence_stability_trials AS trial WHERE trial.submission_id=series.submission_id AND trial.series_id=series.series_id AND trial.recorded_at_us>=audit.holdout_unsealed_at_us)))
+ OR (SELECT completed_at_us FROM estimator_evidence_access_audits WHERE submission_id=NEW.submission_id)>NEW.submitted_at_us
+ OR EXISTS (SELECT 1 FROM estimator_evidence_privacy_scans AS scan WHERE scan.submission_id=NEW.submission_id AND (scan.completed_at_us>NEW.submitted_at_us OR EXISTS (SELECT 1 FROM estimator_evidence_attempt_outcomes WHERE submission_id=NEW.submission_id AND finished_at_us>scan.completed_at_us) OR EXISTS (SELECT 1 FROM estimator_evidence_structured_estimates WHERE submission_id=NEW.submission_id AND recorded_at_us>scan.completed_at_us) OR EXISTS (SELECT 1 FROM estimator_evidence_candidate_projections WHERE submission_id=NEW.submission_id AND selected_at_us>scan.completed_at_us) OR EXISTS (SELECT 1 FROM estimator_evidence_baseline_projections WHERE submission_id=NEW.submission_id AND evaluated_at_us>scan.completed_at_us) OR EXISTS (SELECT 1 FROM estimator_evidence_objective_projections WHERE submission_id=NEW.submission_id AND observed_at_us>scan.completed_at_us) OR EXISTS (SELECT 1 FROM estimator_evidence_blind_judgments WHERE submission_id=NEW.submission_id AND created_at_us>scan.completed_at_us) OR EXISTS (SELECT 1 FROM estimator_evidence_blind_adjudications WHERE submission_id=NEW.submission_id AND completed_at_us>scan.completed_at_us) OR EXISTS (SELECT 1 FROM estimator_evidence_stability_series WHERE submission_id=NEW.submission_id AND frozen_at_us>scan.completed_at_us)))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_attempt_outcomes AS outcome WHERE outcome.submission_id=NEW.submission_id AND outcome.structured_output_fingerprint IS NOT NULL AND NOT EXISTS (SELECT 1 FROM estimator_evidence_privacy_artifacts AS artifact WHERE artifact.submission_id=NEW.submission_id AND artifact.set_kind='expected' AND artifact.artifact_fingerprint=outcome.structured_output_fingerprint))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_baseline_projections AS projection WHERE projection.submission_id=NEW.submission_id AND NOT EXISTS (SELECT 1 FROM estimator_evidence_privacy_artifacts AS artifact WHERE artifact.submission_id=NEW.submission_id AND artifact.set_kind='expected' AND artifact.artifact_fingerprint=projection.final_estimate_fingerprint))
+ OR EXISTS (SELECT 1 FROM estimator_evidence_objective_projections AS projection WHERE projection.submission_id=NEW.submission_id AND NOT EXISTS (SELECT 1 FROM estimator_evidence_privacy_artifacts AS artifact WHERE artifact.submission_id=NEW.submission_id AND artifact.set_kind='expected' AND artifact.artifact_fingerprint=projection.objective_evidence_fingerprint))
+BEGIN SELECT RAISE(ABORT,'estimator calibration evidence root is inconsistent'); END;
+
+-- Sealing and privacy deletion: rows cannot be mutated or deleted while their
+-- campaign exists. During an ON DELETE CASCADE, SQLite removes the parent row
+-- before firing child DELETE triggers, so the campaign's own atomic cascade is
+-- the sole SQL path through these guards. No caller-writable authority table
+-- or persisted deletion capability exists.
+CREATE TRIGGER estimator_evidence_campaign_delete_authorized BEFORE DELETE ON estimator_gate_campaigns
+WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_delete_authorizations AS auth WHERE auth.campaign_id=OLD.campaign_id AND auth.authorization_tag=estimator_evidence_delete_authorization_tag(auth.authorization_id,auth.campaign_id))
+BEGIN SELECT RAISE(ABORT,'estimator evidence campaign delete is not authorized'); END;
+
+CREATE TRIGGER estimator_evidence_launch_no_update BEFORE UPDATE ON estimator_evidence_attempt_launches BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_outcome_no_update BEFORE UPDATE ON estimator_evidence_attempt_outcomes BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_expected_attempt_no_update BEFORE UPDATE ON estimator_evidence_expected_attempts BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_expected_manifest_no_update BEFORE UPDATE ON estimator_evidence_expected_manifests BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_access_event_no_update BEFORE UPDATE ON estimator_evidence_access_events BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_access_gap_no_update BEFORE UPDATE ON estimator_evidence_access_gaps BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_access_manifest_no_update BEFORE UPDATE ON estimator_evidence_access_manifests BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_access_audit_case_no_update BEFORE UPDATE ON estimator_evidence_access_audit_cases BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_access_audit_no_update BEFORE UPDATE ON estimator_evidence_access_audits BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_privacy_artifact_no_update BEFORE UPDATE ON estimator_evidence_privacy_artifacts BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_privacy_finding_no_update BEFORE UPDATE ON estimator_evidence_privacy_findings BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_privacy_manifest_no_update BEFORE UPDATE ON estimator_evidence_privacy_manifests BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_privacy_scan_no_update BEFORE UPDATE ON estimator_evidence_privacy_scans BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_estimate_no_update BEFORE UPDATE ON estimator_evidence_structured_estimates BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_candidate_no_update BEFORE UPDATE ON estimator_evidence_candidate_projections BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_baseline_no_update BEFORE UPDATE ON estimator_evidence_baseline_projections BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_objective_no_update BEFORE UPDATE ON estimator_evidence_objective_projections BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_judgment_no_update BEFORE UPDATE ON estimator_evidence_blind_judgments BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_adjudication_link_no_update BEFORE UPDATE ON estimator_evidence_adjudication_judgments BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_adjudication_no_update BEFORE UPDATE ON estimator_evidence_blind_adjudications BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_trial_no_update BEFORE UPDATE ON estimator_evidence_stability_trials BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_series_no_update BEFORE UPDATE ON estimator_evidence_stability_series BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_holdout_no_update BEFORE UPDATE ON estimator_evidence_submission_holdout_cases BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+CREATE TRIGGER estimator_evidence_submission_no_update BEFORE UPDATE ON estimator_evidence_submissions BEGIN SELECT RAISE(ABORT,'estimator evidence is immutable'); END;
+
+CREATE TRIGGER estimator_evidence_launch_no_delete BEFORE DELETE ON estimator_evidence_attempt_launches WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_outcome_no_delete BEFORE DELETE ON estimator_evidence_attempt_outcomes WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_expected_attempt_no_delete BEFORE DELETE ON estimator_evidence_expected_attempts WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_expected_manifest_no_delete BEFORE DELETE ON estimator_evidence_expected_manifests WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_access_event_no_delete BEFORE DELETE ON estimator_evidence_access_events WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_access_gap_no_delete BEFORE DELETE ON estimator_evidence_access_gaps WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_access_manifest_no_delete BEFORE DELETE ON estimator_evidence_access_manifests WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_access_audit_case_no_delete BEFORE DELETE ON estimator_evidence_access_audit_cases WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_access_audit_no_delete BEFORE DELETE ON estimator_evidence_access_audits WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_privacy_artifact_no_delete BEFORE DELETE ON estimator_evidence_privacy_artifacts WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_privacy_finding_no_delete BEFORE DELETE ON estimator_evidence_privacy_findings WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_privacy_manifest_no_delete BEFORE DELETE ON estimator_evidence_privacy_manifests WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_privacy_scan_no_delete BEFORE DELETE ON estimator_evidence_privacy_scans WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_estimate_no_delete BEFORE DELETE ON estimator_evidence_structured_estimates WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_candidate_no_delete BEFORE DELETE ON estimator_evidence_candidate_projections WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_baseline_no_delete BEFORE DELETE ON estimator_evidence_baseline_projections WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_objective_no_delete BEFORE DELETE ON estimator_evidence_objective_projections WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_judgment_no_delete BEFORE DELETE ON estimator_evidence_blind_judgments WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_adjudication_link_no_delete BEFORE DELETE ON estimator_evidence_adjudication_judgments WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_adjudication_no_delete BEFORE DELETE ON estimator_evidence_blind_adjudications WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_trial_no_delete BEFORE DELETE ON estimator_evidence_stability_trials WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_series_no_delete BEFORE DELETE ON estimator_evidence_stability_series WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_holdout_no_delete BEFORE DELETE ON estimator_evidence_submission_holdout_cases WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+CREATE TRIGGER estimator_evidence_submission_no_delete BEFORE DELETE ON estimator_evidence_submissions WHEN EXISTS (SELECT 1 FROM estimator_gate_campaigns WHERE campaign_id=OLD.campaign_id) BEGIN SELECT RAISE(ABORT,'estimator evidence requires campaign privacy deletion'); END;
+
+-- Once a component/final root exists, no additional children may be appended.
+CREATE TRIGGER estimator_evidence_attempt_launches_authorized BEFORE INSERT ON estimator_evidence_attempt_launches WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_attempt_launches_final_sealed BEFORE INSERT ON estimator_evidence_attempt_launches WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_attempt_outcomes_authorized BEFORE INSERT ON estimator_evidence_attempt_outcomes WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_attempt_outcomes_final_sealed BEFORE INSERT ON estimator_evidence_attempt_outcomes WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_expected_attempts_authorized BEFORE INSERT ON estimator_evidence_expected_attempts WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_expected_attempts_final_sealed BEFORE INSERT ON estimator_evidence_expected_attempts WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_expected_manifests_authorized BEFORE INSERT ON estimator_evidence_expected_manifests WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_expected_manifests_final_sealed BEFORE INSERT ON estimator_evidence_expected_manifests WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_access_events_authorized BEFORE INSERT ON estimator_evidence_access_events WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_access_events_final_sealed BEFORE INSERT ON estimator_evidence_access_events WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_access_gaps_authorized BEFORE INSERT ON estimator_evidence_access_gaps WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_access_gaps_final_sealed BEFORE INSERT ON estimator_evidence_access_gaps WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_access_manifests_authorized BEFORE INSERT ON estimator_evidence_access_manifests WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_access_manifests_final_sealed BEFORE INSERT ON estimator_evidence_access_manifests WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_access_audit_cases_authorized BEFORE INSERT ON estimator_evidence_access_audit_cases WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_access_audit_cases_final_sealed BEFORE INSERT ON estimator_evidence_access_audit_cases WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_access_audits_authorized BEFORE INSERT ON estimator_evidence_access_audits WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_access_audits_final_sealed BEFORE INSERT ON estimator_evidence_access_audits WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_privacy_artifacts_authorized BEFORE INSERT ON estimator_evidence_privacy_artifacts WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_privacy_artifacts_final_sealed BEFORE INSERT ON estimator_evidence_privacy_artifacts WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_privacy_findings_authorized BEFORE INSERT ON estimator_evidence_privacy_findings WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_privacy_findings_final_sealed BEFORE INSERT ON estimator_evidence_privacy_findings WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_privacy_manifests_authorized BEFORE INSERT ON estimator_evidence_privacy_manifests WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_privacy_manifests_final_sealed BEFORE INSERT ON estimator_evidence_privacy_manifests WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_privacy_scans_authorized BEFORE INSERT ON estimator_evidence_privacy_scans WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_privacy_scans_final_sealed BEFORE INSERT ON estimator_evidence_privacy_scans WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_structured_estimates_authorized BEFORE INSERT ON estimator_evidence_structured_estimates WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_structured_estimates_final_sealed BEFORE INSERT ON estimator_evidence_structured_estimates WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_candidate_projections_authorized BEFORE INSERT ON estimator_evidence_candidate_projections WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_candidate_projections_final_sealed BEFORE INSERT ON estimator_evidence_candidate_projections WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_baseline_projections_authorized BEFORE INSERT ON estimator_evidence_baseline_projections WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_baseline_projections_final_sealed BEFORE INSERT ON estimator_evidence_baseline_projections WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_objective_projections_authorized BEFORE INSERT ON estimator_evidence_objective_projections WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_objective_projections_final_sealed BEFORE INSERT ON estimator_evidence_objective_projections WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_blind_judgments_authorized BEFORE INSERT ON estimator_evidence_blind_judgments WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_blind_judgments_final_sealed BEFORE INSERT ON estimator_evidence_blind_judgments WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_adjudication_judgments_authorized BEFORE INSERT ON estimator_evidence_adjudication_judgments WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_adjudication_judgments_final_sealed BEFORE INSERT ON estimator_evidence_adjudication_judgments WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_blind_adjudications_authorized BEFORE INSERT ON estimator_evidence_blind_adjudications WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_blind_adjudications_final_sealed BEFORE INSERT ON estimator_evidence_blind_adjudications WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_stability_trials_authorized BEFORE INSERT ON estimator_evidence_stability_trials WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_stability_trials_final_sealed BEFORE INSERT ON estimator_evidence_stability_trials WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_stability_series_authorized BEFORE INSERT ON estimator_evidence_stability_series WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_stability_series_final_sealed BEFORE INSERT ON estimator_evidence_stability_series WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_submission_holdout_cases_authorized BEFORE INSERT ON estimator_evidence_submission_holdout_cases WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+CREATE TRIGGER estimator_evidence_submission_holdout_cases_final_sealed BEFORE INSERT ON estimator_evidence_submission_holdout_cases WHEN EXISTS (SELECT 1 FROM estimator_evidence_submissions WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'estimator evidence submission is sealed'); END;
+CREATE TRIGGER estimator_evidence_submissions_authorized BEFORE INSERT ON estimator_evidence_submissions WHEN NOT EXISTS (SELECT 1 FROM estimator_evidence_append_authorizations AS auth WHERE auth.submission_id=NEW.submission_id AND auth.campaign_id=NEW.campaign_id AND auth.authorization_tag=estimator_evidence_authorization_tag(auth.authorization_id,auth.submission_id,auth.campaign_id)) BEGIN SELECT RAISE(ABORT,'estimator evidence append is not authorized'); END;
+
+CREATE TRIGGER estimator_evidence_expected_attempt_sealed BEFORE INSERT ON estimator_evidence_expected_attempts WHEN EXISTS (SELECT 1 FROM estimator_evidence_expected_manifests WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'expected attempt manifest is sealed'); END;
+CREATE TRIGGER estimator_evidence_access_event_sealed BEFORE INSERT ON estimator_evidence_access_events WHEN EXISTS (SELECT 1 FROM estimator_evidence_access_manifests WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'access manifest is sealed'); END;
+CREATE TRIGGER estimator_evidence_access_gap_sealed BEFORE INSERT ON estimator_evidence_access_gaps WHEN EXISTS (SELECT 1 FROM estimator_evidence_access_manifests WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'access manifest is sealed'); END;
+CREATE TRIGGER estimator_evidence_privacy_artifact_sealed BEFORE INSERT ON estimator_evidence_privacy_artifacts WHEN EXISTS (SELECT 1 FROM estimator_evidence_privacy_manifests WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'privacy manifest is sealed'); END;
+CREATE TRIGGER estimator_evidence_privacy_finding_sealed BEFORE INSERT ON estimator_evidence_privacy_findings WHEN EXISTS (SELECT 1 FROM estimator_evidence_privacy_manifests WHERE submission_id=NEW.submission_id) BEGIN SELECT RAISE(ABORT,'privacy manifest is sealed'); END;
+CREATE TRIGGER estimator_evidence_adjudication_link_sealed BEFORE INSERT ON estimator_evidence_adjudication_judgments WHEN EXISTS (SELECT 1 FROM estimator_evidence_blind_adjudications WHERE submission_id=NEW.submission_id AND adjudication_id=NEW.adjudication_id) BEGIN SELECT RAISE(ABORT,'adjudication is sealed'); END;
+CREATE TRIGGER estimator_evidence_trial_sealed BEFORE INSERT ON estimator_evidence_stability_trials WHEN EXISTS (SELECT 1 FROM estimator_evidence_stability_series WHERE submission_id=NEW.submission_id AND series_id=NEW.series_id) BEGIN SELECT RAISE(ABORT,'stability series is sealed'); END;
+
+-- SQLite string length/pattern functions stop at embedded NUL. A printable
+-- ASCII projection plus an explicit NUL test closes that bypass for every V17
+-- TEXT surface, including nullable provenance fields.
+CREATE TRIGGER estimator_evidence_launch_no_controls BEFORE INSERT ON estimator_evidence_attempt_launches WHEN instr(NEW.submission_id||NEW.launch_id||NEW.campaign_id||NEW.attempt_id||NEW.execution_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.constellation_stage_fingerprint||NEW.stage_kind||NEW.stage_configuration_sha256||NEW.model_artifact_fingerprint||NEW.requested_source||NEW.requested_model_id||NEW.requested_revision||NEW.requested_execution_mode||NEW.runner_adapter_key||NEW.runner_adapter_version||NEW.runner_configuration_sha256||NEW.response_schema_version||NEW.destination||NEW.retention_class||NEW.approval_kind||coalesce(NEW.approval_id,'')||coalesce(NEW.redaction_preview_fingerprint,'')||NEW.launch_fingerprint,char(0))>0 OR (NEW.submission_id||NEW.launch_id||NEW.campaign_id||NEW.attempt_id||NEW.execution_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.constellation_stage_fingerprint||NEW.stage_kind||NEW.stage_configuration_sha256||NEW.model_artifact_fingerprint||NEW.requested_source||NEW.requested_model_id||NEW.requested_revision||NEW.requested_execution_mode||NEW.runner_adapter_key||NEW.runner_adapter_version||NEW.runner_configuration_sha256||NEW.response_schema_version||NEW.destination||NEW.retention_class||NEW.approval_kind||coalesce(NEW.approval_id,'')||coalesce(NEW.redaction_preview_fingerprint,'')||NEW.launch_fingerprint) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_outcome_no_controls BEFORE INSERT ON estimator_evidence_attempt_outcomes WHEN instr(NEW.submission_id||NEW.outcome_id||NEW.outcome_fingerprint||NEW.campaign_id||NEW.attempt_id||NEW.execution_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.terminal_state||coalesce(NEW.structured_output_fingerprint,'')||coalesce(NEW.terminal_reason_code,'')||NEW.served_state||coalesce(NEW.served_source,'')||coalesce(NEW.served_model_id,'')||coalesce(NEW.served_revision,'')||coalesce(NEW.served_execution_mode,'')||coalesce(NEW.fallback_reason_code,'')||coalesce(NEW.served_unavailable_reason_code,'')||NEW.token_state||NEW.token_collector_version||coalesce(NEW.token_reason_code,'')||NEW.resource_state||NEW.resource_collector_version||coalesce(NEW.resource_reason_code,'')||NEW.cost_state||NEW.cost_collector_version||coalesce(NEW.cost_reason_code,'')||NEW.queue_key||NEW.queue_version||NEW.worker_id,char(0))>0 OR (NEW.submission_id||NEW.outcome_id||NEW.outcome_fingerprint||NEW.campaign_id||NEW.attempt_id||NEW.execution_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.terminal_state||coalesce(NEW.structured_output_fingerprint,'')||coalesce(NEW.terminal_reason_code,'')||NEW.served_state||coalesce(NEW.served_source,'')||coalesce(NEW.served_model_id,'')||coalesce(NEW.served_revision,'')||coalesce(NEW.served_execution_mode,'')||coalesce(NEW.fallback_reason_code,'')||coalesce(NEW.served_unavailable_reason_code,'')||NEW.token_state||NEW.token_collector_version||coalesce(NEW.token_reason_code,'')||NEW.resource_state||NEW.resource_collector_version||coalesce(NEW.resource_reason_code,'')||NEW.cost_state||NEW.cost_collector_version||coalesce(NEW.cost_reason_code,'')||NEW.queue_key||NEW.queue_version||NEW.worker_id) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_expected_attempt_no_controls BEFORE INSERT ON estimator_evidence_expected_attempts WHEN instr(NEW.submission_id||NEW.manifest_id||NEW.attempt_id||NEW.execution_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.constellation_stage_fingerprint||NEW.stage_configuration_sha256||NEW.stage_kind||NEW.attempt_fingerprint||NEW.campaign_id,char(0))>0 OR (NEW.submission_id||NEW.manifest_id||NEW.attempt_id||NEW.execution_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.constellation_stage_fingerprint||NEW.stage_configuration_sha256||NEW.stage_kind||NEW.attempt_fingerprint||NEW.campaign_id) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_expected_manifest_no_controls BEFORE INSERT ON estimator_evidence_expected_manifests WHEN instr(NEW.submission_id||NEW.manifest_id||NEW.manifest_fingerprint||NEW.execution_set_fingerprint||NEW.campaign_id||NEW.plan_fingerprint,char(0))>0 OR (NEW.submission_id||NEW.manifest_id||NEW.manifest_fingerprint||NEW.execution_set_fingerprint||NEW.campaign_id||NEW.plan_fingerprint) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_access_event_no_controls BEFORE INSERT ON estimator_evidence_access_events WHEN instr(NEW.submission_id||NEW.manifest_id||NEW.event_id||NEW.event_fingerprint||NEW.campaign_id||NEW.case_id||NEW.actor_id||NEW.actor_kind||NEW.access_kind,char(0))>0 OR (NEW.submission_id||NEW.manifest_id||NEW.event_id||NEW.event_fingerprint||NEW.campaign_id||NEW.case_id||NEW.actor_id||NEW.actor_kind||NEW.access_kind) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_access_gap_no_controls BEFORE INSERT ON estimator_evidence_access_gaps WHEN instr(NEW.submission_id||NEW.manifest_id||NEW.gap_id||NEW.campaign_id||NEW.reason_code,char(0))>0 OR (NEW.submission_id||NEW.manifest_id||NEW.gap_id||NEW.campaign_id||NEW.reason_code) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_access_manifest_no_controls BEFORE INSERT ON estimator_evidence_access_manifests WHEN instr(NEW.submission_id||NEW.manifest_id||NEW.manifest_fingerprint||NEW.event_set_fingerprint||NEW.gap_set_fingerprint||NEW.campaign_id||NEW.auditor_version,char(0))>0 OR (NEW.submission_id||NEW.manifest_id||NEW.manifest_fingerprint||NEW.event_set_fingerprint||NEW.gap_set_fingerprint||NEW.campaign_id||NEW.auditor_version) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_access_audit_case_no_controls BEFORE INSERT ON estimator_evidence_access_audit_cases WHEN instr(NEW.submission_id||NEW.audit_id||NEW.case_id||NEW.campaign_id,char(0))>0 OR (NEW.submission_id||NEW.audit_id||NEW.case_id||NEW.campaign_id) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_access_audit_no_controls BEFORE INSERT ON estimator_evidence_access_audits WHEN instr(NEW.submission_id||NEW.audit_id||NEW.audit_fingerprint||NEW.campaign_id||NEW.manifest_id,char(0))>0 OR (NEW.submission_id||NEW.audit_id||NEW.audit_fingerprint||NEW.campaign_id||NEW.manifest_id) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_privacy_artifact_no_controls BEFORE INSERT ON estimator_evidence_privacy_artifacts WHEN instr(NEW.submission_id||NEW.manifest_id||NEW.set_kind||NEW.artifact_fingerprint||NEW.campaign_id,char(0))>0 OR (NEW.submission_id||NEW.manifest_id||NEW.set_kind||NEW.artifact_fingerprint||NEW.campaign_id) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_privacy_finding_no_controls BEFORE INSERT ON estimator_evidence_privacy_findings WHEN instr(NEW.submission_id||NEW.manifest_id||NEW.finding_id||NEW.finding_fingerprint||NEW.campaign_id||NEW.artifact_fingerprint||NEW.detector_key||NEW.detector_version||NEW.category,char(0))>0 OR (NEW.submission_id||NEW.manifest_id||NEW.finding_id||NEW.finding_fingerprint||NEW.campaign_id||NEW.artifact_fingerprint||NEW.detector_key||NEW.detector_version||NEW.category) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_privacy_manifest_no_controls BEFORE INSERT ON estimator_evidence_privacy_manifests WHEN instr(NEW.submission_id||NEW.manifest_id||NEW.manifest_fingerprint||NEW.finding_set_fingerprint||NEW.campaign_id,char(0))>0 OR (NEW.submission_id||NEW.manifest_id||NEW.manifest_fingerprint||NEW.finding_set_fingerprint||NEW.campaign_id) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_privacy_scan_no_controls BEFORE INSERT ON estimator_evidence_privacy_scans WHEN instr(NEW.submission_id||NEW.scan_id||NEW.scan_fingerprint||NEW.campaign_id||NEW.manifest_id||NEW.scanner_version,char(0))>0 OR (NEW.submission_id||NEW.scan_id||NEW.scan_fingerprint||NEW.campaign_id||NEW.manifest_id||NEW.scanner_version) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_estimate_no_controls BEFORE INSERT ON estimator_evidence_structured_estimates WHEN instr(NEW.submission_id||NEW.receipt_id||NEW.receipt_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.attempt_id||NEW.outcome_id||NEW.outcome_fingerprint||NEW.structured_output_fingerprint||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,''),char(0))>0 OR (NEW.submission_id||NEW.receipt_id||NEW.receipt_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.attempt_id||NEW.outcome_id||NEW.outcome_fingerprint||NEW.structured_output_fingerprint||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,'')) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_candidate_no_controls BEFORE INSERT ON estimator_evidence_candidate_projections WHEN instr(NEW.submission_id||NEW.projection_id||NEW.projection_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.attempt_id||NEW.outcome_id||NEW.outcome_fingerprint||NEW.estimate_receipt_id||NEW.estimate_receipt_fingerprint||NEW.stage_kind,char(0))>0 OR (NEW.submission_id||NEW.projection_id||NEW.projection_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.attempt_id||NEW.outcome_id||NEW.outcome_fingerprint||NEW.estimate_receipt_id||NEW.estimate_receipt_fingerprint||NEW.stage_kind) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_baseline_no_controls BEFORE INSERT ON estimator_evidence_baseline_projections WHEN instr(NEW.submission_id||NEW.projection_id||NEW.projection_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.baseline_id||NEW.baseline_version||NEW.baseline_configuration_sha256||NEW.final_estimate_fingerprint||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,''),char(0))>0 OR (NEW.submission_id||NEW.projection_id||NEW.projection_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.baseline_id||NEW.baseline_version||NEW.baseline_configuration_sha256||NEW.final_estimate_fingerprint||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,'')) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_objective_no_controls BEFORE INSERT ON estimator_evidence_objective_projections WHEN instr(NEW.submission_id||NEW.projection_id||NEW.projection_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.truth_kind||NEW.objective_evidence_fingerprint||NEW.verification_adapter_version||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,''),char(0))>0 OR (NEW.submission_id||NEW.projection_id||NEW.projection_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.truth_kind||NEW.objective_evidence_fingerprint||NEW.verification_adapter_version||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,'')) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_judgment_no_controls BEFORE INSERT ON estimator_evidence_blind_judgments WHEN instr(NEW.submission_id||NEW.judgment_id||NEW.judgment_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.participant_id||NEW.participant_kind||NEW.annotation_protocol_version||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,''),char(0))>0 OR (NEW.submission_id||NEW.judgment_id||NEW.judgment_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.participant_id||NEW.participant_kind||NEW.annotation_protocol_version||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,'')) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_adjudication_link_no_controls BEFORE INSERT ON estimator_evidence_adjudication_judgments WHEN instr(NEW.submission_id||NEW.adjudication_id||NEW.judgment_id||NEW.campaign_id,char(0))>0 OR (NEW.submission_id||NEW.adjudication_id||NEW.judgment_id||NEW.campaign_id) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_adjudication_no_controls BEFORE INSERT ON estimator_evidence_blind_adjudications WHEN instr(NEW.submission_id||NEW.adjudication_id||NEW.adjudication_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.resolver_id||NEW.resolution||NEW.annotation_protocol_version||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,''),char(0))>0 OR (NEW.submission_id||NEW.adjudication_id||NEW.adjudication_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.resolver_id||NEW.resolution||NEW.annotation_protocol_version||NEW.value_kind||NEW.value_state||coalesce(NEW.label_code,'')||coalesce(NEW.reason_code,'')) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_trial_no_controls BEFORE INSERT ON estimator_evidence_stability_trials WHEN instr(NEW.submission_id||NEW.series_id||NEW.receipt_id||NEW.receipt_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.condition_code||NEW.attempt_id||NEW.outcome_id||NEW.outcome_fingerprint||NEW.estimate_receipt_id||NEW.estimate_receipt_fingerprint,char(0))>0 OR (NEW.submission_id||NEW.series_id||NEW.receipt_id||NEW.receipt_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.condition_code||NEW.attempt_id||NEW.outcome_id||NEW.outcome_fingerprint||NEW.estimate_receipt_id||NEW.estimate_receipt_fingerprint) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_series_no_controls BEFORE INSERT ON estimator_evidence_stability_series WHEN instr(NEW.submission_id||NEW.series_id||NEW.series_fingerprint||NEW.trial_set_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.condition_code,char(0))>0 OR (NEW.submission_id||NEW.series_id||NEW.series_fingerprint||NEW.trial_set_fingerprint||NEW.campaign_id||NEW.case_id||NEW.plan_fingerprint||NEW.metric_question_fingerprint||NEW.evidence_packet_fingerprint||NEW.condition_code) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_holdout_no_controls BEFORE INSERT ON estimator_evidence_submission_holdout_cases WHEN instr(NEW.submission_id||NEW.case_id||NEW.campaign_id,char(0))>0 OR (NEW.submission_id||NEW.case_id||NEW.campaign_id) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+CREATE TRIGGER estimator_evidence_submission_no_controls BEFORE INSERT ON estimator_evidence_submissions WHEN instr(NEW.submission_id||NEW.submission_fingerprint||NEW.campaign_id||NEW.expected_manifest_id||NEW.access_audit_id||NEW.privacy_scan_id,char(0))>0 OR (NEW.submission_id||NEW.submission_fingerprint||NEW.campaign_id||NEW.expected_manifest_id||NEW.access_audit_id||NEW.privacy_scan_id) GLOB '*[^ -~]*' BEGIN SELECT RAISE(ABORT,'estimator evidence text contains a control'); END;
+
+CREATE TRIGGER estimator_evidence_access_event_safe_ids BEFORE INSERT ON estimator_evidence_access_events WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.manifest_id)<>64 OR NEW.manifest_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_access_gap_safe_ids BEFORE INSERT ON estimator_evidence_access_gaps WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.manifest_id)<>64 OR NEW.manifest_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_access_manifest_safe_ids BEFORE INSERT ON estimator_evidence_access_manifests WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_access_audit_case_safe_ids BEFORE INSERT ON estimator_evidence_access_audit_cases WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_access_audit_safe_ids BEFORE INSERT ON estimator_evidence_access_audits WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.manifest_id)<>64 OR NEW.manifest_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_privacy_artifact_safe_ids BEFORE INSERT ON estimator_evidence_privacy_artifacts WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.manifest_id)<>64 OR NEW.manifest_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_privacy_finding_safe_ids BEFORE INSERT ON estimator_evidence_privacy_findings WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.manifest_id)<>64 OR NEW.manifest_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_privacy_manifest_safe_ids BEFORE INSERT ON estimator_evidence_privacy_manifests WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_privacy_scan_safe_ids BEFORE INSERT ON estimator_evidence_privacy_scans WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.manifest_id)<>64 OR NEW.manifest_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_estimate_safe_ids BEFORE INSERT ON estimator_evidence_structured_estimates WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.case_id)<>64 OR NEW.case_id GLOB '*[^0-9a-f]*' OR length(NEW.plan_fingerprint)<>64 OR NEW.plan_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.metric_question_fingerprint)<>64 OR NEW.metric_question_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.evidence_packet_fingerprint)<>64 OR NEW.evidence_packet_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.attempt_id)<>64 OR NEW.attempt_id GLOB '*[^0-9a-f]*' OR length(NEW.outcome_id)<>64 OR NEW.outcome_id GLOB '*[^0-9a-f]*' OR length(NEW.outcome_fingerprint)<>64 OR NEW.outcome_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.structured_output_fingerprint)<>64 OR NEW.structured_output_fingerprint GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_candidate_safe_ids BEFORE INSERT ON estimator_evidence_candidate_projections WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.case_id)<>64 OR NEW.case_id GLOB '*[^0-9a-f]*' OR length(NEW.plan_fingerprint)<>64 OR NEW.plan_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.metric_question_fingerprint)<>64 OR NEW.metric_question_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.evidence_packet_fingerprint)<>64 OR NEW.evidence_packet_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.attempt_id)<>64 OR NEW.attempt_id GLOB '*[^0-9a-f]*' OR length(NEW.outcome_id)<>64 OR NEW.outcome_id GLOB '*[^0-9a-f]*' OR length(NEW.outcome_fingerprint)<>64 OR NEW.outcome_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.estimate_receipt_id)<>64 OR NEW.estimate_receipt_id GLOB '*[^0-9a-f]*' OR length(NEW.estimate_receipt_fingerprint)<>64 OR NEW.estimate_receipt_fingerprint GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_baseline_safe_ids BEFORE INSERT ON estimator_evidence_baseline_projections WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.case_id)<>64 OR NEW.case_id GLOB '*[^0-9a-f]*' OR length(NEW.plan_fingerprint)<>64 OR NEW.plan_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.metric_question_fingerprint)<>64 OR NEW.metric_question_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.evidence_packet_fingerprint)<>64 OR NEW.evidence_packet_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.baseline_configuration_sha256)<>64 OR NEW.baseline_configuration_sha256 GLOB '*[^0-9a-f]*' OR length(NEW.final_estimate_fingerprint)<>64 OR NEW.final_estimate_fingerprint GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_objective_safe_ids BEFORE INSERT ON estimator_evidence_objective_projections WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.case_id)<>64 OR NEW.case_id GLOB '*[^0-9a-f]*' OR length(NEW.plan_fingerprint)<>64 OR NEW.plan_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.metric_question_fingerprint)<>64 OR NEW.metric_question_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.evidence_packet_fingerprint)<>64 OR NEW.evidence_packet_fingerprint GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_judgment_safe_ids BEFORE INSERT ON estimator_evidence_blind_judgments WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.case_id)<>64 OR NEW.case_id GLOB '*[^0-9a-f]*' OR length(NEW.plan_fingerprint)<>64 OR NEW.plan_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.metric_question_fingerprint)<>64 OR NEW.metric_question_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.evidence_packet_fingerprint)<>64 OR NEW.evidence_packet_fingerprint GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_adjudication_link_safe_ids BEFORE INSERT ON estimator_evidence_adjudication_judgments WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.adjudication_id)<>64 OR NEW.adjudication_id GLOB '*[^0-9a-f]*' OR length(NEW.judgment_id)<>64 OR NEW.judgment_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_adjudication_safe_ids BEFORE INSERT ON estimator_evidence_blind_adjudications WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.case_id)<>64 OR NEW.case_id GLOB '*[^0-9a-f]*' OR length(NEW.plan_fingerprint)<>64 OR NEW.plan_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.metric_question_fingerprint)<>64 OR NEW.metric_question_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.evidence_packet_fingerprint)<>64 OR NEW.evidence_packet_fingerprint GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_trial_safe_ids BEFORE INSERT ON estimator_evidence_stability_trials WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.case_id)<>64 OR NEW.case_id GLOB '*[^0-9a-f]*' OR length(NEW.plan_fingerprint)<>64 OR NEW.plan_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.metric_question_fingerprint)<>64 OR NEW.metric_question_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.evidence_packet_fingerprint)<>64 OR NEW.evidence_packet_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.attempt_id)<>64 OR NEW.attempt_id GLOB '*[^0-9a-f]*' OR length(NEW.outcome_id)<>64 OR NEW.outcome_id GLOB '*[^0-9a-f]*' OR length(NEW.outcome_fingerprint)<>64 OR NEW.outcome_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.estimate_receipt_id)<>64 OR NEW.estimate_receipt_id GLOB '*[^0-9a-f]*' OR length(NEW.estimate_receipt_fingerprint)<>64 OR NEW.estimate_receipt_fingerprint GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_series_safe_ids BEFORE INSERT ON estimator_evidence_stability_series WHEN length(NEW.submission_id)<>64 OR NEW.submission_id GLOB '*[^0-9a-f]*' OR length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.case_id)<>64 OR NEW.case_id GLOB '*[^0-9a-f]*' OR length(NEW.plan_fingerprint)<>64 OR NEW.plan_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.metric_question_fingerprint)<>64 OR NEW.metric_question_fingerprint GLOB '*[^0-9a-f]*' OR length(NEW.evidence_packet_fingerprint)<>64 OR NEW.evidence_packet_fingerprint GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_holdout_safe_ids BEFORE INSERT ON estimator_evidence_submission_holdout_cases WHEN length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+CREATE TRIGGER estimator_evidence_submission_safe_ids BEFORE INSERT ON estimator_evidence_submissions WHEN length(NEW.campaign_id)<>64 OR NEW.campaign_id GLOB '*[^0-9a-f]*' OR length(NEW.expected_manifest_id)<>64 OR NEW.expected_manifest_id GLOB '*[^0-9a-f]*' OR length(NEW.access_audit_id)<>64 OR NEW.access_audit_id GLOB '*[^0-9a-f]*' OR length(NEW.privacy_scan_id)<>64 OR NEW.privacy_scan_id GLOB '*[^0-9a-f]*' BEGIN SELECT RAISE(ABORT,'estimator evidence identifier is invalid'); END;
+
+CREATE TRIGGER estimator_evidence_attempt_launches_time_bounds BEFORE INSERT ON estimator_evidence_attempt_launches WHEN (NEW.approved_at_us IS NOT NULL AND (typeof(NEW.approved_at_us)<>'integer' OR NEW.approved_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999)) OR typeof(NEW.launched_at_us)<>'integer' OR NEW.launched_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_attempt_outcomes_time_bounds BEFORE INSERT ON estimator_evidence_attempt_outcomes WHEN typeof(NEW.enqueued_at_us)<>'integer' OR NEW.enqueued_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 OR typeof(NEW.dequeued_at_us)<>'integer' OR NEW.dequeued_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 OR typeof(NEW.started_at_us)<>'integer' OR NEW.started_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 OR typeof(NEW.finished_at_us)<>'integer' OR NEW.finished_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_expected_manifests_time_bounds BEFORE INSERT ON estimator_evidence_expected_manifests WHEN typeof(NEW.frozen_at_us)<>'integer' OR NEW.frozen_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_access_events_time_bounds BEFORE INSERT ON estimator_evidence_access_events WHEN typeof(NEW.occurred_at_us)<>'integer' OR NEW.occurred_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_access_gaps_time_bounds BEFORE INSERT ON estimator_evidence_access_gaps WHEN typeof(NEW.started_at_us)<>'integer' OR NEW.started_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 OR typeof(NEW.ended_at_us)<>'integer' OR NEW.ended_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_access_manifests_time_bounds BEFORE INSERT ON estimator_evidence_access_manifests WHEN typeof(NEW.coverage_started_at_us)<>'integer' OR NEW.coverage_started_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 OR typeof(NEW.coverage_ended_at_us)<>'integer' OR NEW.coverage_ended_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 OR typeof(NEW.frozen_at_us)<>'integer' OR NEW.frozen_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_access_audits_time_bounds BEFORE INSERT ON estimator_evidence_access_audits WHEN typeof(NEW.holdout_unsealed_at_us)<>'integer' OR NEW.holdout_unsealed_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 OR typeof(NEW.completed_at_us)<>'integer' OR NEW.completed_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_privacy_findings_time_bounds BEFORE INSERT ON estimator_evidence_privacy_findings WHEN typeof(NEW.detected_at_us)<>'integer' OR NEW.detected_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_privacy_manifests_time_bounds BEFORE INSERT ON estimator_evidence_privacy_manifests WHEN typeof(NEW.frozen_at_us)<>'integer' OR NEW.frozen_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_privacy_scans_time_bounds BEFORE INSERT ON estimator_evidence_privacy_scans WHEN typeof(NEW.started_at_us)<>'integer' OR NEW.started_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 OR typeof(NEW.completed_at_us)<>'integer' OR NEW.completed_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_structured_estimates_time_bounds BEFORE INSERT ON estimator_evidence_structured_estimates WHEN typeof(NEW.recorded_at_us)<>'integer' OR NEW.recorded_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_candidate_projections_time_bounds BEFORE INSERT ON estimator_evidence_candidate_projections WHEN typeof(NEW.selected_at_us)<>'integer' OR NEW.selected_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_baseline_projections_time_bounds BEFORE INSERT ON estimator_evidence_baseline_projections WHEN typeof(NEW.evaluated_at_us)<>'integer' OR NEW.evaluated_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_objective_projections_time_bounds BEFORE INSERT ON estimator_evidence_objective_projections WHEN typeof(NEW.observed_at_us)<>'integer' OR NEW.observed_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_blind_judgments_time_bounds BEFORE INSERT ON estimator_evidence_blind_judgments WHEN typeof(NEW.created_at_us)<>'integer' OR NEW.created_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_blind_adjudications_time_bounds BEFORE INSERT ON estimator_evidence_blind_adjudications WHEN typeof(NEW.completed_at_us)<>'integer' OR NEW.completed_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_stability_trials_time_bounds BEFORE INSERT ON estimator_evidence_stability_trials WHEN typeof(NEW.recorded_at_us)<>'integer' OR NEW.recorded_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_stability_series_time_bounds BEFORE INSERT ON estimator_evidence_stability_series WHEN typeof(NEW.frozen_at_us)<>'integer' OR NEW.frozen_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+CREATE TRIGGER estimator_evidence_submissions_time_bounds BEFORE INSERT ON estimator_evidence_submissions WHEN typeof(NEW.submitted_at_us)<>'integer' OR NEW.submitted_at_us NOT BETWEEN -62135596800000000 AND 253402300799999999 BEGIN SELECT RAISE(ABORT,'estimator evidence timestamp is out of range'); END;
+
+CREATE INDEX estimator_evidence_campaign_idx ON estimator_evidence_attempt_launches(campaign_id, submission_id);
+CREATE INDEX estimator_evidence_outcome_idx ON estimator_evidence_attempt_outcomes(submission_id, outcome_id);
+CREATE INDEX estimator_evidence_estimate_idx ON estimator_evidence_structured_estimates(submission_id, attempt_id);
+
+COMMIT;
+"""

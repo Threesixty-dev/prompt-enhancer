@@ -40,6 +40,12 @@ from .gate_v2_contracts import (
     ConstellationIdentityReceipt,
     GatePreregistrationV2,
 )
+from .evidence_contracts import (
+    AttemptLaunchReceiptV1,
+    AttemptTerminalOutcomeV1,
+    CalibrationEvidenceSubmissionV1,
+    StructuredEstimateReceiptV1,
+)
 
 
 SYNTHETIC_ESTIMATOR_CASE_VERSION = "synthetic-estimator-case-v1"
@@ -984,3 +990,31 @@ class EstimatorRepository(Protocol):
     def delete_preregistered_campaign_for_privacy(
         self, campaign_id: str
     ) -> PrivacyDeleteOutcome: ...
+
+    def append_calibration_evidence_submission(
+        self,
+        submission: CalibrationEvidenceSubmissionV1,
+        *,
+        seal: bool = True,
+    ) -> str | None: ...
+
+    def get_calibration_evidence_submission(
+        self, submission_id: str
+    ) -> CalibrationEvidenceSubmissionV1 | None: ...
+
+
+class StructuredEstimateVerifier(Protocol):
+    """Independently decode one ephemeral structured runner output.
+
+    Persistence supplies only content-free launch/outcome receipts. The
+    implementation is responsible for resolving the corresponding ephemeral
+    output outside the database and returning its independently decoded
+    receipt. Production callers fail closed when no verifier is provided.
+    """
+
+    def verify_structured_estimate(
+        self,
+        *,
+        launch: AttemptLaunchReceiptV1,
+        outcome: AttemptTerminalOutcomeV1,
+    ) -> StructuredEstimateReceiptV1: ...

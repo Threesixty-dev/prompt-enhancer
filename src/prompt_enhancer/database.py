@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
+import hmac
 import json
 from pathlib import Path
 import re
@@ -77,10 +78,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_14,
     MIGRATION_15,
     MIGRATION_16,
+    MIGRATION_17,
 )
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -317,6 +319,14 @@ class Database:
     def __init__(self, path: Path):
         self.path = lexical_absolute_path(Path(path))
         self._initialized = False
+        self._estimator_evidence_authorization_secret = secrets.token_bytes(32)
+        self._estimator_evidence_authorizations: set[
+            tuple[str, str, str, str]
+        ] = set()
+        self._estimator_evidence_delete_authorizations: set[
+            tuple[str, str, str]
+        ] = set()
+        self._estimator_evidence_authorization_lock = threading.Lock()
         self._initialization_lock = threading.Lock()
 
     def _prepare_private_path(self) -> None:
@@ -340,6 +350,101 @@ class Database:
         except OSError:
             raise DatabaseError("could not securely prepare database path") from None
 
+    def _estimator_evidence_authorization_tag(
+        self, authorization_id: str, submission_id: str, campaign_id: str
+    ) -> str:
+        candidate = hmac.new(
+            self._estimator_evidence_authorization_secret,
+            (
+                "estimator-evidence-append-v1:"
+                f"{authorization_id}:{submission_id}:{campaign_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_evidence_authorization_lock:
+            active = (
+                authorization_id,
+                submission_id,
+                campaign_id,
+                candidate,
+            ) in self._estimator_evidence_authorizations
+        return candidate if active else ""
+
+    def _begin_estimator_evidence_authorization(
+        self, submission_id: str, campaign_id: str
+    ) -> tuple[str, str]:
+        authorization_id = secrets.token_hex(32)
+        tag = hmac.new(
+            self._estimator_evidence_authorization_secret,
+            (
+                "estimator-evidence-append-v1:"
+                f"{authorization_id}:{submission_id}:{campaign_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_evidence_authorization_lock:
+            self._estimator_evidence_authorizations.add(
+                (authorization_id, submission_id, campaign_id, tag)
+            )
+        return authorization_id, tag
+
+    def _end_estimator_evidence_authorization(
+        self,
+        authorization_id: str,
+        submission_id: str,
+        campaign_id: str,
+        tag: str,
+    ) -> None:
+        with self._estimator_evidence_authorization_lock:
+            self._estimator_evidence_authorizations.discard(
+                (authorization_id, submission_id, campaign_id, tag)
+            )
+
+    def _estimator_evidence_delete_authorization_tag(
+        self, authorization_id: str, campaign_id: str
+    ) -> str:
+        candidate = hmac.new(
+            self._estimator_evidence_authorization_secret,
+            (
+                "estimator-evidence-delete-v1:"
+                f"{authorization_id}:{campaign_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_evidence_authorization_lock:
+            active = (
+                authorization_id,
+                campaign_id,
+                candidate,
+            ) in self._estimator_evidence_delete_authorizations
+        return candidate if active else ""
+
+    def _begin_estimator_evidence_delete_authorization(
+        self, campaign_id: str
+    ) -> tuple[str, str]:
+        authorization_id = secrets.token_hex(32)
+        tag = hmac.new(
+            self._estimator_evidence_authorization_secret,
+            (
+                "estimator-evidence-delete-v1:"
+                f"{authorization_id}:{campaign_id}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._estimator_evidence_authorization_lock:
+            self._estimator_evidence_delete_authorizations.add(
+                (authorization_id, campaign_id, tag)
+            )
+        return authorization_id, tag
+
+    def _end_estimator_evidence_delete_authorization(
+        self, authorization_id: str, campaign_id: str, tag: str
+    ) -> None:
+        with self._estimator_evidence_authorization_lock:
+            self._estimator_evidence_delete_authorizations.discard(
+                (authorization_id, campaign_id, tag)
+            )
+
     @contextmanager
     def _connection(self, *, readonly: bool = False) -> Iterator[sqlite3.Connection]:
         try:
@@ -349,6 +454,18 @@ class Database:
             connection.execute("PRAGMA busy_timeout = 5000")
             connection.execute("PRAGMA trusted_schema = OFF")
             connection.execute("PRAGMA secure_delete = ON")
+            connection.create_function(
+                "estimator_evidence_authorization_tag",
+                3,
+                self._estimator_evidence_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "estimator_evidence_delete_authorization_tag",
+                2,
+                self._estimator_evidence_delete_authorization_tag,
+                deterministic=False,
+            )
             if readonly:
                 connection.execute("PRAGMA query_only = ON")
             yield connection
@@ -383,6 +500,7 @@ class Database:
                 (14, MIGRATION_14),
                 (15, MIGRATION_15),
                 (16, MIGRATION_16),
+                (17, MIGRATION_17),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -531,7 +649,22 @@ class Database:
         from .infrastructure.sqlite.estimators import SqliteEstimatorRepository
 
         self._ensure_initialized()
-        return SqliteEstimatorRepository(self._connection, self._ensure_initialized)
+        return SqliteEstimatorRepository(
+            self._connection,
+            self._ensure_initialized,
+            begin_evidence_authorization=(
+                self._begin_estimator_evidence_authorization
+            ),
+            end_evidence_authorization=(
+                self._end_estimator_evidence_authorization
+            ),
+            begin_evidence_delete_authorization=(
+                self._begin_estimator_evidence_delete_authorization
+            ),
+            end_evidence_delete_authorization=(
+                self._end_estimator_evidence_delete_authorization
+            ),
+        )
 
     def analysis_job_repository(self):
         """Return the mutable, content-free durable job queue adapter."""
