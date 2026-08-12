@@ -14,7 +14,7 @@ from typing import Mapping
 
 
 CATALOG_KEY = "text-analysis-methods"
-CATALOG_VERSION = 3
+CATALOG_VERSION = 4
 CATALOG_REVIEWED_ON = "2026-08-12"
 
 
@@ -478,14 +478,21 @@ MODEL_CANDIDATES: tuple[ModelCandidate, ...] = (
         "BAAI/bge-m3",
         "hybrid semantic retrieval",
         "MIT",
-        "5617a9f61b028005a4858fdac845db406aefb181",
+        "142964af7e05de16511657561de8e8750fc153a0",
         "568M",
         "100+ languages",
-        ModelCandidateStatus.REJECTED_SCREEN,
+        ModelCandidateStatus.EVALUATED_EXPLORATORY,
         False,
         False,
-        "Rejected before download: the pinned revision exposes only a pickle weight for the reviewed model artifact, which violates the safetensors-only policy.",
-        None,
+        "The safe pin beat BM25 on the tiny full screen but tied E5 small and trailed E5 base and Qwen while using more accelerator memory; it remains disabled.",
+        ModelBenchmark(
+            "bilingual-model-screen-v1-full",
+            12,
+            "top1_accuracy",
+            0.666667,
+            "mean_reciprocal_rank",
+            0.819444,
+        ),
         ("bge_m3",),
     ),
     ModelCandidate(

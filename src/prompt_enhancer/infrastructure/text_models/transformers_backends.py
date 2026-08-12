@@ -181,6 +181,66 @@ class TransformersE5Scorer(_TransformersBackend):
         return tuple(rows)
 
 
+class TransformersClsEmbeddingScorer(_TransformersBackend):
+    """Standard AutoModel dense retrieval with reviewed CLS pooling."""
+
+    key = "bge_m3_cls_cosine_v1"
+
+    def __init__(self, manifest: ModelManifest, snapshot: Path, **kwargs: Any) -> None:
+        if (
+            manifest.task is not TextModelTask.REQUIREMENT_ACTION_RETRIEVAL
+            or manifest.architecture != "xlm_roberta_cls"
+        ):
+            raise LocalBackendError("wrong_manifest_for_cls_embedding_backend")
+        super().__init__(manifest, snapshot, **kwargs)
+
+    def _load_model(self, snapshot: Path) -> None:
+        from transformers import AutoModel
+
+        self.model = AutoModel.from_pretrained(
+            str(snapshot),
+            local_files_only=True,
+            trust_remote_code=False,
+            use_safetensors=True,
+        )
+
+    def _encode(self, values: Sequence[str]) -> Any:
+        import torch
+        import torch.nn.functional as functional
+
+        batches: list[Any] = []
+        with torch.inference_mode():
+            for start in range(0, len(values), self.batch_size):
+                encoded = self.tokenizer(
+                    list(values[start : start + self.batch_size]),
+                    max_length=self.manifest.max_sequence_length,
+                    truncation=True,
+                    padding=True,
+                    return_tensors="pt",
+                )
+                encoded = {key: value.to(self.device) for key, value in encoded.items()}
+                cls_embedding = self.model(**encoded).last_hidden_state[:, 0]
+                batches.append(
+                    functional.normalize(cls_embedding, p=2, dim=1).cpu()
+                )
+        return torch.cat(batches, dim=0)
+
+    def score(self, cases: Sequence[RetrievalCase]) -> tuple[tuple[float, ...], ...]:
+        query_embeddings = self._encode([case.query for case in cases])
+        flat_passages = [
+            candidate.text for case in cases for candidate in case.candidates
+        ]
+        passage_embeddings = self._encode(flat_passages)
+        rows: list[tuple[float, ...]] = []
+        offset = 0
+        for index, case in enumerate(cases):
+            width = len(case.candidates)
+            scores = passage_embeddings[offset : offset + width] @ query_embeddings[index]
+            rows.append(tuple(float(value) for value in scores.tolist()))
+            offset += width
+        return tuple(rows)
+
+
 class TransformersNliClassifier(_TransformersBackend):
     key = "mdeberta_xnli_argmax_v1"
 

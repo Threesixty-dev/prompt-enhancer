@@ -168,6 +168,15 @@ screening result, not a promotion: the candidate remains exploratory and
 product-disabled until the frozen representative private holdout and all
 activation gates pass.
 
+The official BGE-M3 repository was re-screened after a newer immutable revision
+added a standard, safetensors-only XLM-RoBERTa path. The historical pickle-only
+pin remains recorded as blocked. At the safe superseding pin, all required
+weight, config, and tokenizer artifacts are hash-verified and remote code stays
+disabled. Its 12-case full result was top-1 `0.666667`, MRR `0.819444`, and
+Recall@3 `1.0`, using `2,179.602 MiB` peak CUDA memory. It tied E5-small, trailed
+E5-base and Qwen, and used more accelerator memory, so it remains an unpromoted,
+product-disabled challenger.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
@@ -175,6 +184,7 @@ activation gates pass.
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
+| BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |
 | Qwen embedding challenger | `Qwen/Qwen3-Embedding-0.6B` at `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` | Synthetic exploratory challenger; not product-enabled |
 | BGE reranker challenger | `BAAI/bge-reranker-v2-m3` at `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e` | Synthetic exploratory challenger; not product-enabled |
 | Claude Opus review target | Exact requested and served model must be recorded by a reviewed BYOK/API runner | Not implemented; no private-session review is authorized |

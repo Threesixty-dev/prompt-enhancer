@@ -54,7 +54,7 @@ from prompt_enhancer.infrastructure.text_models.loader import (
     transformers_network_closed,
 )
 from prompt_enhancer.infrastructure.text_models.manifests import (
-    BGE_M3_BLOCKED,
+    BGE_M3,
     BGE_RERANKER_V2_M3,
     E5_MULTILINGUAL_BASE,
     E5_MULTILINGUAL_SMALL,
@@ -66,6 +66,7 @@ from prompt_enhancer.infrastructure.text_models.manifests import (
 )
 from prompt_enhancer.infrastructure.text_models.transformers_backends import (
     LocalBackendError,
+    TransformersClsEmbeddingScorer,
     TransformersE5Scorer,
     TransformersLastTokenEmbeddingScorer,
     TransformersNliClassifier,
@@ -279,14 +280,16 @@ def run(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
     completed = True
 
     if _selected(arguments, "bge-m3"):
-        blocked = report["blocked_candidates"]
-        assert isinstance(blocked, list)
-        blocked.append(BGE_M3_BLOCKED.public_pin())
-        _append_outcome(
-            report,
-            key=BGE_M3_BLOCKED.key,
-            status="blocked_before_download",
-            error_code=BGE_M3_BLOCKED.blocked_reason,
+        completed &= _evaluate_backend(
+            arguments=arguments,
+            report=report,
+            manifest=BGE_M3,
+            backend_factory=TransformersClsEmbeddingScorer,
+            evaluator=evaluate_retrieval,
+            cases=corpus.retrieval_cases,
+            report_bucket="retrieval",
+            backend_key=TransformersClsEmbeddingScorer.key,
+            baseline=lexical,
         )
 
     if _selected(arguments, "e5"):

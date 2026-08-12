@@ -13,6 +13,25 @@ _LOWER_HEX_40 = re.compile(r"[0-9a-f]{40}\Z")
 _LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
 _REPOSITORY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 _SAFE_LABELS = frozenset({"entailment", "neutral", "contradiction"})
+_SAFE_AUXILIARY_ARTIFACTS = (
+    "config.json",
+    "model.safetensors.index.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+    "added_tokens.json",
+    "sentencepiece.bpe.model",
+    "spm.model",
+    "vocab.json",
+    "vocab.txt",
+    "merges.txt",
+    "chat_template.jinja",
+    "modules.json",
+    "config_sentence_transformers.json",
+    "sentence_bert_config.json",
+    "1_Pooling/config.json",
+)
 
 
 class TextModelTask(str, Enum):
@@ -44,6 +63,7 @@ class ModelManifest:
     trust_remote_code: bool = False
     output_label_by_index: tuple[tuple[int, str], ...] = ()
     additional_weight_files: tuple[tuple[str, str], ...] = ()
+    additional_artifact_files: tuple[tuple[str, str], ...] = ()
     architecture: str = "auto"
 
     def __post_init__(self) -> None:
@@ -86,6 +106,20 @@ class ModelManifest:
                 raise ValueError("reviewed weights must be relative safetensors files")
             if _LOWER_HEX_64.fullmatch(digest) is None:
                 raise ValueError("weight SHA-256 must be a lowercase 64-character digest")
+        artifact_filenames = tuple(
+            filename for filename, _ in self.additional_artifact_files
+        )
+        if len(set(artifact_filenames)) != len(artifact_filenames):
+            raise ValueError("reviewed auxiliary artifact filenames must be unique")
+        if set(filenames) & set(artifact_filenames):
+            raise ValueError("weight and auxiliary artifact filenames must be distinct")
+        for filename, digest in self.additional_artifact_files:
+            if filename not in _SAFE_AUXILIARY_ARTIFACTS:
+                raise ValueError("reviewed auxiliary artifact filename is unsupported")
+            if _LOWER_HEX_64.fullmatch(digest) is None:
+                raise ValueError(
+                    "auxiliary artifact SHA-256 must be a lowercase 64-character digest"
+                )
         if self.trust_remote_code:
             raise ValueError("trust_remote_code must remain disabled")
         if not 8 <= self.max_sequence_length <= 512:
@@ -113,24 +147,8 @@ class ModelManifest:
         """Public model artifacts allowed into the isolated task cache."""
 
         return (
-            "config.json",
             *(filename for filename, _ in self.weight_files),
-            "model.safetensors.index.json",
-            "generation_config.json",
-            "tokenizer.json",
-            "tokenizer_config.json",
-            "special_tokens_map.json",
-            "added_tokens.json",
-            "sentencepiece.bpe.model",
-            "spm.model",
-            "vocab.json",
-            "vocab.txt",
-            "merges.txt",
-            "chat_template.jinja",
-            "modules.json",
-            "config_sentence_transformers.json",
-            "sentence_bert_config.json",
-            "1_Pooling/config.json",
+            *_SAFE_AUXILIARY_ARTIFACTS,
         )
 
     def public_pin(self) -> dict[str, object]:
@@ -149,6 +167,10 @@ class ModelManifest:
             "weight_files": [
                 {"filename": filename, "sha256": digest}
                 for filename, digest in self.weight_files
+            ],
+            "additional_artifact_files": [
+                {"filename": filename, "sha256": digest}
+                for filename, digest in self.additional_artifact_files
             ],
             "max_sequence_length": self.max_sequence_length,
             "max_batch_size": self.max_batch_size,
@@ -244,14 +266,70 @@ MDEBERTA_XNLI = ModelManifest(
     ),
 )
 
-BGE_M3_BLOCKED = BlockedModelManifest(
-    key="bge_m3",
+BGE_M3_LEGACY_BLOCKED = BlockedModelManifest(
+    key="bge_m3_legacy_pickle_pin",
     repository_id="BAAI/bge-m3",
     revision="5617a9f61b028005a4858fdac845db406aefb181",
     license_spdx="MIT",
     blocked_reason="unsafe_pickle_only",
     reviewed_artifact="pytorch_model.bin",
     reviewed_sha256="b5e0a70128ad4f26da749a34c4a202c9ba503069e0f40a27d3c35619a358ad38",
+)
+
+# Backwards-compatible public name for the superseded historical decision.
+BGE_M3_BLOCKED = BGE_M3_LEGACY_BLOCKED
+
+BGE_M3 = ModelManifest(
+    key="bge_m3",
+    task=TextModelTask.REQUIREMENT_ACTION_RETRIEVAL,
+    repository_id="BAAI/bge-m3",
+    revision="142964af7e05de16511657561de8e8750fc153a0",
+    tokenizer_repository_id="BAAI/bge-m3",
+    tokenizer_revision="142964af7e05de16511657561de8e8750fc153a0",
+    license_spdx="MIT",
+    weight_filename="model.safetensors",
+    weight_sha256="993b2248881724788dcab8c644a91dfd63584b6e5604ff2037cb5541e1e38e7e",
+    additional_artifact_files=(
+        (
+            "config.json",
+            "26159e7ad065073448460117eb24b7a4572f6f4e78eadff65dc0a11c052449fa",
+        ),
+        (
+            "tokenizer.json",
+            "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08",
+        ),
+        (
+            "tokenizer_config.json",
+            "a62b2b6784f990259fddef5f16388693a8043be4f69179e6a5257eeb3f9abac4",
+        ),
+        (
+            "special_tokens_map.json",
+            "8c785abebea9ae3257b61681b4e6fd8365ceafde980c21970d001e834cf10835",
+        ),
+        (
+            "sentencepiece.bpe.model",
+            "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865",
+        ),
+        (
+            "modules.json",
+            "84e40c8e006c9b1d6c122e02cba9b02458120b5fb0c87b746c41e0207cf642cf",
+        ),
+        (
+            "config_sentence_transformers.json",
+            "1eef72430e7194a1e59680e635aed81ffa083f05668dbc5bb1c56c04c0999c38",
+        ),
+        (
+            "sentence_bert_config.json",
+            "eb9b44b13c0f52a3b3685c3b1cbdea1ba8b04bea123b98f61610048940776eb1",
+        ),
+        (
+            "1_Pooling/config.json",
+            "e54c164a07274f2eb45bb724f54a79d1efcc90c41573887cd9a29aeee0597352",
+        ),
+    ),
+    max_sequence_length=512,
+    max_batch_size=4,
+    architecture="xlm_roberta_cls",
 )
 
 BGE_RERANKER_V2_M3 = ModelManifest(
@@ -328,6 +406,7 @@ TEXT_MODEL_MANIFESTS: Mapping[str, ModelManifest] = MappingProxyType(
     {
         E5_MULTILINGUAL_SMALL.key: E5_MULTILINGUAL_SMALL,
         E5_MULTILINGUAL_BASE.key: E5_MULTILINGUAL_BASE,
+        BGE_M3.key: BGE_M3,
         MDEBERTA_XNLI.key: MDEBERTA_XNLI,
         BGE_RERANKER_V2_M3.key: BGE_RERANKER_V2_M3,
         QWEN3_EMBEDDING_06B.key: QWEN3_EMBEDDING_06B,
@@ -337,5 +416,5 @@ TEXT_MODEL_MANIFESTS: Mapping[str, ModelManifest] = MappingProxyType(
 )
 
 BLOCKED_TEXT_MODEL_MANIFESTS: Mapping[str, BlockedModelManifest] = MappingProxyType(
-    {BGE_M3_BLOCKED.key: BGE_M3_BLOCKED}
+    {BGE_M3_LEGACY_BLOCKED.key: BGE_M3_LEGACY_BLOCKED}
 )

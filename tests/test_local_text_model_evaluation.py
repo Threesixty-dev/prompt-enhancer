@@ -29,7 +29,9 @@ from prompt_enhancer.infrastructure.text_models.loader import (
     validate_model_cache_root,
 )
 from prompt_enhancer.infrastructure.text_models.manifests import (
+    BGE_M3,
     BGE_M3_BLOCKED,
+    BGE_M3_LEGACY_BLOCKED,
     BGE_RERANKER_V2_M3,
     E5_MULTILINGUAL_BASE,
     E5_MULTILINGUAL_SMALL,
@@ -104,6 +106,15 @@ def test_candidate_manifests_are_exact_pins_without_remote_code() -> None:
     assert E5_MULTILINGUAL_BASE.weight_sha256 == (
         "a18a44fad1d0b46ded15928144138cff1135d5cc8233bdd90be5f18822de09a7"
     )
+    assert BGE_M3.revision == "142964af7e05de16511657561de8e8750fc153a0"
+    assert BGE_M3.weight_sha256 == (
+        "993b2248881724788dcab8c644a91dfd63584b6e5604ff2037cb5541e1e38e7e"
+    )
+    assert BGE_M3.architecture == "xlm_roberta_cls"
+    assert len(BGE_M3.additional_artifact_files) == 9
+    assert dict(BGE_M3.additional_artifact_files)["tokenizer.json"] == (
+        "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08"
+    )
     assert MDEBERTA_XNLI.revision == (
         "b5113eb38ab63efdd7f280f8c144ea8b13f978ce"
     )
@@ -114,7 +125,7 @@ def test_candidate_manifests_are_exact_pins_without_remote_code() -> None:
     assert QWEN3_EMBEDDING_06B.revision == "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
     assert QWEN3_RERANKER_06B.revision == "e61197ed45024b0ed8a2d74b80b4d909f1255473"
     assert QWEN3_4B_RUBRIC.revision == "cdbee75f17c01a7cc42f958dc650907174af0554"
-    assert len(TEXT_MODEL_MANIFESTS) == 7
+    assert len(TEXT_MODEL_MANIFESTS) == 8
     for manifest in TEXT_MODEL_MANIFESTS.values():
         assert manifest.trust_remote_code is False
         assert all(filename.endswith(".safetensors") for filename, _ in manifest.weight_files)
@@ -122,9 +133,16 @@ def test_candidate_manifests_are_exact_pins_without_remote_code() -> None:
         assert manifest.max_sequence_length <= 512
         assert manifest.max_batch_size <= 32
 
-    assert BLOCKED_TEXT_MODEL_MANIFESTS == {"bge_m3": BGE_M3_BLOCKED}
-    assert BGE_M3_BLOCKED.blocked_reason == "unsafe_pickle_only"
-    assert BGE_M3_BLOCKED.reviewed_artifact == "pytorch_model.bin"
+    assert BGE_M3_BLOCKED is BGE_M3_LEGACY_BLOCKED
+    assert BLOCKED_TEXT_MODEL_MANIFESTS == {
+        "bge_m3_legacy_pickle_pin": BGE_M3_LEGACY_BLOCKED
+    }
+    assert BGE_M3_LEGACY_BLOCKED.blocked_reason == "unsafe_pickle_only"
+    assert BGE_M3_LEGACY_BLOCKED.reviewed_artifact == "pytorch_model.bin"
+
+    public_pin = BGE_M3.public_pin()
+    assert len(public_pin["additional_artifact_files"]) == 9
+    assert "pytorch_model.bin" not in BGE_M3.allowed_snapshot_patterns
 
 
 def test_manifest_rejects_remote_code_and_movable_revision() -> None:
@@ -161,6 +179,16 @@ def test_manifest_rejects_remote_code_and_movable_revision() -> None:
         )
     with pytest.raises(ValueError, match="tokenizer and model pin"):
         replace(E5_MULTILINGUAL_SMALL, tokenizer_revision="b" * 40)
+    with pytest.raises(ValueError, match="auxiliary artifact filename"):
+        replace(
+            E5_MULTILINGUAL_SMALL,
+            additional_artifact_files=(("custom_model.py", "b" * 64),),
+        )
+    with pytest.raises(ValueError, match="auxiliary artifact SHA-256"):
+        replace(
+            E5_MULTILINGUAL_SMALL,
+            additional_artifact_files=(("config.json", "not-a-digest"),),
+        )
 
 
 def test_cache_is_confined_to_runtime_model_eval(tmp_path: Path) -> None:
@@ -324,6 +352,43 @@ def test_snapshot_rejects_hash_mismatch_and_pickle_weight(tmp_path: Path) -> Non
             cache_root=cache_two,
             downloader=unsafe,
             repo_root=repository_two,
+        )
+
+
+def test_snapshot_verifies_declared_auxiliary_artifact_hashes(tmp_path: Path) -> None:
+    weight = b"fictional-safetensors-placeholder"
+    expected = b"fictional-reviewed-tokenizer-config"
+    manifest = replace(
+        _test_manifest(weight),
+        additional_artifact_files=(
+            ("tokenizer_config.json", hashlib.sha256(expected).hexdigest()),
+        ),
+    )
+
+    missing_repository = tmp_path / "missing-repository"
+    missing_cache = missing_repository / "runtime" / "model-eval"
+    with pytest.raises(ModelIntegrityError, match="auxiliary_artifact_missing"):
+        prepare_model_snapshot(
+            manifest,
+            cache_root=missing_cache,
+            downloader=lambda **_: str(_fake_snapshot(missing_cache, weight)),
+            repo_root=missing_repository,
+        )
+
+    mismatch_repository = tmp_path / "mismatch-repository"
+    mismatch_cache = mismatch_repository / "runtime" / "model-eval"
+
+    def mismatched_auxiliary(**_: object) -> str:
+        snapshot = _fake_snapshot(mismatch_cache, weight)
+        (snapshot / "tokenizer_config.json").write_bytes(b"fictional-mismatch")
+        return str(snapshot)
+
+    with pytest.raises(ModelIntegrityError, match="auxiliary_artifact_sha256_mismatch"):
+        prepare_model_snapshot(
+            manifest,
+            cache_root=mismatch_cache,
+            downloader=mismatched_auxiliary,
+            repo_root=mismatch_repository,
         )
 
 

@@ -14,7 +14,8 @@ from prompt_enhancer.application.analysis.method_research import (
     validate_research_catalog,
 )
 from prompt_enhancer.infrastructure.text_models.manifests import (
-    BGE_M3_BLOCKED,
+    BGE_M3,
+    BGE_M3_LEGACY_BLOCKED,
     BGE_RERANKER_V2_M3,
     E5_MULTILINGUAL_BASE,
     E5_MULTILINGUAL_SMALL,
@@ -82,10 +83,13 @@ def test_evaluated_candidates_match_the_immutable_runtime_manifests() -> None:
     assert nli.benchmark.critical_metric == "different_scope_false_positive_rate"
     assert nli.benchmark.critical_value == 1.0
 
-    bge_m3 = candidates[BGE_M3_BLOCKED.key]
-    assert bge_m3.revision == BGE_M3_BLOCKED.revision
-    assert bge_m3.status is ModelCandidateStatus.REJECTED_SCREEN
-    assert bge_m3.benchmark is None
+    bge_m3 = candidates[BGE_M3.key]
+    assert bge_m3.revision == BGE_M3.revision
+    assert bge_m3.status is ModelCandidateStatus.EVALUATED_EXPLORATORY
+    assert bge_m3.benchmark is not None
+    assert bge_m3.benchmark.primary_value == 0.666667
+    assert bge_m3.benchmark.secondary_value == 0.819444
+    assert BGE_M3_LEGACY_BLOCKED.revision != BGE_M3.revision
 
     for manifest in (
         BGE_RERANKER_V2_M3,
@@ -114,7 +118,7 @@ def test_research_endpoint_is_content_free_and_read_only() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["catalog_key"] == "text-analysis-methods"
-    assert body["catalog_version"] == 3
+    assert body["catalog_version"] == 4
     assert body["privacy_mode"] == "local_only_redacted_content"
     assert body["summary_policy"] == "multidimensional_profile_no_universal_score"
     assert body["catalog_read_starts_session_access"] is False

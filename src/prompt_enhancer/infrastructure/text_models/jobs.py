@@ -67,6 +67,7 @@ _BACKEND_TO_MODEL = MappingProxyType(
     {
         "multilingual_e5_small_cosine_v1": "multilingual_e5_small",
         "multilingual_e5_base_cosine_v1": "multilingual_e5_base",
+        "bge_m3_cls_cosine_v1": "bge_m3",
         "qwen3_embedding_last_token_v1": "qwen3_embedding_06b",
         "bge_reranker_sequence_classifier_v1": "bge_reranker_v2_m3",
         "qwen3_reranker_yes_no_v1": "qwen3_reranker_06b",
@@ -313,6 +314,7 @@ def summarize_model_report(report: Mapping[str, object]) -> tuple[str, tuple[Can
             if key in {
                 "multilingual_e5_small",
                 "multilingual_e5_base",
+                "bge_m3",
                 "qwen3_embedding_06b",
                 "bge_reranker_v2_m3",
                 "qwen3_reranker_06b",

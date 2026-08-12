@@ -97,6 +97,36 @@ def test_e5_base_projection_uses_its_own_pinned_candidate_identity() -> None:
     assert outcomes[0].peak_accelerator_memory_mb == 1078.121
 
 
+def test_bge_m3_safe_revision_projects_aggregate_retrieval_measurements() -> None:
+    report = {
+        "device": "cuda",
+        "candidate_outcomes": [
+            {"key": "bge_m3", "status": "evaluated", "error_code": None}
+        ],
+        "retrieval": [
+            {
+                "backend_key": "bge_m3_cls_cosine_v1",
+                "top1_accuracy": 0.666667,
+                "mean_reciprocal_rank": 0.819444,
+                "inference_latency_ms": 432.376,
+                "runtime": {"peak_cuda_allocated_mb": 2179.602},
+            }
+        ],
+        "reranking": [],
+        "nli": [],
+        "rubric": [],
+    }
+
+    device, outcomes = summarize_model_report(report)
+
+    assert device == "cuda"
+    assert outcomes[0].key == "bge_m3"
+    assert outcomes[0].status == "evaluated"
+    assert outcomes[0].primary_value == 0.666667
+    assert outcomes[0].secondary_value == 0.819444
+    assert outcomes[0].peak_accelerator_memory_mb == 2179.602
+
+
 def test_service_runs_one_daemon_job_and_rejects_concurrent_work() -> None:
     entered = Event()
     release = Event()

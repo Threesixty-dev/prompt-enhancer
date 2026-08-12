@@ -276,6 +276,17 @@ def prepare_model_snapshot(
             raise ModelCacheBoundaryError("weight_outside_isolated_cache")
         if _sha256(weight) != expected_digest:
             raise ModelIntegrityError("reviewed_weight_sha256_mismatch")
+    for filename, expected_digest in manifest.additional_artifact_files:
+        artifact = snapshot / filename
+        if not artifact.is_file():
+            raise ModelIntegrityError("reviewed_auxiliary_artifact_missing")
+        resolved_artifact = artifact.resolve()
+        if resolved_artifact != cache and cache not in resolved_artifact.parents:
+            raise ModelCacheBoundaryError(
+                "auxiliary_artifact_outside_isolated_cache"
+            )
+        if _sha256(artifact) != expected_digest:
+            raise ModelIntegrityError("reviewed_auxiliary_artifact_sha256_mismatch")
     if not config.is_file():
         raise ModelIntegrityError("model_config_missing")
     if not any(
