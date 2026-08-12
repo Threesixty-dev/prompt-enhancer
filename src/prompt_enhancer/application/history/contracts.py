@@ -21,21 +21,36 @@ from typing import Annotated, Any, Literal, Protocol, TypeVar
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from ...domain import PSEUDONYM_PATTERN, Provider, StrictModel
+from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, StrictModel
 
 
 TEMPORAL_HISTORY_CONTRACT_VERSION = "temporal-history-v1"
 TEMPORAL_HISTORY_ROOT_RECEIPT_VERSION = "temporal-history-root-receipt-v1"
 PROJECT_METRIC_SELECTION_REVISION_VERSION = "project-metric-selection-revision-v1"
+PROJECT_METRIC_SELECTION_REVISION_V2_VERSION = "project-metric-selection-revision-v2"
 ANALYSIS_INPUT_RECEIPT_VERSION = "analysis-input-receipt-v1"
+ANALYSIS_INPUT_RECEIPT_V2_VERSION = "analysis-input-receipt-v2"
 APPEND_PREFIX_PROOF_RECEIPT_VERSION = "append-prefix-proof-receipt-v1"
 SESSION_REVISION_RECEIPT_VERSION = "session-revision-receipt-v2"
+SESSION_REVISION_RECEIPT_V3_VERSION = "session-revision-receipt-v3"
 TEMPORAL_OBSERVATION_BATCH_VERSION = "temporal-observation-batch-v1"
+TEMPORAL_METRIC_OBSERVATION_V2_VERSION = "temporal-metric-observation-v2"
+TEMPORAL_OBSERVATION_BATCH_V2_VERSION = "temporal-observation-batch-v2"
+REPOSITORY_TEMPORAL_BATCH_SEAL_DRAFT_VERSION = (
+    "repository-temporal-batch-seal-draft-v1"
+)
 TEMPORAL_COMPLETION_PROJECTION_VERSION = "temporal-completion-projection-v1"
 TEMPORAL_SNAPSHOT_SPEC_VERSION = "temporal-snapshot-spec-v1"
 TEMPORAL_SNAPSHOT_RECEIPT_VERSION = "temporal-snapshot-receipt-v1"
 COMPATIBILITY_BOUNDARY_VERSION = "compatibility-boundary-v1"
 HALF_OPEN_WINDOW_BOUNDARY = "half_open_start_inclusive_end_exclusive"
+KEYED_SELECTED_REDACTED_MESSAGE_WINDOW_VERSION = (
+    "keyed-selected-redacted-message-window-v1"
+)
+SELECTED_WINDOW_MANIFEST_VERSION = "selected-window-manifest-v1"
+POST_FLOOR_OBSERVED_ALLOWLISTED_SOURCE_MANIFEST_VERSION = (
+    "post-floor-observed-allowlisted-source-manifest-v1"
+)
 
 MAX_LAST_N = 10_000
 MAX_METRICS = 100
@@ -132,6 +147,50 @@ def _canonical_digest(model: StrictModel) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _manifest_identity_fingerprint(
+    *, role: str, root: str, version: str, entry_count: int
+) -> str:
+    """Domain-separate a manifest root, schema, and cardinality commitment."""
+
+    payload = json.dumps(
+        {
+            "entry_count": entry_count,
+            "role": role,
+            "root": root,
+            "version": version,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _predecessor_link_fingerprint(
+    *,
+    predecessor_revision_id: str,
+    predecessor_revision_fingerprint: str,
+    successor_ordinal: int,
+    root_receipt_id: str,
+    project_id: str,
+    session_id: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "predecessor_revision_fingerprint": predecessor_revision_fingerprint,
+            "predecessor_revision_id": predecessor_revision_id,
+            "project_id": project_id,
+            "root_receipt_id": root_receipt_id,
+            "session_id": session_id,
+            "successor_ordinal": successor_ordinal,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _plain_persistence_value(value: Any) -> Any:
     """Recursively discard trusted model instances before boundary validation."""
 
@@ -207,9 +266,27 @@ class ProjectMetricSelectionSource(StrEnum):
     SYSTEM_INITIALIZATION = "system_initialization"
 
 
+class ProjectMetricSelectionAuthorityKind(StrEnum):
+    PROJECT_CONFIGURATION = "project_configuration"
+    AUTOMATION_GRANT = "automation_grant"
+    SYSTEM_INITIALIZATION = "system_initialization"
+
+
 class AnalysisInputCompleteness(StrEnum):
     COMPLETE = "complete"
     PARTIAL = "partial"
+
+
+class AnalysisInputExtractionCompleteness(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    NOT_APPLICABLE_EMPTY_SOURCE = "not_applicable_empty_source"
+
+
+class AnalysisInputSelectionCoverage(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    NOT_APPLICABLE_EMPTY_ELIGIBLE_SET = "not_applicable_empty_eligible_set"
 
 
 class AnalysisInputCaptureSource(StrEnum):
@@ -219,6 +296,14 @@ class AnalysisInputCaptureSource(StrEnum):
 class SessionRevisionRelation(StrEnum):
     FIRST = "first"
     APPEND_PREFIX_PROVED = "append_prefix_proved"
+    CHANGED_OR_REORDERED = "changed_or_reordered"
+    PROVENANCE_BOUNDARY = "provenance_boundary"
+
+
+class SessionRevisionRelationV3(StrEnum):
+    """Conservative durable relation; append is deliberately unrepresentable."""
+
+    FIRST = "first"
     CHANGED_OR_REORDERED = "changed_or_reordered"
     PROVENANCE_BOUNDARY = "provenance_boundary"
 
@@ -234,6 +319,24 @@ class SessionRevisionProvenance(StrEnum):
 
 class AnalysisWindowFingerprintBasis(StrEnum):
     CANONICAL_PROVIDER_EVENT_MANIFEST = "canonical_provider_event_manifest"
+
+
+class AnalysisWindowFingerprintBasisV2(StrEnum):
+    KEYED_SELECTED_REDACTED_MESSAGE_WINDOW = (
+        "keyed_selected_redacted_message_window"
+    )
+
+
+class EvidenceCoverageEligibility(StrEnum):
+    ELIGIBLE = "eligible"
+    NOT_ELIGIBLE = "not_eligible"
+    UNKNOWN = "unknown"
+
+
+class EvidenceCoverageState(StrEnum):
+    KNOWN = "known"
+    UNKNOWN = "unknown"
+    NOT_APPLICABLE = "not_applicable"
 
 
 class TemporalSelectionState(StrEnum):
@@ -539,6 +642,90 @@ class ProjectMetricSelectionRevision(PersistenceRevalidatedModel):
         return _canonical_digest(self)
 
 
+class ProjectMetricSelectionRevisionV2(ProjectMetricSelectionRevision):
+    """Metric selection whose identity includes its pack, catalog, and authority.
+
+    Equal metric keys are not an equal selection scope when their defining pack,
+    catalog, or authorizing receipt differs.  Repository persistence must still
+    verify the root and compare-and-swap predecessor named by this unsealed
+    content-free receipt.
+    """
+
+    contract_version: Literal[PROJECT_METRIC_SELECTION_REVISION_V2_VERSION] = (
+        PROJECT_METRIC_SELECTION_REVISION_V2_VERSION
+    )
+    metric_pack_key: str
+    metric_pack_version: PositiveInt
+    metric_pack_sha256: str
+    metric_catalog_version: str
+    metric_catalog_sha256: str
+    source_authority_kind: ProjectMetricSelectionAuthorityKind
+    source_authority_id: str
+    source_authority_fingerprint: str
+    source_authority_version: str
+    sealed: Literal[False] = False
+    comparison_allowed: Literal[False] = False
+    snapshot_materialization_allowed: Literal[False] = False
+    activation_allowed: Literal[False] = False
+
+    _v2_digests = field_validator(
+        "metric_pack_sha256",
+        "metric_catalog_sha256",
+        "source_authority_id",
+        "source_authority_fingerprint",
+    )(_digest)
+    _v2_codes = field_validator("metric_pack_key")(_safe_code)
+    _v2_versions = field_validator(
+        "metric_catalog_version", "source_authority_version"
+    )(_safe_version)
+
+    @model_validator(mode="after")
+    def exact_source_authority(self) -> ProjectMetricSelectionRevisionV2:
+        expected = {
+            ProjectMetricSelectionSource.EXPLICIT_PROJECT_CONFIGURATION: (
+                ProjectMetricSelectionAuthorityKind.PROJECT_CONFIGURATION
+            ),
+            ProjectMetricSelectionSource.AUTOMATION_GRANT: (
+                ProjectMetricSelectionAuthorityKind.AUTOMATION_GRANT
+            ),
+            ProjectMetricSelectionSource.SYSTEM_INITIALIZATION: (
+                ProjectMetricSelectionAuthorityKind.SYSTEM_INITIALIZATION
+            ),
+        }[self.source]
+        if self.source_authority_kind is not expected:
+            raise ValueError("selection source and source authority must agree")
+        if self.source_authority_id == self.selection_revision_id:
+            raise ValueError("selection revision and source authority require distinct ids")
+        return self
+
+    @property
+    def metric_set_fingerprint(self) -> str:
+        """Exact selection scope, including semantic source identities."""
+
+        payload = {
+            "metric_catalog_sha256": self.metric_catalog_sha256,
+            "metric_catalog_version": self.metric_catalog_version,
+            "metric_pack_key": self.metric_pack_key,
+            "metric_pack_sha256": self.metric_pack_sha256,
+            "metric_pack_version": self.metric_pack_version,
+            "project_id": self.project_id,
+            "selected_metric_keys": self.selected_metric_keys,
+            "source": self.source,
+            "source_authority_fingerprint": self.source_authority_fingerprint,
+            "source_authority_id": self.source_authority_id,
+            "source_authority_kind": self.source_authority_kind,
+            "source_authority_version": self.source_authority_version,
+        }
+        return hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+
 class AnalysisInputReceipt(PersistenceRevalidatedModel):
     """Content-free receipt for one directly captured selected analysis window."""
 
@@ -664,6 +851,332 @@ class AnalysisInputReceipt(PersistenceRevalidatedModel):
             "router_sha256": self.router_sha256,
             "router_version": self.router_version,
             "source_manifest_version": self.source_manifest_version,
+            "source_schema_version": self.source_schema_version,
+        }
+        return hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    @property
+    def fingerprint(self) -> str:
+        return _canonical_digest(self)
+
+
+class AnalysisInputReceiptV2(PersistenceRevalidatedModel):
+    """Truthful, content-free receipt for a complete selected analysis run.
+
+    The selected redacted-message window and the post-floor allowlisted source
+    population are separate manifests.  Extraction completeness and selection
+    coverage are also separate axes: a complete selection cannot conceal an
+    incomplete provider extraction, and an empty denominator is explicit rather
+    than silently treated as full coverage.
+    """
+
+    contract_version: Literal[ANALYSIS_INPUT_RECEIPT_V2_VERSION] = (
+        ANALYSIS_INPUT_RECEIPT_V2_VERSION
+    )
+    input_receipt_id: str
+    root_receipt_id: str
+    root_receipt_fingerprint: str
+    selection_revision_id: str
+    selection_revision_fingerprint: str
+    selection_scope_fingerprint: str
+    analysis_run_id: str
+    analysis_run_fingerprint: str
+    analysis_run_fingerprint_version: str
+    analysis_run_request_fingerprint: str
+    project_id: str
+    session_id: str
+    selected_metric_keys: tuple[str, ...] = Field(
+        min_length=1, max_length=MAX_METRICS
+    )
+
+    analysis_window_fingerprint: str
+    analysis_window_fingerprint_basis: Literal[
+        AnalysisWindowFingerprintBasisV2.KEYED_SELECTED_REDACTED_MESSAGE_WINDOW
+    ] = AnalysisWindowFingerprintBasisV2.KEYED_SELECTED_REDACTED_MESSAGE_WINDOW
+    analysis_window_fingerprint_version: Literal[
+        KEYED_SELECTED_REDACTED_MESSAGE_WINDOW_VERSION
+    ] = KEYED_SELECTED_REDACTED_MESSAGE_WINDOW_VERSION
+
+    selected_window_manifest_root: str
+    selected_window_manifest_version: Literal[SELECTED_WINDOW_MANIFEST_VERSION] = (
+        SELECTED_WINDOW_MANIFEST_VERSION
+    )
+    selected_window_manifest_entry_count: NonNegativeInt
+    selected_window_manifest_identity_fingerprint: str
+    post_floor_observed_allowlisted_source_manifest_root: str
+    post_floor_observed_allowlisted_source_manifest_version: Literal[
+        POST_FLOOR_OBSERVED_ALLOWLISTED_SOURCE_MANIFEST_VERSION
+    ] = POST_FLOOR_OBSERVED_ALLOWLISTED_SOURCE_MANIFEST_VERSION
+    post_floor_observed_allowlisted_source_manifest_entry_count: NonNegativeInt
+    post_floor_observed_allowlisted_source_manifest_identity_fingerprint: str
+    successfully_extracted_source_entry_count: NonNegativeInt
+    selection_eligible_entry_count: NonNegativeInt
+    extraction_completeness: AnalysisInputExtractionCompleteness
+    selection_coverage: AnalysisInputSelectionCoverage
+
+    analysis_window_started_at: datetime
+    analysis_window_ended_at: datetime
+    analysis_run_completed_at: datetime
+    captured_at: datetime
+    capture_source: Literal[
+        AnalysisInputCaptureSource.DOCUMENTED_PROVIDER_ADAPTER
+    ] = AnalysisInputCaptureSource.DOCUMENTED_PROVIDER_ADAPTER
+    capture_contract_version: str
+
+    analysis_profile_key: str
+    analysis_profile_version: PositiveInt
+    analysis_profile_sha256: str
+    metric_pack_key: str
+    metric_pack_version: PositiveInt
+    metric_pack_sha256: str
+    metric_engine_version: str
+    metric_engine_sha256: str
+    metric_catalog_version: str
+    metric_catalog_sha256: str
+    data_tier: Literal[DataTier.REDACTED_CONTENT] = DataTier.REDACTED_CONTENT
+    consent_purpose: Literal["text_analysis"] = "text_analysis"
+    consent_policy_version: str
+    consent_receipt_id: str
+    consent_receipt_fingerprint: str
+    privacy_policy_version: str
+    provider: Provider
+    provider_version: str
+    provider_adapter_version: str
+    provider_schema_version: str
+    source_schema_version: str
+    content_schema_version: str
+    redactor_version: str
+    redactor_sha256: str
+    preprocessing_version: str
+    preprocessing_sha256: str
+    router_version: str
+    router_sha256: str
+    model_plan_fingerprint: str
+    analysis_run_schema_version: PositiveInt
+    full_run_metric_observation_count: NonNegativeInt
+    full_run_completed: Literal[True] = True
+    direct_selected_window: Literal[True] = True
+    legacy_inference_allowed: Literal[False] = False
+    local_only: Literal[True] = True
+    sealed: Literal[False] = False
+    comparison_allowed: Literal[False] = False
+    snapshot_materialization_allowed: Literal[False] = False
+    activation_allowed: Literal[False] = False
+    contains_local_content: Literal[False] = False
+    remote_processing_allowed: Literal[False] = False
+    private_export_allowed: Literal[False] = False
+    team_share_allowed: Literal[False] = False
+
+    _v2_ids = field_validator(
+        "input_receipt_id",
+        "root_receipt_id",
+        "root_receipt_fingerprint",
+        "selection_revision_id",
+        "selection_revision_fingerprint",
+        "selection_scope_fingerprint",
+        "analysis_run_id",
+        "analysis_run_fingerprint",
+        "analysis_run_request_fingerprint",
+        "project_id",
+        "session_id",
+        "analysis_window_fingerprint",
+        "selected_window_manifest_root",
+        "selected_window_manifest_identity_fingerprint",
+        "post_floor_observed_allowlisted_source_manifest_root",
+        "post_floor_observed_allowlisted_source_manifest_identity_fingerprint",
+        "analysis_profile_sha256",
+        "metric_pack_sha256",
+        "metric_engine_sha256",
+        "metric_catalog_sha256",
+        "consent_receipt_id",
+        "consent_receipt_fingerprint",
+        "redactor_sha256",
+        "preprocessing_sha256",
+        "router_sha256",
+        "model_plan_fingerprint",
+    )(_digest)
+    _v2_codes = field_validator(
+        "analysis_profile_key", "metric_pack_key"
+    )(_safe_code)
+    _v2_versions = field_validator(
+        "analysis_run_fingerprint_version",
+        "capture_contract_version",
+        "metric_engine_version",
+        "metric_catalog_version",
+        "consent_policy_version",
+        "privacy_policy_version",
+        "provider_version",
+        "provider_adapter_version",
+        "provider_schema_version",
+        "source_schema_version",
+        "content_schema_version",
+        "redactor_version",
+        "preprocessing_version",
+        "router_version",
+    )(_safe_version)
+    _v2_times = field_validator(
+        "analysis_window_started_at",
+        "analysis_window_ended_at",
+        "analysis_run_completed_at",
+        "captured_at",
+    )(_utc)
+
+    @field_validator("selected_metric_keys")
+    @classmethod
+    def canonical_v2_metrics(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return _canonical_codes(values)
+
+    @model_validator(mode="after")
+    def exact_v2_capture_shape(self) -> AnalysisInputReceiptV2:
+        if not (
+            self.analysis_window_started_at
+            <= self.analysis_window_ended_at
+            <= self.analysis_run_completed_at
+            <= self.captured_at
+        ):
+            raise ValueError("window, run completion, and capture times must be ordered")
+        if len(
+            {
+                self.analysis_window_fingerprint,
+                self.selected_window_manifest_root,
+                self.post_floor_observed_allowlisted_source_manifest_root,
+            }
+        ) != 3:
+            raise ValueError("window and manifest roots require distinct domains")
+
+        expected_selected_manifest_identity = _manifest_identity_fingerprint(
+            role="selected_window",
+            root=self.selected_window_manifest_root,
+            version=self.selected_window_manifest_version,
+            entry_count=self.selected_window_manifest_entry_count,
+        )
+        expected_source_manifest_identity = _manifest_identity_fingerprint(
+            role="post_floor_observed_allowlisted_source",
+            root=self.post_floor_observed_allowlisted_source_manifest_root,
+            version=(
+                self.post_floor_observed_allowlisted_source_manifest_version
+            ),
+            entry_count=(
+                self.post_floor_observed_allowlisted_source_manifest_entry_count
+            ),
+        )
+        if (
+            self.selected_window_manifest_identity_fingerprint
+            != expected_selected_manifest_identity
+            or self.post_floor_observed_allowlisted_source_manifest_identity_fingerprint
+            != expected_source_manifest_identity
+        ):
+            raise ValueError("manifest identities must bind their exact role, root, and count")
+
+        observed = (
+            self.post_floor_observed_allowlisted_source_manifest_entry_count
+        )
+        extracted = self.successfully_extracted_source_entry_count
+        eligible = self.selection_eligible_entry_count
+        selected = self.selected_window_manifest_entry_count
+        if extracted > observed:
+            raise ValueError("extracted entries cannot exceed observed source entries")
+        if eligible > extracted:
+            raise ValueError("selection eligibility cannot exceed extracted entries")
+        if selected > eligible:
+            raise ValueError("selected-window entries cannot exceed eligible entries")
+
+        if observed == 0:
+            if (
+                extracted != 0
+                or self.extraction_completeness
+                is not AnalysisInputExtractionCompleteness.NOT_APPLICABLE_EMPTY_SOURCE
+            ):
+                raise ValueError("an empty observed source requires explicit N/A extraction")
+        elif extracted == observed:
+            if self.extraction_completeness is not AnalysisInputExtractionCompleteness.COMPLETE:
+                raise ValueError("complete extraction requires exact observed coverage")
+        elif self.extraction_completeness is not AnalysisInputExtractionCompleteness.PARTIAL:
+            raise ValueError("source omissions require partial extraction")
+
+        if eligible == 0:
+            if (
+                selected != 0
+                or self.selection_coverage
+                is not AnalysisInputSelectionCoverage.NOT_APPLICABLE_EMPTY_ELIGIBLE_SET
+            ):
+                raise ValueError("an empty eligible set requires explicit N/A selection")
+        elif selected == eligible:
+            if self.selection_coverage is not AnalysisInputSelectionCoverage.COMPLETE:
+                raise ValueError("complete selection requires exact eligible coverage")
+        elif self.selection_coverage is not AnalysisInputSelectionCoverage.PARTIAL:
+            raise ValueError("selection omissions require partial coverage")
+
+        if self.full_run_metric_observation_count != len(self.selected_metric_keys):
+            raise ValueError("a full run must account for every selected metric")
+        return self
+
+    @staticmethod
+    def selected_manifest_identity(*, root: str, entry_count: int) -> str:
+        return _manifest_identity_fingerprint(
+            role="selected_window",
+            root=_digest(root),
+            version=SELECTED_WINDOW_MANIFEST_VERSION,
+            entry_count=entry_count,
+        )
+
+    @staticmethod
+    def observed_source_manifest_identity(*, root: str, entry_count: int) -> str:
+        return _manifest_identity_fingerprint(
+            role="post_floor_observed_allowlisted_source",
+            root=_digest(root),
+            version=POST_FLOOR_OBSERVED_ALLOWLISTED_SOURCE_MANIFEST_VERSION,
+            entry_count=entry_count,
+        )
+
+    @property
+    def provenance_fingerprint(self) -> str:
+        """Semantic boundary, excluding run-specific ids, roots, counts, and times."""
+
+        payload = {
+            "analysis_profile_key": self.analysis_profile_key,
+            "analysis_profile_sha256": self.analysis_profile_sha256,
+            "analysis_profile_version": self.analysis_profile_version,
+            "analysis_run_fingerprint_version": self.analysis_run_fingerprint_version,
+            "analysis_run_schema_version": self.analysis_run_schema_version,
+            "analysis_window_fingerprint_basis": self.analysis_window_fingerprint_basis,
+            "analysis_window_fingerprint_version": self.analysis_window_fingerprint_version,
+            "capture_contract_version": self.capture_contract_version,
+            "capture_source": self.capture_source,
+            "consent_policy_version": self.consent_policy_version,
+            "consent_purpose": self.consent_purpose,
+            "content_schema_version": self.content_schema_version,
+            "data_tier": self.data_tier,
+            "metric_catalog_sha256": self.metric_catalog_sha256,
+            "metric_catalog_version": self.metric_catalog_version,
+            "metric_engine_sha256": self.metric_engine_sha256,
+            "metric_engine_version": self.metric_engine_version,
+            "metric_pack_key": self.metric_pack_key,
+            "metric_pack_sha256": self.metric_pack_sha256,
+            "metric_pack_version": self.metric_pack_version,
+            "model_plan_fingerprint": self.model_plan_fingerprint,
+            "post_floor_manifest_version": (
+                self.post_floor_observed_allowlisted_source_manifest_version
+            ),
+            "preprocessing_sha256": self.preprocessing_sha256,
+            "preprocessing_version": self.preprocessing_version,
+            "privacy_policy_version": self.privacy_policy_version,
+            "provider": self.provider,
+            "provider_adapter_version": self.provider_adapter_version,
+            "provider_schema_version": self.provider_schema_version,
+            "provider_version": self.provider_version,
+            "redactor_sha256": self.redactor_sha256,
+            "redactor_version": self.redactor_version,
+            "router_sha256": self.router_sha256,
+            "router_version": self.router_version,
+            "selected_window_manifest_version": self.selected_window_manifest_version,
             "source_schema_version": self.source_schema_version,
         }
         return hashlib.sha256(
@@ -1024,6 +1537,246 @@ class SessionRevisionReceipt(PersistenceRevalidatedModel):
             )
             values["append_prefix_proof"] = proof
         return cls.revalidate_for_persistence(values)
+
+
+class SessionRevisionReceiptV3(PersistenceRevalidatedModel):
+    """Conservative immutable revision linked by predecessor id and fingerprint.
+
+    V3 intentionally has no append-proof state or constructor input.  Until a
+    future repository can verify a content-free prefix protocol, every
+    same-provenance successor is ``changed_or_reordered``.
+    """
+
+    contract_version: Literal[SESSION_REVISION_RECEIPT_V3_VERSION] = (
+        SESSION_REVISION_RECEIPT_V3_VERSION
+    )
+    revision_id: str
+    root_receipt_id: str
+    root_receipt_fingerprint: str
+    project_id: str
+    session_id: str
+    revision_ordinal: PositiveInt
+    predecessor_revision_id: str | None = None
+    predecessor_revision_fingerprint: str | None = None
+    predecessor_link_fingerprint: str | None = None
+    analysis_input_receipt_id: str
+    analysis_input_receipt_fingerprint: str
+    input_provenance_fingerprint: str
+    analysis_run_id: str
+    analysis_run_fingerprint: str
+    relation: SessionRevisionRelationV3
+    selected_window_manifest_root: str
+    selected_window_manifest_version: Literal[SELECTED_WINDOW_MANIFEST_VERSION] = (
+        SELECTED_WINDOW_MANIFEST_VERSION
+    )
+    selected_window_manifest_entry_count: NonNegativeInt
+    analysis_window_fingerprint: str
+    analysis_window_fingerprint_basis: Literal[
+        AnalysisWindowFingerprintBasisV2.KEYED_SELECTED_REDACTED_MESSAGE_WINDOW
+    ] = AnalysisWindowFingerprintBasisV2.KEYED_SELECTED_REDACTED_MESSAGE_WINDOW
+    analysis_window_fingerprint_version: Literal[
+        KEYED_SELECTED_REDACTED_MESSAGE_WINDOW_VERSION
+    ] = KEYED_SELECTED_REDACTED_MESSAGE_WINDOW_VERSION
+    analysis_window_started_at: datetime
+    analysis_window_ended_at: datetime
+    effective_at: datetime
+    captured_at: datetime
+    effective_time_basis: RevisionEffectiveTimeBasis
+    provenance: Literal[
+        SessionRevisionProvenance.DIRECT_ANALYSIS_WINDOW_RECEIPT
+    ] = SessionRevisionProvenance.DIRECT_ANALYSIS_WINDOW_RECEIPT
+    provider: Provider
+    provider_adapter_version: str
+    provider_schema_version: str
+    source_schema_version: str
+    content_schema_version: str
+    redactor_version: str
+    legacy_inference_allowed: Literal[False] = False
+    repository_verification_required: Literal[True] = True
+    sealed: Literal[False] = False
+    comparison_allowed: Literal[False] = False
+    snapshot_materialization_allowed: Literal[False] = False
+    activation_allowed: Literal[False] = False
+    contains_local_content: Literal[False] = False
+    remote_processing_allowed: Literal[False] = False
+    private_export_allowed: Literal[False] = False
+    team_share_allowed: Literal[False] = False
+
+    _v3_digests = field_validator(
+        "revision_id",
+        "root_receipt_id",
+        "root_receipt_fingerprint",
+        "project_id",
+        "session_id",
+        "analysis_input_receipt_id",
+        "analysis_input_receipt_fingerprint",
+        "input_provenance_fingerprint",
+        "analysis_run_id",
+        "analysis_run_fingerprint",
+        "selected_window_manifest_root",
+        "analysis_window_fingerprint",
+    )(_digest)
+    _v3_versions = field_validator(
+        "provider_adapter_version",
+        "provider_schema_version",
+        "source_schema_version",
+        "content_schema_version",
+        "redactor_version",
+    )(_safe_version)
+    _v3_times = field_validator(
+        "analysis_window_started_at",
+        "analysis_window_ended_at",
+        "effective_at",
+        "captured_at",
+    )(_utc)
+
+    @field_validator(
+        "predecessor_revision_id",
+        "predecessor_revision_fingerprint",
+        "predecessor_link_fingerprint",
+    )
+    @classmethod
+    def optional_v3_predecessor_digest(cls, value: str | None) -> str | None:
+        return None if value is None else _digest(value)
+
+    @model_validator(mode="after")
+    def conservative_revision_shape(self) -> SessionRevisionReceiptV3:
+        if not (
+            self.analysis_window_started_at
+            <= self.analysis_window_ended_at
+            <= self.captured_at
+        ):
+            raise ValueError("revision window and capture times must be ordered")
+        if self.effective_at > self.captured_at:
+            raise ValueError("revision effective time cannot follow capture")
+        expected_effective = (
+            self.analysis_window_ended_at
+            if self.effective_time_basis is RevisionEffectiveTimeBasis.SESSION_ENDED_AT
+            else self.captured_at
+        )
+        if self.effective_at != expected_effective:
+            raise ValueError("revision effective time must follow its declared basis")
+
+        has_predecessor = self.predecessor_revision_id is not None
+        if not (
+            has_predecessor
+            == (self.predecessor_revision_fingerprint is not None)
+            == (self.predecessor_link_fingerprint is not None)
+        ):
+            raise ValueError("revision predecessor id, fingerprint, and link travel together")
+        if self.revision_ordinal == 1:
+            if has_predecessor or self.relation is not SessionRevisionRelationV3.FIRST:
+                raise ValueError("the first revision has no predecessor and uses FIRST")
+        elif (
+            not has_predecessor
+            or self.relation is SessionRevisionRelationV3.FIRST
+        ):
+            raise ValueError("later revisions require an exact non-FIRST predecessor")
+        if self.predecessor_revision_id == self.revision_id:
+            raise ValueError("a revision cannot be its own predecessor")
+        if has_predecessor:
+            assert self.predecessor_revision_id is not None
+            assert self.predecessor_revision_fingerprint is not None
+            expected_link = _predecessor_link_fingerprint(
+                predecessor_revision_id=self.predecessor_revision_id,
+                predecessor_revision_fingerprint=self.predecessor_revision_fingerprint,
+                successor_ordinal=self.revision_ordinal,
+                root_receipt_id=self.root_receipt_id,
+                project_id=self.project_id,
+                session_id=self.session_id,
+            )
+            if self.predecessor_link_fingerprint != expected_link:
+                raise ValueError("predecessor link must bind the exact successor scope")
+        return self
+
+    @property
+    def fingerprint(self) -> str:
+        return _canonical_digest(self)
+
+    @classmethod
+    def from_direct_input(
+        cls,
+        *,
+        revision_id: str,
+        input_receipt: AnalysisInputReceiptV2,
+        revision_ordinal: int,
+        effective_time_basis: RevisionEffectiveTimeBasis,
+        predecessor: SessionRevisionReceiptV3 | None = None,
+    ) -> SessionRevisionReceiptV3:
+        current = AnalysisInputReceiptV2.revalidate_for_persistence(input_receipt)
+        if predecessor is None:
+            relation = SessionRevisionRelationV3.FIRST
+            predecessor_revision_id = None
+            predecessor_revision_fingerprint = None
+            predecessor_link_fingerprint = None
+        else:
+            prior = cls.revalidate_for_persistence(predecessor)
+            if revision_ordinal != prior.revision_ordinal + 1:
+                raise ValueError("a revision must immediately follow its predecessor")
+            if (
+                prior.root_receipt_id != current.root_receipt_id
+                or prior.root_receipt_fingerprint != current.root_receipt_fingerprint
+                or prior.project_id != current.project_id
+                or prior.session_id != current.session_id
+            ):
+                raise ValueError("a revision predecessor must share root, project, and session")
+            predecessor_revision_id = prior.revision_id
+            predecessor_revision_fingerprint = prior.fingerprint
+            predecessor_link_fingerprint = _predecessor_link_fingerprint(
+                predecessor_revision_id=prior.revision_id,
+                predecessor_revision_fingerprint=prior.fingerprint,
+                successor_ordinal=revision_ordinal,
+                root_receipt_id=current.root_receipt_id,
+                project_id=current.project_id,
+                session_id=current.session_id,
+            )
+            relation = (
+                SessionRevisionRelationV3.PROVENANCE_BOUNDARY
+                if prior.input_provenance_fingerprint
+                != current.provenance_fingerprint
+                else SessionRevisionRelationV3.CHANGED_OR_REORDERED
+            )
+
+        effective_at = (
+            current.analysis_window_ended_at
+            if effective_time_basis is RevisionEffectiveTimeBasis.SESSION_ENDED_AT
+            else current.captured_at
+        )
+        return cls.revalidate_for_persistence(
+            {
+                "revision_id": revision_id,
+                "root_receipt_id": current.root_receipt_id,
+                "root_receipt_fingerprint": current.root_receipt_fingerprint,
+                "project_id": current.project_id,
+                "session_id": current.session_id,
+                "revision_ordinal": revision_ordinal,
+                "predecessor_revision_id": predecessor_revision_id,
+                "predecessor_revision_fingerprint": predecessor_revision_fingerprint,
+                "predecessor_link_fingerprint": predecessor_link_fingerprint,
+                "analysis_input_receipt_id": current.input_receipt_id,
+                "analysis_input_receipt_fingerprint": current.fingerprint,
+                "input_provenance_fingerprint": current.provenance_fingerprint,
+                "analysis_run_id": current.analysis_run_id,
+                "analysis_run_fingerprint": current.analysis_run_fingerprint,
+                "relation": relation,
+                "selected_window_manifest_root": current.selected_window_manifest_root,
+                "selected_window_manifest_entry_count": (
+                    current.selected_window_manifest_entry_count
+                ),
+                "analysis_window_fingerprint": current.analysis_window_fingerprint,
+                "analysis_window_started_at": current.analysis_window_started_at,
+                "analysis_window_ended_at": current.analysis_window_ended_at,
+                "effective_at": effective_at,
+                "captured_at": current.captured_at,
+                "effective_time_basis": effective_time_basis,
+                "provider": current.provider,
+                "provider_adapter_version": current.provider_adapter_version,
+                "provider_schema_version": current.provider_schema_version,
+                "source_schema_version": current.source_schema_version,
+                "content_schema_version": current.content_schema_version,
+                "redactor_version": current.redactor_version,
+            }
+        )
 
 
 class TemporalTrendSpec(StrictModel):
@@ -1493,6 +2246,65 @@ class TemporalMetricObservation(PersistenceRevalidatedModel):
         return self
 
 
+class TemporalMetricObservationV2(TemporalMetricObservation):
+    """Observation with an explicit evidence-coverage eligibility/state axis.
+
+    A known empty eligible set is represented by ``0 / 0`` and deliberately has
+    no ratio.  That is different from unknown coverage and from a metric for
+    which evidence coverage is not applicable.
+    """
+
+    contract_version: Literal[TEMPORAL_METRIC_OBSERVATION_V2_VERSION] = (
+        TEMPORAL_METRIC_OBSERVATION_V2_VERSION
+    )
+    evidence_coverage_eligibility: EvidenceCoverageEligibility
+    evidence_coverage_state: EvidenceCoverageState
+    evidence_denominator: NonNegativeInt | None = None
+    remote_processing_allowed: Literal[False] = False
+
+    @model_validator(mode="after")
+    def exact_evidence_coverage_state(self) -> TemporalMetricObservationV2:
+        has_counts = self.evidence_numerator is not None
+        if self.evidence_coverage_eligibility is EvidenceCoverageEligibility.ELIGIBLE:
+            if self.evidence_coverage_state is EvidenceCoverageState.KNOWN:
+                if not has_counts:
+                    raise ValueError("known eligible evidence coverage requires counts")
+            elif self.evidence_coverage_state is EvidenceCoverageState.UNKNOWN:
+                if has_counts:
+                    raise ValueError("unknown evidence coverage cannot carry counts")
+            else:
+                raise ValueError("eligible evidence coverage cannot be not-applicable")
+        elif (
+            self.evidence_coverage_eligibility
+            is EvidenceCoverageEligibility.NOT_ELIGIBLE
+        ):
+            if (
+                self.evidence_coverage_state is not EvidenceCoverageState.NOT_APPLICABLE
+                or has_counts
+            ):
+                raise ValueError("ineligible evidence coverage must be count-free N/A")
+        elif (
+            self.evidence_coverage_state is not EvidenceCoverageState.UNKNOWN
+            or has_counts
+        ):
+            raise ValueError("unknown eligibility requires count-free unknown coverage")
+        return self
+
+    @property
+    def evidence_coverage_ratio(self) -> float | None:
+        if (
+            self.evidence_coverage_state is not EvidenceCoverageState.KNOWN
+            or self.evidence_denominator in {None, 0}
+        ):
+            return None
+        assert self.evidence_numerator is not None
+        return self.evidence_numerator / self.evidence_denominator
+
+    @property
+    def fingerprint(self) -> str:
+        return _canonical_digest(self)
+
+
 class TemporalObservationBatch(PersistenceRevalidatedModel):
     contract_version: Literal[TEMPORAL_OBSERVATION_BATCH_VERSION] = (
         TEMPORAL_OBSERVATION_BATCH_VERSION
@@ -1619,6 +2431,279 @@ class TemporalObservationBatch(PersistenceRevalidatedModel):
     def fingerprint(self) -> str:
         """Derive the immutable batch fingerprint from its canonical payload."""
 
+        return _canonical_digest(self)
+
+
+class TemporalObservationBatchV2(TemporalObservationBatch):
+    """Unsealed prospective batch with exact fingerprints for every parent."""
+
+    contract_version: Literal[TEMPORAL_OBSERVATION_BATCH_V2_VERSION] = (
+        TEMPORAL_OBSERVATION_BATCH_V2_VERSION
+    )
+    root_receipt_id: str
+    root_receipt_fingerprint: str
+    revision_fingerprint: str
+    analysis_run_id: str
+    analysis_run_fingerprint: str
+    analysis_input_receipt_id: str
+    analysis_input_receipt_fingerprint: str
+    selection_revision_id: str
+    selection_revision_fingerprint: str
+    scope_state: Literal[TemporalScopeState.EXACT_SELECTION_RECEIPT] = (
+        TemporalScopeState.EXACT_SELECTION_RECEIPT
+    )
+    source_state: Literal[TemporalSourceState.PRESENT] = TemporalSourceState.PRESENT
+    selected_metric_keys: tuple[str, ...] = Field(
+        min_length=1, max_length=MAX_METRICS
+    )
+    observations: tuple[TemporalMetricObservationV2, ...] = Field(
+        min_length=1, max_length=MAX_OBSERVATIONS
+    )
+    repository_verification_required: Literal[True] = True
+    sealed: Literal[False] = False
+    comparison_allowed: Literal[False] = False
+    snapshot_materialization_allowed: Literal[False] = False
+    activation_allowed: Literal[False] = False
+
+    _v2_parent_digests = field_validator(
+        "root_receipt_id",
+        "root_receipt_fingerprint",
+        "revision_fingerprint",
+        "analysis_run_fingerprint",
+        "selection_revision_fingerprint",
+    )(_digest)
+
+    @model_validator(mode="after")
+    def exact_v2_observation_order(self) -> TemporalObservationBatchV2:
+        observation_ids = tuple(item.observation_id for item in self.observations)
+        if len(observation_ids) != len(set(observation_ids)):
+            raise ValueError("batch observation ids must be unique")
+        return self
+
+
+class RepositoryTemporalBatchSealDraft(PersistenceRevalidatedModel):
+    """Untrusted request to repository-verify one exact temporal batch.
+
+    Public construction proves only internal graph consistency.  It cannot claim
+    repository authorship.  A later persistence slice must authenticate this
+    draft and issue a separate sealed receipt.  This draft grants no comparison,
+    snapshot, activation, export, or remote-processing capability.
+    """
+
+    contract_version: Literal[REPOSITORY_TEMPORAL_BATCH_SEAL_DRAFT_VERSION] = (
+        REPOSITORY_TEMPORAL_BATCH_SEAL_DRAFT_VERSION
+    )
+    seal_draft_id: str
+    history_root: TemporalHistoryRootReceipt
+    selection_revision: ProjectMetricSelectionRevisionV2
+    analysis_input: AnalysisInputReceiptV2
+    session_revision: SessionRevisionReceiptV3
+    observation_batch: TemporalObservationBatchV2
+    analysis_run_id: str
+    analysis_run_fingerprint: str
+    ordered_observation_ids: tuple[str, ...] = Field(
+        min_length=1, max_length=MAX_OBSERVATIONS
+    )
+    ordered_observation_fingerprints: tuple[str, ...] = Field(
+        min_length=1, max_length=MAX_OBSERVATIONS
+    )
+    requested_repository_verifier_version: str
+    requested_repository_verifier_fingerprint: str
+    drafted_at: datetime
+    direct_receipts_only: Literal[True] = True
+    legacy_backfill_allowed: Literal[False] = False
+    repository_verification_required: Literal[True] = True
+    issuance_required: Literal[True] = True
+    persistence_state: Literal["untrusted_seal_draft"] = "untrusted_seal_draft"
+    repository_verified: Literal[False] = False
+    sealed: Literal[False] = False
+    comparison_allowed: Literal[False] = False
+    snapshot_materialization_allowed: Literal[False] = False
+    activation_allowed: Literal[False] = False
+    contains_local_content: Literal[False] = False
+    remote_processing_allowed: Literal[False] = False
+    private_export_allowed: Literal[False] = False
+    team_share_allowed: Literal[False] = False
+
+    _seal_digests = field_validator(
+        "seal_draft_id",
+        "analysis_run_id",
+        "analysis_run_fingerprint",
+        "requested_repository_verifier_fingerprint",
+    )(_digest)
+    _seal_version = field_validator("requested_repository_verifier_version")(
+        _safe_version
+    )
+    _drafted_at = field_validator("drafted_at")(_utc)
+
+    @field_validator("ordered_observation_ids", "ordered_observation_fingerprints")
+    @classmethod
+    def canonical_ordered_digests(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("ordered seal commitments must be unique")
+        return tuple(_digest(value) for value in values)
+
+    @model_validator(mode="after")
+    def exact_repository_graph(self) -> RepositoryTemporalBatchSealDraft:
+        root = self.history_root
+        selection = self.selection_revision
+        analysis_input = self.analysis_input
+        revision = self.session_revision
+        batch = self.observation_batch
+
+        if (
+            selection.root_receipt_id != root.root_receipt_id
+            or selection.root_receipt_fingerprint != root.fingerprint
+            or analysis_input.root_receipt_id != root.root_receipt_id
+            or analysis_input.root_receipt_fingerprint != root.fingerprint
+            or revision.root_receipt_id != root.root_receipt_id
+            or revision.root_receipt_fingerprint != root.fingerprint
+            or batch.root_receipt_id != root.root_receipt_id
+            or batch.root_receipt_fingerprint != root.fingerprint
+        ):
+            raise ValueError("seal children must bind the exact history root")
+        if len(
+            {
+                root.project_id,
+                selection.project_id,
+                analysis_input.project_id,
+                revision.project_id,
+                batch.project_id,
+            }
+        ) != 1:
+            raise ValueError("seal children must share one project")
+        if len({analysis_input.session_id, revision.session_id, batch.session_id}) != 1:
+            raise ValueError("seal children must share one session")
+        if (
+            selection.effective_at < root.history_floor_at
+            or selection.recorded_at < root.history_floor_at
+            or analysis_input.analysis_window_started_at < root.history_floor_at
+        ):
+            raise ValueError("a prospective seal cannot include pre-floor history")
+        if analysis_input.captured_at < selection.recorded_at:
+            raise ValueError("analysis input cannot predate its selected metric scope")
+
+        if (
+            analysis_input.selection_revision_id != selection.selection_revision_id
+            or analysis_input.selection_revision_fingerprint != selection.fingerprint
+            or analysis_input.selection_scope_fingerprint
+            != selection.metric_set_fingerprint
+            or analysis_input.selected_metric_keys != selection.selected_metric_keys
+            or analysis_input.metric_pack_key != selection.metric_pack_key
+            or analysis_input.metric_pack_version != selection.metric_pack_version
+            or analysis_input.metric_pack_sha256 != selection.metric_pack_sha256
+            or analysis_input.metric_catalog_version
+            != selection.metric_catalog_version
+            or analysis_input.metric_catalog_sha256 != selection.metric_catalog_sha256
+        ):
+            raise ValueError("analysis input must bind the exact selection identity")
+
+        if (
+            revision.analysis_input_receipt_id != analysis_input.input_receipt_id
+            or revision.analysis_input_receipt_fingerprint != analysis_input.fingerprint
+            or revision.input_provenance_fingerprint
+            != analysis_input.provenance_fingerprint
+            or revision.analysis_run_id != analysis_input.analysis_run_id
+            or revision.analysis_run_fingerprint
+            != analysis_input.analysis_run_fingerprint
+            or revision.selected_window_manifest_root
+            != analysis_input.selected_window_manifest_root
+            or revision.selected_window_manifest_entry_count
+            != analysis_input.selected_window_manifest_entry_count
+            or revision.analysis_window_fingerprint
+            != analysis_input.analysis_window_fingerprint
+            or revision.analysis_window_started_at
+            != analysis_input.analysis_window_started_at
+            or revision.analysis_window_ended_at
+            != analysis_input.analysis_window_ended_at
+            or revision.captured_at != analysis_input.captured_at
+            or revision.provider != analysis_input.provider
+            or revision.provider_adapter_version
+            != analysis_input.provider_adapter_version
+            or revision.provider_schema_version != analysis_input.provider_schema_version
+            or revision.source_schema_version != analysis_input.source_schema_version
+            or revision.content_schema_version != analysis_input.content_schema_version
+            or revision.redactor_version != analysis_input.redactor_version
+        ):
+            raise ValueError("session revision must bind the exact analysis input")
+
+        if (
+            self.analysis_run_id != analysis_input.analysis_run_id
+            or self.analysis_run_fingerprint
+            != analysis_input.analysis_run_fingerprint
+            or batch.analysis_run_id != analysis_input.analysis_run_id
+            or batch.analysis_run_fingerprint
+            != analysis_input.analysis_run_fingerprint
+            or batch.analysis_input_receipt_id != analysis_input.input_receipt_id
+            or batch.analysis_input_receipt_fingerprint != analysis_input.fingerprint
+            or batch.selection_revision_id != selection.selection_revision_id
+            or batch.selection_revision_fingerprint != selection.fingerprint
+            or batch.revision_id != revision.revision_id
+            or batch.revision_fingerprint != revision.fingerprint
+            or batch.selected_metric_keys != analysis_input.selected_metric_keys
+        ):
+            raise ValueError("observation batch must bind the exact run and receipt graph")
+
+        observation_ids = tuple(item.observation_id for item in batch.observations)
+        observation_fingerprints = tuple(
+            item.fingerprint for item in batch.observations
+        )
+        if (
+            self.ordered_observation_ids != observation_ids
+            or self.ordered_observation_fingerprints != observation_fingerprints
+        ):
+            raise ValueError("seal must commit the exact ordered batch observations")
+        if tuple(
+            item.comparison_identity.metric_key for item in batch.observations
+        ) != analysis_input.selected_metric_keys:
+            raise ValueError("sealed observations must exactly cover selected metrics")
+        if any(
+            item.revision_id != revision.revision_id
+            or item.analysis_run_id != analysis_input.analysis_run_id
+            or item.analysis_input_receipt_id != analysis_input.input_receipt_id
+            or item.analysis_input_receipt_fingerprint != analysis_input.fingerprint
+            for item in batch.observations
+        ):
+            raise ValueError("sealed observations must bind the exact revision and input")
+        if any(
+            item.comparison_identity.provider != analysis_input.provider
+            or item.comparison_identity.provider_adapter_version
+            != analysis_input.provider_adapter_version
+            or item.comparison_identity.provider_schema_version
+            != analysis_input.provider_schema_version
+            or item.comparison_identity.source_schema_version
+            != analysis_input.source_schema_version
+            or item.comparison_identity.content_schema_version
+            != analysis_input.content_schema_version
+            or item.comparison_identity.redactor_version
+            != analysis_input.redactor_version
+            or item.comparison_identity.redactor_sha256
+            != analysis_input.redactor_sha256
+            or item.comparison_identity.preprocessing_version
+            != analysis_input.preprocessing_version
+            or item.comparison_identity.preprocessing_sha256
+            != analysis_input.preprocessing_sha256
+            or item.comparison_identity.router_version != analysis_input.router_version
+            or item.comparison_identity.router_sha256 != analysis_input.router_sha256
+            for item in batch.observations
+        ):
+            raise ValueError("sealed observations must preserve input provenance")
+        if any(
+            not (
+                analysis_input.captured_at
+                <= item.observed_at
+                and revision.captured_at <= item.observed_at
+                <= batch.recorded_at
+            )
+            for item in batch.observations
+        ):
+            raise ValueError("observation times must follow input capture and precede batch")
+        if batch.recorded_at > self.drafted_at:
+            raise ValueError("a repository seal draft cannot predate its batch")
+        return self
+
+    @property
+    def fingerprint(self) -> str:
         return _canonical_digest(self)
 
 
@@ -2352,25 +3437,38 @@ class CompatibilityBoundary(PersistenceRevalidatedModel):
 
 __all__ = [
     "ANALYSIS_INPUT_RECEIPT_VERSION",
+    "ANALYSIS_INPUT_RECEIPT_V2_VERSION",
     "APPEND_PREFIX_PROOF_RECEIPT_VERSION",
     "COMPATIBILITY_BOUNDARY_VERSION",
     "HALF_OPEN_WINDOW_BOUNDARY",
+    "KEYED_SELECTED_REDACTED_MESSAGE_WINDOW_VERSION",
     "MAX_LAST_N",
+    "POST_FLOOR_OBSERVED_ALLOWLISTED_SOURCE_MANIFEST_VERSION",
     "PROJECT_METRIC_SELECTION_REVISION_VERSION",
+    "PROJECT_METRIC_SELECTION_REVISION_V2_VERSION",
+    "REPOSITORY_TEMPORAL_BATCH_SEAL_DRAFT_VERSION",
+    "SELECTED_WINDOW_MANIFEST_VERSION",
     "SESSION_REVISION_RECEIPT_VERSION",
+    "SESSION_REVISION_RECEIPT_V3_VERSION",
     "TEMPORAL_COMPLETION_PROJECTION_VERSION",
     "TEMPORAL_HISTORY_CONTRACT_VERSION",
     "TEMPORAL_HISTORY_ROOT_RECEIPT_VERSION",
+    "TEMPORAL_METRIC_OBSERVATION_V2_VERSION",
     "TEMPORAL_OBSERVATION_BATCH_VERSION",
+    "TEMPORAL_OBSERVATION_BATCH_V2_VERSION",
     "TEMPORAL_SNAPSHOT_RECEIPT_VERSION",
     "TEMPORAL_SNAPSHOT_SPEC_VERSION",
     "AnalysisInputCaptureSource",
     "AnalysisInputCompleteness",
+    "AnalysisInputExtractionCompleteness",
     "AnalysisInputReceipt",
+    "AnalysisInputReceiptV2",
+    "AnalysisInputSelectionCoverage",
     "AppendPrefixProofReceipt",
     "AppendVerificationState",
     "ArtifactIdentityState",
     "AnalysisWindowFingerprintBasis",
+    "AnalysisWindowFingerprintBasisV2",
     "CompatibilityBoundary",
     "CompatibilityDimension",
     "CountExposureObservationValue",
@@ -2378,6 +3476,8 @@ __all__ = [
     "EstimatorIdentityKind",
     "EstimatorLifecycleState",
     "EvidenceTier",
+    "EvidenceCoverageEligibility",
+    "EvidenceCoverageState",
     "FractionObservationValue",
     "HistoryFloorSource",
     "HistoryCoverageState",
@@ -2387,20 +3487,26 @@ __all__ = [
     "ModelProviderKind",
     "PrefixProofVerifier",
     "ProjectMetricSelectionRevision",
+    "ProjectMetricSelectionRevisionV2",
+    "ProjectMetricSelectionAuthorityKind",
     "ProjectMetricSelectionSource",
     "ReasoningEffort",
     "RevisionEffectiveTimeBasis",
     "SampledProportionObservationValue",
     "SessionRevisionProvenance",
     "SessionRevisionRelation",
+    "SessionRevisionRelationV3",
     "SessionRevisionReceipt",
+    "SessionRevisionReceiptV3",
     "SnapshotAsOfSource",
     "SnapshotMetricCompatibilityState",
     "TemporalAggregationSemantics",
     "TemporalCompletionProjection",
     "TemporalHistoryRootReceipt",
     "TemporalMetricObservation",
+    "TemporalMetricObservationV2",
     "TemporalObservationBatch",
+    "TemporalObservationBatchV2",
     "TemporalObservationValue",
     "TemporalScopeState",
     "TemporalSelectionState",
@@ -2416,4 +3522,5 @@ __all__ = [
     "TemporalValueState",
     "TemporalWindowKind",
     "TemporalWindowSpec",
+    "RepositoryTemporalBatchSealDraft",
 ]
