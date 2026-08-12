@@ -20,7 +20,7 @@ local runtime artifacts must never be added here.
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
 | P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, and repository-sealed non-activating gate decisions | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
-| P2 | In progress | Prospective capture-lineage contracts plus a bounded, synthetic-only, untrusted temporal source-draft boundary | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item timestamps and stable snapshot/cursor boundaries; no temporal capture persistence, repository seal, materialized snapshot, recommendation, or model/job/history view exists; no legacy backfill is permitted |
+| P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, and normalized synthetic-only temporal persistence with a repository graph seal | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
@@ -414,18 +414,49 @@ checkpoint passed 62 focused tests, a 173-test adjacent temporal/privacy/config
 gate, and independent adversarial review. These are synthetic contract and
 privacy results, not proof that product history capture is available.
 
-These are contracts and an untrusted synthetic draft, not temporal storage. A
-history root requires a server-clock floor and rejects pre-floor data;
-selections and input receipts are direct-only; legacy inference and backfill are
-fixed false. Append-prefix proofs remain
-`untrusted_until_repository_verified`, unsealed, and unable to authorize
-comparison. Session revisions and completion projections likewise require
-repository verification and remain unsealed with comparison disabled. Snapshot
-specification and receipt shapes exist only as untrusted construction
-boundaries: no repository materializes or seals them, and activation remains
-false. There is no temporal migration or capture persistence, repository batch
-seal, generated snapshot, recommendation, or model/job/history view, and no
-claim about legacy or product history.
+Checkpoint `71246b2` defines the comparison-stratum request and draft boundary
+without granting comparison authority. Its privacy projection contains only
+the target session and omits unrelated session membership. Task ambiguity
+remains explicit, while language, complexity, agent permission, and agent model
+dimensions remain `unknown_not_recorded`; unknown categories are visible and
+are neither pooled, dropped, imputed, nor treated as equal.
+`PreparedComparisonStratumDraftV1` and `SealedComparisonStratumDraftV1` remain
+structurally constructible drafts, not capabilities: every repository, source,
+run, and batch authority flag remains false, as do product capture/history,
+pair matching, comparison, aggregate and snapshot materialization,
+recommendation and outcome evaluation, causal claims, activation, private
+export, and team sharing. This checkpoint adds contracts and synthetic tests,
+not a comparison repository or product capability.
+
+Checkpoint `cdc8f56` adds schema-v21 normalized, content-free, synthetic-only
+temporal persistence with zero legacy backfill. It creates one prospective root
+epoch per project, append-only CAS-linked metric selections, and an immutable
+prepared automation-grant snapshot. Exact Coaching fraction results and the
+typed temporal graph are committed atomically with the repository-owned graph
+seal written last; v21 permits at most one temporal revision per session within
+that project epoch.
+Hydration rederives the stored run, session, results, identities, counts,
+selection chain, snapshot, observations, and seal before returning them.
+Privacy deletion uses SQLite secure deletion, parent-cascade removal, and WAL
+truncation, with a pending result when a pinned reader prevents physical purge.
+
+The live job lease and current automation-grant row are seal-time-only
+authorization. They are checked under a transient, full-lineage local
+authorization during the atomic append but are not persisted as public seal
+lineage; later reads rely on the immutable prepared grant snapshot and durable
+run/session/results graph. The repository seal therefore proves only exact
+repository graph ownership and reconstruction. Source authority, product
+history eligibility, comparison, snapshot materialization, activation, private
+export, and team sharing remain false, and no product capture source,
+recommendation, or product snapshot is exposed.
+
+The schema-v21 checkpoint passed 37 focused temporal-persistence tests, 292
+primary adjacent history/capture/session/grant/job tests, 26 SQL-adjacent tests,
+and the full 1,584-test backend suite with 4 platform skips. The privacy scanner
+and diff validation passed, and two independent read-only reviews returned
+`PASS`. These are implementation-integrity results, not empirical comparison,
+recommendation-outcome, adverse-effect, or calibration evidence. P2 therefore
+remains in progress; P3 and P4 remain deferred.
 
 ## Version inventory
 
