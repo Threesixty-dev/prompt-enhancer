@@ -1,10 +1,11 @@
 """Pure, synthetic-only temporal raw-aggregation drafts.
 
 The reducer in this module is deliberately below every product trust boundary.
-It operates only on already-constructed synthetic comparison-stratum drafts and
-returns a content-free descriptive draft.  It neither enumerates repository
-history nor issues repository, source, comparison, snapshot, recommendation,
-outcome, or activation authority.
+It operates on already-constructed synthetic comparison-stratum drafts or on
+structurally revalidated repository receipt graphs and returns a content-free
+descriptive draft.  It neither enumerates repository history nor issues
+repository, source, comparison, snapshot, recommendation, outcome, or
+activation authority.
 """
 
 from __future__ import annotations
@@ -30,6 +31,10 @@ from .comparison_strata import (
     ComparisonTaskTypeV1,
     SealedComparisonStratumDraftV1,
 )
+from .comparison_strata_persistence import (
+    RepositoryPreparedComparisonStratumV1,
+    RepositorySealedComparisonStratumV1,
+)
 from .contracts import (
     CompatibilityDimension,
     CountExposureObservationValue,
@@ -54,6 +59,9 @@ from .persistence import RepositoryPreparedTemporalScopeV1
 
 
 SYNTHETIC_RAW_AGGREGATION_VERSION = "synthetic-raw-aggregation-draft-v1"
+REPOSITORY_BACKED_SYNTHETIC_RAW_AGGREGATION_VERSION = (
+    "repository-backed-synthetic-raw-aggregation-draft-v2"
+)
 RAW_AGGREGATION_POLICY_VERSION = "synthetic-raw-aggregation-policy-v1"
 LAST_N_ORDER_VERSION = "session-revision-total-order-v1"
 QUANTILE_METHOD_VERSION = (
@@ -179,6 +187,46 @@ class RawSuppliedStratumManifestEntryV1(PersistenceRevalidatedModel):
     _fingerprint = field_validator("fingerprint")(_digest)
 
 
+class RepositoryBackedStratumManifestEntryV2(PersistenceRevalidatedModel):
+    """Content-free commitment to one supplied repository receipt graph."""
+
+    supplied_ordinal: int = Field(strict=True, ge=0, le=MAX_COUNT)
+    prepared_stratum_id: str
+    prepared_stratum_fingerprint: str
+    sealed_stratum_id: str
+    sealed_stratum_fingerprint: str
+    analysis_run_id: str
+    analysis_run_authority_sha256: str
+    sealed_batch_id: str
+    sealed_batch_sha256: str
+    revision_id: str
+    revision_fingerprint: str
+    session_id: str
+    revision_ordinal: int = Field(strict=True, ge=1, le=MAX_COUNT)
+    effective_at: datetime
+    sealed_at: datetime
+    disposition: RawStratumDispositionV1
+
+    _digests = field_validator(
+        "prepared_stratum_id",
+        "prepared_stratum_fingerprint",
+        "sealed_stratum_id",
+        "sealed_stratum_fingerprint",
+        "analysis_run_id",
+        "analysis_run_authority_sha256",
+        "sealed_batch_id",
+        "sealed_batch_sha256",
+        "revision_id",
+        "revision_fingerprint",
+        "session_id",
+    )(_digest)
+    _times = field_validator("effective_at", "sealed_at")(_utc)
+
+    @property
+    def fingerprint(self) -> str:
+        return _canonical_digest(self)
+
+
 class RawAggregationPolicyIdentityV1(PersistenceRevalidatedModel):
     contract_version: Literal[RAW_AGGREGATION_POLICY_VERSION] = (
         RAW_AGGREGATION_POLICY_VERSION
@@ -244,6 +292,12 @@ class RawAggregationPolicyIdentityV1(PersistenceRevalidatedModel):
 
 def _aggregation_draft_id(fields: dict[str, Any]) -> str:
     return _derived_id("synthetic-raw-aggregation-draft-v1", fields)
+
+
+def _repository_aggregation_draft_id(fields: dict[str, Any]) -> str:
+    return _derived_id(
+        "repository-backed-synthetic-raw-aggregation-draft-v2", fields
+    )
 
 
 class RawStateCountsV1(PersistenceRevalidatedModel):
@@ -961,9 +1015,361 @@ class SyntheticRawAggregationDraftV1(PersistenceRevalidatedModel):
         return _canonical_digest(self)
 
 
+class RepositoryBackedSyntheticRawAggregationDraftV2(
+    PersistenceRevalidatedModel
+):
+    """Unsealed supplied-set draft over structurally revalidated V22 receipts.
+
+    The repository receipts commit stronger input graph identities than the V1
+    comparison drafts.  Their presence does not prove that the caller obtained
+    them from a repository, enumerate a complete population, or authorize this
+    derived aggregate for persistence or product use.
+    """
+
+    contract_version: Literal[
+        REPOSITORY_BACKED_SYNTHETIC_RAW_AGGREGATION_VERSION
+    ] = REPOSITORY_BACKED_SYNTHETIC_RAW_AGGREGATION_VERSION
+    aggregation_draft_id: str
+    anchor: RepositoryPreparedComparisonStratumV1
+    anchor_prepared_stratum_id: str
+    anchor_prepared_stratum_fingerprint: str
+    root_receipt_id: str
+    root_receipt_fingerprint: str
+    history_floor_at: datetime
+    installation_id: str
+    project_id: str
+    provider: Provider
+    metric_key: str
+    window: TemporalWindowSpec
+    as_of: datetime
+    effective_window_start_at: datetime
+    effective_window_end_at: datetime
+    window_coverage_state: RawWindowCoverageStateV1
+    floor_left_censored: bool = Field(strict=True)
+    last_n_shortfall: bool = Field(strict=True)
+    last_n_shortfall_count: int = Field(strict=True, ge=0, le=MAX_COUNT)
+    supplied_strata_count: int = Field(strict=True, ge=0, le=MAX_COUNT)
+    excluded_late_seal_count: int = Field(strict=True, ge=0, le=MAX_COUNT)
+    excluded_outside_window_count: int = Field(strict=True, ge=0, le=MAX_COUNT)
+    included_revision_count: int = Field(strict=True, ge=0, le=MAX_COUNT)
+    leading_identity_unavailable_count: int = Field(
+        strict=True, ge=0, le=MAX_COUNT
+    )
+    trailing_identity_unavailable_count: int = Field(
+        strict=True, ge=0, le=MAX_COUNT
+    )
+    ordered_included_stratum_fingerprints: tuple[str, ...] = Field(
+        default=(), max_length=MAX_SUPPLIED_STRATA
+    )
+    ordered_supplied_stratum_manifest: tuple[
+        RepositoryBackedStratumManifestEntryV2, ...
+    ] = Field(default=(), max_length=MAX_SUPPLIED_STRATA)
+    population_state: Literal[
+        RawAggregationPopulationStateV1.SUPPLIED_SET_COMPLETENESS_UNKNOWN
+    ] = RawAggregationPopulationStateV1.SUPPLIED_SET_COMPLETENESS_UNKNOWN
+    state_counts: RawStateCountsV1
+    task_buckets: tuple[RawTaskBucketSummaryV1, ...] = Field(
+        default=(), max_length=MAX_SUPPLIED_STRATA
+    )
+    compatibility_runs: tuple[RawCompatibilityRunV1, ...] = Field(
+        default=(), max_length=MAX_SUPPLIED_STRATA
+    )
+    compatibility_transitions: tuple[RawCompatibilityTransitionV1, ...] = Field(
+        default=(), max_length=MAX_SUPPLIED_STRATA
+    )
+    policy_identity: RawAggregationPolicyIdentityV1
+    policy_identity_fingerprint: str
+    matched_estimate: None = None
+    matched_pair_count: None = None
+
+    structurally_constructible_not_capability: Literal[True] = True
+    synthetic_test_only: Literal[True] = True
+    supplied_set_only: Literal[True] = True
+    input_receipt_structure_revalidated: Literal[True] = True
+    input_repository_return_provenance_verified: Literal[False] = False
+    repository_enumeration_performed: Literal[False] = False
+    repository_verification_required: Literal[True] = True
+    repository_owned: Literal[False] = False
+    repository_verified: Literal[False] = False
+    collection_completeness_verified: Literal[False] = False
+    comparison_stratum_complete: Literal[False] = False
+    sealed: Literal[False] = False
+    source_authority_verified: Literal[False] = False
+    product_capture_allowed: Literal[False] = False
+    product_history_eligible: Literal[False] = False
+    comparison_allowed: Literal[False] = False
+    pair_matching_allowed: Literal[False] = False
+    aggregate_materialization_allowed: Literal[False] = False
+    snapshot_materialization_allowed: Literal[False] = False
+    recommendation_allowed: Literal[False] = False
+    recommendation_outcome_evaluation_allowed: Literal[False] = False
+    causal_claim_allowed: Literal[False] = False
+    activation_allowed: Literal[False] = False
+    legacy_inference_allowed: Literal[False] = False
+    backfill_allowed: Literal[False] = False
+    contains_local_content: Literal[False] = False
+    remote_processing_allowed: Literal[False] = False
+    private_export_allowed: Literal[False] = False
+    team_share_allowed: Literal[False] = False
+
+    _digests = field_validator(
+        "aggregation_draft_id",
+        "anchor_prepared_stratum_id",
+        "anchor_prepared_stratum_fingerprint",
+        "root_receipt_id",
+        "root_receipt_fingerprint",
+        "installation_id",
+        "project_id",
+        "policy_identity_fingerprint",
+    )(_digest)
+    _metric = field_validator("metric_key")(_safe_code)
+    _times = field_validator(
+        "history_floor_at",
+        "as_of",
+        "effective_window_start_at",
+        "effective_window_end_at",
+    )(_utc)
+
+    @field_validator("ordered_included_stratum_fingerprints")
+    @classmethod
+    def exact_included_fingerprints(
+        cls, values: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        checked = tuple(_digest(value) for value in values)
+        if len(checked) != len(set(checked)):
+            raise ValueError("included stratum fingerprints must be unique")
+        if checked != tuple(sorted(checked)):
+            raise ValueError("included stratum fingerprints must be canonical")
+        return checked
+
+    @field_validator("ordered_supplied_stratum_manifest")
+    @classmethod
+    def exact_supplied_manifest(
+        cls,
+        values: tuple[RepositoryBackedStratumManifestEntryV2, ...],
+    ) -> tuple[RepositoryBackedStratumManifestEntryV2, ...]:
+        checked = tuple(
+            RepositoryBackedStratumManifestEntryV2.revalidate_for_persistence(
+                value
+            )
+            for value in values
+        )
+        if tuple(item.supplied_ordinal for item in checked) != tuple(
+            range(len(checked))
+        ):
+            raise ValueError("repository manifest ordinals must be contiguous")
+        canonical = tuple(
+            sorted(
+                checked,
+                key=lambda item: (
+                    item.effective_at,
+                    item.session_id,
+                    item.revision_ordinal,
+                    item.revision_id,
+                    item.sealed_stratum_id,
+                ),
+            )
+        )
+        if checked != canonical:
+            raise ValueError("repository manifest must use the total revision order")
+        unique_roles = {
+            "prepared": [item.prepared_stratum_id for item in checked],
+            "sealed": [item.sealed_stratum_id for item in checked],
+            "run": [item.analysis_run_id for item in checked],
+            "batch": [item.sealed_batch_id for item in checked],
+            "revision": [item.revision_id for item in checked],
+        }
+        for role, identities in unique_roles.items():
+            if len(identities) != len(set(identities)):
+                raise ValueError(f"repository manifest has duplicate {role} identity")
+        coordinates = tuple(
+            (item.session_id, item.revision_ordinal) for item in checked
+        )
+        if len(coordinates) != len(set(coordinates)):
+            raise ValueError("repository manifest has a duplicate revision coordinate")
+        return checked
+
+    @model_validator(mode="after")
+    def exact_draft(
+        self,
+    ) -> RepositoryBackedSyntheticRawAggregationDraftV2:
+        anchor = RepositoryPreparedComparisonStratumV1.revalidate_for_persistence(
+            self.anchor
+        )
+        root = anchor.prepared_scope.history_root
+        dimensions = anchor.dimensions
+        if (
+            self.anchor_prepared_stratum_id != anchor.prepared_stratum_id
+            or self.anchor_prepared_stratum_fingerprint != anchor.fingerprint
+            or self.root_receipt_id != root.root_receipt_id
+            or self.root_receipt_fingerprint != root.fingerprint
+            or self.history_floor_at != root.history_floor_at
+            or self.installation_id != dimensions.installation_id
+            or self.project_id != dimensions.project_id
+            or self.project_id != root.project_id
+            or self.provider is not dimensions.provider
+        ):
+            raise ValueError("aggregation draft must bind the exact prepared anchor")
+        if self.policy_identity_fingerprint != self.policy_identity.fingerprint:
+            raise ValueError("aggregation draft must bind its exact policy identity")
+        if self.as_of < self.history_floor_at:
+            raise ValueError("aggregation as-of cannot predate the prospective floor")
+        expected_start, expected_end, expected_censored = _effective_window_bounds(
+            window=self.window,
+            as_of=self.as_of,
+            floor=self.history_floor_at,
+        )
+        if (
+            self.effective_window_start_at != expected_start
+            or self.effective_window_end_at != expected_end
+            or self.floor_left_censored != expected_censored
+        ):
+            raise ValueError("effective aggregation window must be exactly derived")
+        if self.last_n_shortfall != (self.last_n_shortfall_count > 0):
+            raise ValueError("last-N shortfall boolean must match the exact count")
+        if self.window.kind is not TemporalWindowKind.LAST_N and (
+            self.last_n_shortfall or self.last_n_shortfall_count
+        ):
+            raise ValueError("only last-N windows can have a last-N shortfall")
+        if self.window.kind is TemporalWindowKind.LAST_N:
+            assert self.window.last_n is not None
+            expected_shortfall = max(
+                0, self.window.last_n - self.included_revision_count
+            )
+            if self.last_n_shortfall_count != expected_shortfall:
+                raise ValueError("last-N shortfall count must be exactly derived")
+        expected_coverage = _coverage_state(
+            included=self.included_revision_count,
+            left_censored=self.floor_left_censored,
+            shortfall=self.last_n_shortfall_count,
+        )
+        if self.window_coverage_state is not expected_coverage:
+            raise ValueError("window coverage state must be exactly derived")
+        if len(self.ordered_supplied_stratum_manifest) != self.supplied_strata_count:
+            raise ValueError("repository manifest must cover the supplied set")
+        expected_dispositions = _repository_manifest_dispositions(
+            self.ordered_supplied_stratum_manifest,
+            window=self.window,
+            as_of=self.as_of,
+            floor=self.history_floor_at,
+        )
+        if tuple(item.disposition for item in self.ordered_supplied_stratum_manifest) != (
+            expected_dispositions
+        ):
+            raise ValueError("repository manifest dispositions must be exact")
+        manifest_counts = {
+            disposition: sum(
+                item.disposition is disposition
+                for item in self.ordered_supplied_stratum_manifest
+            )
+            for disposition in RawStratumDispositionV1
+        }
+        if (
+            manifest_counts[RawStratumDispositionV1.INCLUDED]
+            != self.included_revision_count
+            or manifest_counts[RawStratumDispositionV1.LATE_SEAL]
+            != self.excluded_late_seal_count
+            or manifest_counts[RawStratumDispositionV1.OUTSIDE_WINDOW]
+            != self.excluded_outside_window_count
+            or self.included_revision_count
+            + self.excluded_late_seal_count
+            + self.excluded_outside_window_count
+            != self.supplied_strata_count
+        ):
+            raise ValueError("included and excluded counts must partition the input")
+        expected_included = tuple(
+            sorted(
+                item.sealed_stratum_fingerprint
+                for item in self.ordered_supplied_stratum_manifest
+                if item.disposition is RawStratumDispositionV1.INCLUDED
+            )
+        )
+        if self.ordered_included_stratum_fingerprints != expected_included:
+            raise ValueError("included fingerprints must match the exact manifest")
+        if self.included_revision_count != self.state_counts.supplied_revision_count:
+            raise ValueError("top-level states must cover included revisions")
+        if sum(
+            bucket.state_counts.supplied_revision_count for bucket in self.task_buckets
+        ) != self.included_revision_count:
+            raise ValueError("task summaries must partition included revisions")
+        if self.task_buckets and _sum_state_counts(
+            [bucket.state_counts for bucket in self.task_buckets]
+        ) != self.state_counts:
+            raise ValueError("task summary states must equal top-level states")
+        if tuple(run.run_ordinal for run in self.compatibility_runs) != tuple(
+            range(len(self.compatibility_runs))
+        ):
+            raise ValueError("compatibility run ordinals must be contiguous")
+        if tuple(
+            transition.transition_ordinal
+            for transition in self.compatibility_transitions
+        ) != tuple(range(len(self.compatibility_transitions))):
+            raise ValueError("transition ordinals must be contiguous")
+        if len(self.compatibility_transitions) != max(
+            0, len(self.compatibility_runs) - 1
+        ):
+            raise ValueError("every adjacent compatibility run requires a transition")
+        run_covered = sum(
+            run.included_revision_count for run in self.compatibility_runs
+        )
+        if run_covered != (
+            self.included_revision_count
+            - self.state_counts.identity_unavailable_count
+        ):
+            raise ValueError("runs must cover every identity-known revision")
+        if _sum_state_counts(
+            [run.state_counts for run in self.compatibility_runs]
+        ) != _without_identity_unavailable(self.state_counts):
+            raise ValueError("run states must equal all identity-known top states")
+        gap_total = (
+            self.leading_identity_unavailable_count
+            + self.trailing_identity_unavailable_count
+            + sum(
+                transition.identity_unavailable_gap_count
+                for transition in self.compatibility_transitions
+            )
+        )
+        if gap_total != self.state_counts.identity_unavailable_count:
+            raise ValueError("identity gaps must account for every unavailable identity")
+        for index, transition in enumerate(self.compatibility_transitions):
+            before = self.compatibility_runs[index]
+            after = self.compatibility_runs[index + 1]
+            if (
+                transition.before_identity_fingerprint
+                != before.comparison_identity_fingerprint
+                or transition.after_identity_fingerprint
+                != after.comparison_identity_fingerprint
+            ):
+                raise ValueError("transition must bind its exact adjacent runs")
+            if (
+                transition.kind is RawTransitionKindV1.IDENTITY_CHANGE
+                and transition.dimensions
+                != _compatibility_dimensions(
+                    before.comparison_identity, after.comparison_identity
+                )
+            ):
+                raise ValueError("transition dimensions must be exactly derived")
+        if self.included_revision_count == 0 and (
+            self.compatibility_runs or self.task_buckets
+        ):
+            raise ValueError("an empty supplied window cannot emit descriptive groups")
+        expected_id = _repository_aggregation_draft_id(
+            self.model_dump(mode="python", exclude={"aggregation_draft_id"})
+        )
+        if self.aggregation_draft_id != expected_id:
+            raise ValueError("aggregation draft identity must bind its exact payload")
+        return self
+
+    @property
+    def fingerprint(self) -> str:
+        return _canonical_digest(self)
+
+
 @dataclass(frozen=True, slots=True)
 class _Entry:
-    stratum: SealedComparisonStratumDraftV1
+    stratum: SealedComparisonStratumDraftV1 | RepositorySealedComparisonStratumV1
+    stratum_fingerprint: str
+    sealed_at: datetime
     revision_id: str
     session_id: str
     revision_ordinal: int
@@ -1401,6 +1807,74 @@ def _entry_for(
         evidence_denominator = observation.evidence_denominator
     return _Entry(
         stratum=stratum,
+        stratum_fingerprint=stratum.fingerprint,
+        sealed_at=stratum.sealed_at,
+        revision_id=revision.revision_id,
+        session_id=revision.session_id,
+        revision_ordinal=revision.revision_ordinal,
+        effective_at=revision.effective_at,
+        sort_key=(
+            revision.effective_at,
+            revision.session_id,
+            revision.revision_ordinal,
+            revision.revision_id,
+        ),
+        identity=identity,
+        observation=observation,
+        selection_state=selection_state,
+        source_state=source_state,
+        value_state=value_state,
+        evidence_coverage_eligibility=evidence_eligibility,
+        evidence_coverage_state=evidence_state,
+        evidence_numerator=evidence_numerator,
+        evidence_denominator=evidence_denominator,
+        task_mix_bucket=dimensions.task_mix_bucket,
+        task_type_state=dimensions.task_type_state,
+        task_type=dimensions.task_type,
+    )
+
+
+def _entry_for_repository_receipt(
+    stratum: RepositorySealedComparisonStratumV1,
+    metric_key: str,
+) -> _Entry:
+    seal_draft = stratum.sealed_batch.seal_draft
+    revision = seal_draft.session_revision
+    batch = seal_draft.observation_batch
+    dimensions = stratum.prepared_receipt.dimensions
+    observation: TemporalMetricObservationV2 | None = None
+    identity: MetricComparisonIdentity | None = None
+    if metric_key in batch.selected_metric_keys:
+        matches = tuple(
+            candidate
+            for candidate in batch.observations
+            if candidate.comparison_identity.metric_key == metric_key
+        )
+        if len(matches) != 1:
+            raise ValueError("selected metric must have one exact observation")
+        observation = matches[0]
+        identity = observation.comparison_identity
+        selection_state = observation.selection_state
+        source_state = observation.source_state
+        value_state = observation.value_state
+    else:
+        selection_state = TemporalSelectionState.NOT_SELECTED
+        source_state = TemporalSourceState.NOT_REQUESTED
+        value_state = TemporalValueState.UNKNOWN
+    if observation is None:
+        evidence_eligibility = EvidenceCoverageEligibility.UNKNOWN
+        evidence_state = EvidenceCoverageState.UNKNOWN
+        evidence_numerator = None
+        evidence_denominator = None
+    else:
+        evidence_eligibility = observation.evidence_coverage_eligibility
+        evidence_state = observation.evidence_coverage_state
+        evidence_numerator = observation.evidence_numerator
+        evidence_denominator = observation.evidence_denominator
+    return _Entry(
+        stratum=stratum,
+        stratum_fingerprint=stratum.fingerprint,
+        sealed_at=stratum.sealed_at,
         revision_id=revision.revision_id,
         session_id=revision.session_id,
         revision_ordinal=revision.revision_ordinal,
@@ -1450,6 +1924,45 @@ def _effective_window_bounds(
     return max(requested_start, floor), requested_end, left_censored
 
 
+def _repository_manifest_dispositions(
+    manifest: tuple[RepositoryBackedStratumManifestEntryV2, ...],
+    *,
+    window: TemporalWindowSpec,
+    as_of: datetime,
+    floor: datetime,
+) -> tuple[RawStratumDispositionV1, ...]:
+    visible = tuple(
+        item
+        for item in manifest
+        if item.sealed_at <= as_of and item.effective_at < as_of
+    )
+    if window.kind is TemporalWindowKind.LAST_N:
+        assert window.last_n is not None
+        selected = tuple(
+            item for item in visible if item.effective_at >= floor
+        )[-window.last_n :]
+    else:
+        start, end, _ = _effective_window_bounds(
+            window=window, as_of=as_of, floor=floor
+        )
+        selected = tuple(
+            item for item in visible if start <= item.effective_at < end
+        )
+    selected_ids = {item.sealed_stratum_id for item in selected}
+    return tuple(
+        (
+            RawStratumDispositionV1.LATE_SEAL
+            if item.sealed_at > as_of
+            else (
+                RawStratumDispositionV1.INCLUDED
+                if item.sealed_stratum_id in selected_ids
+                else RawStratumDispositionV1.OUTSIDE_WINDOW
+            )
+        )
+        for item in manifest
+    )
+
+
 def _select_window(
     entries: list[_Entry],
     *,
@@ -1457,11 +1970,11 @@ def _select_window(
     as_of: datetime,
     floor: datetime,
 ) -> tuple[list[_Entry], datetime, datetime, bool, int, int]:
-    late_count = sum(entry.stratum.sealed_at > as_of for entry in entries)
+    late_count = sum(entry.sealed_at > as_of for entry in entries)
     visible = [
         entry
         for entry in entries
-        if entry.stratum.sealed_at <= as_of and entry.effective_at < as_of
+        if entry.sealed_at <= as_of and entry.effective_at < as_of
     ]
     visible.sort(key=lambda entry: entry.sort_key)
     left_censored = False
@@ -1688,20 +2201,20 @@ def draft_synthetic_raw_aggregation(
     task_buckets = _bucket_summaries(selected)
     policy = RawAggregationPolicyIdentityV1()
     included_fingerprints = tuple(
-        sorted(entry.stratum.fingerprint for entry in selected)
+        sorted(entry.stratum_fingerprint for entry in selected)
     )
     included_set = set(included_fingerprints)
     supplied_manifest = tuple(
         sorted(
             (
                 RawSuppliedStratumManifestEntryV1(
-                    fingerprint=entry.stratum.fingerprint,
+                    fingerprint=entry.stratum_fingerprint,
                     disposition=(
                         RawStratumDispositionV1.LATE_SEAL
-                        if entry.stratum.sealed_at > checked_as_of
+                        if entry.sealed_at > checked_as_of
                         else (
                             RawStratumDispositionV1.INCLUDED
-                            if entry.stratum.fingerprint in included_set
+                            if entry.stratum_fingerprint in included_set
                             else RawStratumDispositionV1.OUTSIDE_WINDOW
                         )
                     ),
@@ -1762,12 +2275,211 @@ def draft_synthetic_raw_aggregation(
     )
 
 
+def draft_repository_sealed_synthetic_raw_aggregation(
+    *,
+    anchor: RepositoryPreparedComparisonStratumV1,
+    metric_key: str,
+    window: TemporalWindowSpec,
+    as_of: datetime,
+    strata: tuple[RepositorySealedComparisonStratumV1, ...],
+) -> RepositoryBackedSyntheticRawAggregationDraftV2:
+    """Describe a caller-supplied set of repository-sealed synthetic graphs.
+
+    This function revalidates the exact V22 receipt structures and retains
+    their content-free authority commitments.  It does not prove repository
+    return provenance, enumerate history, seal the output, or authorize a
+    comparison, snapshot, recommendation, or product action.
+    """
+
+    if not isinstance(strata, tuple):
+        raise ValueError("strata must be a bounded immutable tuple")
+    supplied_count = len(strata)
+    if supplied_count > MAX_SUPPLIED_STRATA:
+        raise ValueError("too many supplied repository comparison strata")
+    if not isinstance(anchor, RepositoryPreparedComparisonStratumV1):
+        raise ValueError("anchor must be a repository prepared receipt")
+    if any(
+        not isinstance(value, RepositorySealedComparisonStratumV1)
+        for value in strata
+    ):
+        raise ValueError("strata must contain only repository sealed receipts")
+    checked_anchor = (
+        RepositoryPreparedComparisonStratumV1.revalidate_for_persistence(anchor)
+    )
+    requested_window = TemporalWindowSpec.model_validate(
+        window.model_dump(mode="python")
+    )
+    checked_as_of = _utc(as_of)
+    checked_metric = _safe_code(metric_key)
+    root = checked_anchor.prepared_scope.history_root
+    floor = root.history_floor_at
+    if checked_as_of < floor:
+        raise ValueError("aggregation as-of cannot predate the prospective floor")
+    checked_strata = tuple(
+        RepositorySealedComparisonStratumV1.revalidate_for_persistence(value)
+        for value in strata
+    )
+    role_sets = {
+        "prepared": [
+            value.prepared_receipt.prepared_stratum_id for value in checked_strata
+        ],
+        "sealed": [value.sealed_stratum_id for value in checked_strata],
+        "run": [value.analysis_run.draft.run_id for value in checked_strata],
+        "batch": [value.sealed_batch.sealed_batch_id for value in checked_strata],
+        "revision": [
+            value.sealed_batch.seal_draft.session_revision.revision_id
+            for value in checked_strata
+        ],
+    }
+    for role, identities in role_sets.items():
+        if len(identities) != len(set(identities)):
+            raise ValueError(f"duplicate {role} identity in supplied strata")
+    revision_coordinates = tuple(
+        (
+            value.sealed_batch.seal_draft.session_revision.session_id,
+            value.sealed_batch.seal_draft.session_revision.revision_ordinal,
+        )
+        for value in checked_strata
+    )
+    if len(revision_coordinates) != len(set(revision_coordinates)):
+        raise ValueError("duplicate session revision coordinate in supplied strata")
+    anchor_dimensions = checked_anchor.dimensions
+    entries: list[_Entry] = []
+    for value in checked_strata:
+        prepared = value.prepared_receipt
+        prepared_root = prepared.prepared_scope.history_root
+        dimensions = prepared.dimensions
+        if (
+            prepared_root.root_receipt_id != root.root_receipt_id
+            or prepared_root.fingerprint != root.fingerprint
+            or prepared_root.project_id != root.project_id
+            or prepared_root.history_floor_at != floor
+        ):
+            raise ValueError("all strata must descend from the exact anchor root")
+        if (
+            dimensions.project_id != anchor_dimensions.project_id
+            or dimensions.installation_id != anchor_dimensions.installation_id
+            or dimensions.provider is not anchor_dimensions.provider
+        ):
+            raise ValueError("all strata must match the exact anchor source scope")
+        entries.append(_entry_for_repository_receipt(value, checked_metric))
+    entries.sort(key=lambda entry: entry.sort_key)
+    selected, start, end, left_censored, shortfall, late_count = _select_window(
+        entries,
+        window=requested_window,
+        as_of=checked_as_of,
+        floor=floor,
+    )
+    outside_count = supplied_count - late_count - len(selected)
+    runs, transitions, leading_gap, trailing_gap = _build_runs(selected)
+    counts = _state_counts(selected)
+    task_buckets = _bucket_summaries(selected)
+    policy = RawAggregationPolicyIdentityV1()
+    included_fingerprints = tuple(
+        sorted(entry.stratum_fingerprint for entry in selected)
+    )
+    included_ids = {
+        entry.stratum.sealed_stratum_id
+        for entry in selected
+        if isinstance(entry.stratum, RepositorySealedComparisonStratumV1)
+    }
+    supplied_manifest = tuple(
+        RepositoryBackedStratumManifestEntryV2(
+            supplied_ordinal=ordinal,
+            prepared_stratum_id=value.prepared_receipt.prepared_stratum_id,
+            prepared_stratum_fingerprint=value.prepared_receipt.fingerprint,
+            sealed_stratum_id=value.sealed_stratum_id,
+            sealed_stratum_fingerprint=value.fingerprint,
+            analysis_run_id=value.analysis_run.draft.run_id,
+            analysis_run_authority_sha256=value.analysis_run_authority_sha256,
+            sealed_batch_id=value.sealed_batch.sealed_batch_id,
+            sealed_batch_sha256=value.sealed_batch_sha256,
+            revision_id=value.sealed_batch.seal_draft.session_revision.revision_id,
+            revision_fingerprint=(
+                value.sealed_batch.seal_draft.session_revision.fingerprint
+            ),
+            session_id=value.sealed_batch.seal_draft.session_revision.session_id,
+            revision_ordinal=(
+                value.sealed_batch.seal_draft.session_revision.revision_ordinal
+            ),
+            effective_at=(
+                value.sealed_batch.seal_draft.session_revision.effective_at
+            ),
+            sealed_at=value.sealed_at,
+            disposition=(
+                RawStratumDispositionV1.LATE_SEAL
+                if value.sealed_at > checked_as_of
+                else (
+                    RawStratumDispositionV1.INCLUDED
+                    if value.sealed_stratum_id in included_ids
+                    else RawStratumDispositionV1.OUTSIDE_WINDOW
+                )
+            ),
+        )
+        for ordinal, entry in enumerate(entries)
+        for value in (entry.stratum,)
+        if isinstance(value, RepositorySealedComparisonStratumV1)
+    )
+    result_fields: dict[str, Any] = {
+        "anchor": checked_anchor,
+        "anchor_prepared_stratum_id": checked_anchor.prepared_stratum_id,
+        "anchor_prepared_stratum_fingerprint": checked_anchor.fingerprint,
+        "root_receipt_id": root.root_receipt_id,
+        "root_receipt_fingerprint": root.fingerprint,
+        "history_floor_at": floor,
+        "installation_id": anchor_dimensions.installation_id,
+        "project_id": anchor_dimensions.project_id,
+        "provider": anchor_dimensions.provider,
+        "metric_key": checked_metric,
+        "window": requested_window,
+        "as_of": checked_as_of,
+        "effective_window_start_at": start,
+        "effective_window_end_at": end,
+        "window_coverage_state": _coverage_state(
+            included=len(selected),
+            left_censored=left_censored,
+            shortfall=shortfall,
+        ),
+        "floor_left_censored": left_censored,
+        "last_n_shortfall": shortfall > 0,
+        "last_n_shortfall_count": shortfall,
+        "supplied_strata_count": supplied_count,
+        "excluded_late_seal_count": late_count,
+        "excluded_outside_window_count": outside_count,
+        "included_revision_count": len(selected),
+        "leading_identity_unavailable_count": leading_gap,
+        "trailing_identity_unavailable_count": trailing_gap,
+        "ordered_included_stratum_fingerprints": included_fingerprints,
+        "ordered_supplied_stratum_manifest": supplied_manifest,
+        "state_counts": counts,
+        "task_buckets": task_buckets,
+        "compatibility_runs": runs,
+        "compatibility_transitions": transitions,
+        "policy_identity": policy,
+        "policy_identity_fingerprint": policy.fingerprint,
+    }
+    shell = RepositoryBackedSyntheticRawAggregationDraftV2.model_construct(
+        aggregation_draft_id="0" * 64,
+        **result_fields,
+    )
+    draft_id = _repository_aggregation_draft_id(
+        shell.model_dump(mode="python", exclude={"aggregation_draft_id"})
+    )
+    return RepositoryBackedSyntheticRawAggregationDraftV2(
+        aggregation_draft_id=draft_id,
+        **result_fields,
+    )
+
+
 __all__ = [
     "INTERVAL_METHOD_VERSION",
     "LAST_N_ORDER_VERSION",
     "MAX_SUPPLIED_STRATA",
     "QUANTILE_METHOD_VERSION",
     "RAW_AGGREGATION_POLICY_VERSION",
+    "REPOSITORY_BACKED_SYNTHETIC_RAW_AGGREGATION_VERSION",
+    "RepositoryBackedStratumManifestEntryV2",
+    "RepositoryBackedSyntheticRawAggregationDraftV2",
     "RawAggregationPolicyIdentityV1",
     "RawAggregationPopulationStateV1",
     "RawCompatibilityRunV1",
@@ -1784,5 +2496,6 @@ __all__ = [
     "RawWindowCoverageStateV1",
     "SYNTHETIC_RAW_AGGREGATION_VERSION",
     "SyntheticRawAggregationDraftV1",
+    "draft_repository_sealed_synthetic_raw_aggregation",
     "draft_synthetic_raw_aggregation",
 ]
