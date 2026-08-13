@@ -19,7 +19,7 @@ local runtime artifacts must never be added here.
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
-| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, and reviewed local automation admission controls | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
+| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, reviewed local automation admission controls, and crash-safe invalid estimator-automation reconciliation | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
 | P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, repository-issued synthetic comparison-stratum preparation and graph sealing, and bounded repository-sealed synthetic aggregation-validation receipts | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
@@ -430,6 +430,51 @@ Playwright tests. The privacy scanner, compile checks, and diff validation were
 green, and two independent read-only reviews returned `PASS`. These results
 prove admission, concurrency, failure, and interface integrity, not estimator
 calibration, product metric correctness, or outcome evidence.
+
+Pushed schema-v24 checkpoint `37e6389` (`Reconcile invalid estimator
+automation runtimes`) closes the queued-estimator liveness gap left by the
+admission checkpoint. Before a generic claim, the estimator runtime now scans
+only content-free, repository-bound `automation_once` metadata under
+`BEGIN IMMEDIATE`. Missing, revoked, expired, unsupported-profile, and exact
+provider, project, destination, local-boundary, route, and ordered-metric-scope
+mismatches resolve through a closed reason-code priority. No session identity,
+evidence packet, source text, provider API, model, or power state is read.
+
+For a clean `CREATED` runtime, reconciliation appends one exact `CANCELLED`
+runtime receipt and closes the queue in the same transaction. A requeued
+`RUNNING` runtime must have a valid attempt generation, no open stage attempt,
+no terminal-checkpoint anomaly, contiguous completed-stage history, and no
+state, checkpoint, or outcome timestamp later than the repository cleanup
+clock. It then seals one terminal checkpoint per bound metric before the
+runtime state and queue. Faults roll back checkpoints, runtime state, queue
+state, and transient HMAC authority together; concurrent and repeated cleanup
+is idempotent.
+
+A separate legitimate crash ordering can commit an existing runtime
+`PARTIAL`, `FAILED`, `CANCELLED`, or `SUPERSEDED` receipt before queue finish
+fails and requeues the job. Reconciliation preserves that exact prior outcome
+and reason rather than relabeling it as grant cancellation. Migration v24 adds
+no table, column, backfill, or content surface: it only permits queued
+estimator-to-`PARTIAL`/`FAILED` convergence when the latest bound sealed runtime
+receipt has the exact requested state and reason. The independent runtime
+terminal-seal trigger remains in force, and migrations v1-v23 and their
+checksums remain unchanged.
+
+This checkpoint does not interrupt an already executing blocking call, enforce
+the declared 1,800-second budget, read or calculate a metric, enable a model
+stage, establish calibration, create an eligibility or activation slot, or add
+an HTTP, CLI, or UI surface. Active execution invalidation remains governed by
+the existing cooperative runtime authority and lease-recovery boundaries.
+
+Frozen engineering evidence for the exact
+`37e638901289075dfd837f3e90f520efed23ffd7` tree is 55 estimator-runtime tests,
+8 direct v24 migration tests, a 324-test adjacent gate, and the full backend
+suite with 1,895 passed, 4 expected platform-only symlink skips, and one
+existing Starlette deprecation warning. The privacy scanner, compileall, and
+diff validation passed, and an independent adversarial review of the frozen
+chronology, rollback, concurrency, idempotence, and migration boundaries
+returned `PASS`. These results prove local queue/runtime convergence integrity,
+not estimator validity, calibration, product correctness, or outcome evidence.
 
 ## P2 foundation evidence
 
