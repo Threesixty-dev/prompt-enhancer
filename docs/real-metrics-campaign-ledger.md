@@ -19,7 +19,7 @@ local runtime artifacts must never be added here.
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
-| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, and repository-sealed non-activating gate decisions | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
+| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, and reviewed local automation admission controls | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
 | P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, repository-issued synthetic comparison-stratum preparation and graph sealing, and bounded repository-sealed synthetic aggregation-validation receipts | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
@@ -392,6 +392,44 @@ frontend tests; a successful production build; and 13 passing Playwright tests.
 The privacy scan, compile checks, and diff validation passed, and independent
 backend and frontend reviews returned `PASS`. These are implementation and
 privacy results, not calibration, product-history, or recommendation evidence.
+
+Pushed checkpoint `a05c1e3` (`Enforce reviewed automation admission policy`)
+turns the previously persisted automation resource receipt into a narrow,
+truthful admission boundary. New grants and renewals accept only the reviewed
+balanced profile: one per-grant CPU admission lane, a GPU ceiling of one with
+zero current session-quality GPU use, battery/unknown power admission pause,
+and a declared 1,800-second runtime budget. Historical broader profiles remain
+readable and revocable, but they cannot be renewed, scheduled, claimed, or used
+to launch estimator work.
+
+The scheduler checks the exact profile before provider, session-candidate, or
+job access; current consent is checked before a fresh per-grant power sample.
+Battery and unknown power pause only new admission and leave queued attempts and
+leases unchanged. They do not interrupt already-running work. SQLite claim
+admission runs under `BEGIN IMMEDIATE`, revalidates the live grant, project,
+provider, ordered metric scope, local boundary, and exact resource profile, and
+allows at most one unexpired active job per grant without starving manual work
+or work for another grant. Invalid non-estimator automation rows receive only a
+closed set of content-free reconciliation codes. Invalid queued estimator rows
+are not claimed and remain queued, unleased, zero-attempt, and unread because
+their append-only runtime requires a separate reviewed reconciliation path.
+
+This checkpoint does not enforce the declared 1,800-second budget as a hard
+runtime deadline, pause work in progress, allocate a GPU worker, enable a model
+stage, validate any metric, or activate an estimator. The API, OpenAPI schema,
+and UI expose those limitations directly, and no schema migration was needed.
+The remaining hard runtime deadline and estimator-specific cleanup are still
+P1 work; the representative human-calibration and activation blockers are
+unchanged.
+
+Frozen engineering evidence for the exact
+`a05c1e3a8718b19aa1ab8e79a46cbd2e95cddff0` tree is 1,867 passing backend
+tests, 4 expected platform-only symlink skips, and one existing warning; 390
+passing frontend tests; a successful production build; and 13 passing
+Playwright tests. The privacy scanner, compile checks, and diff validation were
+green, and two independent read-only reviews returned `PASS`. These results
+prove admission, concurrency, failure, and interface integrity, not estimator
+calibration, product metric correctness, or outcome evidence.
 
 ## P2 foundation evidence
 
