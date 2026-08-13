@@ -383,6 +383,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metric-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Provider Metric Coverage */
+        get: operations["provider_metric_coverage_v1_metric_coverage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metrics/definitions": {
         parameters: {
             query?: never;
@@ -411,6 +428,23 @@ export interface paths {
         put?: never;
         /** Annotate Link */
         post: operations["annotate_link_v1_model_link_experiments__run_id__links__link_id__annotations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/metric-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Metric Coverage */
+        get: operations["project_metric_coverage_v1_projects__project_id__metric_coverage_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1000,7 +1034,7 @@ export interface components {
          * AnalysisJobKind
          * @enum {string}
          */
-        AnalysisJobKind: "session_quality" | "synthetic_validation";
+        AnalysisJobKind: "session_quality" | "synthetic_validation" | "estimator_execution";
         /** AnalysisJobPageResponse */
         AnalysisJobPageResponse: {
             /** Jobs */
@@ -1964,6 +1998,17 @@ export interface components {
          * @enum {string}
          */
         LabelEntityKind: "project" | "session";
+        /** LatestProfileRunCounts */
+        LatestProfileRunCounts: {
+            /** Completed */
+            completed: number;
+            /** Failed */
+            failed: number;
+            /** Never Run */
+            never_run: number;
+            /** Running */
+            running: number;
+        };
         /** ManualDisplayLabelRequest */
         ManualDisplayLabelRequest: {
             /** Expected Revision */
@@ -1993,6 +2038,187 @@ export interface components {
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
         };
+        /** MetricCoverageMetric */
+        MetricCoverageMetric: {
+            /** Compatible Provenance Cohort Count */
+            compatible_provenance_cohort_count: number;
+            /** Completed Selected Run Count */
+            completed_selected_run_count: number;
+            contract_compatible_result_states: components["schemas"]["MetricResultStateCounts"];
+            /** Contract Incompatible Result Count */
+            contract_incompatible_result_count: number;
+            /** Dimension */
+            dimension: string;
+            /** Display Name */
+            display_name: string;
+            /** Effective Automation Selected Project Count */
+            effective_automation_selected_project_count: number;
+            /** Expected Result Absent Count */
+            expected_result_absent_count: number;
+            /** Latest Completed Run Count */
+            latest_completed_run_count: number;
+            /** Metric Key */
+            metric_key: string;
+            /** Metric Version */
+            metric_version: number;
+            /** Not Selected Run Count */
+            not_selected_run_count: number;
+            /** Required Evidence */
+            required_evidence: components["schemas"]["MetricEvidenceCapability"][][];
+            /** Selected Run Count */
+            selected_run_count: number;
+            structural_support: components["schemas"]["MetricStructuralSupportState"];
+            /** Unknown Scope Run Count */
+            unknown_scope_run_count: number;
+        };
+        /**
+         * MetricCoverageReport
+         * @description Identifier-free coverage truth for one exact local-index snapshot.
+         */
+        MetricCoverageReport: {
+            /**
+             * Analysis Profile Key
+             * @default coaching_profile
+             * @constant
+             */
+            analysis_profile_key: "coaching_profile";
+            /**
+             * Analysis Profile Version
+             * @default 1
+             * @constant
+             */
+            analysis_profile_version: 1;
+            /**
+             * Automation Scheduling Scope
+             * @default new_or_changed_newest_bounded
+             * @constant
+             */
+            automation_scheduling_scope: "new_or_changed_newest_bounded";
+            capability_report: components["schemas"]["ProviderCapabilityReport"];
+            /**
+             * Comparison Authority
+             * @default false
+             * @constant
+             */
+            comparison_authority: false;
+            /**
+             * Contract Version
+             * @default metric-coverage-report-v1
+             * @constant
+             */
+            contract_version: "metric-coverage-report-v1";
+            /** Effective Automation Grant Count */
+            effective_automation_grant_count: number;
+            /** Effective Automation Project Count */
+            effective_automation_project_count: number;
+            /**
+             * Full Catalog Automation Coverage Guaranteed
+             * @default false
+             * @constant
+             */
+            full_catalog_automation_coverage_guaranteed: false;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Indexed Project Count */
+            indexed_project_count: number;
+            /** Indexed Session Count */
+            indexed_session_count: number;
+            /** Latest Completed Snapshot Count */
+            latest_completed_snapshot_count: number;
+            latest_profile_runs: components["schemas"]["LatestProfileRunCounts"];
+            /**
+             * Local Index Snapshot Exact
+             * @default true
+             * @constant
+             */
+            local_index_snapshot_exact: true;
+            /**
+             * Metric Catalog Version
+             * @default coaching-evidence-capabilities-v1
+             * @constant
+             */
+            metric_catalog_version: "coaching-evidence-capabilities-v1";
+            /**
+             * Metric Pack Key
+             * @default experimental.redacted-text.coaching
+             * @constant
+             */
+            metric_pack_key: "experimental.redacted-text.coaching";
+            /**
+             * Metric Pack Version
+             * @default 3
+             * @constant
+             */
+            metric_pack_version: 3;
+            /**
+             * Metric Values Included
+             * @default false
+             * @constant
+             */
+            metric_values_included: false;
+            /** Metrics */
+            metrics: components["schemas"]["MetricCoverageMetric"][];
+            /**
+             * Population Completeness Verified
+             * @default false
+             * @constant
+             */
+            population_completeness_verified: false;
+            /**
+             * Product Source Authority
+             * @default false
+             * @constant
+             */
+            product_source_authority: false;
+            provider: components["schemas"]["Provider"];
+            /**
+             * Provider Capability Snapshot Atomic
+             * @default false
+             * @constant
+             */
+            provider_capability_snapshot_atomic: false;
+            /**
+             * Provider History Completeness
+             * @default unknown
+             * @constant
+             */
+            provider_history_completeness: "unknown";
+            /**
+             * Provider Snapshot Authority
+             * @default unavailable
+             * @constant
+             */
+            provider_snapshot_authority: "unavailable";
+            /**
+             * Recommendation Authority
+             * @default false
+             * @constant
+             */
+            recommendation_authority: false;
+            scope: components["schemas"]["MetricCoverageScope"];
+            /**
+             * Snapshot Materialization Allowed
+             * @default false
+             * @constant
+             */
+            snapshot_materialization_allowed: false;
+            /**
+             * Stored Result Contract Validation Performed
+             * @default true
+             * @constant
+             */
+            stored_result_contract_validation_performed: true;
+            /** Unrecognized Result Record Count */
+            unrecognized_result_record_count: number;
+        };
+        /**
+         * MetricCoverageScope
+         * @enum {string}
+         */
+        MetricCoverageScope: "provider_catalog" | "one_project";
         /**
          * MetricDirection
          * @enum {string}
@@ -2059,6 +2285,19 @@ export interface components {
          * @enum {string}
          */
         MetricReadinessState: "known" | "unknown" | "unsupported" | "abstained" | "incompatible" | "not_applicable" | "failed";
+        /** MetricResultStateCounts */
+        MetricResultStateCounts: {
+            /** Abstained */
+            abstained: number;
+            /** Execution Error */
+            execution_error: number;
+            /** Known */
+            known: number;
+            /** Not Applicable */
+            not_applicable: number;
+            /** Unknown */
+            unknown: number;
+        };
         /** MetricRoadmapItemDto */
         MetricRoadmapItemDto: {
             /** Caution */
@@ -2094,6 +2333,11 @@ export interface components {
          * @enum {string}
          */
         MetricSource: "provider_reported" | "deterministic" | "human_label" | "estimated";
+        /**
+         * MetricStructuralSupportState
+         * @enum {string}
+         */
+        MetricStructuralSupportState: "attemptable" | "unsupported" | "unknown";
         /**
          * MetricValueState
          * @enum {string}
@@ -4671,6 +4915,40 @@ export interface operations {
             };
         };
     };
+    provider_metric_coverage_v1_metric_coverage_get: {
+        parameters: {
+            query?: {
+                provider?: components["schemas"]["Provider"];
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricCoverageReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     metric_definitions_v1_metrics_definitions_get: {
         parameters: {
             query?: never;
@@ -4758,6 +5036,49 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+        };
+    };
+    project_metric_coverage_v1_projects__project_id__metric_coverage_get: {
+        parameters: {
+            query?: {
+                provider?: components["schemas"]["Provider"];
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricCoverageReport"];
+                };
+            };
+            /** @description Indexed project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

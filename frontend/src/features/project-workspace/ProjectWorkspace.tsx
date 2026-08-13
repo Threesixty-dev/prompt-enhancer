@@ -7,6 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { SessionMetricCard } from "../../entities/analysis/SessionMetricCard";
+import { MetricCoveragePanel } from "../metric-coverage";
 import {
   METRIC_TAXONOMY,
   metricCategoryDefinition,
@@ -14,6 +15,7 @@ import {
 } from "../../entities/analysis/metricTaxonomy";
 import type {
   CodexSession,
+  Provider,
   ProviderCompatibilityStatus,
   ProjectSessionListResponse,
   PromptEnhancerTransport,
@@ -478,10 +480,12 @@ export function ProjectWorkspace({
   route,
   transport,
   navigate,
+  coverageProvider = "codex",
 }: {
   route: ProjectWorkspaceRoute;
   transport: PromptEnhancerTransport;
   navigate: (route: AppRoute) => void;
+  coverageProvider?: Provider;
 }) {
   const [sessions, setSessions] = useState<CodexSession[] | null>(null);
   const [projectSessionTotal, setProjectSessionTotal] = useState(0);
@@ -1258,6 +1262,11 @@ export function ProjectWorkspace({
               <div><dt>Partial</dt><dd>{projectSessions.length - completeSessions}</dd></div>
             </dl>
           </div>
+          <MetricCoveragePanel
+            projectId={route.projectId}
+            provider={coverageProvider}
+            transport={transport}
+          />
           <MetricCategoryDeck onOpen={openCategory} />
           {projectSessionsTruncated && (
             <div className="snapshot-boundary snapshot-boundary--partial" role="note">

@@ -32,6 +32,7 @@ from .application.analysis.session_text_service import SessionTextAnalysisServic
 from .application.jobs import AnalysisJobService, AnalysisJobWorker
 from .application.automation import AutomationGrantService, AutomationGrantWorker
 from .application.analysis.metric_readiness import MetricReadinessService
+from .application.analysis.metric_coverage import MetricCoverageService
 from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
@@ -56,6 +57,7 @@ from .interfaces.http import (
     create_project_quality_aggregation_router,
     create_provider_compatibility_router,
     create_metric_readiness_router,
+    create_metric_coverage_router,
     create_research_router,
     create_model_link_experiment_router,
     create_analysis_job_router,
@@ -280,6 +282,7 @@ def create_app(
     project_quality_aggregation_service: ProjectQualityAggregationService | None = None,
     provider_compatibility_catalog: ProviderCompatibilityCatalog | None = None,
     metric_readiness_service: MetricReadinessService | None = None,
+    metric_coverage_service: MetricCoverageService | None = None,
     codex_source_service: CodexLocalSourceService | None = None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
@@ -363,6 +366,7 @@ def create_app(
             marker in request.url.path
             for marker in (
                 "quality-analysis-previews",
+                "metric-coverage",
                 "/analysis-jobs",
                 "/automation-grants",
                 "/estimators",
@@ -591,6 +595,13 @@ def create_app(
             create_metric_readiness_router(
                 require_local_token,
                 metric_readiness_service,
+            )
+        )
+    if metric_coverage_service is not None:
+        app.include_router(
+            create_metric_coverage_router(
+                require_local_token,
+                metric_coverage_service,
             )
         )
     if session_text_analysis_service is not None:

@@ -68,6 +68,10 @@ export type MetricReadinessAction = Schemas["MetricReadinessAction"];
 export type MetricReadinessReason = Schemas["MetricReadinessReason"];
 export type MetricReadinessState = Schemas["MetricReadinessState"];
 export type MetricRadarPolicy = Schemas["MetricRadarPolicy"];
+export type MetricCoverageMetric = Schemas["MetricCoverageMetric"];
+export type MetricCoverageReport = Schemas["MetricCoverageReport"];
+export type MetricCoverageScope = Schemas["MetricCoverageScope"];
+export type MetricResultStateCounts = Schemas["MetricResultStateCounts"];
 export type SessionMetricReadinessReport =
   Schemas["SessionMetricReadinessReport"];
 export type TextAnalysisPresetId = Schemas["TextAnalysisPresetId"];
@@ -325,6 +329,15 @@ export interface PromptEnhancerTransport {
     provider: Provider,
     signal?: AbortSignal,
   ): Promise<ProviderCapabilityReport>;
+  getMetricCoverage(
+    provider: Provider,
+    signal?: AbortSignal,
+  ): Promise<MetricCoverageReport>;
+  getProjectMetricCoverage(
+    projectId: string,
+    provider: Provider,
+    signal?: AbortSignal,
+  ): Promise<MetricCoverageReport>;
   getSessionMetricReadiness(
     sessionId: string,
     presetId?: TextAnalysisPresetId,

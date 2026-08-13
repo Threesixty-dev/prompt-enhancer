@@ -5,7 +5,10 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
-import { SYNTHETIC_QUALITY_PROJECT_ID } from "../../shared/api/syntheticFixtures";
+import {
+  SYNTHETIC_METRIC_COVERAGE,
+  SYNTHETIC_QUALITY_PROJECT_ID,
+} from "../../shared/api/syntheticFixtures";
 import { TransportError } from "../../shared/api/httpTransport";
 import { ProjectCatalog } from "./ProjectCatalog";
 
@@ -95,6 +98,38 @@ function transportWithSessions(): {
 }
 
 describe("ProjectCatalog", () => {
+  it("mounts provider-wide coverage without coupling it to catalog success", async () => {
+    const { transport } = transportWithSessions();
+    const getMetricCoverage = vi.fn(async () => SYNTHETIC_METRIC_COVERAGE);
+    transport.getMetricCoverage = getMetricCoverage;
+    render(
+      <ProjectCatalog
+        coverageProvider="synthetic"
+        navigate={vi.fn()}
+        transport={transport}
+      />,
+    );
+
+    expect(await screen.findByText("Example Observatory")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Coaching metric coverage" }))
+      .toBeVisible();
+    expect(getMetricCoverage).toHaveBeenCalledWith(
+      "synthetic",
+      expect.any(AbortSignal),
+    );
+
+    transport.getMetricCoverage = vi.fn(async () => {
+      throw new Error("PRIVATE-COVERAGE-CANARY");
+    });
+    render(
+      <ProjectCatalog navigate={vi.fn()} transport={transport} />,
+    );
+    expect((await screen.findAllByText("Example Observatory")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("heading", { name: "Metric coverage: Unknown" })).length)
+      .toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("PRIVATE-COVERAGE-CANARY");
+  });
+
   it("groups the bounded stored session list by full project pseudonym", async () => {
     const { transport, listCodexSessions } = transportWithSessions();
     const navigate = vi.fn();
@@ -180,7 +215,7 @@ describe("ProjectCatalog", () => {
       name: "Combined project signal profile",
     });
     expect(resultHeading).toBeVisible();
-    expect(resultHeading).toHaveFocus();
+    await waitFor(() => expect(resultHeading).toHaveFocus());
     expect(document.title).toBe("Combined project signals · Prompt Enhancer");
     expect(aggregateProjectQuality).toHaveBeenCalledWith(
       {

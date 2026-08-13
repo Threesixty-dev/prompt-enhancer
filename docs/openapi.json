@@ -207,7 +207,8 @@
       "AnalysisJobKind": {
         "enum": [
           "session_quality",
-          "synthetic_validation"
+          "synthetic_validation",
+          "estimator_execution"
         ],
         "title": "AnalysisJobKind",
         "type": "string"
@@ -2826,6 +2827,39 @@
         "title": "LabelEntityKind",
         "type": "string"
       },
+      "LatestProfileRunCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "completed": {
+            "minimum": 0.0,
+            "title": "Completed",
+            "type": "integer"
+          },
+          "failed": {
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "never_run": {
+            "minimum": 0.0,
+            "title": "Never Run",
+            "type": "integer"
+          },
+          "running": {
+            "minimum": 0.0,
+            "title": "Running",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completed",
+          "running",
+          "failed",
+          "never_run"
+        ],
+        "title": "LatestProfileRunCounts",
+        "type": "object"
+      },
       "ManualDisplayLabelRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2911,6 +2945,307 @@
         ],
         "title": "MergeTasksRequest",
         "type": "object"
+      },
+      "MetricCoverageMetric": {
+        "additionalProperties": false,
+        "properties": {
+          "compatible_provenance_cohort_count": {
+            "minimum": 0.0,
+            "title": "Compatible Provenance Cohort Count",
+            "type": "integer"
+          },
+          "completed_selected_run_count": {
+            "minimum": 0.0,
+            "title": "Completed Selected Run Count",
+            "type": "integer"
+          },
+          "contract_compatible_result_states": {
+            "$ref": "#/components/schemas/MetricResultStateCounts"
+          },
+          "contract_incompatible_result_count": {
+            "minimum": 0.0,
+            "title": "Contract Incompatible Result Count",
+            "type": "integer"
+          },
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "effective_automation_selected_project_count": {
+            "minimum": 0.0,
+            "title": "Effective Automation Selected Project Count",
+            "type": "integer"
+          },
+          "expected_result_absent_count": {
+            "minimum": 0.0,
+            "title": "Expected Result Absent Count",
+            "type": "integer"
+          },
+          "latest_completed_run_count": {
+            "minimum": 0.0,
+            "title": "Latest Completed Run Count",
+            "type": "integer"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_version": {
+            "minimum": 1.0,
+            "title": "Metric Version",
+            "type": "integer"
+          },
+          "not_selected_run_count": {
+            "minimum": 0.0,
+            "title": "Not Selected Run Count",
+            "type": "integer"
+          },
+          "required_evidence": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/MetricEvidenceCapability"
+              },
+              "type": "array"
+            },
+            "title": "Required Evidence",
+            "type": "array"
+          },
+          "selected_run_count": {
+            "minimum": 0.0,
+            "title": "Selected Run Count",
+            "type": "integer"
+          },
+          "structural_support": {
+            "$ref": "#/components/schemas/MetricStructuralSupportState"
+          },
+          "unknown_scope_run_count": {
+            "minimum": 0.0,
+            "title": "Unknown Scope Run Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "metric_key",
+          "metric_version",
+          "latest_completed_run_count",
+          "selected_run_count",
+          "not_selected_run_count",
+          "unknown_scope_run_count",
+          "completed_selected_run_count",
+          "contract_compatible_result_states",
+          "contract_incompatible_result_count",
+          "expected_result_absent_count",
+          "compatible_provenance_cohort_count",
+          "effective_automation_selected_project_count",
+          "dimension",
+          "display_name",
+          "structural_support",
+          "required_evidence"
+        ],
+        "title": "MetricCoverageMetric",
+        "type": "object"
+      },
+      "MetricCoverageReport": {
+        "additionalProperties": false,
+        "description": "Identifier-free coverage truth for one exact local-index snapshot.",
+        "properties": {
+          "analysis_profile_key": {
+            "const": "coaching_profile",
+            "default": "coaching_profile",
+            "title": "Analysis Profile Key",
+            "type": "string"
+          },
+          "analysis_profile_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Analysis Profile Version",
+            "type": "integer"
+          },
+          "automation_scheduling_scope": {
+            "const": "new_or_changed_newest_bounded",
+            "default": "new_or_changed_newest_bounded",
+            "title": "Automation Scheduling Scope",
+            "type": "string"
+          },
+          "capability_report": {
+            "$ref": "#/components/schemas/ProviderCapabilityReport"
+          },
+          "comparison_authority": {
+            "const": false,
+            "default": false,
+            "title": "Comparison Authority",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "metric-coverage-report-v1",
+            "default": "metric-coverage-report-v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "effective_automation_grant_count": {
+            "minimum": 0.0,
+            "title": "Effective Automation Grant Count",
+            "type": "integer"
+          },
+          "effective_automation_project_count": {
+            "minimum": 0.0,
+            "title": "Effective Automation Project Count",
+            "type": "integer"
+          },
+          "full_catalog_automation_coverage_guaranteed": {
+            "const": false,
+            "default": false,
+            "title": "Full Catalog Automation Coverage Guaranteed",
+            "type": "boolean"
+          },
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
+          },
+          "indexed_project_count": {
+            "minimum": 0.0,
+            "title": "Indexed Project Count",
+            "type": "integer"
+          },
+          "indexed_session_count": {
+            "minimum": 0.0,
+            "title": "Indexed Session Count",
+            "type": "integer"
+          },
+          "latest_completed_snapshot_count": {
+            "minimum": 0.0,
+            "title": "Latest Completed Snapshot Count",
+            "type": "integer"
+          },
+          "latest_profile_runs": {
+            "$ref": "#/components/schemas/LatestProfileRunCounts"
+          },
+          "local_index_snapshot_exact": {
+            "const": true,
+            "default": true,
+            "title": "Local Index Snapshot Exact",
+            "type": "boolean"
+          },
+          "metric_catalog_version": {
+            "const": "coaching-evidence-capabilities-v1",
+            "default": "coaching-evidence-capabilities-v1",
+            "title": "Metric Catalog Version",
+            "type": "string"
+          },
+          "metric_pack_key": {
+            "const": "experimental.redacted-text.coaching",
+            "default": "experimental.redacted-text.coaching",
+            "title": "Metric Pack Key",
+            "type": "string"
+          },
+          "metric_pack_version": {
+            "const": 3,
+            "default": 3,
+            "title": "Metric Pack Version",
+            "type": "integer"
+          },
+          "metric_values_included": {
+            "const": false,
+            "default": false,
+            "title": "Metric Values Included",
+            "type": "boolean"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricCoverageMetric"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "population_completeness_verified": {
+            "const": false,
+            "default": false,
+            "title": "Population Completeness Verified",
+            "type": "boolean"
+          },
+          "product_source_authority": {
+            "const": false,
+            "default": false,
+            "title": "Product Source Authority",
+            "type": "boolean"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "provider_capability_snapshot_atomic": {
+            "const": false,
+            "default": false,
+            "title": "Provider Capability Snapshot Atomic",
+            "type": "boolean"
+          },
+          "provider_history_completeness": {
+            "const": "unknown",
+            "default": "unknown",
+            "title": "Provider History Completeness",
+            "type": "string"
+          },
+          "provider_snapshot_authority": {
+            "const": "unavailable",
+            "default": "unavailable",
+            "title": "Provider Snapshot Authority",
+            "type": "string"
+          },
+          "recommendation_authority": {
+            "const": false,
+            "default": false,
+            "title": "Recommendation Authority",
+            "type": "boolean"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MetricCoverageScope"
+          },
+          "snapshot_materialization_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Snapshot Materialization Allowed",
+            "type": "boolean"
+          },
+          "stored_result_contract_validation_performed": {
+            "const": true,
+            "default": true,
+            "title": "Stored Result Contract Validation Performed",
+            "type": "boolean"
+          },
+          "unrecognized_result_record_count": {
+            "minimum": 0.0,
+            "title": "Unrecognized Result Record Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope",
+          "provider",
+          "generated_at",
+          "indexed_project_count",
+          "indexed_session_count",
+          "latest_profile_runs",
+          "latest_completed_snapshot_count",
+          "effective_automation_grant_count",
+          "effective_automation_project_count",
+          "unrecognized_result_record_count",
+          "metrics",
+          "capability_report"
+        ],
+        "title": "MetricCoverageReport",
+        "type": "object"
+      },
+      "MetricCoverageScope": {
+        "enum": [
+          "provider_catalog",
+          "one_project"
+        ],
+        "title": "MetricCoverageScope",
+        "type": "string"
       },
       "MetricDirection": {
         "enum": [
@@ -3097,6 +3432,45 @@
         "title": "MetricReadinessState",
         "type": "string"
       },
+      "MetricResultStateCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "abstained": {
+            "minimum": 0.0,
+            "title": "Abstained",
+            "type": "integer"
+          },
+          "execution_error": {
+            "minimum": 0.0,
+            "title": "Execution Error",
+            "type": "integer"
+          },
+          "known": {
+            "minimum": 0.0,
+            "title": "Known",
+            "type": "integer"
+          },
+          "not_applicable": {
+            "minimum": 0.0,
+            "title": "Not Applicable",
+            "type": "integer"
+          },
+          "unknown": {
+            "minimum": 0.0,
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "known",
+          "unknown",
+          "not_applicable",
+          "abstained",
+          "execution_error"
+        ],
+        "title": "MetricResultStateCounts",
+        "type": "object"
+      },
       "MetricRoadmapItemDto": {
         "additionalProperties": false,
         "properties": {
@@ -3190,6 +3564,15 @@
           "estimated"
         ],
         "title": "MetricSource",
+        "type": "string"
+      },
+      "MetricStructuralSupportState": {
+        "enum": [
+          "attemptable",
+          "unsupported",
+          "unknown"
+        ],
+        "title": "MetricStructuralSupportState",
         "type": "string"
       },
       "MetricValueState": {
@@ -9852,6 +10235,80 @@
         ]
       }
     },
+    "/v1/metric-coverage": {
+      "get": {
+        "operationId": "provider_metric_coverage_v1_metric_coverage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Provider",
+              "default": "codex"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricCoverageReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provider Metric Coverage",
+        "tags": [
+          "metric-coverage"
+        ]
+      }
+    },
     "/v1/metrics/definitions": {
       "get": {
         "operationId": "metric_definitions_v1_metrics_definitions_get",
@@ -10039,6 +10496,93 @@
         "summary": "Annotate Link",
         "tags": [
           "local-model-link-experiments"
+        ]
+      }
+    },
+    "/v1/projects/{project_id}/metric-coverage": {
+      "get": {
+        "operationId": "project_metric_coverage_v1_projects__project_id__metric_coverage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Provider",
+              "default": "codex"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricCoverageReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Indexed project not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Project Metric Coverage",
+        "tags": [
+          "metric-coverage"
         ]
       }
     },

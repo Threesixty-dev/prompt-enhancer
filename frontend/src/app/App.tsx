@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { PromptEnhancerTransport } from "../shared/api/contracts";
+import type { PromptEnhancerTransport, Provider } from "../shared/api/contracts";
 import type { AppRoute, PlatformAdapter } from "../shared/platform/platform";
 import { routePath } from "../shared/platform/platform";
 import type {
@@ -188,6 +188,8 @@ export function App({
     runtime.mode === "synthetic_demo" ? "available" : "checking",
   );
   const runtimeCopy = runtimeStatusCopy(runtime.mode, serviceState);
+  const coverageProvider: Provider =
+    runtime.mode === "synthetic_demo" ? "synthetic" : "codex";
 
   useEffect(() => platform.subscribe(setRoute), [platform]);
 
@@ -372,7 +374,11 @@ export function App({
                   transport={transport}
                 />
               ) : route.name === "projects" ? (
-                <ProjectCatalogScreen navigate={navigate} transport={transport} />
+                <ProjectCatalogScreen
+                  coverageProvider={coverageProvider}
+                  navigate={navigate}
+                  transport={transport}
+                />
               ) : route.name === "project_automation" ? (
                 <ProjectAutomationScreen
                   navigate={navigate}
@@ -383,6 +389,7 @@ export function App({
                 />
               ) : isProjectWorkspaceRoute(route) ? (
                 <ProjectWorkspaceScreen
+                  coverageProvider={coverageProvider}
                   navigate={navigate}
                   route={route}
                   transport={transport}

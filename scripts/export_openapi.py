@@ -16,6 +16,8 @@ if str(_SOURCE_ROOT) not in sys.path:
 
 from prompt_enhancer.api import create_app
 from prompt_enhancer.application.analysis import (
+    MetricCoverageReport,
+    MetricCoverageSelection,
     ModelExperimentDevice,
     ModelLinkAnnotationLabel,
     SessionTextAnalysisOutcome,
@@ -220,6 +222,15 @@ class _SchemaManualDisplayLabelService:
 
     pass
 
+
+class _SchemaMetricCoverageService:
+    """Non-executing stand-in for the content-free coverage routes."""
+
+    def report(self, selection: MetricCoverageSelection) -> MetricCoverageReport:
+        del selection
+        raise RuntimeError("schema-only service cannot query metric coverage")
+
+
 def build_openapi_schema() -> dict[str, Any]:
     """Build the complete UI contract without creating local state or secrets."""
 
@@ -234,6 +245,7 @@ def build_openapi_schema() -> dict[str, Any]:
         project_quality_aggregation_service=_SchemaProjectQualityAggregationService(),  # type: ignore[arg-type]
         provider_compatibility_catalog=_SchemaProviderCompatibilityCatalog(),  # type: ignore[arg-type]
         metric_readiness_service=_SchemaMetricReadinessService(),  # type: ignore[arg-type]
+        metric_coverage_service=_SchemaMetricCoverageService(),  # type: ignore[arg-type]
         analysis_job_service=_SchemaAnalysisJobService(),  # type: ignore[arg-type]
         automation_grant_service=_SchemaAutomationGrantService(),  # type: ignore[arg-type]
         estimator_repository=_SchemaEstimatorRepository(),  # type: ignore[arg-type]

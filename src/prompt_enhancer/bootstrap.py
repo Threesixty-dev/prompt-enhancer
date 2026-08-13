@@ -21,6 +21,7 @@ from .privacy import (
 
 if TYPE_CHECKING:
     from .application.analysis import (
+        MetricCoverageService,
         MetricReadinessService,
         ProjectQualityAggregationService,
         SessionModelLinkExperimentService,
@@ -241,6 +242,22 @@ class LocalApplication:
             compatibility_catalog,
         )
 
+    def create_metric_coverage_service(
+        self,
+        metric_readiness_service: MetricReadinessService,
+    ) -> MetricCoverageService:
+        """Compose exact local-index counts with cached capability truth."""
+
+        from datetime import UTC, datetime
+
+        from .application.analysis.metric_coverage import MetricCoverageService
+
+        return MetricCoverageService(
+            self.database.metric_coverage_repository(),
+            metric_readiness_service,
+            clock=lambda: datetime.now(UTC),
+        )
+
     def create_session_model_link_experiment_service(
         self,
         compatibility_policy: ProviderSurfaceCompatibilityPolicy,
@@ -435,6 +452,12 @@ class LocalApplication:
         session_text_analysis_service = self.create_session_text_analysis_service(
             compatibility_policy
         )
+        metric_readiness_service = self.create_metric_readiness_service(
+            compatibility_catalog
+        )
+        metric_coverage_service = self.create_metric_coverage_service(
+            metric_readiness_service
+        )
         analysis_job_service = self.create_analysis_job_service()
         (
             automation_grant_service,
@@ -464,9 +487,8 @@ class LocalApplication:
                 self.create_project_quality_aggregation_service()
             ),
             provider_compatibility_catalog=compatibility_catalog,
-            metric_readiness_service=(
-                self.create_metric_readiness_service(compatibility_catalog)
-            ),
+            metric_readiness_service=metric_readiness_service,
+            metric_coverage_service=metric_coverage_service,
             codex_source_service=codex_source_service,
             display_label_service=self.create_manual_display_label_service(),
             model_evaluation_service=LocalTextModelEvaluationService(),

@@ -1705,6 +1705,19 @@ class Database:
             ),
         )
 
+    def metric_coverage_repository(self):
+        """Return the read-only, identifier-free coverage projection."""
+
+        from .infrastructure.sqlite.metric_coverage import (
+            SqliteMetricCoverageRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteMetricCoverageRepository(
+            self._connection,
+            self._ensure_initialized,
+        )
+
     def temporal_history_repository(self):
         """Return repository-owned prospective synthetic temporal persistence."""
 

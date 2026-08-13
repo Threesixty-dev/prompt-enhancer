@@ -12,6 +12,7 @@ import type {
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import {
+  SYNTHETIC_METRIC_COVERAGE,
   SYNTHETIC_QUALITY_PROJECT_ID,
   SYNTHETIC_QUALITY_SESSION_ID,
   SYNTHETIC_SESSION_METRIC_READINESS,
@@ -437,6 +438,47 @@ function workspaceTransport() {
 }
 
 describe("ProjectWorkspace", () => {
+  it("mounts project-scoped coverage only on the overview", async () => {
+    const { transport } = workspaceTransport();
+    const report = {
+      ...structuredClone(SYNTHETIC_METRIC_COVERAGE),
+      scope: "one_project" as const,
+    };
+    const getProjectMetricCoverage = vi.fn(async () => report);
+    transport.getProjectMetricCoverage = getProjectMetricCoverage;
+    const { rerender } = render(
+      <ProjectWorkspace
+        coverageProvider="synthetic"
+        navigate={vi.fn()}
+        route={{ name: "project_overview", projectId }}
+        transport={transport}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Coaching metric coverage" }))
+      .toBeVisible();
+    expect(getProjectMetricCoverage).toHaveBeenCalledWith(
+      projectId,
+      "synthetic",
+      expect.any(AbortSignal),
+    );
+
+    rerender(
+      <ProjectWorkspace
+        coverageProvider="synthetic"
+        navigate={vi.fn()}
+        route={{ name: "project_sessions", projectId }}
+        transport={transport}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Coaching metric coverage" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(getProjectMetricCoverage).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the iconized project-section navigator operable in the compact masthead", async () => {
     installMastheadObserver();
     const { transport } = workspaceTransport();
@@ -740,7 +782,9 @@ describe("ProjectWorkspace", () => {
         "This project is not present in the current bounded local index.",
       ),
     ).toBeVisible();
-    expect(document.title).toBe("Metric deck · Unnamed project · Prompt Enhancer");
+    await waitFor(() =>
+      expect(document.title).toBe("Metric deck · Unnamed project · Prompt Enhancer"),
+    );
   });
 
   it("names each review context as signals rather than a universal metric", async () => {

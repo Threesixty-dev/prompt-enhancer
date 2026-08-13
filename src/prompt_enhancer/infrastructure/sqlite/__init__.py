@@ -4,6 +4,7 @@ __all__ = (
     "SqliteAnalysisRunRepository",
     "SqliteModelLinkExperimentRepository",
     "SqliteSessionAnalysisRunRepository",
+    "SqliteMetricCoverageRepository",
     "SqliteTemporalSyntheticAggregationValidationRepository",
     "SqliteTemporalComparisonStratumRepository",
     "SqliteTemporalHistoryRepository",
@@ -26,6 +27,10 @@ def __getattr__(name: str):
         from .session_analysis_runs import SqliteSessionAnalysisRunRepository
 
         return SqliteSessionAnalysisRunRepository
+    if name == "SqliteMetricCoverageRepository":
+        from .metric_coverage import SqliteMetricCoverageRepository
+
+        return SqliteMetricCoverageRepository
     if name == "SqliteModelLinkExperimentRepository":
         from .model_link_experiments import SqliteModelLinkExperimentRepository
 

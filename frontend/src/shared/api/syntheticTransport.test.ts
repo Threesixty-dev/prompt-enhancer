@@ -8,6 +8,7 @@ import {
   SYNTHETIC_QUALITY_SESSION_ID,
   SYNTHETIC_RUN,
   SYNTHETIC_MODEL_LINK_EXPERIMENT,
+  SYNTHETIC_METRIC_COVERAGE,
   SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
   SYNTHETIC_SESSION_METRIC_READINESS,
 } from "./syntheticFixtures";
@@ -73,6 +74,28 @@ describe("synthetic transport vertical slice", () => {
         SYNTHETIC_QUALITY_SESSION_ID,
         "standard_engineering_v1",
       ),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("exposes isolated, content-free provider and project coverage fixtures", async () => {
+    const transport = createSyntheticTransport();
+    const provider = await transport.getMetricCoverage("synthetic");
+    const project = await transport.getProjectMetricCoverage(
+      SYNTHETIC_QUALITY_PROJECT_ID,
+      "synthetic",
+    );
+
+    expect(provider).toEqual(SYNTHETIC_METRIC_COVERAGE);
+    expect(project).toEqual({ ...SYNTHETIC_METRIC_COVERAGE, scope: "one_project" });
+    provider.metrics[0].contract_compatible_result_states.known = 99;
+    await expect(transport.getMetricCoverage("synthetic")).resolves.toEqual(
+      SYNTHETIC_METRIC_COVERAGE,
+    );
+    await expect(transport.getMetricCoverage("codex")).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(
+      transport.getProjectMetricCoverage("f".repeat(64), "synthetic"),
     ).rejects.toMatchObject({ status: 404 });
   });
 

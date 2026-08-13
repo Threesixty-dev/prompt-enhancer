@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CodexSession,
   PromptEnhancerTransport,
+  Provider,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import type { AppRoute } from "../../shared/platform/platform";
 import { isPseudonym } from "../../shared/platform/platform";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
 import { Icon } from "../../shared/ui/Icon";
+import { MetricCoveragePanel } from "../metric-coverage";
 import {
   ProjectComparison,
   resolveProjectComparison,
@@ -234,9 +236,11 @@ function buildCatalog(sessions: readonly CodexSession[]): ProjectCatalogItem[] {
 export function ProjectCatalog({
   transport,
   navigate,
+  coverageProvider = "codex",
 }: {
   transport: PromptEnhancerTransport;
   navigate: (route: AppRoute) => void;
+  coverageProvider?: Provider;
 }) {
   const [sessions, setSessions] = useState<CodexSession[] | null>(null);
   const [error, setError] = useState("");
@@ -414,6 +418,8 @@ export function ProjectCatalog({
           <Icon name="lock" /> Stored local index
         </span>
       </header>
+
+      <MetricCoveragePanel provider={coverageProvider} transport={transport} />
 
       <div className="project-catalog__controls" role="search">
         <label className="field project-catalog__search">

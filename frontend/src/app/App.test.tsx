@@ -300,6 +300,7 @@ describe("App discovery navigation", () => {
   it("renders the fictional project catalog in synthetic preview", async () => {
     const transport = createSyntheticTransport();
     const listSpy = vi.spyOn(transport, "listCodexSessions");
+    const coverageSpy = vi.spyOn(transport, "getMetricCoverage");
     render(
       <App
         platform={createMemoryPlatform({ name: "projects" })}
@@ -309,6 +310,25 @@ describe("App discovery navigation", () => {
 
     expect(await screen.findByText("Synthetic Metric Lab")).toBeVisible();
     expect(listSpy).toHaveBeenCalledTimes(1);
+    expect(coverageSpy).toHaveBeenCalledWith("synthetic", expect.any(AbortSignal));
+  });
+
+  it("selects codex coverage for the local runtime", async () => {
+    const local = localFixtureTransport(async () => HEALTHY_LOCAL_RUNTIME);
+    local.listCodexSessions = vi.fn(async () => ({ sessions: [], limit: 100, offset: 0 }));
+    const coverage = vi.spyOn(local, "getMetricCoverage").mockRejectedValue(
+      new Error("Synthetic local coverage failure"),
+    );
+    render(
+      <App
+        platform={createMemoryPlatform({ name: "projects" })}
+        runtime={createRuntimeComposition("local_real", local)}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Metric coverage: Unknown" }))
+      .toBeVisible();
+    expect(coverage).toHaveBeenCalledWith("codex", expect.any(AbortSignal));
   });
 
   it("supports a direct fictional quality-profile route for browser QA", async () => {

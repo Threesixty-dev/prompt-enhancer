@@ -27,6 +27,7 @@ import {
   SYNTHETIC_SESSION_METRIC_READINESS,
   SYNTHETIC_MODEL_LINK_EXPERIMENT,
   SYNTHETIC_MODEL_LINK_OUTCOME,
+  SYNTHETIC_METRIC_COVERAGE,
 } from "./syntheticFixtures";
 import { TransportError } from "./httpTransport";
 import { SYNTHETIC_TEXT_ANALYSIS_RESEARCH } from "./syntheticResearchFixture";
@@ -395,6 +396,21 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         throw new TransportError("Synthetic provider capabilities were not found", 404);
       }
       return copy(SYNTHETIC_PROVIDER_METRIC_CAPABILITIES);
+    },
+    async getMetricCoverage(provider) {
+      if (provider !== "synthetic") {
+        throw new TransportError("Synthetic metric coverage was not found", 404);
+      }
+      const report = copy(SYNTHETIC_METRIC_COVERAGE);
+      return report;
+    },
+    async getProjectMetricCoverage(projectId, provider) {
+      if (projectId !== SYNTHETIC_QUALITY_PROJECT_ID || provider !== "synthetic") {
+        throw new TransportError("Synthetic project coverage was not found", 404);
+      }
+      const report = copy(SYNTHETIC_METRIC_COVERAGE);
+      report.scope = "one_project";
+      return report;
     },
     async getSessionMetricReadiness(
       sessionId,

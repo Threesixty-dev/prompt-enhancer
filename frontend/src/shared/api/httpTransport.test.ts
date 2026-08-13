@@ -14,6 +14,7 @@ import {
   parseAutomationGrantList,
   parseAutomationGrantRecord,
   parseAutomationPollResult,
+  parseMetricCoverageReport,
   parseProviderCapabilityReport,
   parseProviderCompatibilityStatus,
   parseRuntimeHealth,
@@ -26,6 +27,7 @@ import {
 import {
   SYNTHETIC_MODEL_LINK_EXPERIMENT,
   SYNTHETIC_MODEL_LINK_OUTCOME,
+  SYNTHETIC_METRIC_COVERAGE,
   SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
   SYNTHETIC_SESSION_METRIC_READINESS,
   SYNTHETIC_SESSION_QUALITY_RUN,
@@ -786,6 +788,106 @@ describe("same-origin HTTP transport", () => {
         "codex",
       ),
     ).toThrow(TransportError);
+  });
+
+  it("reads provider and project metric coverage through private no-store routes", async () => {
+    const projectId = "4".repeat(64);
+    const projectCoverage = {
+      ...structuredClone(SYNTHETIC_METRIC_COVERAGE),
+      scope: "one_project" as const,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(SYNTHETIC_METRIC_COVERAGE))
+      .mockResolvedValueOnce(privateJsonResponse(projectCoverage));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getMetricCoverage("synthetic")).resolves.toEqual(
+      SYNTHETIC_METRIC_COVERAGE,
+    );
+    await expect(
+      transport.getProjectMetricCoverage(projectId, "synthetic"),
+    ).resolves.toEqual(projectCoverage);
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/v1/metric-coverage?provider=synthetic",
+    );
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      `/v1/projects/${projectId}/metric-coverage?provider=synthetic`,
+    );
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect(call[1]).toEqual(expect.objectContaining({
+        cache: "no-store",
+        method: "GET",
+      }));
+    }
+  });
+
+  it("fails closed when metric coverage is not delivered as a private response", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(SYNTHETIC_METRIC_COVERAGE));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getMetricCoverage("synthetic")).rejects.toThrow(
+      "Private local response was not cache-safe",
+    );
+  });
+
+  it("accepts only exact, identifier-free and internally preserved coverage", () => {
+    expect(
+      parseMetricCoverageReport(
+        SYNTHETIC_METRIC_COVERAGE,
+        "synthetic",
+        "provider_catalog",
+      ),
+    ).toEqual(SYNTHETIC_METRIC_COVERAGE);
+
+    const cases: unknown[] = [
+      { ...SYNTHETIC_METRIC_COVERAGE, project_id: "4".repeat(64) },
+      { ...SYNTHETIC_METRIC_COVERAGE, generated_at: "2040-02-31T09:13:00Z" },
+      {
+        ...SYNTHETIC_METRIC_COVERAGE,
+        capability_report: {
+          ...SYNTHETIC_METRIC_COVERAGE.capability_report,
+          checked_at: "2040-02-31T09:13:00Z",
+        },
+      },
+      { ...SYNTHETIC_METRIC_COVERAGE, provider: "codex" },
+      {
+        ...SYNTHETIC_METRIC_COVERAGE,
+        latest_profile_runs: {
+          completed: 0, running: 0, failed: 0, never_run: 1,
+        },
+      },
+      (() => {
+        const value = structuredClone(SYNTHETIC_METRIC_COVERAGE);
+        value.metrics[0].contract_compatible_result_states.known = 2;
+        return value;
+      })(),
+      (() => {
+        const value = structuredClone(SYNTHETIC_METRIC_COVERAGE);
+        value.metrics[0].display_name = "PRIVATE-COVERAGE-CANARY";
+        return value;
+      })(),
+      (() => {
+        const value = structuredClone(SYNTHETIC_METRIC_COVERAGE);
+        value.metrics.reverse();
+        return value;
+      })(),
+    ];
+
+    for (const value of cases) {
+      expect(() =>
+        parseMetricCoverageReport(value, "synthetic", "provider_catalog"),
+      ).toThrow(TransportError);
+    }
   });
 
   it("accepts the backend readiness-token alphabet and rejects values outside its bounds", () => {

@@ -19,6 +19,7 @@ import type {
   CodexSessionListResponse,
   DisplayLabelEntityKind,
   ManualDisplayLabelResult,
+  MetricCoverageReport,
   ModelLabInventory,
   ModelLinkAnnotation,
   ModelLinkAnnotationRequest,
@@ -332,9 +333,6 @@ const COMPATIBILITY_KEYS = new Set([
 ]);
 const SAFE_COMPATIBILITY_FAMILY = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const SAFE_COMPATIBILITY_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
-const SAFE_COMPATIBILITY_DATE =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
-
 function safeNullableVersion(value: unknown): value is string | null {
   return value === null ||
     (typeof value === "string" && SAFE_COMPATIBILITY_VERSION.test(value));
@@ -405,9 +403,7 @@ export function parseProviderCompatibilityStatus(
     ].includes(value.reason_code as string) ||
     !(
       value.checked_at === null ||
-      (typeof value.checked_at === "string" &&
-        SAFE_COMPATIBILITY_DATE.test(value.checked_at) &&
-        !Number.isNaN(new Date(value.checked_at).valueOf()))
+      isUtcCoverageTimestamp(value.checked_at)
     ) ||
     !["supported", "unsupported", "unknown"].includes(
       value.update_support as string,
@@ -708,9 +704,7 @@ export function parseProviderCapabilityReport(
     !isSafeNullableReadinessToken(value.decoder_version) ||
     !(
       value.checked_at === null ||
-      (typeof value.checked_at === "string" &&
-        SAFE_COMPATIBILITY_DATE.test(value.checked_at) &&
-        !Number.isNaN(new Date(value.checked_at).valueOf()))
+      isUtcCoverageTimestamp(value.checked_at)
     ) ||
     !isNonNegativeInteger(value.structurally_attemptable_metric_count) ||
     !isNonNegativeInteger(value.structurally_unsupported_metric_count) ||
@@ -807,6 +801,236 @@ export function parseProviderCapabilityReport(
     throw new TransportError("Provider metric capability response was invalid", 200);
   }
   return value as unknown as ProviderCapabilityReport;
+}
+
+const METRIC_COVERAGE_REPORT_KEYS = new Set([
+  "contract_version", "scope", "provider", "generated_at",
+  "analysis_profile_key", "analysis_profile_version", "metric_pack_key",
+  "metric_pack_version", "metric_catalog_version", "indexed_project_count",
+  "indexed_session_count", "latest_profile_runs",
+  "latest_completed_snapshot_count", "effective_automation_grant_count",
+  "effective_automation_project_count", "unrecognized_result_record_count",
+  "automation_scheduling_scope", "metrics", "capability_report",
+  "local_index_snapshot_exact", "provider_history_completeness",
+  "provider_snapshot_authority", "stored_result_contract_validation_performed",
+  "provider_capability_snapshot_atomic",
+  "full_catalog_automation_coverage_guaranteed", "metric_values_included",
+  "product_source_authority", "population_completeness_verified",
+  "comparison_authority", "snapshot_materialization_allowed",
+  "recommendation_authority",
+]);
+const METRIC_COVERAGE_METRIC_KEYS = new Set([
+  "metric_key", "metric_version", "latest_completed_run_count",
+  "selected_run_count", "not_selected_run_count", "unknown_scope_run_count",
+  "completed_selected_run_count", "contract_compatible_result_states",
+  "contract_incompatible_result_count", "expected_result_absent_count",
+  "compatible_provenance_cohort_count",
+  "effective_automation_selected_project_count", "dimension", "display_name",
+  "structural_support", "required_evidence",
+]);
+const LATEST_PROFILE_RUN_KEYS = new Set([
+  "completed", "running", "failed", "never_run",
+]);
+const METRIC_RESULT_STATE_KEYS = new Set([
+  "known", "unknown", "not_applicable", "abstained", "execution_error",
+]);
+
+function safeCountSum(values: readonly unknown[]): number | null {
+  if (!values.every(isNonNegativeInteger)) return null;
+  const total = (values as number[]).reduce((sum, value) => sum + value, 0);
+  return Number.isSafeInteger(total) ? total : null;
+}
+
+function isUtcCoverageTimestamp(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-]00:00)$/.exec(value);
+  if (match === null) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const maxDay = year >= 1 && month >= 1 && month <= 12
+    ? new Date(Date.UTC(year, month, 0)).getUTCDate()
+    : 0;
+  return day >= 1 && day <= maxDay && Number(hourText) <= 23 &&
+    Number(minuteText) <= 59 && Number(secondText) <= 59 &&
+    !Number.isNaN(new Date(value).valueOf());
+}
+
+function invalidMetricCoverage(): never {
+  throw new TransportError("Metric coverage response was invalid", 200);
+}
+
+/** Strict identifier-free projection of exact local-index coverage counts. */
+export function parseMetricCoverageReport(
+  value: unknown,
+  expectedProvider?: Provider,
+  expectedScope?: MetricCoverageReport["scope"],
+): MetricCoverageReport {
+  if (
+    !isRecord(value) || !hasExactKeys(value, METRIC_COVERAGE_REPORT_KEYS) ||
+    value.contract_version !== "metric-coverage-report-v1" ||
+    !["provider_catalog", "one_project"].includes(value.scope as string) ||
+    !["codex", "claude_code", "synthetic"].includes(value.provider as string) ||
+    (expectedProvider !== undefined && value.provider !== expectedProvider) ||
+    (expectedScope !== undefined && value.scope !== expectedScope) ||
+    !isUtcCoverageTimestamp(value.generated_at) ||
+    value.analysis_profile_key !== "coaching_profile" ||
+    value.analysis_profile_version !== 1 ||
+    value.metric_pack_key !== "experimental.redacted-text.coaching" ||
+    value.metric_pack_version !== 3 ||
+    value.metric_catalog_version !== "coaching-evidence-capabilities-v1" ||
+    safeCountSum([
+      value.indexed_project_count, value.indexed_session_count,
+      value.latest_completed_snapshot_count, value.effective_automation_grant_count,
+      value.effective_automation_project_count, value.unrecognized_result_record_count,
+    ]) === null ||
+    value.automation_scheduling_scope !== "new_or_changed_newest_bounded" ||
+    !Array.isArray(value.metrics) ||
+    value.metrics.length !== COACHING_READINESS_KEYS.length ||
+    value.local_index_snapshot_exact !== true ||
+    value.provider_history_completeness !== "unknown" ||
+    value.provider_snapshot_authority !== "unavailable" ||
+    value.stored_result_contract_validation_performed !== true ||
+    value.provider_capability_snapshot_atomic !== false ||
+    value.full_catalog_automation_coverage_guaranteed !== false ||
+    value.metric_values_included !== false ||
+    value.product_source_authority !== false ||
+    value.population_completeness_verified !== false ||
+    value.comparison_authority !== false ||
+    value.snapshot_materialization_allowed !== false ||
+    value.recommendation_authority !== false ||
+    !isRecord(value.latest_profile_runs) ||
+    !hasExactKeys(value.latest_profile_runs, LATEST_PROFILE_RUN_KEYS)
+  ) {
+    return invalidMetricCoverage();
+  }
+
+  const provider = value.provider as Provider;
+  const capabilityReport = parseProviderCapabilityReport(
+    value.capability_report,
+    provider,
+  );
+  const runCount = safeCountSum([
+    value.latest_profile_runs.completed, value.latest_profile_runs.running,
+    value.latest_profile_runs.failed, value.latest_profile_runs.never_run,
+  ]);
+  const attemptedRunCount = safeCountSum([
+    value.latest_profile_runs.completed, value.latest_profile_runs.running,
+    value.latest_profile_runs.failed,
+  ]);
+  if (
+    runCount === null || attemptedRunCount === null ||
+    runCount !== value.indexed_session_count ||
+    (value.latest_profile_runs.completed as number) >
+      (value.latest_completed_snapshot_count as number) ||
+    (value.latest_completed_snapshot_count as number) > attemptedRunCount ||
+    (value.latest_completed_snapshot_count as number) >
+      (value.indexed_session_count as number) ||
+    (value.scope === "one_project" && value.indexed_project_count !== 1) ||
+    (value.effective_automation_project_count as number) >
+      (value.indexed_project_count as number) ||
+    (value.effective_automation_project_count as number) >
+      (value.effective_automation_grant_count as number) ||
+    capabilityReport.catalog_version !== value.metric_catalog_version
+  ) {
+    return invalidMetricCoverage();
+  }
+
+  const declaredCapabilities = new Set(
+    capabilityReport.capabilities
+      .filter((item) =>
+        item.reason_code !== "not_declared_by_decoder" &&
+        item.reason_code !== "provider_adapter_unavailable")
+      .map((item) => item.capability),
+  );
+  const allStructurallyUnknown =
+    capabilityReport.structurally_unknown_metric_count ===
+    COACHING_READINESS_KEYS.length;
+  const supportCounts = { attemptable: 0, unsupported: 0, unknown: 0 };
+
+  for (let index = 0; index < value.metrics.length; index += 1) {
+    const metricCandidate: unknown = value.metrics[index];
+    const metricKey = COACHING_READINESS_KEYS[index];
+    const definition = COACHING_READINESS_CATALOG[metricKey];
+    if (
+      !isRecord(metricCandidate) ||
+      !hasExactKeys(metricCandidate, METRIC_COVERAGE_METRIC_KEYS)
+    ) {
+      return invalidMetricCoverage();
+    }
+    const metric: Record<string, unknown> = metricCandidate;
+    if (
+      metric.metric_key !== metricKey || metric.metric_version !== definition.version ||
+      metric.dimension !== definition.dimension ||
+      metric.display_name !== definition.displayName ||
+      !["attemptable", "unsupported", "unknown"].includes(
+        metric.structural_support as string,
+      ) ||
+      !exactCapabilityGroups(metric.required_evidence, definition.capabilityGroups) ||
+      safeCountSum([
+        metric.latest_completed_run_count, metric.selected_run_count,
+        metric.not_selected_run_count, metric.unknown_scope_run_count,
+        metric.completed_selected_run_count,
+        metric.contract_incompatible_result_count,
+        metric.expected_result_absent_count,
+        metric.compatible_provenance_cohort_count,
+        metric.effective_automation_selected_project_count,
+      ]) === null ||
+      !isRecord(metric.contract_compatible_result_states) ||
+      !hasExactKeys(metric.contract_compatible_result_states, METRIC_RESULT_STATE_KEYS)
+    ) {
+      return invalidMetricCoverage();
+    }
+    const compatibleResultCount = safeCountSum([
+      metric.contract_compatible_result_states.known,
+      metric.contract_compatible_result_states.unknown,
+      metric.contract_compatible_result_states.not_applicable,
+      metric.contract_compatible_result_states.abstained,
+      metric.contract_compatible_result_states.execution_error,
+    ]);
+    const selectionTotal = safeCountSum([
+      metric.selected_run_count, metric.not_selected_run_count,
+      metric.unknown_scope_run_count,
+    ]);
+    const resultTotal = safeCountSum([
+      compatibleResultCount, metric.contract_incompatible_result_count,
+      metric.expected_result_absent_count,
+    ]);
+    const expectedSupport = allStructurallyUnknown
+      ? "unknown"
+      : definition.capabilityGroups.every((group) =>
+          group.some((capability) => declaredCapabilities.has(capability)))
+        ? "attemptable"
+        : "unsupported";
+    if (
+      compatibleResultCount === null || selectionTotal === null || resultTotal === null ||
+      metric.latest_completed_run_count !== value.latest_completed_snapshot_count ||
+      selectionTotal !== metric.latest_completed_run_count ||
+      metric.completed_selected_run_count !== metric.selected_run_count ||
+      resultTotal !== metric.completed_selected_run_count ||
+      (metric.compatible_provenance_cohort_count as number) > compatibleResultCount ||
+      ((compatibleResultCount === 0) !==
+        (metric.compatible_provenance_cohort_count === 0)) ||
+      (metric.effective_automation_selected_project_count as number) >
+        (value.effective_automation_project_count as number) ||
+      metric.structural_support !== expectedSupport
+    ) {
+      return invalidMetricCoverage();
+    }
+    supportCounts[expectedSupport] += 1;
+  }
+
+  if (
+    supportCounts.attemptable !==
+      capabilityReport.structurally_attemptable_metric_count ||
+    supportCounts.unsupported !==
+      capabilityReport.structurally_unsupported_metric_count ||
+    supportCounts.unknown !== capabilityReport.structurally_unknown_metric_count
+  ) {
+    return invalidMetricCoverage();
+  }
+  return value as unknown as MetricCoverageReport;
 }
 
 const READINESS_STATE_REASON_ACTION = new Map<string, readonly MetricReadinessAction[]>([
@@ -1886,6 +2110,26 @@ export function createHttpTransport(options: {
         signal,
       );
       return parseProviderCapabilityReport(value, provider);
+    },
+    async getMetricCoverage(provider, signal) {
+      const value = await request<unknown>(
+        `/v1/metric-coverage?provider=${encodeURIComponent(provider)}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return parseMetricCoverageReport(value, provider, "provider_catalog");
+    },
+    async getProjectMetricCoverage(projectId, provider, signal) {
+      const value = await request<unknown>(
+        `/v1/projects/${encodeURIComponent(projectId)}/metric-coverage?provider=${encodeURIComponent(provider)}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return parseMetricCoverageReport(value, provider, "one_project");
     },
     async getSessionMetricReadiness(
       sessionId,
