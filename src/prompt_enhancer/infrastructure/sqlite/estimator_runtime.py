@@ -1186,6 +1186,377 @@ class SqliteEstimatorRuntimeRepository:
                 raise
 
     @staticmethod
+    def _invalid_automation_grant_reason_locked(
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+        *,
+        now: datetime,
+    ) -> str | None:
+        grant = connection.execute(
+            """
+            SELECT provider,project_id,route,max_gpu_workers,max_cpu_workers,
+                   pause_on_battery,maximum_session_seconds,local_only,
+                   remote_requires_fresh_approval,state,expires_at
+            FROM automation_grants WHERE grant_id=?
+            """,
+            (row["automation_grant_id"],),
+        ).fetchone()
+        if grant is None:
+            return "automation_grant_not_found"
+        if grant["state"] == "revoked":
+            return "automation_grant_inactive"
+        if grant["state"] == "expired" or grant["expires_at"] <= to_iso(now):
+            return "automation_grant_expired"
+        if (
+            grant["route"] != "balanced"
+            or grant["max_gpu_workers"] != 1
+            or grant["max_cpu_workers"] != 1
+            or grant["pause_on_battery"] != 1
+            or grant["maximum_session_seconds"] != 1800
+        ):
+            return "automation_resource_policy_unsupported"
+
+        grant_metrics = tuple(
+            (item["metric_key"], item["ordinal"])
+            for item in connection.execute(
+                """
+                SELECT metric_key,ordinal FROM automation_grant_metrics
+                WHERE grant_id=? ORDER BY ordinal
+                """,
+                (row["automation_grant_id"],),
+            )
+        )
+        authorization_metrics = tuple(
+            (item["metric_key"], item["ordinal"])
+            for item in connection.execute(
+                """
+                SELECT metric_key,ordinal
+                FROM estimator_runtime_authorization_packets
+                WHERE authorization_id=? ORDER BY ordinal
+                """,
+                (row["authorization_id"],),
+            )
+        )
+        queue_metrics = tuple(
+            (item["metric_key"], item["ordinal"])
+            for item in connection.execute(
+                """
+                SELECT metric_key,ordinal FROM analysis_job_metrics
+                WHERE job_id=? ORDER BY ordinal
+                """,
+                (row["job_id"],),
+            )
+        )
+        if (
+            grant["provider"] != row["authorization_provider"]
+            or grant["provider"] != row["job_provider"]
+            or grant["project_id"] != row["authorization_project_id"]
+            or grant["project_id"] != row["job_project_id"]
+            or grant["route"] != row["authorization_route"]
+            or row["authorization_destination"] != "local_device"
+            or row["job_automation_grant_id"] != row["automation_grant_id"]
+            or grant["local_only"] != 1
+            or grant["remote_requires_fresh_approval"] != 1
+            or not grant_metrics
+            or grant_metrics != authorization_metrics
+            or grant_metrics != queue_metrics
+        ):
+            return "automation_grant_scope_mismatch"
+        return None
+
+    def reconcile_invalid_automation_grants(self, *, now: datetime) -> None:
+        """Atomically close invalid queued automation runtimes in both ledgers.
+
+        This metadata-only maintenance never opens an evidence packet.  The
+        runtime state append goes through the exact job-scoped HMAC capability,
+        and the queue terminal update shares its transaction.
+        """
+
+        self._ensure_initialized()
+        now = require_utc(now)
+        timestamp = to_iso(now)
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                rows = connection.execute(
+                    """
+                    SELECT b.execution_id,b.authorization_id,b.job_id,
+                           a.automation_grant_id,
+                           a.provider AS authorization_provider,
+                           a.project_id AS authorization_project_id,
+                           a.route AS authorization_route,
+                           a.destination AS authorization_destination,
+                           j.provider AS job_provider,
+                           j.project_id AS job_project_id,
+                           j.automation_grant_id AS job_automation_grant_id,
+                           j.attempt_count
+                    FROM estimator_runtime_job_bindings b
+                    JOIN estimator_runtime_authorizations a
+                      ON a.authorization_id=b.authorization_id
+                     AND a.execution_id=b.execution_id
+                     AND a.job_id=b.job_id
+                    JOIN analysis_jobs j ON j.job_id=b.job_id
+                    WHERE a.kind='automation_once'
+                      AND j.kind='estimator_execution'
+                      AND j.state='queued'
+                    ORDER BY j.available_at,j.created_at,j.job_id
+                    """
+                ).fetchall()
+                for row in rows:
+                    reason = self._invalid_automation_grant_reason_locked(
+                        connection, row, now=now
+                    )
+                    if reason is None:
+                        continue
+                    states = self._states(connection, row["execution_id"])
+                    if not states:
+                        raise DatabaseInvariantError(
+                            "runtime reconciliation state journal is absent"
+                        )
+                    latest = states[-1]
+                    if now < latest.recorded_at:
+                        continue
+                    if latest.state in TERMINAL_ESTIMATOR_RUNTIME_STATES:
+                        # A prior runtime append may commit before queue finish.
+                        # Mirror that exact receipt; never replace its outcome
+                        # with the later invalid-grant classification.
+                        queue_state = AnalysisJobState(latest.state.value)
+                        terminal_reason = latest.reason_code
+                        updated = connection.execute(
+                            """
+                            UPDATE analysis_jobs SET state=?,stage_number=NULL,
+                                terminal_reason_code=?,terminal_at=?,updated_at=?
+                            WHERE job_id=? AND state='queued'
+                            """,
+                            (
+                                queue_state.value,
+                                terminal_reason,
+                                timestamp,
+                                timestamp,
+                                row["job_id"],
+                            ),
+                        )
+                        if updated.rowcount != 1:
+                            raise DatabaseInvariantError(
+                                "runtime automation reconciliation conflicted"
+                            )
+                        continue
+                    attempts = self._attempts(connection, row["execution_id"])
+                    checkpoints = self._checkpoints(connection, row["execution_id"])
+                    if latest.state is EstimatorRuntimeState.CREATED and (
+                        attempts or checkpoints
+                    ):
+                        # CREATED with stage history is internally inconsistent;
+                        # do not manufacture a terminal chain around it.
+                        continue
+                    terminal_checkpoints: tuple[
+                        tuple[
+                            str,
+                            EstimatorRuntimeCheckpointReceipt | None,
+                            int,
+                        ],
+                        ...,
+                    ] = ()
+                    if latest.state is EstimatorRuntimeState.RUNNING:
+                        if int(row["attempt_count"]) < 1:
+                            continue
+                        if connection.execute(
+                            """
+                            SELECT 1 FROM estimator_runtime_stage_attempts a
+                            LEFT JOIN estimator_runtime_stage_outcomes o
+                              ON o.attempt_id=a.attempt_id
+                            WHERE a.execution_id=? AND o.attempt_id IS NULL
+                            LIMIT 1
+                            """,
+                            (row["execution_id"],),
+                        ).fetchone() is not None:
+                            continue
+                        if connection.execute(
+                            """
+                            SELECT 1 FROM estimator_runtime_stage_outcomes
+                            WHERE execution_id=? AND finished_at_us>?
+                            LIMIT 1
+                            """,
+                            (row["execution_id"], _to_us(now)),
+                        ).fetchone() is not None:
+                            # Every attempt is closed above, and outcome append
+                            # enforces finished_at >= started_at.  Checking all
+                            # outcome kinds therefore prevents a clock rollback
+                            # from backdating this terminal append.
+                            continue
+                        metric_keys = tuple(
+                            item["metric_key"]
+                            for item in connection.execute(
+                                """
+                                SELECT metric_key
+                                FROM estimator_runtime_authorization_packets
+                                WHERE authorization_id=? ORDER BY ordinal
+                                """,
+                                (row["authorization_id"],),
+                            )
+                        )
+                        if not metric_keys:
+                            raise DatabaseInvariantError(
+                                "runtime reconciliation metric seal is absent"
+                            )
+                        latest_by_metric = {
+                            item.metric_key: item for item in checkpoints
+                        }
+                        prepared: list[
+                            tuple[
+                                str,
+                                EstimatorRuntimeCheckpointReceipt | None,
+                                int,
+                            ]
+                        ] = []
+                        coherent = True
+                        for metric_key in metric_keys:
+                            previous = latest_by_metric.get(metric_key)
+                            if (
+                                previous is not None
+                                and (
+                                    previous.state
+                                    in TERMINAL_ESTIMATOR_RUNTIME_STATES
+                                    or now < previous.recorded_at
+                                )
+                            ):
+                                coherent = False
+                                break
+                            completed_rows = connection.execute(
+                                    """
+                                    SELECT a.stage_ordinal,
+                                           MAX(o.finished_at_us) AS finished_at_us
+                                    FROM estimator_runtime_stage_attempts a
+                                    JOIN estimator_runtime_stage_outcomes o
+                                      ON o.attempt_id=a.attempt_id
+                                    WHERE a.execution_id=? AND a.metric_key=?
+                                      AND o.state='completed'
+                                    GROUP BY a.stage_ordinal
+                                    ORDER BY a.stage_ordinal
+                                    """,
+                                    (row["execution_id"], metric_key),
+                                ).fetchall()
+                            completed_ordinals = tuple(
+                                int(item["stage_ordinal"])
+                                for item in completed_rows
+                            )
+                            if completed_ordinals != tuple(
+                                range(1, len(completed_ordinals) + 1)
+                            ) or any(
+                                int(item["finished_at_us"]) > _to_us(now)
+                                for item in completed_rows
+                            ):
+                                coherent = False
+                                break
+                            completed_ordinal = len(completed_ordinals)
+                            if (
+                                previous is not None
+                                and previous.last_completed_stage_ordinal
+                                > completed_ordinal
+                            ):
+                                coherent = False
+                                break
+                            if (
+                                previous is not None
+                                and previous.restart_generation
+                                > int(row["attempt_count"]) - 1
+                            ):
+                                coherent = False
+                                break
+                            prepared.append(
+                                (metric_key, previous, completed_ordinal)
+                            )
+                        if not coherent:
+                            continue
+                        terminal_checkpoints = tuple(prepared)
+                    if latest.state not in {
+                        EstimatorRuntimeState.CREATED,
+                        EstimatorRuntimeState.RUNNING,
+                    }:
+                        raise DatabaseInvariantError(
+                            "runtime reconciliation state is invalid"
+                        )
+                    with self._authorized(
+                            connection,
+                            row["authorization_id"],
+                            row["execution_id"],
+                            row["job_id"],
+                        ):
+                            if latest.state is EstimatorRuntimeState.RUNNING:
+                                for (
+                                    metric_key,
+                                    previous,
+                                    completed_ordinal,
+                                ) in terminal_checkpoints:
+                                    sequence = (
+                                        0 if previous is None else previous.sequence + 1
+                                    )
+                                    checkpoint = EstimatorRuntimeCheckpointReceipt(
+                                        checkpoint_id=_domain_digest(
+                                            "runtime-checkpoint",
+                                            f"{row['execution_id']}:{metric_key}:{sequence}",
+                                        ),
+                                        execution_id=row["execution_id"],
+                                        metric_key=metric_key,
+                                        sequence=sequence,
+                                        previous_checkpoint_fingerprint=(
+                                            None
+                                            if previous is None
+                                            else previous.canonical_fingerprint
+                                        ),
+                                        last_completed_stage_ordinal=(
+                                            completed_ordinal
+                                        ),
+                                        next_stage_ordinal=None,
+                                        restart_generation=(
+                                            int(row["attempt_count"]) - 1
+                                        ),
+                                        state=EstimatorRuntimeState.CANCELLED,
+                                        reason_code=reason,
+                                        recorded_at=now,
+                                    )
+                                    self._insert_checkpoint_locked(
+                                        connection,
+                                        row["authorization_id"],
+                                        checkpoint,
+                                    )
+                            self._insert_terminal_state_locked(
+                                connection,
+                                row["authorization_id"],
+                                row["execution_id"],
+                                latest,
+                                state=EstimatorRuntimeState.CANCELLED,
+                                reason_code=reason,
+                                recorded_at=now,
+                            )
+                    queue_state = AnalysisJobState.CANCELLED
+                    terminal_reason = reason
+                    updated = connection.execute(
+                        """
+                        UPDATE analysis_jobs SET state=?,stage_number=NULL,
+                            cancel_requested=1,last_error_code=?,
+                            terminal_reason_code=?,terminal_at=?,updated_at=?
+                        WHERE job_id=? AND state='queued'
+                        """,
+                        (
+                            queue_state.value,
+                            terminal_reason,
+                            terminal_reason,
+                            timestamp,
+                            timestamp,
+                            row["job_id"],
+                        ),
+                    )
+                    if updated.rowcount != 1:
+                        raise DatabaseInvariantError(
+                            "runtime automation reconciliation conflicted"
+                        )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    @staticmethod
     def _insert_terminal_state_locked(
         connection: sqlite3.Connection,
         authorization_id: str,
@@ -1209,6 +1580,39 @@ class SqliteEstimatorRuntimeRepository:
         )
         SqliteEstimatorRuntimeRepository._insert_state(
             connection, authorization_id, receipt
+        )
+
+    @staticmethod
+    def _insert_checkpoint_locked(
+        connection: sqlite3.Connection,
+        authorization_id: str,
+        receipt: EstimatorRuntimeCheckpointReceipt,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO estimator_runtime_checkpoints(
+                checkpoint_id,execution_id,authorization_id,metric_key,
+                sequence,previous_checkpoint_fingerprint,
+                last_completed_stage_ordinal,next_stage_ordinal,
+                restart_generation,state,reason_code,recorded_at_us,
+                checkpoint_fingerprint
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                receipt.checkpoint_id,
+                receipt.execution_id,
+                authorization_id,
+                receipt.metric_key,
+                receipt.sequence,
+                receipt.previous_checkpoint_fingerprint,
+                receipt.last_completed_stage_ordinal,
+                receipt.next_stage_ordinal,
+                receipt.restart_generation,
+                receipt.state.value,
+                receipt.reason_code,
+                _to_us(receipt.recorded_at),
+                receipt.canonical_fingerprint,
+            ),
         )
 
     def _root_for_authorization(
@@ -1960,31 +2364,10 @@ class SqliteEstimatorRuntimeRepository:
                     receipt.execution_id,
                     root["job_id"],
                 ):
-                    connection.execute(
-                        """
-                        INSERT INTO estimator_runtime_checkpoints(
-                            checkpoint_id,execution_id,authorization_id,metric_key,
-                            sequence,previous_checkpoint_fingerprint,
-                            last_completed_stage_ordinal,next_stage_ordinal,
-                            restart_generation,state,reason_code,recorded_at_us,
-                            checkpoint_fingerprint
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                        (
-                            receipt.checkpoint_id,
-                            receipt.execution_id,
-                            root["authorization_id"],
-                            receipt.metric_key,
-                            receipt.sequence,
-                            receipt.previous_checkpoint_fingerprint,
-                            receipt.last_completed_stage_ordinal,
-                            receipt.next_stage_ordinal,
-                            receipt.restart_generation,
-                            receipt.state.value,
-                            receipt.reason_code,
-                            _to_us(receipt.recorded_at),
-                            receipt.canonical_fingerprint,
-                        ),
+                    self._insert_checkpoint_locked(
+                        connection,
+                        root["authorization_id"],
+                        receipt,
                     )
                 connection.commit()
             except Exception:

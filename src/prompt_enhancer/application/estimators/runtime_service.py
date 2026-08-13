@@ -314,6 +314,7 @@ class EstimatorRuntimeHandler:
 
     def execution_recovery_callback(self, now: datetime) -> None:
         self._repository.reconcile_expired(now=now)
+        self._repository.reconcile_invalid_automation_grants(now=now)
 
     def __call__(
         self,

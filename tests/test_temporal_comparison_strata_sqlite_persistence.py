@@ -241,9 +241,9 @@ def test_v22_schema_is_zero_backfill_normalized_and_transient(tmp_path) -> None:
         connection.commit()
     database = Database(path)
     database.initialize()
-    assert SCHEMA_VERSION == 23
+    assert SCHEMA_VERSION == 24
     with database._connection(readonly=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         tables = tuple(
             str(row["name"])

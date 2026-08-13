@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 import hashlib
 from pathlib import Path
@@ -35,7 +36,9 @@ from prompt_enhancer.application.estimators.runtime_persistence import (
     DurableRuntimePacketBinding,
     EstimatorRuntimeCheckpointReceipt,
     EstimatorRuntimeLaunch,
+    EstimatorRuntimeMetricObservation,
     EstimatorRuntimeStageAttemptReceipt,
+    EstimatorRuntimeStageOutcomeReceipt,
     EstimatorRuntimeStageOutcomeState,
     EstimatorRuntimeState,
     EstimatorRuntimeStateReceipt,
@@ -56,6 +59,7 @@ from prompt_enhancer.application.jobs import (
     AnalysisJobDraft,
     AnalysisJobIdentity,
     AnalysisJobKind,
+    AnalysisJobLease,
     AnalysisJobService,
     AnalysisJobState,
     AnalysisJobWorker,
@@ -815,6 +819,77 @@ def _automation_runtime_setup(
     return database, clock, catalog, database.estimator_runtime_repository(), source, launch
 
 
+def _replace_grant_resource_policy(
+    database: Database,
+    grant_id: str,
+    *,
+    max_cpu_workers: int,
+) -> None:
+    """Reproduce a historical broad persisted profile with synthetic data."""
+
+    with database._connection() as connection:
+        row = connection.execute(
+            "SELECT * FROM automation_grants WHERE grant_id=?", (grant_id,)
+        ).fetchone()
+        metrics = connection.execute(
+            """
+            SELECT metric_key,ordinal FROM automation_grant_metrics
+            WHERE grant_id=? ORDER BY ordinal
+            """,
+            (grant_id,),
+        ).fetchall()
+        assert row is not None
+        columns = tuple(row.keys())
+        values = dict(row)
+        values["max_cpu_workers"] = max_cpu_workers
+        connection.execute("DELETE FROM automation_grants WHERE grant_id=?", (grant_id,))
+        connection.execute(
+            f"INSERT INTO automation_grants({','.join(columns)}) "
+            f"VALUES ({','.join('?' for _ in columns)})",
+            tuple(values[column] for column in columns),
+        )
+        connection.executemany(
+            "INSERT INTO automation_grant_metrics VALUES (?,?,?)",
+            ((grant_id, item["metric_key"], item["ordinal"]) for item in metrics),
+        )
+        connection.commit()
+
+
+def _invalidate_automation_runtime_grant(
+    database: Database,
+    clock: MutableClock,
+    launch: EstimatorRuntimeLaunch,
+    variant: str,
+) -> None:
+    grant_id = launch.authorization.automation_grant_id
+    assert grant_id is not None
+    if variant == "missing":
+        with database._connection() as connection:
+            connection.execute("DELETE FROM automation_grants WHERE grant_id=?", (grant_id,))
+            connection.commit()
+    elif variant == "revoked":
+        database.automation_grant_repository().revoke(grant_id, now=clock())
+    elif variant == "expired":
+        clock.advance(days=31)
+        assert database.automation_grant_repository().expire_due(now=clock()) == 1
+    elif variant == "past_expiry":
+        clock.advance(days=31)
+    elif variant == "unsupported":
+        _replace_grant_resource_policy(database, grant_id, max_cpu_workers=2)
+    elif variant == "scope":
+        with database._connection() as connection:
+            connection.execute(
+                "DELETE FROM automation_grant_metrics WHERE grant_id=?", (grant_id,)
+            )
+            connection.execute(
+                "INSERT INTO automation_grant_metrics VALUES (?,?,0)",
+                (grant_id, "different.metric"),
+            )
+            connection.commit()
+    else:  # pragma: no cover - test helper exhaustiveness
+        raise AssertionError(f"unexpected invalidation variant: {variant}")
+
+
 @pytest.mark.parametrize(
     ("variant", "options"),
     (
@@ -850,23 +925,99 @@ def test_automation_grant_must_exist_and_match_exact_local_scope(
         repository.launch(launch)
 
 
-def test_deferred_invalid_estimator_stays_unleased_and_does_not_starve_manual(
+@pytest.mark.parametrize(
+    ("variant", "expected_reason"),
+    (
+        ("missing", "automation_grant_not_found"),
+        ("revoked", "automation_grant_inactive"),
+        ("expired", "automation_grant_expired"),
+        ("unsupported", "automation_resource_policy_unsupported"),
+        ("scope", "automation_grant_scope_mismatch"),
+    ),
+)
+def test_invalid_automation_runtime_reconciles_fixed_reason_without_source_access(
+    tmp_path,
+    variant: str,
+    expected_reason: str,
+) -> None:
+    database, clock, _catalog, repository, source, launch = _automation_runtime_setup(
+        tmp_path, label=f"cleanup-{variant}"
+    )
+    repository.launch(launch)
+    _invalidate_automation_runtime_grant(database, clock, launch, variant)
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+    snapshot = repository.get_by_job(launch.authorization.job_id)
+    assert snapshot is not None
+    assert snapshot.job.state is AnalysisJobState.CANCELLED
+    assert snapshot.job.cancel_requested is True
+    assert snapshot.job.attempt_count == 0
+    assert snapshot.job.lease_owner is None
+    assert snapshot.job.lease_token is None
+    assert snapshot.job.terminal_reason_code == expected_reason
+    assert snapshot.job.last_error_code == expected_reason
+    assert [item.state for item in snapshot.states] == [
+        EstimatorRuntimeState.CREATED,
+        EstimatorRuntimeState.CANCELLED,
+    ]
+    assert snapshot.states[-1].reason_code == expected_reason
+    assert snapshot.attempts == snapshot.checkpoints == ()
+    assert source.identity_reads == source.packet_reads == source.objective_reads == 0
+
+    # Reconciliation is idempotent after the exact terminal pair is sealed.
+    repository.reconcile_invalid_automation_grants(now=clock())
+    repeated = repository.get_by_job(launch.authorization.job_id)
+    assert repeated == snapshot
+
+
+@pytest.mark.parametrize(
+    ("variants", "expected_reason"),
+    (
+        (("revoked", "past_expiry"), "automation_grant_inactive"),
+        (("unsupported", "expired"), "automation_grant_expired"),
+        (
+            ("scope", "unsupported"),
+            "automation_resource_policy_unsupported",
+        ),
+        (("scope", "missing"), "automation_grant_not_found"),
+    ),
+)
+def test_invalid_automation_runtime_uses_fixed_reason_precedence(
+    tmp_path,
+    variants: tuple[str, ...],
+    expected_reason: str,
+) -> None:
+    database, clock, _catalog, repository, _source, launch = (
+        _automation_runtime_setup(
+            tmp_path,
+            label=f"cleanup-precedence-{'-'.join(variants)}",
+        )
+    )
+    repository.launch(launch)
+    for variant in variants:
+        _invalidate_automation_runtime_grant(database, clock, launch, variant)
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+    snapshot = repository.get_by_job(launch.authorization.job_id)
+    assert snapshot is not None
+    assert snapshot.job.state is AnalysisJobState.CANCELLED
+    assert snapshot.job.terminal_reason_code == expected_reason
+    assert snapshot.states[-1].reason_code == expected_reason
+
+
+def test_reconciled_invalid_estimator_does_not_starve_manual(
     tmp_path,
 ) -> None:
     database, clock, catalog, repository, source, launch = _automation_runtime_setup(
         tmp_path, label="grant-revoked"
     )
     repository.launch(launch)
-    database.automation_grant_repository().revoke(
-        launch.authorization.automation_grant_id,
-        now=clock(),
-    )
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
     assert repository.authorization_is_valid(
         launch.authorization.job_id, now=clock()
     ) is False
-    manual = AnalysisJobService(
-        database.analysis_job_repository(), clock=clock
-    ).enqueue(
+    repository.reconcile_invalid_automation_grants(now=clock())
+    manual = AnalysisJobService(database.analysis_job_repository(), clock=clock).enqueue(
         AnalysisJobIdentity(
             kind=AnalysisJobKind.SESSION_QUALITY,
             provider=launch.authorization.provider,
@@ -893,16 +1044,692 @@ def test_deferred_invalid_estimator_stays_unleased_and_does_not_starve_manual(
     assert claimed is not None and claimed.job_id == manual.job_id
     snapshot = repository.get_by_job(launch.authorization.job_id)
     assert snapshot is not None
-    assert snapshot.job.state is AnalysisJobState.QUEUED
+    assert snapshot.job.state is AnalysisJobState.CANCELLED
     assert snapshot.job.attempt_count == 0
     assert snapshot.job.lease_owner is None
     assert snapshot.job.lease_token is None
     assert snapshot.job.lease_expires_at is None
-    assert snapshot.states[-1].state is EstimatorRuntimeState.CREATED
+    assert snapshot.states[-1].state is EstimatorRuntimeState.CANCELLED
+    assert snapshot.states[-1].reason_code == "automation_grant_inactive"
     completed_manual = database.analysis_job_repository().get(manual.job_id)
     assert completed_manual is not None
     assert completed_manual.state is AnalysisJobState.PREPROCESSING
     assert source.identity_reads == source.packet_reads == 0
+
+
+def test_invalid_running_runtime_closes_checkpoint_state_and_queue_atomically(
+    tmp_path,
+) -> None:
+    database, clock, _catalog, repository, source, launch = _automation_runtime_setup(
+        tmp_path, label="cleanup-running"
+    )
+    repository.launch(launch)
+    claimed = database.analysis_job_repository().claim_next(
+        owner=digest("cleanup-running-owner"),
+        token=digest("cleanup-running-token"),
+        now=clock(),
+        lease_duration=timedelta(minutes=1),
+        power_source=PowerSourceState.EXTERNAL_POWER,
+    )
+    assert claimed is not None and claimed.job_id == launch.authorization.job_id
+    created = repository.get_by_job(launch.authorization.job_id)
+    assert created is not None
+    repository.append_state(
+        EstimatorRuntimeStateReceipt(
+            state_receipt_id=digest("cleanup-running-state"),
+            execution_id=launch.authorization.execution_id,
+            sequence=1,
+            previous_state_receipt_fingerprint=created.states[-1].canonical_fingerprint,
+            state=EstimatorRuntimeState.RUNNING,
+            reason_code="runtime_worker_started",
+            recorded_at=clock(),
+        )
+    )
+    binding = launch.authorization.packet_bindings[0]
+    with database._connection() as connection:
+        with repository._authorized(
+            connection,
+            launch.authorization.authorization_id,
+            launch.authorization.execution_id,
+            launch.authorization.job_id,
+        ):
+            repository._insert_checkpoint_locked(
+                connection,
+                launch.authorization.authorization_id,
+                EstimatorRuntimeCheckpointReceipt(
+                    checkpoint_id=digest("cleanup-running-checkpoint"),
+                    execution_id=launch.authorization.execution_id,
+                    metric_key=binding.metric_key,
+                    sequence=0,
+                    last_completed_stage_ordinal=0,
+                    next_stage_ordinal=1,
+                    restart_generation=0,
+                    state=EstimatorRuntimeState.RUNNING,
+                    reason_code="runtime_worker_started",
+                    recorded_at=clock(),
+                ),
+            )
+        connection.commit()
+    database.analysis_job_repository().retry_or_fail(
+        AnalysisJobLease(
+            job_id=claimed.job_id,
+            owner=claimed.lease_owner,
+            token=claimed.lease_token,
+            expires_at=claimed.lease_expires_at,
+        ),
+        now=clock(),
+        error_code="synthetic_retry",
+        retryable=True,
+    )
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+    snapshot = repository.get_by_job(launch.authorization.job_id)
+    assert snapshot is not None
+    assert snapshot.job.state is AnalysisJobState.CANCELLED
+    assert snapshot.job.attempt_count == 1
+    assert snapshot.job.terminal_reason_code == "automation_grant_inactive"
+    assert [item.state for item in snapshot.states] == [
+        EstimatorRuntimeState.CREATED,
+        EstimatorRuntimeState.RUNNING,
+        EstimatorRuntimeState.CANCELLED,
+    ]
+    assert [item.state for item in snapshot.checkpoints] == [
+        EstimatorRuntimeState.RUNNING,
+        EstimatorRuntimeState.CANCELLED,
+    ]
+    terminal_checkpoint = snapshot.checkpoints[-1]
+    assert terminal_checkpoint.sequence == 1
+    assert terminal_checkpoint.previous_checkpoint_fingerprint == (
+        snapshot.checkpoints[0].canonical_fingerprint
+    )
+    assert terminal_checkpoint.last_completed_stage_ordinal == 0
+    assert terminal_checkpoint.next_stage_ordinal is None
+    assert terminal_checkpoint.restart_generation == 0
+    assert terminal_checkpoint.reason_code == "automation_grant_inactive"
+    assert source.identity_reads == source.packet_reads == source.objective_reads == 0
+
+
+def test_invalid_running_runtime_recovers_output_ahead_of_checkpoint(
+    tmp_path,
+) -> None:
+    (
+        database,
+        clock,
+        catalog,
+        repository,
+        source,
+        launch,
+    ) = _automation_runtime_setup(tmp_path, label="cleanup-output-ahead")
+    repository.launch(launch)
+    claimed = database.analysis_job_repository().claim_next(
+        owner=digest("cleanup-output-ahead-owner"),
+        token=digest("cleanup-output-ahead-token"),
+        now=clock(),
+        lease_duration=timedelta(minutes=1),
+        power_source=PowerSourceState.EXTERNAL_POWER,
+    )
+    assert claimed is not None
+    created = repository.get_by_job(launch.authorization.job_id)
+    assert created is not None
+    repository.append_state(
+        EstimatorRuntimeStateReceipt(
+            state_receipt_id=digest("cleanup-output-ahead-running"),
+            execution_id=launch.authorization.execution_id,
+            sequence=1,
+            previous_state_receipt_fingerprint=created.states[-1].canonical_fingerprint,
+            state=EstimatorRuntimeState.RUNNING,
+            reason_code="runtime_worker_started",
+            recorded_at=clock(),
+        )
+    )
+    binding = launch.authorization.packet_bindings[0]
+    registration = catalog.plan_for_route(launch.authorization.route)
+    attempt = EstimatorRuntimeStageAttemptReceipt(
+        attempt_id=digest("cleanup-output-ahead-attempt"),
+        execution_id=launch.authorization.execution_id,
+        metric_key=binding.metric_key,
+        metric_question_fingerprint=binding.metric_question_fingerprint,
+        evidence_packet_fingerprint=binding.evidence_packet_fingerprint,
+        stage_ordinal=1,
+        stage_kind=registration.stage_registration(1).stage_kind,
+        stage_fingerprint=registration.stage_registration(1).stage_fingerprint,
+        attempt_ordinal=1,
+        started_at=clock(),
+    )
+    repository.append_stage_attempt(attempt)
+    objective = source.objective_evidence(source.packet)
+    observation = EstimatorRuntimeMetricObservation(
+        observation_id=digest("cleanup-output-ahead-observation"),
+        execution_id=launch.authorization.execution_id,
+        attempt_id=attempt.attempt_id,
+        metric_key=binding.metric_key,
+        metric_question_fingerprint=binding.metric_question_fingerprint,
+        evidence_packet_fingerprint=binding.evidence_packet_fingerprint,
+        state=objective.state,
+        value_kind=objective.value_kind,
+        numeric_value=objective.numeric_value,
+        numerator=objective.numerator,
+        denominator=objective.denominator,
+        opaque_evidence_refs=objective.opaque_evidence_refs,
+        observed_at=clock(),
+    )
+    repository.append_metric_observation(observation)
+    repository.append_stage_outcome(
+        EstimatorRuntimeStageOutcomeReceipt(
+            outcome_id=digest("cleanup-output-ahead-outcome"),
+            attempt_id=attempt.attempt_id,
+            execution_id=launch.authorization.execution_id,
+            state=EstimatorRuntimeStageOutcomeState.COMPLETED,
+            reason_code="objective_observation_recorded",
+            output_fingerprint=observation.canonical_fingerprint,
+            finished_at=clock(),
+        )
+    )
+    database.analysis_job_repository().retry_or_fail(
+        AnalysisJobLease(
+            job_id=claimed.job_id,
+            owner=claimed.lease_owner,
+            token=claimed.lease_token,
+            expires_at=claimed.lease_expires_at,
+        ),
+        now=clock(),
+        error_code="synthetic_retry",
+        retryable=True,
+    )
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+    snapshot = repository.get_by_job(launch.authorization.job_id)
+    assert snapshot is not None
+    assert snapshot.job.state is AnalysisJobState.CANCELLED
+    assert snapshot.states[-1].state is EstimatorRuntimeState.CANCELLED
+    assert len(snapshot.checkpoints) == 1
+    assert snapshot.checkpoints[0].last_completed_stage_ordinal == 1
+    assert snapshot.checkpoints[0].next_stage_ordinal is None
+    assert snapshot.checkpoints[0].state is EstimatorRuntimeState.CANCELLED
+    # The test's only source call prepared the synthetic durable output. Cleanup
+    # itself must not revisit identity, packet, or objective material.
+    assert source.identity_reads == source.packet_reads == 0
+    assert source.objective_reads == 1
+
+
+def test_invalid_running_runtime_rejects_future_interrupted_outcome(
+    tmp_path,
+) -> None:
+    database, clock, catalog, repository, source, launch = _automation_runtime_setup(
+        tmp_path, label="cleanup-future-interrupted"
+    )
+    repository.launch(launch)
+    claimed = database.analysis_job_repository().claim_next(
+        owner=digest("cleanup-future-interrupted-owner"),
+        token=digest("cleanup-future-interrupted-token"),
+        now=clock(),
+        lease_duration=timedelta(minutes=10),
+        power_source=PowerSourceState.EXTERNAL_POWER,
+    )
+    assert claimed is not None
+    created = repository.get_by_job(launch.authorization.job_id)
+    assert created is not None
+    cleanup_now = clock()
+    repository.append_state(
+        EstimatorRuntimeStateReceipt(
+            state_receipt_id=digest("cleanup-future-interrupted-running"),
+            execution_id=launch.authorization.execution_id,
+            sequence=1,
+            previous_state_receipt_fingerprint=created.states[-1].canonical_fingerprint,
+            state=EstimatorRuntimeState.RUNNING,
+            reason_code="runtime_worker_started",
+            recorded_at=cleanup_now,
+        )
+    )
+    clock.advance(minutes=5)
+    binding = launch.authorization.packet_bindings[0]
+    registration = catalog.plan_for_route(launch.authorization.route)
+    attempt = EstimatorRuntimeStageAttemptReceipt(
+        attempt_id=digest("cleanup-future-interrupted-attempt"),
+        execution_id=launch.authorization.execution_id,
+        metric_key=binding.metric_key,
+        metric_question_fingerprint=binding.metric_question_fingerprint,
+        evidence_packet_fingerprint=binding.evidence_packet_fingerprint,
+        stage_ordinal=1,
+        stage_kind=registration.stage_registration(1).stage_kind,
+        stage_fingerprint=registration.stage_registration(1).stage_fingerprint,
+        attempt_ordinal=1,
+        started_at=clock(),
+    )
+    repository.append_stage_attempt(attempt)
+    clock.advance(minutes=1)
+    repository.append_stage_outcome(
+        EstimatorRuntimeStageOutcomeReceipt(
+            outcome_id=digest("cleanup-future-interrupted-outcome"),
+            attempt_id=attempt.attempt_id,
+            execution_id=launch.authorization.execution_id,
+            state=EstimatorRuntimeStageOutcomeState.INTERRUPTED,
+            reason_code="synthetic_interruption",
+            finished_at=clock(),
+        )
+    )
+    database.analysis_job_repository().retry_or_fail(
+        AnalysisJobLease(
+            job_id=claimed.job_id,
+            owner=claimed.lease_owner,
+            token=claimed.lease_token,
+            expires_at=claimed.lease_expires_at,
+        ),
+        now=clock(),
+        error_code="synthetic_retry",
+        retryable=True,
+    )
+    clock.value = cleanup_now
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+    before = repository.get_by_job(launch.authorization.job_id)
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+
+    assert repository.get_by_job(launch.authorization.job_id) == before
+    assert before is not None and before.job.state is AnalysisJobState.QUEUED
+    assert before.states[-1].state is EstimatorRuntimeState.RUNNING
+    assert before.outcomes[-1].state is EstimatorRuntimeStageOutcomeState.INTERRUPTED
+    assert before.outcomes[-1].finished_at > cleanup_now
+    assert source.identity_reads == source.packet_reads == source.objective_reads == 0
+    with database._connection(readonly=True) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM estimator_runtime_write_authorizations"
+        ).fetchone()[0] == 0
+    assert database._estimator_runtime_authorizations == set()
+
+
+def test_invalid_runtime_reconciliation_rolls_back_receipt_and_queue_together(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database, clock, _catalog, repository, source, launch = _automation_runtime_setup(
+        tmp_path, label="cleanup-rollback"
+    )
+    repository.launch(launch)
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+    original = repository._insert_terminal_state_locked
+
+    def fail_after_state(*args, **kwargs):  # type: ignore[no-untyped-def]
+        original(*args, **kwargs)
+        raise DatabaseInvariantError("synthetic cleanup interruption")
+
+    monkeypatch.setattr(repository, "_insert_terminal_state_locked", fail_after_state)
+    with pytest.raises(DatabaseInvariantError, match="synthetic cleanup interruption"):
+        repository.reconcile_invalid_automation_grants(now=clock())
+    pending = repository.get_by_job(launch.authorization.job_id)
+    assert pending is not None
+    assert pending.job.state is AnalysisJobState.QUEUED
+    assert [item.state for item in pending.states] == [EstimatorRuntimeState.CREATED]
+    assert source.identity_reads == source.packet_reads == source.objective_reads == 0
+    with database._connection(readonly=True) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM estimator_runtime_write_authorizations"
+        ).fetchone()[0] == 0
+    assert database._estimator_runtime_authorizations == set()
+
+    monkeypatch.setattr(repository, "_insert_terminal_state_locked", original)
+    repository.reconcile_invalid_automation_grants(now=clock())
+    closed = repository.get_by_job(launch.authorization.job_id)
+    assert closed is not None and closed.job.state is AnalysisJobState.CANCELLED
+    with database._connection(readonly=True) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM estimator_runtime_write_authorizations"
+        ).fetchone()[0] == 0
+    assert database._estimator_runtime_authorizations == set()
+
+
+def test_invalid_running_reconciliation_rolls_back_checkpoint_state_and_queue(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database, clock, _catalog, repository, _source, launch = (
+        _automation_runtime_setup(tmp_path, label="cleanup-running-rollback")
+    )
+    repository.launch(launch)
+    claimed = database.analysis_job_repository().claim_next(
+        owner=digest("cleanup-running-rollback-owner"),
+        token=digest("cleanup-running-rollback-token"),
+        now=clock(),
+        lease_duration=timedelta(minutes=1),
+        power_source=PowerSourceState.EXTERNAL_POWER,
+    )
+    assert claimed is not None
+    created = repository.get_by_job(launch.authorization.job_id)
+    assert created is not None
+    repository.append_state(
+        EstimatorRuntimeStateReceipt(
+            state_receipt_id=digest("cleanup-running-rollback-state"),
+            execution_id=launch.authorization.execution_id,
+            sequence=1,
+            previous_state_receipt_fingerprint=created.states[-1].canonical_fingerprint,
+            state=EstimatorRuntimeState.RUNNING,
+            reason_code="runtime_worker_started",
+            recorded_at=clock(),
+        )
+    )
+    database.analysis_job_repository().retry_or_fail(
+        AnalysisJobLease(
+            job_id=claimed.job_id,
+            owner=claimed.lease_owner,
+            token=claimed.lease_token,
+            expires_at=claimed.lease_expires_at,
+        ),
+        now=clock(),
+        error_code="synthetic_retry",
+        retryable=True,
+    )
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+    before = repository.get_by_job(launch.authorization.job_id)
+
+    def fail_after_checkpoints(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise DatabaseInvariantError("synthetic running cleanup interruption")
+
+    monkeypatch.setattr(
+        repository, "_insert_terminal_state_locked", fail_after_checkpoints
+    )
+    with pytest.raises(
+        DatabaseInvariantError, match="synthetic running cleanup interruption"
+    ):
+        repository.reconcile_invalid_automation_grants(now=clock())
+    assert repository.get_by_job(launch.authorization.job_id) == before
+    with database._connection(readonly=True) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM estimator_runtime_write_authorizations"
+        ).fetchone()[0] == 0
+    assert database._estimator_runtime_authorizations == set()
+
+def test_concurrent_invalid_runtime_reconciliation_appends_one_terminal_receipt(
+    tmp_path,
+) -> None:
+    database, clock, _catalog, repository, source, launch = _automation_runtime_setup(
+        tmp_path, label="cleanup-concurrent"
+    )
+    repository.launch(launch)
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = tuple(
+            pool.submit(
+                database.estimator_runtime_repository().reconcile_invalid_automation_grants,
+                now=clock(),
+            )
+            for _ in range(2)
+        )
+        for future in futures:
+            future.result()
+    snapshot = repository.get_by_job(launch.authorization.job_id)
+    assert snapshot is not None
+    assert snapshot.job.state is AnalysisJobState.CANCELLED
+    assert [item.state for item in snapshot.states] == [
+        EstimatorRuntimeState.CREATED,
+        EstimatorRuntimeState.CANCELLED,
+    ]
+    assert source.identity_reads == source.packet_reads == source.objective_reads == 0
+
+
+def test_invalid_runtime_cleanup_leaves_terminal_checkpoint_anomaly_unchanged(
+    tmp_path,
+) -> None:
+    database, clock, _catalog, repository, _source, launch = (
+        _automation_runtime_setup(tmp_path, label="cleanup-terminal-checkpoint")
+    )
+    repository.launch(launch)
+    claimed = database.analysis_job_repository().claim_next(
+        owner=digest("cleanup-terminal-checkpoint-owner"),
+        token=digest("cleanup-terminal-checkpoint-token"),
+        now=clock(),
+        lease_duration=timedelta(minutes=1),
+        power_source=PowerSourceState.EXTERNAL_POWER,
+    )
+    assert claimed is not None
+    created = repository.get_by_job(launch.authorization.job_id)
+    assert created is not None
+    repository.append_state(
+        EstimatorRuntimeStateReceipt(
+            state_receipt_id=digest("cleanup-terminal-checkpoint-running"),
+            execution_id=launch.authorization.execution_id,
+            sequence=1,
+            previous_state_receipt_fingerprint=created.states[-1].canonical_fingerprint,
+            state=EstimatorRuntimeState.RUNNING,
+            reason_code="runtime_worker_started",
+            recorded_at=clock(),
+        )
+    )
+    binding = launch.authorization.packet_bindings[0]
+    with database._connection() as connection:
+        with repository._authorized(
+            connection,
+            launch.authorization.authorization_id,
+            launch.authorization.execution_id,
+            launch.authorization.job_id,
+        ):
+            repository._insert_checkpoint_locked(
+                connection,
+                launch.authorization.authorization_id,
+                EstimatorRuntimeCheckpointReceipt(
+                    checkpoint_id=digest("cleanup-terminal-checkpoint-anomaly"),
+                    execution_id=launch.authorization.execution_id,
+                    metric_key=binding.metric_key,
+                    sequence=0,
+                    last_completed_stage_ordinal=0,
+                    next_stage_ordinal=None,
+                    restart_generation=0,
+                    state=EstimatorRuntimeState.CANCELLED,
+                    reason_code="synthetic_checkpoint_anomaly",
+                    recorded_at=clock(),
+                ),
+            )
+        connection.commit()
+    database.analysis_job_repository().retry_or_fail(
+        AnalysisJobLease(
+            job_id=claimed.job_id,
+            owner=claimed.lease_owner,
+            token=claimed.lease_token,
+            expires_at=claimed.lease_expires_at,
+        ),
+        now=clock(),
+        error_code="synthetic_retry",
+        retryable=True,
+    )
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+    before = repository.get_by_job(launch.authorization.job_id)
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+    assert repository.get_by_job(launch.authorization.job_id) == before
+    assert before is not None and before.job.state is AnalysisJobState.QUEUED
+    assert before.states[-1].state is EstimatorRuntimeState.RUNNING
+    assert before.checkpoints[-1].state is EstimatorRuntimeState.CANCELLED
+
+
+def test_invalid_runtime_cleanup_leaves_created_history_anomaly_unchanged(
+    tmp_path,
+) -> None:
+    database, clock, _catalog, repository, _source, launch = (
+        _automation_runtime_setup(tmp_path, label="cleanup-created-history")
+    )
+    repository.launch(launch)
+    binding = launch.authorization.packet_bindings[0]
+    with database._connection() as connection:
+        with repository._authorized(
+            connection,
+            launch.authorization.authorization_id,
+            launch.authorization.execution_id,
+            launch.authorization.job_id,
+        ):
+            repository._insert_checkpoint_locked(
+                connection,
+                launch.authorization.authorization_id,
+                EstimatorRuntimeCheckpointReceipt(
+                    checkpoint_id=digest("cleanup-created-history-checkpoint"),
+                    execution_id=launch.authorization.execution_id,
+                    metric_key=binding.metric_key,
+                    sequence=0,
+                    last_completed_stage_ordinal=0,
+                    next_stage_ordinal=1,
+                    restart_generation=0,
+                    state=EstimatorRuntimeState.CREATED,
+                    reason_code="synthetic_created_history",
+                    recorded_at=clock(),
+                ),
+            )
+        connection.commit()
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+    before = repository.get_by_job(launch.authorization.job_id)
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+    assert repository.get_by_job(launch.authorization.job_id) == before
+    assert before is not None and before.job.state is AnalysisJobState.QUEUED
+    assert before.states[-1].state is EstimatorRuntimeState.CREATED
+
+
+def test_invalid_runtime_cleanup_leaves_open_attempt_for_recovery(
+    tmp_path,
+) -> None:
+    database, clock, catalog, repository, _source, launch = (
+        _automation_runtime_setup(tmp_path, label="cleanup-open-attempt")
+    )
+    repository.launch(launch)
+    claimed = database.analysis_job_repository().claim_next(
+        owner=digest("cleanup-open-attempt-owner"),
+        token=digest("cleanup-open-attempt-token"),
+        now=clock(),
+        lease_duration=timedelta(minutes=1),
+        power_source=PowerSourceState.EXTERNAL_POWER,
+    )
+    assert claimed is not None
+    created = repository.get_by_job(launch.authorization.job_id)
+    assert created is not None
+    repository.append_state(
+        EstimatorRuntimeStateReceipt(
+            state_receipt_id=digest("cleanup-open-attempt-running"),
+            execution_id=launch.authorization.execution_id,
+            sequence=1,
+            previous_state_receipt_fingerprint=created.states[-1].canonical_fingerprint,
+            state=EstimatorRuntimeState.RUNNING,
+            reason_code="runtime_worker_started",
+            recorded_at=clock(),
+        )
+    )
+    binding = launch.authorization.packet_bindings[0]
+    registration = catalog.plan_for_route(launch.authorization.route)
+    repository.append_stage_attempt(
+        EstimatorRuntimeStageAttemptReceipt(
+            attempt_id=digest("cleanup-open-attempt-stage"),
+            execution_id=launch.authorization.execution_id,
+            metric_key=binding.metric_key,
+            metric_question_fingerprint=binding.metric_question_fingerprint,
+            evidence_packet_fingerprint=binding.evidence_packet_fingerprint,
+            stage_ordinal=1,
+            stage_kind=registration.stage_registration(1).stage_kind,
+            stage_fingerprint=registration.stage_registration(1).stage_fingerprint,
+            attempt_ordinal=1,
+            started_at=clock(),
+        )
+    )
+    database.analysis_job_repository().retry_or_fail(
+        AnalysisJobLease(
+            job_id=claimed.job_id,
+            owner=claimed.lease_owner,
+            token=claimed.lease_token,
+            expires_at=claimed.lease_expires_at,
+        ),
+        now=clock(),
+        error_code="synthetic_retry",
+        retryable=True,
+    )
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+    before = repository.get_by_job(launch.authorization.job_id)
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+    assert repository.get_by_job(launch.authorization.job_id) == before
+    assert before is not None and before.job.state is AnalysisJobState.QUEUED
+    assert len(before.attempts) == 1 and before.outcomes == ()
+
+
+@pytest.mark.parametrize(
+    ("runtime_state", "reason_code"),
+    (
+        (EstimatorRuntimeState.PARTIAL, "local_model_runtime_not_enabled"),
+        (EstimatorRuntimeState.FAILED, "execution_handler_failed"),
+    ),
+)
+def test_invalid_grant_mirrors_existing_terminal_runtime_without_relabeling(
+    tmp_path,
+    runtime_state: EstimatorRuntimeState,
+    reason_code: str,
+) -> None:
+    database, clock, _catalog, repository, source, launch = _automation_runtime_setup(
+        tmp_path, label=f"cleanup-terminal-{runtime_state.value}"
+    )
+    repository.launch(launch)
+    claimed = database.analysis_job_repository().claim_next(
+        owner=digest(f"cleanup-terminal-{runtime_state.value}-owner"),
+        token=digest(f"cleanup-terminal-{runtime_state.value}-token"),
+        now=clock(),
+        lease_duration=timedelta(minutes=1),
+        power_source=PowerSourceState.EXTERNAL_POWER,
+    )
+    assert claimed is not None
+    created = repository.get_by_job(launch.authorization.job_id)
+    assert created is not None
+    running = EstimatorRuntimeStateReceipt(
+        state_receipt_id=digest(f"cleanup-terminal-{runtime_state.value}-running"),
+        execution_id=launch.authorization.execution_id,
+        sequence=1,
+        previous_state_receipt_fingerprint=created.states[-1].canonical_fingerprint,
+        state=EstimatorRuntimeState.RUNNING,
+        reason_code="runtime_worker_started",
+        recorded_at=clock(),
+    )
+    repository.append_state(running)
+    repository.append_state(
+        EstimatorRuntimeStateReceipt(
+            state_receipt_id=digest(
+                f"cleanup-terminal-{runtime_state.value}-terminal"
+            ),
+            execution_id=launch.authorization.execution_id,
+            sequence=2,
+            previous_state_receipt_fingerprint=running.canonical_fingerprint,
+            state=runtime_state,
+            reason_code=reason_code,
+            recorded_at=clock(),
+        )
+    )
+    with database._connection() as connection:
+        connection.execute(
+            """
+            UPDATE analysis_jobs SET state='queued',stage_number=NULL,
+                available_at=?,lease_owner=NULL,lease_token=NULL,
+                lease_expires_at=NULL,last_error_code='synthetic_retry',
+                terminal_reason_code=NULL,terminal_at=NULL,updated_at=?
+            WHERE job_id=? AND state IN ('preprocessing','stage_n')
+            """,
+            (
+                clock().isoformat(timespec="microseconds"),
+                clock().isoformat(timespec="microseconds"),
+                launch.authorization.job_id,
+            ),
+        )
+        connection.commit()
+    _invalidate_automation_runtime_grant(database, clock, launch, "revoked")
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+    snapshot = repository.get_by_job(launch.authorization.job_id)
+    assert snapshot is not None
+    assert snapshot.job.state is AnalysisJobState(runtime_state.value)
+    assert snapshot.job.terminal_reason_code == reason_code
+    assert snapshot.job.cancel_requested is False
+    assert snapshot.job.last_error_code == "synthetic_retry"
+    assert len(snapshot.states) == 3
+    assert snapshot.states[-1].state is runtime_state
+    assert snapshot.states[-1].reason_code == reason_code
+    assert snapshot.checkpoints == ()
+    assert source.identity_reads == source.packet_reads == source.objective_reads == 0
+
+    repository.reconcile_invalid_automation_grants(now=clock())
+    assert repository.get_by_job(launch.authorization.job_id) == snapshot
 
 
 def test_v18_atomic_launch_and_real_worker_stop_truthfully_partial(tmp_path) -> None:
@@ -913,7 +1740,7 @@ def test_v18_atomic_launch_and_real_worker_stop_truthfully_partial(tmp_path) -> 
         ).fetchone()[0]
 
     launched = EstimatorRuntimeService(repository, catalog, clock=clock).launch(launch)
-    assert SCHEMA_VERSION == 23
+    assert SCHEMA_VERSION == 24
     assert launched.job.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION
     assert launched.authorization_consumed is True
     assert launched.authorization.activation_allowed is False
@@ -1402,7 +2229,7 @@ def test_raw_sql_is_sealed_and_privacy_delete_purges_runtime_not_plan(tmp_path) 
 def test_schema_has_no_runtime_payload_surface_and_queue_kind_is_closed(tmp_path) -> None:
     database, *_ = _setup(tmp_path)
     with database._connection(readonly=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
         queue_sql = connection.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='analysis_jobs'"
         ).fetchone()[0]
@@ -1525,11 +2352,11 @@ def test_v17_to_v18_preserves_existing_queue_and_seals_migration_ledger(
 
     Database(path).initialize()
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert [row[0] for row in rows] == list(range(1, 24))
+        assert [row[0] for row in rows] == list(range(1, 25))
         assert rows[17][1] == hashlib.sha256(
             migrations.MIGRATION_18.encode("utf-8")
         ).hexdigest()

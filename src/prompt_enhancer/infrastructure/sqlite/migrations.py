@@ -8900,3 +8900,45 @@ CREATE INDEX synthetic_aggregation_root_scope_idx ON synthetic_aggregation_valid
 
 COMMIT;
 """
+
+
+MIGRATION_24 = r"""
+BEGIN IMMEDIATE;
+
+-- A runtime terminal receipt can be durably appended before the queue finish
+-- commits. Permit the queue ledger to converge from its retryable queued state
+-- only for estimator executions whose latest sealed runtime state and reason
+-- exactly match the requested PARTIAL or FAILED terminal state. All other
+-- queue transitions retain the v18 closed state machine.
+DROP TRIGGER analysis_jobs_closed_transitions;
+CREATE TRIGGER analysis_jobs_closed_transitions BEFORE UPDATE ON analysis_jobs
+WHEN NEW.state<>OLD.state AND NOT (
+    (OLD.state='queued' AND NEW.state IN ('preprocessing','cancelled','superseded'))
+    OR (
+        OLD.state='queued'
+        AND OLD.kind='estimator_execution'
+        AND NEW.state IN ('partial','failed')
+        AND EXISTS (
+            SELECT 1
+            FROM estimator_runtime_job_bindings b
+            JOIN estimator_runtime_state_receipts s
+              ON s.execution_id=b.execution_id
+             AND s.authorization_id=b.authorization_id
+            WHERE b.job_id=OLD.job_id
+              AND s.sequence=(
+                  SELECT MAX(latest.sequence)
+                  FROM estimator_runtime_state_receipts latest
+                  WHERE latest.execution_id=b.execution_id
+              )
+              AND s.state=NEW.state
+              AND s.reason_code=NEW.terminal_reason_code
+        )
+    )
+    OR (OLD.state='preprocessing' AND NEW.state IN ('queued','stage_n','awaiting_approval','completed','partial','failed','cancelled','superseded'))
+    OR (OLD.state='stage_n' AND NEW.state IN ('queued','awaiting_approval','completed','partial','failed','cancelled','superseded'))
+    OR (OLD.state='awaiting_approval' AND NEW.state IN ('queued','failed','cancelled','superseded'))
+)
+BEGIN SELECT RAISE(ABORT,'analysis job state transition is invalid'); END;
+
+COMMIT;
+"""
