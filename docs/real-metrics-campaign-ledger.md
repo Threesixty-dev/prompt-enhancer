@@ -19,7 +19,7 @@ local runtime artifacts must never be added here.
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
-| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, reviewed local automation admission controls, and crash-safe invalid estimator-automation reconciliation | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, or product-enabled estimator |
+| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, reviewed local automation admission controls, crash-safe invalid estimator-automation reconciliation, and a restart-durable strict first-claim result-publication cutoff for reviewed automated `session_quality` work | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, force-stopping runtime deadline, or product-enabled estimator |
 | P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, repository-issued synthetic comparison-stratum preparation and graph sealing, and bounded repository-sealed synthetic aggregation-validation receipts | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
@@ -475,6 +475,57 @@ diff validation passed, and an independent adversarial review of the frozen
 chronology, rollback, concurrency, idempotence, and migration boundaries
 returned `PASS`. These results prove local queue/runtime convergence integrity,
 not estimator validity, calibration, product correctness, or outcome evidence.
+
+Pushed schema-v25 checkpoint `49e9cb7` (`Enforce automation
+result-publication cutoff`) adds a strict 1,800-second result-publication cutoff
+for reviewed automated `session_quality` jobs only. The first successful claim
+atomically persists an immutable start/deadline root and high-water mark bound
+to the exact reviewed grant revision and ordered metric scope; retry, lease
+recovery, and process restart cannot reset it. Migration v25 performs no
+backfill and preserves migrations and checksums v1-v24. An already-attempted
+legacy automation job without that root fails closed before reclaim with
+`automation_publication_deadline_missing`. Manual jobs and estimator executions
+are unchanged.
+
+The repository accepts the bound run's result, evidence, and signal graph plus
+an immutable accepted-publication receipt in one transaction only when
+publication is strictly before the cutoff; equality and later are rejected
+without partial derived rows. Fixed content-free closures distinguish
+`automation_publication_deadline_exceeded`,
+`automation_publication_clock_regressed`, and
+`automation_publication_deadline_missing`. Once accepted, the receipt outranks
+later finish, retry, cancellation or revocation, supersession, recovery, claim,
+renewal, and stage bookkeeping, including after restart, so an on-time
+publication converges to `COMPLETED`. Transient repository authority seals
+these writes and is removed on commit or rollback; explicit privacy deletion
+removes the publication graph under the existing local deletion boundary.
+
+Worker and analysis-service checkpoints combine the persisted UTC high-water
+mark with a process-local monotonic observation around provider reads, feature
+extraction, every selected metric calculator, result validation, and atomic
+persistence. They stop cooperatively at checked boundaries; they do not
+forcibly preempt an in-flight blocking read or calculation. The API, OpenAPI
+schema, and UI expose that separation directly: the session-quality
+result-publication cutoff is enforced, blocking-call preemption is not
+provided, and the maximum-session hard runtime deadline remains unenforced.
+Publication timestamps remain internal while only fixed content-free reason
+codes cross the browser-safe job surface.
+
+Frozen engineering evidence for the exact
+`49e9cb71c36329c60140bf8bf9c9e3c7d06d1f2c` tree is 34 dedicated v25
+persistence tests, a 159-test application/persistence/temporal gate, a 98-test
+manual and estimator adjacency gate, and the full backend suite with 1,948
+passed, 4 expected platform-only symlink skips, and one existing Starlette
+deprecation warning. All 390 frontend tests and the production build passed.
+The privacy scanner, compileall, OpenAPI generation, and diff validation were
+green, and an independent adversarial review of the frozen cutoff, restart,
+raw-SQL, accepted-publication, privacy, and migration boundaries returned
+`PASS`.
+
+This checkpoint does not establish metric or estimator calibration, an
+eligibility-capable decision, activation, a calibrated model stage, a
+force-stopping runtime deadline, or product estimator evidence. P1 remains in
+progress. P2 scope and blockers are unchanged, and P3 and P4 remain deferred.
 
 ## P2 foundation evidence
 
