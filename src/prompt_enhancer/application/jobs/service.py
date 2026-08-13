@@ -6,8 +6,10 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import math
 import secrets
 from threading import Event, Lock, Thread
+from time import monotonic
 from typing import Protocol
 
 from pydantic import Field, field_validator, model_validator
@@ -24,6 +26,7 @@ from .contracts import (
     AnalysisJobKind,
     AnalysisJobLease,
     AnalysisJobPage,
+    AnalysisPublicationDeadlineFailure,
     AnalysisJobRecord,
     AnalysisJobRepository,
     AnalysisJobState,
@@ -61,6 +64,16 @@ class AnalysisJobExecutionError(RuntimeError):
         self.code = code
         self.retryable = retryable
         super().__init__(code)
+
+
+class AnalysisJobCooperativeStop(RuntimeError):
+    """A queue transition already persisted at a cooperative boundary."""
+
+    def __init__(self, reason_code: str) -> None:
+        if SAFE_VERSION_PATTERN.fullmatch(reason_code) is None:
+            raise ValueError("cooperative stop code must be content-free")
+        self.reason_code = reason_code
+        super().__init__(reason_code)
 
 
 class AnalysisJobExecutionResult(StrictModel):
@@ -106,6 +119,7 @@ class AnalysisJobHandler(Protocol):
 
 
 Clock = Callable[[], datetime]
+MonotonicClock = Callable[[], float]
 AuthorizationCheck = Callable[[AnalysisJobRecord], bool]
 FingerprintResolver = Callable[[AnalysisJobRecord], tuple[str, str] | None]
 ExecutionStopCallback = Callable[[AnalysisJobRecord, AnalysisJobState, str], None]
@@ -281,10 +295,6 @@ class AnalysisJobService:
             raise AnalysisJobConflictError() from None
 
 
-class _ExecutionStopped(RuntimeError):
-    pass
-
-
 class AnalysisJobExecutionContext:
     """Lease-bound handler controls; values are all content-free."""
 
@@ -295,6 +305,7 @@ class AnalysisJobExecutionContext:
         lease: AnalysisJobLease,
         *,
         clock: Clock,
+        monotonic_clock: MonotonicClock,
         lease_duration: timedelta,
         authorization_check: AuthorizationCheck,
         fingerprint_resolver: FingerprintResolver,
@@ -304,11 +315,17 @@ class AnalysisJobExecutionContext:
         self._job = job
         self._lease = lease
         self._clock = clock
+        self._monotonic_clock = monotonic_clock
         self._lease_duration = lease_duration
         self._authorization_check = authorization_check
         self._fingerprint_resolver = fingerprint_resolver
         self._execution_stop_callback = execution_stop_callback
         self._lock = Lock()
+        self._publication_committed = False
+        self._publication_monotonic_cutoff: float | None = None
+        self._last_monotonic: float | None = None
+        self._last_validated_wall_at: datetime | None = None
+        self._initialize_publication_clock()
 
     @property
     def job(self) -> AnalysisJobRecord:
@@ -318,29 +335,209 @@ class AnalysisJobExecutionContext:
     def lease(self) -> AnalysisJobLease:
         return self._lease
 
+    @property
+    def publication_committed(self) -> bool:
+        return self._publication_committed
+
+    def _read_monotonic(self) -> float:
+        observed = self._monotonic_clock()
+        if (
+            isinstance(observed, bool)
+            or not isinstance(observed, (int, float))
+            or not math.isfinite(observed)
+        ):
+            raise ValueError("monotonic clock returned an invalid value")
+        return float(observed)
+
+    def _clock_failure_timestamp(self) -> datetime:
+        return (
+            self._job.publication_high_water_at
+            or self._job.runtime_started_at
+            or self._job.updated_at
+        )
+
+    def _read_wall_clock(self) -> datetime:
+        try:
+            observed = self._clock()
+        except Exception:
+            self._fail_publication_deadline(
+                AnalysisPublicationDeadlineFailure.CLOCK_REGRESSED,
+                now=self._clock_failure_timestamp(),
+            )
+            raise AssertionError("cooperative clock closure must stop execution")
+        if (
+            not isinstance(observed, datetime)
+            or observed.tzinfo is None
+            or observed.utcoffset() != timedelta(0)
+        ):
+            self._fail_publication_deadline(
+                AnalysisPublicationDeadlineFailure.CLOCK_REGRESSED,
+                now=self._clock_failure_timestamp(),
+            )
+            raise AssertionError("cooperative clock closure must stop execution")
+        self._last_validated_wall_at = observed
+        return observed
+
+    def _repository_timestamp_locked(self) -> datetime:
+        if self._job.publication_deadline_at is None:
+            return self._clock()
+        if self._last_validated_wall_at is None:
+            return self._read_wall_clock()
+        return self._last_validated_wall_at
+
+    def _initialize_publication_clock(self) -> None:
+        deadline_job = (
+            self._job.identity.kind is AnalysisJobKind.SESSION_QUALITY
+            and self._job.identity.automation_grant_id is not None
+        )
+        if self._job.publication_deadline_at is None:
+            if deadline_job and self._job.attempt_count > 0:
+                self._fail_publication_deadline(
+                    AnalysisPublicationDeadlineFailure.DEADLINE_MISSING,
+                    now=self._read_wall_clock(),
+                )
+            return
+        wall_now = self._read_wall_clock()
+        try:
+            observed = self._read_monotonic()
+        except Exception:
+            self._fail_publication_deadline(
+                AnalysisPublicationDeadlineFailure.CLOCK_REGRESSED,
+                now=wall_now,
+            )
+            raise AssertionError("cooperative clock closure must stop execution")
+        anchor = max(
+            wall_now,
+            self._job.publication_high_water_at or wall_now,
+        )
+        remaining = (
+            self._job.publication_deadline_at - anchor
+        ).total_seconds()
+        self._last_monotonic = observed
+        self._publication_monotonic_cutoff = observed + max(remaining, 0.0)
+
+    def _fail_publication_deadline(
+        self,
+        failure: AnalysisPublicationDeadlineFailure,
+        *,
+        now: datetime,
+    ) -> None:
+        closed = self._repository.fail_publication_deadline(
+            self._lease,
+            now=now,
+            failure=failure,
+        )
+        self._raise_cooperative_stop(closed)
+
+    def _raise_cooperative_stop(self, job: AnalysisJobRecord) -> None:
+        self._job = job
+        if job.state is AnalysisJobState.COMPLETED:
+            self._publication_committed = True
+        reason = (
+            job.terminal_reason_code
+            or job.last_error_code
+            or "cooperative_execution_stopped"
+        )
+        raise AnalysisJobCooperativeStop(reason)
+
+    def _check_publication_deadline_locked(self) -> AnalysisJobRecord:
+        if self._publication_committed:
+            return self._job
+        if self._job.publication_deadline_at is None:
+            return self._job
+        wall_now = self._read_wall_clock()
+        try:
+            observed = self._read_monotonic()
+        except Exception:
+            self._fail_publication_deadline(
+                AnalysisPublicationDeadlineFailure.CLOCK_REGRESSED,
+                now=wall_now,
+            )
+            raise AssertionError("cooperative clock closure must stop execution")
+        last_monotonic = self._last_monotonic
+        cutoff = self._publication_monotonic_cutoff
+        failure: AnalysisPublicationDeadlineFailure | None = None
+        if last_monotonic is not None and observed < last_monotonic:
+            failure = AnalysisPublicationDeadlineFailure.CLOCK_REGRESSED
+        elif cutoff is not None and observed >= cutoff:
+            failure = AnalysisPublicationDeadlineFailure.DEADLINE_EXCEEDED
+        if failure is None:
+            checked = self._repository.check_publication_deadline(
+                self._lease,
+                now=wall_now,
+            )
+        else:
+            self._fail_publication_deadline(failure, now=wall_now)
+            raise AssertionError("cooperative deadline closure must stop execution")
+        self._last_monotonic = observed
+        self._job = checked
+        if checked.state in TERMINAL_ANALYSIS_JOB_STATES:
+            self._raise_cooperative_stop(checked)
+        return checked
+
+    def publication_checkpoint(self) -> AnalysisJobRecord:
+        """Deny late publication without attempting to preempt blocking work."""
+
+        with self._lock:
+            persisted = self._repository.get(self._job.job_id)
+            if persisted is None:
+                raise AnalysisJobCooperativeStop("analysis_job_missing")
+            self._job = persisted
+            if persisted.state in TERMINAL_ANALYSIS_JOB_STATES:
+                self._raise_cooperative_stop(persisted)
+            return self._check_publication_deadline_locked()
+
+    def mark_publication_committed(self) -> None:
+        """Record that the repository atomically accepted the exact result set."""
+
+        with self._lock:
+            self._publication_committed = True
+
+    def repository_timestamp(self) -> datetime:
+        """Return one checked timestamp for the next queue write.
+
+        Once publication commits, the last pre-publication observation is kept
+        so queue convergence cannot be undone by a later clock failure.
+        """
+
+        with self._lock:
+            if (
+                not self._publication_committed
+                and self._job.publication_deadline_at is not None
+            ):
+                self._check_publication_deadline_locked()
+            return self._repository_timestamp_locked()
+
     def _stop(
         self,
         state: AnalysisJobState,
         reason_code: str,
     ) -> None:
+        operation_at = (
+            self._read_wall_clock()
+            if self._job.publication_deadline_at is not None
+            else self._clock()
+        )
         # Persist the execution ledger first.  If that append fails, the queue
         # remains leased and can be reconciled without a false terminal state.
         self._execution_stop_callback(self._job, state, reason_code)
         self._job = self._repository.finish(
             self._lease,
-            now=self._clock(),
+            now=operation_at,
             state=state,
             reason_code=reason_code,
             progress_completed=self._job.progress_completed,
             progress_total=self._job.progress_total,
         )
-        raise _ExecutionStopped()
+        raise AnalysisJobCooperativeStop(reason_code)
 
     def _guard_and_renew_locked(self) -> AnalysisJobRecord:
         persisted = self._repository.get(self._job.job_id)
         if persisted is None:
-            raise _ExecutionStopped()
+            raise AnalysisJobCooperativeStop("analysis_job_missing")
         self._job = persisted
+        if self._publication_committed:
+            return persisted
         if persisted.cancel_requested:
             reason = persisted.last_error_code or "cancellation_requested"
             terminal = (
@@ -359,14 +556,16 @@ class AnalysisJobExecutionContext:
             self._stop(AnalysisJobState.SUPERSEDED, "input_changed")
         if current_provenance != persisted.identity.provenance_fingerprint:
             self._stop(AnalysisJobState.SUPERSEDED, "provenance_changed")
+        self._check_publication_deadline_locked()
+        operation_at = self._repository_timestamp_locked()
         renewed = self._repository.renew(
             self._lease,
-            now=self._clock(),
+            now=operation_at,
             lease_duration=self._lease_duration,
         )
         self._job = renewed
         if renewed.lease_expires_at is None:
-            raise _ExecutionStopped()
+            raise AnalysisJobCooperativeStop("analysis_job_lease_lost")
         self._lease = AnalysisJobLease(
             job_id=renewed.job_id,
             owner=renewed.lease_owner,
@@ -377,6 +576,8 @@ class AnalysisJobExecutionContext:
 
     def heartbeat(self) -> AnalysisJobRecord:
         with self._lock:
+            if self._publication_committed:
+                return self._job
             return self._guard_and_renew_locked()
 
     def enter_stage(
@@ -387,10 +588,12 @@ class AnalysisJobExecutionContext:
         progress_total: int,
     ) -> AnalysisJobRecord:
         with self._lock:
+            if self._publication_committed:
+                return self._job
             self._guard_and_renew_locked()
             self._job = self._repository.advance_stage(
                 self._lease,
-                now=self._clock(),
+                now=self._repository_timestamp_locked(),
                 stage_number=stage_number,
                 progress_completed=progress_completed,
                 progress_total=progress_total,
@@ -414,6 +617,7 @@ class AnalysisJobWorker:
         execution_recovery_callback: ExecutionRecoveryCallback = lambda _now: None,
         power_source: PowerSourceReader | None = None,
         clock: Clock = _utc_now,
+        monotonic_clock: MonotonicClock = monotonic,
         lease_duration: timedelta = DEFAULT_ANALYSIS_JOB_LEASE,
         poll_seconds: float = DEFAULT_ANALYSIS_JOB_POLL_SECONDS,
         worker_id: str | None = None,
@@ -428,6 +632,7 @@ class AnalysisJobWorker:
         self._execution_recovery_callback = execution_recovery_callback
         self._power_source = power_source
         self._clock = clock
+        self._monotonic_clock = monotonic_clock
         self._lease_duration = lease_duration
         self._poll_seconds = poll_seconds
         self._worker_id = worker_id or secrets.token_hex(32)
@@ -495,24 +700,27 @@ class AnalysisJobWorker:
                 lease, "execution_handler_unavailable", retryable=False
             )
             return True
-        context = AnalysisJobExecutionContext(
-            self._repository,
-            job,
-            lease,
-            clock=self._clock,
-            lease_duration=self._lease_duration,
-            authorization_check=self._authorization_check,
-            fingerprint_resolver=self._fingerprint_resolver,
-            execution_stop_callback=self._execution_stop_callback,
-        )
+        context: AnalysisJobExecutionContext | None = None
         try:
+            context = AnalysisJobExecutionContext(
+                self._repository,
+                job,
+                lease,
+                clock=self._clock,
+                monotonic_clock=self._monotonic_clock,
+                lease_duration=self._lease_duration,
+                authorization_check=self._authorization_check,
+                fingerprint_resolver=self._fingerprint_resolver,
+                execution_stop_callback=self._execution_stop_callback,
+            )
             context.enter_stage(1, progress_completed=0, progress_total=1)
             result = handler(context.job, context)
             context.heartbeat()
+            operation_at = context.repository_timestamp()
             if result.state is AnalysisJobState.AWAITING_APPROVAL:
                 self._repository.await_approval(
                     context.lease,
-                    now=self._clock(),
+                    now=operation_at,
                     reason_code=result.reason_code,
                     progress_completed=result.progress_completed,
                     progress_total=result.progress_total,
@@ -523,18 +731,28 @@ class AnalysisJobWorker:
                 )
                 self._repository.finish(
                     context.lease,
-                    now=self._clock(),
+                    now=operation_at,
                     state=result.state,
                     reason_code=result.reason_code,
                     progress_completed=result.progress_completed,
                     progress_total=result.progress_total,
                 )
-        except _ExecutionStopped:
+        except AnalysisJobCooperativeStop:
             pass
         except AnalysisJobExecutionError as error:
-            self._retry_safely(context.lease, error.code, error.retryable)
+            self._retry_safely(
+                context.lease if context is not None else lease,
+                error.code,
+                error.retryable,
+                context=context,
+            )
         except Exception:
-            self._retry_safely(context.lease, "execution_handler_failed", True)
+            self._retry_safely(
+                context.lease if context is not None else lease,
+                "execution_handler_failed",
+                True,
+                context=context,
+            )
         return True
 
     def _current_power_source(self) -> PowerSourceState:
@@ -551,8 +769,15 @@ class AnalysisJobWorker:
         lease: AnalysisJobLease,
         error_code: str,
         retryable: bool,
+        *,
+        context: AnalysisJobExecutionContext | None = None,
     ) -> None:
         try:
+            operation_at = (
+                context.repository_timestamp()
+                if context is not None
+                else self._clock()
+            )
             current = self._repository.get(lease.job_id)
             if current is None:
                 return
@@ -575,10 +800,12 @@ class AnalysisJobWorker:
                 )
             self._repository.retry_or_fail(
                 lease,
-                now=self._clock(),
+                now=operation_at,
                 error_code=error_code,
                 retryable=retryable,
             )
+        except AnalysisJobCooperativeStop:
+            return
         except DatabaseInvariantError:
             # The lease was already recovered or terminal; never expose handler data.
             return

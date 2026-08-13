@@ -16,6 +16,7 @@ from prompt_enhancer.application.analysis.session_text_service import (
     SESSION_TEXT_ANALYSIS_CONFIRMATION,
     SessionTextAnalysisConflictError,
     SessionTextAnalysisCompatibilityError,
+    SessionTextAnalysisCooperativeStop,
     SessionTextAnalysisConfirmationError,
     SessionTextAnalysisConsentError,
     SessionTextAnalysisExecutionError,
@@ -75,6 +76,7 @@ from prompt_enhancer.application.persistence import (
     AnalysisRunStatus,
     SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
     SessionAnalysisCompletionAuthority,
+    SessionAnalysisPublicationRejectedError,
     SessionAnalysisResultRecord,
     SessionAnalysisRunDraft,
     SessionAnalysisRunRecord,
@@ -199,7 +201,13 @@ class MemorySessionAnalysisRepository:
         self.complete_count = 0
         self.fail_count = 0
 
-    def begin(self, draft: SessionAnalysisRunDraft) -> None:
+    def begin(
+        self,
+        draft: SessionAnalysisRunDraft,
+        *,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
+    ) -> None:
+        del completion_authority
         self.begin_count += 1
         if draft.run_id in self.runs:
             raise RuntimeError("duplicate synthetic run")
@@ -272,14 +280,24 @@ class MemorySessionAnalysisRepository:
 class BeginRaceRepository(MemorySessionAnalysisRepository):
     """Pretend another process persisted the identical draft first."""
 
-    def begin(self, draft: SessionAnalysisRunDraft) -> None:
-        super().begin(draft)
+    def begin(
+        self,
+        draft: SessionAnalysisRunDraft,
+        *,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
+    ) -> None:
+        super().begin(draft, completion_authority=completion_authority)
         raise RuntimeError("synthetic competing writer")
 
 
 class FailingBeginRepository(MemorySessionAnalysisRepository):
-    def begin(self, draft: SessionAnalysisRunDraft) -> None:
-        del draft
+    def begin(
+        self,
+        draft: SessionAnalysisRunDraft,
+        *,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
+    ) -> None:
+        del draft, completion_authority
         self.begin_count += 1
         raise RuntimeError("PRIVATE-PERSISTENCE-ERROR-CANARY")
 
@@ -542,6 +560,212 @@ def _run_preset(
         idempotency_key=idempotency_key,
         selected_metric_keys=selected_metric_keys,
     )
+
+
+def test_automation_preset_checks_every_blocking_boundary_and_marks_commit() -> None:
+    service, repository, source, _factory = _service()
+    checkpoints: list[int] = []
+    committed: list[bool] = []
+    metric_key = COACHING_METRIC_DEFINITIONS[0].key
+
+    outcome = service.run_preset(
+        provider=Provider.SYNTHETIC,
+        session_id=SESSION_ID,
+        preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+        confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
+        idempotency_key="example-automation-boundaries",
+        selected_metric_keys=(metric_key,),
+        completion_authority=SessionAnalysisCompletionAuthority(
+            job_id="7" * 64,
+            automation_grant_id="8" * 64,
+            lease_owner="9" * 64,
+            lease_token="a" * 64,
+        ),
+        cooperative_check=lambda: checkpoints.append(len(checkpoints) + 1),
+        publication_committed_callback=lambda: committed.append(True),
+    )
+
+    assert outcome.status is AnalysisRunStatus.COMPLETED
+    assert outcome.result_count == 1
+    assert source.read_count == 1
+    assert repository.begin_count == repository.complete_count == 1
+    assert checkpoints == list(range(1, 14))
+    assert committed == [True]
+
+
+def test_cooperative_stop_after_run_begin_escapes_without_generic_relabel() -> None:
+    service, repository, _source, _factory = _service()
+    calls = 0
+
+    def stop_after_begin() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 5:
+            raise SessionTextAnalysisCooperativeStop(
+                "automation_publication_deadline_exceeded"
+            )
+
+    with pytest.raises(SessionTextAnalysisCooperativeStop) as raised:
+        service.run_preset(
+            provider=Provider.SYNTHETIC,
+            session_id=SESSION_ID,
+            preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+            confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
+            idempotency_key="example-automation-stop",
+            selected_metric_keys=(COACHING_METRIC_DEFINITIONS[0].key,),
+            completion_authority=SessionAnalysisCompletionAuthority(
+                job_id="7" * 64,
+                automation_grant_id="8" * 64,
+                lease_owner="9" * 64,
+                lease_token="a" * 64,
+            ),
+            cooperative_check=stop_after_begin,
+        )
+
+    assert raised.value.reason_code == "automation_publication_deadline_exceeded"
+    assert repository.begin_count == 1
+    assert repository.complete_count == repository.fail_count == 0
+
+
+def test_deadline_observed_after_failing_provider_read_outranks_source_error() -> None:
+    service, repository, source, _factory = _service(
+        source=RecordingSource(fail=True)
+    )
+    calls = 0
+
+    def stop_after_provider_returns() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise SessionTextAnalysisCooperativeStop(
+                "automation_publication_deadline_exceeded"
+            )
+
+    with pytest.raises(SessionTextAnalysisCooperativeStop):
+        service.run_preset(
+            provider=Provider.SYNTHETIC,
+            session_id=SESSION_ID,
+            preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+            confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
+            idempotency_key="example-provider-deadline-stop",
+            selected_metric_keys=(COACHING_METRIC_DEFINITIONS[0].key,),
+            cooperative_check=stop_after_provider_returns,
+        )
+
+    assert source.read_count == 1
+    assert repository.runs == {}
+
+
+def test_deadline_observed_after_failing_compute_outranks_execution_error() -> None:
+    service, repository, _source, _factory = _service(
+        metric_engine=FailingMetricEngine()
+    )
+    calls = 0
+
+    def stop_after_compute_returns() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 7:
+            raise SessionTextAnalysisCooperativeStop(
+                "automation_publication_deadline_exceeded"
+            )
+
+    with pytest.raises(SessionTextAnalysisCooperativeStop):
+        service.run_preset(
+            provider=Provider.SYNTHETIC,
+            session_id=SESSION_ID,
+            preset_id=TextAnalysisPresetId.STANDARD_ENGINEERING_V1,
+            confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
+            idempotency_key="example-compute-deadline-stop",
+            cooperative_check=stop_after_compute_returns,
+        )
+
+    assert repository.begin_count == 1
+    assert repository.fail_count == 0
+
+
+class PublicationRejectingRepository(MemorySessionAnalysisRepository):
+    def complete(
+        self,
+        run_id: str,
+        results: tuple[SessionAnalysisResultRecord, ...],
+        *,
+        finished_at: datetime,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
+    ) -> None:
+        del results, completion_authority
+        current = self.runs[run_id]
+        self.runs[run_id] = SessionAnalysisRunRecord(
+            draft=current.draft,
+            status=AnalysisRunStatus.FAILED,
+            finished_at=finished_at,
+            failure_code="automation_publication_deadline_exceeded",
+        )
+        raise SessionAnalysisPublicationRejectedError(
+            "automation_publication_deadline_exceeded"
+        )
+
+
+def test_atomic_publication_rejection_preserves_fixed_cooperative_reason() -> None:
+    repository = PublicationRejectingRepository()
+    service, _repository, _source, _factory = _service(repository=repository)
+
+    with pytest.raises(SessionTextAnalysisCooperativeStop) as raised:
+        service.run_preset(
+            provider=Provider.SYNTHETIC,
+            session_id=SESSION_ID,
+            preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+            confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
+            idempotency_key="example-automation-rejection",
+            selected_metric_keys=(COACHING_METRIC_DEFINITIONS[0].key,),
+            completion_authority=SessionAnalysisCompletionAuthority(
+                job_id="7" * 64,
+                automation_grant_id="8" * 64,
+                lease_owner="9" * 64,
+                lease_token="a" * 64,
+            ),
+            cooperative_check=lambda: None,
+        )
+
+    assert raised.value.reason_code == "automation_publication_deadline_exceeded"
+    assert repository.fail_count == 0
+
+
+def test_completed_automation_replay_marks_publication_before_any_checkpoint() -> None:
+    service, repository, source, _factory = _service()
+    committed: list[bool] = []
+    authority = SessionAnalysisCompletionAuthority(
+        job_id="7" * 64,
+        automation_grant_id="8" * 64,
+        lease_owner="9" * 64,
+        lease_token="a" * 64,
+    )
+    values = {
+        "provider": Provider.SYNTHETIC,
+        "session_id": SESSION_ID,
+        "preset_id": TextAnalysisPresetId.COACHING_PROFILE_V1,
+        "confirmation": SESSION_TEXT_ANALYSIS_CONFIRMATION,
+        "idempotency_key": "example-automation-replay",
+        "selected_metric_keys": (COACHING_METRIC_DEFINITIONS[0].key,),
+        "completion_authority": authority,
+        "publication_committed_callback": lambda: committed.append(True),
+    }
+
+    first = service.run_preset(cooperative_check=lambda: None, **values)
+
+    def unexpected_checkpoint() -> None:
+        raise AssertionError("completed replay must win before deadline checks")
+
+    replay = service.run_preset(
+        cooperative_check=unexpected_checkpoint,
+        **values,
+    )
+
+    assert first.applied is True
+    assert replay.applied is False
+    assert source.read_count == 1
+    assert repository.complete_count == 1
+    assert committed == [True, True]
 
 
 def _preview_approval(

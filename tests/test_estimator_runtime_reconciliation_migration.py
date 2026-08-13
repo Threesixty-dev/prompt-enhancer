@@ -441,12 +441,15 @@ def test_populated_v23_upgrades_to_v24_with_prior_checksums_unchanged(
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 24
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
-        assert tuple(row[0] for row in rows) == tuple(range(1, 25))
+        assert SCHEMA_VERSION == 25
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 25
+        assert tuple(row[0] for row in rows) == tuple(range(1, 26))
         assert tuple(row[1] for row in rows[:23]) == checksums
         assert rows[23][1] == hashlib.sha256(
             migrations.MIGRATION_24.encode("utf-8")
+        ).hexdigest()
+        assert rows[24][1] == hashlib.sha256(
+            migrations.MIGRATION_25.encode("utf-8")
         ).hexdigest()
         assert connection.execute(
             "SELECT kind,state FROM analysis_jobs WHERE job_id=?", (job_id,)

@@ -13,6 +13,7 @@ from prompt_enhancer.application.automation import (
     SessionQualityAutomationHandler,
 )
 from prompt_enhancer.application.jobs import (
+    AnalysisJobCooperativeStop,
     AnalysisJobExecutionError,
     AnalysisJobIdentity,
     AnalysisJobKind,
@@ -91,6 +92,12 @@ class RecordingAnalysisService:
 
     def run_preset(self, **values: object) -> SessionTextAnalysisOutcome:
         self.calls.append(values)
+        cooperative_check = values["cooperative_check"]
+        publication_committed = values["publication_committed_callback"]
+        assert callable(cooperative_check)
+        assert callable(publication_committed)
+        cooperative_check()
+        publication_committed()
         return SessionTextAnalysisOutcome(
             run_id="8" * 64,
             status=AnalysisRunStatus.COMPLETED,
@@ -105,6 +112,8 @@ class RecordingContext:
     def __init__(self) -> None:
         self.stages: list[tuple[int, int, int]] = []
         self.heartbeats = 0
+        self.publication_checkpoints = 0
+        self.publication_committed = False
         self.lease = AnalysisJobLease(
             job_id="1" * 64,
             owner="8" * 64,
@@ -125,6 +134,12 @@ class RecordingContext:
 
     def heartbeat(self) -> None:
         self.heartbeats += 1
+
+    def publication_checkpoint(self) -> None:
+        self.publication_checkpoints += 1
+
+    def mark_publication_committed(self) -> None:
+        self.publication_committed = True
 
 
 @pytest.mark.parametrize("metric_keys", (ONE_METRIC, THREE_METRICS))
@@ -147,6 +162,8 @@ def test_automation_handler_forwards_exact_immutable_metric_scope(
     assert "8" * 64 not in repr(authority)
     assert "9" * 64 not in repr(authority)
     assert context.stages == [(2, 0, 1)]
+    assert context.publication_checkpoints == 1
+    assert context.publication_committed is True
     assert context.heartbeats == 1
     assert result.state is AnalysisJobState.COMPLETED
 
@@ -162,6 +179,22 @@ def test_automation_handler_fails_closed_on_result_scope_mismatch() -> None:
 
     assert raised.value.code == "automation_metric_scope_mismatch"
     assert raised.value.retryable is False
+
+
+def test_automation_handler_preserves_fixed_cooperative_deadline_reason() -> None:
+    class DeadlineContext(RecordingContext):
+        def publication_checkpoint(self) -> None:
+            raise AnalysisJobCooperativeStop(
+                "automation_publication_deadline_exceeded"
+            )
+
+    with pytest.raises(AnalysisJobCooperativeStop) as raised:
+        SessionQualityAutomationHandler(RecordingAnalysisService(1))(
+            _job(ONE_METRIC),
+            DeadlineContext(),  # type: ignore[arg-type]
+        )
+
+    assert raised.value.reason_code == "automation_publication_deadline_exceeded"
 
 
 class GrantRepository:

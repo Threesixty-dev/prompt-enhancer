@@ -1202,6 +1202,8 @@ describe("same-origin HTTP transport", () => {
       jobs_superseded: 0,
       failures: 0,
       maximum_session_runtime_deadline_enforced: false as const,
+      session_quality_result_publication_deadline_enforced: true as const,
+      blocking_execution_preemption_enforced: false as const,
     };
     expect(parseAutomationPollResult(poll)).toEqual(poll);
     expect(() => parseAutomationPollResult({ ...poll, failures: -1 })).toThrow(
@@ -1218,6 +1220,8 @@ describe("same-origin HTTP transport", () => {
       { ...poll, candidates_seen: 1 },
       { ...poll, jobs_superseded: 3 },
       { ...poll, maximum_session_runtime_deadline_enforced: true },
+      { ...poll, session_quality_result_publication_deadline_enforced: false },
+      { ...poll, blocking_execution_preemption_enforced: true },
     ];
     for (const value of incoherent) {
       expect(() => parseAutomationPollResult(value)).toThrow(TransportError);
@@ -1282,6 +1286,8 @@ describe("same-origin HTTP transport", () => {
       jobs_superseded: 0,
       failures: 0,
       maximum_session_runtime_deadline_enforced: false as const,
+      session_quality_result_publication_deadline_enforced: true as const,
+      blocking_execution_preemption_enforced: false as const,
     };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))

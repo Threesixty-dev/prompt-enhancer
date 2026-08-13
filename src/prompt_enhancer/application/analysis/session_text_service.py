@@ -19,6 +19,7 @@ from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTER
 from ..persistence import (
     AnalysisRunStatus,
     SessionAnalysisCompletionAuthority,
+    SessionAnalysisPublicationRejectedError,
     SessionAnalysisEvidenceRecord,
     SessionAnalysisSignalRecord,
     SessionAnalysisResultRecord,
@@ -131,6 +132,18 @@ class SessionTextAnalysisPersistenceError(SessionTextAnalysisError):
 
 class SessionTextAnalysisExecutionError(SessionTextAnalysisError):
     code = "metric_execution_failed"
+
+
+class SessionTextAnalysisCooperativeStop(SessionTextAnalysisError):
+    """A content-free stop already persisted by the automation queue."""
+
+    code = "analysis_cooperative_stop"
+
+    def __init__(self, reason_code: str) -> None:
+        if SAFE_VERSION_PATTERN.fullmatch(reason_code) is None:
+            raise ValueError("cooperative stop reason must be content-free")
+        self.reason_code = reason_code
+        super().__init__(reason_code)
 
 
 class SessionTextAnalysisAccessPolicy(Protocol):
@@ -468,6 +481,8 @@ class SessionTextAnalysisService:
         idempotency_key: str,
         selected_metric_keys: tuple[str, ...] | None = None,
         completion_authority: SessionAnalysisCompletionAuthority | None = None,
+        cooperative_check: Callable[[], None] | None = None,
+        publication_committed_callback: Callable[[], None] | None = None,
     ) -> SessionTextAnalysisOutcome:
         """Resolve a versioned server-owned profile before any provider access.
 
@@ -494,6 +509,8 @@ class SessionTextAnalysisService:
             metric_pack_version=preset.metric_pack_version,
             selected_metric_keys=selected_metric_keys,
             completion_authority=completion_authority,
+            cooperative_check=cooperative_check,
+            publication_committed_callback=publication_committed_callback,
         )
 
     def prepare_preset_preview(
@@ -670,6 +687,8 @@ class SessionTextAnalysisService:
         selected_metric_keys: tuple[str, ...] | None = None,
         prepared_context: P1TextAnalysisInput | None = None,
         completion_authority: SessionAnalysisCompletionAuthority | None = None,
+        cooperative_check: Callable[[], None] | None = None,
+        publication_committed_callback: Callable[[], None] | None = None,
     ) -> SessionTextAnalysisOutcome:
         effective_metric_keys = _resolve_metric_selection(
             metric_engine,
@@ -763,6 +782,8 @@ class SessionTextAnalysisService:
                 run_id=run_id,
                 prepared_context=prepared_context,
                 completion_authority=completion_authority,
+                cooperative_check=cooperative_check,
+                publication_committed_callback=publication_committed_callback,
             )
 
     def _run_locked(
@@ -786,6 +807,8 @@ class SessionTextAnalysisService:
         run_id: str,
         prepared_context: P1TextAnalysisInput | None,
         completion_authority: SessionAnalysisCompletionAuthority | None,
+        cooperative_check: Callable[[], None] | None,
+        publication_committed_callback: Callable[[], None] | None,
     ) -> SessionTextAnalysisOutcome:
 
         existing = self._get_run(run_id)
@@ -807,21 +830,34 @@ class SessionTextAnalysisService:
                 raise SessionTextAnalysisConflictError(
                     "analysis identifier conflicts with stored provenance"
                 )
+            if (
+                existing.status is AnalysisRunStatus.COMPLETED
+                and publication_committed_callback is not None
+            ):
+                publication_committed_callback()
             return self._existing_outcome(existing)
 
+        if cooperative_check is not None:
+            cooperative_check()
         # Authority is observed inside the serialized command boundary so a
         # queued request cannot mint a grant from stale consent/index state.
         self._enforce_access_policy(provider, session_id)
         self._enforce_provider_compatibility(provider)
         context = prepared_context
         if context is None:
-            context = self._read_context(
-                provider=provider,
-                session_id=session_id,
-                task_profile=task_profile,
-                max_messages=max_messages,
-                max_characters=max_characters,
-            )
+            if cooperative_check is not None:
+                cooperative_check()
+            try:
+                context = self._read_context(
+                    provider=provider,
+                    session_id=session_id,
+                    task_profile=task_profile,
+                    max_messages=max_messages,
+                    max_characters=max_characters,
+                )
+            finally:
+                if cooperative_check is not None:
+                    cooperative_check()
         input_fingerprint = self._identifiers.fingerprint(
             "session-analysis-input-v1",
             (request_fingerprint, context.analysis_window_fingerprint),
@@ -853,10 +889,31 @@ class SessionTextAnalysisService:
             started_at=_require_utc(self._clock()),
         )
         try:
-            self._analyses.begin(draft)
+            if cooperative_check is not None:
+                cooperative_check()
+            if completion_authority is None:
+                self._analyses.begin(draft)
+            else:
+                self._analyses.begin(
+                    draft,
+                    completion_authority=completion_authority,
+                )
+            if cooperative_check is not None:
+                cooperative_check()
+        except SessionAnalysisPublicationRejectedError as error:
+            raise SessionTextAnalysisCooperativeStop(error.reason_code) from None
+        except SessionTextAnalysisCooperativeStop:
+            raise
         except Exception:
+            if cooperative_check is not None:
+                cooperative_check()
             race_winner = self._get_run(run_id)
             if race_winner is not None and _draft_matches(race_winner.draft, draft):
+                if (
+                    race_winner.status is AnalysisRunStatus.COMPLETED
+                    and publication_committed_callback is not None
+                ):
+                    publication_committed_callback()
                 return self._existing_outcome(race_winner)
             if race_winner is None:
                 raise SessionTextAnalysisPersistenceError(
@@ -876,19 +933,39 @@ class SessionTextAnalysisService:
             content_persistence_allowed=False,
         )
         try:
-            calculated = metric_engine.compute(
-                context,
-                grant,
-                pack_key=metric_pack_key,
-                pack_version=metric_pack_version,
-                selected_metric_keys=calculator_selected_metric_keys,
-            )
-            self._validate_result_set(
-                context,
-                calculated,
-                metric_engine,
-                selected_metric_keys=calculator_selected_metric_keys,
-            )
+            if cooperative_check is not None:
+                cooperative_check()
+            try:
+                if cooperative_check is None:
+                    calculated = metric_engine.compute(
+                        context,
+                        grant,
+                        pack_key=metric_pack_key,
+                        pack_version=metric_pack_version,
+                        selected_metric_keys=calculator_selected_metric_keys,
+                    )
+                else:
+                    calculated = metric_engine.compute(
+                        context,
+                        grant,
+                        pack_key=metric_pack_key,
+                        pack_version=metric_pack_version,
+                        selected_metric_keys=calculator_selected_metric_keys,
+                        cooperative_check=cooperative_check,
+                    )
+            finally:
+                if cooperative_check is not None:
+                    cooperative_check()
+            try:
+                self._validate_result_set(
+                    context,
+                    calculated,
+                    metric_engine,
+                    selected_metric_keys=calculator_selected_metric_keys,
+                )
+            finally:
+                if cooperative_check is not None:
+                    cooperative_check()
             finished_at = _require_utc(self._clock())
             if finished_at < draft.started_at:
                 raise ValueError("analysis clock moved backwards")
@@ -896,6 +973,8 @@ class SessionTextAnalysisService:
                 self._to_record(result, computed_at=finished_at)
                 for result in calculated
             )
+        except SessionTextAnalysisCooperativeStop:
+            raise
         except Exception:
             self._mark_failed(run_id, SessionTextAnalysisExecutionError.code)
             raise SessionTextAnalysisExecutionError(
@@ -903,17 +982,27 @@ class SessionTextAnalysisService:
             ) from None
 
         try:
+            if cooperative_check is not None:
+                cooperative_check()
             self._analyses.complete(
                 run_id,
                 records,
                 finished_at=finished_at,
                 completion_authority=completion_authority,
             )
+        except SessionAnalysisPublicationRejectedError as error:
+            raise SessionTextAnalysisCooperativeStop(error.reason_code) from None
+        except SessionTextAnalysisCooperativeStop:
+            raise
         except Exception:
+            if cooperative_check is not None:
+                cooperative_check()
             self._mark_failed(run_id, SessionTextAnalysisPersistenceError.code)
             raise SessionTextAnalysisPersistenceError(
                 "analysis results could not be stored"
             ) from None
+        if publication_committed_callback is not None:
+            publication_committed_callback()
         return SessionTextAnalysisOutcome(
             run_id=run_id,
             status=AnalysisRunStatus.COMPLETED,

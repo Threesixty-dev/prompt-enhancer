@@ -19,6 +19,7 @@ from ...application.jobs import (
     AnalysisJobRecord,
     AnalysisJobRecoveryResult,
     AnalysisJobState,
+    AnalysisPublicationDeadlineFailure,
     PowerSourceState,
 )
 from ...database import DatabaseInvariantError
@@ -26,15 +27,19 @@ from ...domain import Provider
 from ._common import (
     ConnectionScope,
     from_iso,
+    from_epoch_us,
     require_safe_id,
     require_safe_label,
     require_utc,
     to_iso,
+    to_epoch_us,
 )
 
 
 _RETRY_BASE = timedelta(seconds=5)
 _RETRY_MAX = timedelta(minutes=5)
+_PUBLICATION_BUDGET = timedelta(minutes=30)
+_PUBLICATION_COMPLETED_REASON = "local_analysis_completed"
 
 
 class SqliteAnalysisJobRepository:
@@ -44,9 +49,58 @@ class SqliteAnalysisJobRepository:
         self,
         connection_scope: ConnectionScope,
         ensure_initialized: Callable[[], None],
+        *,
+        begin_publication_authorization: (
+            Callable[[str, str], tuple[str, str]] | None
+        ) = None,
+        end_publication_authorization: (
+            Callable[[str, str, str, str], None] | None
+        ) = None,
     ) -> None:
         self._connection_scope = connection_scope
         self._ensure_initialized = ensure_initialized
+        self._begin_publication_authorization = begin_publication_authorization
+        self._end_publication_authorization = end_publication_authorization
+
+    def _authorized_publication_write(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        job_id: str,
+        action: str,
+        callback: Callable[[], None],
+    ) -> None:
+        if (
+            self._begin_publication_authorization is None
+            or self._end_publication_authorization is None
+        ):
+            raise DatabaseInvariantError(
+                "automation publication write is not authorized"
+            )
+        trusted_schema = int(
+            connection.execute("PRAGMA trusted_schema").fetchone()[0]
+        )
+        operation_id, tag = self._begin_publication_authorization(job_id, action)
+        try:
+            connection.execute("PRAGMA trusted_schema=ON")
+            connection.execute(
+                "INSERT INTO automation_publication_write_authorizations "
+                "VALUES(?,?,?,?)",
+                (operation_id, job_id, action, tag),
+            )
+            callback()
+            connection.execute(
+                "DELETE FROM automation_publication_write_authorizations "
+                "WHERE operation_id=?",
+                (operation_id,),
+            )
+        finally:
+            connection.execute(
+                f"PRAGMA trusted_schema={'ON' if trusted_schema else 'OFF'}"
+            )
+            self._end_publication_authorization(
+                operation_id, job_id, action, tag
+            )
 
     @staticmethod
     def _retry_delay(attempt_count: int) -> timedelta:
@@ -75,6 +129,12 @@ class SqliteAnalysisJobRepository:
         connection: sqlite3.Connection,
         row: sqlite3.Row,
     ) -> AnalysisJobRecord:
+        publication = connection.execute(
+            """SELECT first_claim_at_us,deadline_at_us,high_water_at_us
+               FROM automation_session_quality_publication_deadlines
+               WHERE job_id=?""",
+            (row["job_id"],),
+        ).fetchone()
         return AnalysisJobRecord(
             job_id=row["job_id"],
             dedupe_key=row["dedupe_key"],
@@ -103,6 +163,21 @@ class SqliteAnalysisJobRepository:
             lease_owner=row["lease_owner"],
             lease_token=row["lease_token"],
             lease_expires_at=from_iso(row["lease_expires_at"]),
+            runtime_started_at=(
+                None
+                if publication is None
+                else from_epoch_us(int(publication["first_claim_at_us"]))
+            ),
+            publication_deadline_at=(
+                None
+                if publication is None
+                else from_epoch_us(int(publication["deadline_at_us"]))
+            ),
+            publication_high_water_at=(
+                None
+                if publication is None
+                else from_epoch_us(int(publication["high_water_at_us"]))
+            ),
             last_error_code=row["last_error_code"],
             terminal_reason_code=row["terminal_reason_code"],
             created_at=from_iso(row["created_at"]),
@@ -121,6 +196,201 @@ class SqliteAnalysisJobRepository:
             (job_id,),
         ).fetchone()
         return None if row is None else cls._record(connection, row)
+
+    @staticmethod
+    def _completed_publication_row(
+        connection: sqlite3.Connection, job_id: str
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            """SELECT published.published_at
+               FROM automation_session_quality_publication_deadlines root
+               JOIN automation_session_quality_publications published
+                 ON published.job_id=root.job_id
+               JOIN session_analysis_runs run ON run.run_id=root.analysis_run_id
+               WHERE root.job_id=? AND run.status='completed'
+                 AND published.analysis_run_id=run.run_id
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM automation_session_quality_publication_closures closure
+                   WHERE closure.job_id=root.job_id
+                 )""",
+            (job_id,),
+        ).fetchone()
+
+    @classmethod
+    def _reconcile_completed_publication_locked(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        job_id: str,
+        now: datetime,
+    ) -> bool:
+        published = cls._completed_publication_row(connection, job_id)
+        if published is None:
+            return False
+        row = connection.execute(
+            "SELECT state FROM analysis_jobs WHERE job_id=?", (job_id,)
+        ).fetchone()
+        if row is None or row["state"] in {
+            "completed", "partial", "failed", "cancelled", "superseded"
+        }:
+            return row is not None and row["state"] == "completed"
+        timestamp = str(published["published_at"])
+        connection.execute(
+            """UPDATE analysis_jobs SET
+                   state='completed',stage_number=NULL,
+                   progress_completed=progress_total,
+                   cancel_requested=0,lease_owner=NULL,lease_token=NULL,
+                   lease_expires_at=NULL,last_error_code=NULL,
+                   terminal_reason_code=?,terminal_at=?,updated_at=?
+               WHERE job_id=?""",
+            (_PUBLICATION_COMPLETED_REASON, timestamp, timestamp, job_id),
+        )
+        return True
+
+    @classmethod
+    def _reconcile_all_completed_publications_locked(
+        cls, connection: sqlite3.Connection, *, now: datetime
+    ) -> None:
+        job_ids = tuple(
+            str(row["job_id"])
+            for row in connection.execute(
+                """SELECT published.job_id
+                   FROM automation_session_quality_publications published
+                   JOIN session_analysis_runs run
+                     ON run.run_id=published.analysis_run_id
+                   JOIN analysis_jobs job ON job.job_id=published.job_id
+                   WHERE run.status='completed'
+                     AND job.state NOT IN (
+                       'completed','partial','failed','cancelled','superseded'
+                     ) ORDER BY published.job_id"""
+            ).fetchall()
+        )
+        for job_id in job_ids:
+            cls._reconcile_completed_publication_locked(
+                connection, job_id=job_id, now=now
+            )
+
+    @staticmethod
+    def _reconcile_missing_publication_roots_locked(
+        connection: sqlite3.Connection, *, now: datetime
+    ) -> int:
+        """Fail closed upgraded automation attempts that predate the v25 root."""
+
+        timestamp = to_iso(now)
+        expired_active = int(
+            connection.execute(
+                """SELECT COUNT(*) FROM analysis_jobs job
+                   WHERE job.kind='session_quality'
+                     AND job.automation_grant_id IS NOT NULL
+                     AND job.attempt_count>0
+                     AND job.state IN ('preprocessing','stage_n')
+                     AND job.lease_expires_at<=?
+                     AND NOT EXISTS (
+                       SELECT 1
+                       FROM automation_session_quality_publication_deadlines root
+                       WHERE root.job_id=job.job_id)""",
+                (timestamp,),
+            ).fetchone()[0]
+        )
+        reason = AnalysisPublicationDeadlineFailure.DEADLINE_MISSING.value
+        connection.execute(
+            """UPDATE analysis_jobs SET state='failed',stage_number=NULL,
+                   lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+                   cancel_requested=0,last_error_code=?,terminal_reason_code=?,
+                   terminal_at=?,updated_at=?
+               WHERE kind='session_quality' AND automation_grant_id IS NOT NULL
+                 AND attempt_count>0
+                 AND state IN ('queued','preprocessing','stage_n','awaiting_approval')
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM automation_session_quality_publication_deadlines root
+                   WHERE root.job_id=analysis_jobs.job_id)""",
+            (reason, reason, timestamp, timestamp),
+        )
+        return expired_active
+
+    def _insert_root_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        job_id: str,
+        now: datetime,
+    ) -> None:
+        grant = connection.execute(
+            """SELECT grant.revision,job.automation_grant_id
+               FROM analysis_jobs job
+               JOIN automation_grants grant
+                 ON grant.grant_id=job.automation_grant_id
+               WHERE job.job_id=? AND job.kind='session_quality'
+                 AND job.automation_grant_id IS NOT NULL""",
+            (job_id,),
+        ).fetchone()
+        if grant is None:
+            return
+        first_us = to_epoch_us(now)
+        deadline_us = to_epoch_us(now + _PUBLICATION_BUDGET)
+
+        def insert() -> None:
+            connection.execute(
+                """INSERT INTO automation_session_quality_publication_deadlines(
+                       job_id,automation_grant_id,grant_revision,
+                       first_claim_at_us,deadline_at_us,high_water_at_us,
+                       first_claim_at,deadline_at,high_water_at,analysis_run_id
+                   ) VALUES(?,?,?,?,?,?,?,?,?,NULL)""",
+                (
+                    job_id,
+                    grant["automation_grant_id"],
+                    grant["revision"],
+                    first_us,
+                    deadline_us,
+                    first_us,
+                    to_iso(now),
+                    to_iso(now + _PUBLICATION_BUDGET),
+                    to_iso(now),
+                ),
+            )
+
+        self._authorized_publication_write(
+            connection,
+            job_id=job_id,
+            action="root",
+            callback=insert,
+        )
+
+    def _advance_high_water_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        job_id: str,
+        observed_us: int,
+    ) -> None:
+        root = connection.execute(
+            """SELECT high_water_at_us,deadline_at_us
+               FROM automation_session_quality_publication_deadlines
+               WHERE job_id=?""",
+            (job_id,),
+        ).fetchone()
+        if root is None:
+            return
+        if not int(root["high_water_at_us"]) < observed_us < int(
+            root["deadline_at_us"]
+        ):
+            return
+
+        def update() -> None:
+            connection.execute(
+                """UPDATE automation_session_quality_publication_deadlines
+                   SET high_water_at_us=?,high_water_at=? WHERE job_id=?""",
+                (observed_us, to_iso(from_epoch_us(observed_us)), job_id),
+            )
+
+        self._authorized_publication_write(
+            connection,
+            job_id=job_id,
+            action="high_water",
+            callback=update,
+        )
 
     @staticmethod
     def _validate_page(limit: int, offset: int) -> None:
@@ -317,6 +587,10 @@ class SqliteAnalysisJobRepository:
         *,
         now: datetime,
     ) -> AnalysisJobRecoveryResult:
+        self._reconcile_all_completed_publications_locked(connection, now=now)
+        missing_failed = self._reconcile_missing_publication_roots_locked(
+            connection, now=now
+        )
         timestamp = to_iso(now)
         rows = connection.execute(
             """
@@ -330,7 +604,8 @@ class SqliteAnalysisJobRepository:
             """,
             (timestamp,),
         ).fetchall()
-        requeued = cancelled = failed = superseded = 0
+        requeued = cancelled = superseded = 0
+        failed = missing_failed
         for row in rows:
             if bool(row["cancel_requested"]):
                 reason = row["last_error_code"] or "cancellation_requested"
@@ -396,6 +671,9 @@ class SqliteAnalysisJobRepository:
         boundary and are deliberately excluded from this generic maintenance.
         """
 
+        SqliteAnalysisJobRepository._reconcile_all_completed_publications_locked(
+            connection, now=now
+        )
         timestamp = to_iso(now)
         metric_mismatch = """
             EXISTS (
@@ -615,11 +893,328 @@ class SqliteAnalysisJobRepository:
                 )
                 if cursor.rowcount != 1:
                     raise DatabaseInvariantError("analysis job claim conflicted")
+                claimed_row = connection.execute(
+                    "SELECT kind,automation_grant_id,attempt_count FROM analysis_jobs "
+                    "WHERE job_id=?",
+                    (row["job_id"],),
+                ).fetchone()
+                if (
+                    claimed_row is not None
+                    and claimed_row["kind"] == "session_quality"
+                    and claimed_row["automation_grant_id"] is not None
+                ):
+                    root = connection.execute(
+                        """SELECT 1
+                           FROM automation_session_quality_publication_deadlines
+                           WHERE job_id=?""",
+                        (row["job_id"],),
+                    ).fetchone()
+                    if root is None:
+                        if int(claimed_row["attempt_count"]) != 1:
+                            connection.execute(
+                                """UPDATE analysis_jobs SET state='failed',
+                                   stage_number=NULL,lease_owner=NULL,
+                                   lease_token=NULL,lease_expires_at=NULL,
+                                   last_error_code=?,terminal_reason_code=?,
+                                   terminal_at=?,updated_at=? WHERE job_id=?""",
+                                (
+                                    AnalysisPublicationDeadlineFailure.DEADLINE_MISSING.value,
+                                    AnalysisPublicationDeadlineFailure.DEADLINE_MISSING.value,
+                                    timestamp,
+                                    timestamp,
+                                    row["job_id"],
+                                ),
+                            )
+                        else:
+                            self._insert_root_locked(
+                                connection, job_id=row["job_id"], now=now
+                            )
+                    else:
+                        checked = self._check_or_close_publication_locked(
+                            connection,
+                            job_id=row["job_id"],
+                            now=now,
+                        )
+                        if checked:
+                            connection.commit()
+                            return self._get_locked(connection, row["job_id"])
                 claimed = self._get_locked(connection, row["job_id"])
                 if claimed is None:
                     raise DatabaseInvariantError("claimed analysis job disappeared")
                 connection.commit()
                 return claimed
+            except Exception:
+                connection.rollback()
+                raise
+
+    def _close_publication_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        job_id: str,
+        now: datetime,
+        failure: AnalysisPublicationDeadlineFailure,
+        monotonic: bool,
+    ) -> None:
+        if self._reconcile_completed_publication_locked(
+            connection, job_id=job_id, now=now
+        ):
+            return
+        root = connection.execute(
+            """SELECT first_claim_at_us,deadline_at_us,high_water_at_us,
+                      analysis_run_id
+               FROM automation_session_quality_publication_deadlines
+               WHERE job_id=?""",
+            (job_id,),
+        ).fetchone()
+        timestamp = to_iso(now)
+        if root is None:
+            if failure is not AnalysisPublicationDeadlineFailure.DEADLINE_MISSING:
+                raise DatabaseInvariantError(
+                    "automation publication deadline root is missing"
+                )
+            connection.execute(
+                """UPDATE analysis_jobs SET state='failed',stage_number=NULL,
+                   lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+                   last_error_code=?,terminal_reason_code=?,terminal_at=?,updated_at=?
+                   WHERE job_id=? AND kind='session_quality'
+                     AND automation_grant_id IS NOT NULL
+                     AND state IN ('queued','preprocessing','stage_n')""",
+                (failure.value, failure.value, timestamp, timestamp, job_id),
+            )
+            return
+        now_us = to_epoch_us(now)
+        high_water_us = int(root["high_water_at_us"])
+        deadline_us = int(root["deadline_at_us"])
+        if failure is AnalysisPublicationDeadlineFailure.DEADLINE_MISSING:
+            raise DatabaseInvariantError(
+                "automation publication deadline root already exists"
+            )
+        if failure is AnalysisPublicationDeadlineFailure.DEADLINE_EXCEEDED:
+            observation_kind = (
+                "monotonic_deadline_exceeded"
+                if monotonic
+                else "wall_deadline_exceeded"
+            )
+            effective_us = max(now_us, deadline_us) if monotonic else now_us
+            if not monotonic and now_us < deadline_us:
+                raise DatabaseInvariantError(
+                    "wall deadline failure was reported before its cutoff"
+                )
+        else:
+            observation_kind = (
+                "monotonic_clock_regressed"
+                if monotonic
+                else "wall_clock_regressed"
+            )
+            effective_us = high_water_us
+            if not monotonic and now_us >= high_water_us:
+                raise DatabaseInvariantError(
+                    "wall clock regression was not observed"
+                )
+        terminal_timestamp = to_iso(from_epoch_us(effective_us))
+
+        def close() -> None:
+            connection.execute(
+                """INSERT INTO automation_session_quality_publication_closures(
+                       job_id,reason_code,observation_kind,observed_at_us,
+                       effective_high_water_at_us
+                   ) VALUES(?,?,?,?,?)""",
+                (job_id, failure.value, observation_kind, now_us, effective_us),
+            )
+
+        self._authorized_publication_write(
+            connection, job_id=job_id, action="close", callback=close
+        )
+        run_id = root["analysis_run_id"]
+        if run_id is not None:
+            run = connection.execute(
+                "SELECT started_at FROM session_analysis_runs WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+            run_terminal_timestamp = terminal_timestamp
+            if run is not None:
+                started_at = from_iso(run["started_at"])
+                if started_at is not None and to_epoch_us(started_at) > effective_us:
+                    run_terminal_timestamp = to_iso(started_at)
+            connection.execute(
+                """UPDATE session_analysis_runs
+                   SET finished_at=?,status='failed',failure_code=?
+                   WHERE run_id=? AND status='running'
+                     AND NOT EXISTS(
+                       SELECT 1 FROM session_analysis_results WHERE run_id=?
+                     )""",
+                (run_terminal_timestamp, failure.value, run_id, run_id),
+            )
+        connection.execute(
+            """UPDATE analysis_jobs SET state='failed',stage_number=NULL,
+               lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+               last_error_code=?,terminal_reason_code=?,terminal_at=?,updated_at=?
+               WHERE job_id=? AND state IN ('queued','preprocessing','stage_n')""",
+            (
+                failure.value,
+                failure.value,
+                terminal_timestamp,
+                terminal_timestamp,
+                job_id,
+            ),
+        )
+
+    def _check_or_close_publication_locked(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        job_id: str,
+        now: datetime,
+    ) -> bool:
+        if self._reconcile_completed_publication_locked(
+            connection, job_id=job_id, now=now
+        ):
+            return True
+        root = connection.execute(
+            """SELECT deadline_at_us,high_water_at_us
+               FROM automation_session_quality_publication_deadlines
+               WHERE job_id=?""",
+            (job_id,),
+        ).fetchone()
+        if root is None:
+            self._close_publication_locked(
+                connection,
+                job_id=job_id,
+                now=now,
+                failure=AnalysisPublicationDeadlineFailure.DEADLINE_MISSING,
+                monotonic=False,
+            )
+            return True
+        now_us = to_epoch_us(now)
+        if now_us < int(root["high_water_at_us"]):
+            self._close_publication_locked(
+                connection,
+                job_id=job_id,
+                now=now,
+                failure=AnalysisPublicationDeadlineFailure.CLOCK_REGRESSED,
+                monotonic=False,
+            )
+            return True
+        if now_us >= int(root["deadline_at_us"]):
+            self._close_publication_locked(
+                connection,
+                job_id=job_id,
+                now=now,
+                failure=AnalysisPublicationDeadlineFailure.DEADLINE_EXCEEDED,
+                monotonic=False,
+            )
+            return True
+        self._advance_high_water_locked(
+            connection, job_id=job_id, observed_us=now_us
+        )
+        return False
+
+    def check_publication_deadline(
+        self,
+        lease: AnalysisJobLease,
+        *,
+        now: datetime,
+    ) -> AnalysisJobRecord:
+        self._ensure_initialized()
+        now = require_utc(now)
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                scope = connection.execute(
+                    """SELECT 1 FROM analysis_jobs WHERE job_id=?
+                       AND kind='session_quality'
+                       AND automation_grant_id IS NOT NULL""",
+                    (lease.job_id,),
+                ).fetchone()
+                if scope is None:
+                    raise DatabaseInvariantError(
+                        "analysis job has no automation publication deadline"
+                    )
+                row = connection.execute(
+                    """SELECT * FROM analysis_jobs WHERE job_id=?
+                       AND lease_owner=? AND lease_token=?
+                       AND state IN ('preprocessing','stage_n')
+                       AND lease_expires_at>?""",
+                    (lease.job_id, lease.owner, lease.token, to_iso(now)),
+                ).fetchone()
+                if row is None:
+                    terminal = self._get_locked(connection, lease.job_id)
+                    if terminal is None or terminal.state not in (
+                        TERMINAL_ANALYSIS_JOB_STATES
+                    ):
+                        raise DatabaseInvariantError(
+                            "analysis job lease is unavailable"
+                        )
+                    connection.commit()
+                    return terminal
+                self._check_or_close_publication_locked(
+                    connection, job_id=lease.job_id, now=now
+                )
+                result = self._get_locked(connection, lease.job_id)
+                if result is None:
+                    raise DatabaseInvariantError("analysis job disappeared")
+                connection.commit()
+                return result
+            except Exception:
+                connection.rollback()
+                raise
+
+    def fail_publication_deadline(
+        self,
+        lease: AnalysisJobLease,
+        *,
+        now: datetime,
+        failure: AnalysisPublicationDeadlineFailure,
+    ) -> AnalysisJobRecord:
+        self._ensure_initialized()
+        now = require_utc(now)
+        if not isinstance(failure, AnalysisPublicationDeadlineFailure):
+            raise ValueError("publication deadline failure is invalid")
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                scope = connection.execute(
+                    """SELECT 1 FROM analysis_jobs WHERE job_id=?
+                       AND kind='session_quality'
+                       AND automation_grant_id IS NOT NULL""",
+                    (lease.job_id,),
+                ).fetchone()
+                if scope is None:
+                    raise DatabaseInvariantError(
+                        "analysis job has no automation publication deadline"
+                    )
+                row = connection.execute(
+                    """SELECT 1 FROM analysis_jobs WHERE job_id=?
+                       AND lease_owner=? AND lease_token=?
+                       AND state IN ('preprocessing','stage_n')
+                       AND lease_expires_at>?""",
+                    (lease.job_id, lease.owner, lease.token, to_iso(now)),
+                ).fetchone()
+                if row is None:
+                    terminal = self._get_locked(connection, lease.job_id)
+                    if terminal is None or terminal.state not in (
+                        TERMINAL_ANALYSIS_JOB_STATES
+                    ):
+                        raise DatabaseInvariantError(
+                            "analysis job lease is unavailable"
+                        )
+                    connection.commit()
+                    return terminal
+                self._close_publication_locked(
+                    connection,
+                    job_id=lease.job_id,
+                    now=now,
+                    failure=failure,
+                    monotonic=(
+                        failure is not AnalysisPublicationDeadlineFailure.DEADLINE_MISSING
+                    ),
+                )
+                terminal = self._get_locked(connection, lease.job_id)
+                if terminal is None:
+                    raise DatabaseInvariantError("analysis job disappeared")
+                connection.commit()
+                return terminal
             except Exception:
                 connection.rollback()
                 raise
@@ -656,6 +1251,13 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                if self._reconcile_completed_publication_locked(
+                    connection, job_id=lease.job_id, now=now
+                ):
+                    completed = self._get_locked(connection, lease.job_id)
+                    assert completed is not None
+                    connection.commit()
+                    return completed
                 self._active_row_for_lease(connection, lease, now)
                 connection.execute(
                     """
@@ -698,6 +1300,13 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                if self._reconcile_completed_publication_locked(
+                    connection, job_id=lease.job_id, now=now
+                ):
+                    completed = self._get_locked(connection, lease.job_id)
+                    assert completed is not None
+                    connection.commit()
+                    return completed
                 row = self._active_row_for_lease(connection, lease, now)
                 previous = row["stage_number"]
                 if previous is not None and stage_number < previous:
@@ -744,6 +1353,13 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                if self._reconcile_completed_publication_locked(
+                    connection, job_id=lease.job_id, now=now
+                ):
+                    completed = self._get_locked(connection, lease.job_id)
+                    assert completed is not None
+                    connection.commit()
+                    return completed
                 self._active_row_for_lease(connection, lease, now)
                 connection.execute(
                     """
@@ -786,6 +1402,13 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                if self._reconcile_completed_publication_locked(
+                    connection, job_id=job_id, now=now
+                ):
+                    completed = self._get_locked(connection, job_id)
+                    assert completed is not None
+                    connection.commit()
+                    return completed
                 current = self._get_locked(connection, job_id)
                 if current is None:
                     raise DatabaseInvariantError("analysis job does not exist")
@@ -824,6 +1447,9 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                self._reconcile_completed_publication_locked(
+                    connection, job_id=job_id, now=now
+                )
                 current = self._get_locked(connection, job_id)
                 if current is None:
                     raise DatabaseInvariantError("analysis job does not exist")
@@ -880,6 +1506,9 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                self._reconcile_all_completed_publications_locked(
+                    connection, now=now
+                )
                 if connection.execute(
                     """
                     SELECT 1 FROM analysis_jobs
@@ -947,6 +1576,9 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                self._reconcile_completed_publication_locked(
+                    connection, job_id=job_id, now=now
+                )
                 current = self._get_locked(connection, job_id)
                 if current is None:
                     raise DatabaseInvariantError("analysis job does not exist")
@@ -1007,6 +1639,13 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                if self._reconcile_completed_publication_locked(
+                    connection, job_id=lease.job_id, now=now
+                ):
+                    completed = self._get_locked(connection, lease.job_id)
+                    assert completed is not None
+                    connection.commit()
+                    return completed
                 row = self._active_row_for_lease(connection, lease, now)
                 if bool(row["cancel_requested"]):
                     reason_code = row["last_error_code"] or "cancellation_requested"
@@ -1061,6 +1700,13 @@ class SqliteAnalysisJobRepository:
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                if self._reconcile_completed_publication_locked(
+                    connection, job_id=lease.job_id, now=now
+                ):
+                    completed = self._get_locked(connection, lease.job_id)
+                    assert completed is not None
+                    connection.commit()
+                    return completed
                 row = self._active_row_for_lease(connection, lease, now)
                 timestamp = to_iso(now)
                 if bool(row["cancel_requested"]):

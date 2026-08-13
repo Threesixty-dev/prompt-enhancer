@@ -62,7 +62,7 @@ from tests.test_temporal_history_sqlite_persistence import (
 
 
 def _comparison_ready_context(tmp_path: Path) -> SimpleNamespace:
-    context = _completion_fixture(tmp_path)
+    context = _completion_fixture(tmp_path, bind_publication=False)
     identifiers = LocalArtifactIdFactory(Pseudonymizer(bytes(range(32))))
     context.database.configure_local_artifact_id_factory(identifiers)
     # The synthetic v21 fixture predates the comparison requirement that the
@@ -197,7 +197,8 @@ def _comparison_completion(tmp_path: Path) -> SimpleNamespace:
             model_plan_fingerprint=model_plan_fingerprint,
             schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
             started_at=BASE + timedelta(minutes=2, seconds=30),
-        )
+        ),
+        completion_authority=context.authority,
     )
     result = context.result.model_copy(update={"computed_at": finished_at})
     context.__dict__.update(
@@ -241,9 +242,9 @@ def test_v22_schema_is_zero_backfill_normalized_and_transient(tmp_path) -> None:
         connection.commit()
     database = Database(path)
     database.initialize()
-    assert SCHEMA_VERSION == 24
+    assert SCHEMA_VERSION == 25
     with database._connection(readonly=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 25
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         tables = tuple(
             str(row["name"])

@@ -38,6 +38,26 @@ _SAFE_LABEL = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # rows, not the SQLite migration level. Database-only additive migrations must
 # not silently rewrite the provenance identity of an existing analysis plan.
 SESSION_ANALYSIS_RUN_SCHEMA_VERSION = 21
+_AUTOMATION_PUBLICATION_REJECTION_CODES = frozenset(
+    {
+        "automation_publication_deadline_exceeded",
+        "automation_publication_clock_regressed",
+        "automation_publication_deadline_missing",
+    }
+)
+
+
+class SessionAnalysisPublicationRejectedError(RuntimeError):
+    """The queue atomically rejected an automation result publication."""
+
+    def __init__(self, reason_code: str) -> None:
+        if (
+            not isinstance(reason_code, str)
+            or reason_code not in _AUTOMATION_PUBLICATION_REJECTION_CODES
+        ):
+            raise ValueError("publication rejection reason is not reviewed")
+        self.reason_code = reason_code
+        super().__init__(reason_code)
 
 
 def _pseudonym(value: str) -> str:
@@ -935,7 +955,12 @@ class AnalysisRunRepository(Protocol):
 class SessionAnalysisRunRepository(Protocol):
     """Append-only store for selected-session qualitative analysis snapshots."""
 
-    def begin(self, draft: SessionAnalysisRunDraft) -> None: ...
+    def begin(
+        self,
+        draft: SessionAnalysisRunDraft,
+        *,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
+    ) -> None: ...
 
     def complete(
         self,

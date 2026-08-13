@@ -1396,6 +1396,8 @@ const AUTOMATION_POLL_RESULT_KEYS = new Set([
   "power_unknown_observations",
   "jobs_created", "jobs_reused", "jobs_superseded", "failures",
   "maximum_session_runtime_deadline_enforced",
+  "session_quality_result_publication_deadline_enforced",
+  "blocking_execution_preemption_enforced",
 ]);
 const AUTOMATION_GRANT_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 
@@ -1601,10 +1603,14 @@ export function parseAutomationGrantList(
 export function parseAutomationPollResult(value: unknown): AutomationPollResult {
   const countKeys = [...AUTOMATION_POLL_RESULT_KEYS].filter((key) => ![
     "maximum_session_runtime_deadline_enforced",
+    "session_quality_result_publication_deadline_enforced",
+    "blocking_execution_preemption_enforced",
   ].includes(key));
   if (
     !isRecord(value) || !hasExactKeys(value, AUTOMATION_POLL_RESULT_KEYS) ||
     value.maximum_session_runtime_deadline_enforced !== false ||
+    value.session_quality_result_publication_deadline_enforced !== true ||
+    value.blocking_execution_preemption_enforced !== false ||
     countKeys.some((key) =>
       !Number.isSafeInteger(value[key]) || (value[key] as number) < 0
     ) ||

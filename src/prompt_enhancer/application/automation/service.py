@@ -100,7 +100,25 @@ class AutomationPollResult(StrictModel):
     jobs_reused: int = Field(ge=0)
     jobs_superseded: int = Field(ge=0)
     failures: int = Field(ge=0)
-    maximum_session_runtime_deadline_enforced: Literal[False] = False
+    maximum_session_runtime_deadline_enforced: Literal[False] = Field(
+        default=False,
+        description=(
+            "The declared runtime budget is not a force-stopping wall-clock deadline."
+        ),
+    )
+    session_quality_result_publication_deadline_enforced: Literal[True] = Field(
+        default=True,
+        description=(
+            "Automated session-quality results cannot publish at or after the "
+            "restart-durable first-claim cutoff."
+        ),
+    )
+    blocking_execution_preemption_enforced: Literal[False] = Field(
+        default=False,
+        description=(
+            "An in-flight blocking local read or calculation is not forcibly preempted."
+        ),
+    )
 
     @model_validator(mode="after")
     def coherent_receipt(self) -> AutomationPollResult:
@@ -318,6 +336,8 @@ class AutomationGrantService:
             jobs_superseded=superseded,
             failures=failures,
             maximum_session_runtime_deadline_enforced=False,
+            session_quality_result_publication_deadline_enforced=True,
+            blocking_execution_preemption_enforced=False,
         )
 
     def _current_power_source(self) -> PowerSourceState:

@@ -898,7 +898,9 @@ export function ProjectAutomationSettings({
                   <span>{pollResult.jobs_created} jobs created · {pollResult.jobs_reused} reused · {pollResult.jobs_superseded} superseded</span>
                   <span>{pollResult.grants_power_paused} power-paused · {pollResult.grants_policy_unsupported} unsupported profiles</span>
                   <span>{pollResult.grants_revoked} grants revoked · {pollResult.failures} safe failures</span>
-                  <span>Runtime budget hard deadline: {pollResult.maximum_session_runtime_deadline_enforced ? "enforced" : "not yet enforced"}</span>
+                  <span>Session-quality result publication cutoff: {pollResult.session_quality_result_publication_deadline_enforced ? "enforced" : "not enforced"}</span>
+                  <span>Blocking-call force-stop: {pollResult.blocking_execution_preemption_enforced ? "enforced" : "not provided"}</span>
+                  <span>Hard runtime deadline: {pollResult.maximum_session_runtime_deadline_enforced ? "enforced" : "not enforced"}</span>
                 </div>
               )}
             </section>

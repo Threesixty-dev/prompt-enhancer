@@ -401,6 +401,8 @@ def test_invalid_or_failed_power_reader_fails_closed_as_unknown(reader) -> None:
         {"jobs_created": 2},
         {"jobs_superseded": 2},
         {"maximum_session_runtime_deadline_enforced": True},
+        {"session_quality_result_publication_deadline_enforced": False},
+        {"blocking_execution_preemption_enforced": True},
     ),
 )
 def test_poll_receipt_rejects_serialized_cross_field_tampering(
@@ -420,6 +422,8 @@ def test_poll_receipt_rejects_serialized_cross_field_tampering(
         jobs_superseded=0,
         failures=0,
         maximum_session_runtime_deadline_enforced=False,
+        session_quality_result_publication_deadline_enforced=True,
+        blocking_execution_preemption_enforced=False,
     )
     tampered = valid.model_copy(update=update)
 

@@ -198,6 +198,8 @@ export interface AutomationPollResult {
   jobs_superseded: number;
   failures: number;
   maximum_session_runtime_deadline_enforced: false;
+  session_quality_result_publication_deadline_enforced: true;
+  blocking_execution_preemption_enforced: false;
 }
 
 export type SessionQualityAnalysisRequest =

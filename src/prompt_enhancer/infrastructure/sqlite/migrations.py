@@ -8942,3 +8942,567 @@ BEGIN SELECT RAISE(ABORT,'analysis job state transition is invalid'); END;
 
 COMMIT;
 """
+
+
+MIGRATION_25 = r"""
+BEGIN IMMEDIATE;
+
+-- This is a result-publication cutoff for reviewed local SESSION_QUALITY
+-- automation. It deliberately does not claim to interrupt a blocking provider
+-- or model call. A root is created by the first successful queue claim and is
+-- never recreated on retry or process restart.
+CREATE TABLE automation_session_quality_publication_deadlines (
+    job_id TEXT PRIMARY KEY
+        REFERENCES analysis_jobs(job_id) ON DELETE RESTRICT,
+    automation_grant_id TEXT NOT NULL
+        REFERENCES automation_grants(grant_id) ON DELETE RESTRICT,
+    grant_revision INTEGER NOT NULL CHECK(grant_revision >= 1),
+    first_claim_at TEXT NOT NULL CHECK(first_claim_at GLOB
+      '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'),
+    first_claim_at_us INTEGER NOT NULL CHECK(
+        typeof(first_claim_at_us)='integer'
+        AND first_claim_at_us BETWEEN -62135596800000000 AND 253402300799999999
+    ),
+    deadline_at_us INTEGER NOT NULL CHECK(
+        typeof(deadline_at_us)='integer'
+        AND deadline_at_us=first_claim_at_us+1800000000
+    ),
+    deadline_at TEXT NOT NULL CHECK(deadline_at GLOB
+      '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'),
+    high_water_at_us INTEGER NOT NULL CHECK(
+        typeof(high_water_at_us)='integer'
+        AND high_water_at_us>=first_claim_at_us
+        AND high_water_at_us<deadline_at_us
+    ),
+    high_water_at TEXT NOT NULL CHECK(high_water_at GLOB
+      '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'),
+    analysis_run_id TEXT UNIQUE
+        REFERENCES session_analysis_runs(run_id) ON DELETE RESTRICT,
+    CHECK(deadline_at_us>first_claim_at_us)
+);
+CREATE INDEX automation_session_quality_deadline_due_idx
+    ON automation_session_quality_publication_deadlines(deadline_at_us, job_id);
+
+-- Closure is append-only evidence explaining why an unpublished automated
+-- result can no longer be committed. The effective high water is kept
+-- separately so a monotonic expiry never invents a wall-clock timestamp.
+CREATE TABLE automation_session_quality_publication_closures (
+    job_id TEXT PRIMARY KEY
+        REFERENCES automation_session_quality_publication_deadlines(job_id)
+        ON DELETE CASCADE,
+    reason_code TEXT NOT NULL CHECK(reason_code IN (
+        'automation_publication_deadline_exceeded',
+        'automation_publication_clock_regressed',
+        'automation_publication_deadline_missing'
+    )),
+    observation_kind TEXT NOT NULL CHECK(observation_kind IN (
+        'wall_deadline_exceeded', 'wall_clock_regressed',
+        'monotonic_deadline_exceeded', 'monotonic_clock_regressed',
+        'publication_authority_missing'
+    )),
+    observed_at_us INTEGER NOT NULL CHECK(
+        typeof(observed_at_us)='integer'
+        AND observed_at_us BETWEEN -62135596800000000 AND 253402300799999999
+    ),
+    effective_high_water_at_us INTEGER NOT NULL CHECK(
+        typeof(effective_high_water_at_us)='integer'
+        AND effective_high_water_at_us BETWEEN -62135596800000000
+            AND 253402300799999999
+    )
+);
+
+CREATE TABLE automation_session_quality_publications (
+    job_id TEXT PRIMARY KEY
+      REFERENCES automation_session_quality_publication_deadlines(job_id)
+      ON DELETE CASCADE,
+    analysis_run_id TEXT NOT NULL UNIQUE
+      REFERENCES session_analysis_runs(run_id) ON DELETE RESTRICT,
+    published_at TEXT NOT NULL CHECK(published_at GLOB
+      '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'),
+    published_at_us INTEGER NOT NULL CHECK(typeof(published_at_us)='integer'),
+    result_count INTEGER NOT NULL CHECK(result_count BETWEEN 1 AND 100)
+);
+
+-- Direct SQL cannot add authority. Repository writes carry an in-process HMAC
+-- capability that is absent from arbitrary connections and is removed before
+-- the call returns.
+CREATE TABLE automation_publication_write_authorizations (
+    operation_id TEXT PRIMARY KEY
+        CHECK(length(operation_id)=64 AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    job_id TEXT NOT NULL
+        CHECK(length(job_id)=64 AND job_id NOT GLOB '*[^0-9a-f]*'),
+    action TEXT NOT NULL CHECK(action IN (
+        'root', 'high_water', 'bind', 'publish', 'close', 'privacy'
+    )),
+    authorization_tag TEXT NOT NULL
+        CHECK(length(authorization_tag)=64
+              AND authorization_tag NOT GLOB '*[^0-9a-f]*'),
+    UNIQUE(job_id, action)
+);
+CREATE TRIGGER automation_publication_write_authorization_validate
+BEFORE INSERT ON automation_publication_write_authorizations
+WHEN NEW.authorization_tag <> automation_publication_authorization_tag(
+    NEW.operation_id, NEW.job_id, NEW.action)
+BEGIN SELECT RAISE(ABORT,'automation publication write authorization is invalid'); END;
+CREATE TRIGGER automation_publication_write_authorization_no_update
+BEFORE UPDATE ON automation_publication_write_authorizations
+BEGIN SELECT RAISE(ABORT,'automation publication write authorization is immutable'); END;
+CREATE TRIGGER automation_publication_write_authorization_delete_validate
+BEFORE DELETE ON automation_publication_write_authorizations
+WHEN OLD.authorization_tag <> automation_publication_authorization_tag(
+    OLD.operation_id, OLD.job_id, OLD.action)
+BEGIN SELECT RAISE(ABORT,'automation publication write authorization is invalid'); END;
+
+CREATE TRIGGER automation_publication_deadline_insert_guard
+BEFORE INSERT ON automation_session_quality_publication_deadlines
+WHEN NOT EXISTS (
+    SELECT 1 FROM automation_publication_write_authorizations a
+    JOIN analysis_jobs job ON job.job_id=NEW.job_id
+    JOIN automation_grants grant ON grant.grant_id=NEW.automation_grant_id
+    WHERE a.job_id=NEW.job_id AND a.action='root'
+      AND a.authorization_tag=automation_publication_authorization_tag(
+          a.operation_id,a.job_id,a.action)
+      AND job.kind='session_quality'
+      AND job.automation_grant_id=NEW.automation_grant_id
+      AND job.state='preprocessing' AND job.attempt_count=1
+      AND job.updated_at=NEW.first_claim_at
+      AND job.lease_owner IS NOT NULL AND job.lease_token IS NOT NULL
+      AND grant.revision=NEW.grant_revision
+      AND grant.state='active'
+      AND grant.expires_at>NEW.first_claim_at
+      AND grant.maximum_session_seconds=1800
+      AND grant.route='balanced' AND grant.max_gpu_workers=1
+      AND grant.max_cpu_workers=1 AND grant.pause_on_battery=1
+      AND grant.local_only=1 AND grant.remote_requires_fresh_approval=1
+      AND grant.provider=job.provider AND grant.project_id=job.project_id
+      AND NOT EXISTS (
+        SELECT metric_key,ordinal FROM analysis_job_metrics
+        WHERE job_id=job.job_id
+        EXCEPT
+        SELECT metric_key,ordinal FROM automation_grant_metrics
+        WHERE grant_id=grant.grant_id
+      )
+      AND NOT EXISTS (
+        SELECT metric_key,ordinal FROM automation_grant_metrics
+        WHERE grant_id=grant.grant_id
+        EXCEPT
+        SELECT metric_key,ordinal FROM analysis_job_metrics
+        WHERE job_id=job.job_id
+      )
+      AND NEW.high_water_at_us=NEW.first_claim_at_us
+      AND NEW.analysis_run_id IS NULL
+)
+BEGIN SELECT RAISE(ABORT,'automation publication deadline root is not authorized'); END;
+
+CREATE TRIGGER automation_publication_deadline_update_guard
+BEFORE UPDATE ON automation_session_quality_publication_deadlines
+WHEN OLD.job_id IS NOT NEW.job_id
+  OR OLD.automation_grant_id IS NOT NEW.automation_grant_id
+  OR OLD.grant_revision IS NOT NEW.grant_revision
+  OR OLD.first_claim_at_us IS NOT NEW.first_claim_at_us
+  OR OLD.first_claim_at IS NOT NEW.first_claim_at
+  OR OLD.deadline_at_us IS NOT NEW.deadline_at_us
+  OR OLD.deadline_at IS NOT NEW.deadline_at
+  OR NEW.high_water_at_us < OLD.high_water_at_us
+  OR NEW.high_water_at < OLD.high_water_at
+  OR (OLD.analysis_run_id IS NOT NULL AND NEW.analysis_run_id IS NOT OLD.analysis_run_id)
+  OR NOT EXISTS (
+      SELECT 1 FROM automation_publication_write_authorizations a
+      WHERE a.job_id=OLD.job_id
+        AND a.action=CASE
+            WHEN NEW.analysis_run_id IS NOT OLD.analysis_run_id THEN 'bind'
+            ELSE 'high_water' END
+        AND a.authorization_tag=automation_publication_authorization_tag(
+            a.operation_id,a.job_id,a.action)
+  )
+  OR (
+      NEW.analysis_run_id IS NOT OLD.analysis_run_id
+      AND (
+        NEW.high_water_at_us IS NOT OLD.high_water_at_us
+        OR NEW.high_water_at IS NOT OLD.high_water_at
+        OR NOT EXISTS (
+          SELECT 1
+          FROM analysis_jobs job
+          JOIN automation_grants grant
+            ON grant.grant_id=job.automation_grant_id
+          JOIN session_analysis_runs run ON run.run_id=NEW.analysis_run_id
+          WHERE job.job_id=OLD.job_id
+            AND job.state IN ('preprocessing','stage_n')
+            AND job.cancel_requested=0
+            AND job.automation_grant_id=OLD.automation_grant_id
+            AND job.lease_owner IS NOT NULL AND job.lease_token IS NOT NULL
+            AND grant.revision=OLD.grant_revision
+            AND grant.state='active'
+            AND grant.expires_at>run.started_at
+            AND run.status='running'
+            AND run.session_id=job.session_id
+            AND run.provider=job.provider
+            AND run.analysis_profile_key='coaching_profile'
+            AND run.analysis_profile_version=1
+            AND run.metric_pack_key='experimental.redacted-text.coaching'
+            AND run.metric_pack_version=3
+            AND run.redactor_version=job.redactor_version
+            AND run.started_at>=OLD.first_claim_at
+            AND run.started_at<OLD.deadline_at
+            AND NOT EXISTS (
+              SELECT 1 FROM automation_session_quality_publication_closures c
+              WHERE c.job_id=job.job_id
+            )
+            AND NOT EXISTS (
+              SELECT metric_key,ordinal FROM session_analysis_run_metrics
+              WHERE run_id=run.run_id
+              EXCEPT
+              SELECT metric_key,ordinal FROM analysis_job_metrics
+              WHERE job_id=job.job_id
+            )
+            AND NOT EXISTS (
+              SELECT metric_key,ordinal FROM analysis_job_metrics
+              WHERE job_id=job.job_id
+              EXCEPT
+              SELECT metric_key,ordinal FROM session_analysis_run_metrics
+              WHERE run_id=run.run_id
+            )
+        )
+      )
+  )
+  OR (
+      NEW.analysis_run_id IS OLD.analysis_run_id
+      AND NEW.high_water_at_us=OLD.high_water_at_us
+  )
+BEGIN SELECT RAISE(ABORT,'automation publication deadline mutation is not authorized'); END;
+
+CREATE TRIGGER automation_publication_deadline_delete_guard
+BEFORE DELETE ON automation_session_quality_publication_deadlines
+WHEN EXISTS (SELECT 1 FROM analysis_jobs WHERE job_id=OLD.job_id)
+  AND NOT EXISTS (
+      SELECT 1 FROM automation_publication_write_authorizations a
+      WHERE a.job_id=OLD.job_id AND a.action='privacy'
+        AND a.authorization_tag=automation_publication_authorization_tag(
+            a.operation_id,a.job_id,a.action)
+  )
+BEGIN SELECT RAISE(ABORT,'automation publication deadline privacy deletion is not authorized'); END;
+
+CREATE TRIGGER automation_publication_closure_insert_guard
+BEFORE INSERT ON automation_session_quality_publication_closures
+WHEN NOT EXISTS (
+    SELECT 1 FROM automation_publication_write_authorizations a
+    JOIN automation_session_quality_publication_deadlines root
+      ON root.job_id=NEW.job_id
+    WHERE a.job_id=NEW.job_id AND a.action='close'
+      AND a.authorization_tag=automation_publication_authorization_tag(
+          a.operation_id,a.job_id,a.action)
+      AND NEW.effective_high_water_at_us >= root.high_water_at_us
+      AND NOT EXISTS (
+        SELECT 1 FROM automation_session_quality_publications published
+        WHERE published.job_id=root.job_id
+      )
+      AND (
+        (NEW.observation_kind='wall_deadline_exceeded'
+          AND NEW.reason_code='automation_publication_deadline_exceeded'
+          AND NEW.observed_at_us>=root.deadline_at_us
+          AND NEW.effective_high_water_at_us=NEW.observed_at_us)
+        OR (NEW.observation_kind='wall_clock_regressed'
+          AND NEW.reason_code='automation_publication_clock_regressed'
+          AND NEW.observed_at_us<root.high_water_at_us
+          AND NEW.effective_high_water_at_us=root.high_water_at_us)
+        OR (NEW.observation_kind='monotonic_deadline_exceeded'
+          AND NEW.reason_code='automation_publication_deadline_exceeded'
+          AND NEW.effective_high_water_at_us>=root.deadline_at_us)
+        OR (NEW.observation_kind='monotonic_clock_regressed'
+          AND NEW.reason_code='automation_publication_clock_regressed'
+          AND NEW.effective_high_water_at_us=root.high_water_at_us)
+        OR (NEW.observation_kind='publication_authority_missing'
+          AND NEW.reason_code='automation_publication_deadline_missing'
+          AND NEW.effective_high_water_at_us=root.high_water_at_us)
+      )
+)
+BEGIN SELECT RAISE(ABORT,'automation publication closure is not authorized'); END;
+CREATE TRIGGER automation_publication_closure_no_update
+BEFORE UPDATE ON automation_session_quality_publication_closures
+BEGIN SELECT RAISE(ABORT,'automation publication closure is immutable'); END;
+CREATE TRIGGER automation_publication_closure_delete_guard
+BEFORE DELETE ON automation_session_quality_publication_closures
+WHEN EXISTS (SELECT 1 FROM analysis_jobs WHERE job_id=OLD.job_id)
+  AND NOT EXISTS (
+      SELECT 1 FROM automation_publication_write_authorizations a
+      WHERE a.job_id=OLD.job_id AND a.action='privacy'
+        AND a.authorization_tag=automation_publication_authorization_tag(
+            a.operation_id,a.job_id,a.action)
+  )
+BEGIN SELECT RAISE(ABORT,'automation publication closure privacy deletion is not authorized'); END;
+
+-- Results can only be inserted for the exactly-bound automated run before the
+-- persisted strict cutoff. Equality is late. Manual runs have no root and are
+-- unchanged.
+CREATE TRIGGER session_analysis_results_automation_deadline_guard
+BEFORE INSERT ON session_analysis_results
+WHEN EXISTS (
+    SELECT 1
+    FROM automation_session_quality_publication_deadlines root
+    WHERE root.analysis_run_id=NEW.run_id
+      AND (
+        NOT EXISTS (
+          SELECT 1 FROM automation_publication_write_authorizations a
+          WHERE a.job_id=root.job_id AND a.action='publish'
+        )
+        OR EXISTS (SELECT 1 FROM automation_session_quality_publication_closures c
+                WHERE c.job_id=root.job_id)
+        OR NEW.computed_at NOT GLOB
+          '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9][0-9][0-9][0-9]+00:00'
+        OR NEW.computed_at>=root.deadline_at
+      )
+)
+BEGIN SELECT RAISE(ABORT,'automation publication deadline rejected result'); END;
+
+CREATE TRIGGER session_analysis_result_evidence_automation_publish_guard
+BEFORE INSERT ON session_analysis_result_evidence
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.analysis_run_id=NEW.run_id AND NOT EXISTS (
+    SELECT 1 FROM automation_publication_write_authorizations a
+    WHERE a.job_id=root.job_id AND a.action='publish'
+  )
+)
+BEGIN SELECT RAISE(ABORT,'automation publication evidence is not authorized'); END;
+
+CREATE TRIGGER session_analysis_result_signals_automation_publish_guard
+BEFORE INSERT ON session_analysis_result_signals
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.analysis_run_id=NEW.run_id AND NOT EXISTS (
+    SELECT 1 FROM automation_publication_write_authorizations a
+    WHERE a.job_id=root.job_id AND a.action='publish'
+  )
+)
+BEGIN SELECT RAISE(ABORT,'automation publication signals are not authorized'); END;
+
+CREATE TRIGGER automation_publication_receipt_insert_guard
+BEFORE INSERT ON automation_session_quality_publications
+WHEN NOT EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  JOIN automation_publication_write_authorizations a ON a.job_id=root.job_id
+  WHERE root.job_id=NEW.job_id AND root.analysis_run_id=NEW.analysis_run_id
+    AND a.action='publish'
+    AND a.authorization_tag=automation_publication_authorization_tag(
+      a.operation_id,a.job_id,a.action)
+    AND NEW.published_at_us>=root.first_claim_at_us
+    AND NEW.published_at_us<root.deadline_at_us
+    AND NEW.published_at>=root.first_claim_at
+    AND NEW.published_at<root.deadline_at
+    AND NOT EXISTS (
+      SELECT 1 FROM automation_session_quality_publication_closures c
+      WHERE c.job_id=root.job_id)
+)
+BEGIN SELECT RAISE(ABORT,'automation publication receipt is not authorized'); END;
+CREATE TRIGGER automation_publication_receipt_no_update
+BEFORE UPDATE ON automation_session_quality_publications
+BEGIN SELECT RAISE(ABORT,'automation publication receipt is immutable'); END;
+CREATE TRIGGER automation_publication_receipt_delete_guard
+BEFORE DELETE ON automation_session_quality_publications
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.job_id=OLD.job_id
+) AND NOT EXISTS (
+  SELECT 1 FROM automation_publication_write_authorizations a
+  WHERE a.job_id=OLD.job_id AND a.action='privacy'
+    AND a.authorization_tag=automation_publication_authorization_tag(
+      a.operation_id,a.job_id,a.action)
+)
+BEGIN SELECT RAISE(ABORT,'automation publication receipt privacy deletion is not authorized'); END;
+
+-- A queue parent must never be allowed to cascade away the durable
+-- publication authority while leaving its exactly-bound analysis run alive.
+-- Privacy deletion removes receipt/closure/root explicitly under its HMAC
+-- before deleting either parent.  The INSERT guard also closes SQLite's
+-- INSERT OR REPLACE implicit-delete behavior when recursive_triggers is OFF,
+-- for both the primary key and the independent dedupe key.
+CREATE TRIGGER analysis_jobs_automation_publication_parent_delete_guard
+BEFORE DELETE ON analysis_jobs
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.job_id=OLD.job_id
+)
+BEGIN SELECT RAISE(ABORT,'automation publication parent requires privacy deletion'); END;
+
+CREATE TRIGGER analysis_jobs_automation_publication_parent_replace_guard
+BEFORE INSERT ON analysis_jobs
+WHEN EXISTS (
+  SELECT 1
+  FROM analysis_jobs existing
+  JOIN automation_session_quality_publication_deadlines root
+    ON root.job_id=existing.job_id
+  WHERE existing.job_id=NEW.job_id OR existing.dedupe_key=NEW.dedupe_key
+)
+BEGIN SELECT RAISE(ABORT,'automation publication parent cannot be replaced'); END;
+
+CREATE TRIGGER analysis_job_metrics_publication_insert_guard
+BEFORE INSERT ON analysis_job_metrics
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.job_id=NEW.job_id
+)
+BEGIN SELECT RAISE(ABORT,'automation publication job scope is sealed'); END;
+CREATE TRIGGER analysis_job_metrics_publication_delete_guard
+BEFORE DELETE ON analysis_job_metrics
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.job_id=OLD.job_id
+) AND EXISTS (SELECT 1 FROM analysis_jobs job WHERE job.job_id=OLD.job_id)
+BEGIN SELECT RAISE(ABORT,'automation publication job scope is sealed'); END;
+
+CREATE TRIGGER automation_grant_metrics_publication_insert_guard
+BEFORE INSERT ON automation_grant_metrics
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.automation_grant_id=NEW.grant_id
+)
+BEGIN SELECT RAISE(ABORT,'automation publication grant scope is sealed'); END;
+CREATE TRIGGER automation_grant_metrics_publication_delete_guard
+BEFORE DELETE ON automation_grant_metrics
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.automation_grant_id=OLD.grant_id
+)
+BEGIN SELECT RAISE(ABORT,'automation publication grant scope is sealed'); END;
+
+CREATE TRIGGER session_analysis_run_metrics_publication_insert_guard
+BEFORE INSERT ON session_analysis_run_metrics
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.analysis_run_id=NEW.run_id
+)
+BEGIN SELECT RAISE(ABORT,'automation publication run scope is sealed'); END;
+CREATE TRIGGER session_analysis_run_metrics_publication_delete_guard
+BEFORE DELETE ON session_analysis_run_metrics
+WHEN EXISTS (
+  SELECT 1 FROM automation_session_quality_publication_deadlines root
+  WHERE root.analysis_run_id=OLD.run_id
+) AND EXISTS (
+  SELECT 1 FROM session_analysis_runs run WHERE run.run_id=OLD.run_id
+)
+BEGIN SELECT RAISE(ABORT,'automation publication run scope is sealed'); END;
+
+CREATE TRIGGER session_analysis_runs_automation_deadline_guard
+BEFORE UPDATE OF status ON session_analysis_runs
+WHEN NEW.status='completed' AND EXISTS (
+    SELECT 1
+    FROM automation_session_quality_publication_deadlines root
+    WHERE root.analysis_run_id=OLD.run_id
+      AND (
+        NOT EXISTS (
+          SELECT 1 FROM automation_publication_write_authorizations a
+          WHERE a.job_id=root.job_id AND a.action='publish'
+        )
+        OR EXISTS (SELECT 1 FROM automation_session_quality_publication_closures c
+                WHERE c.job_id=root.job_id)
+        OR NOT EXISTS (
+          SELECT 1 FROM automation_session_quality_publications published
+          WHERE published.job_id=root.job_id
+            AND published.analysis_run_id=OLD.run_id
+            AND published.published_at=NEW.finished_at
+            AND published.result_count=(
+              SELECT COUNT(*) FROM session_analysis_results result
+              WHERE result.run_id=OLD.run_id))
+      )
+)
+BEGIN SELECT RAISE(ABORT,'automation publication deadline rejected run'); END;
+
+-- Queue completion for this automation is valid only for its exact bound,
+-- on-time completed run. Deadline failures require an immutable closure.
+CREATE TRIGGER analysis_jobs_automation_publication_terminal_guard
+BEFORE UPDATE OF state ON analysis_jobs
+WHEN OLD.kind='session_quality' AND OLD.automation_grant_id IS NOT NULL
+  AND NEW.state<>OLD.state AND NEW.state IN ('completed','failed')
+  AND NOT (
+    (NEW.state='completed' AND NEW.terminal_reason_code='local_analysis_completed'
+      AND EXISTS (
+        SELECT 1 FROM automation_session_quality_publication_deadlines root
+        JOIN session_analysis_runs run ON run.run_id=root.analysis_run_id
+        WHERE root.job_id=OLD.job_id AND run.status='completed'
+          AND EXISTS (
+            SELECT 1 FROM automation_session_quality_publications published
+            WHERE published.job_id=root.job_id
+              AND published.analysis_run_id=run.run_id)
+          AND NOT EXISTS (
+            SELECT 1 FROM automation_session_quality_publication_closures c
+            WHERE c.job_id=root.job_id)))
+    OR
+    (NEW.state='failed'
+      AND NEW.terminal_reason_code IN (
+        'automation_publication_deadline_exceeded',
+        'automation_publication_clock_regressed',
+        'automation_publication_deadline_missing')
+      AND (
+        (NEW.terminal_reason_code='automation_publication_deadline_missing'
+          AND NOT EXISTS (
+            SELECT 1 FROM automation_session_quality_publication_deadlines root
+            WHERE root.job_id=OLD.job_id))
+        OR EXISTS (
+          SELECT 1 FROM automation_session_quality_publication_closures c
+          WHERE c.job_id=OLD.job_id AND c.reason_code=NEW.terminal_reason_code)
+      ))
+    OR
+    (NEW.state='failed'
+      AND NEW.terminal_reason_code NOT IN (
+        'automation_publication_deadline_exceeded',
+        'automation_publication_clock_regressed',
+        'automation_publication_deadline_missing')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM automation_session_quality_publication_deadlines root
+        JOIN session_analysis_runs run ON run.run_id=root.analysis_run_id
+        WHERE root.job_id=OLD.job_id AND run.status='completed'
+          AND EXISTS (
+            SELECT 1 FROM automation_session_quality_publications published
+            WHERE published.job_id=root.job_id
+              AND published.analysis_run_id=run.run_id))
+      AND NOT EXISTS (
+        SELECT 1 FROM automation_session_quality_publication_closures c
+        WHERE c.job_id=OLD.job_id))
+  )
+BEGIN SELECT RAISE(ABORT,'automation publication terminal transition is invalid'); END;
+
+CREATE TRIGGER analysis_jobs_automation_publication_completed_wins
+BEFORE UPDATE ON analysis_jobs
+WHEN OLD.kind='session_quality' AND OLD.automation_grant_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1
+    FROM automation_session_quality_publication_deadlines root
+    JOIN session_analysis_runs run ON run.run_id=root.analysis_run_id
+    WHERE root.job_id=OLD.job_id AND run.status='completed'
+      AND EXISTS (
+        SELECT 1 FROM automation_session_quality_publications published
+        WHERE published.job_id=root.job_id
+          AND published.analysis_run_id=run.run_id)
+  )
+  AND (
+    NEW.state<>'completed'
+    OR NEW.terminal_reason_code<>'local_analysis_completed'
+    OR NEW.cancel_requested<>0
+  )
+BEGIN SELECT RAISE(ABORT,'completed automation publication must win'); END;
+
+DROP TRIGGER analysis_jobs_closed_transitions;
+CREATE TRIGGER analysis_jobs_closed_transitions BEFORE UPDATE ON analysis_jobs
+WHEN NEW.state<>OLD.state AND NOT (
+    (OLD.state='queued' AND NEW.state IN ('preprocessing','cancelled','superseded'))
+    OR (OLD.state='queued' AND OLD.kind='session_quality'
+        AND OLD.automation_grant_id IS NOT NULL
+        AND NEW.state IN ('completed','failed'))
+    OR (OLD.state='queued' AND OLD.kind='estimator_execution'
+        AND NEW.state IN ('partial','failed') AND EXISTS (
+          SELECT 1 FROM estimator_runtime_job_bindings b
+          JOIN estimator_runtime_state_receipts s
+            ON s.execution_id=b.execution_id AND s.authorization_id=b.authorization_id
+          WHERE b.job_id=OLD.job_id AND s.sequence=(
+            SELECT MAX(latest.sequence) FROM estimator_runtime_state_receipts latest
+            WHERE latest.execution_id=b.execution_id)
+            AND s.state=NEW.state AND s.reason_code=NEW.terminal_reason_code))
+    OR (OLD.state='preprocessing' AND NEW.state IN ('queued','stage_n','awaiting_approval','completed','partial','failed','cancelled','superseded'))
+    OR (OLD.state='stage_n' AND NEW.state IN ('queued','awaiting_approval','completed','partial','failed','cancelled','superseded'))
+    OR (OLD.state='awaiting_approval' AND NEW.state IN ('queued','failed','cancelled','superseded'))
+)
+BEGIN SELECT RAISE(ABORT,'analysis job state transition is invalid'); END;
+
+COMMIT;
+"""

@@ -90,10 +90,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_22,
     MIGRATION_23,
     MIGRATION_24,
+    MIGRATION_25,
 )
 
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -389,6 +390,11 @@ class Database:
             tuple[str, str, str, str, str]
         ] = set()
         self._estimator_runtime_authorization_lock = threading.Lock()
+        self._automation_publication_authorization_secret = secrets.token_bytes(32)
+        self._automation_publication_authorizations: set[
+            tuple[str, str, str, str]
+        ] = set()
+        self._automation_publication_authorization_lock = threading.Lock()
         self._estimator_calibration_report_authorization_secret = (
             secrets.token_bytes(32)
         )
@@ -1232,6 +1238,49 @@ class Database:
                 (operation_id, authorization_id, execution_id, job_id, tag)
             )
 
+    def _automation_publication_authorization_tag(
+        self, operation_id: str, job_id: str, action: str
+    ) -> str:
+        candidate = hmac.new(
+            self._automation_publication_authorization_secret,
+            (
+                "automation-publication-write-v1:"
+                f"{operation_id}:{job_id}:{action}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._automation_publication_authorization_lock:
+            active = (operation_id, job_id, action, candidate) in (
+                self._automation_publication_authorizations
+            )
+        return candidate if active else ""
+
+    def _begin_automation_publication_authorization(
+        self, job_id: str, action: str
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        tag = hmac.new(
+            self._automation_publication_authorization_secret,
+            (
+                "automation-publication-write-v1:"
+                f"{operation_id}:{job_id}:{action}"
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._automation_publication_authorization_lock:
+            self._automation_publication_authorizations.add(
+                (operation_id, job_id, action, tag)
+            )
+        return operation_id, tag
+
+    def _end_automation_publication_authorization(
+        self, operation_id: str, job_id: str, action: str, tag: str
+    ) -> None:
+        with self._automation_publication_authorization_lock:
+            self._automation_publication_authorizations.discard(
+                (operation_id, job_id, action, tag)
+            )
+
     def _prepare_private_path(self) -> None:
         try:
             if path_has_symlink_component(self.path):
@@ -1373,6 +1422,12 @@ class Database:
                 "estimator_runtime_authorization_tag",
                 4,
                 self._estimator_runtime_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "automation_publication_authorization_tag",
+                3,
+                self._automation_publication_authorization_tag,
                 deterministic=False,
             )
             connection.create_function(
@@ -1543,6 +1598,7 @@ class Database:
                 (22, MIGRATION_22),
                 (23, MIGRATION_23),
                 (24, MIGRATION_24),
+                (25, MIGRATION_25),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1705,6 +1761,12 @@ class Database:
             end_synthetic_aggregation_delete_authorization=(
                 self._end_synthetic_aggregation_delete_authorization
             ),
+            begin_publication_authorization=(
+                self._begin_automation_publication_authorization
+            ),
+            end_publication_authorization=(
+                self._end_automation_publication_authorization
+            ),
         )
 
     def metric_coverage_repository(self):
@@ -1830,7 +1892,16 @@ class Database:
         from .infrastructure.sqlite.analysis_jobs import SqliteAnalysisJobRepository
 
         self._ensure_initialized()
-        return SqliteAnalysisJobRepository(self._connection, self._ensure_initialized)
+        return SqliteAnalysisJobRepository(
+            self._connection,
+            self._ensure_initialized,
+            begin_publication_authorization=(
+                self._begin_automation_publication_authorization
+            ),
+            end_publication_authorization=(
+                self._end_automation_publication_authorization
+            ),
+        )
 
     def estimator_runtime_repository(self):
         """Return the execution-only, content-free estimator runtime adapter."""

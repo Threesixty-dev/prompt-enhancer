@@ -142,7 +142,9 @@ def _prepare(database: Database) -> SimpleNamespace:
     )
 
 
-def _completion_fixture(tmp_path) -> SimpleNamespace:
+def _completion_fixture(
+    tmp_path, *, bind_publication: bool = True
+) -> SimpleNamespace:
     database = Database(tmp_path / "synthetic-temporal.sqlite3")
     database.initialize()
     context = _prepare(database)
@@ -212,6 +214,12 @@ def _completion_fixture(tmp_path) -> SimpleNamespace:
     model_plan_fingerprint = _id("installation-keyed-model-plan")
     window_fingerprint = _id("selected-window")
     run_id = _id("analysis-run")
+    authority = SessionAnalysisCompletionAuthority(
+        job_id=claimed.job_id,
+        automation_grant_id=context.grant_id,
+        lease_owner=claimed.lease_owner,
+        lease_token=claimed.lease_token,
+    )
     run_fingerprint = analysis_run_bridge_fingerprint(
         request_fingerprint=request_fingerprint,
         input_fingerprint=stored_input_fingerprint,
@@ -258,7 +266,8 @@ def _completion_fixture(tmp_path) -> SimpleNamespace:
             model_plan_fingerprint=model_plan_fingerprint,
             schema_version=SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
             started_at=BASE + timedelta(minutes=2, seconds=20),
-        )
+        ),
+        completion_authority=authority if bind_publication else None,
     )
     finished_at = BASE + timedelta(minutes=3)
     selected_manifest_root = _id("selected-manifest")
@@ -363,12 +372,6 @@ def _completion_fixture(tmp_path) -> SimpleNamespace:
         analysis_input=analysis_input,
         analysis_run_id=run_id,
     )
-    authority = SessionAnalysisCompletionAuthority(
-        job_id=claimed.job_id,
-        automation_grant_id=context.grant_id,
-        lease_owner=claimed.lease_owner,
-        lease_token=claimed.lease_token,
-    )
     context.__dict__.update(
         session_id=session_id,
         run_id=run_id,
@@ -385,7 +388,7 @@ def test_v21_schema_is_normalized_zero_backfill_and_auth_is_transient(tmp_path) 
     database = Database(tmp_path / "schema.sqlite3")
     database.initialize()
     with database._connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 25
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         temporal_tables = tuple(
             row["name"]
@@ -605,7 +608,7 @@ def test_populated_v20_migrates_to_v21_without_temporal_backfill(tmp_path) -> No
     database = Database(path)
     database.initialize()
     with database._connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 25
         after = tuple(
             (row["version"], row["checksum"])
             for row in connection.execute(
@@ -613,7 +616,7 @@ def test_populated_v20_migrates_to_v21_without_temporal_backfill(tmp_path) -> No
             )
         )
         assert after[:20] == before
-        assert len(after) == 24
+        assert len(after) == 25
         durable_tables = tuple(
             row["name"]
             for row in connection.execute(
@@ -1453,7 +1456,7 @@ def test_replace_cannot_remove_committed_run_graph_with_recursive_triggers_off(
     assert context.temporal.get_sealed_batch(sealed.sealed_batch_id) == sealed
 
 
-def test_sealed_read_and_replay_do_not_claim_job_or_current_grant_lineage(
+def test_sealed_read_and_replay_do_not_require_live_lease_or_active_grant(
     tmp_path,
 ) -> None:
     context = _completion_fixture(tmp_path)
@@ -1473,27 +1476,18 @@ def test_sealed_read_and_replay_do_not_claim_job_or_current_grant_lineage(
             )
         }
         assert "job_id" not in columns
-        # Existing estimator-runtime triggers use a connection-local UDF;
-        # trusted schema is needed for the direct synthetic cleanup probe.
-        connection.execute("PRAGMA trusted_schema=ON")
-        connection.execute(
-            "DELETE FROM analysis_jobs WHERE job_id=?",
-            (context.authority.job_id,),
-        )
-        connection.execute(
-            "DELETE FROM automation_grants WHERE grant_id=?",
-            (context.grant_id,),
-        )
-        connection.commit()
-        connection.execute("PRAGMA trusted_schema=OFF")
         assert connection.execute(
             "SELECT COUNT(*) FROM analysis_jobs WHERE job_id=?",
             (context.authority.job_id,),
-        ).fetchone()[0] == 0
+        ).fetchone()[0] == 1
         assert connection.execute(
             "SELECT COUNT(*) FROM automation_grants WHERE grant_id=?",
             (context.grant_id,),
-        ).fetchone()[0] == 0
+        ).fetchone()[0] == 1
+    context.database.automation_grant_repository().revoke(
+        context.grant_id,
+        now=context.finished_at + timedelta(microseconds=1),
+    )
     hydrated = context.temporal.get_sealed_batch(sealed.sealed_batch_id)
     assert hydrated == sealed
     assert hydrated is not None
@@ -1693,6 +1687,7 @@ def test_hydration_rejects_corrupted_source_run_terminal_truth(
     assert sealed is not None
     with context.database._connection() as connection:
         connection.execute("DROP TRIGGER session_analysis_runs_terminal_transition_only")
+        connection.execute("DROP TRIGGER session_analysis_runs_automation_deadline_guard")
         connection.execute(
             """UPDATE session_analysis_runs SET status=?,finished_at=?
                WHERE run_id=?""",

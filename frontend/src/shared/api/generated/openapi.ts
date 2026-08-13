@@ -1323,6 +1323,13 @@ export interface components {
         AutomationGrantState: "active" | "revoked" | "expired";
         /** AutomationPollResult */
         AutomationPollResult: {
+            /**
+             * Blocking Execution Preemption Enforced
+             * @description An in-flight blocking local read or calculation is not forcibly preempted.
+             * @default false
+             * @constant
+             */
+            blocking_execution_preemption_enforced: false;
             /** Candidates Seen */
             candidates_seen: number;
             /** Failures */
@@ -1343,6 +1350,7 @@ export interface components {
             jobs_superseded: number;
             /**
              * Maximum Session Runtime Deadline Enforced
+             * @description The declared runtime budget is not a force-stopping wall-clock deadline.
              * @default false
              * @constant
              */
@@ -1353,6 +1361,13 @@ export interface components {
             power_external_observations: number;
             /** Power Unknown Observations */
             power_unknown_observations: number;
+            /**
+             * Session Quality Result Publication Deadline Enforced
+             * @description Automated session-quality results cannot publish at or after the restart-durable first-claim cutoff.
+             * @default true
+             * @constant
+             */
+            session_quality_result_publication_deadline_enforced: true;
         };
         /** AutomationResourcePolicy */
         AutomationResourcePolicy: {

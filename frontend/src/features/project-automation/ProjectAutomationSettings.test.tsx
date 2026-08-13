@@ -165,6 +165,8 @@ function localTransport(initialGrants: AutomationGrantRecord[] = []) {
     jobs_superseded: 0,
     failures: 0,
     maximum_session_runtime_deadline_enforced: false as const,
+    session_quality_result_publication_deadline_enforced: true as const,
+    blocking_execution_preemption_enforced: false as const,
   }));
   Object.assign(transport, {
     listProjectSessions,
@@ -385,7 +387,7 @@ describe("ProjectAutomationSettings", () => {
     expect(local.listAutomationGrants).toHaveBeenCalledTimes(2);
   });
 
-  it("shows paused, unsupported, and unenforced-deadline poll truth", async () => {
+  it("separates the enforced publication cutoff from blocking preemption", async () => {
     const local = localTransport([grant()]);
     local.pollAutomationGrants.mockResolvedValueOnce({
       grants_checked: 2,
@@ -401,6 +403,8 @@ describe("ProjectAutomationSettings", () => {
       jobs_superseded: 0,
       failures: 1,
       maximum_session_runtime_deadline_enforced: false,
+      session_quality_result_publication_deadline_enforced: true,
+      blocking_execution_preemption_enforced: false,
     });
     renderLocal(local.transport);
     await screen.findByRole("article");
@@ -408,7 +412,9 @@ describe("ProjectAutomationSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check due grants now" }));
 
     expect(await screen.findByText(/1 power-paused · 1 unsupported profiles/i)).toBeVisible();
-    expect(screen.getByText(/runtime budget hard deadline: not yet enforced/i)).toBeVisible();
+    expect(screen.getByText(/session-quality result publication cutoff: enforced/i)).toBeVisible();
+    expect(screen.getByText(/blocking-call force-stop: not provided/i)).toBeVisible();
+    expect(screen.getByText(/hard runtime deadline: not enforced/i)).toBeVisible();
   });
 
   it("suppresses raw command errors and refuses a mismatched create response", async () => {

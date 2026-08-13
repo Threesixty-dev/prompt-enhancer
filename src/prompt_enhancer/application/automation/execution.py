@@ -9,6 +9,7 @@ from ...domain import DataTier
 
 from ..analysis import (
     SESSION_TEXT_ANALYSIS_CONFIRMATION,
+    SessionTextAnalysisCooperativeStop,
     SessionTextAnalysisCompatibilityError,
     SessionTextAnalysisConflictError,
     SessionTextAnalysisConsentError,
@@ -21,6 +22,7 @@ from ..analysis import (
     TextAnalysisPresetId,
 )
 from ..jobs import (
+    AnalysisJobCooperativeStop,
     AnalysisJobExecutionContext,
     AnalysisJobExecutionError,
     AnalysisJobExecutionResult,
@@ -121,6 +123,15 @@ class SessionQualityAutomationHandler:
             lease_owner=context.lease.owner,
             lease_token=context.lease.token,
         )
+
+        def cooperative_check() -> None:
+            try:
+                context.publication_checkpoint()
+            except AnalysisJobCooperativeStop as error:
+                raise SessionTextAnalysisCooperativeStop(
+                    error.reason_code
+                ) from None
+
         try:
             outcome = self._analyses.run_preset(
                 provider=job.identity.provider,
@@ -133,7 +144,11 @@ class SessionQualityAutomationHandler:
                 idempotency_key=f"automation-{job.job_id}",
                 selected_metric_keys=job.identity.metric_keys,
                 completion_authority=completion_authority,
+                cooperative_check=cooperative_check,
+                publication_committed_callback=context.mark_publication_committed,
             )
+        except SessionTextAnalysisCooperativeStop as error:
+            raise AnalysisJobCooperativeStop(error.reason_code) from None
         except (
             SessionTextAnalysisConsentError,
             SessionTextAnalysisSelectionError,

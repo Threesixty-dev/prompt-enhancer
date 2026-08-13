@@ -9,6 +9,7 @@ performed here.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import combinations
 import re
@@ -1211,6 +1212,7 @@ class TextMetricEngine:
         pack_key: str = DEFAULT_TEXT_METRIC_PACK_KEY,
         pack_version: int = DEFAULT_TEXT_METRIC_PACK_VERSION,
         selected_metric_keys: tuple[str, ...] | None = None,
+        cooperative_check: Callable[[], None] | None = None,
     ) -> tuple[TextMetricResult, ...]:
         if (
             grant.data_tier is not DataTier.REDACTED_CONTENT
@@ -1257,10 +1259,22 @@ class TextMetricEngine:
                 calculators_by_key[key] for key in selected_metric_keys
             )
 
-        features = self._extractor.extract(context)
+        if cooperative_check is not None:
+            cooperative_check()
+        try:
+            features = self._extractor.extract(context)
+        finally:
+            if cooperative_check is not None:
+                cooperative_check()
         results: list[TextMetricResult] = []
         for calculator in calculators:
-            calculation = calculator.calculate(context, features)
+            if cooperative_check is not None:
+                cooperative_check()
+            try:
+                calculation = calculator.calculate(context, features)
+            finally:
+                if cooperative_check is not None:
+                    cooperative_check()
             definition = calculator.definition
             applicability = context.task_profile.applicability_for(definition.key)
             fraction = calculation.fraction

@@ -11,6 +11,7 @@ from ...application.persistence import (
     AnalysisRunStatus,
     MetricValueState,
     SessionAnalysisCompletionAuthority,
+    SessionAnalysisPublicationRejectedError,
     SessionAnalysisAggregationResultRecord,
     SessionAnalysisAggregationSnapshotRecord,
     SessionAnalysisEvidenceRecord,
@@ -31,10 +32,12 @@ from ...domain import DataTier, MetricObservation, MetricSource, Provider
 from ._common import (
     ConnectionScope,
     from_iso,
+    from_epoch_us,
     require_safe_id,
     require_safe_label,
     require_utc,
     to_iso,
+    to_epoch_us,
 )
 
 if TYPE_CHECKING:
@@ -72,6 +75,12 @@ class SqliteSessionAnalysisRunRepository:
         end_synthetic_aggregation_delete_authorization: (
             Callable[[str, str, str], None] | None
         ) = None,
+        begin_publication_authorization: (
+            Callable[[str, str], tuple[str, str]] | None
+        ) = None,
+        end_publication_authorization: (
+            Callable[[str, str, str, str], None] | None
+        ) = None,
     ) -> None:
         self._connection_scope = connection_scope
         self._ensure_initialized = ensure_initialized
@@ -87,6 +96,48 @@ class SqliteSessionAnalysisRunRepository:
         self._end_synthetic_aggregation_delete_authorization = (
             end_synthetic_aggregation_delete_authorization
         )
+        self._begin_publication_authorization = begin_publication_authorization
+        self._end_publication_authorization = end_publication_authorization
+
+    def _authorized_publication_write(
+        self,
+        connection,  # type: ignore[no-untyped-def]
+        *,
+        job_id: str,
+        action: str,
+        callback: Callable[[], None],
+    ) -> None:
+        if (
+            self._begin_publication_authorization is None
+            or self._end_publication_authorization is None
+        ):
+            raise DatabaseInvariantError(
+                "automation publication write is not authorized"
+            )
+        trusted_schema = int(
+            connection.execute("PRAGMA trusted_schema").fetchone()[0]
+        )
+        operation_id, tag = self._begin_publication_authorization(job_id, action)
+        try:
+            connection.execute("PRAGMA trusted_schema=ON")
+            connection.execute(
+                "INSERT INTO automation_publication_write_authorizations "
+                "VALUES(?,?,?,?)",
+                (operation_id, job_id, action, tag),
+            )
+            callback()
+            connection.execute(
+                "DELETE FROM automation_publication_write_authorizations "
+                "WHERE operation_id=?",
+                (operation_id,),
+            )
+        finally:
+            connection.execute(
+                f"PRAGMA trusted_schema={'ON' if trusted_schema else 'OFF'}"
+            )
+            self._end_publication_authorization(
+                operation_id, job_id, action, tag
+            )
 
     @staticmethod
     def _synthetic_aggregation_delete_fingerprint(
@@ -189,7 +240,12 @@ class SqliteSessionAnalysisRunRepository:
                     tag,
                 )
 
-    def begin(self, draft: SessionAnalysisRunDraft) -> None:
+    def begin(
+        self,
+        draft: SessionAnalysisRunDraft,
+        *,
+        completion_authority: SessionAnalysisCompletionAuthority | None = None,
+    ) -> None:
         self._ensure_initialized()
         if draft.schema_version != SESSION_ANALYSIS_RUN_SCHEMA_VERSION:
             raise DatabaseInvariantError(
@@ -268,6 +324,51 @@ class SqliteSessionAnalysisRunRepository:
                         )
                     ),
                 )
+                if completion_authority is not None:
+                    authority = completion_authority
+                    root = connection.execute(
+                        """SELECT root.job_id
+                           FROM automation_session_quality_publication_deadlines root
+                           JOIN analysis_jobs job ON job.job_id=root.job_id
+                           WHERE root.job_id=?
+                             AND root.automation_grant_id=?
+                             AND root.analysis_run_id IS NULL
+                             AND job.state IN ('preprocessing','stage_n')
+                             AND job.cancel_requested=0
+                             AND job.lease_owner=? AND job.lease_token=?
+                             AND job.lease_expires_at>?
+                             AND NOT EXISTS(
+                               SELECT 1
+                               FROM automation_session_quality_publication_closures c
+                               WHERE c.job_id=root.job_id
+                             )""",
+                        (
+                            authority.job_id,
+                            authority.automation_grant_id,
+                            authority.lease_owner,
+                            authority.lease_token,
+                            to_iso(draft.started_at),
+                        ),
+                    ).fetchone()
+                    if root is None:
+                        raise SessionAnalysisPublicationRejectedError(
+                            "automation_publication_deadline_missing"
+                        )
+
+                    def bind() -> None:
+                        connection.execute(
+                            """UPDATE automation_session_quality_publication_deadlines
+                               SET analysis_run_id=? WHERE job_id=?
+                                 AND analysis_run_id IS NULL""",
+                            (draft.run_id, authority.job_id),
+                        )
+
+                    self._authorized_publication_write(
+                        connection,
+                        job_id=authority.job_id,
+                        action="bind",
+                        callback=bind,
+                    )
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -302,6 +403,7 @@ class SqliteSessionAnalysisRunRepository:
         with self._connection_scope() as connection:
             sealed_batch = None
             pending_comparison_seal = None
+            publication_authority: tuple[str, str, str, str] | None = None
             try:
                 if temporal_completion_request is not None:
                     connection.execute("PRAGMA trusted_schema=ON")
@@ -374,12 +476,77 @@ class SqliteSessionAnalysisRunRepository:
                         "session analysis results do not match selected metric scope"
                     )
                 if completion_authority is not None:
+                    root_binding = connection.execute(
+                        """SELECT automation_grant_id,analysis_run_id
+                           FROM automation_session_quality_publication_deadlines
+                           WHERE job_id=?""",
+                        (completion_authority.job_id,),
+                    ).fetchone()
+                    if root_binding is None:
+                        connection.rollback()
+                        self._reject_publication(
+                            completion_authority,
+                            run_id=run_id,
+                            observed_at=finished_at,
+                            reason_code="automation_publication_deadline_missing",
+                        )
+                    if (
+                        root_binding["automation_grant_id"]
+                        != completion_authority.automation_grant_id
+                        or (
+                            root_binding["analysis_run_id"] is not None
+                            and root_binding["analysis_run_id"] != run_id
+                        )
+                    ):
+                        raise DatabaseInvariantError(
+                            "automation completion authority does not match the bound run"
+                        )
+                    unbound = connection.execute(
+                        """SELECT 1
+                           FROM automation_session_quality_publication_deadlines
+                           WHERE job_id=? AND automation_grant_id=?
+                             AND analysis_run_id IS NULL""",
+                        (
+                            completion_authority.job_id,
+                            completion_authority.automation_grant_id,
+                        ),
+                    ).fetchone()
+                    if unbound is not None:
+                        self._authorized_publication_write(
+                            connection,
+                            job_id=completion_authority.job_id,
+                            action="bind",
+                            callback=lambda: connection.execute(
+                                """UPDATE automation_session_quality_publication_deadlines
+                                   SET analysis_run_id=? WHERE job_id=?
+                                     AND analysis_run_id IS NULL""",
+                                (run_id, completion_authority.job_id),
+                            ),
+                        )
+                        bound = connection.execute(
+                            """SELECT 1
+                               FROM automation_session_quality_publication_deadlines
+                               WHERE job_id=? AND automation_grant_id=?
+                                 AND analysis_run_id=?""",
+                            (
+                                completion_authority.job_id,
+                                completion_authority.automation_grant_id,
+                                run_id,
+                            ),
+                        ).fetchone()
+                        if bound is None:
+                            raise DatabaseInvariantError(
+                                "automation publication run binding was rejected"
+                            )
                     authorized = connection.execute(
                         """
                         SELECT 1
                         FROM analysis_jobs AS job
                         JOIN automation_grants AS grant
                           ON grant.grant_id = job.automation_grant_id
+                        JOIN automation_session_quality_publication_deadlines AS root
+                          ON root.job_id=job.job_id
+                         AND root.automation_grant_id=grant.grant_id
                         JOIN sessions AS target
                           ON target.session_id = job.session_id
                         JOIN session_analysis_runs AS analysis
@@ -398,6 +565,7 @@ class SqliteSessionAnalysisRunRepository:
                           AND grant.local_only = 1
                           AND grant.remote_requires_fresh_approval = 1
                           AND analysis.status = 'running'
+                          AND root.analysis_run_id=analysis.run_id
                           AND analysis.local_only = 1
                           AND analysis.session_id = job.session_id
                           AND analysis.provider = job.provider
@@ -456,6 +624,83 @@ class SqliteSessionAnalysisRunRepository:
                         raise DatabaseInvariantError(
                             "automation completion authority is no longer valid"
                         )
+                    publication = connection.execute(
+                        """SELECT root.first_claim_at_us,root.deadline_at_us,
+                                  root.high_water_at_us
+                           FROM automation_session_quality_publication_deadlines root
+                           WHERE root.job_id=? AND root.analysis_run_id=?
+                             AND root.automation_grant_id=?
+                             AND NOT EXISTS(
+                               SELECT 1
+                               FROM automation_session_quality_publication_closures c
+                               WHERE c.job_id=root.job_id
+                             )""",
+                        (
+                            completion_authority.job_id,
+                            run_id,
+                            completion_authority.automation_grant_id,
+                        ),
+                    ).fetchone()
+                    if publication is None:
+                        connection.rollback()
+                        self._reject_publication(
+                            completion_authority,
+                            run_id=run_id,
+                            observed_at=finished_at,
+                            reason_code="automation_publication_deadline_missing",
+                        )
+                    finished_us = to_epoch_us(finished_at)
+                    if finished_us < int(publication["high_water_at_us"]):
+                        connection.rollback()
+                        self._reject_publication(
+                            completion_authority,
+                            run_id=run_id,
+                            observed_at=finished_at,
+                            reason_code="automation_publication_clock_regressed",
+                        )
+                    if finished_us >= int(publication["deadline_at_us"]):
+                        connection.rollback()
+                        self._reject_publication(
+                            completion_authority,
+                            run_id=run_id,
+                            observed_at=finished_at,
+                            reason_code="automation_publication_deadline_exceeded",
+                        )
+                    if (
+                        self._begin_publication_authorization is None
+                        or self._end_publication_authorization is None
+                    ):
+                        raise DatabaseInvariantError(
+                            "automation publication write is not authorized"
+                        )
+                    operation_id, tag = self._begin_publication_authorization(
+                        completion_authority.job_id, "publish"
+                    )
+                    publication_authority = (
+                        operation_id,
+                        completion_authority.job_id,
+                        "publish",
+                        tag,
+                    )
+                    connection.execute("PRAGMA trusted_schema=ON")
+                    connection.execute(
+                        "INSERT INTO automation_publication_write_authorizations "
+                        "VALUES(?,?,?,?)",
+                        publication_authority,
+                    )
+                    connection.execute(
+                        """INSERT INTO automation_session_quality_publications(
+                               job_id,analysis_run_id,published_at,
+                               published_at_us,result_count
+                           ) VALUES(?,?,?,?,?)""",
+                        (
+                            completion_authority.job_id,
+                            run_id,
+                            to_iso(finished_at),
+                            to_epoch_us(finished_at),
+                            len(results),
+                        ),
+                    )
                 started_at = from_iso(run["started_at"])
                 if started_at is None or finished_at < started_at:
                     raise DatabaseInvariantError(
@@ -592,6 +837,12 @@ class SqliteSessionAnalysisRunRepository:
                     raise DatabaseInvariantError(
                         "session analysis transition was rejected"
                     )
+                if publication_authority is not None:
+                    connection.execute(
+                        "DELETE FROM automation_publication_write_authorizations "
+                        "WHERE operation_id=?",
+                        (publication_authority[0],),
+                    )
                 if has_comparison_preparation:
                     assert pending_comparison_seal is not None
                     assert self._temporal_comparison_repository is not None
@@ -624,8 +875,202 @@ class SqliteSessionAnalysisRunRepository:
                     )
                 raise
             finally:
+                if (
+                    publication_authority is not None
+                    and self._end_publication_authorization is not None
+                ):
+                    self._end_publication_authorization(*publication_authority)
+                if publication_authority is not None:
+                    connection.execute("PRAGMA trusted_schema=OFF")
                 if temporal_completion_request is not None:
                     connection.execute("PRAGMA trusted_schema=OFF")
+
+    def _reject_publication(
+        self,
+        authority: SessionAnalysisCompletionAuthority,
+        *,
+        run_id: str,
+        observed_at: datetime,
+        reason_code: str,
+    ) -> None:
+        """Atomically close a late/regressed publication, then raise a typed stop."""
+
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                root = connection.execute(
+                    """SELECT first_claim_at_us,deadline_at_us,high_water_at_us,
+                              analysis_run_id
+                       FROM automation_session_quality_publication_deadlines
+                       WHERE job_id=? AND automation_grant_id=?""",
+                    (authority.job_id, authority.automation_grant_id),
+                ).fetchone()
+                if root is None:
+                    if reason_code != "automation_publication_deadline_missing":
+                        raise DatabaseInvariantError(
+                            "automation publication deadline root is missing"
+                        )
+                    self._fail_rejected_publication_locked(
+                        connection,
+                        authority=authority,
+                        run_id=run_id,
+                        reason_code=reason_code,
+                        effective_us=to_epoch_us(observed_at),
+                    )
+                    connection.commit()
+                    raise SessionAnalysisPublicationRejectedError(reason_code)
+                completed = connection.execute(
+                    """SELECT published.published_at
+                       FROM automation_session_quality_publications published
+                       JOIN session_analysis_runs run
+                         ON run.run_id=published.analysis_run_id
+                       WHERE published.job_id=? AND run.status='completed'""",
+                    (authority.job_id,),
+                ).fetchone()
+                if completed is not None:
+                    published_at = str(completed["published_at"])
+                    connection.execute(
+                        """UPDATE analysis_jobs SET state='completed',stage_number=NULL,
+                           progress_completed=progress_total,cancel_requested=0,
+                           lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+                           last_error_code=NULL,terminal_reason_code='local_analysis_completed',
+                           terminal_at=?,updated_at=? WHERE job_id=?
+                             AND state NOT IN ('completed','partial','failed','cancelled','superseded')""",
+                        (published_at, published_at, authority.job_id),
+                    )
+                    connection.commit()
+                    raise SessionAnalysisPublicationRejectedError(
+                        "local_analysis_completed"
+                    )
+                existing_closure = connection.execute(
+                    """SELECT reason_code,effective_high_water_at_us
+                       FROM automation_session_quality_publication_closures
+                       WHERE job_id=?""",
+                    (authority.job_id,),
+                ).fetchone()
+                if existing_closure is not None:
+                    existing_reason = str(existing_closure["reason_code"])
+                    effective_us = int(existing_closure["effective_high_water_at_us"])
+                    self._fail_rejected_publication_locked(
+                        connection,
+                        authority=authority,
+                        run_id=run_id,
+                        reason_code=existing_reason,
+                        effective_us=effective_us,
+                    )
+                    connection.commit()
+                    raise SessionAnalysisPublicationRejectedError(existing_reason)
+
+                observed_us = to_epoch_us(observed_at)
+                high_water_us = int(root["high_water_at_us"])
+                deadline_us = int(root["deadline_at_us"])
+                if reason_code == "automation_publication_deadline_exceeded":
+                    if observed_us < deadline_us:
+                        raise DatabaseInvariantError(
+                            "late publication was reported before its cutoff"
+                        )
+                    observation_kind = "wall_deadline_exceeded"
+                    effective_us = observed_us
+                elif reason_code == "automation_publication_clock_regressed":
+                    if observed_us >= high_water_us:
+                        raise DatabaseInvariantError(
+                            "publication clock regression was not observed"
+                        )
+                    observation_kind = "wall_clock_regressed"
+                    effective_us = high_water_us
+                elif reason_code == "automation_publication_deadline_missing":
+                    observation_kind = "publication_authority_missing"
+                    effective_us = high_water_us
+                else:
+                    raise DatabaseInvariantError(
+                        "automation publication rejection reason is invalid"
+                    )
+                if root["analysis_run_id"] != run_id:
+                    raise DatabaseInvariantError(
+                        "automation publication run binding changed"
+                    )
+
+                def close() -> None:
+                    connection.execute(
+                        """INSERT INTO automation_session_quality_publication_closures(
+                               job_id,reason_code,observation_kind,observed_at_us,
+                               effective_high_water_at_us
+                           ) VALUES(?,?,?,?,?)""",
+                        (
+                            authority.job_id,
+                            reason_code,
+                            observation_kind,
+                            observed_us,
+                            effective_us,
+                        ),
+                    )
+
+                self._authorized_publication_write(
+                    connection,
+                    job_id=authority.job_id,
+                    action="close",
+                    callback=close,
+                )
+                self._fail_rejected_publication_locked(
+                    connection,
+                    authority=authority,
+                    run_id=run_id,
+                    reason_code=reason_code,
+                    effective_us=effective_us,
+                )
+                connection.commit()
+            except SessionAnalysisPublicationRejectedError:
+                raise
+            except Exception:
+                connection.rollback()
+                raise
+        raise SessionAnalysisPublicationRejectedError(reason_code)
+
+    @staticmethod
+    def _fail_rejected_publication_locked(
+        connection,  # type: ignore[no-untyped-def]
+        *,
+        authority: SessionAnalysisCompletionAuthority,
+        run_id: str,
+        reason_code: str,
+        effective_us: int,
+    ) -> None:
+        terminal_timestamp = to_iso(from_epoch_us(effective_us))
+        run = connection.execute(
+            "SELECT started_at FROM session_analysis_runs WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+        run_terminal_timestamp = terminal_timestamp
+        if run is not None:
+            started_at = from_iso(run["started_at"])
+            if started_at is not None and to_epoch_us(started_at) > effective_us:
+                run_terminal_timestamp = to_iso(started_at)
+        connection.execute(
+            """UPDATE session_analysis_runs SET finished_at=?,status='failed',
+                   failure_code=? WHERE run_id=? AND status='running'
+                 AND NOT EXISTS(
+                   SELECT 1 FROM session_analysis_results WHERE run_id=?
+                 )""",
+            (run_terminal_timestamp, reason_code, run_id, run_id),
+        )
+        connection.execute(
+            """UPDATE analysis_jobs SET state='failed',stage_number=NULL,
+               lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+               last_error_code=?,terminal_reason_code=?,terminal_at=?,updated_at=?
+               WHERE job_id=? AND lease_owner=? AND lease_token=?
+                 AND kind='session_quality' AND automation_grant_id=?
+                 AND state IN ('preprocessing','stage_n')""",
+            (
+                reason_code,
+                reason_code,
+                terminal_timestamp,
+                terminal_timestamp,
+                authority.job_id,
+                authority.lease_owner,
+                authority.lease_token,
+                authority.automation_grant_id,
+            ),
+        )
 
     def fail(self, run_id: str, *, finished_at: datetime, failure_code: str) -> None:
         self._ensure_initialized()
@@ -1157,6 +1602,7 @@ class SqliteSessionAnalysisRunRepository:
         self._ensure_initialized()
         require_safe_id(run_id)
         authorization: tuple[str, str] | None = None
+        publication_authorization: tuple[str, str, str, str] | None = None
         if self._begin_temporal_delete_authorization is not None:
             authorization = self._begin_temporal_delete_authorization(run_id)
         try:
@@ -1169,6 +1615,52 @@ class SqliteSessionAnalysisRunRepository:
                         )
                     connection.execute("PRAGMA trusted_schema=ON")
                     connection.execute("BEGIN IMMEDIATE")
+                    publication = connection.execute(
+                        """SELECT job_id
+                           FROM automation_session_quality_publication_deadlines
+                           WHERE analysis_run_id=?""",
+                        (run_id,),
+                    ).fetchone()
+                    if publication is not None:
+                        if (
+                            self._begin_publication_authorization is None
+                            or self._end_publication_authorization is None
+                        ):
+                            raise DatabaseInvariantError(
+                                "automation publication privacy deletion is not authorized"
+                            )
+                        job_id = str(publication["job_id"])
+                        operation_id, tag = self._begin_publication_authorization(
+                            job_id, "privacy"
+                        )
+                        publication_authorization = (
+                            operation_id, job_id, "privacy", tag
+                        )
+                        connection.execute(
+                            "INSERT INTO automation_publication_write_authorizations "
+                            "VALUES(?,?,?,?)",
+                            publication_authorization,
+                        )
+                        connection.execute(
+                            """DELETE FROM automation_session_quality_publications
+                               WHERE job_id=?""",
+                            (job_id,),
+                        )
+                        connection.execute(
+                            """DELETE FROM automation_session_quality_publication_closures
+                               WHERE job_id=?""",
+                            (job_id,),
+                        )
+                        connection.execute(
+                            """DELETE FROM automation_session_quality_publication_deadlines
+                               WHERE job_id=?""",
+                            (job_id,),
+                        )
+                        connection.execute(
+                            """DELETE FROM automation_publication_write_authorizations
+                               WHERE operation_id=?""",
+                            (operation_id,),
+                        )
                     has_temporal_history = connection.execute(
                         """SELECT 1 FROM temporal_completion_requests
                            WHERE analysis_run_id=?""",
@@ -1226,6 +1718,11 @@ class SqliteSessionAnalysisRunRepository:
                     connection.execute("PRAGMA trusted_schema=OFF")
                     raise
         finally:
+            if (
+                publication_authorization is not None
+                and self._end_publication_authorization is not None
+            ):
+                self._end_publication_authorization(*publication_authorization)
             if (
                 authorization is not None
                 and self._end_temporal_delete_authorization is not None

@@ -483,12 +483,12 @@ def test_non_active_same_grant_states_do_not_block_ready_sibling(
         transitioned = repository.finish(
             _lease(claimed),
             now=NOW,
-            state=AnalysisJobState.COMPLETED,
-            reason_code="synthetic_completed",
-            progress_completed=1,
+            state=AnalysisJobState.FAILED,
+            reason_code="synthetic_terminal_failure",
+            progress_completed=0,
             progress_total=1,
         )
-        assert transitioned.state is AnalysisJobState.COMPLETED
+        assert transitioned.state is AnalysisJobState.FAILED
 
     next_claim = Database(database.path).analysis_job_repository().claim_next(
         owner="7" * 64,

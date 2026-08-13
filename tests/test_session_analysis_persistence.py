@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -679,7 +680,16 @@ def _automation_queued_fixture(tmp_path):  # type: ignore[no-untyped-def]
     draft = _draft(
         session_id,
         identity="5",
+        started_at=NOW,
         selected_metric_keys=metric_keys,
+    ).model_copy(
+        update={
+            "analysis_profile_key": "coaching_profile",
+            "analysis_profile_version": 1,
+            "metric_pack_key": COACHING_METRIC_PACK_KEY,
+            "metric_pack_version": COACHING_METRIC_PACK_VERSION,
+            "redactor_version": "synthetic-redactor-v1",
+        }
     )
     result = _known_result()
     return (
@@ -736,7 +746,7 @@ def _automation_completion_fixture(tmp_path):  # type: ignore[no-untyped-def]
         lease_owner=staged.lease_owner,
         lease_token=staged.lease_token,
     )
-    run_repository.begin(draft)
+    run_repository.begin(draft, completion_authority=authority)
     return (
         database,
         job_service,
@@ -775,14 +785,22 @@ class _RepositoryBackedBlockingAnalysis:
         idempotency_key: str,
         selected_metric_keys: tuple[str, ...],
         completion_authority: SessionAnalysisCompletionAuthority,
+        cooperative_check: Callable[[], None],
+        publication_committed_callback: Callable[[], None],
     ) -> SessionTextAnalysisOutcome:
         del preset_id, confirmation, idempotency_key
         assert provider is self._draft.provider
         assert session_id == self._draft.session_id
         assert selected_metric_keys == self._draft.selected_metric_keys
-        self._repository.begin(self._draft)
+        cooperative_check()
+        self._repository.begin(
+            self._draft,
+            completion_authority=completion_authority,
+        )
+        cooperative_check()
         self.compute_started.set()
         assert self.release_compute.wait(timeout=5)
+        cooperative_check()
         try:
             self._repository.complete(
                 self._draft.run_id,
@@ -799,6 +817,7 @@ class _RepositoryBackedBlockingAnalysis:
             raise SessionTextAnalysisPersistenceError(
                 "analysis results could not be stored"
             ) from None
+        publication_committed_callback()
         return SessionTextAnalysisOutcome(
             run_id=self._draft.run_id,
             status=AnalysisRunStatus.COMPLETED,
@@ -1154,7 +1173,7 @@ def test_v14_repairs_unprovable_v13_metric_scopes(tmp_path) -> None:
     assert foreign_v12.draft.selected_metric_keys == ()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 25
         assert connection.execute(
             "SELECT COUNT(*) FROM session_analysis_run_metrics"
         ).fetchone()[0] == 61

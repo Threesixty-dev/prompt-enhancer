@@ -25,6 +25,7 @@ ANALYSIS_JOB_CONTRACT_VERSION = "analysis-job-v1"
 MAX_ANALYSIS_JOB_ATTEMPTS = 5
 MAX_ANALYSIS_JOB_METRICS = 100
 MAX_ANALYSIS_JOB_STAGES = 32
+SESSION_QUALITY_PUBLICATION_BUDGET = timedelta(minutes=30)
 
 
 class AnalysisJobKind(StrEnum):
@@ -43,6 +44,14 @@ class AnalysisJobState(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     SUPERSEDED = "superseded"
+
+
+class AnalysisPublicationDeadlineFailure(StrEnum):
+    """Reviewed, content-free reasons for a cooperative publication stop."""
+
+    DEADLINE_EXCEEDED = "automation_publication_deadline_exceeded"
+    CLOCK_REGRESSED = "automation_publication_clock_regressed"
+    DEADLINE_MISSING = "automation_publication_deadline_missing"
 
 
 class PowerSourceState(StrEnum):
@@ -166,6 +175,9 @@ class AnalysisJobRecord(StrictModel):
     lease_owner: str | None = None
     lease_token: str | None = None
     lease_expires_at: datetime | None = None
+    runtime_started_at: datetime | None = None
+    publication_deadline_at: datetime | None = None
+    publication_high_water_at: datetime | None = None
     last_error_code: str | None = None
     terminal_reason_code: str | None = None
     created_at: datetime
@@ -182,7 +194,13 @@ class AnalysisJobRecord(StrictModel):
     def safe_optional_ids(cls, value: str | None) -> str | None:
         return None if value is None else _safe_id(value)
 
-    @field_validator("lease_expires_at", "terminal_at")
+    @field_validator(
+        "lease_expires_at",
+        "runtime_started_at",
+        "publication_deadline_at",
+        "publication_high_water_at",
+        "terminal_at",
+    )
     @classmethod
     def utc_optional_timestamps(cls, value: datetime | None) -> datetime | None:
         return None if value is None else _utc(value)
@@ -217,6 +235,35 @@ class AnalysisJobRecord(StrictModel):
             raise ValueError("attempt count exceeds retry bound")
         if self.progress_completed > self.progress_total:
             raise ValueError("progress cannot exceed its total")
+        publication_values = (
+            self.runtime_started_at,
+            self.publication_deadline_at,
+            self.publication_high_water_at,
+        )
+        if any(value is not None for value in publication_values) and not all(
+            value is not None for value in publication_values
+        ):
+            raise ValueError("publication deadline metadata must be complete")
+        if all(value is not None for value in publication_values):
+            started_at = self.runtime_started_at
+            deadline_at = self.publication_deadline_at
+            high_water_at = self.publication_high_water_at
+            assert started_at is not None
+            assert deadline_at is not None
+            assert high_water_at is not None
+            if (
+                self.identity.kind is not AnalysisJobKind.SESSION_QUALITY
+                or self.identity.automation_grant_id is None
+            ):
+                raise ValueError(
+                    "publication deadlines are limited to automated session quality"
+                )
+            if self.attempt_count < 1:
+                raise ValueError("publication deadlines require a first claim")
+            if not started_at <= high_water_at < deadline_at:
+                raise ValueError("publication deadline chronology is invalid")
+            if deadline_at - started_at != SESSION_QUALITY_PUBLICATION_BUDGET:
+                raise ValueError("publication deadline uses an unsupported budget")
         return self
 
 
@@ -298,6 +345,21 @@ class AnalysisJobRepository(Protocol):
         stage_number: int,
         progress_completed: int,
         progress_total: int,
+    ) -> AnalysisJobRecord: ...
+
+    def check_publication_deadline(
+        self,
+        lease: AnalysisJobLease,
+        *,
+        now: datetime,
+    ) -> AnalysisJobRecord: ...
+
+    def fail_publication_deadline(
+        self,
+        lease: AnalysisJobLease,
+        *,
+        now: datetime,
+        failure: AnalysisPublicationDeadlineFailure,
     ) -> AnalysisJobRecord: ...
 
     def await_approval(

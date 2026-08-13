@@ -56,6 +56,9 @@ const REVIEWED_REASON_COPY: Record<string, string> = {
   execution_handler_unavailable: "No reviewed local execution handler was available for this job.",
   execution_handler_failed: "A reviewed local execution stage failed without exposing provider content.",
   lease_expired: "The worker lease expired before this attempt could complete.",
+  automation_publication_deadline_exceeded: "The first-claim result-publication cutoff was reached; late output was not published.",
+  automation_publication_clock_regressed: "The local clock moved behind the persisted publication high-water mark, so publication failed closed.",
+  automation_publication_deadline_missing: "This older attempted automation job has no restart-durable publication cutoff and cannot continue.",
 };
 
 function reasonCodeOf(error: unknown): string | null {

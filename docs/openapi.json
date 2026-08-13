@@ -1081,6 +1081,13 @@
       "AutomationPollResult": {
         "additionalProperties": false,
         "properties": {
+          "blocking_execution_preemption_enforced": {
+            "const": false,
+            "default": false,
+            "description": "An in-flight blocking local read or calculation is not forcibly preempted.",
+            "title": "Blocking Execution Preemption Enforced",
+            "type": "boolean"
+          },
           "candidates_seen": {
             "minimum": 0.0,
             "title": "Candidates Seen",
@@ -1129,6 +1136,7 @@
           "maximum_session_runtime_deadline_enforced": {
             "const": false,
             "default": false,
+            "description": "The declared runtime budget is not a force-stopping wall-clock deadline.",
             "title": "Maximum Session Runtime Deadline Enforced",
             "type": "boolean"
           },
@@ -1146,6 +1154,13 @@
             "minimum": 0.0,
             "title": "Power Unknown Observations",
             "type": "integer"
+          },
+          "session_quality_result_publication_deadline_enforced": {
+            "const": true,
+            "default": true,
+            "description": "Automated session-quality results cannot publish at or after the restart-durable first-claim cutoff.",
+            "title": "Session Quality Result Publication Deadline Enforced",
+            "type": "boolean"
           }
         },
         "required": [
