@@ -8428,3 +8428,475 @@ CREATE INDEX comparison_sealed_batch_idx ON comparison_sealed_stratum_roots(seal
 
 COMMIT;
 """
+
+
+MIGRATION_23 = r"""
+BEGIN IMMEDIATE;
+
+-- V23 seals only a bounded, content-free repository collection graph. It
+-- stores lineage and commitments, never aggregate values or snapshot payloads.
+CREATE TABLE synthetic_aggregation_append_authorizations (
+    operation_id TEXT PRIMARY KEY,
+    validation_receipt_id TEXT NOT NULL UNIQUE,
+    idempotency_key_sha256 TEXT NOT NULL UNIQUE,
+    request_fingerprint TEXT NOT NULL,
+    anchor_sealed_stratum_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    predicate_fingerprint TEXT NOT NULL,
+    enumeration_id TEXT NOT NULL,
+    enumeration_fingerprint TEXT NOT NULL,
+    aggregation_draft_id TEXT NOT NULL,
+    aggregation_draft_fingerprint TEXT NOT NULL,
+    validation_fingerprint TEXT NOT NULL,
+    member_count INTEGER NOT NULL CHECK(typeof(member_count)='integer' AND member_count BETWEEN 1 AND 10000),
+    graph_fingerprint_count INTEGER NOT NULL CHECK(typeof(graph_fingerprint_count)='integer' AND graph_fingerprint_count=member_count+7),
+    as_of_us INTEGER NOT NULL CHECK(typeof(as_of_us)='integer' AND as_of_us BETWEEN -62135596800000000 AND 253402300799999999),
+    sealed_at_us INTEGER NOT NULL CHECK(typeof(sealed_at_us)='integer' AND sealed_at_us=as_of_us),
+    authorization_fingerprint TEXT NOT NULL,
+    authorization_tag TEXT NOT NULL,
+    CHECK(length(operation_id)=64 AND operation_id=lower(operation_id) AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(validation_receipt_id)=64 AND validation_receipt_id=lower(validation_receipt_id) AND validation_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(idempotency_key_sha256)=64 AND idempotency_key_sha256=lower(idempotency_key_sha256) AND idempotency_key_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(request_fingerprint)=64 AND request_fingerprint=lower(request_fingerprint) AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(anchor_sealed_stratum_id)=64 AND anchor_sealed_stratum_id=lower(anchor_sealed_stratum_id) AND anchor_sealed_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(query_id)=64 AND query_id=lower(query_id) AND query_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(predicate_fingerprint)=64 AND predicate_fingerprint=lower(predicate_fingerprint) AND predicate_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(enumeration_id)=64 AND enumeration_id=lower(enumeration_id) AND enumeration_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(enumeration_fingerprint)=64 AND enumeration_fingerprint=lower(enumeration_fingerprint) AND enumeration_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(aggregation_draft_id)=64 AND aggregation_draft_id=lower(aggregation_draft_id) AND aggregation_draft_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(aggregation_draft_fingerprint)=64 AND aggregation_draft_fingerprint=lower(aggregation_draft_fingerprint) AND aggregation_draft_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(validation_fingerprint)=64 AND validation_fingerprint=lower(validation_fingerprint) AND validation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(authorization_fingerprint)=64 AND authorization_fingerprint=lower(authorization_fingerprint) AND authorization_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(authorization_tag)=64 AND authorization_tag=lower(authorization_tag) AND authorization_tag NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE synthetic_aggregation_delete_authorizations (
+    operation_id TEXT PRIMARY KEY,
+    validation_receipt_id TEXT NOT NULL UNIQUE,
+    cause_kind TEXT NOT NULL CHECK(cause_kind IN ('run','task')),
+    cause_id TEXT NOT NULL,
+    validation_fingerprint TEXT NOT NULL,
+    authorization_fingerprint TEXT NOT NULL,
+    authorization_tag TEXT NOT NULL,
+    CHECK(length(operation_id)=64 AND operation_id=lower(operation_id) AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(validation_receipt_id)=64 AND validation_receipt_id=lower(validation_receipt_id) AND validation_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(cause_id)=64 AND cause_id=lower(cause_id) AND cause_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(validation_fingerprint)=64 AND validation_fingerprint=lower(validation_fingerprint) AND validation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(authorization_fingerprint)=64 AND authorization_fingerprint=lower(authorization_fingerprint) AND authorization_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(authorization_tag)=64 AND authorization_tag=lower(authorization_tag) AND authorization_tag NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE synthetic_aggregation_validation_roots (
+    validation_receipt_id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    schema_version INTEGER NOT NULL CHECK(schema_version=23),
+    adapter_version TEXT NOT NULL CHECK(adapter_version='sqlite-synthetic-aggregation-validation-v1'),
+    contract_version TEXT NOT NULL CHECK(contract_version='repository-sealed-synthetic-aggregation-validation-v1'),
+    validation_fingerprint TEXT NOT NULL UNIQUE,
+    idempotency_key_sha256 TEXT NOT NULL UNIQUE,
+    request_fingerprint TEXT NOT NULL,
+    anchor_sealed_stratum_id TEXT NOT NULL,
+    anchor_sealed_stratum_fingerprint TEXT NOT NULL,
+    predicate_contract_version TEXT NOT NULL CHECK(predicate_contract_version='synthetic-aggregation-sealed-stratum-query-v1'),
+    query_id TEXT NOT NULL UNIQUE,
+    predicate_fingerprint TEXT NOT NULL UNIQUE,
+    anchor_prepared_stratum_id TEXT NOT NULL,
+    anchor_prepared_stratum_fingerprint TEXT NOT NULL,
+    root_receipt_id TEXT NOT NULL,
+    root_receipt_fingerprint TEXT NOT NULL,
+    history_floor_at_us INTEGER NOT NULL CHECK(typeof(history_floor_at_us)='integer' AND history_floor_at_us BETWEEN -62135596800000000 AND 253402300799999999),
+    installation_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK(provider='synthetic'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key=lower(metric_key) AND metric_key GLOB '[a-z]*' AND metric_key NOT GLOB '*[^a-z0-9._-]*' AND instr(metric_key,'..')=0),
+    window_kind TEXT NOT NULL CHECK(window_kind IN ('last_n','rolling_days','custom')),
+    window_boundary_semantics TEXT NOT NULL CHECK(window_boundary_semantics='half_open_start_inclusive_end_exclusive'),
+    window_last_n INTEGER,
+    window_days INTEGER,
+    window_start_at_us INTEGER,
+    window_end_at_us INTEGER,
+    as_of_us INTEGER NOT NULL CHECK(typeof(as_of_us)='integer' AND as_of_us BETWEEN -62135596800000000 AND 253402300799999999 AND as_of_us>=history_floor_at_us),
+    query_predicate_version TEXT NOT NULL CHECK(query_predicate_version='same-root-source-sealed-at-inclusive-v1'),
+    query_order_version TEXT NOT NULL CHECK(query_order_version='session-revision-total-order-v1'),
+    maximum_member_count INTEGER NOT NULL CHECK(maximum_member_count=10000),
+    overflow_probe_limit INTEGER NOT NULL CHECK(overflow_probe_limit=10001),
+    sealed_at_inclusive INTEGER NOT NULL CHECK(sealed_at_inclusive=1),
+    enumeration_contract_version TEXT NOT NULL CHECK(enumeration_contract_version='synthetic-aggregation-collection-enumeration-v1'),
+    enumeration_id TEXT NOT NULL UNIQUE,
+    enumeration_fingerprint TEXT NOT NULL UNIQUE,
+    member_count INTEGER NOT NULL CHECK(typeof(member_count)='integer' AND member_count BETWEEN 1 AND 10000),
+    overflow_detected INTEGER NOT NULL CHECK(overflow_detected=0),
+    max_plus_one_probe_performed INTEGER NOT NULL CHECK(max_plus_one_probe_performed=1),
+    query_verifier_version TEXT NOT NULL CHECK(query_verifier_version='synthetic-aggregation-query-verifier-v1'),
+    query_verifier_fingerprint TEXT NOT NULL,
+    aggregation_draft_contract_version TEXT NOT NULL CHECK(aggregation_draft_contract_version='repository-backed-synthetic-raw-aggregation-draft-v2'),
+    aggregation_draft_id TEXT NOT NULL,
+    aggregation_draft_fingerprint TEXT NOT NULL,
+    policy_identity_fingerprint TEXT NOT NULL,
+    repository_verifier_version TEXT NOT NULL CHECK(repository_verifier_version='synthetic-aggregation-repository-verifier-v1'),
+    repository_verifier_fingerprint TEXT NOT NULL,
+    sealed_at_us INTEGER NOT NULL CHECK(typeof(sealed_at_us)='integer' AND sealed_at_us=as_of_us),
+    graph_fingerprint_count INTEGER NOT NULL CHECK(typeof(graph_fingerprint_count)='integer' AND graph_fingerprint_count=member_count+7),
+    CHECK(
+      (window_kind='last_n' AND typeof(window_last_n)='integer' AND window_last_n BETWEEN 1 AND 10000 AND window_days IS NULL AND window_start_at_us IS NULL AND window_end_at_us IS NULL)
+      OR (window_kind='rolling_days' AND window_last_n IS NULL AND window_days IN (7,30,90) AND window_start_at_us IS NULL AND window_end_at_us IS NULL)
+      OR (window_kind='custom' AND window_last_n IS NULL AND window_days IS NULL AND typeof(window_start_at_us)='integer' AND typeof(window_end_at_us)='integer' AND window_start_at_us BETWEEN -62135596800000000 AND 253402300799999999 AND window_end_at_us BETWEEN -62135596800000000 AND 253402300799999999 AND window_start_at_us<window_end_at_us AND window_end_at_us<=as_of_us)
+    ),
+    CHECK(length(validation_receipt_id)=64 AND validation_receipt_id=lower(validation_receipt_id) AND validation_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(operation_id)=64 AND operation_id=lower(operation_id) AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(validation_fingerprint)=64 AND validation_fingerprint=lower(validation_fingerprint) AND validation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(idempotency_key_sha256)=64 AND idempotency_key_sha256=lower(idempotency_key_sha256) AND idempotency_key_sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(request_fingerprint)=64 AND request_fingerprint=lower(request_fingerprint) AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(anchor_sealed_stratum_id)=64 AND anchor_sealed_stratum_id=lower(anchor_sealed_stratum_id) AND anchor_sealed_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(anchor_sealed_stratum_fingerprint)=64 AND anchor_sealed_stratum_fingerprint=lower(anchor_sealed_stratum_fingerprint) AND anchor_sealed_stratum_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(query_id)=64 AND query_id=lower(query_id) AND query_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(predicate_fingerprint)=64 AND predicate_fingerprint=lower(predicate_fingerprint) AND predicate_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(anchor_prepared_stratum_id)=64 AND anchor_prepared_stratum_id=lower(anchor_prepared_stratum_id) AND anchor_prepared_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(anchor_prepared_stratum_fingerprint)=64 AND anchor_prepared_stratum_fingerprint=lower(anchor_prepared_stratum_fingerprint) AND anchor_prepared_stratum_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(root_receipt_id)=64 AND root_receipt_id=lower(root_receipt_id) AND root_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(root_receipt_fingerprint)=64 AND root_receipt_fingerprint=lower(root_receipt_fingerprint) AND root_receipt_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(installation_id)=64 AND installation_id=lower(installation_id) AND installation_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(project_id)=64 AND project_id=lower(project_id) AND project_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(enumeration_id)=64 AND enumeration_id=lower(enumeration_id) AND enumeration_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(enumeration_fingerprint)=64 AND enumeration_fingerprint=lower(enumeration_fingerprint) AND enumeration_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(query_verifier_fingerprint)=64 AND query_verifier_fingerprint=lower(query_verifier_fingerprint) AND query_verifier_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(aggregation_draft_id)=64 AND aggregation_draft_id=lower(aggregation_draft_id) AND aggregation_draft_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(aggregation_draft_fingerprint)=64 AND aggregation_draft_fingerprint=lower(aggregation_draft_fingerprint) AND aggregation_draft_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(policy_identity_fingerprint)=64 AND policy_identity_fingerprint=lower(policy_identity_fingerprint) AND policy_identity_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(repository_verifier_fingerprint)=64 AND repository_verifier_fingerprint=lower(repository_verifier_fingerprint) AND repository_verifier_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    FOREIGN KEY(anchor_sealed_stratum_id) REFERENCES comparison_sealed_stratum_roots(sealed_stratum_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE synthetic_aggregation_validation_members (
+    validation_receipt_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(typeof(ordinal)='integer' AND ordinal BETWEEN 0 AND 9999),
+    sealed_stratum_id TEXT NOT NULL,
+    disposition TEXT NOT NULL CHECK(disposition IN ('included','outside_window')),
+    member_fingerprint TEXT NOT NULL,
+    PRIMARY KEY(validation_receipt_id,ordinal),
+    UNIQUE(validation_receipt_id,sealed_stratum_id),
+    UNIQUE(validation_receipt_id,member_fingerprint),
+    CHECK(length(validation_receipt_id)=64 AND validation_receipt_id=lower(validation_receipt_id) AND validation_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(operation_id)=64 AND operation_id=lower(operation_id) AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(sealed_stratum_id)=64 AND sealed_stratum_id=lower(sealed_stratum_id) AND sealed_stratum_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(member_fingerprint)=64 AND member_fingerprint=lower(member_fingerprint) AND member_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    FOREIGN KEY(validation_receipt_id) REFERENCES synthetic_aggregation_validation_roots(validation_receipt_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    FOREIGN KEY(sealed_stratum_id) REFERENCES comparison_sealed_stratum_roots(sealed_stratum_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE synthetic_aggregation_validation_graph_commitments (
+    validation_receipt_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK(typeof(ordinal)='integer' AND ordinal BETWEEN 0 AND 10006),
+    fingerprint TEXT NOT NULL,
+    PRIMARY KEY(validation_receipt_id,ordinal),
+    UNIQUE(validation_receipt_id,fingerprint),
+    CHECK(length(validation_receipt_id)=64 AND validation_receipt_id=lower(validation_receipt_id) AND validation_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(operation_id)=64 AND operation_id=lower(operation_id) AND operation_id NOT GLOB '*[^0-9a-f]*'),
+    CHECK(length(fingerprint)=64 AND fingerprint=lower(fingerprint) AND fingerprint NOT GLOB '*[^0-9a-f]*'),
+    FOREIGN KEY(validation_receipt_id) REFERENCES synthetic_aggregation_validation_roots(validation_receipt_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TRIGGER synthetic_aggregation_append_authorization_validate
+BEFORE INSERT ON synthetic_aggregation_append_authorizations
+WHEN NEW.authorization_tag<>synthetic_aggregation_append_authorization_tag(
+  NEW.operation_id,NEW.validation_receipt_id,NEW.idempotency_key_sha256,
+  NEW.request_fingerprint,NEW.anchor_sealed_stratum_id,NEW.query_id,
+  NEW.predicate_fingerprint,NEW.enumeration_id,NEW.enumeration_fingerprint,
+  NEW.aggregation_draft_id,NEW.aggregation_draft_fingerprint,
+  NEW.validation_fingerprint,NEW.member_count,NEW.graph_fingerprint_count,
+  NEW.as_of_us,NEW.sealed_at_us,NEW.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation append authorization is invalid'); END;
+CREATE TRIGGER synthetic_aggregation_append_authorization_replace_guard
+BEFORE INSERT ON synthetic_aggregation_append_authorizations
+WHEN EXISTS (
+  SELECT 1 FROM synthetic_aggregation_append_authorizations a
+  WHERE a.operation_id=NEW.operation_id
+     OR a.validation_receipt_id=NEW.validation_receipt_id
+     OR a.idempotency_key_sha256=NEW.idempotency_key_sha256)
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation append authorization replacement is forbidden'); END;
+CREATE TRIGGER synthetic_aggregation_append_authorization_no_update BEFORE UPDATE ON synthetic_aggregation_append_authorizations BEGIN SELECT RAISE(ABORT,'synthetic aggregation append authorization is immutable'); END;
+CREATE TRIGGER synthetic_aggregation_append_authorization_delete_guard
+BEFORE DELETE ON synthetic_aggregation_append_authorizations
+WHEN OLD.authorization_tag<>synthetic_aggregation_append_authorization_tag(OLD.operation_id,OLD.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation append authorization delete is invalid'); END;
+
+CREATE TRIGGER synthetic_aggregation_delete_authorization_validate
+BEFORE INSERT ON synthetic_aggregation_delete_authorizations
+WHEN NEW.authorization_tag<>synthetic_aggregation_delete_authorization_tag(
+  NEW.operation_id,NEW.validation_receipt_id,NEW.cause_kind,NEW.cause_id,
+  NEW.validation_fingerprint,NEW.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation deletion authorization is invalid'); END;
+CREATE TRIGGER synthetic_aggregation_delete_authorization_lineage_validate
+BEFORE INSERT ON synthetic_aggregation_delete_authorizations
+WHEN NOT EXISTS (
+  SELECT 1 FROM synthetic_aggregation_validation_roots root
+  WHERE root.validation_receipt_id=NEW.validation_receipt_id
+    AND root.validation_fingerprint=NEW.validation_fingerprint
+    AND ((NEW.cause_kind='run' AND EXISTS (
+          SELECT 1
+          FROM synthetic_aggregation_validation_members member
+          JOIN comparison_sealed_stratum_roots sealed
+            ON sealed.sealed_stratum_id=member.sealed_stratum_id
+          JOIN temporal_run_delete_authorizations upstream
+            ON upstream.operation_id=NEW.operation_id
+           AND upstream.run_id=sealed.analysis_run_id
+          WHERE member.validation_receipt_id=NEW.validation_receipt_id
+            AND sealed.analysis_run_id=NEW.cause_id
+            AND upstream.authorization_tag=temporal_run_delete_authorization_tag(
+                upstream.operation_id,upstream.run_id)))
+      OR (NEW.cause_kind='task' AND EXISTS (
+          SELECT 1
+          FROM synthetic_aggregation_validation_members member
+          JOIN comparison_sealed_stratum_roots sealed
+            ON sealed.sealed_stratum_id=member.sealed_stratum_id
+          JOIN comparison_prepared_task_projections projection
+            ON projection.prepared_stratum_id=sealed.prepared_stratum_id
+          JOIN comparison_task_delete_authorizations upstream
+            ON upstream.operation_id=NEW.operation_id
+           AND upstream.task_id=projection.task_id
+           AND upstream.prepared_stratum_id=sealed.prepared_stratum_id
+           AND upstream.expected_analysis_run_id=sealed.analysis_run_id
+           AND upstream.sealed_stratum_id=sealed.sealed_stratum_id
+          WHERE member.validation_receipt_id=NEW.validation_receipt_id
+            AND projection.task_id=NEW.cause_id
+            AND upstream.authorization_tag=comparison_task_delete_authorization_tag(
+                upstream.operation_id,upstream.task_id,
+                upstream.prepared_stratum_id,
+                upstream.expected_analysis_run_id,
+                upstream.sealed_stratum_id,
+                upstream.authorization_fingerprint)))))
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation deletion lineage is invalid'); END;
+CREATE TRIGGER synthetic_aggregation_delete_authorization_replace_guard
+BEFORE INSERT ON synthetic_aggregation_delete_authorizations
+WHEN EXISTS (
+  SELECT 1 FROM synthetic_aggregation_delete_authorizations a
+  WHERE a.operation_id=NEW.operation_id
+     OR a.validation_receipt_id=NEW.validation_receipt_id)
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation deletion authorization replacement is forbidden'); END;
+CREATE TRIGGER synthetic_aggregation_delete_authorization_no_update BEFORE UPDATE ON synthetic_aggregation_delete_authorizations BEGIN SELECT RAISE(ABORT,'synthetic aggregation deletion authorization is immutable'); END;
+CREATE TRIGGER synthetic_aggregation_delete_authorization_delete_guard
+BEFORE DELETE ON synthetic_aggregation_delete_authorizations
+WHEN OLD.authorization_tag<>synthetic_aggregation_delete_authorization_tag(OLD.operation_id,OLD.authorization_fingerprint)
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation deletion authorization delete is invalid'); END;
+
+CREATE TRIGGER synthetic_aggregation_member_insert_guard
+BEFORE INSERT ON synthetic_aggregation_validation_members
+WHEN EXISTS (SELECT 1 FROM synthetic_aggregation_validation_roots r WHERE r.validation_receipt_id=NEW.validation_receipt_id)
+ OR NOT EXISTS (
+   SELECT 1 FROM synthetic_aggregation_append_authorizations a
+   WHERE a.operation_id=NEW.operation_id
+     AND a.validation_receipt_id=NEW.validation_receipt_id
+     AND NEW.ordinal<a.member_count
+     AND a.authorization_tag=synthetic_aggregation_append_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation member insert is unauthorized'); END;
+CREATE TRIGGER synthetic_aggregation_graph_insert_guard
+BEFORE INSERT ON synthetic_aggregation_validation_graph_commitments
+WHEN EXISTS (SELECT 1 FROM synthetic_aggregation_validation_roots r WHERE r.validation_receipt_id=NEW.validation_receipt_id)
+ OR NOT EXISTS (
+   SELECT 1 FROM synthetic_aggregation_append_authorizations a
+   WHERE a.operation_id=NEW.operation_id
+     AND a.validation_receipt_id=NEW.validation_receipt_id
+     AND NEW.ordinal<a.graph_fingerprint_count
+     AND a.authorization_tag=synthetic_aggregation_append_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation graph insert is unauthorized'); END;
+
+CREATE TRIGGER synthetic_aggregation_root_insert_guard
+BEFORE INSERT ON synthetic_aggregation_validation_roots
+WHEN NOT EXISTS (
+  SELECT 1 FROM synthetic_aggregation_append_authorizations a
+  WHERE a.operation_id=NEW.operation_id
+    AND a.validation_receipt_id=NEW.validation_receipt_id
+    AND a.idempotency_key_sha256=NEW.idempotency_key_sha256
+    AND a.request_fingerprint=NEW.request_fingerprint
+    AND a.anchor_sealed_stratum_id=NEW.anchor_sealed_stratum_id
+    AND a.query_id=NEW.query_id
+    AND a.predicate_fingerprint=NEW.predicate_fingerprint
+    AND a.enumeration_id=NEW.enumeration_id
+    AND a.enumeration_fingerprint=NEW.enumeration_fingerprint
+    AND a.aggregation_draft_id=NEW.aggregation_draft_id
+    AND a.aggregation_draft_fingerprint=NEW.aggregation_draft_fingerprint
+    AND a.validation_fingerprint=NEW.validation_fingerprint
+    AND a.member_count=NEW.member_count
+    AND a.graph_fingerprint_count=NEW.graph_fingerprint_count
+    AND a.as_of_us=NEW.as_of_us AND a.sealed_at_us=NEW.sealed_at_us
+    AND a.authorization_tag=synthetic_aggregation_append_authorization_tag(a.operation_id,a.authorization_fingerprint))
+ OR (SELECT COUNT(*) FROM synthetic_aggregation_validation_members m WHERE m.validation_receipt_id=NEW.validation_receipt_id)<>NEW.member_count
+ OR (SELECT COALESCE(MIN(m.ordinal),-1) FROM synthetic_aggregation_validation_members m WHERE m.validation_receipt_id=NEW.validation_receipt_id)<>0
+ OR (SELECT COALESCE(MAX(m.ordinal),-1) FROM synthetic_aggregation_validation_members m WHERE m.validation_receipt_id=NEW.validation_receipt_id)<>NEW.member_count-1
+ OR EXISTS (SELECT 1 FROM synthetic_aggregation_validation_members m WHERE m.validation_receipt_id=NEW.validation_receipt_id AND m.operation_id<>NEW.operation_id)
+ OR (SELECT COUNT(*) FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id)<>NEW.graph_fingerprint_count
+ OR (SELECT COALESCE(MIN(g.ordinal),-1) FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id)<>0
+ OR (SELECT COALESCE(MAX(g.ordinal),-1) FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id)<>NEW.graph_fingerprint_count-1
+ OR EXISTS (SELECT 1 FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id AND g.operation_id<>NEW.operation_id)
+ OR NOT EXISTS (SELECT 1 FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id AND g.ordinal=0 AND g.fingerprint=NEW.anchor_sealed_stratum_fingerprint)
+ OR NOT EXISTS (SELECT 1 FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id AND g.ordinal=1 AND g.fingerprint=NEW.predicate_fingerprint)
+ OR NOT EXISTS (SELECT 1 FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id AND g.ordinal=2 AND g.fingerprint=NEW.enumeration_fingerprint)
+ OR NOT EXISTS (SELECT 1 FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id AND g.ordinal=3 AND g.fingerprint=NEW.aggregation_draft_id)
+ OR NOT EXISTS (SELECT 1 FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id AND g.ordinal=4 AND g.fingerprint=NEW.aggregation_draft_fingerprint)
+ OR NOT EXISTS (SELECT 1 FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id AND g.ordinal=5 AND g.fingerprint=NEW.policy_identity_fingerprint)
+ OR EXISTS (
+   SELECT 1 FROM synthetic_aggregation_validation_members m
+   LEFT JOIN synthetic_aggregation_validation_graph_commitments g
+     ON g.validation_receipt_id=m.validation_receipt_id AND g.ordinal=m.ordinal+6 AND g.fingerprint=m.member_fingerprint
+   WHERE m.validation_receipt_id=NEW.validation_receipt_id AND g.ordinal IS NULL)
+ OR NOT EXISTS (SELECT 1 FROM synthetic_aggregation_validation_graph_commitments g WHERE g.validation_receipt_id=NEW.validation_receipt_id AND g.ordinal=NEW.member_count+6 AND g.fingerprint=NEW.repository_verifier_fingerprint)
+ OR NOT EXISTS (
+   SELECT 1 FROM comparison_sealed_stratum_roots s
+   JOIN comparison_prepared_stratum_roots p ON p.prepared_stratum_id=s.prepared_stratum_id
+   JOIN temporal_prepared_scope_roots ps ON ps.prepared_scope_id=p.prepared_scope_id
+   JOIN temporal_history_root_drafts h ON h.root_receipt_id=ps.root_receipt_id
+   JOIN temporal_metric_selection_keys k ON k.selection_revision_id=ps.selection_revision_id
+   WHERE s.sealed_stratum_id=NEW.anchor_sealed_stratum_id
+     AND s.sealed_fingerprint=NEW.anchor_sealed_stratum_fingerprint
+     AND s.prepared_stratum_id=NEW.anchor_prepared_stratum_id
+     AND p.prepared_fingerprint=NEW.anchor_prepared_stratum_fingerprint
+     AND h.root_receipt_id=NEW.root_receipt_id
+     AND h.root_fingerprint=NEW.root_receipt_fingerprint
+     AND h.history_floor_at_us=NEW.history_floor_at_us
+     AND h.project_id=NEW.project_id
+     AND p.installation_id=NEW.installation_id
+     AND p.project_id=NEW.project_id
+     AND p.session_provider=NEW.provider
+     AND k.metric_key=NEW.metric_key)
+ OR (SELECT COUNT(*) FROM synthetic_aggregation_validation_members m WHERE m.validation_receipt_id=NEW.validation_receipt_id AND m.sealed_stratum_id=NEW.anchor_sealed_stratum_id)<>1
+ OR EXISTS (
+   SELECT 1 FROM synthetic_aggregation_validation_members m
+   JOIN comparison_sealed_stratum_roots s ON s.sealed_stratum_id=m.sealed_stratum_id
+   JOIN comparison_prepared_stratum_roots p ON p.prepared_stratum_id=s.prepared_stratum_id
+   JOIN temporal_prepared_scope_roots ps ON ps.prepared_scope_id=p.prepared_scope_id
+   JOIN temporal_history_root_drafts h ON h.root_receipt_id=ps.root_receipt_id
+   WHERE m.validation_receipt_id=NEW.validation_receipt_id
+     AND (s.sealed_at_us>NEW.as_of_us OR h.root_receipt_id<>NEW.root_receipt_id
+          OR h.root_fingerprint<>NEW.root_receipt_fingerprint OR h.history_floor_at_us<>NEW.history_floor_at_us
+          OR h.project_id<>NEW.project_id OR p.installation_id<>NEW.installation_id
+          OR p.project_id<>NEW.project_id OR p.session_provider<>NEW.provider))
+ OR EXISTS (
+   SELECT 1 FROM comparison_sealed_stratum_roots s
+   JOIN comparison_prepared_stratum_roots p ON p.prepared_stratum_id=s.prepared_stratum_id
+   JOIN temporal_prepared_scope_roots ps ON ps.prepared_scope_id=p.prepared_scope_id
+   JOIN temporal_history_root_drafts h ON h.root_receipt_id=ps.root_receipt_id
+   WHERE h.root_receipt_id=NEW.root_receipt_id AND h.root_fingerprint=NEW.root_receipt_fingerprint
+     AND h.history_floor_at_us=NEW.history_floor_at_us AND h.project_id=NEW.project_id
+     AND p.installation_id=NEW.installation_id AND p.project_id=NEW.project_id
+     AND p.session_provider=NEW.provider AND s.sealed_at_us<=NEW.as_of_us
+     AND NOT EXISTS (SELECT 1 FROM synthetic_aggregation_validation_members m WHERE m.validation_receipt_id=NEW.validation_receipt_id AND m.sealed_stratum_id=s.sealed_stratum_id))
+ OR EXISTS (
+   WITH expected_member_ordinals AS (
+     SELECT
+       m.ordinal,
+       ROW_NUMBER() OVER (
+         ORDER BY revision.effective_at_us,revision.session_id,
+                  revision.revision_ordinal,revision.revision_id,
+                  m.sealed_stratum_id
+       )-1 AS expected_ordinal
+     FROM synthetic_aggregation_validation_members m
+     JOIN comparison_sealed_stratum_roots seal
+       ON seal.sealed_stratum_id=m.sealed_stratum_id
+     JOIN temporal_sealed_batch_roots batch
+       ON batch.sealed_batch_id=seal.sealed_batch_id
+     JOIN temporal_session_revisions revision
+       ON revision.completion_request_id=batch.completion_request_id
+     WHERE m.validation_receipt_id=NEW.validation_receipt_id
+   )
+   SELECT 1
+   FROM expected_member_ordinals
+   WHERE ordinal<>expected_ordinal)
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation root is incomplete or unauthorized'); END;
+
+CREATE TRIGGER synthetic_aggregation_root_no_update BEFORE UPDATE ON synthetic_aggregation_validation_roots BEGIN SELECT RAISE(ABORT,'synthetic aggregation validation is immutable'); END;
+CREATE TRIGGER synthetic_aggregation_member_no_update BEFORE UPDATE ON synthetic_aggregation_validation_members BEGIN SELECT RAISE(ABORT,'synthetic aggregation validation is immutable'); END;
+CREATE TRIGGER synthetic_aggregation_graph_no_update BEFORE UPDATE ON synthetic_aggregation_validation_graph_commitments BEGIN SELECT RAISE(ABORT,'synthetic aggregation validation is immutable'); END;
+
+CREATE TRIGGER synthetic_aggregation_root_delete_guard
+BEFORE DELETE ON synthetic_aggregation_validation_roots
+WHEN NOT EXISTS (
+  SELECT 1 FROM synthetic_aggregation_delete_authorizations a
+  WHERE a.validation_receipt_id=OLD.validation_receipt_id
+    AND a.validation_fingerprint=OLD.validation_fingerprint
+    AND a.authorization_tag=synthetic_aggregation_delete_authorization_tag(a.operation_id,a.authorization_fingerprint)
+    AND ((a.cause_kind='run' AND EXISTS (
+          SELECT 1
+          FROM synthetic_aggregation_validation_members m
+          JOIN comparison_sealed_stratum_roots s
+            ON s.sealed_stratum_id=m.sealed_stratum_id
+          JOIN temporal_run_delete_authorizations upstream
+            ON upstream.operation_id=a.operation_id
+           AND upstream.run_id=s.analysis_run_id
+          WHERE m.validation_receipt_id=OLD.validation_receipt_id
+            AND s.analysis_run_id=a.cause_id
+            AND upstream.authorization_tag=temporal_run_delete_authorization_tag(
+                upstream.operation_id,upstream.run_id)))
+      OR (a.cause_kind='task' AND EXISTS (
+          SELECT 1
+          FROM synthetic_aggregation_validation_members m
+          JOIN comparison_sealed_stratum_roots s
+            ON s.sealed_stratum_id=m.sealed_stratum_id
+          JOIN comparison_prepared_task_projections p
+            ON p.prepared_stratum_id=s.prepared_stratum_id
+          JOIN comparison_task_delete_authorizations upstream
+            ON upstream.operation_id=a.operation_id
+           AND upstream.task_id=p.task_id
+           AND upstream.prepared_stratum_id=s.prepared_stratum_id
+           AND upstream.expected_analysis_run_id=s.analysis_run_id
+           AND upstream.sealed_stratum_id=s.sealed_stratum_id
+          WHERE m.validation_receipt_id=OLD.validation_receipt_id
+            AND p.task_id=a.cause_id
+            AND upstream.authorization_tag=comparison_task_delete_authorization_tag(
+                upstream.operation_id,upstream.task_id,
+                upstream.prepared_stratum_id,
+                upstream.expected_analysis_run_id,
+                upstream.sealed_stratum_id,
+                upstream.authorization_fingerprint)))))
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation deletion is unauthorized'); END;
+CREATE TRIGGER synthetic_aggregation_member_delete_guard
+BEFORE DELETE ON synthetic_aggregation_validation_members
+WHEN EXISTS (SELECT 1 FROM synthetic_aggregation_validation_roots r WHERE r.validation_receipt_id=OLD.validation_receipt_id)
+ OR NOT EXISTS (SELECT 1 FROM synthetic_aggregation_delete_authorizations a WHERE a.validation_receipt_id=OLD.validation_receipt_id AND a.authorization_tag=synthetic_aggregation_delete_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation member deletion is unauthorized'); END;
+CREATE TRIGGER synthetic_aggregation_graph_delete_guard
+BEFORE DELETE ON synthetic_aggregation_validation_graph_commitments
+WHEN EXISTS (SELECT 1 FROM synthetic_aggregation_validation_roots r WHERE r.validation_receipt_id=OLD.validation_receipt_id)
+ OR NOT EXISTS (SELECT 1 FROM synthetic_aggregation_delete_authorizations a WHERE a.validation_receipt_id=OLD.validation_receipt_id AND a.authorization_tag=synthetic_aggregation_delete_authorization_tag(a.operation_id,a.authorization_fingerprint))
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation graph deletion is unauthorized'); END;
+
+CREATE TRIGGER synthetic_aggregation_root_replace_guard BEFORE INSERT ON synthetic_aggregation_validation_roots
+WHEN EXISTS (
+  SELECT 1 FROM synthetic_aggregation_validation_roots r
+  WHERE r.validation_receipt_id=NEW.validation_receipt_id
+     OR r.operation_id=NEW.operation_id
+     OR r.validation_fingerprint=NEW.validation_fingerprint
+     OR r.idempotency_key_sha256=NEW.idempotency_key_sha256
+     OR r.query_id=NEW.query_id
+     OR r.predicate_fingerprint=NEW.predicate_fingerprint
+     OR r.enumeration_id=NEW.enumeration_id
+     OR r.enumeration_fingerprint=NEW.enumeration_fingerprint)
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation root replacement is forbidden'); END;
+CREATE TRIGGER synthetic_aggregation_member_replace_guard BEFORE INSERT ON synthetic_aggregation_validation_members
+WHEN EXISTS (
+  SELECT 1 FROM synthetic_aggregation_validation_members m
+  WHERE m.validation_receipt_id=NEW.validation_receipt_id
+    AND (m.ordinal=NEW.ordinal OR m.sealed_stratum_id=NEW.sealed_stratum_id OR m.member_fingerprint=NEW.member_fingerprint))
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation member replacement is forbidden'); END;
+CREATE TRIGGER synthetic_aggregation_graph_replace_guard BEFORE INSERT ON synthetic_aggregation_validation_graph_commitments
+WHEN EXISTS (
+  SELECT 1 FROM synthetic_aggregation_validation_graph_commitments g
+  WHERE g.validation_receipt_id=NEW.validation_receipt_id
+    AND (g.ordinal=NEW.ordinal OR g.fingerprint=NEW.fingerprint))
+BEGIN SELECT RAISE(ABORT,'synthetic aggregation graph replacement is forbidden'); END;
+
+CREATE TRIGGER synthetic_aggregation_v22_parent_delete_guard
+BEFORE DELETE ON comparison_sealed_stratum_roots
+WHEN EXISTS (SELECT 1 FROM synthetic_aggregation_validation_members m WHERE m.sealed_stratum_id=OLD.sealed_stratum_id)
+BEGIN SELECT RAISE(ABORT,'comparison seal deletion requires synthetic aggregation graph removal'); END;
+CREATE TRIGGER synthetic_aggregation_v22_parent_replace_guard
+BEFORE INSERT ON comparison_sealed_stratum_roots
+WHEN EXISTS (SELECT 1 FROM synthetic_aggregation_validation_members m WHERE m.sealed_stratum_id=NEW.sealed_stratum_id)
+BEGIN SELECT RAISE(ABORT,'comparison seal replacement requires synthetic aggregation graph removal'); END;
+
+CREATE INDEX synthetic_aggregation_member_seal_idx ON synthetic_aggregation_validation_members(sealed_stratum_id,validation_receipt_id);
+CREATE INDEX synthetic_aggregation_root_scope_idx ON synthetic_aggregation_validation_roots(root_receipt_id,installation_id,project_id,provider,as_of_us);
+
+COMMIT;
+"""

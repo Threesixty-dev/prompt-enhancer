@@ -102,7 +102,7 @@ def test_schema_and_enqueue_are_durable_content_free_and_idempotent(tmp_path) ->
         max_attempts=3,
     )
 
-    assert SCHEMA_VERSION == 22
+    assert SCHEMA_VERSION == 23
     assert first.created is True
     assert duplicate.created is False
     assert duplicate.job == first.job

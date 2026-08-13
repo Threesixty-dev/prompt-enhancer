@@ -21,7 +21,11 @@ from prompt_enhancer.application.history.coaching_identity import (
 from prompt_enhancer.application.history.comparison_strata import (
     _AutomationComparisonLeaseAuthorityV1,
 )
-from prompt_enhancer.application.history.contracts import AnalysisInputReceiptV2
+from prompt_enhancer.application.history.contracts import (
+    AnalysisInputReceiptV2,
+    TemporalWindowKind,
+    TemporalWindowSpec,
+)
 from prompt_enhancer.application.history.persistence import (
     SyntheticTemporalCompletionRequestV1,
 )
@@ -237,9 +241,9 @@ def test_v22_schema_is_zero_backfill_normalized_and_transient(tmp_path) -> None:
         connection.commit()
     database = Database(path)
     database.initialize()
-    assert SCHEMA_VERSION == 22
+    assert SCHEMA_VERSION == 23
     with database._connection(readonly=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         tables = tuple(
             str(row["name"])
@@ -869,13 +873,34 @@ def test_task_privacy_deletes_sealed_graph_but_preserves_run_and_temporal(
         temporal_completion_request=temporal_request,
     )
     assert batch is not None
+    sealed = comparison.get_sealed_stratum_for_run(
+        prepared.expected_analysis_run_id
+    )
+    assert sealed is not None
+    aggregation = (
+        context.database.temporal_synthetic_aggregation_validation_repository()
+    )
+    aggregation._clock = lambda: sealed.sealed_at + timedelta(microseconds=1)
+    validation = aggregation.validate_synthetic_aggregation(
+        sealed.sealed_stratum_id,
+        context.metric_key,
+        TemporalWindowSpec(kind=TemporalWindowKind.LAST_N, last_n=3),
+        idempotency_key_sha256=_id("sealed-task-aggregation-idempotency"),
+    )
     assert context.database.task_repository().delete_task_for_privacy(
         revision.task_id
     ) is True
+    assert aggregation.get_synthetic_aggregation_validation(
+        validation.validation_receipt_id
+    ) is None
     assert comparison.get_prepared_stratum(prepared.prepared_stratum_id) is None
     assert comparison.get_sealed_stratum_for_run(prepared.expected_analysis_run_id) is None
     assert runs.get(prepared.expected_analysis_run_id) is not None
     assert context.temporal.get_sealed_batch(batch.sealed_batch_id) == batch
+    with context.database._connection(readonly=True) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM synthetic_aggregation_delete_authorizations"
+        ).fetchone()[0] == 0
 
 
 def test_candidate_privacy_expands_to_task_and_comparison_graph(tmp_path) -> None:

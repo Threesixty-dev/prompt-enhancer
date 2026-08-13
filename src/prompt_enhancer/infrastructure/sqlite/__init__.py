@@ -4,6 +4,7 @@ __all__ = (
     "SqliteAnalysisRunRepository",
     "SqliteModelLinkExperimentRepository",
     "SqliteSessionAnalysisRunRepository",
+    "SqliteTemporalSyntheticAggregationValidationRepository",
     "SqliteTemporalComparisonStratumRepository",
     "SqliteTemporalHistoryRepository",
     "SqliteTaskRepository",
@@ -39,4 +40,10 @@ def __getattr__(name: str):
         )
 
         return SqliteTemporalComparisonStratumRepository
+    if name == "SqliteTemporalSyntheticAggregationValidationRepository":
+        from .temporal_aggregation_validation import (
+            SqliteTemporalSyntheticAggregationValidationRepository,
+        )
+
+        return SqliteTemporalSyntheticAggregationValidationRepository
     raise AttributeError(name)

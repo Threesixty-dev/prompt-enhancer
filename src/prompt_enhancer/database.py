@@ -88,10 +88,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_20,
     MIGRATION_21,
     MIGRATION_22,
+    MIGRATION_23,
 )
 
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -423,6 +424,20 @@ class Database:
         self._comparison_task_delete_authorization_secret = secrets.token_bytes(32)
         self._comparison_task_delete_authorizations: set[tuple[object, ...]] = set()
         self._comparison_task_delete_authorization_lock = threading.Lock()
+        self._synthetic_aggregation_append_authorization_secret = (
+            secrets.token_bytes(32)
+        )
+        self._synthetic_aggregation_append_authorizations: set[
+            tuple[object, ...]
+        ] = set()
+        self._synthetic_aggregation_append_authorization_lock = threading.Lock()
+        self._synthetic_aggregation_delete_authorization_secret = (
+            secrets.token_bytes(32)
+        )
+        self._synthetic_aggregation_delete_authorizations: set[
+            tuple[object, ...]
+        ] = set()
+        self._synthetic_aggregation_delete_authorization_lock = threading.Lock()
         self._local_artifact_id_factory: LocalArtifactIdFactory | None = None
         self._initialization_lock = threading.Lock()
 
@@ -650,6 +665,164 @@ class Database:
                 and item[-1] == tag
             }
             self._comparison_task_delete_authorizations.difference_update(matches)
+
+    def _synthetic_aggregation_append_authorization_tag(
+        self,
+        *values: object,
+    ) -> str:
+        return self._authorization_lookup(
+            values,
+            active=self._synthetic_aggregation_append_authorizations,
+            lock=self._synthetic_aggregation_append_authorization_lock,
+            exact_length=17,
+        )
+
+    def _begin_synthetic_aggregation_append_authorization(
+        self,
+        validation_receipt_id: str,
+        idempotency_key_sha256: str,
+        request_fingerprint: str,
+        anchor_sealed_stratum_id: str,
+        query_id: str,
+        predicate_fingerprint: str,
+        enumeration_id: str,
+        enumeration_fingerprint: str,
+        aggregation_draft_id: str,
+        aggregation_draft_fingerprint: str,
+        validation_fingerprint: str,
+        member_count: int,
+        graph_fingerprint_count: int,
+        as_of_us: int,
+        sealed_at_us: int,
+        authorization_fingerprint: str,
+    ) -> tuple[str, str]:
+        operation_id = secrets.token_hex(32)
+        lineage: tuple[object, ...] = (
+            operation_id,
+            validation_receipt_id,
+            idempotency_key_sha256,
+            request_fingerprint,
+            anchor_sealed_stratum_id,
+            query_id,
+            predicate_fingerprint,
+            enumeration_id,
+            enumeration_fingerprint,
+            aggregation_draft_id,
+            aggregation_draft_fingerprint,
+            validation_fingerprint,
+            member_count,
+            graph_fingerprint_count,
+            as_of_us,
+            sealed_at_us,
+            authorization_fingerprint,
+        )
+        tag = hmac.new(
+            self._synthetic_aggregation_append_authorization_secret,
+            json.dumps(
+                ("synthetic-aggregation-append-v1", *lineage),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._synthetic_aggregation_append_authorization_lock:
+            self._synthetic_aggregation_append_authorizations.add((*lineage, tag))
+        return operation_id, tag
+
+    def _end_synthetic_aggregation_append_authorization(
+        self,
+        operation_id: str,
+        authorization_fingerprint: str,
+        tag: str,
+    ) -> None:
+        with self._synthetic_aggregation_append_authorization_lock:
+            matches = {
+                item
+                for item in self._synthetic_aggregation_append_authorizations
+                if item[0] == operation_id
+                and item[-2] == authorization_fingerprint
+                and item[-1] == tag
+            }
+            self._synthetic_aggregation_append_authorizations.difference_update(
+                matches
+            )
+
+    def _synthetic_aggregation_delete_authorization_tag(
+        self,
+        *values: object,
+    ) -> str:
+        return self._authorization_lookup(
+            values,
+            active=self._synthetic_aggregation_delete_authorizations,
+            lock=self._synthetic_aggregation_delete_authorization_lock,
+            exact_length=6,
+        )
+
+    def _begin_synthetic_aggregation_delete_authorization(
+        self,
+        operation_id: str,
+        validation_receipt_id: str,
+        cause_kind: str,
+        cause_id: str,
+        validation_fingerprint: str,
+        authorization_fingerprint: str,
+    ) -> str:
+        if cause_kind == "run":
+            with self._temporal_run_delete_authorization_lock:
+                upstream_active = any(
+                    item[0] == operation_id and item[1] == cause_id
+                    for item in self._temporal_run_delete_authorizations
+                )
+        elif cause_kind == "task":
+            with self._comparison_task_delete_authorization_lock:
+                upstream_active = any(
+                    item[0] == operation_id and item[1] == cause_id
+                    for item in self._comparison_task_delete_authorizations
+                )
+        else:
+            raise ValueError("synthetic aggregation deletion cause is invalid")
+        if not upstream_active:
+            raise DatabaseInvariantError(
+                "synthetic aggregation deletion requires upstream privacy authority"
+            )
+        lineage: tuple[object, ...] = (
+            operation_id,
+            validation_receipt_id,
+            cause_kind,
+            cause_id,
+            validation_fingerprint,
+            authorization_fingerprint,
+        )
+        tag = hmac.new(
+            self._synthetic_aggregation_delete_authorization_secret,
+            json.dumps(
+                ("synthetic-aggregation-delete-v1", *lineage),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("ascii", errors="strict"),
+            hashlib.sha256,
+        ).hexdigest()
+        with self._synthetic_aggregation_delete_authorization_lock:
+            self._synthetic_aggregation_delete_authorizations.add((*lineage, tag))
+        return tag
+
+    def _end_synthetic_aggregation_delete_authorization(
+        self,
+        operation_id: str,
+        authorization_fingerprint: str,
+        tag: str,
+    ) -> None:
+        with self._synthetic_aggregation_delete_authorization_lock:
+            matches = {
+                item
+                for item in self._synthetic_aggregation_delete_authorizations
+                if item[0] == operation_id
+                and item[-2] == authorization_fingerprint
+                and item[-1] == tag
+            }
+            self._synthetic_aggregation_delete_authorizations.difference_update(
+                matches
+            )
 
     def _temporal_scope_authorization_tag(
         self,
@@ -1280,6 +1453,30 @@ class Database:
                 deterministic=False,
             )
             connection.create_function(
+                "synthetic_aggregation_append_authorization_tag",
+                2,
+                self._synthetic_aggregation_append_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "synthetic_aggregation_append_authorization_tag",
+                17,
+                self._synthetic_aggregation_append_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "synthetic_aggregation_delete_authorization_tag",
+                2,
+                self._synthetic_aggregation_delete_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
+                "synthetic_aggregation_delete_authorization_tag",
+                6,
+                self._synthetic_aggregation_delete_authorization_tag,
+                deterministic=False,
+            )
+            connection.create_function(
                 "temporal_safe_code",
                 1,
                 _temporal_safe_code,
@@ -1343,6 +1540,7 @@ class Database:
                 (20, MIGRATION_20),
                 (21, MIGRATION_21),
                 (22, MIGRATION_22),
+                (23, MIGRATION_23),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1460,6 +1658,12 @@ class Database:
             end_comparison_task_delete_authorization=(
                 self._end_comparison_task_delete_authorization
             ),
+            begin_synthetic_aggregation_delete_authorization=(
+                self._begin_synthetic_aggregation_delete_authorization
+            ),
+            end_synthetic_aggregation_delete_authorization=(
+                self._end_synthetic_aggregation_delete_authorization
+            ),
         )
 
     def analysis_run_repository(self):
@@ -1492,6 +1696,12 @@ class Database:
             ),
             end_temporal_delete_authorization=(
                 self._end_temporal_run_delete_authorization
+            ),
+            begin_synthetic_aggregation_delete_authorization=(
+                self._begin_synthetic_aggregation_delete_authorization
+            ),
+            end_synthetic_aggregation_delete_authorization=(
+                self._end_synthetic_aggregation_delete_authorization
             ),
         )
 
@@ -1536,6 +1746,32 @@ class Database:
             end_prepare_authorization=self._end_comparison_prepare_authorization,
             begin_seal_authorization=self._begin_comparison_seal_authorization,
             end_seal_authorization=self._end_comparison_seal_authorization,
+        )
+
+    def temporal_synthetic_aggregation_validation_repository(self):
+        """Return bounded repository-sealed synthetic aggregation validation."""
+
+        from .infrastructure.sqlite.temporal_aggregation_validation import (
+            SqliteTemporalSyntheticAggregationValidationRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteTemporalSyntheticAggregationValidationRepository(
+            self._connection,
+            self._ensure_initialized,
+            comparison_repository=self.temporal_comparison_stratum_repository(),
+            begin_append_authorization=(
+                self._begin_synthetic_aggregation_append_authorization
+            ),
+            end_append_authorization=(
+                self._end_synthetic_aggregation_append_authorization
+            ),
+            begin_delete_authorization=(
+                self._begin_synthetic_aggregation_delete_authorization
+            ),
+            end_delete_authorization=(
+                self._end_synthetic_aggregation_delete_authorization
+            ),
         )
 
     def model_link_experiment_repository(self):

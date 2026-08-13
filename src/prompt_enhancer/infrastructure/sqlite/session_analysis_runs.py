@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+import hashlib
 from typing import TYPE_CHECKING
 
 from ...application.persistence import (
@@ -65,6 +66,12 @@ class SqliteSessionAnalysisRunRepository:
         end_temporal_delete_authorization: (
             Callable[[str, str, str], None] | None
         ) = None,
+        begin_synthetic_aggregation_delete_authorization: (
+            Callable[[str, str, str, str, str, str], str] | None
+        ) = None,
+        end_synthetic_aggregation_delete_authorization: (
+            Callable[[str, str, str], None] | None
+        ) = None,
     ) -> None:
         self._connection_scope = connection_scope
         self._ensure_initialized = ensure_initialized
@@ -74,6 +81,113 @@ class SqliteSessionAnalysisRunRepository:
             begin_temporal_delete_authorization
         )
         self._end_temporal_delete_authorization = end_temporal_delete_authorization
+        self._begin_synthetic_aggregation_delete_authorization = (
+            begin_synthetic_aggregation_delete_authorization
+        )
+        self._end_synthetic_aggregation_delete_authorization = (
+            end_synthetic_aggregation_delete_authorization
+        )
+
+    @staticmethod
+    def _synthetic_aggregation_delete_fingerprint(
+        *,
+        operation_id: str,
+        validation_receipt_id: str,
+        run_id: str,
+        validation_fingerprint: str,
+    ) -> str:
+        return hashlib.sha256(
+            "\x1f".join(
+                (
+                    "synthetic-aggregation-delete-authorization-v1",
+                    operation_id,
+                    validation_receipt_id,
+                    "run",
+                    run_id,
+                    validation_fingerprint,
+                )
+            ).encode("ascii")
+        ).hexdigest()
+
+    def _delete_synthetic_aggregation_for_run(
+        self,
+        connection,
+        *,
+        operation_id: str,
+        run_id: str,
+    ) -> None:
+        rows = connection.execute(
+            """SELECT DISTINCT root.validation_receipt_id,
+                              root.validation_fingerprint
+               FROM temporal_run_delete_authorizations upstream
+               JOIN comparison_sealed_stratum_roots sealed
+                 ON sealed.analysis_run_id=upstream.run_id
+               JOIN synthetic_aggregation_validation_members member
+                 ON member.sealed_stratum_id=sealed.sealed_stratum_id
+               JOIN synthetic_aggregation_validation_roots root
+                 ON root.validation_receipt_id=member.validation_receipt_id
+               WHERE upstream.operation_id=? AND upstream.run_id=?
+               ORDER BY root.validation_receipt_id""",
+            (operation_id, run_id),
+        ).fetchall()
+        if rows and (
+            self._begin_synthetic_aggregation_delete_authorization is None
+            or self._end_synthetic_aggregation_delete_authorization is None
+        ):
+            raise DatabaseInvariantError(
+                "synthetic aggregation run privacy deletion is not authorized"
+            )
+        for row in rows:
+            validation_receipt_id = str(row["validation_receipt_id"])
+            validation_fingerprint = str(row["validation_fingerprint"])
+            authorization_fingerprint = (
+                self._synthetic_aggregation_delete_fingerprint(
+                    operation_id=operation_id,
+                    validation_receipt_id=validation_receipt_id,
+                    run_id=run_id,
+                    validation_fingerprint=validation_fingerprint,
+                )
+            )
+            assert self._begin_synthetic_aggregation_delete_authorization is not None
+            assert self._end_synthetic_aggregation_delete_authorization is not None
+            tag = self._begin_synthetic_aggregation_delete_authorization(
+                operation_id,
+                validation_receipt_id,
+                "run",
+                run_id,
+                validation_fingerprint,
+                authorization_fingerprint,
+            )
+            try:
+                connection.execute(
+                    """INSERT INTO synthetic_aggregation_delete_authorizations
+                       VALUES(?,?,?,?,?,?,?)""",
+                    (
+                        operation_id,
+                        validation_receipt_id,
+                        "run",
+                        run_id,
+                        validation_fingerprint,
+                        authorization_fingerprint,
+                        tag,
+                    ),
+                )
+                connection.execute(
+                    """DELETE FROM synthetic_aggregation_validation_roots
+                       WHERE validation_receipt_id=?""",
+                    (validation_receipt_id,),
+                )
+                connection.execute(
+                    """DELETE FROM synthetic_aggregation_delete_authorizations
+                       WHERE operation_id=?""",
+                    (operation_id,),
+                )
+            finally:
+                self._end_synthetic_aggregation_delete_authorization(
+                    operation_id,
+                    authorization_fingerprint,
+                    tag,
+                )
 
     def begin(self, draft: SessionAnalysisRunDraft) -> None:
         self._ensure_initialized()
@@ -1073,6 +1187,11 @@ class SqliteSessionAnalysisRunRepository:
                         connection.execute(
                             "INSERT INTO temporal_run_delete_authorizations VALUES (?,?,?)",
                             (authorization[0], run_id, authorization[1]),
+                        )
+                        self._delete_synthetic_aggregation_for_run(
+                            connection,
+                            operation_id=authorization[0],
+                            run_id=run_id,
                         )
                     cursor = connection.execute(
                         "DELETE FROM session_analysis_runs WHERE run_id=?",
