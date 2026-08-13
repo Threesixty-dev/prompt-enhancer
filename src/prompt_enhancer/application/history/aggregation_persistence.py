@@ -713,7 +713,7 @@ class RepositorySealedSyntheticAggregationValidationV1(
     aggregation_draft: RepositoryBackedSyntheticRawAggregationDraftV2
     aggregation_draft_fingerprint: str
     ordered_graph_fingerprints: tuple[str, ...] = Field(
-        min_length=7,
+        min_length=8,
         max_length=7 + MAX_SUPPLIED_STRATA,
     )
     repository_verifier_version: Literal[

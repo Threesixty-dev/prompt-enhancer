@@ -367,6 +367,11 @@ def test_enumeration_is_complete_canonical_bounded_and_recursively_revalidated()
     assert SYNTHETIC_AGGREGATION_OVERFLOW_PROBE_LIMIT == MAX_SUPPLIED_STRATA + 1
     schema = SyntheticAggregationCollectionEnumerationReceiptV1.model_json_schema()
     assert schema["properties"]["ordered_members"]["maxItems"] == MAX_SUPPLIED_STRATA
+    graph_schema = RepositorySealedSyntheticAggregationValidationV1.model_json_schema()
+    assert graph_schema["properties"]["ordered_graph_fingerprints"]["minItems"] == 8
+    assert graph_schema["properties"]["ordered_graph_fingerprints"]["maxItems"] == (
+        MAX_SUPPLIED_STRATA + 7
+    )
 
     with pytest.raises(ValidationError):
         _enumeration(enumeration.predicate, ())
