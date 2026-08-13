@@ -50,11 +50,49 @@ class AutomationGrantState(StrEnum):
 
 
 class AutomationResourcePolicy(StrictModel):
-    route: AutomationRoute = AutomationRoute.BALANCED
-    max_gpu_workers: Literal[1] = 1
-    max_cpu_workers: int = Field(default=1, ge=1, le=4)
-    pause_on_battery: bool = True
-    maximum_session_seconds: int = Field(default=30 * 60, ge=60, le=4 * 60 * 60)
+    route: AutomationRoute = Field(
+        default=AutomationRoute.BALANCED,
+        description="Persisted historical route; only balanced is currently executable.",
+    )
+    max_gpu_workers: Literal[1] = Field(
+        default=1,
+        description="Persisted GPU admission ceiling; current session-quality use is zero.",
+    )
+    max_cpu_workers: int = Field(
+        default=1, ge=1, le=4,
+        description="Persisted per-grant CPU admission ceiling; only one is currently reviewed.",
+    )
+    pause_on_battery: bool = Field(
+        default=True,
+        description="Admission intent only; it does not promise interruption of running work.",
+    )
+    maximum_session_seconds: int = Field(
+        default=30 * 60, ge=60, le=4 * 60 * 60,
+        description="Declared runtime budget; it does not imply a hard enforced deadline.",
+    )
+
+
+REVIEWED_AUTOMATION_RESOURCE_POLICY = AutomationResourcePolicy(
+    route=AutomationRoute.BALANCED,
+    max_gpu_workers=1,
+    max_cpu_workers=1,
+    pause_on_battery=True,
+    maximum_session_seconds=30 * 60,
+)
+
+
+def is_reviewed_automation_resource_policy(
+    policy: AutomationResourcePolicy,
+) -> bool:
+    """Return whether new work uses the only currently reviewed profile.
+
+    The broad contract intentionally remains loadable so historical grants can
+    be inspected.  Admission decisions must call this predicate explicitly.
+    ``maximum_session_seconds`` is a declared runtime budget; this predicate
+    does not claim that a hard execution deadline is currently enforced.
+    """
+
+    return policy == REVIEWED_AUTOMATION_RESOURCE_POLICY
 
 
 class AutomationGrantScope(StrictModel):
@@ -236,4 +274,6 @@ __all__ = [
     "AutomationSessionCandidate",
     "DEFAULT_AUTOMATION_INTERVAL_SECONDS",
     "DEFAULT_AUTOMATION_NEWEST_SESSIONS",
+    "REVIEWED_AUTOMATION_RESOURCE_POLICY",
+    "is_reviewed_automation_resource_policy",
 ]

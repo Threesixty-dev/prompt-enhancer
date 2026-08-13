@@ -366,6 +366,7 @@ class LocalApplication:
             LocalAutomationIdFactory,
             QueueAutomationJobSink,
         )
+        from .infrastructure.power import LocalPowerSourceReader
         from .infrastructure.redaction.deterministic import (
             DETERMINISTIC_REDACTOR_VERSION,
         )
@@ -376,6 +377,7 @@ class LocalApplication:
             f"{COACHING_METRIC_RUBRIC_VERSION}"
         )
         clock = lambda: datetime.now(UTC)
+        power_source = LocalPowerSourceReader()
         access = LocalAutomationAccessPolicy(self.database)
         candidates = self.database.automation_candidate_source(
             estimator_plan_version=estimator_plan_version,
@@ -395,6 +397,7 @@ class LocalApplication:
                 redactor_version=DETERMINISTIC_REDACTOR_VERSION,
             ),
             LocalAutomationIdFactory(),
+            power_source,
             clock=clock,
         )
         guard = AutomationJobGuard(
@@ -414,6 +417,7 @@ class LocalApplication:
             },
             authorization_check=guard.authorized,
             fingerprint_resolver=guard.fingerprints,
+            power_source=power_source,
             clock=clock,
             lease_duration=timedelta(minutes=5),
         )

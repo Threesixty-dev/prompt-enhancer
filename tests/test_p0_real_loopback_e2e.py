@@ -41,6 +41,7 @@ from prompt_enhancer.application.jobs import (
     AnalysisJobService,
     AnalysisJobState,
     AnalysisJobWorker,
+    PowerSourceState,
 )
 from prompt_enhancer.application.local_sources import CodexLocalSourceService
 from prompt_enhancer.application.persistence import SESSION_ANALYSIS_RUN_SCHEMA_VERSION
@@ -550,6 +551,11 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
     automation_clock = MutableClock(job_clock())
     candidates = MutableAutomationCandidates(project_id, session_id, automation_clock)
     automation_ids = FixedIds()
+    external_power = type(
+        "ExternalPower",
+        (),
+        {"current": lambda _self: PowerSourceState.EXTERNAL_POWER},
+    )()
     automation_service = AutomationGrantService(
         database.automation_grant_repository(),
         LocalAutomationAccessPolicy(database),
@@ -561,6 +567,7 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
             redactor_version="synthetic-loopback-redactor-v1",
         ),
         automation_ids,
+        external_power,
         clock=automation_clock,
     )
     automation_app = create_app(
@@ -617,6 +624,7 @@ def test_real_loopback_p0_vertical_survives_restart_and_keeps_text_ephemeral(
         },
         authorization_check=guard.authorized,
         fingerprint_resolver=guard.fingerprints,
+        power_source=external_power,
         clock=job_clock,
         lease_duration=timedelta(seconds=5),
         poll_seconds=0.05,

@@ -45,6 +45,18 @@ class AnalysisJobState(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class PowerSourceState(StrEnum):
+    """Best-effort, content-free local power admission state."""
+
+    EXTERNAL_POWER = "external_power"
+    BATTERY = "battery"
+    UNKNOWN = "unknown"
+
+
+class PowerSourceReader(Protocol):
+    def current(self) -> PowerSourceState: ...
+
+
 ACTIVE_ANALYSIS_JOB_STATES = frozenset(
     {AnalysisJobState.PREPROCESSING, AnalysisJobState.STAGE_N}
 )
@@ -265,6 +277,7 @@ class AnalysisJobRepository(Protocol):
         token: str,
         now: datetime,
         lease_duration: timedelta,
+        power_source: PowerSourceState = PowerSourceState.UNKNOWN,
     ) -> AnalysisJobRecord | None: ...
 
     def recover_expired(self, *, now: datetime) -> AnalysisJobRecoveryResult: ...

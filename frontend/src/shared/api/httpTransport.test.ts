@@ -1191,11 +1191,17 @@ describe("same-origin HTTP transport", () => {
     const poll = {
       grants_checked: 1,
       grants_revoked: 0,
+      grants_power_paused: 0,
+      grants_policy_unsupported: 0,
+      power_external_observations: 1,
+      power_battery_observations: 0,
+      power_unknown_observations: 0,
       candidates_seen: 2,
       jobs_created: 1,
       jobs_reused: 1,
       jobs_superseded: 0,
       failures: 0,
+      maximum_session_runtime_deadline_enforced: false as const,
     };
     expect(parseAutomationPollResult(poll)).toEqual(poll);
     expect(() => parseAutomationPollResult({ ...poll, failures: -1 })).toThrow(
@@ -1204,6 +1210,52 @@ describe("same-origin HTTP transport", () => {
     expect(() => parseAutomationPollResult({ ...poll, raw_error: "private" })).toThrow(
       TransportError,
     );
+
+    const incoherent = [
+      { ...poll, grants_checked: 2 },
+      { ...poll, grants_power_paused: 1 },
+      { ...poll, grants_policy_unsupported: 1 },
+      { ...poll, candidates_seen: 1 },
+      { ...poll, jobs_superseded: 3 },
+      { ...poll, maximum_session_runtime_deadline_enforced: true },
+    ];
+    for (const value of incoherent) {
+      expect(() => parseAutomationPollResult(value)).toThrow(TransportError);
+    }
+  });
+
+  it.each([
+    ["fast route", { route: "fast" }],
+    ["two CPU workers", { max_cpu_workers: 2 }],
+    ["battery continuation", { pause_on_battery: false }],
+    ["different runtime budget", { maximum_session_seconds: 3_600 }],
+  ])("rejects an unreviewed create profile (%s) before fetch", async (_label, update) => {
+    const fetchMock = vi.fn();
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const scope = automationScope();
+    const request = {
+      provider: scope.provider,
+      project_id: scope.project_id,
+      metric_keys: scope.metric_keys,
+      newest_session_limit: scope.newest_session_limit,
+      check_interval_seconds: scope.check_interval_seconds,
+      resource_policy: {
+        route: "balanced",
+        max_gpu_workers: 1,
+        max_cpu_workers: 1,
+        pause_on_battery: true,
+        maximum_session_seconds: 1_800,
+        ...update,
+      },
+    };
+
+    await expect(transport.createAutomationGrant(request as never)).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("lists, creates, opens, renews, revokes, and polls automation on exact private routes", async () => {
@@ -1219,11 +1271,17 @@ describe("same-origin HTTP transport", () => {
     const poll = {
       grants_checked: 1,
       grants_revoked: 0,
+      grants_power_paused: 0,
+      grants_policy_unsupported: 0,
+      power_external_observations: 1,
+      power_battery_observations: 0,
+      power_unknown_observations: 0,
       candidates_seen: 2,
       jobs_created: 1,
       jobs_reused: 1,
       jobs_superseded: 0,
       failures: 0,
+      maximum_session_runtime_deadline_enforced: false as const,
     };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
@@ -1243,7 +1301,13 @@ describe("same-origin HTTP transport", () => {
       metric_keys: scope.metric_keys,
       newest_session_limit: scope.newest_session_limit,
       check_interval_seconds: scope.check_interval_seconds,
-      resource_policy: scope.resource_policy,
+      resource_policy: {
+        route: "balanced" as const,
+        max_gpu_workers: 1 as const,
+        max_cpu_workers: 1 as const,
+        pause_on_battery: true as const,
+        maximum_session_seconds: 1_800 as const,
+      },
     };
 
     await transport.listAutomationGrants("codex", false);
@@ -1299,7 +1363,13 @@ describe("same-origin HTTP transport", () => {
       metric_keys: automationScope().metric_keys,
       newest_session_limit: 20,
       check_interval_seconds: 900,
-      resource_policy: automationScope().resource_policy,
+      resource_policy: {
+        route: "balanced",
+        max_gpu_workers: 1,
+        max_cpu_workers: 1,
+        pause_on_battery: true,
+        maximum_session_seconds: 1_800,
+      },
     })).rejects.toMatchObject({
       status: 403,
       reasonCode: "automation_consent_required",

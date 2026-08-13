@@ -27,12 +27,12 @@ import { StatusPill, type PillTone } from "../../shared/ui/StatusPill";
 const SESSION_PAGE_LIMIT = 100;
 const DEFAULT_NEWEST_SESSION_LIMIT = 20;
 const FIXED_CHECK_INTERVAL_SECONDS = 15 * 60;
-const FIXED_MAXIMUM_SESSION_SECONDS = 30 * 60;
+const FIXED_MAXIMUM_SESSION_SECONDS = 1_800 as const;
 const FIXED_RESOURCE_POLICY = Object.freeze({
   route: "balanced" as const,
   max_gpu_workers: 1 as const,
-  max_cpu_workers: 1,
-  pause_on_battery: true,
+  max_cpu_workers: 1 as const,
+  pause_on_battery: true as const,
   maximum_session_seconds: FIXED_MAXIMUM_SESSION_SECONDS,
 });
 const SESSION_KEYS = [
@@ -195,10 +195,9 @@ function grantTone(state: AutomationGrantRecord["state"]): PillTone {
   return "neutral";
 }
 
-function usesLockedAutomationProfile(grant: AutomationGrantRecord): boolean {
+function usesReviewedResourcePolicy(grant: AutomationGrantRecord): boolean {
   const policy = grant.scope.resource_policy;
-  return grant.scope.check_interval_seconds === FIXED_CHECK_INTERVAL_SECONDS &&
-    policy.route === FIXED_RESOURCE_POLICY.route &&
+  return policy.route === FIXED_RESOURCE_POLICY.route &&
     policy.max_gpu_workers === FIXED_RESOURCE_POLICY.max_gpu_workers &&
     policy.max_cpu_workers === FIXED_RESOURCE_POLICY.max_cpu_workers &&
     policy.pause_on_battery === FIXED_RESOURCE_POLICY.pause_on_battery &&
@@ -212,6 +211,12 @@ function grantErrorCopy(code: string | null): string | null {
   }
   if (code === "automation_check_failed") {
     return "The last local check failed safely. Provider error text was discarded.";
+  }
+  if (code === "automation_resource_policy_unsupported") {
+    return "This historical resource profile is not executable or renewable under the reviewed automation policy.";
+  }
+  if (code === "automation_paused_for_power_source") {
+    return "Admission was paused because local power was battery or unknown. No provider refresh or job scheduling occurred.";
   }
   return "The last check recorded an unrecognized content-free failure code; raw error text remains hidden.";
 }
@@ -227,6 +232,9 @@ function safeActionError(error: unknown): string {
   }
   if (reason === "automation_project_not_indexed") {
     return "This exact project is no longer present in the safe local index.";
+  }
+  if (reason === "automation_resource_policy_unsupported") {
+    return "This historical resource profile is readable but is not executable or renewable.";
   }
   if (reason === "automation_grant_not_found" ||
       (error instanceof TransportError && error.status === 404)) {
@@ -729,10 +737,12 @@ export function ProjectAutomationSettings({
               <dl className="automation-create__policy">
                 <div><dt>Execution</dt><dd>Local only</dd></div>
                 <div><dt>Route</dt><dd>Balanced</dd></div>
-                <div><dt>GPU workers</dt><dd>1</dd></div>
+                <div><dt>CPU admission</dt><dd>1 concurrent lane per grant</dd></div>
+                <div><dt>GPU admission</dt><dd>Ceiling 1; current use 0</dd></div>
                 <div><dt>Check cadence</dt><dd>Every 15 minutes while the service runs</dd></div>
                 <div><dt>Grant lifetime</dt><dd>30 days, then renew explicitly</dd></div>
-                <div><dt>Resource guard</dt><dd>Pause on battery · 30-minute session cap</dd></div>
+                <div><dt>Power guard</dt><dd>Battery/unknown pauses new admission only</dd></div>
+                <div><dt>Runtime budget</dt><dd>1,800 seconds declared; hard deadline not yet enforced</dd></div>
               </dl>
 
               <label className="automation-create__consent">
@@ -775,7 +785,8 @@ export function ProjectAutomationSettings({
               ) : (
                 <div className="automation-grants__list">
                   {projectGrants.map((grant) => {
-                    const renewAllowed = consentActive && projectIndexed && readinessVerified &&
+                    const reviewedPolicy = usesReviewedResourcePolicy(grant);
+                    const renewAllowed = reviewedPolicy && consentActive && projectIndexed && readinessVerified &&
                       grant.scope.metric_keys.every((key) => eligibleMetricKeys.has(key));
                     const errorCopy = grantErrorCopy(grant.last_error_code);
                     const confirming = confirmation?.grantId === grant.grant_id
@@ -796,9 +807,10 @@ export function ProjectAutomationSettings({
                           <div><dt>Expires</dt><dd>{formatTimestamp(grant.expires_at)}</dd></div>
                           <div><dt>Route</dt><dd>{grant.scope.resource_policy.route}</dd></div>
                           <div><dt>Cadence</dt><dd>{grant.scope.check_interval_seconds} seconds</dd></div>
-                          <div><dt>Workers</dt><dd>{grant.scope.resource_policy.max_gpu_workers} GPU Â· {grant.scope.resource_policy.max_cpu_workers} CPU</dd></div>
-                          <div><dt>Session cap</dt><dd>{grant.scope.resource_policy.maximum_session_seconds} seconds</dd></div>
-                          <div><dt>Battery</dt><dd>{grant.scope.resource_policy.pause_on_battery ? "Pause" : "Continue"}</dd></div>
+                          <div><dt>CPU admission ceiling</dt><dd>{grant.scope.resource_policy.max_cpu_workers}</dd></div>
+                          <div><dt>GPU admission ceiling</dt><dd>{grant.scope.resource_policy.max_gpu_workers}; current reviewed session-quality use 0</dd></div>
+                          <div><dt>Declared runtime budget</dt><dd>{grant.scope.resource_policy.maximum_session_seconds} seconds; hard deadline unenforced</dd></div>
+                          <div><dt>Power admission</dt><dd>{grant.scope.resource_policy.pause_on_battery ? "Battery/unknown pauses new work only" : "Historical continue policy (unsupported)"}</dd></div>
                           <div><dt>Boundary</dt><dd>{grant.scope.local_only ? "Local only" : "Invalid"}</dd></div>
                         </dl>
                         <details className="automation-grants__metric-scope">
@@ -808,9 +820,9 @@ export function ProjectAutomationSettings({
                           </ul>
                         </details>
                         {errorCopy && <p className="automation-grants__warning">{errorCopy}</p>}
-                        {!usesLockedAutomationProfile(grant) ? (
+                        {!reviewedPolicy ? (
                           <p className="automation-grants__warning">
-                            This existing grant uses a different valid resource profile. Its actual values are shown, and renewal preserves that exact stored scope.
+                            This historical grant uses an unsupported resource profile. Its stored values remain readable, but it is not executable or renewable.
                           </p>
                         ) : null}
                         {confirming ? (
@@ -884,7 +896,9 @@ export function ProjectAutomationSettings({
                   <strong>Scheduler receipt</strong>
                   <span>{pollResult.grants_checked} grants checked · {pollResult.candidates_seen} candidates seen</span>
                   <span>{pollResult.jobs_created} jobs created · {pollResult.jobs_reused} reused · {pollResult.jobs_superseded} superseded</span>
+                  <span>{pollResult.grants_power_paused} power-paused · {pollResult.grants_policy_unsupported} unsupported profiles</span>
                   <span>{pollResult.grants_revoked} grants revoked · {pollResult.failures} safe failures</span>
+                  <span>Runtime budget hard deadline: {pollResult.maximum_session_runtime_deadline_enforced ? "enforced" : "not yet enforced"}</span>
                 </div>
               )}
             </section>

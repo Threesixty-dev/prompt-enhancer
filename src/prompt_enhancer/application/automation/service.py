@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from threading import Event, Lock, Thread
-from typing import Callable, Protocol
+from typing import Callable, Literal, Protocol
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ...domain import DataTier, Provider, StrictModel
+from ..jobs import PowerSourceReader, PowerSourceState
 from ..analysis.coaching_baselines import COACHING_METRIC_DEFINITIONS
 from .contracts import (
     AUTOMATION_GRANT_LIFETIME,
@@ -19,6 +20,7 @@ from .contracts import (
     AutomationGrantScope,
     AutomationGrantState,
     AutomationSessionCandidate,
+    is_reviewed_automation_resource_policy,
 )
 
 
@@ -77,17 +79,51 @@ class AutomationJobSink(Protocol):
         candidate: AutomationSessionCandidate,
     ) -> AutomationScheduleResult: ...
 
-    def cancel_for_grant(self, grant_id: str, *, now: datetime) -> int: ...
+    def cancel_for_grant(
+        self,
+        grant_id: str,
+        *,
+        now: datetime,
+    ) -> int: ...
 
 
 class AutomationPollResult(StrictModel):
     grants_checked: int = Field(ge=0)
     grants_revoked: int = Field(ge=0)
+    grants_power_paused: int = Field(ge=0)
+    grants_policy_unsupported: int = Field(ge=0)
+    power_external_observations: int = Field(ge=0)
+    power_battery_observations: int = Field(ge=0)
+    power_unknown_observations: int = Field(ge=0)
     candidates_seen: int = Field(ge=0)
     jobs_created: int = Field(ge=0)
     jobs_reused: int = Field(ge=0)
     jobs_superseded: int = Field(ge=0)
     failures: int = Field(ge=0)
+    maximum_session_runtime_deadline_enforced: Literal[False] = False
+
+    @model_validator(mode="after")
+    def coherent_receipt(self) -> AutomationPollResult:
+        categorized = (
+            self.grants_policy_unsupported
+            + self.grants_revoked
+            + self.power_external_observations
+            + self.power_battery_observations
+            + self.power_unknown_observations
+        )
+        if categorized != self.grants_checked:
+            raise ValueError("every checked grant requires one admission outcome")
+        if self.grants_power_paused != (
+            self.power_battery_observations + self.power_unknown_observations
+        ):
+            raise ValueError("power pause count must match non-external observations")
+        if self.grants_policy_unsupported > self.failures:
+            raise ValueError("unsupported policies must be counted as failures")
+        if self.jobs_created + self.jobs_reused > self.candidates_seen:
+            raise ValueError("scheduled outcomes cannot exceed candidates")
+        if self.jobs_superseded > self.jobs_created + self.jobs_reused:
+            raise ValueError("superseded jobs require a scheduling outcome")
+        return self
 
 
 class AutomationGrantService:
@@ -103,6 +139,7 @@ class AutomationGrantService:
         candidates: AutomationCandidateSource,
         jobs: AutomationJobSink,
         id_factory: AutomationIdFactory,
+        power_source: PowerSourceReader | None = None,
         *,
         clock: Callable[[], datetime],
     ) -> None:
@@ -112,9 +149,11 @@ class AutomationGrantService:
         self._candidates = candidates
         self._jobs = jobs
         self._id_factory = id_factory
+        self._power_source = power_source
         self._clock = clock
 
     def create(self, scope: AutomationGrantScope) -> AutomationGrantRecord:
+        self._require_reviewed_resource_policy(scope)
         self._require_access(scope)
         now = self._clock()
         return self._repository.create(
@@ -150,6 +189,7 @@ class AutomationGrantService:
 
     def renew(self, grant_id: str) -> AutomationGrantRecord:
         current = self._require_grant(grant_id)
+        self._require_reviewed_resource_policy(current.scope)
         self._require_access(current.scope)
         return self._repository.renew(grant_id, now=self._clock())
 
@@ -173,15 +213,51 @@ class AutomationGrantService:
             raise ValueError("automation poll limit is out of bounds")
         now = self._clock()
         self._repository.expire_due(now=now)
-        checked = revoked = seen = created = reused = superseded = failures = 0
-        for grant in self._repository.list_due(now=now, limit=limit):
+        checked = revoked = power_paused = policy_unsupported = 0
+        power_external = power_battery = power_unknown = 0
+        seen = created = reused = superseded = failures = 0
+        for due_grant in self._repository.list_due(now=now, limit=limit):
+            grant_now = self._clock()
+            grant = self._repository.get(due_grant.grant_id)
+            if grant is None or not grant.is_due(grant_now):
+                continue
             checked += 1
+            next_check_at = grant_now + timedelta(
+                seconds=grant.scope.check_interval_seconds
+            )
+            if not is_reviewed_automation_resource_policy(
+                grant.scope.resource_policy
+            ):
+                policy_unsupported += 1
+                failures += 1
+                self._repository.record_check(
+                    grant.grant_id,
+                    now=grant_now,
+                    next_check_at=next_check_at,
+                    error_code="automation_resource_policy_unsupported",
+                )
+                continue
             if not self._access.has_active_consent(
                 grant.scope.provider, self._TIER
             ):
-                self._repository.revoke(grant.grant_id, now=now)
-                self._jobs.cancel_for_grant(grant.grant_id, now=now)
+                self._repository.revoke(grant.grant_id, now=grant_now)
+                self._jobs.cancel_for_grant(grant.grant_id, now=grant_now)
                 revoked += 1
+                continue
+            power_source = self._current_power_source()
+            power_external += int(
+                power_source is PowerSourceState.EXTERNAL_POWER
+            )
+            power_battery += int(power_source is PowerSourceState.BATTERY)
+            power_unknown += int(power_source is PowerSourceState.UNKNOWN)
+            if power_source is not PowerSourceState.EXTERNAL_POWER:
+                power_paused += 1
+                self._repository.record_check(
+                    grant.grant_id,
+                    now=grant_now,
+                    next_check_at=next_check_at,
+                    error_code="automation_paused_for_power_source",
+                )
                 continue
             try:
                 self._refresher.refresh(
@@ -207,26 +283,16 @@ class AutomationGrantService:
                     superseded += outcome.superseded
                 self._repository.record_check(
                     grant.grant_id,
-                    now=now,
-                    next_check_at=(
-                        now
-                        + timedelta(
-                            seconds=grant.scope.check_interval_seconds
-                        )
-                    ),
+                    now=grant_now,
+                    next_check_at=next_check_at,
                     error_code=None,
                 )
             except AutomationSelectionError:
                 failures += 1
                 self._repository.record_check(
                     grant.grant_id,
-                    now=now,
-                    next_check_at=(
-                        now
-                        + timedelta(
-                            seconds=grant.scope.check_interval_seconds
-                        )
-                    ),
+                    now=grant_now,
+                    next_check_at=next_check_at,
                     error_code="candidate_scope_mismatch",
                 )
             except Exception:
@@ -234,24 +300,41 @@ class AutomationGrantService:
                 failures += 1
                 self._repository.record_check(
                     grant.grant_id,
-                    now=now,
-                    next_check_at=(
-                        now
-                        + timedelta(
-                            seconds=grant.scope.check_interval_seconds
-                        )
-                    ),
+                    now=grant_now,
+                    next_check_at=next_check_at,
                     error_code="automation_check_failed",
                 )
         return AutomationPollResult(
             grants_checked=checked,
             grants_revoked=revoked,
+            grants_power_paused=power_paused,
+            grants_policy_unsupported=policy_unsupported,
+            power_external_observations=power_external,
+            power_battery_observations=power_battery,
+            power_unknown_observations=power_unknown,
             candidates_seen=seen,
             jobs_created=created,
             jobs_reused=reused,
             jobs_superseded=superseded,
             failures=failures,
+            maximum_session_runtime_deadline_enforced=False,
         )
+
+    def _current_power_source(self) -> PowerSourceState:
+        if self._power_source is None:
+            return PowerSourceState.UNKNOWN
+        try:
+            state = self._power_source.current()
+        except Exception:
+            return PowerSourceState.UNKNOWN
+        return state if isinstance(state, PowerSourceState) else PowerSourceState.UNKNOWN
+
+    @staticmethod
+    def _require_reviewed_resource_policy(scope: AutomationGrantScope) -> None:
+        if not is_reviewed_automation_resource_policy(scope.resource_policy):
+            raise AutomationSelectionError(
+                "automation_resource_policy_unsupported"
+            )
 
     def _require_access(self, scope: AutomationGrantScope) -> None:
         if not set(scope.metric_keys).issubset(COACHING_AUTOMATION_METRIC_KEYS):

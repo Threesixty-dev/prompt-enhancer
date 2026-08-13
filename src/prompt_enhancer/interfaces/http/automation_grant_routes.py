@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import (
     APIRouter,
@@ -25,10 +25,39 @@ from ...application.automation import (
     AutomationGrantService,
     AutomationPollResult,
     AutomationResourcePolicy,
+    AutomationRoute,
     AutomationSelectionError,
 )
 from ...database import DatabaseError
 from ...domain import PSEUDONYM_PATTERN, Provider, StrictModel
+
+
+class ReviewedAutomationResourcePolicyRequest(StrictModel):
+    """The only resource profile accepted for newly issued grants."""
+
+    route: Literal[AutomationRoute.BALANCED] = Field(
+        default=AutomationRoute.BALANCED,
+        description="Balanced is the only reviewed route for new grants.",
+    )
+    max_gpu_workers: Literal[1] = Field(
+        default=1,
+        description="Admission ceiling is one; current session-quality use is zero.",
+    )
+    max_cpu_workers: Literal[1] = Field(
+        default=1,
+        description="Per-grant concurrent admission ceiling is one CPU worker.",
+    )
+    pause_on_battery: Literal[True] = Field(
+        default=True,
+        description="Battery or unknown power pauses admission only; running work is not interrupted.",
+    )
+    maximum_session_seconds: Literal[1800] = Field(
+        default=1800,
+        description="Declared runtime budget; a hard execution deadline is not yet enforced.",
+    )
+
+    def policy(self) -> AutomationResourcePolicy:
+        return AutomationResourcePolicy(**self.model_dump())
 
 
 class AutomationGrantCreateRequest(StrictModel):
@@ -37,8 +66,8 @@ class AutomationGrantCreateRequest(StrictModel):
     metric_keys: tuple[str, ...] = Field(min_length=1, max_length=100)
     newest_session_limit: int = Field(default=20, ge=1, le=100)
     check_interval_seconds: int = Field(default=15 * 60, ge=60, le=86_400)
-    resource_policy: AutomationResourcePolicy = Field(
-        default_factory=AutomationResourcePolicy
+    resource_policy: ReviewedAutomationResourcePolicyRequest = Field(
+        default_factory=ReviewedAutomationResourcePolicyRequest
     )
 
     def scope(self) -> AutomationGrantScope:
@@ -48,7 +77,7 @@ class AutomationGrantCreateRequest(StrictModel):
             metric_keys=tuple(sorted(self.metric_keys)),
             newest_session_limit=self.newest_session_limit,
             check_interval_seconds=self.check_interval_seconds,
-            resource_policy=self.resource_policy,
+            resource_policy=self.resource_policy.policy(),
         )
 
 
@@ -182,4 +211,8 @@ def create_automation_grant_router(
     return router
 
 
-__all__ = ["AutomationGrantCreateRequest", "create_automation_grant_router"]
+__all__ = [
+    "AutomationGrantCreateRequest",
+    "ReviewedAutomationResourcePolicyRequest",
+    "create_automation_grant_router",
+]

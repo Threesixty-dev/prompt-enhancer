@@ -43,7 +43,10 @@ from prompt_enhancer.application.history.persistence import (
 from prompt_enhancer.application.jobs import (
     AnalysisJobIdentity,
     AnalysisJobKind,
+    AnalysisJobLease,
     AnalysisJobService,
+    AnalysisJobState,
+    PowerSourceState,
 )
 from prompt_enhancer.application.persistence import (
     MetricValueState,
@@ -199,6 +202,7 @@ def _completion_fixture(tmp_path) -> SimpleNamespace:
         token=_id("lease-token"),
         now=BASE + timedelta(minutes=2, seconds=10),
         lease_duration=timedelta(minutes=10),
+        power_source=PowerSourceState.EXTERNAL_POWER,
     )
     assert claimed is not None and claimed.job_id == job.job_id
     assert claimed.lease_owner is not None and claimed.lease_token is not None
@@ -972,6 +976,23 @@ def test_second_temporal_run_for_same_session_is_bounded_and_rolls_back(
     assert first is not None
 
     jobs = context.database.analysis_job_repository()
+    first_job = jobs.get(context.authority.job_id)
+    assert first_job is not None
+    assert first_job.lease_expires_at is not None
+    assert first_job.lease_owner is not None and first_job.lease_token is not None
+    jobs.finish(
+        AnalysisJobLease(
+            job_id=first_job.job_id,
+            owner=first_job.lease_owner,
+            token=first_job.lease_token,
+            expires_at=first_job.lease_expires_at,
+        ),
+        now=context.finished_at + timedelta(seconds=1),
+        state=AnalysisJobState.COMPLETED,
+        reason_code="completed",
+        progress_completed=1,
+        progress_total=1,
+    )
     second_job = AnalysisJobService(
         jobs, clock=lambda: BASE + timedelta(minutes=4, seconds=5)
     ).enqueue(
@@ -994,6 +1015,7 @@ def test_second_temporal_run_for_same_session_is_bounded_and_rolls_back(
         token=_id("second-lease-token"),
         now=BASE + timedelta(minutes=4, seconds=10),
         lease_duration=timedelta(minutes=10),
+        power_source=PowerSourceState.EXTERNAL_POWER,
     )
     assert claimed is not None and claimed.job_id == second_job.job_id
     assert claimed.lease_owner is not None and claimed.lease_token is not None

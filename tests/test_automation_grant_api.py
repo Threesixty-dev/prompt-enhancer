@@ -13,6 +13,7 @@ from prompt_enhancer.application.automation import (
     AutomationSessionCandidate,
 )
 from prompt_enhancer.config import AppSettings
+from prompt_enhancer.application.jobs import PowerSourceState
 from prompt_enhancer.database import Database
 from prompt_enhancer.domain import DataTier, Provider
 from prompt_enhancer.ingestion import IngestionService
@@ -79,6 +80,11 @@ class Ids:
         return GRANT_ID
 
 
+class ExternalPower:
+    def current(self) -> PowerSourceState:
+        return PowerSourceState.EXTERNAL_POWER
+
+
 def _app(tmp_path):  # type: ignore[no-untyped-def]
     database = Database(tmp_path / "automation-api.sqlite3")
     database.initialize()
@@ -94,6 +100,7 @@ def _app(tmp_path):  # type: ignore[no-untyped-def]
         Candidates(str(session["project_id"]), str(session["session_id"])),
         jobs,
         Ids(),
+        ExternalPower(),
         clock=lambda: NOW,
     )
     app = create_app(

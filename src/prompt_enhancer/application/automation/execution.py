@@ -32,6 +32,7 @@ from .contracts import (
     AutomationCandidateSource,
     AutomationGrantRepository,
     AutomationGrantState,
+    is_reviewed_automation_resource_policy,
 )
 from .service import AutomationAccessPolicy
 
@@ -65,6 +66,8 @@ class AutomationJobGuard:
             return False
         scope = grant.scope
         return (
+            is_reviewed_automation_resource_policy(scope.resource_policy)
+            and
             scope.provider is job.identity.provider
             and scope.project_id == job.identity.project_id
             and scope.metric_keys == job.identity.metric_keys

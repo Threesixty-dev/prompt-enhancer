@@ -370,9 +370,9 @@ describe("synthetic transport vertical slice", () => {
       resource_policy: {
         route: "balanced" as const,
         max_gpu_workers: 1 as const,
-        max_cpu_workers: 1,
-        pause_on_battery: true,
-        maximum_session_seconds: 1_800,
+        max_cpu_workers: 1 as const,
+        pause_on_battery: true as const,
+        maximum_session_seconds: 1_800 as const,
       },
       local_only: true as const,
       remote_requires_fresh_approval: true as const,

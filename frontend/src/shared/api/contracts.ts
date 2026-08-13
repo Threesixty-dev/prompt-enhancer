@@ -156,11 +156,18 @@ export interface AnalysisJobPage extends Omit<
 export type AutomationGrantState = Schemas["AutomationGrantState"];
 export type AutomationRoute = Schemas["AutomationRoute"];
 export type AutomationResourcePolicy = Schemas["AutomationResourcePolicy"];
+export interface ReviewedAutomationResourcePolicyRequest {
+  route: "balanced";
+  max_gpu_workers: 1;
+  max_cpu_workers: 1;
+  pause_on_battery: true;
+  maximum_session_seconds: 1_800;
+}
 export interface AutomationGrantCreateRequest extends Omit<
   Schemas["AutomationGrantCreateRequest"],
   "resource_policy"
 > {
-  resource_policy: AutomationResourcePolicy;
+  resource_policy: ReviewedAutomationResourcePolicyRequest;
 }
 export interface AutomationGrantScope extends Omit<
   Schemas["AutomationGrantScope"],
@@ -177,7 +184,21 @@ export interface AutomationGrantRecord extends Omit<
   revoked_at: string | null;
   scope: AutomationGrantScope;
 }
-export type AutomationPollResult = Schemas["AutomationPollResult"];
+export interface AutomationPollResult {
+  grants_checked: number;
+  grants_revoked: number;
+  grants_power_paused: number;
+  grants_policy_unsupported: number;
+  power_external_observations: number;
+  power_battery_observations: number;
+  power_unknown_observations: number;
+  candidates_seen: number;
+  jobs_created: number;
+  jobs_reused: number;
+  jobs_superseded: number;
+  failures: number;
+  maximum_session_runtime_deadline_enforced: false;
+}
 
 export type SessionQualityAnalysisRequest =
   Schemas["SessionTextAnalysisRequest"];

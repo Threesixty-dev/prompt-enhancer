@@ -58,6 +58,7 @@ from prompt_enhancer.application.jobs import (
     AnalysisJobService,
     AnalysisJobState,
     AnalysisJobWorker,
+    PowerSourceState,
 )
 from prompt_enhancer.application.persistence import (
     AnalysisRunStatus,
@@ -104,6 +105,11 @@ from prompt_enhancer.infrastructure.automation import QueueAutomationJobSink
 
 
 NOW = datetime(2040, 1, 2, 10, 0, tzinfo=UTC)
+
+
+class _ExternalPower:
+    def current(self) -> PowerSourceState:
+        return PowerSourceState.EXTERNAL_POWER
 EXAMPLE_TOKEN = "example_session_analysis_token_1234567890"
 AGGREGATION_FILTER = {
     "analysis_profile_key": "standard_engineering",
@@ -704,6 +710,7 @@ def _automation_completion_fixture(tmp_path):  # type: ignore[no-untyped-def]
         token="4" * 64,
         now=NOW,
         lease_duration=timedelta(minutes=5),
+        power_source=PowerSourceState.EXTERNAL_POWER,
     )
     assert claimed is not None and claimed.job_id == queued.job_id
     assert claimed.lease_owner is not None
@@ -911,6 +918,7 @@ def test_worker_revocation_during_compute_cannot_publish_results(tmp_path) -> No
             job.identity.input_fingerprint,
             job.identity.provenance_fingerprint,
         ),
+        power_source=_ExternalPower(),
         clock=lambda: NOW,
         lease_duration=timedelta(minutes=5),
         worker_id="3" * 64,

@@ -914,7 +914,7 @@
             "$ref": "#/components/schemas/Provider"
           },
           "resource_policy": {
-            "$ref": "#/components/schemas/AutomationResourcePolicy"
+            "$ref": "#/components/schemas/ReviewedAutomationResourcePolicyRequest"
           }
         },
         "required": [
@@ -1096,6 +1096,16 @@
             "title": "Grants Checked",
             "type": "integer"
           },
+          "grants_policy_unsupported": {
+            "minimum": 0.0,
+            "title": "Grants Policy Unsupported",
+            "type": "integer"
+          },
+          "grants_power_paused": {
+            "minimum": 0.0,
+            "title": "Grants Power Paused",
+            "type": "integer"
+          },
           "grants_revoked": {
             "minimum": 0.0,
             "title": "Grants Revoked",
@@ -1115,11 +1125,37 @@
             "minimum": 0.0,
             "title": "Jobs Superseded",
             "type": "integer"
+          },
+          "maximum_session_runtime_deadline_enforced": {
+            "const": false,
+            "default": false,
+            "title": "Maximum Session Runtime Deadline Enforced",
+            "type": "boolean"
+          },
+          "power_battery_observations": {
+            "minimum": 0.0,
+            "title": "Power Battery Observations",
+            "type": "integer"
+          },
+          "power_external_observations": {
+            "minimum": 0.0,
+            "title": "Power External Observations",
+            "type": "integer"
+          },
+          "power_unknown_observations": {
+            "minimum": 0.0,
+            "title": "Power Unknown Observations",
+            "type": "integer"
           }
         },
         "required": [
           "grants_checked",
           "grants_revoked",
+          "grants_power_paused",
+          "grants_policy_unsupported",
+          "power_external_observations",
+          "power_battery_observations",
+          "power_unknown_observations",
           "candidates_seen",
           "jobs_created",
           "jobs_reused",
@@ -1134,6 +1170,7 @@
         "properties": {
           "max_cpu_workers": {
             "default": 1,
+            "description": "Persisted per-grant CPU admission ceiling; only one is currently reviewed.",
             "maximum": 4.0,
             "minimum": 1.0,
             "title": "Max Cpu Workers",
@@ -1142,11 +1179,13 @@
           "max_gpu_workers": {
             "const": 1,
             "default": 1,
+            "description": "Persisted GPU admission ceiling; current session-quality use is zero.",
             "title": "Max Gpu Workers",
             "type": "integer"
           },
           "maximum_session_seconds": {
             "default": 1800,
+            "description": "Declared runtime budget; it does not imply a hard enforced deadline.",
             "maximum": 14400.0,
             "minimum": 60.0,
             "title": "Maximum Session Seconds",
@@ -1154,12 +1193,14 @@
           },
           "pause_on_battery": {
             "default": true,
+            "description": "Admission intent only; it does not promise interruption of running work.",
             "title": "Pause On Battery",
             "type": "boolean"
           },
           "route": {
             "$ref": "#/components/schemas/AutomationRoute",
-            "default": "balanced"
+            "default": "balanced",
+            "description": "Persisted historical route; only balanced is currently executable."
           }
         },
         "title": "AutomationResourcePolicy",
@@ -5615,6 +5656,49 @@
         ],
         "title": "RetentionClass",
         "type": "string"
+      },
+      "ReviewedAutomationResourcePolicyRequest": {
+        "additionalProperties": false,
+        "description": "The only resource profile accepted for newly issued grants.",
+        "properties": {
+          "max_cpu_workers": {
+            "const": 1,
+            "default": 1,
+            "description": "Per-grant concurrent admission ceiling is one CPU worker.",
+            "title": "Max Cpu Workers",
+            "type": "integer"
+          },
+          "max_gpu_workers": {
+            "const": 1,
+            "default": 1,
+            "description": "Admission ceiling is one; current session-quality use is zero.",
+            "title": "Max Gpu Workers",
+            "type": "integer"
+          },
+          "maximum_session_seconds": {
+            "const": 1800,
+            "default": 1800,
+            "description": "Declared runtime budget; a hard execution deadline is not yet enforced.",
+            "title": "Maximum Session Seconds",
+            "type": "integer"
+          },
+          "pause_on_battery": {
+            "const": true,
+            "default": true,
+            "description": "Battery or unknown power pauses admission only; running work is not interrupted.",
+            "title": "Pause On Battery",
+            "type": "boolean"
+          },
+          "route": {
+            "const": "balanced",
+            "default": "balanced",
+            "description": "Balanced is the only reviewed route for new grants.",
+            "title": "Route",
+            "type": "string"
+          }
+        },
+        "title": "ReviewedAutomationResourcePolicyRequest",
+        "type": "object"
       },
       "SanitizedModelLinkValidationFailureResponse": {
         "additionalProperties": false,

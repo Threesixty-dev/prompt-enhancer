@@ -7,6 +7,11 @@ from fastapi.testclient import TestClient
 
 from prompt_enhancer.adapters.synthetic import SyntheticAdapter
 from prompt_enhancer.api import API_TOKEN_HEADER, create_app
+from prompt_enhancer.application.automation import (
+    AUTOMATION_GRANT_LIFETIME,
+    AutomationGrantDraft,
+    AutomationGrantScope,
+)
 from prompt_enhancer.application.jobs import (
     AnalysisJobExecutionResult,
     AnalysisJobIdentity,
@@ -15,6 +20,7 @@ from prompt_enhancer.application.jobs import (
     AnalysisJobService,
     AnalysisJobState,
     AnalysisJobWorker,
+    PowerSourceState,
 )
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.database import Database, SCHEMA_VERSION
@@ -222,6 +228,18 @@ def test_cancellation_grant_revocation_and_supersession_are_cooperative(tmp_path
     clock = MutableClock()
     service = AnalysisJobService(repository, clock=clock)
     grant_id = "9" * 64
+    database.automation_grant_repository().create(
+        AutomationGrantDraft(
+            grant_id=grant_id,
+            scope=AutomationGrantScope(
+                provider=Provider.SYNTHETIC,
+                project_id=str(session["project_id"]),
+                metric_keys=tuple(sorted(_identity(session).metric_keys)),
+            ),
+            created_at=clock(),
+            expires_at=clock() + AUTOMATION_GRANT_LIFETIME,
+        )
+    )
     first = service.enqueue(
         _identity(session, automation_grant_id=grant_id),
     ).job
@@ -237,6 +255,7 @@ def test_cancellation_grant_revocation_and_supersession_are_cooperative(tmp_path
         token="2" * 64,
         now=clock(),
         lease_duration=timedelta(seconds=10),
+        power_source=PowerSourceState.EXTERNAL_POWER,
     )
     assert claimed is not None
     active = claimed

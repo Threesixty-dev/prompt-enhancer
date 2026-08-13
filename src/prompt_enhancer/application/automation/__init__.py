@@ -14,6 +14,8 @@ from .contracts import (
     AutomationSessionCandidate,
     DEFAULT_AUTOMATION_INTERVAL_SECONDS,
     DEFAULT_AUTOMATION_NEWEST_SESSIONS,
+    REVIEWED_AUTOMATION_RESOURCE_POLICY,
+    is_reviewed_automation_resource_policy,
 )
 from .service import (
     AUTOMATION_POLL_LIMIT,
@@ -65,4 +67,6 @@ __all__ = [
     "SessionQualityAutomationHandler",
     "DEFAULT_AUTOMATION_INTERVAL_SECONDS",
     "DEFAULT_AUTOMATION_NEWEST_SESSIONS",
+    "REVIEWED_AUTOMATION_RESOURCE_POLICY",
+    "is_reviewed_automation_resource_policy",
 ]

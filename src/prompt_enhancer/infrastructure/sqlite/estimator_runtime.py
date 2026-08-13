@@ -178,7 +178,8 @@ class SqliteEstimatorRuntimeRepository:
             return False
         grant = connection.execute(
             """
-            SELECT provider,project_id,route,local_only,
+            SELECT provider,project_id,route,max_gpu_workers,max_cpu_workers,
+                   pause_on_battery,maximum_session_seconds,local_only,
                    remote_requires_fresh_approval,state,expires_at
             FROM automation_grants WHERE grant_id=?
             """,
@@ -200,6 +201,11 @@ class SqliteEstimatorRuntimeRepository:
             grant["provider"] == authorization.provider.value
             and grant["project_id"] == authorization.project_id
             and grant["route"] == authorization.route.value
+            and grant["route"] == "balanced"
+            and grant["max_gpu_workers"] == 1
+            and grant["max_cpu_workers"] == 1
+            and grant["pause_on_battery"] == 1
+            and grant["maximum_session_seconds"] == 1800
             and bool(grant["local_only"])
             and bool(grant["remote_requires_fresh_approval"])
             and grant["state"] == "active"

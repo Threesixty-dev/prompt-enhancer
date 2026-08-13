@@ -154,11 +154,17 @@ function localTransport(initialGrants: AutomationGrantRecord[] = []) {
   const pollAutomationGrants = vi.fn(async () => ({
     grants_checked: 1,
     grants_revoked: 0,
+    grants_power_paused: 0,
+    grants_policy_unsupported: 0,
+    power_external_observations: 1,
+    power_battery_observations: 0,
+    power_unknown_observations: 0,
     candidates_seen: 2,
     jobs_created: 1,
     jobs_reused: 1,
     jobs_superseded: 0,
     failures: 0,
+    maximum_session_runtime_deadline_enforced: false as const,
   }));
   Object.assign(transport, {
     listProjectSessions,
@@ -379,6 +385,32 @@ describe("ProjectAutomationSettings", () => {
     expect(local.listAutomationGrants).toHaveBeenCalledTimes(2);
   });
 
+  it("shows paused, unsupported, and unenforced-deadline poll truth", async () => {
+    const local = localTransport([grant()]);
+    local.pollAutomationGrants.mockResolvedValueOnce({
+      grants_checked: 2,
+      grants_revoked: 0,
+      grants_power_paused: 1,
+      grants_policy_unsupported: 1,
+      power_external_observations: 0,
+      power_battery_observations: 0,
+      power_unknown_observations: 1,
+      candidates_seen: 0,
+      jobs_created: 0,
+      jobs_reused: 0,
+      jobs_superseded: 0,
+      failures: 1,
+      maximum_session_runtime_deadline_enforced: false,
+    });
+    renderLocal(local.transport);
+    await screen.findByRole("article");
+
+    fireEvent.click(screen.getByRole("button", { name: "Check due grants now" }));
+
+    expect(await screen.findByText(/1 power-paused · 1 unsupported profiles/i)).toBeVisible();
+    expect(screen.getByText(/runtime budget hard deadline: not yet enforced/i)).toBeVisible();
+  });
+
   it("suppresses raw command errors and refuses a mismatched create response", async () => {
     const local = localTransport();
     local.createAutomationGrant.mockRejectedValueOnce(
@@ -446,9 +478,11 @@ describe("ProjectAutomationSettings", () => {
 
     const receipt = await screen.findByRole("article");
     expect(within(receipt).getByText("deep")).toBeVisible();
-    expect(within(receipt).getByText(/1 GPU .* 2 CPU/)).toBeVisible();
-    expect(within(receipt).getByText("Continue")).toBeVisible();
-    expect(within(receipt).getByText(/different valid resource profile/i)).toBeVisible();
+    expect(within(receipt).getByText("2")).toBeVisible();
+    expect(within(receipt).getByText(/current reviewed session-quality use 0/i)).toBeVisible();
+    expect(within(receipt).getByText(/historical continue policy \(unsupported\)/i)).toBeVisible();
+    expect(within(receipt).getByText(/not executable or renewable/i)).toBeVisible();
+    expect(within(receipt).getByRole("button", { name: "Renew 30 days" })).toBeDisabled();
   });
 
   it("hides unrecognized persisted error codes behind reviewed copy", async () => {

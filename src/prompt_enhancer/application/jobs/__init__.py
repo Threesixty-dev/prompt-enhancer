@@ -18,6 +18,8 @@ from .contracts import (
     AnalysisJobRecoveryResult,
     AnalysisJobRepository,
     AnalysisJobState,
+    PowerSourceReader,
+    PowerSourceState,
 )
 from .service import (
     AnalysisJobConflictError,
@@ -49,6 +51,8 @@ __all__ = [
     "AnalysisJobRecoveryResult",
     "AnalysisJobRepository",
     "AnalysisJobState",
+    "PowerSourceReader",
+    "PowerSourceState",
     "AnalysisJobConflictError",
     "AnalysisJobExecutionContext",
     "AnalysisJobExecutionError",

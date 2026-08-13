@@ -17,6 +17,7 @@ from prompt_enhancer.application.automation import (
     AutomationScheduleResult,
     AutomationSessionCandidate,
 )
+from prompt_enhancer.application.jobs import PowerSourceState
 from prompt_enhancer.domain import DataTier, Provider
 
 
@@ -180,6 +181,11 @@ class Ids:
         return GRANT
 
 
+class ExternalPower:
+    def current(self) -> PowerSourceState:
+        return PowerSourceState.EXTERNAL_POWER
+
+
 def _service(repository, access, candidates, jobs, refresher=None):
     return AutomationGrantService(
         repository,
@@ -188,6 +194,7 @@ def _service(repository, access, candidates, jobs, refresher=None):
         candidates,
         jobs,
         Ids(),
+        ExternalPower(),
         clock=lambda: NOW,
     )
 
@@ -213,11 +220,17 @@ def test_poll_schedules_changed_candidates_and_advances_interval() -> None:
     assert result == AutomationPollResult(
         grants_checked=1,
         grants_revoked=0,
+        grants_power_paused=0,
+        grants_policy_unsupported=0,
+        power_external_observations=1,
+        power_battery_observations=0,
+        power_unknown_observations=0,
         candidates_seen=1,
         jobs_created=1,
         jobs_reused=0,
         jobs_superseded=1,
         failures=0,
+        maximum_session_runtime_deadline_enforced=False,
     )
     assert repository.record is not None
     assert repository.record.next_check_at == NOW + timedelta(minutes=15)

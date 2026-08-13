@@ -222,7 +222,12 @@ class QueueAutomationJobSink:
             superseded=superseded,
         )
 
-    def cancel_for_grant(self, grant_id: str, *, now: datetime) -> int:
+    def cancel_for_grant(
+        self,
+        grant_id: str,
+        *,
+        now: datetime,
+    ) -> int:
         del now  # The queue owns its injected clock and records the exact time.
         result = self._jobs.revoke_automation_grant(grant_id)
         return result.cancelled + result.cancellation_requested

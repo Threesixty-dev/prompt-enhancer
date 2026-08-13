@@ -107,6 +107,7 @@ export type SafeTransportReasonCode =
   | "automation_project_not_indexed"
   | "automation_grant_conflict"
   | "automation_grant_not_found"
+  | "automation_resource_policy_unsupported"
   | "invalid_model_link_request"
   | "model_link_confirmation_required"
   | "no_model_link_candidates"
@@ -142,6 +143,7 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "automation_project_not_indexed",
   "automation_grant_conflict",
   "automation_grant_not_found",
+  "automation_resource_policy_unsupported",
   "invalid_model_link_request",
   "model_link_confirmation_required",
   "no_model_link_candidates",
@@ -1388,8 +1390,12 @@ const AUTOMATION_GRANT_CREATE_KEYS = new Set([
   "check_interval_seconds", "resource_policy",
 ]);
 const AUTOMATION_POLL_RESULT_KEYS = new Set([
-  "grants_checked", "grants_revoked", "candidates_seen", "jobs_created",
-  "jobs_reused", "jobs_superseded", "failures",
+  "grants_checked", "grants_revoked",
+  "grants_power_paused", "grants_policy_unsupported", "candidates_seen",
+  "power_external_observations", "power_battery_observations",
+  "power_unknown_observations",
+  "jobs_created", "jobs_reused", "jobs_superseded", "failures",
+  "maximum_session_runtime_deadline_enforced",
 ]);
 const AUTOMATION_GRANT_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 
@@ -1486,13 +1492,28 @@ function parseAutomationGrantCreateRequest(
     local_only: true,
     remote_requires_fresh_approval: true,
   });
+  if (
+    scope.resource_policy.route !== "balanced" ||
+    scope.resource_policy.max_gpu_workers !== 1 ||
+    scope.resource_policy.max_cpu_workers !== 1 ||
+    scope.resource_policy.pause_on_battery !== true ||
+    scope.resource_policy.maximum_session_seconds !== 1_800
+  ) {
+    throw new TransportError("Automation grant request was invalid", 400);
+  }
   return {
     provider: scope.provider,
     project_id: scope.project_id,
     metric_keys: scope.metric_keys,
     newest_session_limit: scope.newest_session_limit,
     check_interval_seconds: scope.check_interval_seconds,
-    resource_policy: scope.resource_policy,
+    resource_policy: {
+      route: "balanced",
+      max_gpu_workers: 1,
+      max_cpu_workers: 1,
+      pause_on_battery: true,
+      maximum_session_seconds: 1_800,
+    },
   };
 }
 
@@ -1578,11 +1599,33 @@ export function parseAutomationGrantList(
 }
 
 export function parseAutomationPollResult(value: unknown): AutomationPollResult {
+  const countKeys = [...AUTOMATION_POLL_RESULT_KEYS].filter((key) => ![
+    "maximum_session_runtime_deadline_enforced",
+  ].includes(key));
   if (
     !isRecord(value) || !hasExactKeys(value, AUTOMATION_POLL_RESULT_KEYS) ||
-    [...AUTOMATION_POLL_RESULT_KEYS].some((key) =>
+    value.maximum_session_runtime_deadline_enforced !== false ||
+    countKeys.some((key) =>
       !Number.isSafeInteger(value[key]) || (value[key] as number) < 0
-    )
+    ) ||
+    (value.grants_revoked as number) +
+      (value.grants_power_paused as number) +
+      (value.grants_policy_unsupported as number) >
+      (value.grants_checked as number) ||
+    (value.grants_policy_unsupported as number) > (value.failures as number) ||
+    (value.power_external_observations as number) +
+      (value.power_battery_observations as number) +
+      (value.power_unknown_observations as number) +
+      (value.grants_policy_unsupported as number) +
+      (value.grants_revoked as number) !==
+      (value.grants_checked as number) ||
+    (value.grants_power_paused as number) !==
+      (value.power_battery_observations as number) +
+      (value.power_unknown_observations as number) ||
+    (value.jobs_created as number) + (value.jobs_reused as number) >
+      (value.candidates_seen as number) ||
+    (value.jobs_superseded as number) >
+      (value.jobs_created as number) + (value.jobs_reused as number)
   ) {
     throw new TransportError("Automation poll response was invalid", 200);
   }

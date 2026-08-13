@@ -59,6 +59,7 @@ from prompt_enhancer.application.jobs import (
     AnalysisJobService,
     AnalysisJobState,
     AnalysisJobWorker,
+    PowerSourceState,
 )
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.database import DatabaseInvariantError, SCHEMA_VERSION
@@ -650,6 +651,7 @@ def _automation_runtime_setup(
     metric_keys: tuple[str, ...] | None = None,
     grant_project_id: str | None = None,
     grant_created_offset_days: int = 0,
+    resource_policy: AutomationResourcePolicy | None = None,
 ):  # type: ignore[no-untyped-def]
     database, seed_session = _database(tmp_path)
     clock = MutableClock()
@@ -764,7 +766,9 @@ def _automation_runtime_setup(
                     provider=Provider.CODEX,
                     project_id=selected_project,
                     metric_keys=metric_keys or (binding.metric_key,),
-                    resource_policy=AutomationResourcePolicy(route=route),
+                    resource_policy=(
+                        resource_policy or AutomationResourcePolicy(route=route)
+                    ),
                 ),
                 created_at=grant_created,
                 expires_at=grant_created + AUTOMATION_GRANT_LIFETIME,
@@ -817,6 +821,19 @@ def _automation_runtime_setup(
         ("missing", {"create_grant": False}),
         ("expired", {"grant_created_offset_days": -31}),
         ("route", {"route": AutomationRoute.FAST}),
+        ("cpu", {"resource_policy": AutomationResourcePolicy(max_cpu_workers=2)}),
+        (
+            "battery",
+            {"resource_policy": AutomationResourcePolicy(pause_on_battery=False)},
+        ),
+        (
+            "runtime",
+            {
+                "resource_policy": AutomationResourcePolicy(
+                    maximum_session_seconds=3_600
+                )
+            },
+        ),
         ("metrics", {"metric_keys": ("different.metric",)}),
         ("project", {"grant_project_id": digest("different-grant-project")}),
     ),
@@ -833,7 +850,9 @@ def test_automation_grant_must_exist_and_match_exact_local_scope(
         repository.launch(launch)
 
 
-def test_revoked_automation_grant_cancels_before_any_source_read(tmp_path) -> None:
+def test_deferred_invalid_estimator_stays_unleased_and_does_not_starve_manual(
+    tmp_path,
+) -> None:
     database, clock, catalog, repository, source, launch = _automation_runtime_setup(
         tmp_path, label="grant-revoked"
     )
@@ -845,22 +864,44 @@ def test_revoked_automation_grant_cancels_before_any_source_read(tmp_path) -> No
     assert repository.authorization_is_valid(
         launch.authorization.job_id, now=clock()
     ) is False
-    handler = EstimatorRuntimeHandler(repository, catalog, source, clock=clock)
-    worker = AnalysisJobWorker(
-        database.analysis_job_repository(),
-        {(AnalysisJobKind.ESTIMATOR_EXECUTION, Provider.CODEX): handler},
-        authorization_check=handler.authorization_check,
-        fingerprint_resolver=handler.fingerprint_resolver,
-        execution_stop_callback=handler.execution_stop_callback,
-        execution_recovery_callback=handler.execution_recovery_callback,
-        clock=clock,
-        worker_id=digest("grant-revoked-worker"),
+    manual = AnalysisJobService(
+        database.analysis_job_repository(), clock=clock
+    ).enqueue(
+        AnalysisJobIdentity(
+            kind=AnalysisJobKind.SESSION_QUALITY,
+            provider=launch.authorization.provider,
+            project_id=launch.authorization.project_id,
+            session_id=launch.authorization.session_id,
+            input_fingerprint=digest("deferred-invalid-manual-input"),
+            provenance_fingerprint=digest("deferred-invalid-manual-provenance"),
+            metric_keys=tuple(
+                binding.metric_key
+                for binding in launch.authorization.packet_bindings
+            ),
+            estimator_plan_version="synthetic-manual-plan-v1",
+            redactor_version=launch.authorization.redactor_version,
+            provider_schema_version=launch.authorization.provider_schema_version,
+        )
+    ).job
+    claimed = database.analysis_job_repository().claim_next(
+        owner=digest("grant-revoked-worker"),
+        token=digest("grant-revoked-token"),
+        now=clock(),
+        lease_duration=timedelta(seconds=30),
+        power_source=PowerSourceState.EXTERNAL_POWER,
     )
-    assert worker.run_once()
+    assert claimed is not None and claimed.job_id == manual.job_id
     snapshot = repository.get_by_job(launch.authorization.job_id)
     assert snapshot is not None
-    assert snapshot.job.state is AnalysisJobState.CANCELLED
-    assert snapshot.states[-1].state is EstimatorRuntimeState.CANCELLED
+    assert snapshot.job.state is AnalysisJobState.QUEUED
+    assert snapshot.job.attempt_count == 0
+    assert snapshot.job.lease_owner is None
+    assert snapshot.job.lease_token is None
+    assert snapshot.job.lease_expires_at is None
+    assert snapshot.states[-1].state is EstimatorRuntimeState.CREATED
+    completed_manual = database.analysis_job_repository().get(manual.job_id)
+    assert completed_manual is not None
+    assert completed_manual.state is AnalysisJobState.PREPROCESSING
     assert source.identity_reads == source.packet_reads == 0
 
 

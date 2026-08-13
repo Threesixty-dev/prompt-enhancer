@@ -19,6 +19,7 @@ from ...application.jobs import (
     AnalysisJobRecord,
     AnalysisJobRecoveryResult,
     AnalysisJobState,
+    PowerSourceState,
 )
 from ...database import DatabaseInvariantError
 from ...domain import Provider
@@ -383,6 +384,110 @@ class SqliteAnalysisJobRepository:
             superseded=superseded,
         )
 
+    @staticmethod
+    def _reconcile_ineligible_automation_jobs_locked(
+        connection: sqlite3.Connection,
+        *,
+        now: datetime,
+    ) -> None:
+        """Fail closed stale/unsupported non-runtime automation queue work.
+
+        Estimator executions have a separate append-only runtime sealing
+        boundary and are deliberately excluded from this generic maintenance.
+        """
+
+        timestamp = to_iso(now)
+        metric_mismatch = """
+            EXISTS (
+              SELECT metric_key, ordinal FROM analysis_job_metrics
+              WHERE job_id = analysis_jobs.job_id
+              EXCEPT
+              SELECT metric_key, ordinal FROM automation_grant_metrics
+              WHERE grant_id = analysis_jobs.automation_grant_id
+            )
+            OR EXISTS (
+              SELECT metric_key, ordinal FROM automation_grant_metrics
+              WHERE grant_id = analysis_jobs.automation_grant_id
+              EXCEPT
+              SELECT metric_key, ordinal FROM analysis_job_metrics
+              WHERE job_id = analysis_jobs.job_id
+            )
+        """
+        reasons_and_conditions = (
+            (
+                "automation_grant_not_found",
+                "NOT EXISTS (SELECT 1 FROM automation_grants AS grant "
+                "WHERE grant.grant_id = analysis_jobs.automation_grant_id)",
+                (),
+            ),
+            (
+                "automation_grant_inactive",
+                "EXISTS (SELECT 1 FROM automation_grants AS grant "
+                "WHERE grant.grant_id = analysis_jobs.automation_grant_id "
+                "AND grant.state = 'revoked')",
+                (),
+            ),
+            (
+                "automation_grant_expired",
+                "EXISTS (SELECT 1 FROM automation_grants AS grant "
+                "WHERE grant.grant_id = analysis_jobs.automation_grant_id "
+                "AND (grant.state = 'expired' OR (grant.state = 'active' "
+                "AND grant.expires_at <= ?)))",
+                (timestamp,),
+            ),
+            (
+                "automation_resource_policy_unsupported",
+                "EXISTS (SELECT 1 FROM automation_grants AS grant "
+                "WHERE grant.grant_id = analysis_jobs.automation_grant_id "
+                "AND grant.state = 'active' AND grant.expires_at > ? AND ("
+                "grant.route <> 'balanced' OR grant.max_gpu_workers <> 1 OR "
+                "grant.max_cpu_workers <> 1 OR grant.pause_on_battery <> 1 OR "
+                "grant.maximum_session_seconds <> 1800))",
+                (timestamp,),
+            ),
+            (
+                "automation_grant_scope_mismatch",
+                "EXISTS (SELECT 1 FROM automation_grants AS grant "
+                "WHERE grant.grant_id = analysis_jobs.automation_grant_id "
+                "AND grant.state = 'active' AND grant.expires_at > ? "
+                "AND grant.route = 'balanced' AND grant.max_gpu_workers = 1 "
+                "AND grant.max_cpu_workers = 1 AND grant.pause_on_battery = 1 "
+                "AND grant.maximum_session_seconds = 1800 AND ("
+                "analysis_jobs.kind <> 'session_quality' OR "
+                "grant.local_only <> 1 OR "
+                "grant.remote_requires_fresh_approval <> 1 OR "
+                "grant.provider <> analysis_jobs.provider OR "
+                "grant.project_id <> analysis_jobs.project_id OR "
+                f"{metric_mismatch}))",
+                (timestamp,),
+            ),
+        )
+        for reason, condition, parameters in reasons_and_conditions:
+            connection.execute(
+                f"""
+                UPDATE analysis_jobs SET
+                    state = 'cancelled', stage_number = NULL,
+                    cancel_requested = 1, last_error_code = ?,
+                    terminal_reason_code = ?, terminal_at = ?, updated_at = ?
+                WHERE automation_grant_id IS NOT NULL
+                  AND kind <> 'estimator_execution'
+                  AND state IN ('queued', 'awaiting_approval')
+                  AND ({condition})
+                """,
+                (reason, reason, timestamp, timestamp, *parameters),
+            )
+            connection.execute(
+                f"""
+                UPDATE analysis_jobs SET
+                    cancel_requested = 1, last_error_code = ?, updated_at = ?
+                WHERE automation_grant_id IS NOT NULL
+                  AND kind <> 'estimator_execution'
+                  AND state IN ('preprocessing', 'stage_n')
+                  AND ({condition})
+                """,
+                (reason, timestamp, *parameters),
+            )
+
     def recover_expired(self, *, now: datetime) -> AnalysisJobRecoveryResult:
         self._ensure_initialized()
         now = require_utc(now)
@@ -403,25 +508,86 @@ class SqliteAnalysisJobRepository:
         token: str,
         now: datetime,
         lease_duration: timedelta,
+        power_source: PowerSourceState = PowerSourceState.UNKNOWN,
     ) -> AnalysisJobRecord | None:
         self._ensure_initialized()
         require_safe_id(owner)
         require_safe_id(token)
         now = require_utc(now)
         lease_duration = self._validate_lease_duration(lease_duration)
+        if not isinstance(power_source, PowerSourceState):
+            raise ValueError("power source state is invalid")
         timestamp = to_iso(now)
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 self._recover_expired_locked(connection, now=now)
+                self._reconcile_ineligible_automation_jobs_locked(
+                    connection,
+                    now=now,
+                )
                 row = connection.execute(
                     """
-                    SELECT job_id FROM analysis_jobs
-                    WHERE state = 'queued' AND cancel_requested = 0
-                      AND available_at <= ?
-                    ORDER BY available_at, created_at, job_id LIMIT 1
+                    SELECT queued.job_id
+                    FROM analysis_jobs AS queued
+                    LEFT JOIN automation_grants AS grant
+                      ON grant.grant_id = queued.automation_grant_id
+                    WHERE queued.state = 'queued'
+                      AND queued.cancel_requested = 0
+                      AND queued.available_at <= ?
+                      AND (
+                        queued.automation_grant_id IS NULL
+                        OR (
+                          grant.state = 'active'
+                          AND grant.expires_at > ?
+                          AND grant.route = 'balanced'
+                          AND grant.max_gpu_workers = 1
+                          AND grant.max_cpu_workers = 1
+                          AND grant.pause_on_battery = 1
+                          AND grant.maximum_session_seconds = 1800
+                          AND grant.local_only = 1
+                          AND grant.remote_requires_fresh_approval = 1
+                          AND queued.kind IN (
+                            'session_quality', 'estimator_execution'
+                          )
+                          AND grant.provider = queued.provider
+                          AND grant.project_id = queued.project_id
+                          AND NOT EXISTS (
+                            SELECT metric_key, ordinal
+                            FROM analysis_job_metrics
+                            WHERE job_id = queued.job_id
+                            EXCEPT
+                            SELECT metric_key, ordinal
+                            FROM automation_grant_metrics
+                            WHERE grant_id = grant.grant_id
+                          )
+                          AND NOT EXISTS (
+                            SELECT metric_key, ordinal
+                            FROM automation_grant_metrics
+                            WHERE grant_id = grant.grant_id
+                            EXCEPT
+                            SELECT metric_key, ordinal
+                            FROM analysis_job_metrics
+                            WHERE job_id = queued.job_id
+                          )
+                          AND ? = 'external_power'
+                        )
+                      )
+                      AND (
+                        queued.automation_grant_id IS NULL
+                        OR NOT EXISTS (
+                          SELECT 1 FROM analysis_jobs AS active
+                          WHERE active.automation_grant_id =
+                                queued.automation_grant_id
+                            AND active.state IN ('preprocessing', 'stage_n')
+                            AND active.lease_expires_at > ?
+                        )
+                      )
+                    ORDER BY queued.available_at, queued.created_at,
+                             queued.job_id
+                    LIMIT 1
                     """,
-                    (timestamp,),
+                    (timestamp, timestamp, power_source.value, timestamp),
                 ).fetchone()
                 if row is None:
                     connection.commit()
@@ -709,6 +875,7 @@ class SqliteAnalysisJobRepository:
         self._ensure_initialized()
         require_safe_id(automation_grant_id)
         now = require_utc(now)
+        reason_code = "automation_grant_revoked"
         timestamp = to_iso(now)
         with self._connection_scope() as connection:
             try:
@@ -731,24 +898,30 @@ class SqliteAnalysisJobRepository:
                     UPDATE analysis_jobs SET
                         state = 'cancelled', stage_number = NULL,
                         cancel_requested = 1,
-                        last_error_code = 'automation_grant_revoked',
-                        terminal_reason_code = 'automation_grant_revoked',
+                        last_error_code = ?,
+                        terminal_reason_code = ?,
                         terminal_at = ?, updated_at = ?
                     WHERE automation_grant_id = ?
                       AND state IN ('queued', 'awaiting_approval')
                     """,
-                    (timestamp, timestamp, automation_grant_id),
+                    (
+                        reason_code,
+                        reason_code,
+                        timestamp,
+                        timestamp,
+                        automation_grant_id,
+                    ),
                 ).rowcount
                 requested = connection.execute(
                     """
                     UPDATE analysis_jobs SET
                         cancel_requested = 1,
-                        last_error_code = 'automation_grant_revoked',
+                        last_error_code = ?,
                         updated_at = ?
                     WHERE automation_grant_id = ?
                       AND state IN ('preprocessing', 'stage_n')
                     """,
-                    (timestamp, automation_grant_id),
+                    (reason_code, timestamp, automation_grant_id),
                 ).rowcount
                 connection.commit()
                 return AnalysisJobCancellationBatchResult(

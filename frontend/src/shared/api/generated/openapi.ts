@@ -1248,7 +1248,7 @@ export interface components {
             /** Project Id */
             project_id: string;
             provider: components["schemas"]["Provider"];
-            resource_policy?: components["schemas"]["AutomationResourcePolicy"];
+            resource_policy?: components["schemas"]["ReviewedAutomationResourcePolicyRequest"];
         };
         /** AutomationGrantRecord */
         AutomationGrantRecord: {
@@ -1329,6 +1329,10 @@ export interface components {
             failures: number;
             /** Grants Checked */
             grants_checked: number;
+            /** Grants Policy Unsupported */
+            grants_policy_unsupported: number;
+            /** Grants Power Paused */
+            grants_power_paused: number;
             /** Grants Revoked */
             grants_revoked: number;
             /** Jobs Created */
@@ -1337,31 +1341,50 @@ export interface components {
             jobs_reused: number;
             /** Jobs Superseded */
             jobs_superseded: number;
+            /**
+             * Maximum Session Runtime Deadline Enforced
+             * @default false
+             * @constant
+             */
+            maximum_session_runtime_deadline_enforced: false;
+            /** Power Battery Observations */
+            power_battery_observations: number;
+            /** Power External Observations */
+            power_external_observations: number;
+            /** Power Unknown Observations */
+            power_unknown_observations: number;
         };
         /** AutomationResourcePolicy */
         AutomationResourcePolicy: {
             /**
              * Max Cpu Workers
+             * @description Persisted per-grant CPU admission ceiling; only one is currently reviewed.
              * @default 1
              */
             max_cpu_workers: number;
             /**
              * Max Gpu Workers
+             * @description Persisted GPU admission ceiling; current session-quality use is zero.
              * @default 1
              * @constant
              */
             max_gpu_workers: 1;
             /**
              * Maximum Session Seconds
+             * @description Declared runtime budget; it does not imply a hard enforced deadline.
              * @default 1800
              */
             maximum_session_seconds: number;
             /**
              * Pause On Battery
+             * @description Admission intent only; it does not promise interruption of running work.
              * @default true
              */
             pause_on_battery: boolean;
-            /** @default balanced */
+            /**
+             * @description Persisted historical route; only balanced is currently executable.
+             * @default balanced
+             */
             route: components["schemas"]["AutomationRoute"];
         };
         /**
@@ -3068,6 +3091,47 @@ export interface components {
          * @enum {string}
          */
         RetentionClass: "local_ephemeral" | "remote_zero_retention" | "remote_30_day" | "remote_provider_standard";
+        /**
+         * ReviewedAutomationResourcePolicyRequest
+         * @description The only resource profile accepted for newly issued grants.
+         */
+        ReviewedAutomationResourcePolicyRequest: {
+            /**
+             * Max Cpu Workers
+             * @description Per-grant concurrent admission ceiling is one CPU worker.
+             * @default 1
+             * @constant
+             */
+            max_cpu_workers: 1;
+            /**
+             * Max Gpu Workers
+             * @description Admission ceiling is one; current session-quality use is zero.
+             * @default 1
+             * @constant
+             */
+            max_gpu_workers: 1;
+            /**
+             * Maximum Session Seconds
+             * @description Declared runtime budget; a hard execution deadline is not yet enforced.
+             * @default 1800
+             * @constant
+             */
+            maximum_session_seconds: 1800;
+            /**
+             * Pause On Battery
+             * @description Battery or unknown power pauses admission only; running work is not interrupted.
+             * @default true
+             * @constant
+             */
+            pause_on_battery: true;
+            /**
+             * Route
+             * @description Balanced is the only reviewed route for new grants.
+             * @default balanced
+             * @constant
+             */
+            route: "balanced";
+        };
         /** SanitizedModelLinkValidationFailureResponse */
         SanitizedModelLinkValidationFailureResponse: {
             /**

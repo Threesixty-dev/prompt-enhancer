@@ -27,6 +27,8 @@ from .contracts import (
     AnalysisJobRecord,
     AnalysisJobRepository,
     AnalysisJobState,
+    PowerSourceReader,
+    PowerSourceState,
 )
 
 
@@ -410,6 +412,7 @@ class AnalysisJobWorker:
             lambda _job, _state, _reason: None
         ),
         execution_recovery_callback: ExecutionRecoveryCallback = lambda _now: None,
+        power_source: PowerSourceReader | None = None,
         clock: Clock = _utc_now,
         lease_duration: timedelta = DEFAULT_ANALYSIS_JOB_LEASE,
         poll_seconds: float = DEFAULT_ANALYSIS_JOB_POLL_SECONDS,
@@ -423,6 +426,7 @@ class AnalysisJobWorker:
         self._fingerprint_resolver = fingerprint_resolver
         self._execution_stop_callback = execution_stop_callback
         self._execution_recovery_callback = execution_recovery_callback
+        self._power_source = power_source
         self._clock = clock
         self._lease_duration = lease_duration
         self._poll_seconds = poll_seconds
@@ -467,11 +471,13 @@ class AnalysisJobWorker:
         now = self._clock()
         self._execution_recovery_callback(now)
         token = secrets.token_hex(32)
+        power_source = self._current_power_source()
         job = self._repository.claim_next(
             owner=self._worker_id,
             token=token,
             now=now,
             lease_duration=self._lease_duration,
+            power_source=power_source,
         )
         if job is None:
             return False
@@ -530,6 +536,15 @@ class AnalysisJobWorker:
         except Exception:
             self._retry_safely(context.lease, "execution_handler_failed", True)
         return True
+
+    def _current_power_source(self) -> PowerSourceState:
+        if self._power_source is None:
+            return PowerSourceState.UNKNOWN
+        try:
+            state = self._power_source.current()
+        except Exception:
+            return PowerSourceState.UNKNOWN
+        return state if isinstance(state, PowerSourceState) else PowerSourceState.UNKNOWN
 
     def _retry_safely(
         self,
