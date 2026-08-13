@@ -732,7 +732,10 @@ class RepositorySealedSyntheticAggregationValidationV1(
     repository_enumeration_performed: Literal[True] = True
     bounded_sealed_stratum_collection_complete: Literal[True] = True
     sealed: Literal[True] = True
-    idempotent_issue_guaranteed: Literal[True] = True
+    idempotent_issue_while_receipt_exists_guaranteed: Literal[True] = True
+    privacy_deletion_revokes_replay_history: Literal[True] = True
+    privacy_deletion_erases_idempotency_binding: Literal[True] = True
+    privacy_deletion_retains_idempotency_tombstone: Literal[False] = False
     embedded_aggregation_repository_owned: Literal[False] = False
     comparison_stratum_complete: Literal[False] = False
     population_completeness_verified: Literal[False] = False
@@ -934,8 +937,12 @@ class TemporalSyntheticAggregationValidationRepositoryV1(Protocol):
 
     An implementation must bind the idempotency key to the exact anchor,
     metric, and window before it captures its one repository UTC ``as_of``.
-    Exact-key retries return the original immutable receipt without recapturing
-    the clock or re-enumerating; reuse against a changed request fails closed.
+    While its receipt exists, exact-key retries return the original immutable
+    receipt without recapturing the clock or re-enumerating; reuse against a
+    changed request fails closed before clock capture or enumeration. Privacy
+    deletion atomically erases the receipt, key binding, members, and graph
+    commitments without a tombstone. Later key reuse is therefore a fresh
+    issuance—even for changed inputs—not a replay or remembered conflict.
     """
 
     def validate_synthetic_aggregation(

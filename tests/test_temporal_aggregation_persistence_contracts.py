@@ -298,7 +298,10 @@ def test_idempotency_key_is_strict_and_binds_query_enumeration_and_validation() 
     assert right.predicate.fingerprint != left.predicate.fingerprint
     assert right.enumeration.enumeration_id != left.enumeration.enumeration_id
     assert right.validation_receipt_id != left.validation_receipt_id
-    assert left.idempotent_issue_guaranteed is True
+    assert left.idempotent_issue_while_receipt_exists_guaranteed is True
+    assert left.privacy_deletion_revokes_replay_history is True
+    assert left.privacy_deletion_erases_idempotency_binding is True
+    assert left.privacy_deletion_retains_idempotency_tombstone is False
 
     conflicting_request = (
         SyntheticAggregationCollectionPredicateV1.from_repository_query(
@@ -594,6 +597,18 @@ def test_outer_receipt_rejects_graph_nested_draft_and_capability_tampering() -> 
         validation.model_copy(update={"aggregation_draft": forged_draft}),
         validation.model_copy(update={"aggregate_materialization_allowed": True}),
         validation.model_copy(update={"sealed": False}),
+        validation.model_copy(
+            update={"idempotent_issue_while_receipt_exists_guaranteed": False}
+        ),
+        validation.model_copy(
+            update={"privacy_deletion_revokes_replay_history": False}
+        ),
+        validation.model_copy(
+            update={"privacy_deletion_erases_idempotency_binding": False}
+        ),
+        validation.model_copy(
+            update={"privacy_deletion_retains_idempotency_tombstone": True}
+        ),
     )
     for attack in attacks:
         with pytest.raises(ValidationError):
@@ -653,7 +668,9 @@ def test_capability_ceiling_preserves_embedded_draft_as_unsealed_and_unowned() -
         "repository_enumeration_performed",
         "bounded_sealed_stratum_collection_complete",
         "sealed",
-        "idempotent_issue_guaranteed",
+        "idempotent_issue_while_receipt_exists_guaranteed",
+        "privacy_deletion_revokes_replay_history",
+        "privacy_deletion_erases_idempotency_binding",
     }
     for name in type(validation).model_fields:
         value = getattr(validation, name)
