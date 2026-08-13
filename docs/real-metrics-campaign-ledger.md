@@ -366,6 +366,33 @@ Schema v20 contains no activation slot or activation API. The checkpoint passed
 independent adversarial review. This proves decision integrity, not estimator
 eligibility or product activation.
 
+Pushed checkpoint `ac84a40` (`Expose truthful local metric coverage`) adds an
+authenticated, content-free, counts-only coverage report and matching local UI
+for the provider catalog or one project. It reports an exact local SQLite
+snapshot while explicitly leaving provider-history completeness unknown. Latest
+attempt status is kept separate from the latest completed Coaching snapshot;
+contract-compatible, contract-incompatible, and absent results remain distinct,
+and per-metric provenance cohorts are not merged. The Codex descriptor still
+makes 13 of 20 metric definitions structurally attemptable; this is structural
+evidence-channel support, not a claim that 13 metrics were measured in any
+session.
+
+Automation coverage in this checkpoint means only that a metric is selected by
+at least one bounded active local grant. It proves neither completed execution
+nor full-catalog automation coverage. The report grants no product/source or
+population-completeness authority, and no comparison, snapshot, recommendation,
+or outcome authority. It therefore improves P1 measurement/readiness visibility
+and local P2 coverage diagnostics without changing either phase's acceptance
+gate or blockers.
+
+Frozen engineering evidence for the exact
+`ac84a4080ba6f5f40010576970dbc71daaf94587` tree is 1,817 passing backend tests,
+4 expected platform-only symlink skips, and one existing warning; 385 passing
+frontend tests; a successful production build; and 13 passing Playwright tests.
+The privacy scan, compile checks, and diff validation passed, and independent
+backend and frontend reviews returned `PASS`. These are implementation and
+privacy results, not calibration, product-history, or recommendation evidence.
+
 ## P2 foundation evidence
 
 Checkpoints `249f6c0` and `4db7052` define a prospective, content-free temporal
