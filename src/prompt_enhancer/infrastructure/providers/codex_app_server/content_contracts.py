@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from ....application.analysis.text_contracts import (
     MAX_REDACTED_MESSAGE_CHARACTERS,
 )
-from .errors import CodexCompatibilityError, CodexLimitError
+from .errors import CodexCompatibilityError, CodexThreadStructureLimitError
 
 
 TEXT_CONTENT_ADAPTER_VERSION = "0.3.0"
@@ -133,7 +133,9 @@ def _bounded_string(
     if not isinstance(value, str) or (not value and not allow_empty):
         raise CodexCompatibilityError(f"provider {field} has an unsupported shape")
     if len(value) > maximum:
-        raise CodexLimitError(f"provider {field} exceeded the character bound")
+        raise CodexThreadStructureLimitError(
+            f"provider {field} exceeded the character bound"
+        )
     if "\x00" in value:
         raise CodexCompatibilityError(f"provider {field} contains an unsupported control")
     return value
@@ -159,10 +161,14 @@ def _append_fragment(
     if not private_text.strip():
         return total_characters
     if len(fragments) >= limits.max_text_fragments_per_session:
-        raise CodexLimitError("provider read exceeded the text-fragment bound")
+        raise CodexThreadStructureLimitError(
+            "provider read exceeded the text-fragment bound"
+        )
     total_characters += len(private_text)
     if total_characters > limits.max_total_text_characters:
-        raise CodexLimitError("provider read exceeded the total text bound")
+        raise CodexThreadStructureLimitError(
+            "provider read exceeded the total text bound"
+        )
     fragments.append(
         RawCodexTextFragment(
             turn_id=SecretStr(turn_id),
@@ -194,7 +200,9 @@ def parse_text_thread_read(
     if not isinstance(turns, list):
         raise CodexCompatibilityError("provider text turns have an unsupported shape")
     if len(turns) > effective_limits.max_turns_per_session:
-        raise CodexLimitError("provider text read exceeded the turn bound")
+        raise CodexThreadStructureLimitError(
+            "provider text read exceeded the turn bound"
+        )
 
     fragments: list[RawCodexTextFragment] = []
     extraction_complete = True
@@ -210,10 +218,14 @@ def parse_text_thread_read(
         if not isinstance(items, list):
             raise CodexCompatibilityError("provider text items have an unsupported shape")
         if len(items) > effective_limits.max_items_per_turn:
-            raise CodexLimitError("provider text read exceeded the per-turn item bound")
+            raise CodexThreadStructureLimitError(
+                "provider text read exceeded the per-turn item bound"
+            )
         total_items += len(items)
         if total_items > effective_limits.max_total_items:
-            raise CodexLimitError("provider text read exceeded the total item bound")
+            raise CodexThreadStructureLimitError(
+                "provider text read exceeded the total item bound"
+            )
 
         for item in items:
             if not isinstance(item, dict):
@@ -240,7 +252,7 @@ def parse_text_thread_read(
                         "provider user message has an unsupported shape"
                     )
                 if len(content) > effective_limits.max_user_content_parts_per_item:
-                    raise CodexLimitError(
+                    raise CodexThreadStructureLimitError(
                         "provider user message exceeded the content-part bound"
                     )
                 for content_index, part in enumerate(content):

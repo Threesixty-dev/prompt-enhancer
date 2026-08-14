@@ -19,6 +19,14 @@ import {
 
 type ReviewLabel = ModelLinkAnnotationRequest["label"];
 
+const TERMINAL_SOURCE_LIMIT_REASONS = new Set([
+  "source_selection_limit",
+  "source_provider_response_limit",
+  "source_thread_structure_limit",
+  "source_preview_window_limit",
+  "source_resource_limit",
+]);
+
 function statusOf(error: unknown): number | null {
   return typeof error === "object" &&
     error !== null &&
@@ -54,8 +62,20 @@ function safeRunError(error: unknown): string {
   if (reason === "provider_compatibility_blocked") {
     return "Installed-schema compatibility changed. Recheck compatibility before retrying.";
   }
+  if (reason === "source_selection_limit") {
+    return "The current Codex session catalog exceeds the local selection-scan limit. No experiment result was stored.";
+  }
+  if (reason === "source_provider_response_limit") {
+    return "A local Codex response exceeded the transport limit before the experiment window could be selected. No result was stored.";
+  }
+  if (reason === "source_thread_structure_limit") {
+    return "The selected session's full local thread structure exceeds this adapter version's parser limits. No result was stored.";
+  }
+  if (reason === "source_preview_window_limit") {
+    return "The selected focus message cannot fit in the fixed local experiment window. No partial result was stored.";
+  }
   if (reason === "source_resource_limit") {
-    return "This session exceeds the fixed local experiment bounds; no partial result was stored.";
+    return "The local source reached an unclassified safety limit before the experiment window could be prepared. No result was stored.";
   }
   if (reason === "source_timeout" || reason === "provider_unavailable") {
     return "The local Codex read was unavailable or timed out. Keep Codex open and retry once.";
@@ -145,6 +165,7 @@ export function ModelLinkExperimentPanel({
   const [running, setRunning] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [runError, setRunError] = useState("");
+  const [terminalRunFailure, setTerminalRunFailure] = useState(false);
   const [annotationError, setAnnotationError] = useState("");
   const [pendingLinkId, setPendingLinkId] = useState<string | null>(null);
   const requestController = useRef<AbortController | null>(null);
@@ -153,6 +174,8 @@ export function ModelLinkExperimentPanel({
     const controller = new AbortController();
     setLoading(true);
     setLoadError("");
+    setRunError("");
+    setTerminalRunFailure(false);
     setExperiment(null);
     setOutcome(null);
     transport
@@ -194,11 +217,12 @@ export function ModelLinkExperimentPanel({
   const suggestions = outcome?.suggestions ?? [];
 
   async function runExperiment() {
-    if (running || blocker !== null) return;
+    if (running || blocker !== null || terminalRunFailure) return;
     const controller = new AbortController();
     requestController.current = controller;
     setRunning(true);
     setRunError("");
+    setTerminalRunFailure(false);
     setAnnotationError("");
     setOutcome(null);
     try {
@@ -216,7 +240,13 @@ export function ModelLinkExperimentPanel({
       setOutcome(parsed);
       setExperiment(parsed.experiment);
     } catch (error) {
-      if (!controller.signal.aborted) setRunError(safeRunError(error));
+      if (!controller.signal.aborted) {
+        const reason = reasonOf(error);
+        setRunError(safeRunError(error));
+        setTerminalRunFailure(
+          reason !== null && TERMINAL_SOURCE_LIMIT_REASONS.has(reason),
+        );
+      }
     } finally {
       if (!controller.signal.aborted) setRunning(false);
       requestController.current = null;
@@ -286,9 +316,14 @@ export function ModelLinkExperimentPanel({
           ) : (
             <button
               className="button button--primary"
-              disabled={blocker !== null}
+              disabled={blocker !== null || terminalRunFailure}
               onClick={() => void runExperiment()}
-              title={blocker ?? undefined}
+              title={
+                blocker ??
+                  (terminalRunFailure
+                    ? "This session cannot be prepared within the current local source limits."
+                    : undefined)
+              }
               type="button"
             >
               Run Qwen + BGE locally
@@ -298,11 +333,13 @@ export function ModelLinkExperimentPanel({
       </header>
 
       <div className="model-link-experiment__privacy" role="note">
-        <strong>One explicit bounded read</strong>
+        <strong>One explicit local read</strong>
         <span>
-          Pressing Run confirms one local read of up to 100 redacted messages. Up to
-          8 requests and 8 later candidates per request enter offline cached models.
-          Review excerpts exist only in this response and browser view; they are not
+          Codex first returns the selected session to a size-limited local adapter;
+          oversized responses fail closed before the experiment window is selected.
+          Up to 100 redacted messages, 8 requests, and 8 later candidates per request
+          enter offline cached models. Review excerpts exist only in this response and
+          browser view; they are not
           persisted. Redaction reduces exposure but is not anonymization.
         </span>
       </div>

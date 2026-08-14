@@ -19,11 +19,13 @@ from prompt_enhancer.application.analysis.model_link_experiments import (
     ModelLinkModelIdentity,
     ModelLinkRecommendation,
     ModelLinkRunRecord,
+    ModelLinkSourceError,
     ModelLinkStoredExperiment,
     ModelLinkStoredLink,
     ModelLinkSuggestion,
     ModelLinkCandidateKind,
 )
+from prompt_enhancer.application.analysis.text_source import TextSourceFailureReason
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.database import Database
 from prompt_enhancer.domain import Provider
@@ -232,6 +234,51 @@ def test_experiment_error_is_fixed_and_discards_exception_detail(tmp_path) -> No
         }
     }
     assert "SYNTHETIC_PRIVATE_CANARY" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_message"),
+    (
+        (
+            TextSourceFailureReason.SELECTION_LIMIT,
+            "provider session selection exceeds the local scan bounds",
+        ),
+        (
+            TextSourceFailureReason.PROVIDER_RESPONSE_LIMIT,
+            "local provider response exceeds the transport bound",
+        ),
+        (
+            TextSourceFailureReason.THREAD_STRUCTURE_LIMIT,
+            "selected session structure exceeds the local parser bounds",
+        ),
+        (
+            TextSourceFailureReason.PREVIEW_WINDOW_LIMIT,
+            "selected focus message exceeds the local experiment window",
+        ),
+    ),
+)
+def test_experiment_source_limits_are_exact_and_content_free(
+    tmp_path,
+    reason: TextSourceFailureReason,
+    expected_message: str,
+) -> None:
+    client, session_id, _ = _client(tmp_path, error=ModelLinkSourceError(reason))
+
+    with client:
+        response = client.post(
+            f"/v1/sessions/{session_id}/model-link-experiments",
+            json={"confirmation": MODEL_LINK_CONFIRMATION, "device": "auto"},
+            headers={
+                API_TOKEN_HEADER: TOKEN,
+                "Idempotency-Key": "example-link-source-limit-0001",
+            },
+        )
+
+    assert response.status_code == 413
+    assert response.json() == {
+        "detail": {"code": reason.value, "message": expected_message}
+    }
+    assert "PRIVATE" not in response.text
 
 
 def test_human_annotation_is_revisioned_without_excerpts(tmp_path) -> None:

@@ -14,8 +14,8 @@ import time
 from typing import BinaryIO, Callable
 
 from ..errors import (
-    CodexLimitError,
     CodexProtocolViolation,
+    CodexResponseLimitError,
     CodexRequestRejected,
     CodexTransportError,
     CodexTransportTimeout,
@@ -183,7 +183,9 @@ class StdioJsonRpcTransport:
         if line is None:
             raise CodexTransportError("Codex App Server transport closed unexpectedly")
         if len(line) > self._response_json_line_bytes:
-            raise CodexLimitError("provider JSON-RPC line exceeded the configured bound")
+            raise CodexResponseLimitError(
+                "provider JSON-RPC line exceeded the configured bound"
+            )
         if not line.endswith(b"\n"):
             raise CodexProtocolViolation("provider returned an unterminated JSON-RPC line")
         try:

@@ -492,9 +492,29 @@ def test_quality_command_errors_are_sanitized(
             "selected session is absent from the current provider snapshot",
         ),
         (
+            TextSourceFailureReason.SELECTION_LIMIT,
+            413,
+            "provider session selection exceeds the local scan bounds",
+        ),
+        (
+            TextSourceFailureReason.PROVIDER_RESPONSE_LIMIT,
+            413,
+            "local provider response exceeds the transport bound",
+        ),
+        (
+            TextSourceFailureReason.THREAD_STRUCTURE_LIMIT,
+            413,
+            "selected session structure exceeds the local parser bounds",
+        ),
+        (
+            TextSourceFailureReason.PREVIEW_WINDOW_LIMIT,
+            413,
+            "selected focus message exceeds the local preview bound",
+        ),
+        (
             TextSourceFailureReason.RESOURCE_LIMIT,
             413,
-            "selected session exceeds the local analysis bounds",
+            "local source exceeded an unspecified resource bound",
         ),
         (
             TextSourceFailureReason.TIMEOUT,

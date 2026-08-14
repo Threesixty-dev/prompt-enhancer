@@ -176,6 +176,37 @@ describe("ModelLinkExperimentPanel", () => {
     );
     expect(document.body.textContent).not.toContain("SYNTHETIC_PRIVATE_CANARY");
   });
+
+  it("does not offer another identical model run after a terminal provider-response limit", async () => {
+    const start = vi.fn(async () => {
+      throw new TransportError(
+        "SYNTHETIC_PRIVATE_LIMIT_CANARY",
+        413,
+        "source_provider_response_limit",
+      );
+    });
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelLinkExperiment: async () => {
+        throw new TransportError("not found", 404);
+      },
+      startModelLinkExperiment: start,
+    };
+    renderPanel(transport);
+    const run = await screen.findByRole("button", {
+      name: "Run Qwen + BGE locally",
+    });
+
+    fireEvent.click(run);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /local Codex response exceeded the transport limit/i,
+    );
+    expect(document.body.textContent).not.toContain("SYNTHETIC_PRIVATE_LIMIT_CANARY");
+    expect(run).toBeDisabled();
+    fireEvent.click(run);
+    expect(start).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("model-link runtime contract", () => {

@@ -2655,7 +2655,7 @@ export interface components {
          * ModelLinkFailureCode
          * @enum {string}
          */
-        ModelLinkFailureCode: "redacted_content_consent_required" | "session_not_in_safe_index" | "provider_compatibility_blocked" | "invalid_model_link_request" | "model_link_confirmation_required" | "no_model_link_candidates" | "local_model_execution_failed" | "model_link_persistence_failed" | "model_link_revision_conflict" | "model_link_experiment_not_found" | "source_schema_unsupported" | "selection_snapshot_miss" | "source_resource_limit" | "source_timeout" | "provider_unavailable" | "no_analyzable_text" | "provider_protocol_rejected";
+        ModelLinkFailureCode: "redacted_content_consent_required" | "session_not_in_safe_index" | "provider_compatibility_blocked" | "invalid_model_link_request" | "model_link_confirmation_required" | "no_model_link_candidates" | "local_model_execution_failed" | "model_link_persistence_failed" | "model_link_revision_conflict" | "model_link_experiment_not_found" | "source_schema_unsupported" | "selection_snapshot_miss" | "source_selection_limit" | "source_provider_response_limit" | "source_thread_structure_limit" | "source_preview_window_limit" | "source_resource_limit" | "source_timeout" | "provider_unavailable" | "no_analyzable_text" | "provider_protocol_rejected";
         /** ModelLinkFailureDetail */
         ModelLinkFailureDetail: {
             code: components["schemas"]["ModelLinkFailureCode"];
@@ -3681,7 +3681,7 @@ export interface components {
          * @description Closed HTTP error vocabulary; values never contain provider data.
          * @enum {string}
          */
-        SessionTextAnalysisFailureCode: "redacted_content_consent_required" | "session_not_in_safe_index" | "analysis_idempotency_conflict" | "invalid_analysis_request" | "confirmation_required" | "source_schema_unsupported" | "selection_snapshot_miss" | "source_resource_limit" | "source_timeout" | "provider_unavailable" | "no_analyzable_text" | "provider_protocol_rejected" | "provider_compatibility_blocked" | "analysis_persistence_failed" | "metric_execution_failed" | "redaction_preview_not_found" | "redaction_preview_expired" | "redaction_preview_consumed" | "redaction_preview_binding_mismatch" | "redaction_preview_capacity_reached";
+        SessionTextAnalysisFailureCode: "redacted_content_consent_required" | "session_not_in_safe_index" | "analysis_idempotency_conflict" | "invalid_analysis_request" | "confirmation_required" | "source_schema_unsupported" | "selection_snapshot_miss" | "source_selection_limit" | "source_provider_response_limit" | "source_thread_structure_limit" | "source_preview_window_limit" | "source_resource_limit" | "source_timeout" | "provider_unavailable" | "no_analyzable_text" | "provider_protocol_rejected" | "provider_compatibility_blocked" | "analysis_persistence_failed" | "metric_execution_failed" | "redaction_preview_not_found" | "redaction_preview_expired" | "redaction_preview_consumed" | "redaction_preview_binding_mismatch" | "redaction_preview_capacity_reached";
         /** SessionTextAnalysisFailureDetail */
         SessionTextAnalysisFailureDetail: {
             code: components["schemas"]["SessionTextAnalysisFailureCode"];

@@ -1533,6 +1533,11 @@ describe("same-origin HTTP transport", () => {
     "no_analyzable_text",
     "provider_protocol_rejected",
     "provider_compatibility_blocked",
+    "source_selection_limit",
+    "source_provider_response_limit",
+    "source_thread_structure_limit",
+    "source_preview_window_limit",
+    "source_resource_limit",
   ] as const)("extracts allowlisted detail code %s without forwarding server messages", async (code) => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))

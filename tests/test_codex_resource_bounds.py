@@ -18,6 +18,7 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.contracts import 
 from prompt_enhancer.infrastructure.providers.codex_app_server.errors import (
     CodexLimitError,
     CodexProtocolViolation,
+    CodexResponseLimitError,
     CodexTransportTimeout,
 )
 from prompt_enhancer.infrastructure.providers.codex_app_server.limits import (
@@ -67,13 +68,13 @@ def test_dashboard_analysis_request_has_a_small_independent_session_bound() -> N
         )
 
 
-def test_transport_classifies_oversized_lines_as_a_resource_limit() -> None:
+def test_transport_classifies_oversized_lines_as_a_provider_response_limit() -> None:
     transport = StdioJsonRpcTransport(
         limits=CodexReadLimits(max_json_line_bytes=16)
     )
     transport._lines.put(b"x" * 17 + b"\n")
 
-    with pytest.raises(CodexLimitError):
+    with pytest.raises(CodexResponseLimitError):
         transport._next_message(deadline=time.monotonic() + 0.1)
 
     assert transport._process is None
@@ -94,7 +95,7 @@ def test_text_analysis_transport_has_a_separate_bounded_response_ceiling() -> No
     assert len(response) <= limits.max_text_analysis_json_line_bytes
 
     generic._lines.put(response)
-    with pytest.raises(CodexLimitError):
+    with pytest.raises(CodexResponseLimitError):
         generic._next_message(deadline=time.monotonic() + 0.1)
 
     text_analysis._lines.put(response)

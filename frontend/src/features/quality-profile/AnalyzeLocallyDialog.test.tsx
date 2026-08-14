@@ -250,6 +250,52 @@ describe("AnalyzeLocallyDialog", () => {
     expect(prepare).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    [
+      "source_selection_limit",
+      /session catalog exceeds the local selection-scan limit/i,
+    ],
+    [
+      "source_provider_response_limit",
+      /local Codex response exceeded the transport limit/i,
+    ],
+    [
+      "source_thread_structure_limit",
+      /full local thread structure exceeds/i,
+    ],
+    [
+      "source_preview_window_limit",
+      /focus message cannot fit/i,
+    ],
+    [
+      "source_resource_limit",
+      /unclassified safety limit/i,
+    ],
+  ] as const)(
+    "makes terminal source failure %s truthful and non-retryable",
+    async (reasonCode, expectedCopy) => {
+      const prepare = vi.fn(async () => {
+        throw new TransportError("PRIVATE-LIMIT-CANARY", 413, reasonCode);
+      });
+      const props = dialogProps({ onPreparePreview: prepare });
+      render(<div className="app-shell"><AnalyzeLocallyDialog {...props} /></div>);
+
+      fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(expectedCopy);
+      expect(document.body.textContent).not.toContain("PRIVATE-LIMIT-CANARY");
+      expect(screen.queryByRole("button", { name: /prepare fresh preview/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent(/same session, adapter, and limits/i);
+      const close = screen.getByRole("button", { name: /^Close$/ });
+      expect(close).toHaveFocus();
+      fireEvent.click(close);
+
+      expect(props.onClose).toHaveBeenCalledTimes(1);
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(props.onApprovePreview).not.toHaveBeenCalled();
+    },
+  );
+
   it("closes and clears the preview if the selected safe session identity drifts", async () => {
     const props = dialogProps();
     const { rerender } = render(

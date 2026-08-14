@@ -87,6 +87,10 @@ export type SafeTransportReasonCode =
   | "confirmation_required"
   | "source_schema_unsupported"
   | "selection_snapshot_miss"
+  | "source_selection_limit"
+  | "source_provider_response_limit"
+  | "source_thread_structure_limit"
+  | "source_preview_window_limit"
   | "source_resource_limit"
   | "source_timeout"
   | "provider_unavailable"
@@ -123,6 +127,10 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "confirmation_required",
   "source_schema_unsupported",
   "selection_snapshot_miss",
+  "source_selection_limit",
+  "source_provider_response_limit",
+  "source_thread_structure_limit",
+  "source_preview_window_limit",
   "source_resource_limit",
   "source_timeout",
   "provider_unavailable",

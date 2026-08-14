@@ -497,7 +497,7 @@ export function QualityProfileView({
               <span>Repeatable arithmetic does not establish that a detected cue is correct.</span>
             </div>
             <div>
-              <strong>Conversation-window scope</strong>
+              <strong>Preview-window scope</strong>
               <span>Up to 100 messages and 100,000 redacted characters around the latest user message.</span>
             </div>
           </div>
@@ -508,7 +508,8 @@ export function QualityProfileView({
               <h3 id="quality-pipeline-title">How these percentages are produced</h3>
             </header>
             <ol>
-              <li><strong>Bounded read</strong><span>One selected session, up to 100 messages and 100,000 redacted characters.</span></li>
+              <li><strong>Size-limited local read</strong><span>Codex currently returns the selected session before the smaller preview window is selected; oversized responses fail closed.</span></li>
+              <li><strong>Bounded preview</strong><span>Up to 100 messages and 100,000 redacted characters around the latest user message.</span></li>
               <li><strong>Safe projection</strong><span>User, agent-response, and plan text only; reasoning, commands, paths, and tool output are excluded.</span></li>
               <li><strong>Local preparation</strong><span>Best-effort redaction, English/Polish detection, and clause segmentation.</span></li>
               <li><strong>Candidate rules</strong><span>Versioned lexical and transition rules mark observable cues and candidate links.</span></li>

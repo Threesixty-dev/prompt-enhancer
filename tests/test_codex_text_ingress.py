@@ -46,9 +46,13 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.errors import (
     CodexCompatibilityError,
     CodexLimitError,
     CodexNoAnalyzableTextError,
+    CodexPreviewWindowLimitError,
     CodexProtocolViolation,
+    CodexResponseLimitError,
     CodexRequestRejected,
+    CodexSelectionLimitError,
     CodexScopeError,
+    CodexThreadStructureLimitError,
     CodexTransportError,
     CodexTransportTimeout,
 )
@@ -68,7 +72,10 @@ class RecordingTransport:
 
     def _request(self, method: str, params: dict[str, object]) -> object:
         self.requests.append((method, params))
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
     def _notify(self, method: str, params: dict[str, object] | None = None) -> None:
         self.notifications.append((method, params))
@@ -515,6 +522,34 @@ def test_valid_thread_without_user_text_is_not_misreported_as_schema_drift() -> 
     assert str(raised.value) == "no_analyzable_text"
 
 
+def test_oversized_catalog_response_is_reported_as_selection_limit() -> None:
+    selection = _selection()
+    transport = RecordingTransport(
+        [
+            {"version": "example-1"},
+            CodexResponseLimitError("PRIVATE-CATALOG-LIMIT-CANARY"),
+        ]
+    )
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(), client_factory=_factory(transport, [])
+    )
+
+    with pytest.raises(TextSourceReadError) as raised:
+        source.read(
+            selection=selection,
+            grant=_grant(selection),
+            task_profile=_profile(),
+        )
+
+    assert raised.value.reason is TextSourceFailureReason.SELECTION_LIMIT
+    assert str(raised.value) == "source_selection_limit"
+    assert "PRIVATE" not in repr(raised.value)
+    assert [method for method, _params in transport.requests] == [
+        "initialize",
+        "thread/list",
+    ]
+
+
 @pytest.mark.parametrize(
     ("provider_error", "reason"),
     (
@@ -537,6 +572,22 @@ def test_valid_thread_without_user_text_is_not_misreported_as_schema_drift() -> 
         (
             CodexLimitError("PRIVATE-LIMIT-CANARY"),
             TextSourceFailureReason.RESOURCE_LIMIT,
+        ),
+        (
+            CodexSelectionLimitError("PRIVATE-SELECTION-LIMIT-CANARY"),
+            TextSourceFailureReason.SELECTION_LIMIT,
+        ),
+        (
+            CodexResponseLimitError("PRIVATE-RESPONSE-LIMIT-CANARY"),
+            TextSourceFailureReason.PROVIDER_RESPONSE_LIMIT,
+        ),
+        (
+            CodexThreadStructureLimitError("PRIVATE-STRUCTURE-LIMIT-CANARY"),
+            TextSourceFailureReason.THREAD_STRUCTURE_LIMIT,
+        ),
+        (
+            CodexPreviewWindowLimitError("PRIVATE-WINDOW-LIMIT-CANARY"),
+            TextSourceFailureReason.PREVIEW_WINDOW_LIMIT,
         ),
         (
             CodexTransportTimeout("PRIVATE-TIMEOUT-CANARY"),

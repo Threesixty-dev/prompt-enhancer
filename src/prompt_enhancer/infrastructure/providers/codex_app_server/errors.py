@@ -41,3 +41,19 @@ class CodexScopeError(CodexAdapterError):
 
 class CodexLimitError(CodexAdapterError):
     """A configured privacy or resource bound was reached."""
+
+
+class CodexSelectionLimitError(CodexLimitError):
+    """The bounded provider-session selection scan could not complete."""
+
+
+class CodexResponseLimitError(CodexLimitError):
+    """A provider response exceeded the local transport frame bound."""
+
+
+class CodexThreadStructureLimitError(CodexLimitError):
+    """A selected thread exceeded the allowlisted parser's structural bounds."""
+
+
+class CodexPreviewWindowLimitError(CodexLimitError):
+    """The selected focus message could not fit in the fixed preview window."""

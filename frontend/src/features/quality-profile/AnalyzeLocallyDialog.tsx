@@ -13,6 +13,18 @@ import {
 
 type PendingAction = "preview" | "approval" | "compatibility" | null;
 
+const TERMINAL_SOURCE_LIMIT_REASONS = new Set([
+  "source_selection_limit",
+  "source_provider_response_limit",
+  "source_thread_structure_limit",
+  "source_preview_window_limit",
+  "source_resource_limit",
+]);
+
+function isTerminalSourceLimit(reasonCode: string | null): boolean {
+  return reasonCode !== null && TERMINAL_SOURCE_LIMIT_REASONS.has(reasonCode);
+}
+
 function statusOf(error: unknown): number | null {
   if (
     typeof error === "object" && error !== null && "status" in error &&
@@ -68,8 +80,20 @@ function safeError(error: unknown): string {
   if (reasonCode === "selection_snapshot_miss") {
     return "The indexed session changed before the bounded read. Refresh the safe index, reopen this session, and prepare a new preview.";
   }
+  if (reasonCode === "source_selection_limit") {
+    return "The current Codex session catalog exceeds the local selection-scan limit. No session text, preview, or metric result was stored.";
+  }
+  if (reasonCode === "source_provider_response_limit") {
+    return "A local Codex response exceeded the transport limit before the smaller preview window could be selected. No preview or metric result was created.";
+  }
+  if (reasonCode === "source_thread_structure_limit") {
+    return "The selected session's full local thread structure exceeds this adapter version's parser limits. No preview or metric result was created.";
+  }
+  if (reasonCode === "source_preview_window_limit") {
+    return "The selected focus message cannot fit in the fixed local preview window. No partial preview or metric result was created.";
+  }
   if (reasonCode === "source_resource_limit") {
-    return "This session exceeds the coaching profile's fixed local safety limit. No partial preview or score was created.";
+    return "The local source reached an unclassified safety limit before a preview could be prepared. No preview or metric result was created.";
   }
   if (reasonCode === "source_timeout") {
     return "The bounded local provider read timed out. Retry once; no provider content is included in this message.";
@@ -152,6 +176,7 @@ export function AnalyzeLocallyDialog({
   const initialSessionIdRef = useRef(exactSessionId);
   const initialDescriptorRef = useRef(sessionDescriptor);
   const onCloseRef = useRef(onClose);
+  const terminalPreparationFailure = isTerminalSourceLimit(failureReason);
 
   function clearPreview() {
     setPreview(null);
@@ -227,6 +252,10 @@ export function AnalyzeLocallyDialog({
     }, remaining);
     return () => window.clearTimeout(timeout);
   }, [preview]);
+
+  useEffect(() => {
+    if (terminalPreparationFailure) primaryRef.current?.focus();
+  }, [terminalPreparationFailure]);
 
   async function preparePreview() {
     if (pendingAction !== null) return;
@@ -340,13 +369,15 @@ export function AnalyzeLocallyDialog({
           ? "Rechecking compatibility…"
           : compatibilityBlocked
             ? "Recheck compatibility"
-            : requiresRefresh
-              ? "Close and refresh session"
-            : preview
-              ? "Approve once and analyze"
-              : error
-                ? "Prepare fresh preview"
-                : "Prepare redacted preview";
+            : terminalPreparationFailure
+              ? "Close"
+              : requiresRefresh
+                ? "Close and refresh session"
+                : preview
+                  ? "Approve once and analyze"
+                  : error
+                    ? "Prepare fresh preview"
+                    : "Prepare redacted preview";
 
   return createPortal(
     <div
@@ -480,20 +511,22 @@ export function AnalyzeLocallyDialog({
             <span>
               {preview
                 ? "Approval is valid only for the exact session, window fingerprint, metric set, model, redactor, destination, retention, size, and cost shown above. Any mismatch fails closed."
-                : "Preparing reads one bounded, redacted provider window into local service memory for ten minutes. It does not call a remote model or persist preview text."}
+                : "Codex returns the selected session to a size-limited local adapter before Prompt Enhancer allowlists, redacts, and selects the bounded preview window in memory. Preparation does not call a remote model or persist preview text."}
             </span>
           </div>
 
           {error && <p className="analysis-dialog__error" role="alert">{error}</p>}
           <p aria-live="polite" className="analysis-dialog__status" role="status">
             {pendingAction === "preview"
-              ? "Preparing the bounded redacted window locally…"
+              ? "Reading locally and preparing the bounded redacted window…"
               : pendingAction === "approval"
                 ? "Consuming this exact approval once and calculating local metrics…"
                 : pendingAction === "compatibility"
                   ? "Refreshing installed-schema compatibility without reading a session…"
                   : compatibilityBlocked
                     ? "Preview preparation is paused until compatibility is refreshed."
+                    : terminalPreparationFailure
+                      ? "This request is finished. Repeating it now would use the same session, adapter, and limits."
                     : requiresRefresh
                       ? "The approval result is uncertain or consumed. Close and refresh stored results before starting another preview."
                     : preview
@@ -503,36 +536,51 @@ export function AnalyzeLocallyDialog({
                         : "Prepare first; review the exact redacted text and disclosure; then approve once."}
           </p>
           <p className="analysis-dialog__cancel-note">
-            {preview
-              ? "Cancel removes this browser copy immediately; the local service copy expires automatically."
-              : "Cancel stops this browser from waiting. A provider read already accepted locally may finish and expire without approval."}
+            {terminalPreparationFailure
+              ? "No preview or metric result was created. Close this dialog and choose another session, or update Prompt Enhancer when a more capable bounded adapter is available."
+              : preview
+                ? "Cancel removes this browser copy immediately; the local service copy expires automatically."
+                : "Cancel stops this browser from waiting. A provider read already accepted locally may finish and expire without approval."}
           </p>
           <footer>
-            <button
-              className="button button--secondary"
-              onClick={close}
-              ref={cancelRef}
-              type="button"
-            >
-              {pending ? "Cancel request" : "Cancel"}
-            </button>
-            <button
-              className="button button--primary"
-              disabled={pending}
-              onClick={
-                compatibilityBlocked
-                  ? onCheckCompatibility
-                    ? () => void recheckCompatibility()
-                    : close
-                  : requiresRefresh
-                    ? close
-                  : undefined
-              }
-              ref={primaryRef}
-              type={compatibilityBlocked || requiresRefresh ? "button" : "submit"}
-            >
-              {primaryLabel}
-            </button>
+            {terminalPreparationFailure ? (
+              <button
+                className="button button--primary"
+                onClick={close}
+                ref={primaryRef}
+                type="button"
+              >
+                Close
+              </button>
+            ) : (
+              <>
+                <button
+                  className="button button--secondary"
+                  onClick={close}
+                  ref={cancelRef}
+                  type="button"
+                >
+                  {pending ? "Cancel request" : "Cancel"}
+                </button>
+                <button
+                  className="button button--primary"
+                  disabled={pending}
+                  onClick={
+                    compatibilityBlocked
+                      ? onCheckCompatibility
+                        ? () => void recheckCompatibility()
+                        : close
+                      : requiresRefresh
+                        ? close
+                      : undefined
+                  }
+                  ref={primaryRef}
+                  type={compatibilityBlocked || requiresRefresh ? "button" : "submit"}
+                >
+                  {primaryLabel}
+                </button>
+              </>
+            )}
           </footer>
         </form>
       </section>

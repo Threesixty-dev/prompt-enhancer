@@ -176,6 +176,10 @@ class SessionTextAnalysisFailureCode(StrEnum):
     CONFIRMATION_REQUIRED = SessionTextAnalysisConfirmationError.code
     SCHEMA_UNSUPPORTED = TextSourceFailureReason.SCHEMA_UNSUPPORTED.value
     SELECTION_SNAPSHOT_MISS = TextSourceFailureReason.SELECTION_SNAPSHOT_MISS.value
+    SELECTION_LIMIT = TextSourceFailureReason.SELECTION_LIMIT.value
+    PROVIDER_RESPONSE_LIMIT = TextSourceFailureReason.PROVIDER_RESPONSE_LIMIT.value
+    THREAD_STRUCTURE_LIMIT = TextSourceFailureReason.THREAD_STRUCTURE_LIMIT.value
+    PREVIEW_WINDOW_LIMIT = TextSourceFailureReason.PREVIEW_WINDOW_LIMIT.value
     RESOURCE_LIMIT = TextSourceFailureReason.RESOURCE_LIMIT.value
     TIMEOUT = TextSourceFailureReason.TIMEOUT.value
     PROVIDER_UNAVAILABLE = TextSourceFailureReason.PROVIDER_UNAVAILABLE.value
@@ -213,9 +217,25 @@ _SOURCE_FAILURE_HTTP: dict[TextSourceFailureReason, tuple[int, str]] = {
         409,
         "selected session is absent from the current provider snapshot",
     ),
+    TextSourceFailureReason.SELECTION_LIMIT: (
+        413,
+        "provider session selection exceeds the local scan bounds",
+    ),
+    TextSourceFailureReason.PROVIDER_RESPONSE_LIMIT: (
+        413,
+        "local provider response exceeds the transport bound",
+    ),
+    TextSourceFailureReason.THREAD_STRUCTURE_LIMIT: (
+        413,
+        "selected session structure exceeds the local parser bounds",
+    ),
+    TextSourceFailureReason.PREVIEW_WINDOW_LIMIT: (
+        413,
+        "selected focus message exceeds the local preview bound",
+    ),
     TextSourceFailureReason.RESOURCE_LIMIT: (
         413,
-        "selected session exceeds the local analysis bounds",
+        "local source exceeded an unspecified resource bound",
     ),
     TextSourceFailureReason.TIMEOUT: (504, "local source read timed out"),
     TextSourceFailureReason.PROVIDER_UNAVAILABLE: (

@@ -53,8 +53,12 @@ from .errors import (
     CodexLimitError,
     CodexNoAnalyzableTextError,
     CodexProtocolViolation,
+    CodexPreviewWindowLimitError,
+    CodexResponseLimitError,
     CodexRequestRejected,
+    CodexSelectionLimitError,
     CodexScopeError,
+    CodexThreadStructureLimitError,
     CodexTransportTimeout,
 )
 from .limits import CodexReadLimits
@@ -188,6 +192,22 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             raise TextSourceReadError(
                 TextSourceFailureReason.SELECTION_SNAPSHOT_MISS
             ) from None
+        except CodexSelectionLimitError:
+            raise TextSourceReadError(
+                TextSourceFailureReason.SELECTION_LIMIT
+            ) from None
+        except CodexResponseLimitError:
+            raise TextSourceReadError(
+                TextSourceFailureReason.PROVIDER_RESPONSE_LIMIT
+            ) from None
+        except CodexThreadStructureLimitError:
+            raise TextSourceReadError(
+                TextSourceFailureReason.THREAD_STRUCTURE_LIMIT
+            ) from None
+        except CodexPreviewWindowLimitError:
+            raise TextSourceReadError(
+                TextSourceFailureReason.PREVIEW_WINDOW_LIMIT
+            ) from None
         except CodexLimitError:
             raise TextSourceReadError(TextSourceFailureReason.RESOURCE_LIMIT) from None
         except CodexNoAnalyzableTextError:
@@ -264,17 +284,24 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
         sessions = 0
         while True:
             if pages >= self._limits.max_pages:
-                raise CodexLimitError("text-analysis selection scan exceeded its page bound")
+                raise CodexSelectionLimitError(
+                    "text-analysis selection scan exceeded its page bound"
+                )
             remaining = self._limits.max_sessions - sessions
             if remaining < 1:
-                raise CodexLimitError(
+                raise CodexSelectionLimitError(
                     "text-analysis selection scan exceeded its session bound"
                 )
-            page = client.list_threads(
-                cursor=cursor,
-                limit=min(self._limits.max_page_size, remaining),
-                new_snapshot=cursor is None,
-            )
+            try:
+                page = client.list_threads(
+                    cursor=cursor,
+                    limit=min(self._limits.max_page_size, remaining),
+                    new_snapshot=cursor is None,
+                )
+            except CodexLimitError:
+                raise CodexSelectionLimitError(
+                    "text-analysis selection page exceeded its bound"
+                ) from None
             pages += 1
             sessions += len(page.threads)
             for listed in page.threads:
@@ -446,7 +473,9 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
         focus = candidates[focus_position]
         used_characters = len(focus.text.get_secret_value())
         if used_characters > selection.max_characters:
-            raise CodexLimitError("selected focus message exceeds the analysis window")
+            raise CodexPreviewWindowLimitError(
+                "selected focus message exceeds the analysis window"
+            )
         selected: set[int] = {focus_position}
 
         for index in range(focus_position + 1, len(candidates)):
