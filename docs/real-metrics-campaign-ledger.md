@@ -527,6 +527,40 @@ eligibility-capable decision, activation, a calibrated model stage, a
 force-stopping runtime deadline, or product estimator evidence. P1 remains in
 progress. P2 scope and blockers are unchanged, and P3 and P4 remain deferred.
 
+Pushed checkpoint `cc7ef55` (`Clarify bounded source-limit failures`) replaces
+the coaching and local model-link surfaces' misleading whole-session limit and
+identical-retry behavior with an exact, content-free failure taxonomy. Bounded
+provider-session selection, local transport frames, allowlisted thread parsing,
+and focus-window selection now have distinct fixed reason codes; the earlier
+generic resource-limit code remains only as a conservative compatibility
+fallback. Provider exception text and source content do not cross the HTTP
+boundary.
+
+The UI now states the actual read order: Codex returns a selected session to a
+size-limited local adapter before Prompt Enhancer allowlists, redacts, and
+selects the smaller preview or experiment window. The advertised 100-message
+and 100,000-redacted-character values describe that selected window; they are
+not a claim that an arbitrarily large provider response can be streamed or
+partially parsed. A fixed source-limit failure creates no preview, metric, or
+model-link result and is terminal for that unchanged request, so the browser no
+longer offers a retry that would immediately repeat the same session, adapter,
+and limits.
+
+This checkpoint improves failure truth and recovery guidance only. It does not
+raise local bounds, add provider-side bounded reads, make the failed large
+session analyzable, persist partial content, call a remote model, establish
+metric validity, or change the P1/P2 authority boundaries.
+
+Frozen engineering evidence for the exact
+`cc7ef5598c4187c5813bf6c88ef986ef90af5dfa` tree is an 82-test focused
+source/API gate, an 81-test analysis/model-link adjacency gate, and the full
+backend suite with 1,965 passed, 4 expected platform-only symlink skips, and one
+existing Starlette deprecation warning. All 401 frontend tests, the production
+build, and 13 Playwright tests passed. The privacy scanner, compileall, OpenAPI
+generation, and diff validation were green. These results prove bounded error
+classification and interface behavior, not provider-history completeness,
+large-session support, calibration, product correctness, or outcome evidence.
+
 ## P2 foundation evidence
 
 Checkpoints `249f6c0` and `4db7052` define a prospective, content-free temporal
