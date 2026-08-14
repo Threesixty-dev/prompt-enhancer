@@ -561,6 +561,40 @@ generation, and diff validation were green. These results prove bounded error
 classification and interface behavior, not provider-history completeness,
 large-session support, calibration, product correctness, or outcome evidence.
 
+Pushed checkpoint `aa3c43e` (`Project newest bounded Codex thread suffix`)
+adds content adapter `0.4.0`, canonical content schema
+`codex-thread-item-text-v5`, and decoder version 5. After the unavoidable
+complete local `thread/read` response is decoded, the allowlisted parser walks
+newest-to-oldest within fixed turn, per-turn item, total-item, fragment, and
+character budgets. It retains whole allowlisted items, restores chronological
+order, and marks the projection incomplete whenever older structure is
+omitted. Omitted older item payloads do not enter the boundary DTO, preview,
+metric engine, persistence, logs, or HTTP response.
+
+Aggregate old-history overflow is therefore no longer a terminal parser error:
+a large thread can produce its newest bounded redacted preview. Malformed
+selected structures, an individually oversized text fragment or user-content
+shape, unknown required wire shapes, and a provider response above the separate
+32 MiB transport ceiling still fail closed. This is a bounded local suffix, not
+a complete-session claim; the 100-message and 100,000-character preview window
+is selected only from that suffix, and `text_extraction_complete=false`
+preserves the missing-evidence boundary.
+
+This checkpoint does not add provider-side pagination or streaming, raise the
+transport or individual-message bounds, persist source text, establish metric
+calibration, or change P1/P2 authority. Existing stored runs retain their
+original adapter and content-schema provenance.
+
+Frozen engineering evidence for the exact
+`aa3c43e60c3516b13470c7b0bb78d57ae5bb2cac` tree is a 66-test parser,
+compatibility, and transport gate; a 119-test analysis/model-link/readiness
+adjacency gate; and the full backend suite with 1,971 passed, 4 expected
+platform-only symlink skips, and one existing Starlette deprecation warning.
+The 88 focused frontend boundary tests and production build passed. The privacy
+scanner, compileall, and diff validation were green. These results prove the
+bounded suffix and failure semantics, not provider-history completeness,
+calibration, product correctness, or outcome evidence.
+
 ## P2 foundation evidence
 
 Checkpoints `249f6c0` and `4db7052` define a prospective, content-free temporal
