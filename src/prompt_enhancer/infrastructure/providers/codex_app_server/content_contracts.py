@@ -1,12 +1,12 @@
 """Allowlisted App Server DTOs for explicit local text analysis.
 
 The documented ``thread/read`` ``ThreadItem`` union contains many highly
-sensitive item families.  This module projects only text from ``userMessage``,
-``agentMessage``, and ``plan``.  Reasoning, commands and output, diffs, paths,
-tool arguments and results, images, searches, reviews, and unknown future item
-types are discarded without entering a boundary DTO. Unknown tagged variants
-also mark extraction incomplete so downstream metrics cannot treat omission as
-complete evidence.
+sensitive item families. This module projects a bounded newest suffix containing
+only text from ``userMessage``, ``agentMessage``, and ``plan``. Reasoning,
+commands and output, diffs, paths, tool arguments and results, images, searches,
+reviews, omitted older structures, and unknown future item types do not enter a
+boundary DTO. Any omission marks extraction incomplete so downstream metrics
+cannot treat the projection as complete evidence.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from ....application.analysis.text_contracts import (
 from .errors import CodexCompatibilityError, CodexThreadStructureLimitError
 
 
-TEXT_CONTENT_ADAPTER_VERSION = "0.3.0"
-TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v4"
+TEXT_CONTENT_ADAPTER_VERSION = "0.4.0"
+TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v5"
 
 
 class CodexTextItemKind(StrEnum):
@@ -65,7 +65,7 @@ class RawCodexTextThread(_PrivateWireModel):
 
 @dataclass(frozen=True, slots=True)
 class CodexTextContentLimits:
-    """Post-decode bounds below the dedicated text-analysis frame ceiling."""
+    """Post-decode newest-suffix bounds below the transport frame ceiling."""
 
     max_turns_per_session: int = 500
     max_items_per_turn: int = 500
@@ -141,8 +141,7 @@ def _bounded_string(
     return value
 
 
-def _append_fragment(
-    fragments: list[RawCodexTextFragment],
+def _parse_fragment(
     *,
     turn_id: str,
     item_id: str,
@@ -150,8 +149,7 @@ def _append_fragment(
     kind: CodexTextItemKind,
     text: object,
     limits: CodexTextContentLimits,
-    total_characters: int,
-) -> int:
+) -> RawCodexTextFragment | None:
     private_text = _bounded_string(
         text,
         field="text item",
@@ -159,33 +157,21 @@ def _append_fragment(
         allow_empty=True,
     )
     if not private_text.strip():
-        return total_characters
-    if len(fragments) >= limits.max_text_fragments_per_session:
-        raise CodexThreadStructureLimitError(
-            "provider read exceeded the text-fragment bound"
-        )
-    total_characters += len(private_text)
-    if total_characters > limits.max_total_text_characters:
-        raise CodexThreadStructureLimitError(
-            "provider read exceeded the total text bound"
-        )
-    fragments.append(
-        RawCodexTextFragment(
-            turn_id=SecretStr(turn_id),
-            item_id=SecretStr(item_id),
-            content_index=content_index,
-            kind=kind,
-            text=SecretStr(private_text),
-        )
+        return None
+    return RawCodexTextFragment(
+        turn_id=SecretStr(turn_id),
+        item_id=SecretStr(item_id),
+        content_index=content_index,
+        kind=kind,
+        text=SecretStr(private_text),
     )
-    return total_characters
 
 
 def parse_text_thread_read(
     result: object,
     limits: CodexTextContentLimits | None = None,
 ) -> RawCodexTextThread:
-    """Parse the stable documented read shape and fail closed on text variants."""
+    """Project the newest bounded allowlisted suffix of a documented read."""
 
     effective_limits = limits or CodexTextContentLimits()
     if not isinstance(result, dict):
@@ -199,16 +185,24 @@ def parse_text_thread_read(
     turns = thread.get("turns")
     if not isinstance(turns, list):
         raise CodexCompatibilityError("provider text turns have an unsupported shape")
-    if len(turns) > effective_limits.max_turns_per_session:
-        raise CodexThreadStructureLimitError(
-            "provider text read exceeded the turn bound"
-        )
 
-    fragments: list[RawCodexTextFragment] = []
-    extraction_complete = True
-    total_items = 0
+    # ``thread/read`` returns the complete decoded thread and has no documented
+    # server-side window. Walk newest-to-oldest and retain only a chronological
+    # suffix. Omitted older structures are never inspected and make extraction
+    # explicitly incomplete; malformed or individually oversized selected
+    # structures still fail closed.
+    turn_start = max(0, len(turns) - effective_limits.max_turns_per_session)
+    extraction_complete = turn_start == 0
+    newest_fragments: list[RawCodexTextFragment] = []
+    remaining_items = effective_limits.max_total_items
     total_characters = 0
-    for turn in turns:
+    projection_full = False
+
+    for turn_index in range(len(turns) - 1, turn_start - 1, -1):
+        if remaining_items == 0:
+            extraction_complete = False
+            break
+        turn = turns[turn_index]
         if not isinstance(turn, dict):
             raise CodexCompatibilityError("provider text turn has an unsupported shape")
         turn_id = _bounded_string(
@@ -217,17 +211,19 @@ def parse_text_thread_read(
         items = turn.get("items")
         if not isinstance(items, list):
             raise CodexCompatibilityError("provider text items have an unsupported shape")
-        if len(items) > effective_limits.max_items_per_turn:
-            raise CodexThreadStructureLimitError(
-                "provider text read exceeded the per-turn item bound"
-            )
-        total_items += len(items)
-        if total_items > effective_limits.max_total_items:
-            raise CodexThreadStructureLimitError(
-                "provider text read exceeded the total item bound"
-            )
 
-        for item in items:
+        selected_item_count = min(
+            len(items),
+            effective_limits.max_items_per_turn,
+            remaining_items,
+        )
+        item_start = len(items) - selected_item_count
+        if item_start > 0:
+            extraction_complete = False
+        remaining_items -= selected_item_count
+
+        for item_index in range(len(items) - 1, item_start - 1, -1):
+            item = items[item_index]
             if not isinstance(item, dict):
                 raise CodexCompatibilityError("provider text item has an unsupported shape")
             item_type = item.get("type")
@@ -245,6 +241,7 @@ def parse_text_thread_read(
             item_id = _bounded_string(
                 item.get("id"), field="text item identifier", maximum=4_096
             )
+            item_fragments: list[RawCodexTextFragment] = []
             if item_type == "userMessage":
                 content = item.get("content")
                 if not isinstance(content, list):
@@ -271,40 +268,68 @@ def parse_text_thread_read(
                             # and conservatively mark extraction incomplete.
                             extraction_complete = False
                         continue
-                    total_characters = _append_fragment(
-                        fragments,
+                    fragment = _parse_fragment(
                         turn_id=turn_id,
                         item_id=item_id,
                         content_index=content_index,
                         kind=CodexTextItemKind.USER_MESSAGE,
                         text=part.get("text"),
                         limits=effective_limits,
-                        total_characters=total_characters,
                     )
-                continue
+                    if fragment is not None:
+                        item_fragments.append(fragment)
+            else:
+                phase = item.get("phase")
+                if item_type == "agentMessage" and (
+                    phase is not None and phase not in _AGENT_PHASES
+                ):
+                    raise CodexCompatibilityError("provider agent phase is unsupported")
+                fragment = _parse_fragment(
+                    turn_id=turn_id,
+                    item_id=item_id,
+                    content_index=0,
+                    kind=(
+                        CodexTextItemKind.AGENT_MESSAGE
+                        if item_type == "agentMessage"
+                        else CodexTextItemKind.PLAN
+                    ),
+                    text=item.get("text"),
+                    limits=effective_limits,
+                )
+                if fragment is not None:
+                    item_fragments.append(fragment)
 
-            phase = item.get("phase")
-            if item_type == "agentMessage" and (
-                phase is not None and phase not in _AGENT_PHASES
-            ):
-                raise CodexCompatibilityError("provider agent phase is unsupported")
-            total_characters = _append_fragment(
-                fragments,
-                turn_id=turn_id,
-                item_id=item_id,
-                content_index=0,
-                kind=(
-                    CodexTextItemKind.AGENT_MESSAGE
-                    if item_type == "agentMessage"
-                    else CodexTextItemKind.PLAN
-                ),
-                text=item.get("text"),
-                limits=effective_limits,
-                total_characters=total_characters,
+            item_characters = sum(
+                len(fragment.text.get_secret_value())
+                for fragment in item_fragments
             )
+            if (
+                len(item_fragments) > effective_limits.max_text_fragments_per_session
+                or item_characters > effective_limits.max_total_text_characters
+            ):
+                raise CodexThreadStructureLimitError(
+                    "one provider text item exceeded the bounded projection"
+                )
+            if (
+                len(newest_fragments) + len(item_fragments)
+                > effective_limits.max_text_fragments_per_session
+                or total_characters + item_characters
+                > effective_limits.max_total_text_characters
+            ):
+                extraction_complete = False
+                projection_full = True
+                break
+            newest_fragments.extend(reversed(item_fragments))
+            total_characters += item_characters
+
+        if projection_full:
+            break
+        if remaining_items == 0 and (turn_index > turn_start or item_start > 0):
+            extraction_complete = False
+            break
 
     return RawCodexTextThread(
         thread_id=SecretStr(thread_id),
-        fragments=tuple(fragments),
+        fragments=tuple(reversed(newest_fragments)),
         extraction_complete=extraction_complete,
     )

@@ -341,6 +341,85 @@ def test_text_source_is_explicit_read_only_allowlisted_and_repr_safe() -> None:
     )
 
 
+def test_text_source_analyzes_the_newest_safe_suffix_of_a_large_thread() -> None:
+    raw_thread_id = "example-thread-alpha"
+    transport = RecordingTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(raw_thread_id),
+            {
+                "thread": {
+                    "id": raw_thread_id,
+                    "turns": [
+                        {
+                            "id": "old-turn",
+                            "items": [
+                                {
+                                    "type": "userMessage",
+                                    "id": "old-user",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": "PRIVATE-OMITTED-HISTORY-CANARY",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "id": "new-turn",
+                            "items": [
+                                {
+                                    "type": "userMessage",
+                                    "id": "new-user",
+                                    "content": [
+                                        {"type": "text", "text": "Keep newest request."}
+                                    ],
+                                },
+                                {
+                                    "type": "agentMessage",
+                                    "id": "new-agent",
+                                    "phase": "final_answer",
+                                    "text": "Keep newest reply.",
+                                },
+                            ],
+                        },
+                    ],
+                }
+            },
+        ]
+    )
+    text_limits = CodexTextContentLimits(
+        max_turns_per_session=1,
+        max_items_per_turn=2,
+        max_total_items=2,
+        max_user_content_parts_per_item=1,
+        max_text_fragments_per_session=2,
+        max_characters_per_fragment=64,
+        max_total_text_characters=128,
+    )
+    selection = _selection(raw_thread_id)
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, [], text_limits=text_limits),
+    )
+
+    context = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=_profile(),
+    )
+
+    assert context.text_extraction_complete is False
+    assert context.eligible_message_count == 2
+    assert tuple(
+        message.text.get_secret_value() for message in context.messages
+    ) == ("Keep newest request.", "Keep newest reply.")
+    assert "PRIVATE-OMITTED-HISTORY-CANARY" not in (
+        repr(context) + context.model_dump_json()
+    )
+
+
 def test_access_grant_mismatch_prevents_client_construction() -> None:
     calls: list[str] = []
     selection = _selection()
@@ -956,32 +1035,190 @@ def test_unknown_future_thread_item_marks_extraction_incomplete_without_payload_
     assert private_canary not in repr(parsed) + parsed.model_dump_json()
 
 
-def test_parser_enforces_turn_item_and_character_bounds() -> None:
-    too_many_turns = {
+def test_parser_projects_the_newest_bounded_turn_and_item_suffix() -> None:
+    result = {
         "thread": {
             "id": "example-thread",
             "turns": [
-                {"id": "turn-one", "items": []},
-                {"id": "turn-two", "items": []},
+                {
+                    "id": "turn-old",
+                    "items": [
+                        {
+                            "type": "userMessage",
+                            "id": "user-old",
+                            "content": [
+                                {"type": "text", "text": "PRIVATE-OLD-CANARY"}
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "id": "turn-middle",
+                    "items": [
+                        {
+                            "type": "userMessage",
+                            "id": "user-middle",
+                            "content": [
+                                {"type": "text", "text": "Keep middle."}
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "id": "turn-new",
+                    "items": [
+                        {
+                            "type": "plan",
+                            "id": "plan-omitted",
+                            "text": "PRIVATE-SAME-TURN-CANARY",
+                        },
+                        {
+                            "type": "userMessage",
+                            "id": "user-new",
+                            "content": [
+                                {"type": "text", "text": "Keep newest."}
+                            ],
+                        },
+                        {
+                            "type": "agentMessage",
+                            "id": "agent-new",
+                            "phase": "final_answer",
+                            "text": "Keep reply.",
+                        },
+                    ],
+                },
             ],
         }
     }
-    with pytest.raises(CodexLimitError, match="turn bound"):
-        parse_text_thread_read(
-            too_many_turns,
-            CodexTextContentLimits(
-                max_turns_per_session=1,
-                max_items_per_turn=1,
-                max_total_items=1,
-                max_user_content_parts_per_item=1,
-                max_text_fragments_per_session=1,
-                max_characters_per_fragment=8,
-                max_total_text_characters=8,
-            ),
-        )
 
+    parsed = parse_text_thread_read(
+        result,
+        CodexTextContentLimits(
+            max_turns_per_session=2,
+            max_items_per_turn=2,
+            max_total_items=3,
+            max_user_content_parts_per_item=1,
+            max_text_fragments_per_session=3,
+            max_characters_per_fragment=32,
+            max_total_text_characters=64,
+        ),
+    )
+
+    assert parsed.extraction_complete is False
+    assert tuple(
+        fragment.text.get_secret_value() for fragment in parsed.fragments
+    ) == ("Keep middle.", "Keep newest.", "Keep reply.")
+    rendered = repr(parsed) + parsed.model_dump_json()
+    assert "PRIVATE-OLD-CANARY" not in rendered
+    assert "PRIVATE-SAME-TURN-CANARY" not in rendered
+
+
+def test_parser_applies_text_budgets_at_whole_item_boundaries() -> None:
+    result = {
+        "thread": {
+            "id": "example-thread",
+            "turns": [
+                {
+                    "id": "turn-one",
+                    "items": [
+                        {"type": "plan", "id": "old", "text": "Old text"},
+                        {
+                            "type": "userMessage",
+                            "id": "new-user",
+                            "content": [{"type": "text", "text": "New user"}],
+                        },
+                        {
+                            "type": "agentMessage",
+                            "id": "new-agent",
+                            "phase": "final_answer",
+                            "text": "New reply",
+                        },
+                    ],
+                }
+            ],
+        }
+    }
+
+    parsed = parse_text_thread_read(
+        result,
+        CodexTextContentLimits(
+            max_turns_per_session=1,
+            max_items_per_turn=3,
+            max_total_items=3,
+            max_user_content_parts_per_item=1,
+            max_text_fragments_per_session=2,
+            max_characters_per_fragment=16,
+            max_total_text_characters=17,
+        ),
+    )
+
+    assert parsed.extraction_complete is False
+    assert tuple(
+        fragment.text.get_secret_value() for fragment in parsed.fragments
+    ) == ("New user", "New reply")
+
+
+def test_default_parser_projects_a_session_beyond_the_old_turn_ceiling() -> None:
+    turns = [
+        {
+            "id": f"turn-{index}",
+            "items": [
+                {
+                    "type": "userMessage",
+                    "id": f"user-{index}",
+                    "content": [
+                        {"type": "text", "text": f"Fictional request {index}."}
+                    ],
+                }
+            ],
+        }
+        for index in range(501)
+    ]
+
+    parsed = parse_text_thread_read(
+        {"thread": {"id": "example-thread", "turns": turns}}
+    )
+
+    assert parsed.extraction_complete is False
+    assert len(parsed.fragments) == 500
+    assert parsed.fragments[0].text.get_secret_value() == "Fictional request 1."
+    assert parsed.fragments[-1].text.get_secret_value() == "Fictional request 500."
+
+
+def test_parser_does_not_inspect_older_turns_outside_the_bounded_suffix() -> None:
+    parsed = parse_text_thread_read(
+        {
+            "thread": {
+                "id": "example-thread",
+                "turns": [
+                    object(),
+                    {
+                        "id": "selected-turn",
+                        "items": [
+                            {
+                                "type": "userMessage",
+                                "id": "selected-user",
+                                "content": [
+                                    {"type": "text", "text": "Keep selected request."}
+                                ],
+                            }
+                        ],
+                    },
+                ],
+            }
+        },
+        CodexTextContentLimits(max_turns_per_session=1),
+    )
+
+    assert parsed.extraction_complete is False
+    assert tuple(
+        fragment.text.get_secret_value() for fragment in parsed.fragments
+    ) == ("Keep selected request.",)
+
+
+def test_parser_still_fails_closed_for_one_oversized_selected_fragment() -> None:
     private_canary = "PRIVATE-CHARACTER-BOUND-CANARY"
-    over_text = {
+    result = {
         "thread": {
             "id": "example-thread",
             "turns": [
@@ -1007,26 +1244,40 @@ def test_parser_enforces_turn_item_and_character_bounds() -> None:
         max_characters_per_fragment=8,
         max_total_text_characters=8,
     )
+
     with pytest.raises(CodexLimitError) as error:
-        parse_text_thread_read(over_text, limits)
+        parse_text_thread_read(result, limits)
+
     assert private_canary not in str(error.value)
 
-    too_many_items = {
+
+def test_parser_still_fails_closed_for_one_oversized_user_content_shape() -> None:
+    result = {
         "thread": {
             "id": "example-thread",
             "turns": [
                 {
                     "id": "turn-one",
                     "items": [
-                        {"type": "futureOne"},
-                        {"type": "futureTwo"},
+                        {
+                            "type": "userMessage",
+                            "id": "user-one",
+                            "content": [
+                                {"type": "text", "text": "Part one."},
+                                {"type": "text", "text": "Part two."},
+                            ],
+                        }
                     ],
                 }
             ],
         }
     }
-    with pytest.raises(CodexLimitError, match="per-turn item bound"):
-        parse_text_thread_read(too_many_items, limits)
+
+    with pytest.raises(CodexThreadStructureLimitError, match="content-part bound"):
+        parse_text_thread_read(
+            result,
+            CodexTextContentLimits(max_user_content_parts_per_item=1),
+        )
 
 
 def test_text_transport_policy_allows_only_include_turns_read() -> None:
