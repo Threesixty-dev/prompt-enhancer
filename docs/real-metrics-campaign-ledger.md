@@ -595,6 +595,45 @@ scanner, compileall, and diff validation were green. These results prove the
 bounded suffix and failure semantics, not provider-history completeness,
 calibration, product correctness, or outcome evidence.
 
+Pushed checkpoints `a6c98d3` (`Confirm stored local analysis results`) and
+`2aafda3` (`Measure complete bounded history windows`) close two real-browser
+failures in the same local analysis path. Approval no longer closes without an
+explicit content-free receipt: only after the immutable completed run has been
+fetched and validated does the dialog erase its sensitive preview, state that
+the result was stored locally, explain that individual Unknown or Abstained
+values are still possible, and offer `View stored results`.
+
+The Codex adapter is now `0.5.0`, canonical content schema
+`codex-thread-item-text-v6`, decoder version 6. Source-history truncation and an
+unclassified retained omission are separate fail-closed facts. When the parser
+has retained a newest classified suffix and the 100-message/100,000-character
+analysis window closes before that suffix's left boundary, that selected window
+is complete for metric calculation even though older provider history remains
+explicitly truncated. If the window reaches the truncated boundary, or any
+retained structure is unclassified, extraction remains incomplete and the
+calculators still abstain. The window fingerprint binds both the effective
+window-completeness decision and the underlying source-history states.
+
+The previous `0.4.0` contract made every metric abstain on a large session:
+successful prefix truncation set `text_extraction_complete=false`, and the
+metric engine correctly interpreted that as incomplete evidence inside the
+selected window. In a local-real browser replay against the affected session,
+the pre-fix profile had zero radar plots and blanket visible abstentions; the
+corrected run completed, stored, rendered a radar, removed the fallback, and
+removed those blanket abstention cards. This is real workflow evidence, not a
+synthetic claim about all possible provider sessions.
+
+Frozen engineering evidence for the exact
+`2aafda3dafa5599e8ade67c37bd2ba1f27f43562` implementation tree is 144 focused
+ingress, metric-pack, compatibility, service, and API tests plus the full
+backend suite with 1,974 passed, 4 expected platform-only symlink skips, and one
+existing Starlette deprecation warning. All 401 frontend tests and the
+production build passed for the completion-receipt UI. Compileall, the privacy
+scanner, and diff validation were green. This does not claim complete provider
+history, model calibration, or model-backed product scoring: the active
+coaching path remains deterministic EN/PL rules with exact model `none`; the
+Qwen and BGE paths remain separate, synthetic, and activation-disabled.
+
 ## P2 foundation evidence
 
 Checkpoints `249f6c0` and `4db7052` define a prospective, content-free temporal
