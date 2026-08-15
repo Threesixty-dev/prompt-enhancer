@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Annotated, Callable, Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Response
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from ...application.analysis.model_ensemble_watch import (
     MODEL_ENSEMBLE_WATCH_CONFIRMATION,
@@ -33,6 +33,7 @@ _PRIVATE_HEADERS = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
 
 class ModelEnsembleWatchRequest(StrictModel):
     project_id: str
+    max_messages: int = Field(default=100, ge=1, le=100)
     confirmation: Literal[MODEL_ENSEMBLE_WATCH_CONFIRMATION]
 
     @field_validator("project_id")
@@ -48,6 +49,7 @@ class ModelEnsembleWatchDto(StrictModel):
     provider: Literal[Provider.CODEX]
     project_id: str
     session_id: str
+    max_messages: int = Field(ge=1, le=100)
     state: Literal["queued", "running", "idle", "failed", "disabled"]
     generation: int
     progress_completed: int
@@ -69,6 +71,7 @@ class ModelEnsembleWatchDto(StrictModel):
             provider=Provider.CODEX,
             project_id=record.project_id,
             session_id=record.session_id,
+            max_messages=record.max_messages,
             state=record.state.value,
             generation=record.generation,
             progress_completed=record.progress_completed,
@@ -143,6 +146,7 @@ def create_model_ensemble_watch_router(
                 provider=Provider.CODEX,
                 project_id=payload.project_id,
                 session_id=session_id,
+                max_messages=payload.max_messages,
                 confirmation=payload.confirmation,
             )
         except (

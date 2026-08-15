@@ -201,6 +201,7 @@ export function ModelEnsemblePanel({
         ? await transport.disableModelEnsembleWatch?.(watch.watch.watch_id)
         : await transport.enableModelEnsembleWatch?.(sessionId, {
             project_id: projectId,
+            max_messages: 100,
             confirmation: "continuously_analyze_selected_redacted_session",
           });
       if (snapshot !== undefined) {

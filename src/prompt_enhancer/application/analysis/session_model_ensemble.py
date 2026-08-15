@@ -174,6 +174,7 @@ class SessionModelEnsembleService:
         session_id: str,
         confirmation: str,
         idempotency_key: str,
+        max_messages: int = COACHING_PROFILE_V1.max_messages,
         progress_callback: Callable[[int, int], None] | None = None,
         reuse_latest: bool = False,
     ) -> SessionModelEnsembleOutcome:
@@ -181,6 +182,9 @@ class SessionModelEnsembleService:
             provider is not Provider.CODEX
             or PSEUDONYM_PATTERN.fullmatch(session_id) is None
             or _IDEMPOTENCY.fullmatch(idempotency_key) is None
+            or not isinstance(max_messages, int)
+            or isinstance(max_messages, bool)
+            or not 1 <= max_messages <= COACHING_PROFILE_V1.max_messages
         ):
             raise ModelEnsembleInputError("model ensemble selection is invalid")
         if confirmation != MODEL_ENSEMBLE_CONFIRMATION:
@@ -188,12 +192,13 @@ class SessionModelEnsembleService:
                 "explicit model ensemble confirmation is required"
             )
         request_fingerprint = self._identifiers.fingerprint(
-            "session-model-ensemble-request-v1",
+            "session-model-ensemble-request-v2",
             (
                 provider.value,
                 session_id,
                 idempotency_key,
                 MODEL_ENSEMBLE_POLICY_VERSION,
+                str(max_messages),
             ),
         )
         run_id = self._identifiers.fingerprint(
@@ -205,7 +210,7 @@ class SessionModelEnsembleService:
             if existing is not None:
                 return SessionModelEnsembleOutcome(run=existing, applied=False)
             self._enforce_access(provider, session_id)
-            context = self._read_context(provider, session_id)
+            context = self._read_context(provider, session_id, max_messages)
             latest: SessionModelEnsembleRunRecord | None = None
             if reuse_latest:
                 try:
@@ -327,11 +332,11 @@ class SessionModelEnsembleService:
                 "provider compatibility is not verified"
             ) from None
 
-    def _read_context(self, provider: Provider, session_id: str):
+    def _read_context(self, provider: Provider, session_id: str, max_messages: int):
         selection = TextAnalysisSelection(
             provider=provider,
             session_id=session_id,
-            max_messages=COACHING_PROFILE_V1.max_messages,
+            max_messages=max_messages,
             max_characters=COACHING_PROFILE_V1.max_characters,
         )
         grant = TextSourceAccessGrant(

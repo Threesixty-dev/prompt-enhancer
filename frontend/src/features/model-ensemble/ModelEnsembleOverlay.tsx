@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  CodexSession,
   ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
@@ -17,10 +18,57 @@ function statusOf(error: unknown): number | null {
     : null;
 }
 
+type CatalogWindow = "all" | "7" | "30" | "90";
+
+function sessionDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Date unavailable";
+  return new Intl.DateTimeFormat(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(parsed);
+}
+
+function sessionLabel(session: CodexSession): string {
+  return `${session.session_display_name ?? "Unnamed session"} · ${sessionDate(session.started_at)}`;
+}
+
 export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerTransport }) {
   const [snapshot, setSnapshot] = useState<ModelEnsembleWatchSnapshot | null>(null);
   const [category, setCategory] = useState<MetricCategory>("prompt-quality");
   const [disconnected, setDisconnected] = useState(false);
+  const [sessions, setSessions] = useState<CodexSession[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState("");
+  const [scopeError, setScopeError] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [sessionId, setSessionId] = useState("");
+  const [catalogWindow, setCatalogWindow] = useState<CatalogWindow>("all");
+  const [maxMessages, setMaxMessages] = useState(100);
+  const [watchChanging, setWatchChanging] = useState(false);
+  const synchronizedWatch = useRef("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setCatalogLoading(true);
+    transport.listCodexSessions(100, 0, controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        setSessions(response.sessions);
+        setCatalogError("");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setCatalogError("The indexed session catalog is unavailable. The current receipt can still be viewed.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCatalogLoading(false);
+      });
+    return () => controller.abort();
+  }, [transport]);
 
   useEffect(() => {
     if (transport.getActiveModelEnsembleWatch === undefined) {
@@ -67,6 +115,68 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
     };
   }, [transport]);
 
+  useEffect(() => {
+    if (snapshot === null || snapshot.watch.state === "disabled") return;
+    const key = `${snapshot.watch.watch_id}:${snapshot.watch.max_messages}`;
+    if (synchronizedWatch.current === key) return;
+    synchronizedWatch.current = key;
+    setProjectId(snapshot.watch.project_id);
+    setSessionId(snapshot.watch.session_id);
+    setMaxMessages(snapshot.watch.max_messages);
+  }, [snapshot]);
+
+  const filteredSessions = useMemo(() => {
+    if (catalogWindow === "all") return sessions;
+    const cutoff = Date.now() - Number(catalogWindow) * 24 * 60 * 60 * 1000;
+    return sessions.filter((session) => {
+      const started = new Date(session.started_at).getTime();
+      return Number.isFinite(started) && started >= cutoff;
+    });
+  }, [catalogWindow, sessions]);
+
+  const projects = useMemo(() => {
+    const projectMap = new Map<string, string>();
+    for (const session of filteredSessions) {
+      if (!projectMap.has(session.project_id)) {
+        projectMap.set(session.project_id, session.project_display_name ?? "Unnamed project");
+      }
+    }
+    if (
+      snapshot !== null
+      && snapshot.watch.state !== "disabled"
+      && !projectMap.has(snapshot.watch.project_id)
+    ) {
+      projectMap.set(snapshot.watch.project_id, "Current watched project");
+    }
+    return [...projectMap.entries()].map(([id, label]) => ({ id, label }));
+  }, [filteredSessions, snapshot]);
+
+  const projectSessions = useMemo(
+    () => filteredSessions.filter((session) => session.project_id === projectId),
+    [filteredSessions, projectId],
+  );
+
+  useEffect(() => {
+    const selectionIsActive = snapshot !== null
+      && snapshot.watch.state !== "disabled"
+      && snapshot.watch.project_id === projectId
+      && snapshot.watch.session_id === sessionId;
+    if (selectionIsActive) return;
+    if (filteredSessions.length === 0) {
+      setProjectId("");
+      setSessionId("");
+      return;
+    }
+    const selected = filteredSessions.find((session) => session.session_id === sessionId);
+    if (selected !== undefined && selected.project_id === projectId) return;
+    const nextProject = projects.some((project) => project.id === projectId)
+      ? projectId
+      : projects[0]?.id ?? "";
+    const nextSession = filteredSessions.find((session) => session.project_id === nextProject);
+    setProjectId(nextProject);
+    setSessionId(nextSession?.session_id ?? "");
+  }, [filteredSessions, projectId, projects, sessionId, snapshot]);
+
   const selected = useMemo(() => {
     if (snapshot?.latest_run === null || snapshot === null) return [];
     const kind = category === "prompt-quality" ? "prompt" : "logic";
@@ -79,6 +189,45 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
       .map((metric) => ({ metric, definition: definitions.get(metric.metric_key)! }));
   }, [category, snapshot]);
 
+  const activeForSelection = snapshot !== null
+    && snapshot.watch.state !== "disabled"
+    && snapshot.watch.project_id === projectId
+    && snapshot.watch.session_id === sessionId
+    && snapshot.watch.max_messages === maxMessages;
+  const activeForSession = snapshot !== null
+    && snapshot.watch.state !== "disabled"
+    && snapshot.watch.session_id === sessionId;
+  const activeSessionOutsideCatalog = activeForSession
+    && !projectSessions.some((session) => session.session_id === sessionId);
+  const linkProjectId = projectId || snapshot?.watch.project_id || "";
+  const linkSessionId = sessionId || snapshot?.watch.session_id || "";
+
+  async function changeWatch() {
+    if (watchChanging || sessionId === "" || projectId === "") return;
+    setWatchChanging(true);
+    setScopeError("");
+    try {
+      if (activeForSelection && snapshot !== null) {
+        if (transport.disableModelEnsembleWatch === undefined) throw new Error("unavailable");
+        await transport.disableModelEnsembleWatch(snapshot.watch.watch_id);
+        synchronizedWatch.current = "";
+        setSnapshot(null);
+      } else {
+        if (transport.enableModelEnsembleWatch === undefined) throw new Error("unavailable");
+        const next = await transport.enableModelEnsembleWatch(sessionId, {
+          project_id: projectId,
+          max_messages: maxMessages,
+          confirmation: "continuously_analyze_selected_redacted_session",
+        });
+        setSnapshot(next);
+      }
+    } catch {
+      setScopeError("The live watch could not be changed. No session content was retained.");
+    } finally {
+      setWatchChanging(false);
+    }
+  }
+
   return (
     <main className="model-ensemble-overlay">
       <header>
@@ -90,10 +239,92 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
           {disconnected ? "Disconnected · retaining last receipt" : snapshot?.watch.state ?? "No active watch"}
         </span>
       </header>
+      <section aria-label="Live watch scope" className="model-ensemble-overlay__scope">
+        <div className="model-ensemble-overlay__scope-title">
+          <strong>Watch scope</strong>
+          <span>Newest indexed catalog page · up to 100 sessions</span>
+        </div>
+        <div className="model-ensemble-overlay__scope-grid">
+          <label>
+            <span>Project</span>
+            <select
+              aria-label="Watch project"
+              disabled={catalogLoading || projects.length === 0}
+              onChange={(event) => {
+                const nextProject = event.target.value;
+                setProjectId(nextProject);
+                setSessionId(filteredSessions.find((session) => session.project_id === nextProject)?.session_id ?? "");
+              }}
+              value={projectId}
+            >
+              {projects.length === 0 ? <option value="">No indexed projects</option> : null}
+              {projects.map((project) => <option key={project.id} value={project.id}>{project.label}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Session</span>
+            <select
+              aria-label="Watch session"
+              disabled={catalogLoading || projectSessions.length === 0}
+              onChange={(event) => setSessionId(event.target.value)}
+              value={sessionId}
+            >
+              {projectSessions.length === 0 ? <option value="">No sessions in this filter</option> : null}
+              {activeSessionOutsideCatalog ? <option value={sessionId}>Current watched session · outside catalog page</option> : null}
+              {projectSessions.map((session) => (
+                <option key={session.session_id} value={session.session_id}>{sessionLabel(session)}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Session catalog date</span>
+            <select
+              aria-label="Session catalog date"
+              onChange={(event) => setCatalogWindow(event.target.value as CatalogWindow)}
+              value={catalogWindow}
+            >
+              <option value="all">All indexed dates</option>
+              <option value="7">Started in last 7 days</option>
+              <option value="30">Started in last 30 days</option>
+              <option value="90">Started in last 90 days</option>
+            </select>
+          </label>
+          <label>
+            <span>Analysis window</span>
+            <select
+              aria-label="Analysis message window"
+              onChange={(event) => setMaxMessages(Number(event.target.value))}
+              value={maxMessages}
+            >
+              {[10, 25, 50, 100].map((count) => <option key={count} value={count}>Newest {count} messages</option>)}
+            </select>
+          </label>
+        </div>
+        <p>
+          The date control filters session choices. Analysis reads the newest {maxMessages} messages;
+          exact within-session date cutoffs need complete provider timestamps and are not inferred.
+        </p>
+        {catalogError !== "" ? <p className="model-ensemble-overlay__scope-error" role="alert">{catalogError}</p> : null}
+        {scopeError !== "" ? <p className="model-ensemble-overlay__scope-error" role="alert">{scopeError}</p> : null}
+        <button
+          className="model-ensemble-overlay__watch-button"
+          disabled={watchChanging || sessionId === "" || projectId === ""}
+          onClick={() => void changeWatch()}
+          type="button"
+        >
+          {watchChanging
+            ? "Updating…"
+            : activeForSelection
+              ? "Stop this watch"
+              : activeForSession
+                ? "Apply message window"
+                : snapshot === null ? "Watch selected session" : "Switch live watch"}
+        </button>
+      </section>
       {snapshot === null ? (
         <section className="model-ensemble__empty" role="status">
-          Choose “Watch this session” in the full dashboard. This window never
-          selects or reads a session on its own.
+          No live watch is active. Choose a project, session, and message window above;
+          reading starts only after you explicitly enable it.
         </section>
       ) : (
         <>
@@ -103,7 +334,7 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
                 ? `Model ${snapshot.watch.progress_completed} of ${snapshot.watch.progress_total}`
                 : snapshot.watch.state === "queued" ? "Update queued" : "Latest observed snapshot"}
             </strong>
-            <span>Generation {snapshot.watch.generation} · serial local lane</span>
+            <span>Newest {snapshot.watch.max_messages} messages · generation {snapshot.watch.generation} · serial local lane</span>
             <progress max={snapshot.watch.progress_total} value={snapshot.watch.progress_completed} />
           </section>
           <div className="model-ensemble-overlay__tabs" role="group" aria-label="Radar lens">
@@ -130,14 +361,14 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
               </section>
             </>
           )}
-          <a
-            className="model-ensemble-overlay__open"
-            href={`/projects/${snapshot.watch.project_id}/sessions/${snapshot.watch.session_id}/metrics/${category}`}
-          >
-            Open full local dashboard
-          </a>
         </>
       )}
+      {linkProjectId !== "" && linkSessionId !== "" ? <a
+        className="model-ensemble-overlay__open"
+        href={`/projects/${linkProjectId}/sessions/${linkSessionId}/metrics/${category}`}
+      >
+        Open selected session in dashboard
+      </a> : null}
       <footer>Uncalibrated committee evidence · no text persisted · blocking work is not forcibly preempted</footer>
     </main>
   );

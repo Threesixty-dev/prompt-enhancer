@@ -2766,6 +2766,8 @@ export interface components {
             has_result: boolean;
             /** Last Error Code */
             last_error_code: string | null;
+            /** Max Messages */
+            max_messages: number;
             /**
              * Next Check At
              * Format: date-time
@@ -2819,6 +2821,11 @@ export interface components {
              * @constant
              */
             confirmation: "continuously_analyze_selected_redacted_session";
+            /**
+             * Max Messages
+             * @default 100
+             */
+            max_messages: number;
             /** Project Id */
             project_id: string;
         };

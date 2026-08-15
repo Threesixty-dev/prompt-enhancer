@@ -3534,6 +3534,18 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .model-ensemble-overlay h1 { margin: 2px 0 0; font-size: 1.25rem; }
 .model-ensemble-overlay__connection { max-width: 150px; padding: 6px 8px; border-radius: 999px; color: #27685d; background: #dff4ed; font-size: 0.62rem; font-weight: 760; text-align: center; }
 .model-ensemble-overlay__connection.is-stale { color: #8a4a28; background: #fff0df; }
+.model-ensemble-overlay__scope { display: grid; gap: 8px; padding: 10px 11px; border: 1px solid #bfd8d2; border-radius: 12px; background: rgba(255,255,255,.88); box-shadow: 0 8px 22px rgba(29,78,70,.06); }
+.model-ensemble-overlay__scope-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.model-ensemble-overlay__scope-title strong { color: var(--teal-800); font-size: .75rem; }
+.model-ensemble-overlay__scope-title span { color: var(--ink-500); font-size: .56rem; text-align: right; }
+.model-ensemble-overlay__scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.model-ensemble-overlay__scope-grid label { min-width: 0; display: grid; gap: 3px; }
+.model-ensemble-overlay__scope-grid label > span { color: var(--ink-500); font-size: .57rem; font-weight: 760; text-transform: uppercase; letter-spacing: .045em; }
+.model-ensemble-overlay__scope-grid select { width: 100%; min-width: 0; height: 32px; padding: 4px 24px 4px 7px; border: 1px solid #c7d8d4; border-radius: 8px; color: var(--ink-800); background: #fff; font: inherit; font-size: .64rem; text-overflow: ellipsis; }
+.model-ensemble-overlay__scope > p { margin: 0; color: var(--ink-500); font-size: .56rem; line-height: 1.4; }
+.model-ensemble-overlay__scope .model-ensemble-overlay__scope-error { color: var(--red-700); }
+.model-ensemble-overlay__watch-button { min-height: 34px; padding: 7px 10px; border: 0; border-radius: 9px; color: #fff; background: var(--teal-700); font: inherit; font-size: .68rem; font-weight: 780; cursor: pointer; }
+.model-ensemble-overlay__watch-button:disabled { cursor: not-allowed; opacity: .55; }
 .model-ensemble-overlay__progress { display: grid; gap: 4px; padding: 10px 11px; border: 1px solid #c7dad5; border-radius: 10px; background: rgba(255,255,255,.85); }
 .model-ensemble-overlay__progress strong { color: var(--teal-800); font-size: .76rem; }
 .model-ensemble-overlay__progress span { color: var(--ink-500); font-size: .63rem; }

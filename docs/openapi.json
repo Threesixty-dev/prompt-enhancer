@@ -4493,6 +4493,12 @@
             ],
             "title": "Last Error Code"
           },
+          "max_messages": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Messages",
+            "type": "integer"
+          },
           "next_check_at": {
             "format": "date-time",
             "title": "Next Check At",
@@ -4558,6 +4564,7 @@
           "provider",
           "project_id",
           "session_id",
+          "max_messages",
           "state",
           "generation",
           "progress_completed",
@@ -4577,6 +4584,13 @@
             "const": "continuously_analyze_selected_redacted_session",
             "title": "Confirmation",
             "type": "string"
+          },
+          "max_messages": {
+            "default": 100,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Messages",
+            "type": "integer"
           },
           "project_id": {
             "title": "Project Id",

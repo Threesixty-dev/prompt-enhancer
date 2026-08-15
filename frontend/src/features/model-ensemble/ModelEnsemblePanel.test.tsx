@@ -136,6 +136,7 @@ function watchFixture(latestRun: ModelEnsembleRun | null = null): ModelEnsembleW
       provider: "codex",
       project_id: PROJECT_ID,
       session_id: SESSION_ID,
+      max_messages: 100,
       state: "idle",
       generation: 2,
       progress_completed: 10,
@@ -260,6 +261,10 @@ describe("model ensemble response contract", () => {
     const falseRelease = structuredClone(valid);
     falseRelease.watch.process_isolated_model_release = false as true;
     expect(() => parseModelEnsembleWatchSnapshot(falseRelease)).toThrow(ModelEnsembleWatchPayloadError);
+
+    const invalidWindow = structuredClone(valid);
+    invalidWindow.watch.max_messages = 101;
+    expect(() => parseModelEnsembleWatchSnapshot(invalidWindow)).toThrow(ModelEnsembleWatchPayloadError);
   });
 
   it("uses exact private watch routes and cache-safe transport", async () => {
@@ -285,6 +290,7 @@ describe("model ensemble response contract", () => {
     await transport.getActiveModelEnsembleWatch!();
     await transport.enableModelEnsembleWatch!(SESSION_ID, {
       project_id: PROJECT_ID,
+      max_messages: 25,
       confirmation: "continuously_analyze_selected_redacted_session",
     });
     await transport.disableModelEnsembleWatch!("d".repeat(64));
@@ -366,6 +372,7 @@ describe("ModelEnsemblePanel", () => {
       SESSION_ID,
       {
         project_id: PROJECT_ID,
+        max_messages: 100,
         confirmation: "continuously_analyze_selected_redacted_session",
       },
     );

@@ -9828,3 +9828,16 @@ BEGIN SELECT RAISE(ABORT,'model ensemble watch result binding is invalid'); END;
 
 COMMIT;
 """
+
+
+MIGRATION_29 = r"""
+BEGIN IMMEDIATE;
+
+-- The selected newest-message window is content-free watch authority. Existing
+-- watches retain the original 100-message behavior after upgrade.
+ALTER TABLE session_model_ensemble_watches
+ADD COLUMN max_messages INTEGER NOT NULL DEFAULT 100
+    CHECK(max_messages BETWEEN 1 AND 100);
+
+COMMIT;
+"""

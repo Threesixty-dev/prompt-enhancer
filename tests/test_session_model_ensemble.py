@@ -137,11 +137,13 @@ class _Source:
 
     def __init__(self) -> None:
         self.read_count = 0
+        self.message_limits: list[int] = []
 
     def read(self, *, selection, grant, task_profile):
         self.read_count += 1
+        self.message_limits.append(selection.max_messages)
         assert selection.session_id == SESSION_ID
-        assert selection.max_messages == 100
+        assert 1 <= selection.max_messages <= 100
         assert selection.max_characters == 100_000
         assert grant.local_only and not grant.content_persistence_allowed
         assert task_profile == COACHING_PROFILE_V1.task_profile
@@ -172,12 +174,13 @@ class _WatchRepository:
     def __init__(self) -> None:
         self.record: ModelEnsembleWatchRecord | None = None
 
-    def enable(self, *, watch_id, provider, project_id, session_id, now):  # type: ignore[no-untyped-def]
+    def enable(self, *, watch_id, provider, project_id, session_id, max_messages=100, now):  # type: ignore[no-untyped-def]
         self.record = ModelEnsembleWatchRecord(
             watch_id=watch_id,
             provider=provider,
             project_id=project_id,
             session_id=session_id,
+            max_messages=max_messages,
             state=ModelEnsembleWatchState.QUEUED,
             generation=0,
             progress_completed=0,
@@ -444,6 +447,7 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
             path,
             json={
                 "project_id": "c" * 64,
+                "max_messages": 25,
                 "confirmation": MODEL_ENSEMBLE_WATCH_CONFIRMATION,
             },
         )
@@ -461,6 +465,7 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
             headers=headers,
             json={
                 "project_id": "c" * 64,
+                "max_messages": 25,
                 "confirmation": MODEL_ENSEMBLE_WATCH_CONFIRMATION,
             },
         )
@@ -477,6 +482,7 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
     assert enabled.headers["cache-control"] == "no-store, private"
     assert enabled.headers["pragma"] == "no-cache"
     assert enabled.json()["watch"]["state"] == "queued"
+    assert enabled.json()["watch"]["max_messages"] == 25
     assert enabled.json()["latest_run"] is None
     assert active.json() == enabled.json()
     assert disabled.json()["watch"]["state"] == "disabled"
@@ -497,16 +503,19 @@ def test_watch_worker_runs_all_ten_progress_boundaries_and_coalesces_unchanged_i
         provider=Provider.CODEX,
         project_id="c" * 64,
         session_id=SESSION_ID,
+        max_messages=25,
         confirmation=MODEL_ENSEMBLE_WATCH_CONFIRMATION,
     )
 
     first = watch.run_once()
     assert enabled.state is ModelEnsembleWatchState.QUEUED
+    assert enabled.max_messages == 25
     assert first is not None and first.state is ModelEnsembleWatchState.IDLE
     assert first.generation == 1
     assert first.progress_completed == 10
     assert first.latest_run_id is not None
     assert source.read_count == 1
+    assert source.message_limits == [25]
     assert len(repository.items) == 1
 
     # Make the same watch due again. The source is read to observe the local

@@ -24,6 +24,7 @@ def _record(row: object) -> ModelEnsembleWatchRecord:
         provider=Provider(row["provider"]),  # type: ignore[index]
         project_id=row["project_id"],  # type: ignore[index]
         session_id=row["session_id"],  # type: ignore[index]
+        max_messages=int(row["max_messages"]),  # type: ignore[index]
         state=ModelEnsembleWatchState(row["state"]),  # type: ignore[index]
         generation=int(row["generation"]),  # type: ignore[index]
         progress_completed=int(row["progress_completed"]),  # type: ignore[index]
@@ -67,11 +68,18 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
         provider: Provider,
         project_id: str,
         session_id: str,
+        max_messages: int = 100,
         now: datetime,
     ) -> ModelEnsembleWatchRecord:
         require_safe_id(watch_id)
         require_safe_id(project_id)
         require_safe_id(session_id)
+        if (
+            not isinstance(max_messages, int)
+            or isinstance(max_messages, bool)
+            or not 1 <= max_messages <= 100
+        ):
+            raise ValueError("watch message window is invalid")
         self._ensure_initialized()
         stamp = to_iso(now)
         with self._connection_scope() as connection:
@@ -87,7 +95,11 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                 if target is None:
                     raise ValueError("watch target is outside the safe index")
                 existing = self._row(connection, watch_id)
-                if existing is not None and existing["state"] != "disabled":
+                if (
+                    existing is not None
+                    and existing["state"] != "disabled"
+                    and int(existing["max_messages"]) == max_messages
+                ):
                     connection.rollback()
                     return _record(existing)
                 connection.execute(
@@ -100,16 +112,17 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                 if existing is None:
                     connection.execute(
                         """INSERT INTO session_model_ensemble_watches(
-                           watch_id,provider,project_id,session_id,state,generation,
+                           watch_id,provider,project_id,session_id,max_messages,state,generation,
                            progress_completed,progress_total,latest_run_id,
                            latest_input_fingerprint,last_error_code,next_check_at,
                            lease_owner,lease_token,lease_expires_at,created_at,updated_at
-                           ) VALUES(?,?,?,?,'queued',0,0,?,NULL,NULL,NULL,?,NULL,NULL,NULL,?,?)""",
+                           ) VALUES(?,?,?,?,?,'queued',0,0,?,NULL,NULL,NULL,?,NULL,NULL,NULL,?,?)""",
                         (
                             watch_id,
                             provider.value,
                             project_id,
                             session_id,
+                            max_messages,
                             MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL,
                             stamp,
                             stamp,
@@ -117,13 +130,21 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                         ),
                     )
                 else:
+                    if existing["state"] != "disabled":
+                        connection.execute(
+                            """UPDATE session_model_ensemble_watches
+                               SET state='disabled',lease_owner=NULL,lease_token=NULL,
+                                   lease_expires_at=NULL,updated_at=? WHERE watch_id=?""",
+                            (stamp, watch_id),
+                        )
                     connection.execute(
                         """UPDATE session_model_ensemble_watches
-                           SET state='queued',progress_completed=0,last_error_code=NULL,
+                           SET state='queued',max_messages=?,progress_completed=0,
+                               latest_run_id=NULL,latest_input_fingerprint=NULL,last_error_code=NULL,
                                next_check_at=?,lease_owner=NULL,lease_token=NULL,
                                lease_expires_at=NULL,updated_at=?
                            WHERE watch_id=?""",
-                        (stamp, stamp, watch_id),
+                        (max_messages, stamp, stamp, watch_id),
                     )
                 row = self._row(connection, watch_id)
                 connection.commit()

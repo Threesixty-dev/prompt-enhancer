@@ -229,19 +229,100 @@ def test_model_ensemble_graph_is_immutable_sealed_and_privacy_deletable(tmp_path
     assert counts == (0,) * 8
 
 
-def test_v26_migration_has_zero_backfill(tmp_path) -> None:
+def test_model_ensemble_migrations_have_zero_backfill(tmp_path) -> None:
     database, _ = _database_and_session(tmp_path)
     with sqlite3.connect(database.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 28
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 29
         assert tuple(
             row[0]
             for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-        ) == tuple(range(1, 29))
+        ) == tuple(range(1, 30))
         assert connection.execute(
             "SELECT COUNT(*) FROM session_model_ensemble_runs"
         ).fetchone()[0] == 0
+
+
+def test_v28_watch_upgrade_preserves_the_original_message_window(tmp_path) -> None:
+    path = tmp_path / "watch-v28.sqlite3"
+    scripts = (_MIGRATION_1,) + tuple(
+        getattr(migrations, f"MIGRATION_{version}")
+        for version in range(2, 29)
+    )
+    checksums = tuple(
+        hashlib.sha256(script.encode("utf-8")).hexdigest()
+        for script in scripts
+    )
+    timestamp = NOW.isoformat(timespec="microseconds")
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA trusted_schema=ON")
+        for script in scripts:
+            connection.executescript(script)
+        connection.execute(
+            "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)"
+        )
+        connection.executemany(
+            "INSERT INTO schema_migrations VALUES(?,?,?)",
+            tuple(
+                (version, checksum, timestamp)
+                for version, checksum in enumerate(checksums, start=1)
+            ),
+        )
+        connection.execute(
+            "INSERT INTO installations VALUES(?,?,?)",
+            ("1" * 64, "codex", timestamp),
+        )
+        connection.execute(
+            "INSERT INTO projects(project_id,installation_id,provider,created_at) VALUES(?,?,?,?)",
+            ("2" * 64, "1" * 64, "codex", timestamp),
+        )
+        connection.execute(
+            """INSERT INTO sessions(
+               session_id,installation_id,project_id,provider,provider_version,
+               adapter_version,source_schema_version,started_at,ended_at,
+               terminal_state,events_complete,created_at,updated_at
+               ) VALUES(?,?,?,?,?,?,?,?,?,'completed',1,?,?)""",
+            (
+                "3" * 64,
+                "1" * 64,
+                "2" * 64,
+                "codex",
+                "example-provider-v1",
+                "example-adapter-v1",
+                "example-schema-v1",
+                timestamp,
+                timestamp,
+                timestamp,
+                timestamp,
+            ),
+        )
+        connection.execute(
+            """INSERT INTO session_model_ensemble_watches(
+               watch_id,provider,project_id,session_id,state,generation,
+               progress_completed,progress_total,next_check_at,created_at,updated_at
+               ) VALUES(?,?,?,?,'queued',0,0,10,?,?,?)""",
+            ("4" * 64, "codex", "2" * 64, "3" * 64, timestamp, timestamp, timestamp),
+        )
+        connection.execute("PRAGMA user_version=28")
+        connection.commit()
+
+    Database(path).initialize()
+
+    with sqlite3.connect(path) as connection:
+        rows = connection.execute(
+            "SELECT version,checksum FROM schema_migrations ORDER BY version"
+        ).fetchall()
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert tuple(row[1] for row in rows[:28]) == checksums
+        assert rows[28][1] == hashlib.sha256(
+            migrations.MIGRATION_29.encode("utf-8")
+        ).hexdigest()
+        assert connection.execute(
+            "SELECT max_messages FROM session_model_ensemble_watches"
+        ).fetchone()[0] == 100
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 @pytest.mark.parametrize("populated", (False, True))
@@ -320,8 +401,8 @@ def test_v25_to_v26_preserves_prior_checksums_and_rows(tmp_path, populated: bool
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 28
-        assert tuple(row[0] for row in rows) == tuple(range(1, 29))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 29
+        assert tuple(row[0] for row in rows) == tuple(range(1, 30))
         assert tuple(row[1] for row in rows[:25]) == checksums
         assert rows[25][1] == hashlib.sha256(
             migrations.MIGRATION_26.encode("utf-8")
@@ -331,6 +412,9 @@ def test_v25_to_v26_preserves_prior_checksums_and_rows(tmp_path, populated: bool
         ).hexdigest()
         assert rows[27][1] == hashlib.sha256(
             migrations.MIGRATION_28.encode("utf-8")
+        ).hexdigest()
+        assert rows[28][1] == hashlib.sha256(
+            migrations.MIGRATION_29.encode("utf-8")
         ).hexdigest()
         assert connection.execute(
             "SELECT COUNT(*) FROM session_model_ensemble_runs"
@@ -361,9 +445,11 @@ def test_continuous_watch_claim_progress_completion_and_disable(tmp_path) -> Non
         provider=Provider.CODEX,
         project_id=project_id,
         session_id=session_id,
+        max_messages=25,
         now=NOW,
     )
     assert enabled.state.value == "queued"
+    assert enabled.max_messages == 25
     claimed = repository.claim_due(
         owner="8" * 64,
         now=NOW,
@@ -393,7 +479,21 @@ def test_continuous_watch_claim_progress_completion_and_disable(tmp_path) -> Non
     assert completed.progress_completed == 10
     assert repository.get_active() == completed
 
-    disabled = repository.disable(watch_id, now=NOW + timedelta(seconds=21))
+    reconfigured = repository.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        max_messages=50,
+        now=NOW + timedelta(seconds=21),
+    )
+    assert reconfigured.state.value == "queued"
+    assert reconfigured.max_messages == 50
+    assert reconfigured.progress_completed == 0
+    assert reconfigured.latest_run_id is None
+    assert reconfigured.latest_input_fingerprint is None
+
+    disabled = repository.disable(watch_id, now=NOW + timedelta(seconds=22))
     assert disabled.state.value == "disabled"
     assert repository.get_active() is None
 

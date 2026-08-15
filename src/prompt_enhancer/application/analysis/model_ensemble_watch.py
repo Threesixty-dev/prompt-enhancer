@@ -65,6 +65,7 @@ class ModelEnsembleWatchRecord(StrictModel):
     provider: Provider
     project_id: str
     session_id: str
+    max_messages: int = Field(ge=1, le=100)
     state: ModelEnsembleWatchState
     generation: int = Field(ge=0)
     progress_completed: int = Field(ge=0, le=MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL)
@@ -130,6 +131,7 @@ class ModelEnsembleWatchRepository(Protocol):
         provider: Provider,
         project_id: str,
         session_id: str,
+        max_messages: int = 100,
         now: datetime,
     ) -> ModelEnsembleWatchRecord: ...
 
@@ -188,6 +190,7 @@ class ContinuousModelEnsembleCommand(Protocol):
         session_id: str,
         confirmation: str,
         idempotency_key: str,
+        max_messages: int = 100,
         progress_callback: ProgressCallback | None = None,
         reuse_latest: bool = True,
     ) -> SessionModelEnsembleOutcome: ...
@@ -248,12 +251,16 @@ class ModelEnsembleWatchService:
         provider: Provider,
         project_id: str,
         session_id: str,
+        max_messages: int = 100,
         confirmation: str,
     ) -> ModelEnsembleWatchRecord:
         if (
             provider is not Provider.CODEX
             or PSEUDONYM_PATTERN.fullmatch(project_id) is None
             or PSEUDONYM_PATTERN.fullmatch(session_id) is None
+            or not isinstance(max_messages, int)
+            or isinstance(max_messages, bool)
+            or not 1 <= max_messages <= 100
             or confirmation != MODEL_ENSEMBLE_WATCH_CONFIRMATION
         ):
             raise ModelEnsembleWatchInputError()
@@ -274,6 +281,7 @@ class ModelEnsembleWatchService:
                 provider=provider,
                 project_id=project_id,
                 session_id=session_id,
+                max_messages=max_messages,
                 now=self._clock(),
             )
         except ValueError:
@@ -324,6 +332,7 @@ class ModelEnsembleWatchService:
                 session_id=record.session_id,
                 confirmation=MODEL_ENSEMBLE_CONFIRMATION,
                 idempotency_key=key,
+                max_messages=record.max_messages,
                 progress_callback=progress,
                 reuse_latest=True,
             )

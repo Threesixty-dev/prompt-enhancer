@@ -49,7 +49,7 @@ export function parseModelEnsembleWatchSnapshot(value: unknown): ModelEnsembleWa
   exact(snapshot, ["watch", "latest_run"]);
   const watch = row(snapshot.watch);
   exact(watch, [
-    "watch_id", "provider", "project_id", "session_id", "state", "generation",
+    "watch_id", "provider", "project_id", "session_id", "max_messages", "state", "generation",
     "progress_completed", "progress_total", "has_result", "last_error_code",
     "next_check_at", "updated_at", "serial_model_execution",
     "process_isolated_model_release", "cuda_resource_retry_on_cpu",
@@ -62,6 +62,8 @@ export function parseModelEnsembleWatchSnapshot(value: unknown): ModelEnsembleWa
   }
   if (
     watch.provider !== "codex" ||
+    !Number.isInteger(watch.max_messages) ||
+    (watch.max_messages as number) < 1 || (watch.max_messages as number) > 100 ||
     !["queued", "running", "idle", "failed", "disabled"].includes(String(watch.state)) ||
     !Number.isInteger(watch.generation) || (watch.generation as number) < 0 ||
     !Number.isInteger(watch.progress_completed) || (watch.progress_completed as number) < 0 ||
