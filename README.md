@@ -29,6 +29,15 @@ provenance, and unload receipts; it never stores the chunk text. This ensemble i
 deliberately marked uncalibrated and is not a product score or a substitute for a
 representative human-labeled holdout.
 
+One selected Codex session can also be placed under an explicit continuous local
+watch. The watch checks the selected redacted snapshot on a bounded cadence, reuses
+unchanged sealed prefix chunks, reruns all ten heterogeneous stages only over the
+dirty tail, and publishes a new immutable content-free receipt. Codex activity time
+is reduced to a keyed revision rather than persisted as a provider timestamp. A
+fixed-axis radar keeps Unknown and Abstained visible instead of plotting them as
+zero. This is a serial evidence committee—not ten interchangeable predictors and
+not a calibrated estimate of truth.
+
 ## Phase 1 local quickstart
 
 Python 3.11 or newer is required. From the repository root in PowerShell:
@@ -98,6 +107,21 @@ After those commands pass, open a Prompt Quality or Reasoning Quality session
 page in the integrated app and choose **Run 10 models locally**. The operation
 can take several minutes. It uses CUDA when available, otherwise CPU, and
 executes one model process at a time rather than loading all weights together.
+
+To keep the selected session updating, choose **Watch this session** on that
+page. Only one session can hold the continuous serial model lane. An optional
+normal, minimizable, always-on-top Windows window displays the latest fixed-axis
+radar and model progress without putting a session identifier or API token in
+its URL:
+
+```powershell
+python -m pip install -e ".[desktop]"
+python -m prompt_enhancer desktop
+```
+
+The desktop command attaches only to the authenticated loopback service on the
+configured port, or starts and owns that service when the port is free. Closing
+the window stops only a server instance that the window started itself.
 
 See [docs/phase-1.md](docs/phase-1.md) for the safety boundary, explicit Codex workflow, API behavior, and deferred features.
 

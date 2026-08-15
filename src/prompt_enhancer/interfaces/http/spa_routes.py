@@ -49,6 +49,8 @@ def is_spa_navigation_path(path: str) -> bool:
         "projects/",
         "research/methods",
         "research/methods/",
+        "overlay/model-ensemble",
+        "overlay/model-ensemble/",
     }:
         return True
 

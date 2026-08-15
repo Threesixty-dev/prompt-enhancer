@@ -62,6 +62,20 @@ _SAFE_ERRORS = {
     "mps_unavailable",
     "model_stage_failed",
 }
+_ROLES = frozenset({"user", "agent"})
+_KINDS = frozenset(
+    {
+        "request",
+        "response",
+        "plan",
+        "action",
+        "verification",
+        "decision",
+        "feedback",
+        "summary",
+    }
+)
+_LANGUAGES = frozenset({"en", "pl", "mixed", "unknown"})
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -76,7 +90,10 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _read_payload() -> tuple[dict[str, str], tuple[dict[str, object], ...]]:
+def _read_payload() -> tuple[
+    dict[str, dict[str, object]],
+    tuple[dict[str, object], ...],
+]:
     body = sys.stdin.buffer.read(_MAX_INPUT_BYTES + 1)
     if not body or len(body) > _MAX_INPUT_BYTES:
         raise ModelEnsembleError("model_stage_input_invalid")
@@ -97,10 +114,17 @@ def _read_payload() -> tuple[dict[str, str], tuple[dict[str, object], ...]]:
         or not 1 <= len(raw_cases) <= _MAX_CASES
     ):
         raise ModelEnsembleError("model_stage_input_invalid")
-    fragments: dict[str, str] = {}
+    fragments: dict[str, dict[str, object]] = {}
     total_characters = 0
     for item in raw_fragments:
-        if not isinstance(item, dict) or set(item) != {"fragment_id", "text"}:
+        if not isinstance(item, dict) or set(item) != {
+            "fragment_id",
+            "text",
+            "role",
+            "kind",
+            "language",
+            "is_focus_message",
+        }:
             raise ModelEnsembleError("model_stage_input_invalid")
         identifier, text = item["fragment_id"], item["text"]
         if (
@@ -110,9 +134,19 @@ def _read_payload() -> tuple[dict[str, str], tuple[dict[str, object], ...]]:
             or not isinstance(text, str)
             or not 1 <= len(text) <= 3_500
             or "\x00" in text
+            or item["role"] not in _ROLES
+            or item["kind"] not in _KINDS
+            or item["language"] not in _LANGUAGES
+            or not isinstance(item["is_focus_message"], bool)
         ):
             raise ModelEnsembleError("model_stage_input_invalid")
-        fragments[identifier] = text
+        fragments[identifier] = {
+            "text": text,
+            "role": item["role"],
+            "kind": item["kind"],
+            "language": item["language"],
+            "is_focus_message": item["is_focus_message"],
+        }
         total_characters += len(text)
     if total_characters > 100_000:
         raise ModelEnsembleError("model_stage_input_invalid")
@@ -164,13 +198,16 @@ def _read_payload() -> tuple[dict[str, str], tuple[dict[str, object], ...]]:
 
 
 def _retrieval_cases(
-    fragments: Mapping[str, str],
+    fragments: Mapping[str, Mapping[str, object]],
     cases: Sequence[Mapping[str, object]],
 ) -> tuple[RetrievalCase, ...]:
     parsed = []
     for item in cases:
         candidates = tuple(
-            RetrievalCandidate(candidate_id=identifier, text=fragments[identifier])
+            RetrievalCandidate(
+                candidate_id=identifier,
+                text=_evidence_text(fragments[identifier]),
+            )
             for identifier in item["candidate_ids"]
         )
         parsed.append(
@@ -208,18 +245,33 @@ def _score_rows(
 
 
 def _nli_cases(
-    fragments: Mapping[str, str],
+    fragments: Mapping[str, Mapping[str, object]],
     cases: Sequence[Mapping[str, object]],
 ) -> tuple[NliCase, ...]:
     return tuple(
         NliCase(
             language="unknown",
-            premise="\n".join(fragments[identifier] for identifier in item["candidate_ids"]),
+            premise="\n".join(
+                _evidence_text(fragments[identifier])
+                for identifier in item["candidate_ids"]
+            ),
             hypothesis=str(item["hypothesis"]),
             expected_label="neutral",
             scope_relation="same_scope",
         )
         for item in cases
+    )
+
+
+def _evidence_text(fragment: Mapping[str, object]) -> str:
+    """Preserve allowlisted scope metadata in the ephemeral model input."""
+
+    return (
+        "[role="
+        f"{fragment['role']} kind={fragment['kind']} "
+        f"language={fragment['language']} "
+        f"focus={'yes' if fragment['is_focus_message'] else 'no'}]\n"
+        f"{fragment['text']}"
     )
 
 
@@ -300,7 +352,8 @@ def run(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
                     (
                         str(item["rubric"]),
                         "\n".join(
-                            fragments[identifier] for identifier in item["candidate_ids"]
+                            _evidence_text(fragments[identifier])
+                            for identifier in item["candidate_ids"]
                         ),
                     )
                     for item in cases

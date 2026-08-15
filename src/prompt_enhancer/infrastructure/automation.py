@@ -115,7 +115,8 @@ class SqliteAutomationCandidateSource:
                 """
                 SELECT session_id, project_id, provider, provider_version,
                        adapter_version, source_schema_version, started_at,
-                       ended_at, terminal_state, events_complete, updated_at
+                       ended_at, terminal_state, events_complete, updated_at,
+                       provider_activity_revision
                 FROM sessions
                 WHERE project_id = ? AND provider = ?
                 ORDER BY COALESCE(ended_at, started_at) DESC, session_id
@@ -130,19 +131,25 @@ class SqliteAutomationCandidateSource:
         scope: AutomationGrantScope,
         row: sqlite3.Row,
     ) -> AutomationSessionCandidate:
-        input_fingerprint = _fingerprint(
-            {
-                "session_id": row["session_id"],
-                "provider_version": row["provider_version"],
-                "adapter_version": row["adapter_version"],
-                "source_schema_version": row["source_schema_version"],
-                "started_at": row["started_at"],
-                "ended_at": row["ended_at"],
-                "terminal_state": row["terminal_state"],
-                "events_complete": row["events_complete"],
-                "updated_at": row["updated_at"],
-            }
-        )
+        input_payload = {
+            "session_id": row["session_id"],
+            "provider_version": row["provider_version"],
+            "adapter_version": row["adapter_version"],
+            "source_schema_version": row["source_schema_version"],
+            "started_at": row["started_at"],
+            "ended_at": row["ended_at"],
+            "terminal_state": row["terminal_state"],
+            "events_complete": row["events_complete"],
+            "updated_at": row["updated_at"],
+        }
+        # Preserve historical candidate fingerprints for zero-backfilled rows.
+        # New Codex observations add only an HMAC revision, never the provider
+        # activity timestamp itself.
+        if row["provider_activity_revision"] is not None:
+            input_payload["provider_activity_revision"] = row[
+                "provider_activity_revision"
+            ]
+        input_fingerprint = _fingerprint(input_payload)
         provenance_fingerprint = _fingerprint(
             {
                 "estimator_plan_version": self._estimator_plan_version,

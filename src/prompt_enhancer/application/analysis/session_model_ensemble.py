@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from threading import Lock
-from typing import Protocol
+from typing import Callable, Protocol
 
 from pydantic import field_validator, model_validator
 
@@ -92,6 +92,9 @@ class SessionModelEnsembleRunner(Protocol):
         self,
         chunk_plan: EnsembleChunkPlan,
         metric_specs: tuple[EnsembleMetricSpec, ...],
+        *,
+        progress_callback: Callable[[int, int], None] | None = None,
+        prior_receipt: SessionModelEnsembleReceipt | None = None,
     ) -> SessionModelEnsembleReceipt: ...
 
 
@@ -171,6 +174,8 @@ class SessionModelEnsembleService:
         session_id: str,
         confirmation: str,
         idempotency_key: str,
+        progress_callback: Callable[[int, int], None] | None = None,
+        reuse_latest: bool = False,
     ) -> SessionModelEnsembleOutcome:
         if (
             provider is not Provider.CODEX
@@ -201,10 +206,42 @@ class SessionModelEnsembleService:
                 return SessionModelEnsembleOutcome(run=existing, applied=False)
             self._enforce_access(provider, session_id)
             context = self._read_context(provider, session_id)
+            latest: SessionModelEnsembleRunRecord | None = None
+            if reuse_latest:
+                try:
+                    latest = self._repository.get_latest(session_id)
+                except Exception:
+                    raise ModelEnsemblePersistenceError(
+                        "model ensemble results are unavailable"
+                    ) from None
+                if (
+                    latest is not None
+                    and latest.input_fingerprint
+                    == context.analysis_window_fingerprint
+                ):
+                    if progress_callback is not None:
+                        progress_callback(10, 10)
+                    return SessionModelEnsembleOutcome(run=latest, applied=False)
             plan = build_ensemble_chunks(context)
             specs = coaching_ensemble_metric_specs()
             try:
-                receipt = self._runner.run(plan, specs)
+                if progress_callback is None and latest is None:
+                    receipt = self._runner.run(plan, specs)
+                elif progress_callback is None:
+                    receipt = self._runner.run(
+                        plan, specs, prior_receipt=latest.receipt
+                    )
+                elif latest is None:
+                    receipt = self._runner.run(
+                        plan, specs, progress_callback=progress_callback
+                    )
+                else:
+                    receipt = self._runner.run(
+                        plan,
+                        specs,
+                        progress_callback=progress_callback,
+                        prior_receipt=latest.receipt,
+                    )
                 record = SessionModelEnsembleRunRecord(
                     run_id=run_id,
                     session_id=session_id,
@@ -244,6 +281,13 @@ class SessionModelEnsembleService:
             raise ModelEnsemblePersistenceError(
                 "model ensemble results are unavailable"
             ) from None
+
+    def require_watchable(self, *, provider: Provider, session_id: str) -> None:
+        """Validate standing local authority without reading session content."""
+
+        if provider is not Provider.CODEX or PSEUDONYM_PATTERN.fullmatch(session_id) is None:
+            raise ModelEnsembleInputError("model ensemble selection is invalid")
+        self._enforce_access(provider, session_id)
 
     def _safe_get(self, run_id: str) -> SessionModelEnsembleRunRecord | None:
         try:

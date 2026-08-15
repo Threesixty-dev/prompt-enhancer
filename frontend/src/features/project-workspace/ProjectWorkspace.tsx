@@ -1485,6 +1485,7 @@ export function ProjectWorkspace({
                 category={category}
                 compatibilityLoading={compatibilityLoading}
                 key={`model-ensemble-${currentSession.session_id}-${category}`}
+                projectId={route.projectId}
                 providerCompatibility={providerCompatibility}
                 sessionId={currentSession.session_id}
                 transport={transport}

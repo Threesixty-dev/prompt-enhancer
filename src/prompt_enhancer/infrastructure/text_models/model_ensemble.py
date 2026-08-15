@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from time import monotonic
 from typing import Callable, Mapping, Sequence
 
 from ...application.analysis.model_ensemble import (
@@ -53,7 +54,7 @@ from .manifests import (
 from ..specialist_screen.manifests import MINILMV2_L12_NLI, MINILMV2_L6_NLI
 
 
-MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION = 1
+MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION = 2
 MAX_ENSEMBLE_SUBPROCESS_INPUT_BYTES = 2 * 1024 * 1024
 MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_SELECTED_RETRIEVAL_FRAGMENTS = 8
@@ -205,6 +206,7 @@ def run_ensemble_expert_subprocess(
     device: str,
     *,
     python_executable: str | None = None,
+    heartbeat: Callable[[], None] | None = None,
 ) -> Mapping[str, object]:
     root = repository_root()
     script = root / "scripts" / "run_local_model_ensemble_expert.py"
@@ -228,23 +230,47 @@ def run_ensemble_expert_subprocess(
     ]
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=root,
             env=_child_environment(root, spec.cache_root),
-            input=body,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=1_200,
-            check=False,
             creationflags=creation_flags,
         )
+        started = monotonic()
+        first = True
+        while True:
+            remaining = 1_200 - (monotonic() - started)
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, 1_200)
+            try:
+                stdout, _stderr = process.communicate(
+                    input=body if first else None,
+                    timeout=min(10.0, remaining),
+                )
+                break
+            except subprocess.TimeoutExpired:
+                first = False
+                if heartbeat is not None:
+                    heartbeat()
     except (OSError, subprocess.TimeoutExpired):
+        local_process = locals().get("process")
+        if local_process is not None and local_process.poll() is None:
+            local_process.kill()
+            local_process.communicate()
         raise ModelEnsembleError("model_ensemble_subprocess_failed") from None
-    if not completed.stdout or len(completed.stdout) > MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES:
+    except Exception:
+        local_process = locals().get("process")
+        if local_process is not None and local_process.poll() is None:
+            local_process.kill()
+            local_process.communicate()
+        raise
+    if not stdout or len(stdout) > MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES:
         raise ModelEnsembleError("model_ensemble_output_invalid")
     try:
-        result = json.loads(completed.stdout.decode("utf-8"))
+        result = json.loads(stdout.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise ModelEnsembleError("model_ensemble_output_invalid") from None
     if not isinstance(result, dict):
@@ -363,6 +389,7 @@ class SerialModelEnsembleRunner:
         self._python_executable = python_executable
         self._clock = clock
         self._executor = executor or self._execute
+        self._heartbeat_callback: Callable[[], None] | None = None
 
     def _execute(
         self,
@@ -377,41 +404,102 @@ class SerialModelEnsembleRunner:
             payload,
             device,
             python_executable=self._python_executable,
+            heartbeat=self._heartbeat_callback,
         )
 
     def run(
         self,
         chunk_plan: EnsembleChunkPlan,
         metric_specs: tuple[EnsembleMetricSpec, ...],
+        *,
+        progress_callback: Callable[[int, int], None] | None = None,
+        prior_receipt: SessionModelEnsembleReceipt | None = None,
     ) -> SessionModelEnsembleReceipt:
         if chunk_plan.source_coverage_state is not SourceCoverageState.COMPLETE_WINDOW:
             raise ModelEnsembleError("model_ensemble_source_incomplete")
         if not metric_specs or len({item.metric_key for item in metric_specs}) != len(metric_specs):
             raise ValueError("ensemble metric specs must be non-empty and unique")
         created_at = self._clock()
+        self._heartbeat_callback = (
+            None
+            if progress_callback is None
+            else lambda: progress_callback(len(receipts), MODEL_ENSEMBLE_MODEL_COUNT)
+        )
         experts = ensemble_expert_specs()
+        identities = tuple(item.identity for item in experts)
+        plan_fingerprint = ensemble_plan_fingerprint(identities, metric_specs)
+        reusable_ordinals: dict[int, int] = {}
+        if (
+            prior_receipt is not None
+            and prior_receipt.plan_fingerprint == plan_fingerprint
+            and prior_receipt.source_coverage_state is SourceCoverageState.COMPLETE_WINDOW
+        ):
+            sealed_prior = {
+                item.chunk_fingerprint: item.ordinal
+                for item in prior_receipt.chunk_plan[:-1]
+            }
+            for chunk in chunk_plan.chunks[:-1]:
+                previous = sealed_prior.get(chunk.chunk_fingerprint)
+                if previous is not None:
+                    reusable_ordinals[chunk.ordinal] = previous
         fragments = {
             item.fragment_id: item
             for chunk in chunk_plan.chunks
             for item in chunk.fragments
         }
-        base_cases = [
-            {
-                "case_id": _case_id(chunk.ordinal, metric.metric_key),
-                "chunk_ordinal": chunk.ordinal,
-                "metric_key": metric.metric_key,
-                "candidate_ids": [item.fragment_id for item in chunk.fragments],
-                "query": metric.retrieval_query,
-                "hypothesis": metric.entailment_hypothesis,
-                "rubric": metric.rubric,
-            }
-            for chunk in chunk_plan.chunks
-            for metric in metric_specs
-        ]
+        base_cases: list[dict[str, object]] = []
+        unsupported_cases: list[tuple[int, str, str]] = []
+        for chunk in chunk_plan.chunks:
+            if chunk.ordinal in reusable_ordinals:
+                continue
+            for metric in metric_specs:
+                if metric.evidence_scope == "objective_evidence":
+                    unsupported_cases.append(
+                        (
+                            chunk.ordinal,
+                            metric.metric_key,
+                            "objective_evidence_unavailable",
+                        )
+                    )
+                    continue
+                candidates = tuple(
+                    item.fragment_id
+                    for item in chunk.fragments
+                    if metric.evidence_scope == "conversation"
+                    or (
+                        item.is_focus_message
+                        and item.role.value == "user"
+                        and item.kind.value in {"request", "feedback"}
+                    )
+                )
+                if not candidates:
+                    unsupported_cases.append(
+                        (
+                            chunk.ordinal,
+                            metric.metric_key,
+                            "metric_scope_excludes_chunk",
+                        )
+                    )
+                    continue
+                base_cases.append(
+                    {
+                        "case_id": _case_id(chunk.ordinal, metric.metric_key),
+                        "chunk_ordinal": chunk.ordinal,
+                        "metric_key": metric.metric_key,
+                        "candidate_ids": list(candidates),
+                        "query": metric.retrieval_query,
+                        "hypothesis": metric.entailment_hypothesis,
+                        "rubric": metric.rubric,
+                    }
+                )
         fragment_payload = [
             {
                 "fragment_id": identifier,
                 "text": fragment.text.get_secret_value(),
+                "role": fragment.role.value,
+                "kind": fragment.kind.value,
+                "language": fragment.language.value,
+                "is_focus_message": fragment.is_focus_message,
             }
             for identifier, fragment in fragments.items()
         ]
@@ -420,7 +508,28 @@ class SerialModelEnsembleRunner:
             "fragments": fragment_payload,
         }
         receipts: list[ModelExpertReceipt] = []
+        if progress_callback is not None:
+            progress_callback(0, MODEL_ENSEMBLE_MODEL_COUNT)
         selections: list[ModelEvidenceSelectionReceipt] = []
+        votes: list[ModelMetricVote] = []
+        chunk_receipts = []
+        if prior_receipt is not None and reusable_ordinals:
+            reverse = {previous: current for current, previous in reusable_ordinals.items()}
+            selections.extend(
+                item.model_copy(update={"chunk_ordinal": reverse[item.chunk_ordinal]})
+                for item in prior_receipt.evidence_selections
+                if item.chunk_ordinal in reverse
+            )
+            votes.extend(
+                item.model_copy(update={"chunk_ordinal": reverse[item.chunk_ordinal]})
+                for item in prior_receipt.model_votes
+                if item.chunk_ordinal in reverse
+            )
+            chunk_receipts.extend(
+                item.model_copy(update={"chunk_ordinal": reverse[item.chunk_ordinal]})
+                for item in prior_receipt.chunks
+                if item.chunk_ordinal in reverse
+            )
         rankings_by_case: dict[str, list[tuple[str, ...]]] = defaultdict(list)
 
         for spec in experts[:4]:
@@ -430,6 +539,8 @@ class SerialModelEnsembleRunner:
                 {**common, "cases": base_cases},
             )
             receipts.append(_status_receipt(spec, result))
+            if progress_callback is not None:
+                progress_callback(len(receipts), MODEL_ENSEMBLE_MODEL_COUNT)
             if result is None or result.get("status") != "completed":
                 continue
             for case, scores in _parse_score_rows(result, base_cases):
@@ -478,6 +589,8 @@ class SerialModelEnsembleRunner:
                 {**common, "cases": rerank_cases},
             )
             receipts.append(_status_receipt(spec, result))
+            if progress_callback is not None:
+                progress_callback(len(receipts), MODEL_ENSEMBLE_MODEL_COUNT)
             if result is None or result.get("status") != "completed":
                 continue
             for case, scores in _parse_score_rows(result, rerank_cases):
@@ -518,7 +631,11 @@ class SerialModelEnsembleRunner:
             {**case, "candidate_ids": list(selected_by_case[str(case["case_id"])])}
             for case in base_cases
         ]
-        votes: list[ModelMetricVote] = []
+        votes.extend(
+            _unsupported_vote(spec, chunk_ordinal, metric_key, reason)
+            for chunk_ordinal, metric_key, reason in unsupported_cases
+            for spec in experts[6:]
+        )
         for spec in experts[6:9]:
             result = self._safe_execute(
                 spec,
@@ -526,6 +643,8 @@ class SerialModelEnsembleRunner:
                 {**common, "cases": decision_cases},
             )
             receipts.append(_status_receipt(spec, result))
+            if progress_callback is not None:
+                progress_callback(len(receipts), MODEL_ENSEMBLE_MODEL_COUNT)
             parsed = _parse_nli_rows(result, decision_cases) if result is not None else {}
             for case in decision_cases:
                 case_id = str(case["case_id"])
@@ -561,6 +680,8 @@ class SerialModelEnsembleRunner:
             {**common, "cases": decision_cases},
         )
         receipts.append(_status_receipt(rubric_spec, rubric_result))
+        if progress_callback is not None:
+            progress_callback(len(receipts), MODEL_ENSEMBLE_MODEL_COUNT)
         rubric_rows = _parse_rubric_rows(rubric_result, decision_cases) if rubric_result is not None else {}
         for case in decision_cases:
             label = rubric_rows.get(str(case["case_id"]))
@@ -587,8 +708,17 @@ class SerialModelEnsembleRunner:
                 )
             )
 
-        chunk_receipts = []
-        for case in decision_cases:
+        committee_cases = [
+            *decision_cases,
+            *(
+                {
+                    "chunk_ordinal": chunk_ordinal,
+                    "metric_key": metric_key,
+                }
+                for chunk_ordinal, metric_key, _reason in unsupported_cases
+            ),
+        ]
+        for case in committee_cases:
             matching = [
                 item
                 for item in votes
@@ -613,9 +743,8 @@ class SerialModelEnsembleRunner:
 
         metric_receipts = aggregate_chunk_metrics(tuple(chunk_receipts))
         completed_at = self._clock()
-        identities = tuple(item.identity for item in experts)
         return SessionModelEnsembleReceipt(
-            plan_fingerprint=ensemble_plan_fingerprint(identities, metric_specs),
+            plan_fingerprint=plan_fingerprint,
             source_window_fingerprint=chunk_plan.source_window_fingerprint,
             source_coverage_state=chunk_plan.source_coverage_state,
             chunk_count=len(chunk_plan.chunks),
@@ -663,6 +792,17 @@ class SerialModelEnsembleRunner:
         except Exception:
             return None
         if (
+            result.get("status") != "completed"
+            and result.get("error_code") == "resource_exhausted"
+            and self._device in {"auto", "cuda"}
+        ):
+            # The first child has exited before fallback begins, so its CUDA
+            # context and weights cannot overlap the CPU retry.
+            try:
+                result = self._executor(spec, stage, payload, "cpu")
+            except Exception:
+                return None
+        if (
             set(result)
             != {
                 "schema_version",
@@ -692,6 +832,22 @@ def _failed_vote(
         role=spec.identity.role,
         state=ModelVoteState.FAILED,
         evidence_fragment_ids=tuple(case["candidate_ids"]),
+        reason_code=reason,
+    )
+
+
+def _unsupported_vote(
+    spec: EnsembleExpertSpec,
+    chunk_ordinal: int,
+    metric_key: str,
+    reason: str,
+) -> ModelMetricVote:
+    return ModelMetricVote(
+        chunk_ordinal=chunk_ordinal,
+        metric_key=metric_key,
+        model_key=spec.identity.model_key,
+        role=spec.identity.role,
+        state=ModelVoteState.UNSUPPORTED,
         reason_code=reason,
     )
 

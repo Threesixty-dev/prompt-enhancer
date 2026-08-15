@@ -92,10 +92,12 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_24,
     MIGRATION_25,
     MIGRATION_26,
+    MIGRATION_27,
+    MIGRATION_28,
 )
 
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 28
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1601,6 +1603,8 @@ class Database:
                 (24, MIGRATION_24),
                 (25, MIGRATION_25),
                 (26, MIGRATION_26),
+                (27, MIGRATION_27),
+                (28, MIGRATION_28),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1874,6 +1878,18 @@ class Database:
 
         self._ensure_initialized()
         return SqliteSessionModelEnsembleRepository(
+            self._connection, self._ensure_initialized
+        )
+
+    def model_ensemble_watch_repository(self):
+        """Return the durable content-free continuous-watch adapter."""
+
+        from .infrastructure.sqlite.model_ensemble_watch import (
+            SqliteModelEnsembleWatchRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteModelEnsembleWatchRepository(
             self._connection, self._ensure_initialized
         )
 
@@ -2161,7 +2177,8 @@ class Database:
             """
             SELECT installation_id, project_id, provider, provider_version,
                    adapter_version, source_schema_version, started_at, ended_at,
-                   terminal_state, events_complete, display_name
+                   terminal_state, events_complete, display_name,
+                   provider_activity_revision
             FROM sessions WHERE session_id = ?
             """,
             (session.session_id,),
@@ -2174,10 +2191,16 @@ class Database:
                     session_id, installation_id, project_id, provider,
                     provider_version, adapter_version, source_schema_version,
                     started_at, ended_at, terminal_state, events_complete,
-                    display_name, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    display_name, provider_activity_revision, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (session.session_id, *values, now, now),
+                (
+                    session.session_id,
+                    *values,
+                    session.provider_activity_revision,
+                    now,
+                    now,
+                ),
             )
             return 1, 0
 
@@ -2209,6 +2232,11 @@ class Database:
             self._merge_terminal_state(row["terminal_state"], values[8]),
             int(bool(row["events_complete"]) or bool(values[9])),
             values[10] if values[10] is not None else row["display_name"],
+            (
+                session.provider_activity_revision
+                if session.provider_activity_revision is not None
+                else row["provider_activity_revision"]
+            ),
         )
         existing = tuple(row[key] for key in row.keys())
         if existing == merged:
@@ -2218,7 +2246,7 @@ class Database:
             UPDATE sessions SET
                 provider_version=?, adapter_version=?, source_schema_version=?,
                 ended_at=?, terminal_state=?, events_complete=?, display_name=?,
-                updated_at=?
+                provider_activity_revision=?, updated_at=?
             WHERE session_id=?
             """,
             (*merged[3:6], *merged[7:], now, session.session_id),
@@ -2542,6 +2570,7 @@ class Database:
             adapter_version=row["adapter_version"],
             source_schema_version=row["source_schema_version"],
             started_at=_parse_time(row["started_at"]),
+            provider_activity_revision=row["provider_activity_revision"],
             ended_at=_parse_time(row["ended_at"]),
             terminal_state=SessionState(row["terminal_state"]),
             events_complete=bool(row["events_complete"]),

@@ -216,6 +216,13 @@ from .session_model_ensemble import (
     SessionModelEnsembleRunRecord,
     SessionModelEnsembleService,
 )
+from .model_ensemble_watch import (
+    MODEL_ENSEMBLE_WATCH_CONFIRMATION,
+    ModelEnsembleWatchRecord,
+    ModelEnsembleWatchService,
+    ModelEnsembleWatchState,
+    ModelEnsembleWatchWorker,
+)
 
 __all__ = [
     "ActionEvidence",
@@ -288,6 +295,7 @@ __all__ = [
     "MODEL_LINK_EXPERIMENT_KEY",
     "MODEL_LINK_EXPERIMENT_VERSION",
     "MODEL_ENSEMBLE_CONFIRMATION",
+    "MODEL_ENSEMBLE_WATCH_CONFIRMATION",
     "ModelExperimentDevice",
     "ModelLinkAnnotationLabel",
     "ModelLinkExperimentOutcome",
@@ -350,6 +358,10 @@ __all__ = [
     "SessionModelEnsembleOutcome",
     "SessionModelEnsembleRunRecord",
     "SessionModelEnsembleService",
+    "ModelEnsembleWatchRecord",
+    "ModelEnsembleWatchService",
+    "ModelEnsembleWatchState",
+    "ModelEnsembleWatchWorker",
     "SessionMetricReadinessReport",
     "TASK_METRIC_DEFINITIONS",
     "TYPED_EVIDENCE_SCHEMA_VERSION",

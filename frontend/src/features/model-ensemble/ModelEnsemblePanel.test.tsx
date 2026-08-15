@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ModelEnsembleRun,
+  ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
   ProviderCompatibilityStatus,
 } from "../../shared/api/contracts";
@@ -10,11 +11,16 @@ import {
   parseModelEnsembleOutcome,
   parseModelEnsembleRun,
 } from "../../shared/api/modelEnsembleContract";
+import {
+  ModelEnsembleWatchPayloadError,
+  parseModelEnsembleWatchSnapshot,
+} from "../../shared/api/modelEnsembleWatchContract";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
 import { createHttpTransport, TransportError } from "../../shared/api/httpTransport";
 import { ModelEnsemblePanel } from "./ModelEnsemblePanel";
 
 const SESSION_ID = "a".repeat(64);
+const PROJECT_ID = "b".repeat(64);
 const EXACT: ProviderCompatibilityStatus = {
   provider: "codex",
   capability: "session_text_analysis",
@@ -123,12 +129,38 @@ function runFixture(): ModelEnsembleRun {
   };
 }
 
+function watchFixture(latestRun: ModelEnsembleRun | null = null): ModelEnsembleWatchSnapshot {
+  return {
+    watch: {
+      watch_id: "d".repeat(64),
+      provider: "codex",
+      project_id: PROJECT_ID,
+      session_id: SESSION_ID,
+      state: "idle",
+      generation: 2,
+      progress_completed: 10,
+      progress_total: 10,
+      has_result: latestRun !== null,
+      last_error_code: null,
+      next_check_at: "2040-01-02T10:01:00Z",
+      updated_at: "2040-01-02T10:00:00Z",
+      serial_model_execution: true,
+      process_isolated_model_release: true,
+      cuda_resource_retry_on_cpu: true,
+      content_persisted: false,
+      calibrated_as_truth: false,
+    },
+    latest_run: latestRun,
+  };
+}
+
 function renderPanel(transport: PromptEnhancerTransport) {
   return render(
     <ModelEnsemblePanel
       analysisCapability={CAPABILITY}
       category="prompt-quality"
       providerCompatibility={EXACT}
+      projectId={PROJECT_ID}
       sessionId={SESSION_ID}
       transport={transport}
     />,
@@ -208,6 +240,63 @@ describe("model ensemble response contract", () => {
         .getLatestModelEnsemble(SESSION_ID),
     ).rejects.toThrow("Private local response was not cache-safe");
   });
+
+  it("validates continuous-watch identity, truth flags, timestamps, and result coherence", () => {
+    const valid = watchFixture(runFixture());
+    expect(parseModelEnsembleWatchSnapshot(structuredClone(valid))).toEqual(valid);
+
+    const extra = structuredClone(valid) as unknown as Record<string, unknown>;
+    extra.private_text = "SYNTHETIC_PRIVATE_CANARY";
+    expect(() => parseModelEnsembleWatchSnapshot(extra)).toThrow(ModelEnsembleWatchPayloadError);
+
+    const invalidDate = structuredClone(valid);
+    invalidDate.watch.updated_at = "2040-02-31T10:00:00Z";
+    expect(() => parseModelEnsembleWatchSnapshot(invalidDate)).toThrow(ModelEnsembleWatchPayloadError);
+
+    const missing = structuredClone(valid);
+    missing.latest_run = null;
+    expect(() => parseModelEnsembleWatchSnapshot(missing)).toThrow(ModelEnsembleWatchPayloadError);
+
+    const falseRelease = structuredClone(valid);
+    falseRelease.watch.process_isolated_model_release = false as true;
+    expect(() => parseModelEnsembleWatchSnapshot(falseRelease)).toThrow(ModelEnsembleWatchPayloadError);
+  });
+
+  it("uses exact private watch routes and cache-safe transport", async () => {
+    const auth = new Response(
+      JSON.stringify({ csrf_token: "example-csrf", expires_in_seconds: 300 }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+    const response = () => new Response(JSON.stringify(watchFixture()), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store, private",
+        Pragma: "no-cache",
+      },
+    });
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(auth)
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(response());
+    const transport = createHttpTransport({ fetch, origin: "http://127.0.0.1:8765" });
+
+    await transport.getActiveModelEnsembleWatch!();
+    await transport.enableModelEnsembleWatch!(SESSION_ID, {
+      project_id: PROJECT_ID,
+      confirmation: "continuously_analyze_selected_redacted_session",
+    });
+    await transport.disableModelEnsembleWatch!("d".repeat(64));
+
+    const calls = fetch.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(calls[1][0]).toBe("/v1/model-ensemble-watch/active");
+    expect(calls[2][0]).toBe(`/v1/sessions/${SESSION_ID}/model-ensemble-watch`);
+    expect(calls[2][1].method).toBe("PUT");
+    expect(calls[2][1].cache).toBe("no-store");
+    expect(calls[3][0]).toBe(`/v1/model-ensemble-watches/${"d".repeat(64)}`);
+    expect(calls[3][1].method).toBe("DELETE");
+  });
 });
 
 describe("ModelEnsemblePanel", () => {
@@ -220,7 +309,8 @@ describe("ModelEnsemblePanel", () => {
 
     expect(await screen.findByRole("img", { name: /shadow model radar/i })).toBeVisible();
     expect(screen.getByText(/shadow result—not a product score/i)).toBeVisible();
-    expect(screen.getByText(/unknown, unsupported, failed, and abstained metrics are omitted/i)).toBeVisible();
+    expect(screen.getByText(/axes stay fixed between updates/i)).toBeVisible();
+    expect(screen.getByText(/are not placed at zero/i)).toBeVisible();
     expect(screen.getByText("Models completed").parentElement).toHaveTextContent("10 / 10");
     expect(screen.getByText("Source coverage").parentElement).toHaveTextContent("Complete selected window");
     expect(screen.getAllByText(/unloaded yes/i)).toHaveLength(10);
@@ -258,5 +348,26 @@ describe("ModelEnsemblePanel", () => {
     });
     expect(calls[0][2]).toMatch(/^dashboard-model-ensemble-/);
     expect(await screen.findByText(/stored shadow run completed/i)).toBeVisible();
+  });
+
+  it("starts the one-session watch with an explicit standing confirmation", async () => {
+    const enable = vi.fn(async () => watchFixture());
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: async () => { throw new TransportError("not found", 404); },
+      getActiveModelEnsembleWatch: async () => { throw new TransportError("not found", 404); },
+      enableModelEnsembleWatch: enable,
+    };
+    renderPanel(transport);
+    fireEvent.click(await screen.findByRole("button", { name: "Watch this session" }));
+
+    await waitFor(() => expect(enable).toHaveBeenCalledTimes(1));
+    expect(enable).toHaveBeenCalledWith(
+      SESSION_ID,
+      {
+        project_id: PROJECT_ID,
+        confirmation: "continuously_analyze_selected_redacted_session",
+      },
+    );
   });
 });

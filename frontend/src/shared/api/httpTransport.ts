@@ -22,6 +22,7 @@ import type {
   MetricCoverageReport,
   ModelLabInventory,
   ModelEnsembleRequest,
+  ModelEnsembleWatchRequest,
   ModelLinkAnnotation,
   ModelLinkAnnotationRequest,
   ModelLinkExperiment,
@@ -62,6 +63,10 @@ import {
   parseModelEnsembleOutcome,
   parseModelEnsembleRun,
 } from "./modelEnsembleContract";
+import {
+  ModelEnsembleWatchPayloadError,
+  parseModelEnsembleWatchSnapshot,
+} from "./modelEnsembleWatchContract";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -127,7 +132,10 @@ export type SafeTransportReasonCode =
   | "invalid_model_ensemble_request"
   | "model_ensemble_confirmation_required"
   | "local_model_ensemble_execution_failed"
-  | "model_ensemble_persistence_failed";
+  | "model_ensemble_persistence_failed"
+  | "invalid_model_ensemble_watch_request"
+  | "model_ensemble_watch_not_found"
+  | "model_ensemble_watch_conflict";
 
 const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "redacted_content_consent_required",
@@ -172,6 +180,9 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "model_ensemble_confirmation_required",
   "local_model_ensemble_execution_failed",
   "model_ensemble_persistence_failed",
+  "invalid_model_ensemble_watch_request",
+  "model_ensemble_watch_not_found",
+  "model_ensemble_watch_conflict",
 ]);
 
 const MODEL_LAB_INVENTORY_KEYS = new Set([
@@ -2674,6 +2685,65 @@ export function createHttpTransport(options: {
         return parseModelEnsembleOutcome(value);
       } catch (error) {
         if (error instanceof ModelEnsemblePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async getActiveModelEnsembleWatch(signal) {
+      const value = await request<unknown>(
+        "/v1/model-ensemble-watch/active",
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleWatchSnapshot(value);
+      } catch (error) {
+        if (error instanceof ModelEnsembleWatchPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async enableModelEnsembleWatch(
+      sessionId,
+      watchRequest: ModelEnsembleWatchRequest,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/model-ensemble-watch`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(watchRequest),
+        },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleWatchSnapshot(value);
+      } catch (error) {
+        if (error instanceof ModelEnsembleWatchPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async disableModelEnsembleWatch(watchId, signal) {
+      const value = await request<unknown>(
+        `/v1/model-ensemble-watches/${encodeURIComponent(watchId)}`,
+        { method: "DELETE" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleWatchSnapshot(value);
+      } catch (error) {
+        if (error instanceof ModelEnsembleWatchPayloadError) {
           throw new TransportError(error.message, 200);
         }
         throw error;

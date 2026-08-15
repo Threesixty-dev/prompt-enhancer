@@ -29,9 +29,15 @@ async function mountApp() {
     import.meta.hot.dispose(() => uiRevisionGuard.dispose());
   }
 
+  const overlay = /^\/overlay\/model-ensemble\/?$/.test(window.location.pathname);
+  const Root = overlay
+    ? (await import("./features/model-ensemble")).ModelEnsembleOverlay
+    : null;
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <App platform={createBrowserPlatform()} runtime={runtime} />
+      {Root === null
+        ? <App platform={createBrowserPlatform()} runtime={runtime} />
+        : <Root transport={runtime.transport} />}
     </StrictMode>,
   );
 }

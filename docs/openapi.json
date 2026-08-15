@@ -4453,6 +4453,167 @@
         "title": "ModelEnsembleVoteDto",
         "type": "object"
       },
+      "ModelEnsembleWatchDto": {
+        "additionalProperties": false,
+        "properties": {
+          "calibrated_as_truth": {
+            "const": false,
+            "default": false,
+            "title": "Calibrated As Truth",
+            "type": "boolean"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "cuda_resource_retry_on_cpu": {
+            "const": true,
+            "default": true,
+            "title": "Cuda Resource Retry On Cpu",
+            "type": "boolean"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "has_result": {
+            "title": "Has Result",
+            "type": "boolean"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "next_check_at": {
+            "format": "date-time",
+            "title": "Next Check At",
+            "type": "string"
+          },
+          "process_isolated_model_release": {
+            "const": true,
+            "default": true,
+            "title": "Process Isolated Model Release",
+            "type": "boolean"
+          },
+          "progress_completed": {
+            "title": "Progress Completed",
+            "type": "integer"
+          },
+          "progress_total": {
+            "const": 10,
+            "title": "Progress Total",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "provider": {
+            "const": "codex",
+            "title": "Provider",
+            "type": "string"
+          },
+          "serial_model_execution": {
+            "const": true,
+            "default": true,
+            "title": "Serial Model Execution",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "idle",
+              "failed",
+              "disabled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "watch_id": {
+            "title": "Watch Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "watch_id",
+          "provider",
+          "project_id",
+          "session_id",
+          "state",
+          "generation",
+          "progress_completed",
+          "progress_total",
+          "has_result",
+          "last_error_code",
+          "next_check_at",
+          "updated_at"
+        ],
+        "title": "ModelEnsembleWatchDto",
+        "type": "object"
+      },
+      "ModelEnsembleWatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "continuously_analyze_selected_redacted_session",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "confirmation"
+        ],
+        "title": "ModelEnsembleWatchRequest",
+        "type": "object"
+      },
+      "ModelEnsembleWatchSnapshotDto": {
+        "additionalProperties": false,
+        "properties": {
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelEnsembleRunDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "watch": {
+            "$ref": "#/components/schemas/ModelEnsembleWatchDto"
+          }
+        },
+        "required": [
+          "watch",
+          "latest_run"
+        ],
+        "title": "ModelEnsembleWatchSnapshotDto",
+        "type": "object"
+      },
       "ModelEvaluationJobDto": {
         "additionalProperties": false,
         "properties": {
@@ -11099,6 +11260,146 @@
         "summary": "Metric Definitions"
       }
     },
+    "/v1/model-ensemble-watch/active": {
+      "get": {
+        "operationId": "active_watch_v1_model_ensemble_watch_active_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEnsembleWatchSnapshotDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Active Watch",
+        "tags": [
+          "local-model-ensemble-watch"
+        ]
+      }
+    },
+    "/v1/model-ensemble-watches/{watch_id}": {
+      "delete": {
+        "operationId": "disable_watch_v1_model_ensemble_watches__watch_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "watch_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Watch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEnsembleWatchSnapshotDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disable Watch",
+        "tags": [
+          "local-model-ensemble-watch"
+        ]
+      }
+    },
     "/v1/model-link-experiments/{run_id}/links/{link_id}/annotations": {
       "post": {
         "operationId": "annotate_link_v1_model_link_experiments__run_id__links__link_id__annotations_post",
@@ -12887,6 +13188,91 @@
         "summary": "Latest Model Ensemble",
         "tags": [
           "local-model-ensemble"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/model-ensemble-watch": {
+      "put": {
+        "operationId": "enable_watch_v1_sessions__session_id__model_ensemble_watch_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelEnsembleWatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEnsembleWatchSnapshotDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enable Watch",
+        "tags": [
+          "local-model-ensemble-watch"
         ]
       }
     },

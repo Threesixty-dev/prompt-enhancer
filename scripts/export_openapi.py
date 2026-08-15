@@ -154,6 +154,17 @@ class _SchemaModelEnsembleService:
         raise RuntimeError("schema-only service cannot access model ensembles")
 
 
+class _SchemaModelEnsembleWatchService:
+    def enable(self, **_kwargs: object) -> object:
+        raise RuntimeError("schema-only service cannot enable model watches")
+
+    def disable(self, _watch_id: str) -> object:
+        raise RuntimeError("schema-only service cannot disable model watches")
+
+    def get_active(self) -> object:
+        raise RuntimeError("schema-only service cannot inspect model watches")
+
+
 class _SchemaProjectQualityAggregationService:
     """Non-executing stand-in that only enables the project aggregate schema."""
 
@@ -258,6 +269,7 @@ def build_openapi_schema() -> dict[str, Any]:
         session_text_analysis_service=_SchemaSessionTextAnalysisService(),
         session_model_link_experiment_service=_SchemaModelLinkExperimentService(),  # type: ignore[arg-type]
         session_model_ensemble_service=_SchemaModelEnsembleService(),  # type: ignore[arg-type]
+        model_ensemble_watch_service=_SchemaModelEnsembleWatchService(),  # type: ignore[arg-type]
         project_quality_aggregation_service=_SchemaProjectQualityAggregationService(),  # type: ignore[arg-type]
         provider_compatibility_catalog=_SchemaProviderCompatibilityCatalog(),  # type: ignore[arg-type]
         metric_readiness_service=_SchemaMetricReadinessService(),  # type: ignore[arg-type]

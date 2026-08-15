@@ -118,6 +118,14 @@ class IngestionService:
             f"{provider_namespace}:session:{installation_id}",
             source.source_session_id.get_secret_value(),
         )
+        provider_activity_revision = (
+            None
+            if source.source_activity_at is None
+            else self._pseudonymizer.pseudonymize(
+                f"{provider_namespace}:session-activity:{session_id}",
+                source.source_activity_at.isoformat(timespec="microseconds"),
+            )
+        )
         return SafeSession(
             provider=source.provider,
             installation_id=installation_id,
@@ -127,6 +135,7 @@ class IngestionService:
             adapter_version=source.adapter_version,
             source_schema_version=source.source_schema_version,
             started_at=source.started_at,
+            provider_activity_revision=provider_activity_revision,
             ended_at=source.ended_at,
             terminal_state=source.terminal_state,
             events_complete=source.events_complete,

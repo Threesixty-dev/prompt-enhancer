@@ -31,6 +31,7 @@ from prompt_enhancer.application.analysis.coaching_baselines import (
 from prompt_enhancer.application.persistence import MetricValueState
 from prompt_enhancer.domain import Provider
 from prompt_enhancer.infrastructure.text_models.model_ensemble import (
+    MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
     SerialModelEnsembleRunner,
     ensemble_expert_specs,
 )
@@ -122,7 +123,48 @@ def test_chunker_is_exhaustive_non_overlapping_and_bounded() -> None:
         item.message_id for item in context.messages
     }
     assert max(len(item.text.get_secret_value()) for item in fragments) <= 3_500
+    assert {
+        item.source_message_id
+        for item in fragments
+        if item.is_focus_message
+    } == {context.focus_message_id}
     assert repr(plan).find("fictional segment") == -1
+
+
+def test_chunker_keeps_completed_prefix_stable_when_a_new_turn_is_appended() -> None:
+    original = _context()
+    original_plan = build_ensemble_chunks(original)
+    appended_message = EphemeralRedactedMessage(
+        message_id=f"{99:064x}",
+        sequence=len(original.messages),
+        role=TextRole.USER,
+        kind=TextMessageKind.REQUEST,
+        language=TextLanguage.ENGLISH,
+        text=SecretStr(("fictional appended request " * 220)[:5_200]),
+    )
+    appended = original.model_copy(
+        update={
+            "messages": (*original.messages, appended_message),
+            "focus_message_id": appended_message.message_id,
+            "observed_message_count": original.observed_message_count + 1,
+            "eligible_message_count": original.eligible_message_count + 1,
+            "analysis_window_fingerprint": _digest("c"),
+        }
+    )
+    appended_plan = build_ensemble_chunks(appended)
+
+    assert len(original_plan.chunks) > 1
+    assert tuple(
+        item.chunk_fingerprint for item in original_plan.chunks[:-1]
+    ) == tuple(
+        item.chunk_fingerprint
+        for item in appended_plan.chunks[: len(original_plan.chunks) - 1]
+    )
+    assert (
+        original_plan.chunks[-1].chunk_fingerprint
+        != appended_plan.chunks[len(original_plan.chunks) - 1].chunk_fingerprint
+    )
+    assert original_plan.source_window_fingerprint != appended_plan.source_window_fingerprint
 
 
 def test_incomplete_source_is_preserved_not_promoted_to_complete() -> None:
@@ -135,6 +177,11 @@ def test_all_twenty_metric_specs_are_versioned_and_distinct() -> None:
     assert len(specs) == len(COACHING_METRIC_DEFINITIONS) == 20
     assert len({item.metric_key for item in specs}) == 20
     assert all(item.retrieval_query and item.entailment_hypothesis and item.rubric for item in specs)
+    assert {item.evidence_scope for item in specs} == {
+        "focus_request",
+        "conversation",
+        "objective_evidence",
+    }
 
 
 def test_committee_accepts_supported_present_and_absent_decisions() -> None:
@@ -155,7 +202,7 @@ def test_committee_accepts_supported_present_and_absent_decisions() -> None:
         metric_key="prompt.task_definition_coverage",
         rubric_vote=_vote("qwen_rubric", ModelExpertRole.STRUCTURED_RUBRIC, ModelVoteState.ABSENT, chunk=1),
         nli_votes=(
-            _vote("minilm_l6", ModelExpertRole.SCOPE_NLI, ModelVoteState.ABSTAIN, chunk=1),
+            _vote("minilm_l6", ModelExpertRole.SCOPE_NLI, ModelVoteState.ABSENT, chunk=1),
             _vote("minilm_l12", ModelExpertRole.SCOPE_NLI, ModelVoteState.ABSENT, chunk=1),
             _vote("mdeberta", ModelExpertRole.SCOPE_NLI, ModelVoteState.PRESENT, chunk=1),
         ),
@@ -166,6 +213,53 @@ def test_committee_accepts_supported_present_and_absent_decisions() -> None:
     assert (present.numerator, present.denominator) == (1, 1)
     assert absent.value_state is MetricValueState.KNOWN
     assert (absent.numerator, absent.denominator) == (0, 1)
+
+
+@pytest.mark.parametrize(
+    ("nli_state", "expected_state", "expected_reason"),
+    (
+        (
+            ModelVoteState.ABSTAIN,
+            MetricValueState.ABSTAINED,
+            "model_committee_nli_abstained",
+        ),
+        (
+            ModelVoteState.FAILED,
+            MetricValueState.EXECUTION_ERROR,
+            "model_committee_nli_failed",
+        ),
+        (
+            ModelVoteState.UNSUPPORTED,
+            MetricValueState.UNKNOWN,
+            "model_committee_nli_unsupported",
+        ),
+    ),
+)
+def test_committee_never_turns_missing_nli_evidence_into_known_zero(
+    nli_state: ModelVoteState,
+    expected_state: MetricValueState,
+    expected_reason: str,
+) -> None:
+    receipt = committee_chunk_receipt(
+        chunk_ordinal=0,
+        metric_key="prompt.task_definition_coverage",
+        rubric_vote=_vote(
+            "qwen_rubric",
+            ModelExpertRole.STRUCTURED_RUBRIC,
+            ModelVoteState.ABSENT,
+        ),
+        nli_votes=(
+            _vote("minilm_l6", ModelExpertRole.SCOPE_NLI, nli_state),
+            _vote("minilm_l12", ModelExpertRole.SCOPE_NLI, ModelVoteState.ABSENT),
+            _vote("mdeberta", ModelExpertRole.SCOPE_NLI, ModelVoteState.PRESENT),
+        ),
+        contributing_nli_model_keys=frozenset({"minilm_l6", "minilm_l12"}),
+    )
+
+    assert receipt.value_state is expected_state
+    assert receipt.numerator is None
+    assert receipt.denominator is None
+    assert receipt.reason_code == expected_reason
 
 
 def test_committee_disagreement_abstains_and_diagnostic_model_cannot_decide() -> None:
@@ -213,6 +307,40 @@ def test_session_aggregate_is_ratio_of_valid_chunks_not_model_logits() -> None:
     assert aggregate.product_metric_eligible is False
 
 
+def test_all_unsupported_chunks_remain_unknown() -> None:
+    receipts = tuple(
+        committee_chunk_receipt(
+            chunk_ordinal=chunk,
+            metric_key="outcome.agent_claim_grounding",
+            rubric_vote=_vote(
+                "qwen_rubric",
+                ModelExpertRole.STRUCTURED_RUBRIC,
+                ModelVoteState.UNSUPPORTED,
+                chunk=chunk,
+                metric="outcome.agent_claim_grounding",
+            ),
+            nli_votes=tuple(
+                _vote(
+                    model,
+                    ModelExpertRole.SCOPE_NLI,
+                    ModelVoteState.UNSUPPORTED,
+                    chunk=chunk,
+                    metric="outcome.agent_claim_grounding",
+                )
+                for model in ("minilm_l6", "minilm_l12", "mdeberta")
+            ),
+            contributing_nli_model_keys=frozenset({"minilm_l6", "minilm_l12"}),
+        )
+        for chunk in range(2)
+    )
+
+    aggregate = aggregate_chunk_metrics(receipts)[0]
+    assert aggregate.value_state is MetricValueState.UNKNOWN
+    assert aggregate.numeric_value is None
+    assert aggregate.unsupported_chunk_count == 2
+    assert aggregate.explanation_code == "model_shadow_no_supported_chunks"
+
+
 def test_vote_contract_rejects_scores_for_abstentions() -> None:
     with pytest.raises(ValidationError):
         ModelMetricVote(
@@ -250,11 +378,14 @@ def test_ten_expert_inventory_is_fixed_serial_and_process_releasable() -> None:
     }
 
 
-def test_serial_runner_uses_all_ten_models_and_returns_shadow_chunk_average() -> None:
+def test_serial_runner_preserves_scope_and_keeps_outcomes_unsupported() -> None:
     calls: list[tuple[int, str]] = []
+    retrieval_payloads: list[dict[str, object]] = []
 
     def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
         calls.append((spec.identity.ordinal, stage))
+        if stage == "retrieval":
+            retrieval_payloads.append(payload)
         rows = []
         for case in payload["cases"]:
             if stage in {"retrieval", "reranking"}:
@@ -280,7 +411,7 @@ def test_serial_runner_uses_all_ten_models_and_returns_shadow_chunk_average() ->
             else:
                 rows.append({"case_id": case["case_id"], "label": "present"})
         return {
-            "schema_version": 1,
+            "schema_version": MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
             "model_key": spec.identity.model_key,
             "status": "completed",
             "error_code": None,
@@ -294,7 +425,7 @@ def test_serial_runner_uses_all_ten_models_and_returns_shadow_chunk_average() ->
         }
 
     plan = build_ensemble_chunks(_context())
-    specs = coaching_ensemble_metric_specs()[:3]
+    specs = coaching_ensemble_metric_specs()
     receipt = SerialModelEnsembleRunner(executor=execute, device="cuda").run(
         plan, specs
     )
@@ -305,10 +436,191 @@ def test_serial_runner_uses_all_ten_models_and_returns_shadow_chunk_average() ->
     ]
     assert len(receipt.experts) == 10
     assert all(item.unloaded_after_stage for item in receipt.experts)
-    assert len(receipt.metrics) == 3
-    assert all(item.value_state is MetricValueState.KNOWN for item in receipt.metrics)
-    assert all(item.numeric_value == 1.0 for item in receipt.metrics)
+    assert len(receipt.metrics) == 20
+    supported = [
+        item for item in receipt.metrics if not item.metric_key.startswith("outcome.")
+    ]
+    unsupported = [
+        item for item in receipt.metrics if item.metric_key.startswith("outcome.")
+    ]
+    assert all(item.value_state is MetricValueState.KNOWN for item in supported)
+    assert all(item.numeric_value == 1.0 for item in supported)
+    assert all(item.value_state is MetricValueState.UNKNOWN for item in unsupported)
+    assert all(item.numeric_value is None for item in unsupported)
     assert all(item.product_metric_eligible is False for item in receipt.metrics)
+
+    first_payload = retrieval_payloads[0]
+    fragment_metadata = {
+        item["fragment_id"]: item
+        for item in first_payload["fragments"]  # type: ignore[index]
+    }
+    assert any(item["role"] == "agent" for item in fragment_metadata.values())
+    assert any(item["language"] == "en" for item in fragment_metadata.values())
+    assert all(
+        not str(case["metric_key"]).startswith("outcome.")
+        for case in first_payload["cases"]  # type: ignore[index]
+    )
+    prompt_cases = [
+        case
+        for case in first_payload["cases"]  # type: ignore[index]
+        if str(case["metric_key"]).startswith("prompt.")
+    ]
+    assert prompt_cases
+    assert all(
+        fragment_metadata[identifier]["role"] == "user"
+        and fragment_metadata[identifier]["kind"] == "request"
+        and fragment_metadata[identifier]["is_focus_message"] is True
+        for case in prompt_cases
+        for identifier in case["candidate_ids"]
+    )
     serialized = receipt.model_dump_json()
     assert "fictional segment" not in serialized
     assert '"content_persisted":false' in serialized
+
+
+def test_incremental_runner_reuses_only_sealed_prefix_and_runs_dirty_tail_serially() -> None:
+    calls: list[tuple[str, str, int]] = []
+
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        calls.append((device, stage, len(payload["cases"])))
+        rows = []
+        for case in payload["cases"]:
+            if stage in {"retrieval", "reranking"}:
+                rows.append(
+                    {
+                        "case_id": case["case_id"],
+                        "scores": [
+                            {"fragment_id": identifier, "score": 1.0 / (index + 1)}
+                            for index, identifier in enumerate(case["candidate_ids"])
+                        ],
+                    }
+                )
+            elif stage == "scope_nli":
+                rows.append(
+                    {
+                        "case_id": case["case_id"],
+                        "entailment": 0.9,
+                        "neutral": 0.05,
+                        "contradiction": 0.05,
+                    }
+                )
+            else:
+                rows.append({"case_id": case["case_id"], "label": "present"})
+        return {
+            "schema_version": MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
+            "model_key": spec.identity.model_key,
+            "status": "completed",
+            "error_code": None,
+            "device": device if device != "auto" else "cpu",
+            "rows": rows,
+            "runtime": {
+                "inference_latency_ms": 1.0,
+                "peak_cuda_allocated_mb": 0.0,
+                "process_rss_after_load_and_inference_mb": 3.0,
+            },
+        }
+
+    context = _context()
+    specs = coaching_ensemble_metric_specs()
+    runner = SerialModelEnsembleRunner(executor=execute, device="cpu")
+    first = runner.run(build_ensemble_chunks(context), specs)
+    first_call_counts = tuple(calls)
+    calls.clear()
+
+    appended_message = EphemeralRedactedMessage(
+        message_id=f"{98:064x}",
+        sequence=len(context.messages),
+        role=TextRole.USER,
+        kind=TextMessageKind.REQUEST,
+        language=TextLanguage.ENGLISH,
+        text=SecretStr(("fictional incremental request " * 220)[:5_200]),
+    )
+    appended = context.model_copy(
+        update={
+            "messages": (*context.messages, appended_message),
+            "focus_message_id": appended_message.message_id,
+            "observed_message_count": context.observed_message_count + 1,
+            "eligible_message_count": context.eligible_message_count + 1,
+            "analysis_window_fingerprint": _digest("d"),
+        }
+    )
+    second = runner.run(
+        build_ensemble_chunks(appended), specs, prior_receipt=first
+    )
+
+    assert len(calls) == 10
+    assert [stage for _device, stage, _count in calls] == [
+        item.identity.role.value for item in ensemble_expert_specs()
+    ]
+    assert calls[0][2] < first_call_counts[0][2]
+    reused_prefix = first.chunk_plan[:-1]
+    assert tuple(item.chunk_fingerprint for item in second.chunk_plan[: len(reused_prefix)]) == tuple(
+        item.chunk_fingerprint for item in reused_prefix
+    )
+    for old in reused_prefix:
+        assert tuple(
+            item.model_dump()
+            for item in second.chunks
+            if item.chunk_ordinal == old.ordinal
+        ) == tuple(
+            item.model_dump()
+            for item in first.chunks
+            if item.chunk_ordinal == old.ordinal
+        )
+
+
+def test_cuda_resource_exhaustion_retries_each_stage_on_cpu_after_release() -> None:
+    attempts: list[tuple[str, str]] = []
+
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        attempts.append((spec.identity.model_key, device))
+        if device == "cuda":
+            return {
+                "schema_version": MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
+                "model_key": spec.identity.model_key,
+                "status": "failed",
+                "error_code": "resource_exhausted",
+                "device": "cuda",
+                "rows": [],
+                "runtime": {},
+            }
+        rows = []
+        for case in payload["cases"]:
+            if stage in {"retrieval", "reranking"}:
+                rows.append(
+                    {
+                        "case_id": case["case_id"],
+                        "scores": [
+                            {"fragment_id": identifier, "score": 1.0}
+                            for identifier in case["candidate_ids"]
+                        ],
+                    }
+                )
+            elif stage == "scope_nli":
+                rows.append(
+                    {
+                        "case_id": case["case_id"],
+                        "entailment": 0.9,
+                        "neutral": 0.05,
+                        "contradiction": 0.05,
+                    }
+                )
+            else:
+                rows.append({"case_id": case["case_id"], "label": "present"})
+        return {
+            "schema_version": MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
+            "model_key": spec.identity.model_key,
+            "status": "completed",
+            "error_code": None,
+            "device": "cpu",
+            "rows": rows,
+            "runtime": {},
+        }
+
+    receipt = SerialModelEnsembleRunner(executor=execute, device="cuda").run(
+        build_ensemble_chunks(_context()), coaching_ensemble_metric_specs()
+    )
+
+    assert len(attempts) == 20
+    assert all(attempts[index][1] == ("cuda" if index % 2 == 0 else "cpu") for index in range(20))
+    assert all(item.status.value == "completed" and item.device == "cpu" for item in receipt.experts)

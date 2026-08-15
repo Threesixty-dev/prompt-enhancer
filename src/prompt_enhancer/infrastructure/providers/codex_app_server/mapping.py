@@ -252,6 +252,7 @@ class CodexThreadMapper:
         started_at = as_utc(thread.created_at)
         if started_at is None:
             raise CodexCompatibilityError("provider session omitted its start time")
+        source_activity_at = as_utc(thread.updated_at)
         terminal_state = _session_state(thread.status)
         ended_at = None
         # updatedAt records activity, not a documented end time. Preserve an
@@ -267,6 +268,7 @@ class CodexThreadMapper:
             adapter_version=ADAPTER_VERSION,
             source_schema_version=SOURCE_SCHEMA_VERSION,
             started_at=started_at,
+            source_activity_at=source_activity_at,
             ended_at=ended_at,
             terminal_state=terminal_state,
             events_complete=events_complete,

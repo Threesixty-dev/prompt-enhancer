@@ -218,6 +218,7 @@ class SourceSession(StrictModel):
     adapter_version: str
     source_schema_version: str
     started_at: datetime
+    source_activity_at: datetime | None = None
     ended_at: datetime | None = None
     terminal_state: SessionState = SessionState.UNKNOWN
     events_complete: bool = False
@@ -231,7 +232,9 @@ class SourceSession(StrictModel):
     _validate_versions = field_validator(
         "provider_version", "adapter_version", "source_schema_version"
     )(_ensure_safe_version)
-    _validate_timestamps = field_validator("started_at", "ended_at")(_ensure_aware_utc)
+    _validate_timestamps = field_validator(
+        "started_at", "source_activity_at", "ended_at"
+    )(_ensure_aware_utc)
 
     @model_validator(mode="after")
     def ended_after_start(self) -> SourceSession:
@@ -263,6 +266,7 @@ class SafeSession(StrictModel):
     adapter_version: str
     source_schema_version: str
     started_at: datetime
+    provider_activity_revision: str | None = None
     ended_at: datetime | None = None
     terminal_state: SessionState
     events_complete: bool
@@ -286,6 +290,11 @@ class SafeSession(StrictModel):
     _validate_pseudonyms = field_validator(
         "installation_id", "project_id", "session_id"
     )(_ensure_pseudonym)
+
+    @field_validator("provider_activity_revision")
+    @classmethod
+    def validate_optional_activity_revision(cls, value: str | None) -> str | None:
+        return None if value is None else _ensure_pseudonym(value)
     _validate_versions = field_validator(
         "provider_version", "adapter_version", "source_schema_version"
     )(_ensure_safe_version)

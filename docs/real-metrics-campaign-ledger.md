@@ -699,6 +699,46 @@ evidence, or product activation authority. The ensemble is therefore useful
 only as an uncalibrated local shadow analysis. P1 remains in progress; P2 scope
 and blockers are unchanged, and P3 and P4 remain deferred.
 
+The continuous-shadow continuation adds two additive schemas without changing
+that authority. Schema v27 retains Codex `updatedAt` only long enough to derive
+an installation-keyed 64-hex activity revision; the raw provider timestamp is
+not persisted. Schema v28 stores one explicitly enabled, content-free session
+watch with a renewable execution lease, ten-stage progress, retry state, and an
+exact sealed-run/input binding. One partial unique index makes that watch the
+single process-wide model lane. Disabling or deleting its indexed session or
+project removes the scheduling authority without retaining content.
+
+Chunking is now `append-stable-redacted-v2`: fingerprints include message scope
+and an already-redacted fragment digest, but not the whole source-window
+fingerprint. Completed prefix chunks therefore remain reusable when a new turn
+is appended; the previous tail remains provisional and is recomputed. Every
+dirty update still runs the four retrieval, two reranking, three NLI, and one
+rubric stages serially. A child process is killed if its lease heartbeat fails,
+and CUDA resource exhaustion retries the same pinned stage on CPU only after the
+CUDA child exits. The scope contract now carries role, kind, language, and focus
+identity into inference. Prompt metrics admit only focus-user request evidence,
+outcome metrics stay unsupported without objective artifacts, and neutral,
+failed, or unsupported promoted NLI evidence can no longer become a known zero.
+
+The dashboard polls the content-free watch receipt, preserves a fixed radar axis
+set across generations, and leaves non-known values unplotted rather than at the
+center. An optional `prompt-enhancer desktop` Windows host opens only the fixed
+overlay route in a normal, resizable, minimizable, always-on-top Edge WebView2
+window. It authenticates an existing loopback listener before rendering, starts
+one only when the port is free, and stops only an instance it owns. Tokens and
+session identifiers do not enter its URL, arguments, title, bridge, or output.
+
+Engineering evidence for this continuation is the full backend gate with 2,023
+passed and 4 expected platform-only symlink skips, all 410 frontend tests, the
+production build, focused append/reuse/CPU-fallback/watch/desktop tests,
+compileall, the privacy scanner, and diff validation. A fictional schema-v2
+child-process smoke then completed all ten pinned stages serially on CUDA with
+one bounded output row per stage. This is execution and privacy evidence only.
+The ten stages are heterogeneous evidence roles, not ten independent estimates
+whose arithmetic mean is calibrated truth. P1 remains in progress pending
+representative adjudicated labels, calibration, stability, selective-risk,
+fairness, latency, and activation evidence. P2, P3, and P4 are unchanged.
+
 ## P2 foundation evidence
 
 Checkpoints `249f6c0` and `4db7052` define a prospective, content-free temporal
@@ -968,7 +1008,7 @@ P3 and P4 remain deferred in phase order.
 | Component | Pinned identity | Product status |
 |---|---|---|
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
-| Ten-model local shadow ensemble | `local-shadow-ensemble-v1`; `contiguous-balanced-redacted-v1`; exact ten-model inventory in code-owned immutable manifests | Local, content-free receipt and separate radar only; calibration not assessed and product eligibility false |
+| Ten-model local shadow ensemble | `local-shadow-ensemble-v1`; `append-stable-redacted-v2`; exact ten-model inventory in code-owned immutable manifests | Local, content-free receipt, one-session continuous watch, and separate fixed-axis radar only; calibration not assessed and product eligibility false |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |

@@ -491,6 +491,21 @@ class LocalApplication:
         metric_coverage_service = self.create_metric_coverage_service(
             metric_readiness_service
         )
+        session_model_ensemble_service = self.create_session_model_ensemble_service(
+            compatibility_policy
+        )
+        from .application.analysis.model_ensemble_watch import (
+            ModelEnsembleWatchService,
+            ModelEnsembleWatchWorker,
+        )
+
+        model_ensemble_watch_service = ModelEnsembleWatchService(
+            self.database.model_ensemble_watch_repository(),
+            session_model_ensemble_service,
+        )
+        model_ensemble_watch_worker = ModelEnsembleWatchWorker(
+            model_ensemble_watch_service
+        )
         analysis_job_service = self.create_analysis_job_service()
         (
             automation_grant_service,
@@ -516,11 +531,9 @@ class LocalApplication:
                     compatibility_policy
                 )
             ),
-            session_model_ensemble_service=(
-                self.create_session_model_ensemble_service(
-                    compatibility_policy
-                )
-            ),
+            session_model_ensemble_service=session_model_ensemble_service,
+            model_ensemble_watch_service=model_ensemble_watch_service,
+            model_ensemble_watch_worker=model_ensemble_watch_worker,
             project_quality_aggregation_service=(
                 self.create_project_quality_aggregation_service()
             ),

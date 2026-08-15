@@ -9744,3 +9744,87 @@ CREATE TRIGGER session_model_ensemble_metrics_privacy_delete_only BEFORE DELETE 
 
 COMMIT;
 """
+
+
+MIGRATION_27 = r"""
+BEGIN IMMEDIATE;
+
+-- Provider activity timestamps remain ephemeral. Ingestion stores only their
+-- installation-keyed HMAC revision so metadata polling can observe an append
+-- without retaining the provider timestamp or any thread content.
+ALTER TABLE sessions ADD COLUMN provider_activity_revision TEXT
+    CHECK(provider_activity_revision IS NULL OR (
+        length(provider_activity_revision)=64
+        AND provider_activity_revision NOT GLOB '*[^0-9a-f]*'
+    ));
+
+COMMIT;
+"""
+
+
+MIGRATION_28 = r"""
+BEGIN IMMEDIATE;
+
+-- One explicit, content-free continuous model watch.  It contains no text,
+-- excerpts, model responses, labels, or provider timestamps.  A single active
+-- row is also the process-wide GPU admission lane.
+CREATE TABLE session_model_ensemble_watches (
+    watch_id TEXT PRIMARY KEY CHECK(length(watch_id)=64 AND watch_id NOT GLOB '*[^0-9a-f]*'),
+    provider TEXT NOT NULL CHECK(provider='codex'),
+    project_id TEXT NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL UNIQUE REFERENCES sessions(session_id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK(state IN ('queued','running','idle','failed','disabled')),
+    generation INTEGER NOT NULL CHECK(generation BETWEEN 0 AND 1000000000),
+    progress_completed INTEGER NOT NULL CHECK(progress_completed BETWEEN 0 AND 10),
+    progress_total INTEGER NOT NULL CHECK(progress_total=10),
+    latest_run_id TEXT REFERENCES session_model_ensemble_runs(run_id) ON DELETE SET NULL,
+    latest_input_fingerprint TEXT CHECK(latest_input_fingerprint IS NULL OR (length(latest_input_fingerprint)=64 AND latest_input_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    last_error_code TEXT CHECK(last_error_code IS NULL OR (length(last_error_code) BETWEEN 1 AND 64 AND last_error_code GLOB '[a-z0-9]*' AND last_error_code NOT GLOB '*[^a-z0-9._-]*')),
+    next_check_at TEXT NOT NULL CHECK(length(next_check_at)=32 AND substr(next_check_at,27)='+00:00'),
+    lease_owner TEXT CHECK(lease_owner IS NULL OR (length(lease_owner)=64 AND lease_owner NOT GLOB '*[^0-9a-f]*')),
+    lease_token TEXT CHECK(lease_token IS NULL OR (length(lease_token)=64 AND lease_token NOT GLOB '*[^0-9a-f]*')),
+    lease_expires_at TEXT CHECK(lease_expires_at IS NULL OR (length(lease_expires_at)=32 AND substr(lease_expires_at,27)='+00:00')),
+    created_at TEXT NOT NULL CHECK(length(created_at)=32 AND substr(created_at,27)='+00:00'),
+    updated_at TEXT NOT NULL CHECK(length(updated_at)=32 AND substr(updated_at,27)='+00:00'),
+    CHECK(progress_completed<=progress_total),
+    CHECK((state='running' AND lease_owner IS NOT NULL AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL) OR (state<>'running' AND lease_owner IS NULL AND lease_token IS NULL AND lease_expires_at IS NULL)),
+    CHECK((latest_run_id IS NULL)=(latest_input_fingerprint IS NULL)),
+    CHECK(state<>'idle' OR last_error_code IS NULL)
+);
+
+CREATE UNIQUE INDEX session_model_ensemble_one_active_watch
+ON session_model_ensemble_watches((1)) WHERE state<>'disabled';
+CREATE INDEX session_model_ensemble_watch_due
+ON session_model_ensemble_watches(state,next_check_at,created_at,watch_id);
+
+CREATE TRIGGER session_model_ensemble_watch_identity_immutable
+BEFORE UPDATE ON session_model_ensemble_watches
+WHEN NEW.watch_id IS NOT OLD.watch_id OR NEW.provider IS NOT OLD.provider
+  OR NEW.project_id IS NOT OLD.project_id OR NEW.session_id IS NOT OLD.session_id
+  OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT,'model ensemble watch identity is immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_watch_transitions
+BEFORE UPDATE ON session_model_ensemble_watches
+WHEN NEW.state<>OLD.state AND NOT (
+       (OLD.state='queued' AND NEW.state IN ('running','disabled'))
+    OR (OLD.state='running' AND NEW.state IN ('queued','idle','failed','disabled'))
+    OR (OLD.state='idle' AND NEW.state IN ('running','disabled'))
+    OR (OLD.state='failed' AND NEW.state IN ('running','disabled'))
+    OR (OLD.state='disabled' AND NEW.state='queued')
+)
+BEGIN SELECT RAISE(ABORT,'model ensemble watch transition is invalid'); END;
+
+CREATE TRIGGER session_model_ensemble_watch_latest_binding
+BEFORE UPDATE OF latest_run_id,latest_input_fingerprint ON session_model_ensemble_watches
+WHEN NEW.latest_run_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM session_model_ensemble_runs run
+    WHERE run.run_id=NEW.latest_run_id AND run.session_id=NEW.session_id
+      AND run.provider=NEW.provider
+      AND run.input_fingerprint=NEW.latest_input_fingerprint
+      AND EXISTS (SELECT 1 FROM session_model_ensemble_seals seal WHERE seal.run_id=run.run_id)
+)
+BEGIN SELECT RAISE(ABORT,'model ensemble watch result binding is invalid'); END;
+
+COMMIT;
+"""

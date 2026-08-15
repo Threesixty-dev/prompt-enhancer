@@ -23,6 +23,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("demo", help="load deterministic synthetic metadata")
     subparsers.add_parser("status", help="show safe aggregate store status")
     subparsers.add_parser("serve", help="serve the authenticated loopback API")
+    subparsers.add_parser(
+        "desktop",
+        help="open the native always-on-top live-metrics window",
+    )
 
     grant = subparsers.add_parser(
         "codex-consent-grant",
@@ -220,6 +224,13 @@ def _run_serve(settings: AppSettings) -> int:
     return 0
 
 
+def _run_desktop(settings: AppSettings) -> int:
+    from .desktop_overlay import run_desktop_overlay
+
+    run_desktop_overlay(settings)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -237,6 +248,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "demo": _run_demo,
             "status": _run_status,
             "serve": _run_serve,
+            "desktop": _run_desktop,
         }
         return handlers[args.command](settings)
     except (OSError, RuntimeError, ValueError):

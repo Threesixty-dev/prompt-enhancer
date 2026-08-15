@@ -40,6 +40,10 @@ from .application.analysis.model_link_experiments import (
 from .application.analysis.session_model_ensemble import (
     SessionModelEnsembleService,
 )
+from .application.analysis.model_ensemble_watch import (
+    ModelEnsembleWatchService,
+    ModelEnsembleWatchWorker,
+)
 from .application.analysis.project_quality_aggregation import (
     ProjectQualityAggregationService,
 )
@@ -64,6 +68,7 @@ from .interfaces.http import (
     create_research_router,
     create_model_link_experiment_router,
     create_model_ensemble_router,
+    create_model_ensemble_watch_router,
     create_analysis_job_router,
     create_automation_grant_router,
     create_estimator_router,
@@ -284,6 +289,8 @@ def create_app(
     session_text_analysis_service: SessionTextAnalysisService | None = None,
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
     session_model_ensemble_service: SessionModelEnsembleService | None = None,
+    model_ensemble_watch_service: ModelEnsembleWatchService | None = None,
+    model_ensemble_watch_worker: ModelEnsembleWatchWorker | None = None,
     project_quality_aggregation_service: ProjectQualityAggregationService | None = None,
     provider_compatibility_catalog: ProviderCompatibilityCatalog | None = None,
     metric_readiness_service: MetricReadinessService | None = None,
@@ -323,9 +330,13 @@ def create_app(
             analysis_job_worker.start()
         if automation_grant_worker is not None:
             automation_grant_worker.start()
+        if model_ensemble_watch_worker is not None:
+            model_ensemble_watch_worker.start()
         try:
             yield
         finally:
+            if model_ensemble_watch_worker is not None:
+                model_ensemble_watch_worker.stop()
             if automation_grant_worker is not None:
                 automation_grant_worker.stop()
             if analysis_job_worker is not None:
@@ -372,6 +383,8 @@ def create_app(
             for marker in (
                 "quality-analysis-previews",
                 "model-ensemble-runs",
+                "model-ensemble-watch",
+                "model-ensemble-watches",
                 "metric-coverage",
                 "/analysis-jobs",
                 "/automation-grants",
@@ -639,6 +652,17 @@ def create_app(
         app.include_router(
             create_model_ensemble_router(
                 require_local_token,
+                session_model_ensemble_service,
+            )
+        )
+    if (
+        model_ensemble_watch_service is not None
+        and session_model_ensemble_service is not None
+    ):
+        app.include_router(
+            create_model_ensemble_watch_router(
+                require_local_token,
+                model_ensemble_watch_service,
                 session_model_ensemble_service,
             )
         )

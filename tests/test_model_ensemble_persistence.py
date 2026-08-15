@@ -21,6 +21,7 @@ from prompt_enhancer.application.analysis.model_ensemble import (
     ensemble_plan_fingerprint,
 )
 from prompt_enhancer.application.analysis.session_model_ensemble import (
+    SessionModelEnsembleOutcome,
     SessionModelEnsembleRunRecord,
 )
 from prompt_enhancer.application.analysis.model_ensemble import (
@@ -231,13 +232,13 @@ def test_model_ensemble_graph_is_immutable_sealed_and_privacy_deletable(tmp_path
 def test_v26_migration_has_zero_backfill(tmp_path) -> None:
     database, _ = _database_and_session(tmp_path)
     with sqlite3.connect(database.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 26
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 28
         assert tuple(
             row[0]
             for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-        ) == tuple(range(1, 27))
+        ) == tuple(range(1, 29))
         assert connection.execute(
             "SELECT COUNT(*) FROM session_model_ensemble_runs"
         ).fetchone()[0] == 0
@@ -319,19 +320,129 @@ def test_v25_to_v26_preserves_prior_checksums_and_rows(tmp_path, populated: bool
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 26
-        assert tuple(row[0] for row in rows) == tuple(range(1, 27))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 28
+        assert tuple(row[0] for row in rows) == tuple(range(1, 29))
         assert tuple(row[1] for row in rows[:25]) == checksums
         assert rows[25][1] == hashlib.sha256(
             migrations.MIGRATION_26.encode("utf-8")
+        ).hexdigest()
+        assert rows[26][1] == hashlib.sha256(
+            migrations.MIGRATION_27.encode("utf-8")
+        ).hexdigest()
+        assert rows[27][1] == hashlib.sha256(
+            migrations.MIGRATION_28.encode("utf-8")
         ).hexdigest()
         assert connection.execute(
             "SELECT COUNT(*) FROM session_model_ensemble_runs"
         ).fetchone()[0] == 0
         if populated:
             assert connection.execute(
-                "SELECT terminal_state FROM sessions WHERE session_id=?",
+                """SELECT terminal_state,provider_activity_revision
+                   FROM sessions WHERE session_id=?""",
                 (session_id,),
-            ).fetchone() == ("completed",)
+            ).fetchone() == ("completed", None)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_continuous_watch_claim_progress_completion_and_disable(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    run_repository = database.model_ensemble_repository()
+    run = _run(session_id)
+    run_repository.save_completed(run)
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    repository = database.model_ensemble_watch_repository()
+    watch_id = "9" * 64
+
+    enabled = repository.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        now=NOW,
+    )
+    assert enabled.state.value == "queued"
+    claimed = repository.claim_due(
+        owner="8" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    running, lease = claimed
+    assert running.state.value == "running"
+    assert running.generation == 1
+    running, lease = repository.heartbeat(
+        lease,
+        now=NOW + timedelta(seconds=10),
+        lease_duration=timedelta(minutes=30),
+        progress_completed=4,
+    )
+    assert running.progress_completed == 4
+
+    completed = repository.complete(
+        lease,
+        now=NOW + timedelta(seconds=20),
+        next_check_at=NOW + timedelta(seconds=80),
+        outcome=SessionModelEnsembleOutcome(run=run, applied=True),
+    )
+    assert completed.state.value == "idle"
+    assert completed.latest_run_id == run.run_id
+    assert completed.latest_input_fingerprint == run.input_fingerprint
+    assert completed.progress_completed == 10
+    assert repository.get_active() == completed
+
+    disabled = repository.disable(watch_id, now=NOW + timedelta(seconds=21))
+    assert disabled.state.value == "disabled"
+    assert repository.get_active() is None
+
+
+def test_continuous_watch_replaces_another_active_session_atomically(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    repository = database.model_ensemble_watch_repository()
+    with sqlite3.connect(database.path) as connection:
+        first = connection.execute(
+            "SELECT project_id,installation_id FROM sessions WHERE session_id=?",
+            (session_id,),
+        ).fetchone()
+        second_session = "7" * 64
+        connection.execute(
+            """INSERT INTO sessions(
+               session_id,installation_id,project_id,provider,provider_version,
+               adapter_version,source_schema_version,started_at,ended_at,
+               terminal_state,events_complete,created_at,updated_at
+               ) VALUES(?,?,?,?,?,?,?,?,?,'completed',1,?,?)""",
+            (
+                second_session,
+                first[1],
+                first[0],
+                "codex",
+                "codex-app-server-v1",
+                "codex-adapter-v1",
+                "codex-source-v1",
+                NOW.isoformat(timespec="microseconds"),
+                NOW.isoformat(timespec="microseconds"),
+                NOW.isoformat(timespec="microseconds"),
+                NOW.isoformat(timespec="microseconds"),
+            ),
+        )
+        connection.commit()
+
+    first_watch = repository.enable(
+        watch_id="6" * 64,
+        provider=Provider.CODEX,
+        project_id=first[0],
+        session_id=session_id,
+        now=NOW,
+    )
+    second_watch = repository.enable(
+        watch_id="5" * 64,
+        provider=Provider.CODEX,
+        project_id=first[0],
+        session_id=second_session,
+        now=NOW + timedelta(seconds=1),
+    )
+
+    assert repository.get(first_watch.watch_id).state.value == "disabled"
+    assert repository.get_active() == second_watch

@@ -26,11 +26,15 @@ from .text_contracts import P1TextAnalysisInput, TextLanguage, TextMessageKind, 
 
 
 MODEL_ENSEMBLE_PLAN_VERSION = "local-shadow-ensemble-v1"
-MODEL_ENSEMBLE_CHUNKER_VERSION = "contiguous-balanced-redacted-v1"
-MODEL_ENSEMBLE_RUBRIC_VERSION = "coaching-shadow-rubric-v1"
-MODEL_ENSEMBLE_PROMPT_VERSION = "coaching-shadow-prompt-v1"
+MODEL_ENSEMBLE_CHUNKER_VERSION = "append-stable-redacted-v2"
+MODEL_ENSEMBLE_RUBRIC_VERSION = "coaching-shadow-rubric-v2"
+MODEL_ENSEMBLE_PROMPT_VERSION = "coaching-shadow-prompt-v2"
 MODEL_ENSEMBLE_MAX_CHUNKS = 8
 MODEL_ENSEMBLE_MAX_FRAGMENT_CHARACTERS = 3_500
+# With fragments capped at 3,500 characters, every closed bucket exceeds
+# 12,500 characters.  A 100,000-character source therefore fits in at most
+# eight buckets while appends leave all closed boundaries unchanged.
+MODEL_ENSEMBLE_TARGET_CHUNK_CHARACTERS = 16_000
 MODEL_ENSEMBLE_MODEL_COUNT = 10
 _REPOSITORY_ID = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\Z"
@@ -104,6 +108,7 @@ class EphemeralEnsembleFragment(StrictModel):
     role: TextRole
     kind: TextMessageKind
     language: TextLanguage
+    is_focus_message: bool
     text: SecretStr = Field(repr=False, min_length=1, max_length=MODEL_ENSEMBLE_MAX_FRAGMENT_CHARACTERS)
 
     _ids = field_validator("fragment_id", "source_message_id")(_digest)
@@ -183,6 +188,11 @@ class EnsembleMetricSpec(StrictModel):
     metric_version: int = Field(ge=1)
     display_name: str
     direction: str
+    evidence_scope: Literal[
+        "focus_request",
+        "conversation",
+        "objective_evidence",
+    ]
     retrieval_query: str = Field(min_length=1, max_length=2_000)
     entailment_hypothesis: str = Field(min_length=1, max_length=2_000)
     rubric: str = Field(min_length=1, max_length=3_000)
@@ -497,6 +507,15 @@ def coaching_ensemble_metric_specs() -> tuple[EnsembleMetricSpec, ...]:
                 metric_version=definition.version,
                 display_name=definition.display_name,
                 direction=definition.direction.value,
+                evidence_scope=(
+                    "focus_request"
+                    if definition.dimension == "prompt"
+                    else (
+                        "objective_evidence"
+                        if definition.dimension == "outcome"
+                        else "conversation"
+                    )
+                ),
                 retrieval_query=(
                     f"Find direct evidence relevant to {definition.display_name}: {condition}."
                 ),
@@ -516,7 +535,13 @@ def coaching_ensemble_metric_specs() -> tuple[EnsembleMetricSpec, ...]:
 
 
 def build_ensemble_chunks(context: P1TextAnalysisInput) -> EnsembleChunkPlan:
-    """Partition the approved redacted window without overlap or content persistence."""
+    """Partition the window into append-stable, non-overlapping chunks.
+
+    Earlier complete buckets keep the same boundary when a new message is
+    appended.  The final bucket is deliberately provisional and may be
+    replaced by the next snapshot.  Fingerprints include a local-only digest
+    of the already-redacted fragment so edits cannot reuse stale decisions.
+    """
 
     fragments: list[EphemeralEnsembleFragment] = []
     for message in context.messages:
@@ -531,6 +556,12 @@ def build_ensemble_chunks(context: P1TextAnalysisInput) -> EnsembleChunkPlan:
                     "message_id": message.message_id,
                     "segment_ordinal": segment_ordinal,
                     "chunker_version": MODEL_ENSEMBLE_CHUNKER_VERSION,
+                    "role": message.role.value,
+                    "kind": message.kind.value,
+                    "language": message.language.value,
+                    "redacted_content_digest": hashlib.sha256(
+                        piece.encode("utf-8")
+                    ).hexdigest(),
                 }
             )
             fragments.append(
@@ -542,21 +573,23 @@ def build_ensemble_chunks(context: P1TextAnalysisInput) -> EnsembleChunkPlan:
                     role=message.role,
                     kind=message.kind,
                     language=message.language,
+                    is_focus_message=message.message_id == context.focus_message_id,
                     text=SecretStr(piece),
                 )
             )
 
     total_characters = sum(len(item.text.get_secret_value()) for item in fragments)
-    target_characters = max(1, math.ceil(total_characters / MODEL_ENSEMBLE_MAX_CHUNKS))
+    target_characters = MODEL_ENSEMBLE_TARGET_CHUNK_CHARACTERS
     buckets: list[list[EphemeralEnsembleFragment]] = [[]]
     bucket_characters = 0
     for fragment in fragments:
         length = len(fragment.text.get_secret_value())
         if (
             buckets[-1]
-            and len(buckets) < MODEL_ENSEMBLE_MAX_CHUNKS
             and bucket_characters + length > target_characters
         ):
+            if len(buckets) >= MODEL_ENSEMBLE_MAX_CHUNKS:
+                raise ValueError("bounded window cannot be partitioned into safe chunks")
             buckets.append([])
             bucket_characters = 0
         buckets[-1].append(fragment)
@@ -567,8 +600,6 @@ def build_ensemble_chunks(context: P1TextAnalysisInput) -> EnsembleChunkPlan:
         chunk_fingerprint = _canonical_digest(
             {
                 "chunker_version": MODEL_ENSEMBLE_CHUNKER_VERSION,
-                "source_window_fingerprint": context.analysis_window_fingerprint,
-                "ordinal": ordinal,
                 "fragment_ids": [item.fragment_id for item in bucket],
             }
         )
@@ -639,13 +670,48 @@ def committee_chunk_receipt(
             reason_code=f"rubric_{rubric_vote.state.value}",
         )
 
+    contributing_states = {item.state for item in contributing}
+    if ModelVoteState.FAILED in contributing_states:
+        return ChunkMetricCommitteeReceipt(
+            chunk_ordinal=chunk_ordinal,
+            metric_key=metric_key,
+            value_state=MetricValueState.EXECUTION_ERROR,
+            rubric_vote=rubric_vote.state,
+            contributing_nli_votes=len(contributing),
+            diagnostic_nli_votes=diagnostic_count,
+            reason_code="model_committee_nli_failed",
+        )
+    if ModelVoteState.UNSUPPORTED in contributing_states:
+        return ChunkMetricCommitteeReceipt(
+            chunk_ordinal=chunk_ordinal,
+            metric_key=metric_key,
+            value_state=MetricValueState.UNKNOWN,
+            rubric_vote=rubric_vote.state,
+            contributing_nli_votes=len(contributing),
+            diagnostic_nli_votes=diagnostic_count,
+            reason_code="model_committee_nli_unsupported",
+        )
+    if ModelVoteState.ABSTAIN in contributing_states:
+        return ChunkMetricCommitteeReceipt(
+            chunk_ordinal=chunk_ordinal,
+            metric_key=metric_key,
+            value_state=MetricValueState.ABSTAINED,
+            rubric_vote=rubric_vote.state,
+            contributing_nli_votes=len(contributing),
+            diagnostic_nli_votes=diagnostic_count,
+            reason_code="model_committee_nli_abstained",
+        )
+
     entailments = sum(item.state is ModelVoteState.PRESENT for item in contributing)
     contradictions = sum(item.state is ModelVoteState.ABSENT for item in contributing)
     if rubric_vote.state is ModelVoteState.PRESENT:
-        accepted = entailments >= 1 and contradictions == 0
+        accepted = entailments == len(contributing) and contradictions == 0
         numerator = 1
     else:
-        accepted = entailments == 0
+        # Absence is a decision only when every promoted NLI model emits an
+        # explicit contradiction.  Neutral, unavailable, and failed evidence
+        # never become a zero merely because no entailment was observed.
+        accepted = contradictions == len(contributing) and entailments == 0
         numerator = 0
     if not accepted:
         return ChunkMetricCommitteeReceipt(
@@ -707,7 +773,11 @@ def aggregate_chunk_metrics(
                     else (
                         MetricValueState.EXECUTION_ERROR
                         if failed == len(rows)
-                        else MetricValueState.ABSTAINED
+                        else (
+                            MetricValueState.UNKNOWN
+                            if unsupported == len(rows)
+                            else MetricValueState.ABSTAINED
+                        )
                     )
                 ),
                 numerator=numerator if denominator else None,
@@ -721,7 +791,11 @@ def aggregate_chunk_metrics(
                 explanation_code=(
                     "model_shadow_ratio_of_valid_chunks"
                     if denominator
-                    else "model_shadow_no_valid_chunks"
+                    else (
+                        "model_shadow_no_supported_chunks"
+                        if unsupported == len(rows)
+                        else "model_shadow_no_valid_chunks"
+                    )
                 ),
             )
         )
@@ -754,6 +828,7 @@ __all__ = [
     "EphemeralEnsembleFragment",
     "MODEL_ENSEMBLE_CHUNKER_VERSION",
     "MODEL_ENSEMBLE_MAX_CHUNKS",
+    "MODEL_ENSEMBLE_TARGET_CHUNK_CHARACTERS",
     "MODEL_ENSEMBLE_MODEL_COUNT",
     "MODEL_ENSEMBLE_PLAN_VERSION",
     "MODEL_ENSEMBLE_PROMPT_VERSION",

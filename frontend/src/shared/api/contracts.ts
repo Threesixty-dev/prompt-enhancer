@@ -96,6 +96,9 @@ export type ModelLinkAnnotationRequest = Schemas["ModelLinkAnnotationRequest"];
 export type ModelEnsembleRequest = Schemas["ModelEnsembleRequest"];
 export type ModelEnsembleRun = Schemas["ModelEnsembleRunDto"];
 export type ModelEnsembleOutcome = Schemas["ModelEnsembleOutcomeDto"];
+export type ModelEnsembleWatchRequest = Schemas["ModelEnsembleWatchRequest"];
+export type ModelEnsembleWatch = Schemas["ModelEnsembleWatchDto"];
+export type ModelEnsembleWatchSnapshot = Schemas["ModelEnsembleWatchSnapshotDto"];
 
 export interface SessionMetric {
   key: string;
@@ -522,6 +525,18 @@ export interface PromptEnhancerTransport {
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<ModelEnsembleOutcome>;
+  getActiveModelEnsembleWatch?(
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleWatchSnapshot>;
+  enableModelEnsembleWatch?(
+    sessionId: string,
+    request: ModelEnsembleWatchRequest,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleWatchSnapshot>;
+  disableModelEnsembleWatch?(
+    watchId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleWatchSnapshot>;
   listCandidates(
     status?: CandidateStatusFilter,
     signal?: AbortSignal,

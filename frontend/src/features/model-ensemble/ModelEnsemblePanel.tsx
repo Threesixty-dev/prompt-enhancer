@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ModelEnsembleRun,
+  ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
   ProviderCompatibilityStatus,
   SessionTextAnalysisCapability,
@@ -9,6 +10,7 @@ import { nextIdempotencyKey } from "../../shared/api/idempotency";
 import type { MetricCategory } from "../../shared/platform/platform";
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 import { promptTextCompatibilityBlocker } from "../provider-compatibility";
+import { ModelEnsembleRadar } from "./ModelEnsembleRadar";
 
 const TERMINAL_SOURCE_REASONS = new Set([
   "source_selection_limit",
@@ -82,72 +84,8 @@ function formatTimestamp(value: string): string {
   }).format(new Date(value));
 }
 
-function ShadowRadar({ run, category }: { run: ModelEnsembleRun; category: MetricCategory }) {
-  const kind = category === "prompt-quality" ? "prompt" : "logic";
-  const metrics = new Map(run.metrics.map((metric) => [metric.metric_key, metric]));
-  const known = QUALITY_ANALYSIS_DEFINITIONS
-    .filter((definition) => definition.kind === kind)
-    .flatMap((definition) => {
-      const metric = metrics.get(definition.key);
-      if (metric?.value_state !== "known" || metric.numeric_value == null) return [];
-      const plotted = definition.direction === "lower_is_better"
-        ? 1 - metric.numeric_value
-        : metric.numeric_value;
-      return [{ definition, metric, plotted }];
-    });
-  if (known.length < 3) {
-    return (
-      <div className="model-ensemble__radar-empty" role="note">
-        A radar needs at least three known chunk averages. Unknown, unsupported,
-        failed, and abstained metrics are omitted—not plotted as zero.
-      </div>
-    );
-  }
-  const size = 360;
-  const center = size / 2;
-  const radius = 112;
-  const point = (index: number, magnitude: number) => {
-    const angle = -Math.PI / 2 + (Math.PI * 2 * index) / known.length;
-    return [
-      center + Math.cos(angle) * radius * magnitude,
-      center + Math.sin(angle) * radius * magnitude,
-    ] as const;
-  };
-  const polygon = known.map((item, index) => point(index, item.plotted).join(",")).join(" ");
-  return (
-    <figure className="model-ensemble__radar">
-      <svg aria-label="Direction-adjusted shadow model radar" role="img" viewBox={`0 0 ${size} ${size}`}>
-        {[0.25, 0.5, 0.75, 1].map((level) => (
-          <polygon
-            className="model-ensemble__radar-ring"
-            key={level}
-            points={known.map((_, index) => point(index, level).join(",")).join(" ")}
-          />
-        ))}
-        {known.map((item, index) => {
-          const axis = point(index, 1);
-          const label = point(index, 1.28);
-          return (
-            <g key={item.definition.key}>
-              <line className="model-ensemble__radar-axis" x1={center} x2={axis[0]} y1={center} y2={axis[1]} />
-              <text className="model-ensemble__radar-label" textAnchor="middle" x={label[0]} y={label[1]}>
-                {item.definition.shortLabel}
-              </text>
-            </g>
-          );
-        })}
-        <polygon className="model-ensemble__radar-value" points={polygon} />
-      </svg>
-      <figcaption>
-        Known chunks only. Lower-is-better risk axes are inverted for this shape;
-        the table keeps the raw model-supported fraction. Unknown, unsupported,
-        failed, and abstained metrics are omitted—not converted to zero.
-      </figcaption>
-    </figure>
-  );
-}
-
 export function ModelEnsemblePanel({
+  projectId,
   sessionId,
   category,
   transport,
@@ -155,6 +93,7 @@ export function ModelEnsemblePanel({
   providerCompatibility,
   compatibilityLoading = false,
 }: {
+  projectId: string;
   sessionId: string;
   category: MetricCategory;
   transport: PromptEnhancerTransport;
@@ -166,6 +105,8 @@ export function ModelEnsemblePanel({
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [watch, setWatch] = useState<ModelEnsembleWatchSnapshot | null>(null);
+  const [watchChanging, setWatchChanging] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   const blocked = blocker(analysisCapability, providerCompatibility, compatibilityLoading);
 
@@ -186,6 +127,38 @@ export function ModelEnsemblePanel({
   }, [sessionId, transport]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (transport.getActiveModelEnsembleWatch === undefined) return;
+    let stopped = false;
+    let timer: number | undefined;
+    const controller = new AbortController();
+    const poll = async () => {
+      try {
+        const snapshot = await transport.getActiveModelEnsembleWatch!(controller.signal);
+        if (stopped) return;
+        setWatch(snapshot);
+        if (snapshot.watch.session_id === sessionId && snapshot.latest_run !== null) {
+          setRun(snapshot.latest_run);
+          setLoading(false);
+        }
+        timer = window.setTimeout(
+          () => void poll(),
+          snapshot.watch.state === "running" || snapshot.watch.state === "queued" ? 2_000 : 15_000,
+        );
+      } catch (watchError) {
+        if (stopped || controller.signal.aborted) return;
+        if (statusOf(watchError) === 404) setWatch(null);
+        timer = window.setTimeout(() => void poll(), 15_000);
+      }
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [sessionId, transport]);
 
   async function start() {
     if (running || blocked !== null) return;
@@ -213,6 +186,31 @@ export function ModelEnsemblePanel({
     controllerRef.current?.abort();
     controllerRef.current = null;
     setRunning(false);
+  }
+
+  async function toggleWatch() {
+    if (watchChanging) return;
+    setWatchChanging(true);
+    setError("");
+    try {
+      const currentForSession = watch?.watch.session_id === sessionId && watch.watch.state !== "disabled";
+      const snapshot = currentForSession
+        ? await transport.disableModelEnsembleWatch?.(watch.watch.watch_id)
+        : await transport.enableModelEnsembleWatch?.(sessionId, {
+            project_id: projectId,
+            confirmation: "continuously_analyze_selected_redacted_session",
+          });
+      if (snapshot !== undefined) {
+        setWatch(snapshot.watch.state === "disabled" ? null : snapshot);
+        if (snapshot.latest_run !== null) setRun(snapshot.latest_run);
+      } else {
+        setError("Continuous local analysis is available only in the integrated desktop app.");
+      }
+    } catch {
+      setError("The continuous local watch could not be changed. No session text was retained.");
+    } finally {
+      setWatchChanging(false);
+    }
   }
 
   const selectedDefinitions = useMemo(() => {
@@ -255,6 +253,28 @@ export function ModelEnsemblePanel({
           uncalibrated and cannot replace objective verification or the deterministic metric pack.
         </span>
       </div>
+      <div className="model-ensemble__watch">
+        <div>
+          <strong>Continuous local updates</strong>
+          <span>
+            {watch?.watch.session_id === sessionId
+              ? `${watch.watch.state} · model ${watch.watch.progress_completed} of ${watch.watch.progress_total}`
+              : "Off for this session. One selected session can use the serial GPU/CPU lane."}
+          </span>
+        </div>
+        <button
+          className="button button--secondary"
+          disabled={blocked !== null || watchChanging}
+          onClick={() => void toggleWatch()}
+          type="button"
+        >
+          {watchChanging
+            ? "Updating…"
+            : watch?.watch.session_id === sessionId && watch.watch.state !== "disabled"
+              ? "Stop continuous updates"
+              : "Watch this session"}
+        </button>
+      </div>
       <p aria-live="polite" className="model-ensemble__status" role="status">
         {running
           ? "Running ten local child processes one at a time. This may take several minutes; cancelling only stops this browser from waiting."
@@ -285,7 +305,7 @@ export function ModelEnsemblePanel({
             </p>
           )}
           <div className="model-ensemble__results">
-            <ShadowRadar category={category} run={run} />
+            <ModelEnsembleRadar category={category} run={run} />
             <div className="model-ensemble__metric-list">
               {selectedDefinitions.map(({ metric, definition }) => (
                 <article key={metric.metric_key}>
