@@ -10,6 +10,13 @@ import {
   modelEnsembleMetricPresentation,
 } from "./ModelEnsembleRadar";
 
+function statusOf(error: unknown): number | null {
+  return typeof error === "object" && error !== null && "status" in error
+    && typeof error.status === "number"
+    ? error.status
+    : null;
+}
+
 export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerTransport }) {
   const [snapshot, setSnapshot] = useState<ModelEnsembleWatchSnapshot | null>(null);
   const [category, setCategory] = useState<MetricCategory>("prompt-quality");
@@ -35,10 +42,16 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
           () => void poll(),
           value.watch.state === "running" || value.watch.state === "queued" ? 2_000 : 15_000,
         );
-      } catch {
+      } catch (error) {
         if (stopped || controller.signal.aborted) return;
-        setDisconnected(true);
-        timer = window.setTimeout(() => void poll(), 5_000);
+        if (statusOf(error) === 404) {
+          setSnapshot(null);
+          setDisconnected(false);
+          timer = window.setTimeout(() => void poll(), 15_000);
+        } else {
+          setDisconnected(true);
+          timer = window.setTimeout(() => void poll(), 5_000);
+        }
       }
     };
     const visible = () => {
