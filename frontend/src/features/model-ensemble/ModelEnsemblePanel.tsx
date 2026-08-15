@@ -10,7 +10,10 @@ import { nextIdempotencyKey } from "../../shared/api/idempotency";
 import type { MetricCategory } from "../../shared/platform/platform";
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 import { promptTextCompatibilityBlocker } from "../provider-compatibility";
-import { ModelEnsembleRadar } from "./ModelEnsembleRadar";
+import {
+  ModelEnsembleRadar,
+  modelEnsembleMetricPresentation,
+} from "./ModelEnsembleRadar";
 
 const TERMINAL_SOURCE_REASONS = new Set([
   "source_selection_limit",
@@ -307,16 +310,20 @@ export function ModelEnsemblePanel({
           <div className="model-ensemble__results">
             <ModelEnsembleRadar category={category} run={run} />
             <div className="model-ensemble__metric-list">
-              {selectedDefinitions.map(({ metric, definition }) => (
-                <article key={metric.metric_key}>
-                  <div><strong>{definition.label}</strong><small>{metric.value_state.replaceAll("_", " ")}</small></div>
-                  <b>{metric.numeric_value == null ? "—" : `${Math.round(metric.numeric_value * 100)}%`}</b>
-                  <p>
-                    Known {metric.known_chunk_count}/{metric.total_chunk_count} ·
-                    {" "}abstained {metric.abstained_chunk_count} · unsupported {metric.unsupported_chunk_count} · failed {metric.failed_chunk_count}
-                  </p>
-                </article>
-              ))}
+              {selectedDefinitions.map(({ metric, definition }) => {
+                const presentation = modelEnsembleMetricPresentation(metric, definition.direction);
+                return (
+                  <article key={metric.metric_key}>
+                    <div><strong>{definition.label}</strong><small>{metric.value_state.replaceAll("_", " ")}</small></div>
+                    <b>{presentation.value}</b>
+                    <p>{presentation.detail}</p>
+                    <p>
+                      Known {metric.known_chunk_count}/{metric.total_chunk_count} ·
+                      {" "}abstained {metric.abstained_chunk_count} · unsupported {metric.unsupported_chunk_count} · failed {metric.failed_chunk_count}
+                    </p>
+                  </article>
+                );
+              })}
             </div>
           </div>
           <details className="model-ensemble__models">

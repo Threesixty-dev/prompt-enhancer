@@ -5,7 +5,10 @@ import type {
 } from "../../shared/api/contracts";
 import type { MetricCategory } from "../../shared/platform/platform";
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
-import { ModelEnsembleRadar } from "./ModelEnsembleRadar";
+import {
+  ModelEnsembleRadar,
+  modelEnsembleMetricPresentation,
+} from "./ModelEnsembleRadar";
 
 export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerTransport }) {
   const [snapshot, setSnapshot] = useState<ModelEnsembleWatchSnapshot | null>(null);
@@ -100,13 +103,17 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
             <>
               <ModelEnsembleRadar category={category} compact run={snapshot.latest_run} />
               <section aria-label="Metric states" className="model-ensemble-overlay__metrics">
-                {selected.map(({ metric, definition }) => (
-                  <article key={metric.metric_key}>
-                    <div><strong>{definition.shortLabel}</strong><span>{metric.value_state.replaceAll("_", " ")}</span></div>
-                    <b>{metric.numeric_value == null ? "—" : `${Math.round(metric.numeric_value * 100)}%`}</b>
-                    <small>known {metric.known_chunk_count}/{metric.total_chunk_count} · abstained {metric.abstained_chunk_count} · unsupported {metric.unsupported_chunk_count}</small>
-                  </article>
-                ))}
+                {selected.map(({ metric, definition }) => {
+                  const presentation = modelEnsembleMetricPresentation(metric, definition.direction);
+                  return (
+                    <article key={metric.metric_key}>
+                      <div><strong>{definition.shortLabel}</strong><span>{metric.value_state.replaceAll("_", " ")}</span></div>
+                      <b>{presentation.value}</b>
+                      <small>{presentation.detail}</small>
+                      <small>known {metric.known_chunk_count}/{metric.total_chunk_count} · abstained {metric.abstained_chunk_count} · unsupported {metric.unsupported_chunk_count}</small>
+                    </article>
+                  );
+                })}
               </section>
             </>
           )}

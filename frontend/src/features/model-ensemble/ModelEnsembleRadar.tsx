@@ -2,6 +2,38 @@ import type { ModelEnsembleRun } from "../../shared/api/contracts";
 import type { MetricCategory } from "../../shared/platform/platform";
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 
+type EnsembleMetric = ModelEnsembleRun["metrics"][number];
+type MetricDirection = "higher_is_better" | "lower_is_better";
+
+export function modelEnsembleMetricPresentation(
+  metric: EnsembleMetric,
+  direction: MetricDirection,
+) {
+  if (
+    metric.value_state !== "known"
+    || metric.numeric_value == null
+    || metric.numerator == null
+    || metric.denominator == null
+  ) {
+    return {
+      value: "—",
+      detail: `${metric.value_state.replaceAll("_", " ")} · no numeric value was inferred`,
+    };
+  }
+  const rawPercent = Math.round(metric.numeric_value * 100);
+  const radarPercent = direction === "lower_is_better" ? 100 - rawPercent : rawPercent;
+  const signalKind = direction === "lower_is_better"
+    ? "lower-is-better signal"
+    : "positive signal";
+  const explicitZero = metric.numerator === 0
+    ? " This is an explicit committee decision, not a missing or failed value."
+    : "";
+  return {
+    value: `${rawPercent}% signal`,
+    detail: `${metric.numerator}/${metric.denominator} known chunks contained the ${signalKind}.${explicitZero} Radar ${radarPercent}%.`,
+  };
+}
+
 export function ModelEnsembleRadar({
   run,
   category,
@@ -69,7 +101,9 @@ export function ModelEnsembleRadar({
       <figcaption>
         Axes stay fixed between updates. Unknown and unsupported values keep their
         spoke but are not placed at zero; dots show known values and a filled shape
-        appears only when every axis in this lens is known.
+        appears only when every axis in this lens is known. A center point can be
+        an explicit known 0%, while lower-is-better raw values are inverted (raw
+        0% is plotted at 100%).
       </figcaption>
     </figure>
   );

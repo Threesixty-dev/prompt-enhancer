@@ -244,3 +244,32 @@ def test_parser_exposes_only_the_plain_desktop_command() -> None:
     parsed = cli._parser().parse_args(["desktop"])
     assert isinstance(parsed, argparse.Namespace)
     assert vars(parsed) == {"command": "desktop"}
+
+
+def test_console_free_entry_loads_settings_and_opens_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected = settings(tmp_path)
+    calls: list[AppSettings] = []
+    monkeypatch.setattr(AppSettings, "from_env", lambda: selected)
+    monkeypatch.setattr(desktop_overlay, "run_desktop_overlay", calls.append)
+
+    assert desktop_overlay.desktop_main() == 0
+    assert calls == [selected]
+
+
+def test_console_free_entry_reports_only_a_safe_native_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notices: list[bool] = []
+    monkeypatch.setattr(
+        desktop_overlay,
+        "run_desktop_overlay",
+        lambda _settings: (_ for _ in ()).throw(RuntimeError("example private detail")),
+    )
+    monkeypatch.setattr(AppSettings, "from_env", lambda: object())
+    monkeypatch.setattr(desktop_overlay, "_show_safe_desktop_error", lambda: notices.append(True))
+
+    assert desktop_overlay.desktop_main() == 1
+    assert notices == [True]

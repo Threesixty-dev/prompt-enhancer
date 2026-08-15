@@ -232,6 +232,35 @@ def run_desktop_overlay(settings: AppSettings) -> None:
             owned.stop()
 
 
+def _show_safe_desktop_error() -> None:
+    """Show one content-free native error when the GUI entry point cannot start."""
+
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            "Prompt Enhancer could not open the local live-metrics window.",
+            "Prompt Enhancer",
+            0x10,
+        )
+    except Exception:
+        # The GUI entry point intentionally has no console.  If even the native
+        # message box is unavailable, fail without rendering exception details.
+        return
+
+
+def desktop_main() -> int:
+    """Console-free Windows entry point for the React/WebView overlay."""
+
+    try:
+        run_desktop_overlay(AppSettings.from_env())
+    except Exception:
+        _show_safe_desktop_error()
+        return 1
+    return 0
+
+
 def sys_platform_is_windows() -> bool:
     """Small test seam that avoids importing GUI dependencies on other systems."""
 
@@ -244,5 +273,6 @@ __all__ = [
     "DesktopOverlayDependencyError",
     "DesktopOverlayError",
     "DesktopOverlayServiceError",
+    "desktop_main",
     "run_desktop_overlay",
 ]

@@ -33,6 +33,9 @@ desktop = [
 [project.scripts]
 prompt-enhancer = "prompt_enhancer.cli:main"
 
+[project.gui-scripts]
+prompt-enhancer-desktop = "prompt_enhancer.desktop_overlay:desktop_main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

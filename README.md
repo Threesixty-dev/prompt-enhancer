@@ -116,12 +116,15 @@ its URL:
 
 ```powershell
 python -m pip install -e ".[desktop]"
-python -m prompt_enhancer desktop
+prompt-enhancer-desktop
 ```
 
-The desktop command attaches only to the authenticated loopback service on the
-configured port, or starts and owns that service when the port is free. Closing
-the window stops only a server instance that the window started itself.
+`prompt-enhancer-desktop` is a Windows GUI entry point: it opens only the React
+window and does not create or retain a PowerShell/CMD console. It attaches only
+to the authenticated loopback service on the configured port, or starts and
+owns that service when the port is free. Closing the window stops only a server
+instance that the window started itself. `python -m prompt_enhancer desktop`
+remains available as a terminal-oriented diagnostic command.
 
 See [docs/phase-1.md](docs/phase-1.md) for the safety boundary, explicit Codex workflow, API behavior, and deferred features.
 
