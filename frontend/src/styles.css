@@ -3454,6 +3454,9 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .analysis-dialog__privacy { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 13px; padding: 10px 12px; border: 1px solid #b8dcd5; border-radius: 10px; background: var(--teal-50); }
 .analysis-dialog__privacy strong { color: var(--teal-700); font-size: 0.76rem; }
 .analysis-dialog__privacy span { color: var(--ink-650); font-size: 0.73rem; line-height: 1.45; }
+.analysis-dialog__success { display: grid; gap: 6px; padding: 16px; border: 1px solid #8fc9bd; border-radius: 12px; background: var(--teal-50); }
+.analysis-dialog__success strong { color: var(--teal-800); font-size: 0.9rem; }
+.analysis-dialog__success span { color: var(--ink-650); font-size: 0.76rem; line-height: 1.55; }
 .analysis-dialog__error { margin: 0; padding: 9px 11px; border: 1px solid var(--red-100); border-radius: 9px; color: var(--red-700); font-size: 0.74rem; background: var(--red-50); }
 .analysis-dialog__status { min-height: 18px; margin: 0; color: var(--teal-700); font-size: 0.71rem; font-weight: 700; line-height: 1.4; }
 .analysis-dialog__cancel-note { margin: -4px 0 0; color: var(--ink-500); font-size: 0.68rem; line-height: 1.4; }

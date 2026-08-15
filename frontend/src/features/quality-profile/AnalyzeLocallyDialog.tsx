@@ -165,6 +165,7 @@ export function AnalyzeLocallyDialog({
 }) {
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [preview, setPreview] = useState<SessionQualityAnalysisPreview | null>(null);
+  const [completed, setCompleted] = useState(false);
   const [error, setError] = useState("");
   const [failureReason, setFailureReason] = useState<string | null>(null);
   const [requiresRefresh, setRequiresRefresh] = useState(false);
@@ -257,6 +258,10 @@ export function AnalyzeLocallyDialog({
     if (terminalPreparationFailure) primaryRef.current?.focus();
   }, [terminalPreparationFailure]);
 
+  useEffect(() => {
+    if (completed) primaryRef.current?.focus();
+  }, [completed]);
+
   async function preparePreview() {
     if (pendingAction !== null) return;
     const controller = new AbortController();
@@ -264,6 +269,7 @@ export function AnalyzeLocallyDialog({
     setError("");
     setFailureReason(null);
     setRequiresRefresh(false);
+    setCompleted(false);
     clearPreview();
     setPendingAction("preview");
     cancelRef.current?.focus();
@@ -315,7 +321,14 @@ export function AnalyzeLocallyDialog({
         approvalKeyRef.current,
         controller.signal,
       );
-      if (!controller.signal.aborted) close();
+      if (!controller.signal.aborted) {
+        // Approval resolves only after the immutable completed run has been
+        // fetched and validated by the workspace. Drop the sensitive preview
+        // immediately, but keep a content-free completion receipt visible so
+        // an abstaining result cannot look like a failed or ignored click.
+        clearPreview();
+        setCompleted(true);
+      }
     } catch (nextError) {
       if (!controller.signal.aborted) {
         // Approval is atomic and one-shot. Never offer a second click against
@@ -392,9 +405,13 @@ export function AnalyzeLocallyDialog({
         <header>
           <div>
             <p className="eyebrow">One session · local only · approval bound</p>
-            <h2 id="analyze-locally-title">Ready to analyze</h2>
+            <h2 id="analyze-locally-title">
+              {completed ? "Analysis completed" : "Ready to analyze"}
+            </h2>
             <p id="analyze-locally-summary">
-              {preview
+              {completed
+                ? "The immutable result was stored locally and loaded into this session view."
+                : preview
                 ? "Inspect the exact redacted window and binding before one-shot approval."
                 : "Prepare an in-memory redacted window first. Preparation does not calculate or store metric results."}
             </p>
@@ -413,9 +430,30 @@ export function AnalyzeLocallyDialog({
         <form
           onSubmit={(event) => {
             event.preventDefault();
+            if (completed) {
+              close();
+              return;
+            }
             void (preview ? approvePreview() : preparePreview());
           }}
         >
+          {completed && (
+            <section
+              aria-labelledby="analysis-completed-title"
+              className="analysis-dialog__success"
+              role="status"
+            >
+              <strong id="analysis-completed-title">Analysis completed and stored locally</strong>
+              <span>
+                The result is now visible behind this dialog. Individual metrics may still be
+                Unknown or Abstained when the bounded window lacks their required evidence;
+                that is a stored result, not an analysis failure.
+              </span>
+            </section>
+          )}
+
+          {!completed && (
+            <>
           <section className="analysis-dialog__preset" aria-labelledby="analysis-preset-title">
             <div className="analysis-dialog__preset-heading">
               <span aria-hidden="true">S1</span>
@@ -514,10 +552,14 @@ export function AnalyzeLocallyDialog({
                 : "Codex returns the selected session to a size-limited local adapter before Prompt Enhancer allowlists, redacts, and selects the bounded preview window in memory. Preparation does not call a remote model or persist preview text."}
             </span>
           </div>
+            </>
+          )}
 
           {error && <p className="analysis-dialog__error" role="alert">{error}</p>}
           <p aria-live="polite" className="analysis-dialog__status" role="status">
-            {pendingAction === "preview"
+            {completed
+              ? "The approved preview was consumed once and its content-free metric result is stored."
+              : pendingAction === "preview"
               ? "Reading locally and preparing the bounded redacted window…"
               : pendingAction === "approval"
                 ? "Consuming this exact approval once and calculating local metrics…"
@@ -536,14 +578,25 @@ export function AnalyzeLocallyDialog({
                         : "Prepare first; review the exact redacted text and disclosure; then approve once."}
           </p>
           <p className="analysis-dialog__cancel-note">
-            {terminalPreparationFailure
+            {completed
+              ? "Choose View stored results to return to the refreshed metric profile."
+              : terminalPreparationFailure
               ? "No preview or metric result was created. Close this dialog and choose another session, or update Prompt Enhancer when a more capable bounded adapter is available."
               : preview
                 ? "Cancel removes this browser copy immediately; the local service copy expires automatically."
                 : "Cancel stops this browser from waiting. A provider read already accepted locally may finish and expire without approval."}
           </p>
           <footer>
-            {terminalPreparationFailure ? (
+            {completed ? (
+              <button
+                className="button button--primary"
+                onClick={close}
+                ref={primaryRef}
+                type="button"
+              >
+                View stored results
+              </button>
+            ) : terminalPreparationFailure ? (
               <button
                 className="button button--primary"
                 onClick={close}

@@ -122,7 +122,7 @@ describe("AnalyzeLocallyDialog", () => {
     ).toHaveFocus();
   });
 
-  it("sends the exact binding once, uses a fresh idempotency key, then closes", async () => {
+  it("sends the exact binding once, then proves the stored result before closing", async () => {
     const props = dialogProps();
     render(<div className="app-shell"><AnalyzeLocallyDialog {...props} /></div>);
     fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
@@ -143,6 +143,20 @@ describe("AnalyzeLocallyDialog", () => {
     });
     expect(key).toMatch(/^dashboard-quality-preview-approval-/);
     expect(signal).toBeInstanceOf(AbortSignal);
+    const completedDialog = await screen.findByRole("dialog", {
+      name: "Analysis completed",
+    });
+    expect(within(completedDialog).getByRole("status", {
+      name: "Analysis completed and stored locally",
+    })).toHaveTextContent(/Unknown or Abstained/i);
+    expect(screen.queryByText(PREVIEW_TEXT)).not.toBeInTheDocument();
+    expect(props.onClose).not.toHaveBeenCalled();
+
+    const viewResults = within(completedDialog).getByRole("button", {
+      name: "View stored results",
+    });
+    expect(viewResults).toHaveFocus();
+    fireEvent.click(viewResults);
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 
