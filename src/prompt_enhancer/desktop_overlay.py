@@ -73,6 +73,35 @@ class _OwnedServer:
             self.thread.join(timeout=5.0)
 
 
+class _DesktopWindowApi:
+    """Minimal content-free bridge for custom React window chrome."""
+
+    def __init__(self) -> None:
+        self._window: Any | None = None
+        self._maximized = False
+
+    def _bind(self, window: Any) -> None:
+        self._window = window
+
+    def minimize_window(self) -> None:
+        if self._window is not None:
+            self._window.minimize()
+
+    def toggle_maximize_window(self) -> bool:
+        if self._window is None:
+            return False
+        if self._maximized:
+            self._window.restore()
+        else:
+            self._window.maximize()
+        self._maximized = not self._maximized
+        return self._maximized
+
+    def close_window(self) -> None:
+        if self._window is not None:
+            self._window.destroy()
+
+
 def _loopback_origin(host: str, port: int) -> str:
     if not is_loopback_host(host) or not 1024 <= port <= 65535:
         raise DesktopOverlayServiceError(
@@ -187,19 +216,26 @@ def _load_webview() -> ModuleType:
 
 
 def _open_overlay_window(webview: ModuleType, url: str) -> None:
-    webview.create_window(
+    window_api = _DesktopWindowApi()
+    window = webview.create_window(
         "Prompt Enhancer - Live metrics",
         url=url,
+        js_api=window_api,
         width=420,
         height=620,
         min_size=(340, 420),
         resizable=True,
-        frameless=False,
+        frameless=True,
+        easy_drag=False,
+        shadow=True,
         on_top=True,
         confirm_close=False,
         background_color="#F4F8F7",
         text_select=True,
     )
+    if window is None:
+        raise DesktopOverlayDependencyError("desktop window could not be created")
+    window_api._bind(window)
     webview.start(gui="edgechromium", debug=False)
 
 

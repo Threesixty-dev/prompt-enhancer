@@ -14,15 +14,33 @@ from prompt_enhancer import desktop_overlay
 TOKEN = "example_desktop_overlay_token_123456789"
 
 
+class FakeWindow:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def minimize(self) -> None:
+        self.calls.append("minimize")
+
+    def maximize(self) -> None:
+        self.calls.append("maximize")
+
+    def restore(self) -> None:
+        self.calls.append("restore")
+
+    def destroy(self) -> None:
+        self.calls.append("destroy")
+
+
 class FakeWebview:
     def __init__(self, *, fail_start: bool = False) -> None:
         self.created: list[tuple[tuple[object, ...], dict[str, object]]] = []
         self.started: list[dict[str, object]] = []
+        self.window = FakeWindow()
         self.fail_start = fail_start
 
     def create_window(self, *args: object, **kwargs: object) -> object:
         self.created.append((args, kwargs))
-        return object()
+        return self.window
 
     def start(self, **kwargs: object) -> None:
         self.started.append(kwargs)
@@ -109,8 +127,16 @@ def test_attaches_to_authenticated_service_without_owning_it(
     assert TOKEN not in str(options)
     assert options["on_top"] is True
     assert options["resizable"] is True
-    assert options["frameless"] is False
+    assert options["frameless"] is True
+    assert options["easy_drag"] is False
+    assert options["shadow"] is True
     assert options["min_size"] == (340, 420)
+    window_api = options["js_api"]
+    window_api.minimize_window()
+    assert window_api.toggle_maximize_window() is True
+    assert window_api.toggle_maximize_window() is False
+    window_api.close_window()
+    assert webview.window.calls == ["minimize", "maximize", "restore", "destroy"]
     assert webview.started == [{"gui": "edgechromium", "debug": False}]
 
 

@@ -35,6 +35,25 @@ function sessionLabel(session: CodexSession): string {
   return `${session.session_display_name ?? "Unnamed session"} · ${sessionDate(session.started_at)}`;
 }
 
+type DesktopWindowApi = {
+  close_window(): Promise<void>;
+  minimize_window(): Promise<void>;
+  toggle_maximize_window(): Promise<boolean>;
+};
+
+function desktopWindowApi(): DesktopWindowApi | null {
+  const hostWindow = window as typeof window & {
+    pywebview?: { api?: Partial<DesktopWindowApi> };
+  };
+  const api = hostWindow.pywebview?.api;
+  return api !== undefined
+    && typeof api.close_window === "function"
+    && typeof api.minimize_window === "function"
+    && typeof api.toggle_maximize_window === "function"
+    ? api as DesktopWindowApi
+    : null;
+}
+
 export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerTransport }) {
   const [snapshot, setSnapshot] = useState<ModelEnsembleWatchSnapshot | null>(null);
   const [category, setCategory] = useState<MetricCategory>("prompt-quality");
@@ -48,7 +67,16 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
   const [catalogWindow, setCatalogWindow] = useState<CatalogWindow>("all");
   const [maxMessages, setMaxMessages] = useState(100);
   const [watchChanging, setWatchChanging] = useState(false);
+  const [nativeHost, setNativeHost] = useState(() => desktopWindowApi() !== null);
+  const [maximized, setMaximized] = useState(false);
   const synchronizedWatch = useRef("");
+
+  useEffect(() => {
+    const ready = () => setNativeHost(desktopWindowApi() !== null);
+    window.addEventListener("pywebviewready", ready);
+    ready();
+    return () => window.removeEventListener("pywebviewready", ready);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -228,8 +256,64 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
     }
   }
 
+  async function minimizeWindow() {
+    try {
+      await desktopWindowApi()?.minimize_window();
+    } catch {
+      setNativeHost(false);
+    }
+  }
+
+  async function toggleMaximizeWindow() {
+    try {
+      const next = await desktopWindowApi()?.toggle_maximize_window();
+      if (typeof next === "boolean") setMaximized(next);
+    } catch {
+      setNativeHost(false);
+    }
+  }
+
+  async function closeWindow() {
+    try {
+      await desktopWindowApi()?.close_window();
+    } catch {
+      setNativeHost(false);
+    }
+  }
+
   return (
-    <main className="model-ensemble-overlay">
+    <main className={`model-ensemble-overlay${nativeHost ? " model-ensemble-overlay--native" : ""}`}>
+      <div className="model-ensemble-overlay__chrome" aria-label="Prompt Enhancer window">
+        <div
+          className="model-ensemble-overlay__drag pywebview-drag-region"
+          onDoubleClick={() => void toggleMaximizeWindow()}
+        >
+          <span aria-hidden="true" className="model-ensemble-overlay__brand-mark">P</span>
+          <span className="model-ensemble-overlay__brand-copy">
+            <strong>Prompt Enhancer</strong>
+            <small>Live intelligence</small>
+          </span>
+        </div>
+        {nativeHost ? (
+          <div className="model-ensemble-overlay__window-controls" aria-label="Window controls">
+            <button aria-label="Minimize window" onClick={() => void minimizeWindow()} type="button">
+              <svg aria-hidden="true" viewBox="0 0 12 12"><path d="M2 8.5h8" /></svg>
+            </button>
+            <button
+              aria-label={maximized ? "Restore window" : "Maximize window"}
+              onClick={() => void toggleMaximizeWindow()}
+              type="button"
+            >
+              {maximized
+                ? <svg aria-hidden="true" viewBox="0 0 12 12"><path d="M4 2.5h5.5V8M2.5 4H8v5.5H2.5z" /></svg>
+                : <svg aria-hidden="true" viewBox="0 0 12 12"><path d="M2.5 2.5h7v7h-7z" /></svg>}
+            </button>
+            <button aria-label="Close window" className="is-close" onClick={() => void closeWindow()} type="button">
+              <svg aria-hidden="true" viewBox="0 0 12 12"><path d="m3 3 6 6m0-6L3 9" /></svg>
+            </button>
+          </div>
+        ) : null}
+      </div>
       <header>
         <div>
           <p className="eyebrow">Continuous local ensemble</p>

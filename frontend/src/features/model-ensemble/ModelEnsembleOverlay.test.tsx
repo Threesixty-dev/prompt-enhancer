@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CodexSession,
   ModelEnsembleWatchSnapshot,
@@ -14,6 +14,10 @@ async function settlePoll() {
     await Promise.resolve();
   });
 }
+
+afterEach(() => {
+  Reflect.deleteProperty(window, "pywebview");
+});
 
 const PROJECT_A = "a".repeat(64);
 const PROJECT_B = "b".repeat(64);
@@ -75,6 +79,40 @@ function watchSnapshot(maxMessages = 25): ModelEnsembleWatchSnapshot {
 }
 
 describe("ModelEnsembleOverlay", () => {
+  it("renders custom native chrome and delegates only window controls to the desktop bridge", async () => {
+    const minimizeWindow = vi.fn(async () => undefined);
+    const toggleMaximizeWindow = vi.fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const closeWindow = vi.fn(async () => undefined);
+    Object.defineProperty(window, "pywebview", {
+      configurable: true,
+      value: {
+        api: {
+          minimize_window: minimizeWindow,
+          toggle_maximize_window: toggleMaximizeWindow,
+          close_window: closeWindow,
+        },
+      },
+    });
+
+    render(<ModelEnsembleOverlay transport={createSyntheticTransport()} />);
+
+    expect(screen.getByText("Prompt Enhancer")).toBeVisible();
+    expect(screen.getByText("Live intelligence")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Minimize window" }));
+    fireEvent.click(screen.getByRole("button", { name: "Maximize window" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Restore window" })).toBeVisible());
+    fireEvent.click(screen.getByRole("button", { name: "Restore window" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close window" }));
+
+    await waitFor(() => {
+      expect(minimizeWindow).toHaveBeenCalledOnce();
+      expect(toggleMaximizeWindow).toHaveBeenCalledTimes(2);
+      expect(closeWindow).toHaveBeenCalledOnce();
+    });
+  });
+
   it("renders an absent active watch as an idle choice, not a disconnection", async () => {
     const getActiveModelEnsembleWatch = vi.fn().mockRejectedValue({ status: 404 });
     const transport: PromptEnhancerTransport = {

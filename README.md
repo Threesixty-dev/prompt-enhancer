@@ -110,9 +110,10 @@ executes one model process at a time rather than loading all weights together.
 
 To keep the selected session updating, choose **Watch this session** on that
 page. Only one session can hold the continuous serial model lane. An optional
-normal, minimizable, always-on-top Windows window displays the latest fixed-axis
-radar and model progress without putting a session identifier or API token in
-its URL. Its compact scope bar switches among the newest indexed projects and
+frameless, minimizable, always-on-top Windows window uses custom React chrome to
+display the latest fixed-axis radar and model progress without putting a session
+identifier or API token in its URL or exposing a general-purpose native bridge.
+Its compact scope bar switches among the newest indexed projects and
 sessions and persists an exact newest-message window of 10, 25, 50, or 100
 messages. The date control filters the indexed session catalog; it is not an
 inside-session date cutoff because Codex does not yet expose complete normalized
