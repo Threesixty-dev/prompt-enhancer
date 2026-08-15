@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         MetricReadinessService,
         ProjectQualityAggregationService,
         SessionModelLinkExperimentService,
+        SessionModelEnsembleService,
         SessionTextAnalysisService,
         TaskAnalysisService,
     )
@@ -286,6 +287,34 @@ class LocalApplication:
             SubprocessSessionModelLinkRunner(),
         )
 
+    def create_session_model_ensemble_service(
+        self,
+        compatibility_policy: ProviderSurfaceCompatibilityPolicy,
+    ) -> SessionModelEnsembleService:
+        """Compose the serial, process-isolated ten-model shadow pipeline."""
+
+        from .application.analysis import SessionModelEnsembleService
+        from .domain import Provider
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+        from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
+        from .infrastructure.text_models.model_ensemble import (
+            SerialModelEnsembleRunner,
+        )
+
+        def source_factory(provider: Provider) -> CodexTextAnalysisSource:
+            if provider is not Provider.CODEX:
+                raise ValueError("unsupported local model-ensemble provider")
+            return CodexTextAnalysisSource(self.pseudonymizer)
+
+        return SessionModelEnsembleService(
+            self.database,
+            self.database.model_ensemble_repository(),
+            source_factory,
+            compatibility_policy,
+            LocalArtifactIdFactory(self.pseudonymizer),
+            SerialModelEnsembleRunner(),
+        )
+
     def create_project_quality_aggregation_service(
         self,
     ) -> ProjectQualityAggregationService:
@@ -484,6 +513,11 @@ class LocalApplication:
             session_text_analysis_service=session_text_analysis_service,
             session_model_link_experiment_service=(
                 self.create_session_model_link_experiment_service(
+                    compatibility_policy
+                )
+            ),
+            session_model_ensemble_service=(
+                self.create_session_model_ensemble_service(
                     compatibility_policy
                 )
             ),

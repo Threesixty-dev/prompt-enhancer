@@ -9506,3 +9506,241 @@ BEGIN SELECT RAISE(ABORT,'analysis job state transition is invalid'); END;
 
 COMMIT;
 """
+
+
+MIGRATION_26 = r"""
+BEGIN IMMEDIATE;
+
+CREATE TABLE session_model_ensemble_runs (
+    run_id TEXT PRIMARY KEY CHECK(length(run_id)=64 AND run_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+    request_fingerprint TEXT NOT NULL UNIQUE CHECK(length(request_fingerprint)=64 AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint)=64 AND input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    provider TEXT NOT NULL CHECK(provider='codex'),
+    provider_version TEXT NOT NULL,
+    adapter_version TEXT NOT NULL,
+    source_schema_version TEXT NOT NULL,
+    content_schema_version TEXT NOT NULL,
+    redactor_version TEXT NOT NULL,
+    consent_policy_version TEXT NOT NULL CHECK(consent_policy_version='explicit-local-shadow-ensemble-v1'),
+    plan_version TEXT NOT NULL CHECK(plan_version='local-shadow-ensemble-v1'),
+    plan_fingerprint TEXT NOT NULL CHECK(length(plan_fingerprint)=64 AND plan_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL CHECK(length(source_window_fingerprint)=64 AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    source_coverage_state TEXT NOT NULL CHECK(source_coverage_state IN ('complete_window','incomplete_source')),
+    chunk_count INTEGER NOT NULL CHECK(chunk_count BETWEEN 1 AND 8),
+    model_count INTEGER NOT NULL CHECK(model_count=10),
+    metric_count INTEGER NOT NULL CHECK(metric_count BETWEEN 1 AND 20),
+    created_at TEXT NOT NULL CHECK(length(created_at)=32 AND substr(created_at,27)='+00:00'),
+    completed_at TEXT NOT NULL CHECK(length(completed_at)=32 AND substr(completed_at,27)='+00:00' AND completed_at>=created_at),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    UNIQUE(session_id,request_fingerprint),
+    CHECK(input_fingerprint=source_window_fingerprint)
+);
+
+CREATE INDEX session_model_ensemble_runs_latest_idx
+ON session_model_ensemble_runs(session_id,completed_at DESC,run_id DESC);
+
+CREATE TABLE session_model_ensemble_chunks (
+    run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    chunk_ordinal INTEGER NOT NULL CHECK(chunk_ordinal BETWEEN 0 AND 7),
+    chunk_fingerprint TEXT NOT NULL CHECK(length(chunk_fingerprint)=64 AND chunk_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    source_message_count INTEGER NOT NULL CHECK(source_message_count BETWEEN 1 AND 100),
+    fragment_count INTEGER NOT NULL CHECK(fragment_count BETWEEN 1 AND 128),
+    character_count INTEGER NOT NULL CHECK(character_count BETWEEN 1 AND 100000),
+    PRIMARY KEY(run_id,chunk_ordinal),
+    UNIQUE(run_id,chunk_fingerprint)
+);
+
+CREATE TABLE session_model_ensemble_experts (
+    run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    model_ordinal INTEGER NOT NULL CHECK(model_ordinal BETWEEN 0 AND 9),
+    model_key TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('retrieval','reranking','scope_nli','structured_rubric')),
+    repository_id TEXT NOT NULL,
+    revision TEXT NOT NULL CHECK(length(revision)=40 AND revision NOT GLOB '*[^0-9a-f]*'),
+    tokenizer_id TEXT NOT NULL,
+    license_spdx TEXT NOT NULL CHECK(license_spdx IN ('MIT','Apache-2.0')),
+    backend_key TEXT NOT NULL,
+    contributes_to_decision INTEGER NOT NULL CHECK(contributes_to_decision IN (0,1)),
+    status TEXT NOT NULL CHECK(status IN ('completed','unavailable','resource_exhausted','failed')),
+    error_code TEXT,
+    device TEXT CHECK(device IN ('cpu','cuda','mps')),
+    inference_latency_ms REAL CHECK(inference_latency_ms>=0),
+    peak_accelerator_memory_mb REAL CHECK(peak_accelerator_memory_mb>=0),
+    process_rss_mb REAL CHECK(process_rss_mb>=0),
+    unloaded_after_stage INTEGER NOT NULL CHECK(unloaded_after_stage=1),
+    calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'),
+    PRIMARY KEY(run_id,model_ordinal),
+    UNIQUE(run_id,model_key),
+    CHECK((status='completed' AND error_code IS NULL AND device IS NOT NULL)
+       OR (status<>'completed' AND error_code IS NOT NULL AND device IS NULL))
+);
+
+CREATE TABLE session_model_ensemble_evidence_selections (
+    run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    chunk_ordinal INTEGER NOT NULL,
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    model_key TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('retrieval','reranking')),
+    candidate_count INTEGER NOT NULL CHECK(candidate_count BETWEEN 1 AND 128),
+    selected_count INTEGER NOT NULL CHECK(selected_count BETWEEN 1 AND 8 AND selected_count<=candidate_count),
+    ranking_fingerprint TEXT NOT NULL CHECK(length(ranking_fingerprint)=64 AND ranking_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    top_raw_score REAL NOT NULL CHECK(top_raw_score BETWEEN -1000000000.0 AND 1000000000.0),
+    calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'),
+    PRIMARY KEY(run_id,chunk_ordinal,metric_key,model_key),
+    FOREIGN KEY(run_id,chunk_ordinal) REFERENCES session_model_ensemble_chunks(run_id,chunk_ordinal) ON DELETE CASCADE,
+    FOREIGN KEY(run_id,model_key) REFERENCES session_model_ensemble_experts(run_id,model_key) ON DELETE CASCADE
+);
+
+CREATE TABLE session_model_ensemble_selection_fragments (
+    run_id TEXT NOT NULL,
+    chunk_ordinal INTEGER NOT NULL,
+    metric_key TEXT NOT NULL,
+    model_key TEXT NOT NULL,
+    fragment_ordinal INTEGER NOT NULL CHECK(fragment_ordinal BETWEEN 0 AND 7),
+    fragment_id TEXT NOT NULL CHECK(length(fragment_id)=64 AND fragment_id NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(run_id,chunk_ordinal,metric_key,model_key,fragment_ordinal),
+    UNIQUE(run_id,chunk_ordinal,metric_key,model_key,fragment_id),
+    FOREIGN KEY(run_id,chunk_ordinal,metric_key,model_key)
+      REFERENCES session_model_ensemble_evidence_selections(run_id,chunk_ordinal,metric_key,model_key) ON DELETE CASCADE
+);
+
+CREATE TABLE session_model_ensemble_votes (
+    run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    chunk_ordinal INTEGER NOT NULL,
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    model_key TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('scope_nli','structured_rubric')),
+    state TEXT NOT NULL CHECK(state IN ('present','absent','abstain','unsupported','failed')),
+    raw_score REAL CHECK(raw_score BETWEEN 0.0 AND 1.0),
+    evidence_count INTEGER NOT NULL CHECK(evidence_count BETWEEN 0 AND 8),
+    reason_code TEXT NOT NULL,
+    calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'),
+    PRIMARY KEY(run_id,chunk_ordinal,metric_key,model_key),
+    FOREIGN KEY(run_id,chunk_ordinal) REFERENCES session_model_ensemble_chunks(run_id,chunk_ordinal) ON DELETE CASCADE,
+    FOREIGN KEY(run_id,model_key) REFERENCES session_model_ensemble_experts(run_id,model_key) ON DELETE CASCADE,
+    CHECK((state IN ('present','absent') AND raw_score IS NOT NULL)
+       OR (state NOT IN ('present','absent') AND raw_score IS NULL))
+);
+
+CREATE TABLE session_model_ensemble_vote_fragments (
+    run_id TEXT NOT NULL,
+    chunk_ordinal INTEGER NOT NULL,
+    metric_key TEXT NOT NULL,
+    model_key TEXT NOT NULL,
+    fragment_ordinal INTEGER NOT NULL CHECK(fragment_ordinal BETWEEN 0 AND 7),
+    fragment_id TEXT NOT NULL CHECK(length(fragment_id)=64 AND fragment_id NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(run_id,chunk_ordinal,metric_key,model_key,fragment_ordinal),
+    UNIQUE(run_id,chunk_ordinal,metric_key,model_key,fragment_id),
+    FOREIGN KEY(run_id,chunk_ordinal,metric_key,model_key)
+      REFERENCES session_model_ensemble_votes(run_id,chunk_ordinal,metric_key,model_key) ON DELETE CASCADE
+);
+
+CREATE TABLE session_model_ensemble_chunk_metrics (
+    run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    chunk_ordinal INTEGER NOT NULL,
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','not_applicable','abstained','execution_error')),
+    numerator INTEGER CHECK(numerator BETWEEN 0 AND 1),
+    denominator INTEGER CHECK(denominator=1),
+    rubric_vote TEXT NOT NULL CHECK(rubric_vote IN ('present','absent','abstain','unsupported','failed')),
+    contributing_nli_votes INTEGER NOT NULL CHECK(contributing_nli_votes BETWEEN 0 AND 2),
+    diagnostic_nli_votes INTEGER NOT NULL CHECK(diagnostic_nli_votes BETWEEN 0 AND 1),
+    reason_code TEXT NOT NULL,
+    PRIMARY KEY(run_id,chunk_ordinal,metric_key),
+    FOREIGN KEY(run_id,chunk_ordinal) REFERENCES session_model_ensemble_chunks(run_id,chunk_ordinal) ON DELETE CASCADE,
+    CHECK((value_state='known' AND numerator IS NOT NULL AND denominator=1)
+       OR (value_state<>'known' AND numerator IS NULL AND denominator IS NULL))
+);
+
+CREATE TABLE session_model_ensemble_metrics (
+    run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','not_applicable','abstained','execution_error')),
+    numerator INTEGER CHECK(numerator>=0),
+    denominator INTEGER CHECK(denominator BETWEEN 1 AND 8),
+    numeric_value REAL CHECK(numeric_value BETWEEN 0.0 AND 1.0),
+    known_chunk_count INTEGER NOT NULL CHECK(known_chunk_count BETWEEN 0 AND 8),
+    abstained_chunk_count INTEGER NOT NULL CHECK(abstained_chunk_count BETWEEN 0 AND 8),
+    unsupported_chunk_count INTEGER NOT NULL CHECK(unsupported_chunk_count BETWEEN 0 AND 8),
+    failed_chunk_count INTEGER NOT NULL CHECK(failed_chunk_count BETWEEN 0 AND 8),
+    total_chunk_count INTEGER NOT NULL CHECK(total_chunk_count BETWEEN 1 AND 8),
+    explanation_code TEXT NOT NULL,
+    calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,metric_key),
+    CHECK(known_chunk_count+abstained_chunk_count+unsupported_chunk_count+failed_chunk_count=total_chunk_count),
+    CHECK((value_state='known' AND numerator IS NOT NULL AND denominator=known_chunk_count AND numeric_value IS NOT NULL)
+       OR (value_state<>'known' AND numerator IS NULL AND denominator IS NULL AND numeric_value IS NULL))
+);
+
+CREATE TABLE session_model_ensemble_seals (
+    run_id TEXT PRIMARY KEY REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    graph_fingerprint TEXT NOT NULL UNIQUE CHECK(length(graph_fingerprint)=64 AND graph_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    chunk_count INTEGER NOT NULL CHECK(chunk_count BETWEEN 1 AND 8),
+    expert_count INTEGER NOT NULL CHECK(expert_count=10),
+    selection_count INTEGER NOT NULL CHECK(selection_count BETWEEN 0 AND 960),
+    selection_fragment_count INTEGER NOT NULL CHECK(selection_fragment_count BETWEEN 0 AND 7680),
+    vote_count INTEGER NOT NULL CHECK(vote_count BETWEEN 4 AND 640),
+    vote_fragment_count INTEGER NOT NULL CHECK(vote_fragment_count BETWEEN 0 AND 5120),
+    chunk_metric_count INTEGER NOT NULL CHECK(chunk_metric_count BETWEEN 1 AND 160),
+    metric_count INTEGER NOT NULL CHECK(metric_count BETWEEN 1 AND 20),
+    sealed_at TEXT NOT NULL CHECK(length(sealed_at)=32 AND substr(sealed_at,27)='+00:00')
+);
+
+CREATE TRIGGER session_model_ensemble_seal_complete BEFORE INSERT ON session_model_ensemble_seals
+WHEN NOT EXISTS (
+    SELECT 1 FROM session_model_ensemble_runs r WHERE r.run_id=NEW.run_id
+      AND r.chunk_count=NEW.chunk_count AND r.model_count=NEW.expert_count
+      AND r.metric_count=NEW.metric_count AND r.completed_at=NEW.sealed_at
+      AND NEW.chunk_metric_count=NEW.chunk_count*NEW.metric_count
+      AND NEW.vote_count=NEW.chunk_count*NEW.metric_count*4
+      AND (SELECT COUNT(*) FROM session_model_ensemble_chunks WHERE run_id=NEW.run_id)=NEW.chunk_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_experts WHERE run_id=NEW.run_id)=NEW.expert_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_evidence_selections WHERE run_id=NEW.run_id)=NEW.selection_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_selection_fragments WHERE run_id=NEW.run_id)=NEW.selection_fragment_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_votes WHERE run_id=NEW.run_id)=NEW.vote_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_vote_fragments WHERE run_id=NEW.run_id)=NEW.vote_fragment_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_chunk_metrics WHERE run_id=NEW.run_id)=NEW.chunk_metric_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_metrics WHERE run_id=NEW.run_id)=NEW.metric_count
+      AND NOT EXISTS (
+        SELECT 1 FROM session_model_ensemble_chunks c
+        WHERE c.run_id=NEW.run_id AND c.chunk_ordinal>=NEW.chunk_count)
+)
+BEGIN SELECT RAISE(ABORT,'session model ensemble graph is incomplete'); END;
+
+CREATE TRIGGER session_model_ensemble_runs_no_update BEFORE UPDATE ON session_model_ensemble_runs BEGIN SELECT RAISE(ABORT,'session model ensemble runs are immutable'); END;
+CREATE TRIGGER session_model_ensemble_chunks_no_update BEFORE UPDATE ON session_model_ensemble_chunks BEGIN SELECT RAISE(ABORT,'session model ensemble chunks are immutable'); END;
+CREATE TRIGGER session_model_ensemble_experts_no_update BEFORE UPDATE ON session_model_ensemble_experts BEGIN SELECT RAISE(ABORT,'session model ensemble experts are immutable'); END;
+CREATE TRIGGER session_model_ensemble_selections_no_update BEFORE UPDATE ON session_model_ensemble_evidence_selections BEGIN SELECT RAISE(ABORT,'session model ensemble selections are immutable'); END;
+CREATE TRIGGER session_model_ensemble_selection_fragments_no_update BEFORE UPDATE ON session_model_ensemble_selection_fragments BEGIN SELECT RAISE(ABORT,'session model ensemble selections are immutable'); END;
+CREATE TRIGGER session_model_ensemble_votes_no_update BEFORE UPDATE ON session_model_ensemble_votes BEGIN SELECT RAISE(ABORT,'session model ensemble votes are immutable'); END;
+CREATE TRIGGER session_model_ensemble_vote_fragments_no_update BEFORE UPDATE ON session_model_ensemble_vote_fragments BEGIN SELECT RAISE(ABORT,'session model ensemble votes are immutable'); END;
+CREATE TRIGGER session_model_ensemble_chunk_metrics_no_update BEFORE UPDATE ON session_model_ensemble_chunk_metrics BEGIN SELECT RAISE(ABORT,'session model ensemble chunk metrics are immutable'); END;
+CREATE TRIGGER session_model_ensemble_metrics_no_update BEFORE UPDATE ON session_model_ensemble_metrics BEGIN SELECT RAISE(ABORT,'session model ensemble metrics are immutable'); END;
+CREATE TRIGGER session_model_ensemble_seals_no_update BEFORE UPDATE ON session_model_ensemble_seals BEGIN SELECT RAISE(ABORT,'session model ensemble seals are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_chunks_sealed_insert BEFORE INSERT ON session_model_ensemble_chunks WHEN EXISTS(SELECT 1 FROM session_model_ensemble_seals WHERE run_id=NEW.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble graph is sealed'); END;
+CREATE TRIGGER session_model_ensemble_experts_sealed_insert BEFORE INSERT ON session_model_ensemble_experts WHEN EXISTS(SELECT 1 FROM session_model_ensemble_seals WHERE run_id=NEW.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble graph is sealed'); END;
+CREATE TRIGGER session_model_ensemble_selections_sealed_insert BEFORE INSERT ON session_model_ensemble_evidence_selections WHEN EXISTS(SELECT 1 FROM session_model_ensemble_seals WHERE run_id=NEW.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble graph is sealed'); END;
+CREATE TRIGGER session_model_ensemble_selection_fragments_sealed_insert BEFORE INSERT ON session_model_ensemble_selection_fragments WHEN EXISTS(SELECT 1 FROM session_model_ensemble_seals WHERE run_id=NEW.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble graph is sealed'); END;
+CREATE TRIGGER session_model_ensemble_votes_sealed_insert BEFORE INSERT ON session_model_ensemble_votes WHEN EXISTS(SELECT 1 FROM session_model_ensemble_seals WHERE run_id=NEW.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble graph is sealed'); END;
+CREATE TRIGGER session_model_ensemble_vote_fragments_sealed_insert BEFORE INSERT ON session_model_ensemble_vote_fragments WHEN EXISTS(SELECT 1 FROM session_model_ensemble_seals WHERE run_id=NEW.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble graph is sealed'); END;
+CREATE TRIGGER session_model_ensemble_chunk_metrics_sealed_insert BEFORE INSERT ON session_model_ensemble_chunk_metrics WHEN EXISTS(SELECT 1 FROM session_model_ensemble_seals WHERE run_id=NEW.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble graph is sealed'); END;
+CREATE TRIGGER session_model_ensemble_metrics_sealed_insert BEFORE INSERT ON session_model_ensemble_metrics WHEN EXISTS(SELECT 1 FROM session_model_ensemble_seals WHERE run_id=NEW.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble graph is sealed'); END;
+
+CREATE TRIGGER session_model_ensemble_seal_privacy_delete_only BEFORE DELETE ON session_model_ensemble_seals WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble seal requires parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_chunks_privacy_delete_only BEFORE DELETE ON session_model_ensemble_chunks WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble chunks require parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_experts_privacy_delete_only BEFORE DELETE ON session_model_ensemble_experts WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble experts require parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_selections_privacy_delete_only BEFORE DELETE ON session_model_ensemble_evidence_selections WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble selections require parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_selection_fragments_privacy_delete_only BEFORE DELETE ON session_model_ensemble_selection_fragments WHEN EXISTS(SELECT 1 FROM session_model_ensemble_evidence_selections WHERE run_id=OLD.run_id AND chunk_ordinal=OLD.chunk_ordinal AND metric_key=OLD.metric_key AND model_key=OLD.model_key) BEGIN SELECT RAISE(ABORT,'session model ensemble selections require parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_votes_privacy_delete_only BEFORE DELETE ON session_model_ensemble_votes WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble votes require parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_vote_fragments_privacy_delete_only BEFORE DELETE ON session_model_ensemble_vote_fragments WHEN EXISTS(SELECT 1 FROM session_model_ensemble_votes WHERE run_id=OLD.run_id AND chunk_ordinal=OLD.chunk_ordinal AND metric_key=OLD.metric_key AND model_key=OLD.model_key) BEGIN SELECT RAISE(ABORT,'session model ensemble votes require parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_chunk_metrics_privacy_delete_only BEFORE DELETE ON session_model_ensemble_chunk_metrics WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble chunk metrics require parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_metrics_privacy_delete_only BEFORE DELETE ON session_model_ensemble_metrics WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'session model ensemble metrics require parent privacy deletion'); END;
+
+COMMIT;
+"""

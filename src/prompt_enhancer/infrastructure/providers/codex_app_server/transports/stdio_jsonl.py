@@ -248,7 +248,13 @@ class StdioJsonRpcTransport:
                     "params": params,
                 }
             )
-            deadline = time.monotonic() + self._limits.request_timeout_seconds
+            timeout = (
+                self._limits.text_analysis_request_timeout_seconds
+                if method == "thread/read"
+                and self._thread_read_policy is ThreadReadPolicy.TEXT_ANALYSIS
+                else self._limits.request_timeout_seconds
+            )
+            deadline = time.monotonic() + timeout
             while True:
                 payload = self._next_message(deadline=deadline)
                 if self._is_server_request(payload):

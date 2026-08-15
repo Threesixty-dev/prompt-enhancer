@@ -93,6 +93,9 @@ export type ModelLinkExperimentOutcome =
   Schemas["ModelLinkExperimentCommandResponse"];
 export type ModelLinkAnnotation = Schemas["ModelLinkAnnotationDto"];
 export type ModelLinkAnnotationRequest = Schemas["ModelLinkAnnotationRequest"];
+export type ModelEnsembleRequest = Schemas["ModelEnsembleRequest"];
+export type ModelEnsembleRun = Schemas["ModelEnsembleRunDto"];
+export type ModelEnsembleOutcome = Schemas["ModelEnsembleOutcomeDto"];
 
 export interface SessionMetric {
   key: string;
@@ -509,6 +512,16 @@ export interface PromptEnhancerTransport {
     request: ModelLinkAnnotationRequest,
     signal?: AbortSignal,
   ): Promise<ModelLinkAnnotation>;
+  getLatestModelEnsemble(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleRun>;
+  startModelEnsemble(
+    sessionId: string,
+    request: ModelEnsembleRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleOutcome>;
   listCandidates(
     status?: CandidateStatusFilter,
     signal?: AbortSignal,

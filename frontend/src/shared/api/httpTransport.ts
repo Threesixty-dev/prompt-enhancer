@@ -21,6 +21,7 @@ import type {
   ManualDisplayLabelResult,
   MetricCoverageReport,
   ModelLabInventory,
+  ModelEnsembleRequest,
   ModelLinkAnnotation,
   ModelLinkAnnotationRequest,
   ModelLinkExperiment,
@@ -56,6 +57,11 @@ import type {
   TextAnalysisResearchCatalog,
   TextAnalysisPresetId,
 } from "./contracts";
+import {
+  ModelEnsemblePayloadError,
+  parseModelEnsembleOutcome,
+  parseModelEnsembleRun,
+} from "./modelEnsembleContract";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -117,7 +123,11 @@ export type SafeTransportReasonCode =
   | "no_model_link_candidates"
   | "local_model_execution_failed"
   | "model_link_persistence_failed"
-  | "model_link_revision_conflict";
+  | "model_link_revision_conflict"
+  | "invalid_model_ensemble_request"
+  | "model_ensemble_confirmation_required"
+  | "local_model_ensemble_execution_failed"
+  | "model_ensemble_persistence_failed";
 
 const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "redacted_content_consent_required",
@@ -158,6 +168,10 @@ const SAFE_TRANSPORT_REASONS = new Set<SafeTransportReasonCode>([
   "local_model_execution_failed",
   "model_link_persistence_failed",
   "model_link_revision_conflict",
+  "invalid_model_ensemble_request",
+  "model_ensemble_confirmation_required",
+  "local_model_ensemble_execution_failed",
+  "model_ensemble_persistence_failed",
 ]);
 
 const MODEL_LAB_INVENTORY_KEYS = new Set([
@@ -2618,6 +2632,52 @@ export function createHttpTransport(options: {
         signal,
         true,
       );
+    },
+    async getLatestModelEnsemble(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/model-ensemble-runs/latest`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleRun(value);
+      } catch (error) {
+        if (error instanceof ModelEnsemblePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async startModelEnsemble(
+      sessionId,
+      ensembleRequest: ModelEnsembleRequest,
+      idempotencyKey,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/model-ensemble-runs`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(ensembleRequest),
+        },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleOutcome(value);
+      } catch (error) {
+        if (error instanceof ModelEnsemblePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
     },
     listCandidates(status = "all", signal) {
       const query = status === "all" ? "" : `?status=${encodeURIComponent(status)}`;

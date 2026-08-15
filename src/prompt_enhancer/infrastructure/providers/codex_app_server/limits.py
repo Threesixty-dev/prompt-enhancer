@@ -22,8 +22,14 @@ class CodexReadLimits:
     # tool output and other unsupported fields.  Keep that exceptional bound
     # explicit and separate so metadata and operational transports retain the
     # smaller default ceiling.
-    max_text_analysis_json_line_bytes: int = 32 * 1024 * 1024
+    # A large local coding thread can contain discarded command output and
+    # diffs in the same documented ``thread/read`` response as the message
+    # items we retain.  The transport must receive that one frame before the
+    # allowlisted projection can discard those fields.  Keep the enlarged
+    # ceiling local, purpose-specific, and finite.
+    max_text_analysis_json_line_bytes: int = 128 * 1024 * 1024
     request_timeout_seconds: float = 10.0
+    text_analysis_request_timeout_seconds: float = 180.0
     shutdown_timeout_seconds: float = 2.0
     max_page_size: int = 100
     max_pages: int = 50
@@ -47,7 +53,11 @@ class CodexReadLimits:
         )
         if any(value < 1 for value in integer_bounds):
             raise ValueError("Codex read limits must be positive")
-        if self.request_timeout_seconds <= 0 or self.shutdown_timeout_seconds <= 0:
+        if (
+            self.request_timeout_seconds <= 0
+            or self.text_analysis_request_timeout_seconds <= 0
+            or self.shutdown_timeout_seconds <= 0
+        ):
             raise ValueError("Codex transport timeouts must be positive")
         if self.max_items_per_turn > MAX_STABLE_ITEMS_PER_TURN:
             raise ValueError(

@@ -293,6 +293,36 @@ class TransformersNliClassifier(_TransformersBackend):
                 predictions.extend(self._label_by_index[int(index)] for index in indexes)
         return tuple(predictions)
 
+    def probabilities(
+        self, cases: Sequence[NliCase]
+    ) -> tuple[dict[str, float], ...]:
+        """Return the reviewed semantic label probabilities for shadow routing."""
+
+        import torch
+
+        predictions: list[dict[str, float]] = []
+        with torch.inference_mode():
+            for start in range(0, len(cases), self.batch_size):
+                batch = cases[start : start + self.batch_size]
+                encoded = self.tokenizer(
+                    [case.premise for case in batch],
+                    [case.hypothesis for case in batch],
+                    max_length=self.manifest.max_sequence_length,
+                    truncation=True,
+                    padding=True,
+                    return_tensors="pt",
+                )
+                encoded = {key: value.to(self.device) for key, value in encoded.items()}
+                rows = self.model(**encoded).logits.float().softmax(dim=-1).cpu().tolist()
+                for row in rows:
+                    predictions.append(
+                        {
+                            self._label_by_index[index]: float(value)
+                            for index, value in enumerate(row)
+                        }
+                    )
+        return tuple(predictions)
+
 
 class TransformersLastTokenEmbeddingScorer(_TransformersBackend):
     """Instruction-aware retrieval for Qwen3 embedding checkpoints."""
@@ -586,6 +616,109 @@ class TransformersStructuredRubricJudge(_TransformersBackend):
             for case in cases:
                 encoded = self.tokenizer(
                     self._prompt(case),
+                    max_length=self.manifest.max_sequence_length,
+                    truncation=True,
+                    return_tensors="pt",
+                )
+                encoded = {key: value.to(self.device) for key, value in encoded.items()}
+                generated = self.model.generate(
+                    **encoded,
+                    do_sample=False,
+                    max_new_tokens=16,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                )
+                new_tokens = generated[0, encoded["input_ids"].shape[1] :]
+                rendered = self.tokenizer.decode(
+                    new_tokens,
+                    skip_special_tokens=True,
+                ).strip()
+                try:
+                    payload = json.loads(rendered)
+                except (json.JSONDecodeError, TypeError):
+                    predictions.append(RubricPrediction(label=None, json_valid=False))
+                    continue
+                if (
+                    not isinstance(payload, dict)
+                    or set(payload) != {"label"}
+                    or payload["label"] not in {"present", "absent", "abstain"}
+                ):
+                    predictions.append(RubricPrediction(label=None, json_valid=False))
+                    continue
+                predictions.append(
+                    RubricPrediction(label=str(payload["label"]), json_valid=True)
+                )
+        return tuple(predictions)
+
+
+class TransformersDynamicRubricJudge(_TransformersBackend):
+    """Strict dynamic-rubric judge used only by the uncalibrated shadow ensemble."""
+
+    key = "qwen3_4b_dynamic_shadow_rubric_v1"
+
+    def __init__(self, manifest: ModelManifest, snapshot: Path, **kwargs: Any) -> None:
+        if (
+            manifest.task is not TextModelTask.STRUCTURED_RUBRIC
+            or manifest.architecture != "qwen3_instruct"
+        ):
+            raise LocalBackendError("wrong_manifest_for_dynamic_rubric")
+        super().__init__(manifest, snapshot, **kwargs)
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+    def _load_model(self, snapshot: Path) -> None:
+        import torch
+        from transformers import AutoModelForCausalLM
+
+        dtype = torch.float32
+        if self.device == "cuda":
+            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        elif self.device == "mps":
+            dtype = torch.float16
+        self.model = AutoModelForCausalLM.from_pretrained(
+            str(snapshot),
+            local_files_only=True,
+            trust_remote_code=False,
+            use_safetensors=True,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=True,
+        )
+
+    def _prompt(self, rubric: str, evidence: str) -> str:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Assess one redacted software-session evidence selection. Return exactly "
+                    'one compact JSON object with key "label" and value "present", '
+                    '"absent", or "abstain". Never infer unavailable facts and do not explain.'
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Rubric: {rubric}\nSelected evidence: {evidence}",
+            },
+        ]
+        rendered = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        if not isinstance(rendered, str):
+            raise LocalBackendError("chat_template_render_failed")
+        return rendered
+
+    def predict_dynamic(
+        self, cases: Sequence[tuple[str, str]]
+    ) -> tuple[RubricPrediction, ...]:
+        import json
+        import torch
+
+        predictions: list[RubricPrediction] = []
+        with torch.inference_mode():
+            for rubric, evidence in cases:
+                encoded = self.tokenizer(
+                    self._prompt(rubric, evidence),
                     max_length=self.manifest.max_sequence_length,
                     truncation=True,
                     return_tensors="pt",

@@ -14,6 +14,7 @@ from .metric_readiness_routes import create_metric_readiness_router
 from .metric_coverage_routes import create_metric_coverage_router
 from .research_routes import create_research_router
 from .model_link_experiment_routes import create_model_link_experiment_router
+from .model_ensemble_routes import create_model_ensemble_router
 from .analysis_job_routes import create_analysis_job_router
 from .automation_grant_routes import create_automation_grant_router
 from .estimator_routes import create_estimator_router
@@ -28,6 +29,7 @@ __all__ = (
     "create_metric_coverage_router",
     "create_research_router",
     "create_model_link_experiment_router",
+    "create_model_ensemble_router",
     "create_analysis_job_router",
     "create_automation_grant_router",
     "create_estimator_router",

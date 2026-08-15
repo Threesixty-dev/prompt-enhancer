@@ -680,6 +680,18 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       };
       return copy(annotation);
     },
+    async getLatestModelEnsemble() {
+      throw new TransportError(
+        "Local model ensembles are unavailable in synthetic demo mode",
+        404,
+      );
+    },
+    async startModelEnsemble() {
+      throw new TransportError(
+        "Local model ensembles require the integrated local runtime",
+        501,
+      );
+    },
     async listCandidates(status: CandidateStatusFilter = "all") {
       const filtered =
         status === "all"

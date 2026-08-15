@@ -743,6 +743,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/model-ensemble-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Model Ensemble */
+        post: operations["run_model_ensemble_v1_sessions__session_id__model_ensemble_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/model-ensemble-runs/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest Model Ensemble */
+        get: operations["latest_model_ensemble_v1_sessions__session_id__model_ensemble_runs_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/model-link-experiments": {
         parameters: {
             query?: never;
@@ -2442,6 +2476,219 @@ export interface components {
              */
             trust_remote_code: false;
         };
+        /** ModelEnsembleChunkDto */
+        ModelEnsembleChunkDto: {
+            /** Character Count */
+            character_count: number;
+            /** Fragment Count */
+            fragment_count: number;
+            /** Ordinal */
+            ordinal: number;
+            /** Source Message Count */
+            source_message_count: number;
+        };
+        /** ModelEnsembleChunkMetricDto */
+        ModelEnsembleChunkMetricDto: {
+            /** Chunk Ordinal */
+            chunk_ordinal: number;
+            /** Contributing Nli Votes */
+            contributing_nli_votes: number;
+            /** Denominator */
+            denominator?: number | null;
+            /** Diagnostic Nli Votes */
+            diagnostic_nli_votes: number;
+            /** Metric Key */
+            metric_key: string;
+            /** Numerator */
+            numerator?: number | null;
+            /** Reason Code */
+            reason_code: string;
+            /**
+             * Rubric Vote
+             * @enum {string}
+             */
+            rubric_vote: "present" | "absent" | "abstain" | "unsupported" | "failed";
+            /**
+             * Value State
+             * @enum {string}
+             */
+            value_state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error";
+        };
+        /** ModelEnsembleExpertDto */
+        ModelEnsembleExpertDto: {
+            /** Contributes To Decision */
+            contributes_to_decision: boolean;
+            /** Device */
+            device: ("cpu" | "cuda" | "mps") | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Inference Latency Ms */
+            inference_latency_ms?: number | null;
+            /**
+             * License Spdx
+             * @enum {string}
+             */
+            license_spdx: "MIT" | "Apache-2.0";
+            /** Model Key */
+            model_key: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Peak Accelerator Memory Mb */
+            peak_accelerator_memory_mb?: number | null;
+            /** Process Rss Mb */
+            process_rss_mb?: number | null;
+            /** Repository Id */
+            repository_id: string;
+            /** Revision */
+            revision: string;
+            role: components["schemas"]["ModelExpertRole"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "completed" | "unavailable" | "resource_exhausted" | "failed";
+            /**
+             * Unloaded After Stage
+             * @constant
+             */
+            unloaded_after_stage: true;
+        };
+        /** ModelEnsembleMetricDto */
+        ModelEnsembleMetricDto: {
+            /** Abstained Chunk Count */
+            abstained_chunk_count: number;
+            /**
+             * Calibration State
+             * @constant
+             */
+            calibration_state: "not_assessed";
+            /** Denominator */
+            denominator?: number | null;
+            /** Explanation Code */
+            explanation_code: string;
+            /** Failed Chunk Count */
+            failed_chunk_count: number;
+            /** Known Chunk Count */
+            known_chunk_count: number;
+            /** Metric Key */
+            metric_key: string;
+            /** Numerator */
+            numerator?: number | null;
+            /** Numeric Value */
+            numeric_value?: number | null;
+            /**
+             * Product Metric Eligible
+             * @constant
+             */
+            product_metric_eligible: false;
+            /** Total Chunk Count */
+            total_chunk_count: number;
+            /** Unsupported Chunk Count */
+            unsupported_chunk_count: number;
+            /**
+             * Value State
+             * @enum {string}
+             */
+            value_state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error";
+        };
+        /** ModelEnsembleOutcomeDto */
+        ModelEnsembleOutcomeDto: {
+            /** Applied */
+            applied: boolean;
+            run: components["schemas"]["ModelEnsembleRunDto"];
+        };
+        /** ModelEnsembleRequest */
+        ModelEnsembleRequest: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "run_ten_local_models_on_selected_redacted_text";
+        };
+        /** ModelEnsembleRunDto */
+        ModelEnsembleRunDto: {
+            /**
+             * Calibration State
+             * @constant
+             */
+            calibration_state: "not_assessed";
+            /** Chunk Count */
+            chunk_count: number;
+            /** Chunk Metrics */
+            chunk_metrics: components["schemas"]["ModelEnsembleChunkMetricDto"][];
+            /** Chunks */
+            chunks: components["schemas"]["ModelEnsembleChunkDto"][];
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /**
+             * Content Persisted
+             * @constant
+             */
+            content_persisted: false;
+            /** Experts */
+            experts: components["schemas"]["ModelEnsembleExpertDto"][];
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            /** Metrics */
+            metrics: components["schemas"]["ModelEnsembleMetricDto"][];
+            /**
+             * Model Count
+             * @constant
+             */
+            model_count: 10;
+            /** Plan Fingerprint */
+            plan_fingerprint: string;
+            /**
+             * Plan Version
+             * @constant
+             */
+            plan_version: "local-shadow-ensemble-v1";
+            /**
+             * Product Metric Eligible
+             * @constant
+             */
+            product_metric_eligible: false;
+            /** Run Id */
+            run_id: string;
+            /**
+             * Source Coverage State
+             * @enum {string}
+             */
+            source_coverage_state: "complete_window" | "incomplete_source";
+            /** Votes */
+            votes: components["schemas"]["ModelEnsembleVoteDto"][];
+        };
+        /** ModelEnsembleVoteDto */
+        ModelEnsembleVoteDto: {
+            /** Chunk Ordinal */
+            chunk_ordinal: number;
+            /** Evidence Fragment Count */
+            evidence_fragment_count: number;
+            /** Metric Key */
+            metric_key: string;
+            /** Model Key */
+            model_key: string;
+            /** Raw Score */
+            raw_score?: number | null;
+            /** Reason Code */
+            reason_code: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "scope_nli" | "structured_rubric";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "present" | "absent" | "abstain" | "unsupported" | "failed";
+        };
         /** ModelEvaluationJobDto */
         ModelEvaluationJobDto: {
             candidate: components["schemas"]["ModelEvaluationRequestDto"];
@@ -2499,6 +2746,11 @@ export interface components {
          * @enum {string}
          */
         ModelExperimentDevice: "auto" | "cpu" | "cuda" | "mps";
+        /**
+         * ModelExpertRole
+         * @enum {string}
+         */
+        ModelExpertRole: "retrieval" | "reranking" | "scope_nli" | "structured_rubric";
         /** ModelLabInventoryDto */
         ModelLabInventoryDto: {
             /**
@@ -5810,6 +6062,79 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_model_ensemble_v1_sessions__session_id__model_ensemble_runs_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelEnsembleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleOutcomeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    latest_model_ensemble_v1_sessions__session_id__model_ensemble_runs_latest_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleRunDto"];
                 };
             };
             /** @description Validation Error */

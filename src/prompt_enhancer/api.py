@@ -37,6 +37,9 @@ from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
 )
+from .application.analysis.session_model_ensemble import (
+    SessionModelEnsembleService,
+)
 from .application.analysis.project_quality_aggregation import (
     ProjectQualityAggregationService,
 )
@@ -60,6 +63,7 @@ from .interfaces.http import (
     create_metric_coverage_router,
     create_research_router,
     create_model_link_experiment_router,
+    create_model_ensemble_router,
     create_analysis_job_router,
     create_automation_grant_router,
     create_estimator_router,
@@ -279,6 +283,7 @@ def create_app(
     task_analysis_service: TaskAnalysisCommandService | None = None,
     session_text_analysis_service: SessionTextAnalysisService | None = None,
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
+    session_model_ensemble_service: SessionModelEnsembleService | None = None,
     project_quality_aggregation_service: ProjectQualityAggregationService | None = None,
     provider_compatibility_catalog: ProviderCompatibilityCatalog | None = None,
     metric_readiness_service: MetricReadinessService | None = None,
@@ -366,6 +371,7 @@ def create_app(
             marker in request.url.path
             for marker in (
                 "quality-analysis-previews",
+                "model-ensemble-runs",
                 "metric-coverage",
                 "/analysis-jobs",
                 "/automation-grants",
@@ -627,6 +633,13 @@ def create_app(
             create_model_link_experiment_router(
                 require_local_token,
                 session_model_link_experiment_service,
+            )
+        )
+    if session_model_ensemble_service is not None:
+        app.include_router(
+            create_model_ensemble_router(
+                require_local_token,
+                session_model_ensemble_service,
             )
         )
     if task_review_service is not None:

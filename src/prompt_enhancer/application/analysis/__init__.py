@@ -210,6 +210,12 @@ from .model_link_experiments import (
     ModelLinkStoredExperiment,
     SessionModelLinkExperimentService,
 )
+from .session_model_ensemble import (
+    MODEL_ENSEMBLE_CONFIRMATION,
+    SessionModelEnsembleOutcome,
+    SessionModelEnsembleRunRecord,
+    SessionModelEnsembleService,
+)
 
 __all__ = [
     "ActionEvidence",
@@ -281,6 +287,7 @@ __all__ = [
     "MODEL_LINK_CONFIRMATION",
     "MODEL_LINK_EXPERIMENT_KEY",
     "MODEL_LINK_EXPERIMENT_VERSION",
+    "MODEL_ENSEMBLE_CONFIRMATION",
     "ModelExperimentDevice",
     "ModelLinkAnnotationLabel",
     "ModelLinkExperimentOutcome",
@@ -340,6 +347,9 @@ __all__ = [
     "StoredMetricCoverage",
     "LatestProfileRunCounts",
     "SessionModelLinkExperimentService",
+    "SessionModelEnsembleOutcome",
+    "SessionModelEnsembleRunRecord",
+    "SessionModelEnsembleService",
     "SessionMetricReadinessReport",
     "TASK_METRIC_DEFINITIONS",
     "TYPED_EVIDENCE_SCHEMA_VERSION",

@@ -3847,6 +3847,612 @@
         "title": "ModelCandidateDto",
         "type": "object"
       },
+      "ModelEnsembleChunkDto": {
+        "additionalProperties": false,
+        "properties": {
+          "character_count": {
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Character Count",
+            "type": "integer"
+          },
+          "fragment_count": {
+            "maximum": 128.0,
+            "minimum": 1.0,
+            "title": "Fragment Count",
+            "type": "integer"
+          },
+          "ordinal": {
+            "maximum": 7.0,
+            "minimum": 0.0,
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "source_message_count": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Source Message Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal",
+          "source_message_count",
+          "fragment_count",
+          "character_count"
+        ],
+        "title": "ModelEnsembleChunkDto",
+        "type": "object"
+      },
+      "ModelEnsembleChunkMetricDto": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_ordinal": {
+            "maximum": 7.0,
+            "minimum": 0.0,
+            "title": "Chunk Ordinal",
+            "type": "integer"
+          },
+          "contributing_nli_votes": {
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Contributing Nli Votes",
+            "type": "integer"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "diagnostic_nli_votes": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Diagnostic Nli Votes",
+            "type": "integer"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "rubric_vote": {
+            "enum": [
+              "present",
+              "absent",
+              "abstain",
+              "unsupported",
+              "failed"
+            ],
+            "title": "Rubric Vote",
+            "type": "string"
+          },
+          "value_state": {
+            "enum": [
+              "known",
+              "unknown",
+              "not_applicable",
+              "abstained",
+              "execution_error"
+            ],
+            "title": "Value State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_ordinal",
+          "metric_key",
+          "value_state",
+          "rubric_vote",
+          "contributing_nli_votes",
+          "diagnostic_nli_votes",
+          "reason_code"
+        ],
+        "title": "ModelEnsembleChunkMetricDto",
+        "type": "object"
+      },
+      "ModelEnsembleExpertDto": {
+        "additionalProperties": false,
+        "properties": {
+          "contributes_to_decision": {
+            "title": "Contributes To Decision",
+            "type": "boolean"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cpu",
+                  "cuda",
+                  "mps"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "inference_latency_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inference Latency Ms"
+          },
+          "license_spdx": {
+            "enum": [
+              "MIT",
+              "Apache-2.0"
+            ],
+            "title": "License Spdx",
+            "type": "string"
+          },
+          "model_key": {
+            "title": "Model Key",
+            "type": "string"
+          },
+          "ordinal": {
+            "maximum": 9.0,
+            "minimum": 0.0,
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "peak_accelerator_memory_mb": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Accelerator Memory Mb"
+          },
+          "process_rss_mb": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Rss Mb"
+          },
+          "repository_id": {
+            "title": "Repository Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ModelExpertRole"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "unavailable",
+              "resource_exhausted",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unloaded_after_stage": {
+            "const": true,
+            "title": "Unloaded After Stage",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ordinal",
+          "model_key",
+          "role",
+          "repository_id",
+          "revision",
+          "license_spdx",
+          "contributes_to_decision",
+          "status",
+          "error_code",
+          "device",
+          "unloaded_after_stage"
+        ],
+        "title": "ModelEnsembleExpertDto",
+        "type": "object"
+      },
+      "ModelEnsembleMetricDto": {
+        "additionalProperties": false,
+        "properties": {
+          "abstained_chunk_count": {
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Abstained Chunk Count",
+            "type": "integer"
+          },
+          "calibration_state": {
+            "const": "not_assessed",
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "maximum": 8.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "explanation_code": {
+            "title": "Explanation Code",
+            "type": "string"
+          },
+          "failed_chunk_count": {
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Failed Chunk Count",
+            "type": "integer"
+          },
+          "known_chunk_count": {
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Known Chunk Count",
+            "type": "integer"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "total_chunk_count": {
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Total Chunk Count",
+            "type": "integer"
+          },
+          "unsupported_chunk_count": {
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Unsupported Chunk Count",
+            "type": "integer"
+          },
+          "value_state": {
+            "enum": [
+              "known",
+              "unknown",
+              "not_applicable",
+              "abstained",
+              "execution_error"
+            ],
+            "title": "Value State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_key",
+          "value_state",
+          "known_chunk_count",
+          "abstained_chunk_count",
+          "unsupported_chunk_count",
+          "failed_chunk_count",
+          "total_chunk_count",
+          "explanation_code",
+          "calibration_state",
+          "product_metric_eligible"
+        ],
+        "title": "ModelEnsembleMetricDto",
+        "type": "object"
+      },
+      "ModelEnsembleOutcomeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "run": {
+            "$ref": "#/components/schemas/ModelEnsembleRunDto"
+          }
+        },
+        "required": [
+          "run",
+          "applied"
+        ],
+        "title": "ModelEnsembleOutcomeDto",
+        "type": "object"
+      },
+      "ModelEnsembleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "run_ten_local_models_on_selected_redacted_text",
+            "title": "Confirmation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmation"
+        ],
+        "title": "ModelEnsembleRequest",
+        "type": "object"
+      },
+      "ModelEnsembleRunDto": {
+        "additionalProperties": false,
+        "properties": {
+          "calibration_state": {
+            "const": "not_assessed",
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "chunk_count": {
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "chunk_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ModelEnsembleChunkMetricDto"
+            },
+            "maxItems": 160,
+            "title": "Chunk Metrics",
+            "type": "array"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ModelEnsembleChunkDto"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Chunks",
+            "type": "array"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "title": "Completed At",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "experts": {
+            "items": {
+              "$ref": "#/components/schemas/ModelEnsembleExpertDto"
+            },
+            "maxItems": 10,
+            "minItems": 10,
+            "title": "Experts",
+            "type": "array"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ModelEnsembleMetricDto"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Metrics",
+            "type": "array"
+          },
+          "model_count": {
+            "const": 10,
+            "title": "Model Count",
+            "type": "integer"
+          },
+          "plan_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Plan Fingerprint",
+            "type": "string"
+          },
+          "plan_version": {
+            "const": "local-shadow-ensemble-v1",
+            "title": "Plan Version",
+            "type": "string"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source_coverage_state": {
+            "enum": [
+              "complete_window",
+              "incomplete_source"
+            ],
+            "title": "Source Coverage State",
+            "type": "string"
+          },
+          "votes": {
+            "items": {
+              "$ref": "#/components/schemas/ModelEnsembleVoteDto"
+            },
+            "maxItems": 640,
+            "title": "Votes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "plan_version",
+          "plan_fingerprint",
+          "source_coverage_state",
+          "chunk_count",
+          "model_count",
+          "chunks",
+          "experts",
+          "votes",
+          "chunk_metrics",
+          "metrics",
+          "completed_at",
+          "local_only",
+          "content_persisted",
+          "calibration_state",
+          "product_metric_eligible"
+        ],
+        "title": "ModelEnsembleRunDto",
+        "type": "object"
+      },
+      "ModelEnsembleVoteDto": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_ordinal": {
+            "maximum": 7.0,
+            "minimum": 0.0,
+            "title": "Chunk Ordinal",
+            "type": "integer"
+          },
+          "evidence_fragment_count": {
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Evidence Fragment Count",
+            "type": "integer"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "model_key": {
+            "title": "Model Key",
+            "type": "string"
+          },
+          "raw_score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Score"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "scope_nli",
+              "structured_rubric"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "present",
+              "absent",
+              "abstain",
+              "unsupported",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_ordinal",
+          "metric_key",
+          "model_key",
+          "role",
+          "state",
+          "evidence_fragment_count",
+          "reason_code"
+        ],
+        "title": "ModelEnsembleVoteDto",
+        "type": "object"
+      },
       "ModelEvaluationJobDto": {
         "additionalProperties": false,
         "properties": {
@@ -4008,6 +4614,16 @@
           "mps"
         ],
         "title": "ModelExperimentDevice",
+        "type": "string"
+      },
+      "ModelExpertRole": {
+        "enum": [
+          "retrieval",
+          "reranking",
+          "scope_nli",
+          "structured_rubric"
+        ],
+        "title": "ModelExpertRole",
         "type": "string"
       },
       "ModelLabInventoryDto": {
@@ -12102,6 +12718,176 @@
           }
         },
         "summary": "Session Metrics"
+      }
+    },
+    "/v1/sessions/{session_id}/model-ensemble-runs": {
+      "post": {
+        "operationId": "run_model_ensemble_v1_sessions__session_id__model_ensemble_runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelEnsembleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEnsembleOutcomeDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Model Ensemble",
+        "tags": [
+          "local-model-ensemble"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/model-ensemble-runs/latest": {
+      "get": {
+        "operationId": "latest_model_ensemble_v1_sessions__session_id__model_ensemble_runs_latest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEnsembleRunDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Latest Model Ensemble",
+        "tags": [
+          "local-model-ensemble"
+        ]
       }
     },
     "/v1/sessions/{session_id}/model-link-experiments": {

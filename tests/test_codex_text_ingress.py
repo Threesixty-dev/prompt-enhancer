@@ -1372,7 +1372,7 @@ def test_parser_does_not_inspect_older_turns_outside_the_bounded_suffix() -> Non
     ) == ("Keep selected request.",)
 
 
-def test_parser_still_fails_closed_for_one_oversized_selected_fragment() -> None:
+def test_parser_splits_and_bounds_one_oversized_selected_fragment() -> None:
     private_canary = "PRIVATE-CHARACTER-BOUND-CANARY"
     result = {
         "thread": {
@@ -1401,13 +1401,16 @@ def test_parser_still_fails_closed_for_one_oversized_selected_fragment() -> None
         max_total_text_characters=8,
     )
 
-    with pytest.raises(CodexLimitError) as error:
-        parse_text_thread_read(result, limits)
+    parsed = parse_text_thread_read(result, limits)
 
-    assert private_canary not in str(error.value)
+    assert tuple(
+        fragment.text.get_secret_value() for fragment in parsed.fragments
+    ) == (private_canary[-8:],)
+    assert parsed.older_history_truncated is True
+    assert parsed.extraction_complete is False
 
 
-def test_parser_still_fails_closed_for_one_oversized_user_content_shape() -> None:
+def test_parser_keeps_a_bounded_newest_suffix_of_user_content_parts() -> None:
     result = {
         "thread": {
             "id": "example-thread",
@@ -1429,11 +1432,50 @@ def test_parser_still_fails_closed_for_one_oversized_user_content_shape() -> Non
         }
     }
 
-    with pytest.raises(CodexThreadStructureLimitError, match="content-part bound"):
-        parse_text_thread_read(
-            result,
-            CodexTextContentLimits(max_user_content_parts_per_item=1),
-        )
+    parsed = parse_text_thread_read(
+        result,
+        CodexTextContentLimits(max_user_content_parts_per_item=1),
+    )
+
+    assert tuple(
+        fragment.text.get_secret_value() for fragment in parsed.fragments
+    ) == ("Part two.",)
+    assert parsed.older_history_truncated is True
+    assert parsed.extraction_complete is False
+
+
+def test_parser_splits_a_large_message_into_ordered_contract_fragments() -> None:
+    result = {
+        "thread": {
+            "id": "example-thread",
+            "turns": [
+                {
+                    "id": "turn-one",
+                    "items": [
+                        {
+                            "type": "agentMessage",
+                            "id": "agent-one",
+                            "text": "abcdefghij",
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+    parsed = parse_text_thread_read(
+        result,
+        CodexTextContentLimits(
+            max_characters_per_fragment=4,
+            max_total_text_characters=12,
+        ),
+    )
+
+    assert tuple(
+        (fragment.segment_index, fragment.text.get_secret_value())
+        for fragment in parsed.fragments
+    ) == ((0, "abcd"), (1, "efgh"), (2, "ij"))
+    assert parsed.extraction_complete is True
 
 
 def test_text_transport_policy_allows_only_include_turns_read() -> None:

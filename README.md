@@ -18,6 +18,17 @@ ratio-of-sums; they never average percentages in the browser. Full paths, previe
 transcripts, credentials, and tool content are not persisted, and no analytics are sent
 online.
 
+An additional opt-in shadow pipeline can divide that approved redacted window into
+at most eight contiguous chunks and run ten revision-pinned Hugging Face experts one
+at a time. Four retrieval experts select bounded evidence, two rerank it, three NLI
+experts and one structured-rubric expert vote, and only compatible known chunk
+fractions are combined into a separate radar. Every model runs in an isolated child
+process with CUDA-first and CPU fallback, then exits before the next model so its
+weights are released. The database stores normalized content-free votes, aggregates,
+provenance, and unload receipts; it never stores the chunk text. This ensemble is
+deliberately marked uncalibrated and is not a product score or a substitute for a
+representative human-labeled holdout.
+
 ## Phase 1 local quickstart
 
 Python 3.11 or newer is required. From the repository root in PowerShell:
@@ -71,6 +82,22 @@ This mode proxies only `/auth`, `/health`, and `/v1` to the fixed loopback
 backend. Ordinary `npm run dev` stays synthetic. Granting source access,
 indexing sessions, and starting a selected-session analysis remain separate
 explicit actions in the UI.
+
+The optional ten-model shadow ensemble needs the model extras and all ten
+reviewed public snapshots prepared before the browser run. Preparation is an
+explicit networked step over fictional test cases; the later selected-session
+run is forced offline:
+
+```powershell
+python -m pip install -e ".[models]"
+python scripts/evaluate_local_text_models.py --candidate all --device auto --smoke --download
+python scripts/evaluate_specialist_screen.py --device auto --smoke --download
+```
+
+After those commands pass, open a Prompt Quality or Reasoning Quality session
+page in the integrated app and choose **Run 10 models locally**. The operation
+can take several minutes. It uses CUDA when available, otherwise CPU, and
+executes one model process at a time rather than loading all weights together.
 
 See [docs/phase-1.md](docs/phase-1.md) for the safety boundary, explicit Codex workflow, API behavior, and deferred features.
 

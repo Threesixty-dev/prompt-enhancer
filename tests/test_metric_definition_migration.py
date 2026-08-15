@@ -88,7 +88,7 @@ def test_v2_database_keeps_v1_metric_provenance_when_seeding_v2(tmp_path) -> Non
         for item in database.list_metric_definitions()
     }
 
-    assert database.summary()["schema_version"] == SCHEMA_VERSION == 25
+    assert database.summary()["schema_version"] == SCHEMA_VERSION == 26
     assert definitions[("workflow.event_count", 1)]["algorithm_version"] == (
         "deterministic-1"
     )

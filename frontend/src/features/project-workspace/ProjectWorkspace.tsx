@@ -44,6 +44,7 @@ import {
   createCoachingLoopViewModel,
 } from "../coaching-loop";
 import { ModelLinkExperimentPanel } from "../model-link-experiment";
+import { ModelEnsemblePanel } from "../model-ensemble";
 
 export type ProjectWorkspaceRoute = Extract<
   AppRoute,
@@ -1468,6 +1469,27 @@ export function ProjectWorkspace({
                 )
               }
             />
+            <details className="project-model-ensemble" open>
+              <summary>
+                <span>
+                  <Icon name="activity" />
+                  <span>
+                    <strong>Ten-model chunk ensemble</strong>
+                    <small>Separate uncalibrated radar—never merged into the product score</small>
+                  </span>
+                </span>
+                <span>Local shadow analysis</span>
+              </summary>
+              <ModelEnsemblePanel
+                analysisCapability={analysisCapability}
+                category={category}
+                compatibilityLoading={compatibilityLoading}
+                key={`model-ensemble-${currentSession.session_id}-${category}`}
+                providerCompatibility={providerCompatibility}
+                sessionId={currentSession.session_id}
+                transport={transport}
+              />
+            </details>
             <details className="project-model-lab">
               <summary>
                 <span>

@@ -139,6 +139,21 @@ class _SchemaModelLinkExperimentService:
         raise RuntimeError("schema-only service cannot change annotations")
 
 
+class _SchemaModelEnsembleService:
+    def run(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        confirmation: str,
+        idempotency_key: str,
+    ) -> object:
+        raise RuntimeError("schema-only service cannot access session text")
+
+    def latest(self, session_id: str) -> object:
+        raise RuntimeError("schema-only service cannot access model ensembles")
+
+
 class _SchemaProjectQualityAggregationService:
     """Non-executing stand-in that only enables the project aggregate schema."""
 
@@ -242,6 +257,7 @@ def build_openapi_schema() -> dict[str, Any]:
         task_analysis_service=_SchemaAnalysisService(),
         session_text_analysis_service=_SchemaSessionTextAnalysisService(),
         session_model_link_experiment_service=_SchemaModelLinkExperimentService(),  # type: ignore[arg-type]
+        session_model_ensemble_service=_SchemaModelEnsembleService(),  # type: ignore[arg-type]
         project_quality_aggregation_service=_SchemaProjectQualityAggregationService(),  # type: ignore[arg-type]
         provider_compatibility_catalog=_SchemaProviderCompatibilityCatalog(),  # type: ignore[arg-type]
         metric_readiness_service=_SchemaMetricReadinessService(),  # type: ignore[arg-type]

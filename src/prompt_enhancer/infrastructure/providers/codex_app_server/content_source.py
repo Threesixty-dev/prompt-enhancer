@@ -454,6 +454,7 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
                 fragment.turn_id.get_secret_value(),
                 fragment.item_id.get_secret_value(),
                 str(fragment.content_index),
+                str(fragment.segment_index),
                 fragment.kind.value,
             )
             message_id = self._pseudonymizer.pseudonymize(

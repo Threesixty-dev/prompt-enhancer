@@ -24,8 +24,8 @@ from ....application.analysis.text_contracts import (
 from .errors import CodexCompatibilityError, CodexThreadStructureLimitError
 
 
-TEXT_CONTENT_ADAPTER_VERSION = "0.5.0"
-TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v6"
+TEXT_CONTENT_ADAPTER_VERSION = "0.6.0"
+TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v7"
 
 
 class CodexTextItemKind(StrEnum):
@@ -48,6 +48,7 @@ class RawCodexTextFragment(_PrivateWireModel):
     turn_id: SecretStr = Field(repr=False)
     item_id: SecretStr = Field(repr=False)
     content_index: int = Field(ge=0)
+    segment_index: int = Field(default=0, ge=0)
     kind: CodexTextItemKind
     text: SecretStr = Field(
         repr=False,
@@ -152,7 +153,7 @@ def _bounded_string(
     return value
 
 
-def _parse_fragment(
+def _parse_fragments(
     *,
     turn_id: str,
     item_id: str,
@@ -160,21 +161,43 @@ def _parse_fragment(
     kind: CodexTextItemKind,
     text: object,
     limits: CodexTextContentLimits,
-) -> RawCodexTextFragment | None:
-    private_text = _bounded_string(
-        text,
-        field="text item",
-        maximum=limits.max_characters_per_fragment,
-        allow_empty=True,
-    )
+) -> tuple[tuple[RawCodexTextFragment, ...], bool]:
+    if not isinstance(text, str):
+        raise CodexCompatibilityError("provider text item has an unsupported shape")
+    if "\x00" in text:
+        raise CodexCompatibilityError(
+            "provider text item contains an unsupported control"
+        )
+    private_text = text
     if not private_text.strip():
-        return None
-    return RawCodexTextFragment(
-        turn_id=SecretStr(turn_id),
-        item_id=SecretStr(item_id),
-        content_index=content_index,
-        kind=kind,
-        text=SecretStr(private_text),
+        return (), False
+
+    # Oversized message bodies are a normal property of long coding sessions,
+    # not a reason to reject the whole session.  Retain a bounded newest suffix
+    # and split it into contract-sized fragments before redaction/windowing.
+    truncated = len(private_text) > limits.max_total_text_characters
+    if truncated:
+        private_text = private_text[-limits.max_total_text_characters :]
+    pieces = tuple(
+        private_text[start : start + limits.max_characters_per_fragment]
+        for start in range(0, len(private_text), limits.max_characters_per_fragment)
+    )
+    if len(pieces) > limits.max_text_fragments_per_session:
+        pieces = pieces[-limits.max_text_fragments_per_session :]
+        truncated = True
+    return (
+        tuple(
+            RawCodexTextFragment(
+                turn_id=SecretStr(turn_id),
+                item_id=SecretStr(item_id),
+                content_index=content_index,
+                segment_index=segment_index,
+                kind=kind,
+                text=SecretStr(piece),
+            )
+            for segment_index, piece in enumerate(pieces)
+        ),
+        truncated,
     )
 
 
@@ -260,11 +283,15 @@ def parse_text_thread_read(
                     raise CodexCompatibilityError(
                         "provider user message has an unsupported shape"
                     )
-                if len(content) > effective_limits.max_user_content_parts_per_item:
-                    raise CodexThreadStructureLimitError(
-                        "provider user message exceeded the content-part bound"
-                    )
-                for content_index, part in enumerate(content):
+                content_start = max(
+                    0,
+                    len(content)
+                    - effective_limits.max_user_content_parts_per_item,
+                )
+                if content_start > 0:
+                    older_history_truncated = True
+                for content_index in range(content_start, len(content)):
+                    part = content[content_index]
                     if not isinstance(part, dict):
                         raise CodexCompatibilityError(
                             "provider user input has an unsupported shape"
@@ -280,7 +307,7 @@ def parse_text_thread_read(
                             # and conservatively mark extraction incomplete.
                             unclassified_omission = True
                         continue
-                    fragment = _parse_fragment(
+                    fragments, text_truncated = _parse_fragments(
                         turn_id=turn_id,
                         item_id=item_id,
                         content_index=content_index,
@@ -288,15 +315,16 @@ def parse_text_thread_read(
                         text=part.get("text"),
                         limits=effective_limits,
                     )
-                    if fragment is not None:
-                        item_fragments.append(fragment)
+                    if text_truncated:
+                        older_history_truncated = True
+                    item_fragments.extend(fragments)
             else:
                 phase = item.get("phase")
                 if item_type == "agentMessage" and (
                     phase is not None and phase not in _AGENT_PHASES
                 ):
                     raise CodexCompatibilityError("provider agent phase is unsupported")
-                fragment = _parse_fragment(
+                fragments, text_truncated = _parse_fragments(
                     turn_id=turn_id,
                     item_id=item_id,
                     content_index=0,
@@ -308,20 +336,14 @@ def parse_text_thread_read(
                     text=item.get("text"),
                     limits=effective_limits,
                 )
-                if fragment is not None:
-                    item_fragments.append(fragment)
+                if text_truncated:
+                    older_history_truncated = True
+                item_fragments.extend(fragments)
 
             item_characters = sum(
                 len(fragment.text.get_secret_value())
                 for fragment in item_fragments
             )
-            if (
-                len(item_fragments) > effective_limits.max_text_fragments_per_session
-                or item_characters > effective_limits.max_total_text_characters
-            ):
-                raise CodexThreadStructureLimitError(
-                    "one provider text item exceeded the bounded projection"
-                )
             if (
                 len(newest_fragments) + len(item_fragments)
                 > effective_limits.max_text_fragments_per_session

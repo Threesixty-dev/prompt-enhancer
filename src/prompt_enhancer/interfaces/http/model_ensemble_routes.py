@@ -1,0 +1,317 @@
+"""Authenticated private API for the local ten-model shadow ensemble."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime
+from typing import Annotated, Literal, Protocol
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response
+from pydantic import Field
+
+from ...application.analysis.model_ensemble import ModelExpertRole
+from ...application.analysis.session_model_ensemble import (
+    MODEL_ENSEMBLE_CONFIRMATION,
+    ModelEnsembleCompatibilityError,
+    ModelEnsembleConfirmationError,
+    ModelEnsembleConsentError,
+    ModelEnsembleExecutionError,
+    ModelEnsembleInputError,
+    ModelEnsemblePersistenceError,
+    ModelEnsembleSelectionError,
+    ModelEnsembleSourceError,
+    SessionModelEnsembleOutcome,
+    SessionModelEnsembleRunRecord,
+)
+from ...application.analysis.text_source import TextSourceFailureReason
+from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider, StrictModel
+
+
+_PRIVATE_HEADERS = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
+
+
+class ModelEnsembleCommand(Protocol):
+    def run(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        confirmation: str,
+        idempotency_key: str,
+    ) -> SessionModelEnsembleOutcome: ...
+
+    def latest(self, session_id: str) -> SessionModelEnsembleRunRecord | None: ...
+
+
+class ModelEnsembleRequest(StrictModel):
+    confirmation: Literal[MODEL_ENSEMBLE_CONFIRMATION]
+
+
+class ModelEnsembleChunkDto(StrictModel):
+    ordinal: int = Field(ge=0, le=7)
+    source_message_count: int = Field(ge=1, le=100)
+    fragment_count: int = Field(ge=1, le=128)
+    character_count: int = Field(ge=1, le=100_000)
+
+
+class ModelEnsembleExpertDto(StrictModel):
+    ordinal: int = Field(ge=0, le=9)
+    model_key: str
+    role: ModelExpertRole
+    repository_id: str
+    revision: str
+    license_spdx: Literal["MIT", "Apache-2.0"]
+    contributes_to_decision: bool
+    status: Literal["completed", "unavailable", "resource_exhausted", "failed"]
+    error_code: str | None
+    device: Literal["cpu", "cuda", "mps"] | None
+    inference_latency_ms: float | None = Field(default=None, ge=0)
+    peak_accelerator_memory_mb: float | None = Field(default=None, ge=0)
+    process_rss_mb: float | None = Field(default=None, ge=0)
+    unloaded_after_stage: Literal[True]
+
+
+class ModelEnsembleVoteDto(StrictModel):
+    chunk_ordinal: int = Field(ge=0, le=7)
+    metric_key: str
+    model_key: str
+    role: Literal["scope_nli", "structured_rubric"]
+    state: Literal["present", "absent", "abstain", "unsupported", "failed"]
+    raw_score: float | None = Field(default=None, ge=0, le=1)
+    evidence_fragment_count: int = Field(ge=0, le=8)
+    reason_code: str
+
+
+class ModelEnsembleChunkMetricDto(StrictModel):
+    chunk_ordinal: int = Field(ge=0, le=7)
+    metric_key: str
+    value_state: Literal[
+        "known", "unknown", "not_applicable", "abstained", "execution_error"
+    ]
+    numerator: int | None = Field(default=None, ge=0, le=1)
+    denominator: int | None = Field(default=None, ge=1, le=1)
+    rubric_vote: Literal["present", "absent", "abstain", "unsupported", "failed"]
+    contributing_nli_votes: int = Field(ge=0, le=2)
+    diagnostic_nli_votes: int = Field(ge=0, le=1)
+    reason_code: str
+
+
+class ModelEnsembleMetricDto(StrictModel):
+    metric_key: str
+    value_state: Literal[
+        "known", "unknown", "not_applicable", "abstained", "execution_error"
+    ]
+    numerator: int | None = Field(default=None, ge=0)
+    denominator: int | None = Field(default=None, ge=1, le=8)
+    numeric_value: float | None = Field(default=None, ge=0, le=1)
+    known_chunk_count: int = Field(ge=0, le=8)
+    abstained_chunk_count: int = Field(ge=0, le=8)
+    unsupported_chunk_count: int = Field(ge=0, le=8)
+    failed_chunk_count: int = Field(ge=0, le=8)
+    total_chunk_count: int = Field(ge=1, le=8)
+    explanation_code: str
+    calibration_state: Literal["not_assessed"]
+    product_metric_eligible: Literal[False]
+
+
+class ModelEnsembleRunDto(StrictModel):
+    run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    plan_version: Literal["local-shadow-ensemble-v1"]
+    plan_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    source_coverage_state: Literal["complete_window", "incomplete_source"]
+    chunk_count: int = Field(ge=1, le=8)
+    model_count: Literal[10]
+    chunks: tuple[ModelEnsembleChunkDto, ...] = Field(min_length=1, max_length=8)
+    experts: tuple[ModelEnsembleExpertDto, ...] = Field(min_length=10, max_length=10)
+    votes: tuple[ModelEnsembleVoteDto, ...] = Field(max_length=640)
+    chunk_metrics: tuple[ModelEnsembleChunkMetricDto, ...] = Field(max_length=160)
+    metrics: tuple[ModelEnsembleMetricDto, ...] = Field(min_length=1, max_length=20)
+    completed_at: datetime
+    local_only: Literal[True]
+    content_persisted: Literal[False]
+    calibration_state: Literal["not_assessed"]
+    product_metric_eligible: Literal[False]
+
+    @classmethod
+    def from_record(cls, record: SessionModelEnsembleRunRecord) -> "ModelEnsembleRunDto":
+        receipt = record.receipt
+        return cls(
+            run_id=record.run_id,
+            plan_version=receipt.plan_version,
+            plan_fingerprint=receipt.plan_fingerprint,
+            source_coverage_state=receipt.source_coverage_state.value,
+            chunk_count=receipt.chunk_count,
+            model_count=10,
+            chunks=tuple(
+                ModelEnsembleChunkDto(
+                    ordinal=item.ordinal,
+                    source_message_count=item.source_message_count,
+                    fragment_count=item.fragment_count,
+                    character_count=item.character_count,
+                )
+                for item in receipt.chunk_plan
+            ),
+            experts=tuple(
+                ModelEnsembleExpertDto(
+                    ordinal=item.identity.ordinal,
+                    model_key=item.identity.model_key,
+                    role=item.identity.role,
+                    repository_id=item.identity.repository_id,
+                    revision=item.identity.revision,
+                    license_spdx=item.identity.license_spdx,
+                    contributes_to_decision=item.identity.contributes_to_decision,
+                    status=item.status.value,
+                    error_code=item.error_code,
+                    device=item.device,
+                    inference_latency_ms=item.inference_latency_ms,
+                    peak_accelerator_memory_mb=item.peak_accelerator_memory_mb,
+                    process_rss_mb=item.process_rss_mb,
+                    unloaded_after_stage=True,
+                )
+                for item in receipt.experts
+            ),
+            votes=tuple(
+                ModelEnsembleVoteDto(
+                    chunk_ordinal=item.chunk_ordinal,
+                    metric_key=item.metric_key,
+                    model_key=item.model_key,
+                    role=item.role.value,
+                    state=item.state.value,
+                    raw_score=item.raw_score,
+                    evidence_fragment_count=len(item.evidence_fragment_ids),
+                    reason_code=item.reason_code,
+                )
+                for item in receipt.model_votes
+            ),
+            chunk_metrics=tuple(
+                ModelEnsembleChunkMetricDto(
+                    chunk_ordinal=item.chunk_ordinal,
+                    metric_key=item.metric_key,
+                    value_state=item.value_state.value,
+                    numerator=item.numerator,
+                    denominator=item.denominator,
+                    rubric_vote=item.rubric_vote.value,
+                    contributing_nli_votes=item.contributing_nli_votes,
+                    diagnostic_nli_votes=item.diagnostic_nli_votes,
+                    reason_code=item.reason_code,
+                )
+                for item in receipt.chunks
+            ),
+            metrics=tuple(
+                ModelEnsembleMetricDto.model_validate(item.model_dump())
+                for item in receipt.metrics
+            ),
+            completed_at=receipt.completed_at,
+            local_only=True,
+            content_persisted=False,
+            calibration_state="not_assessed",
+            product_metric_eligible=False,
+        )
+
+
+class ModelEnsembleOutcomeDto(StrictModel):
+    run: ModelEnsembleRunDto
+    applied: bool
+
+
+def _failure(error: Exception) -> HTTPException:
+    if isinstance(error, ModelEnsembleConsentError):
+        return HTTPException(403, detail={"code": error.code, "message": "redacted-content consent required"})
+    if isinstance(error, ModelEnsembleSelectionError):
+        return HTTPException(404, detail={"code": error.code, "message": "selected session is not indexed"})
+    if isinstance(error, ModelEnsembleCompatibilityError):
+        return HTTPException(409, detail={"code": error.code, "message": "provider compatibility is not verified"})
+    if isinstance(error, (ModelEnsembleInputError, ModelEnsembleConfirmationError)):
+        return HTTPException(422, detail={"code": error.code, "message": "model ensemble request is invalid"})
+    if isinstance(error, ModelEnsembleSourceError):
+        status = {
+            TextSourceFailureReason.SELECTION_SNAPSHOT_MISS: 409,
+            TextSourceFailureReason.SELECTION_LIMIT: 413,
+            TextSourceFailureReason.PROVIDER_RESPONSE_LIMIT: 413,
+            TextSourceFailureReason.THREAD_STRUCTURE_LIMIT: 413,
+            TextSourceFailureReason.PREVIEW_WINDOW_LIMIT: 413,
+            TextSourceFailureReason.RESOURCE_LIMIT: 413,
+            TextSourceFailureReason.NO_ANALYZABLE_TEXT: 422,
+            TextSourceFailureReason.TIMEOUT: 504,
+        }.get(error.reason, 503)
+        return HTTPException(status, detail={"code": error.code, "message": "bounded local source read failed"})
+    if isinstance(error, ModelEnsembleExecutionError):
+        return HTTPException(503, detail={"code": error.code, "message": "local model ensemble execution failed"})
+    if isinstance(error, ModelEnsemblePersistenceError):
+        return HTTPException(503, detail={"code": error.code, "message": "local model ensemble persistence failed"})
+    raise TypeError("unsupported model ensemble error")
+
+
+def create_model_ensemble_router(
+    require_local_auth: Callable[..., None],
+    service: ModelEnsembleCommand,
+) -> APIRouter:
+    router = APIRouter(
+        prefix="/v1",
+        tags=["local-model-ensemble"],
+        dependencies=[Depends(require_local_auth)],
+    )
+
+    @router.post(
+        "/sessions/{session_id}/model-ensemble-runs",
+        response_model=ModelEnsembleOutcomeDto,
+    )
+    def run_model_ensemble(
+        payload: ModelEnsembleRequest,
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        idempotency_key: Annotated[
+            str,
+            Header(alias="Idempotency-Key", pattern=SAFE_VERSION_PATTERN.pattern),
+        ],
+    ) -> ModelEnsembleOutcomeDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            outcome = service.run(
+                provider=Provider.CODEX,
+                session_id=session_id,
+                confirmation=payload.confirmation,
+                idempotency_key=idempotency_key,
+            )
+        except (
+            ModelEnsembleCompatibilityError,
+            ModelEnsembleConfirmationError,
+            ModelEnsembleConsentError,
+            ModelEnsembleExecutionError,
+            ModelEnsembleInputError,
+            ModelEnsemblePersistenceError,
+            ModelEnsembleSelectionError,
+            ModelEnsembleSourceError,
+        ) as error:
+            raise _failure(error) from None
+        return ModelEnsembleOutcomeDto(
+            run=ModelEnsembleRunDto.from_record(outcome.run),
+            applied=outcome.applied,
+        )
+
+    @router.get(
+        "/sessions/{session_id}/model-ensemble-runs/latest",
+        response_model=ModelEnsembleRunDto,
+    )
+    def latest_model_ensemble(
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ModelEnsembleRunDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            run = service.latest(session_id)
+        except (ModelEnsembleInputError, ModelEnsemblePersistenceError) as error:
+            raise _failure(error) from None
+        if run is None:
+            raise HTTPException(404, detail="model ensemble result not found")
+        return ModelEnsembleRunDto.from_record(run)
+
+    return router
+
+
+__all__ = [
+    "ModelEnsembleOutcomeDto",
+    "ModelEnsembleRequest",
+    "ModelEnsembleRunDto",
+    "create_model_ensemble_router",
+]
