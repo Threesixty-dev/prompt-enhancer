@@ -5,8 +5,9 @@ sensitive item families. This module projects a bounded newest suffix containing
 only text from ``userMessage``, ``agentMessage``, and ``plan``. Reasoning,
 commands and output, diffs, paths, tool arguments and results, images, searches,
 reviews, omitted older structures, and unknown future item types do not enter a
-boundary DTO. Any omission marks extraction incomplete so downstream metrics
-cannot treat the projection as complete evidence.
+boundary DTO. Older-prefix truncation is distinguished from an unclassified
+omission so a separately bounded recent analysis window can prove its own
+completeness without claiming complete provider history.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from ....application.analysis.text_contracts import (
     MAX_REDACTED_MESSAGE_CHARACTERS,
@@ -23,8 +24,8 @@ from ....application.analysis.text_contracts import (
 from .errors import CodexCompatibilityError, CodexThreadStructureLimitError
 
 
-TEXT_CONTENT_ADAPTER_VERSION = "0.4.0"
-TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v5"
+TEXT_CONTENT_ADAPTER_VERSION = "0.5.0"
+TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v6"
 
 
 class CodexTextItemKind(StrEnum):
@@ -61,6 +62,16 @@ class RawCodexTextThread(_PrivateWireModel):
     thread_id: SecretStr = Field(repr=False)
     fragments: tuple[RawCodexTextFragment, ...] = Field(repr=False)
     extraction_complete: bool
+    older_history_truncated: bool
+    unclassified_omission: bool
+
+    @model_validator(mode="after")
+    def validate_completeness_partition(self) -> RawCodexTextThread:
+        if self.extraction_complete != (
+            not self.older_history_truncated and not self.unclassified_omission
+        ):
+            raise ValueError("Codex text extraction completeness is inconsistent")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,7 +203,8 @@ def parse_text_thread_read(
     # explicitly incomplete; malformed or individually oversized selected
     # structures still fail closed.
     turn_start = max(0, len(turns) - effective_limits.max_turns_per_session)
-    extraction_complete = turn_start == 0
+    older_history_truncated = turn_start > 0
+    unclassified_omission = False
     newest_fragments: list[RawCodexTextFragment] = []
     remaining_items = effective_limits.max_total_items
     total_characters = 0
@@ -200,7 +212,7 @@ def parse_text_thread_read(
 
     for turn_index in range(len(turns) - 1, turn_start - 1, -1):
         if remaining_items == 0:
-            extraction_complete = False
+            older_history_truncated = True
             break
         turn = turns[turn_index]
         if not isinstance(turn, dict):
@@ -219,7 +231,7 @@ def parse_text_thread_read(
         )
         item_start = len(items) - selected_item_count
         if item_start > 0:
-            extraction_complete = False
+            older_history_truncated = True
         remaining_items -= selected_item_count
 
         for item_index in range(len(items) - 1, item_start - 1, -1):
@@ -235,7 +247,7 @@ def parse_text_thread_read(
                 # Never inspect an unknown variant's payload. It cannot become
                 # admitted merely by adding a text-like field, but its presence
                 # means this adapter cannot prove that extraction is complete.
-                extraction_complete = False
+                unclassified_omission = True
                 continue
 
             item_id = _bounded_string(
@@ -266,7 +278,7 @@ def parse_text_thread_read(
                         if part_type not in DISCARDED_USER_INPUT_TYPES:
                             # As with an unknown ThreadItem, inspect only its tag
                             # and conservatively mark extraction incomplete.
-                            extraction_complete = False
+                            unclassified_omission = True
                         continue
                     fragment = _parse_fragment(
                         turn_id=turn_id,
@@ -316,7 +328,7 @@ def parse_text_thread_read(
                 or total_characters + item_characters
                 > effective_limits.max_total_text_characters
             ):
-                extraction_complete = False
+                older_history_truncated = True
                 projection_full = True
                 break
             newest_fragments.extend(reversed(item_fragments))
@@ -325,11 +337,13 @@ def parse_text_thread_read(
         if projection_full:
             break
         if remaining_items == 0 and (turn_index > turn_start or item_start > 0):
-            extraction_complete = False
+            older_history_truncated = True
             break
 
     return RawCodexTextThread(
         thread_id=SecretStr(thread_id),
         fragments=tuple(reversed(newest_fragments)),
-        extraction_complete=extraction_complete,
+        extraction_complete=not older_history_truncated and not unclassified_omission,
+        older_history_truncated=older_history_truncated,
+        unclassified_omission=unclassified_omission,
     )

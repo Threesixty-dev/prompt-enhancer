@@ -349,7 +349,16 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
                 "selected session contains no analyzable user text"
             )
         focus_position = user_positions[-1]
-        observed = self._select_window(candidates, focus_position, selection)
+        observed, left_boundary_closed = self._select_window(
+            candidates,
+            focus_position,
+            selection,
+        )
+        window_extraction_complete = thread.extraction_complete or (
+            thread.older_history_truncated
+            and not thread.unclassified_omission
+            and left_boundary_closed
+        )
         focus_message_id = candidates[focus_position].message_id
         messages = tuple(
             EphemeralRedactedMessage(
@@ -367,8 +376,20 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             self._content_schema_version,
             self._redactor.version,
             _encode_identity(
-                "text-extraction-complete",
+                "window-text-extraction-complete",
+                str(window_extraction_complete).casefold(),
+            ),
+            _encode_identity(
+                "source-history-extraction-complete",
                 str(thread.extraction_complete).casefold(),
+            ),
+            _encode_identity(
+                "source-older-history-truncated",
+                str(thread.older_history_truncated).casefold(),
+            ),
+            _encode_identity(
+                "source-unclassified-omission",
+                str(thread.unclassified_omission).casefold(),
             ),
             _encode_identity(
                 "available-message-kinds",
@@ -404,7 +425,7 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             source_schema_version=SOURCE_SCHEMA_VERSION,
             content_schema_version=self._content_schema_version,
             redactor_version=self._redactor.version,
-            text_extraction_complete=thread.extraction_complete,
+            text_extraction_complete=window_extraction_complete,
             available_message_kinds=frozenset(
                 {
                     TextMessageKind.REQUEST,
@@ -469,7 +490,7 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
         candidates: tuple[_CandidateMessage, ...],
         focus_position: int,
         selection: TextAnalysisSelection,
-    ) -> tuple[_CandidateMessage, ...]:
+    ) -> tuple[tuple[_CandidateMessage, ...], bool]:
         focus = candidates[focus_position]
         used_characters = len(focus.text.get_secret_value())
         if used_characters > selection.max_characters:
@@ -488,14 +509,23 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             selected.add(index)
             used_characters += text_length
 
+        left_boundary_closed = False
         for index in range(focus_position - 1, -1, -1):
             text_length = len(candidates[index].text.get_secret_value())
             if (
                 len(selected) >= selection.max_messages
                 or used_characters + text_length > selection.max_characters
             ):
+                left_boundary_closed = True
                 break
             selected.add(index)
             used_characters += text_length
 
-        return tuple(candidates[index] for index in sorted(selected))
+        left_boundary_closed = left_boundary_closed or (
+            len(selected) >= selection.max_messages
+            or used_characters >= selection.max_characters
+        )
+        return (
+            tuple(candidates[index] for index in sorted(selected)),
+            left_boundary_closed,
+        )

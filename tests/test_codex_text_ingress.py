@@ -33,6 +33,7 @@ from prompt_enhancer.infrastructure.providers.codex_app_server.content_contracts
     TEXT_CONTENT_ADAPTER_VERSION,
     TEXT_CONTENT_SCHEMA_VERSION,
     CodexTextContentLimits,
+    RawCodexTextThread,
     parse_text_thread_read,
 )
 from prompt_enhancer.infrastructure.providers.codex_app_server.content_source import (
@@ -1001,6 +1002,8 @@ def test_parser_discards_unknown_future_tagged_user_input() -> None:
         fragment.text.get_secret_value() for fragment in parsed.fragments
     ) == ("Keep this request.",)
     assert parsed.extraction_complete is False
+    assert parsed.older_history_truncated is False
+    assert parsed.unclassified_omission is True
     assert private_canary not in repr(parsed) + parsed.model_dump_json()
 
 
@@ -1032,6 +1035,8 @@ def test_unknown_future_thread_item_marks_extraction_incomplete_without_payload_
     parsed = parse_text_thread_read(result)
 
     assert parsed.extraction_complete is False
+    assert parsed.older_history_truncated is False
+    assert parsed.unclassified_omission is True
     assert private_canary not in repr(parsed) + parsed.model_dump_json()
 
 
@@ -1180,9 +1185,160 @@ def test_default_parser_projects_a_session_beyond_the_old_turn_ceiling() -> None
     )
 
     assert parsed.extraction_complete is False
+    assert parsed.older_history_truncated is True
+    assert parsed.unclassified_omission is False
     assert len(parsed.fragments) == 500
     assert parsed.fragments[0].text.get_secret_value() == "Fictional request 1."
     assert parsed.fragments[-1].text.get_secret_value() == "Fictional request 500."
+    inconsistent = parsed.model_dump(mode="python")
+    inconsistent["extraction_complete"] = True
+    with pytest.raises(ValidationError, match="completeness is inconsistent"):
+        RawCodexTextThread.model_validate(inconsistent)
+
+
+def test_bounded_analysis_window_is_complete_inside_a_truncated_history_suffix() -> None:
+    raw_id = "example-thread-large"
+    turns = [
+        {
+            "id": f"turn-{index}",
+            "items": [
+                {
+                    "type": "userMessage",
+                    "id": f"user-{index}",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"Implement fictional local report {index} and verify it."
+                            ),
+                        }
+                    ],
+                }
+            ],
+        }
+        for index in range(501)
+    ]
+    transport = RecordingTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(raw_id),
+            {"thread": {"id": raw_id, "turns": turns}},
+        ]
+    )
+    selection = _selection(raw_id, max_messages=100, max_characters=100_000)
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, []),
+    )
+
+    context = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=_profile(),
+    )
+
+    assert context.observed_message_count == selection.max_messages == 100
+    assert context.eligible_message_count == 500
+    assert context.text_extraction_complete is True
+    assert context.messages[0].text.get_secret_value().startswith(
+        "Implement fictional local report 401"
+    )
+    assert context.messages[-1].text.get_secret_value().startswith(
+        "Implement fictional local report 500"
+    )
+
+
+def test_truncated_history_stays_incomplete_when_the_window_reaches_its_left_edge() -> None:
+    raw_id = "example-thread-short-suffix"
+    turns = [
+        {
+            "id": f"turn-{index}",
+            "items": [
+                {
+                    "type": "userMessage",
+                    "id": f"user-{index}",
+                    "content": [{"type": "text", "text": f"Fictional request {index}."}],
+                }
+            ],
+        }
+        for index in range(3)
+    ]
+    limits = CodexTextContentLimits(max_turns_per_session=2)
+    transport = RecordingTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(raw_id),
+            {"thread": {"id": raw_id, "turns": turns}},
+        ]
+    )
+    selection = _selection(raw_id, max_messages=100, max_characters=100_000)
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, [], text_limits=limits),
+    )
+
+    context = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=_profile(),
+    )
+
+    assert context.observed_message_count == context.eligible_message_count == 2
+    assert context.text_extraction_complete is False
+
+
+def test_unclassified_omission_keeps_a_saturated_window_incomplete() -> None:
+    raw_id = "example-thread-unclassified"
+    turns = [
+        {
+            "id": "turn-unknown",
+            "items": [
+                {
+                    "type": "futurePrivateItem",
+                    "text": "PRIVATE-FUTURE-PAYLOAD-CANARY",
+                }
+            ],
+        },
+        *(
+            {
+                "id": f"turn-{index}",
+                "items": [
+                    {
+                        "type": "userMessage",
+                        "id": f"user-{index}",
+                        "content": [
+                            {"type": "text", "text": f"Fictional request {index}."}
+                        ],
+                    }
+                ],
+            }
+            for index in range(100)
+        ),
+    ]
+    transport = RecordingTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(raw_id),
+            {"thread": {"id": raw_id, "turns": turns}},
+        ]
+    )
+    selection = _selection(raw_id, max_messages=100, max_characters=100_000)
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, []),
+    )
+
+    context = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=_profile(),
+    )
+
+    assert context.observed_message_count == selection.max_messages == 100
+    assert context.text_extraction_complete is False
+    assert "PRIVATE-FUTURE-PAYLOAD-CANARY" not in (
+        repr(context) + context.model_dump_json()
+    )
 
 
 def test_parser_does_not_inspect_older_turns_outside_the_bounded_suffix() -> None:
