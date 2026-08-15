@@ -19,7 +19,7 @@ local runtime artifacts must never be added here.
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
-| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, reviewed local automation admission controls, crash-safe invalid estimator-automation reconciliation, and a restart-durable strict first-claim result-publication cutoff for reviewed automated `session_quality` work | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated model-stage runtime, force-stopping runtime deadline, or product-enabled estimator |
+| P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, reviewed local automation admission controls, crash-safe invalid estimator-automation reconciliation, a restart-durable strict first-claim result-publication cutoff for reviewed automated `session_quality` work, bounded large-thread preparation, and a normalized ten-model local shadow ensemble with chunk-level receipts and a separate radar | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated or product-eligible model ensemble, force-stopping runtime deadline, or product-enabled estimator |
 | P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, repository-issued synthetic comparison-stratum preparation and graph sealing, and bounded repository-sealed synthetic aggregation-validation receipts | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
@@ -634,6 +634,71 @@ history, model calibration, or model-backed product scoring: the active
 coaching path remains deterministic EN/PL rules with exact model `none`; the
 Qwen and BGE paths remain separate, synthetic, and activation-disabled.
 
+Pushed schema-v26 checkpoint `1c19359` (`Add chunked ten-model shadow
+ensemble`) makes the previously failing large-session path usable without
+claiming unbounded provider-history coverage. Codex text adapter `0.6.0`,
+canonical content schema `codex-thread-item-text-v7`, and decoder version 7
+raise only the text-analysis `thread/read` frame and timeout ceilings, retain a
+newest bounded allowlisted suffix of at most 1,000,000 admitted characters,
+and split oversized admitted text into bounded segments before redaction. The
+analysis and model paths still operate on the explicit selected window of at
+most 100 messages and 100,000 redacted characters. The provider API still
+returns a complete local thread frame before this adapter can project it, and
+the selected window is not complete provider history.
+
+The opt-in shadow pipeline partitions that approved redacted window into at
+most eight exhaustive contiguous chunks. Four pinned retrieval experts and two
+pinned rerankers combine bounded evidence rankings with reciprocal-rank fusion;
+three scoped-NLI experts and one structured-rubric expert emit four fixed-role
+votes for every chunk and metric. Only the two reviewed NLI challengers plus
+the rubric participate in the conservative decision; the historical mDeBERTa
+candidate remains diagnostic. Unknown, unsupported, failed, and abstained
+chunks remain separate. The session value is a ratio of known binary chunk
+receipts, never an average of heterogeneous model logits, and non-known chunks
+are omitted rather than converted to zero.
+
+All ten immutable public model revisions execute sequentially in separate
+local child processes. Each child is network-closed after an explicit model
+preparation step, chooses CUDA, MPS, or CPU under the reviewed runtime, emits
+only bounded content-free output, and exits before the next model so its RAM
+and accelerator allocation are released. Schema v26 performs no backfill and
+preserves migrations and checksums v1-v25. It normalizes content-free chunk,
+expert, evidence-selection, vote, chunk-metric, session-metric, and root-last
+graph-seal rows. Exact rehydration rederives the full graph fingerprint before
+commit and on read; privacy deletion uses secure deletion and WAL truncation.
+No chunk text, model prompt, model response, fragment identity, source-window
+fingerprint, or request fingerprint crosses the authenticated private,
+no-store HTTP projection.
+
+The Prompt Quality and Reasoning Quality pages now expose an explicit
+`Run 10 models locally` action, content-free progress and model/unload
+receipts, source-window completeness, per-chunk state counts, and a separate
+direction-adjusted shadow radar. The deterministic product metric view is
+unchanged. A radar requires at least three known values; missing states stay
+visible and never become zero. The UI labels the ensemble `not_assessed` and
+`product_metric_eligible=false` and warns when retained source coverage is
+incomplete.
+
+Frozen engineering evidence for the exact
+`1c193594fee8d51d1317a00a089951e8a25d3dbb` tree is 18 direct chunk,
+persistence, migration, service, and API tests; the full backend gate with
+1,993 passed, 4 expected platform-only symlink skips, and one existing
+Starlette deprecation warning; all 407 frontend tests; and the production
+build. Compileall, the privacy scanner, OpenAPI generation, and diff validation
+were green. A fictional child-process smoke completed all ten pinned stages on
+CUDA, and a content-free local-real browser replay of the previously failing
+selected session completed all ten model stages, rendered the shadow radar,
+rehydrated it after reload, and left the deterministic analysis path working.
+
+This proves bounded execution, isolation, unloading, aggregation arithmetic,
+persistence, privacy projection, and UI integration. Model agreement, including
+agreement with a more capable agent, is not ground truth. There is still no
+representative independently labeled private holdout, rater adjudication,
+project/time-stratified calibration, threshold selection, stability or fairness
+evidence, or product activation authority. The ensemble is therefore useful
+only as an uncalibrated local shadow analysis. P1 remains in progress; P2 scope
+and blockers are unchanged, and P3 and P4 remain deferred.
+
 ## P2 foundation evidence
 
 Checkpoints `249f6c0` and `4db7052` define a prospective, content-free temporal
@@ -903,6 +968,7 @@ P3 and P4 remain deferred in phase order.
 | Component | Pinned identity | Product status |
 |---|---|---|
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
+| Ten-model local shadow ensemble | `local-shadow-ensemble-v1`; `contiguous-balanced-redacted-v1`; exact ten-model inventory in code-owned immutable manifests | Local, content-free receipt and separate radar only; calibration not assessed and product eligibility false |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |
