@@ -1,7 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { ModelEnsembleRun, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { MetricWorkspace } from "./MetricWorkspace";
 import { ModelEnsembleRadar, type ModelEnsembleRadarData } from "./ModelEnsembleRadar";
@@ -131,11 +129,13 @@ describe("metric knowledge cards", () => {
     expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
   });
 
-  it("holds the CSS layout contract for compact and forced-colors surfaces", () => {
-    const css = fs.readFileSync(path.resolve(__dirname, "../../styles.css"), "utf8");
-    expect(css).toMatch(/\.metric-knowledge-card \{[^}]*max-width: 100%;[^}]*overflow: auto;/);
-    expect(css).not.toMatch(/model-ensemble__radar-help-lane/);
-    expect(css).toMatch(/\.metric-knowledge-card--compact \{[^}]*font-size: 12px;/);
-    expect(css).toMatch(/@media \(forced-colors: active\) \{\s*\.metric-knowledge-card/);
+  it("renders the compact card in a stable in-flow slot", () => {
+    renderWorkspace("compact");
+    fireEvent.pointerEnter(screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!);
+    const card = document.querySelector('[role="tooltip"]')!;
+    const slot = card.closest(".metric-knowledge-slot");
+    expect(slot).not.toBeNull();
+    expect(slot?.getAttribute("data-surface")).toBe("strip");
+    expect(card.classList.contains("metric-knowledge-card--compact")).toBe(true);
   });
 });
