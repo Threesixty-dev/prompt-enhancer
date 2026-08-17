@@ -8,18 +8,13 @@ import type {
   ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
-import {
-  type ModelEnsembleLensId,
-  type ModelEnsembleRadarData,
-} from "./ModelEnsembleRadar";
-import {
-  MetricWorkspace,
-  modelEnsembleTrajectoryRadarData,
-} from "./MetricWorkspace";
+import type { ModelEnsembleLensId } from "./metricAxisModel";
+import { MetricWorkspace } from "./MetricWorkspace";
 import {
   MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES,
   MODEL_ENSEMBLE_MESSAGE_WINDOWS,
 } from "./modelEnsembleConstants";
+import { useTrajectorySelection } from "./useTrajectorySelection";
 import {
   CANONICAL_POLL_IDLE_MS,
   CANONICAL_POLL_RETRY_MS,
@@ -218,7 +213,6 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
   const [trajectory, setTrajectory] = useState<ModelEnsembleTrajectoryPage | null>(null);
   const [trajectoryError, setTrajectoryError] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [historicalRun, setHistoricalRun] = useState<ModelEnsembleRun | null>(null);
   const [lensId, setLensId] = useState<ModelEnsembleLensId>("task-framing");
   const [disconnected, setDisconnected] = useState(false);
   const [sessions, setSessions] = useState<CodexSession[]>([]);
@@ -524,42 +518,17 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
     : "reasoning";
   const visibleTrajectory = trajectory?.watch_id === trajectoryWatchId ? trajectory : null;
   const trajectoryPoints = visibleTrajectory?.points ?? [];
-  const selectedPointIndex = trajectoryPoints.findIndex((point) => point.run_id === selectedRunId);
-  const selectedPoint = selectedPointIndex < 0 ? null : trajectoryPoints[selectedPointIndex];
-  const historicalRunId = selectedPoint !== null && selectedPoint.run_id !== snapshot?.latest_run?.run_id
-    ? selectedPoint.run_id
-    : null;
-  useEffect(() => {
-    if (historicalRunId === null || transport.getModelEnsembleSnapshot === undefined) {
-      setHistoricalRun(null);
-      return;
-    }
-    const controller = new AbortController();
-    setHistoricalRun(null);
-    transport.getModelEnsembleSnapshot(historicalRunId, controller.signal)
-      .then((value) => {
-        if (!controller.signal.aborted && value.run_id === historicalRunId) setHistoricalRun(value);
-      })
-      .catch(() => { if (!controller.signal.aborted) setHistoricalRun(null); });
-    return () => controller.abort();
-  }, [historicalRunId, transport]);
-  const selectedRadarRun: ModelEnsembleRadarData | null = selectedPoint === null
-    ? snapshot?.latest_run ?? null
-    : selectedPoint.run_id === snapshot?.latest_run?.run_id
-      ? snapshot.latest_run
-      : historicalRun?.run_id === selectedPoint.run_id
-        ? historicalRun
-        : modelEnsembleTrajectoryRadarData(selectedPoint);
-  const comparisonPoint = selectedPointIndex >= 0
-    ? trajectoryPoints[selectedPointIndex + 1] ?? null
-    : null;
-  const comparisonRadarRun = selectedPoint !== null
-    && comparisonPoint !== null
-    && selectedPoint.comparable_to_head
-    && comparisonPoint.comparable_to_head
-    && selectedPoint.max_messages === comparisonPoint.max_messages
-    ? modelEnsembleTrajectoryRadarData(comparisonPoint)
-    : null;
+  const {
+    selectedPoint,
+    historicalRun,
+    selectedRadarRun,
+    comparisonRadarRun,
+  } = useTrajectorySelection({
+    transport,
+    points: trajectoryPoints,
+    selectedRunId,
+    headRun: snapshot?.latest_run ?? null,
+  });
 
   function selectTrajectoryRun(runId: string | null) {
     followingLive.current = runId !== null && runId === trajectoryHeadRunId;
