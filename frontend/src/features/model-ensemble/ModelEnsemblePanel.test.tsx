@@ -498,7 +498,7 @@ describe("model ensemble response contract", () => {
     await transport.getLatestModelEnsemble(SESSION_ID);
     await transport.startModelEnsemble(
       SESSION_ID,
-      { confirmation: "run_ten_local_models_on_selected_redacted_text" },
+      { confirmation: "run_local_metric_cascade_on_selected_redacted_text" },
       "example-model-ensemble-key-0001",
     );
 
@@ -1172,7 +1172,7 @@ describe("ModelEnsemblePanel", () => {
     const calls = start.mock.calls as unknown as Array<[string, object, string]>;
     expect(calls[0][0]).toBe(SESSION_ID);
     expect(calls[0][1]).toEqual({
-      confirmation: "run_ten_local_models_on_selected_redacted_text",
+      confirmation: "run_local_metric_cascade_on_selected_redacted_text",
     });
     expect(calls[0][2]).toMatch(/^dashboard-model-ensemble-/);
     expect(await screen.findByText(/stored local analysis completed/i)).toBeVisible();

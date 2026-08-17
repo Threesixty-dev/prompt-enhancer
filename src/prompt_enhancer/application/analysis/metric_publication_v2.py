@@ -78,9 +78,14 @@ from .metric_guidance import (
 )
 from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION,
-    MetricStateOrigin,
+    LiveMetricStateProjectionV2,
+    MetricStateProjectionV2,
     MetricStateV2,
     OpportunityStatistics,
+    V1CompatibilityMetricStateProjectionV2,
+    _issue_metric_state_projection,
+    _metric_state_projection_is_compatibility,
+    _metric_state_projection_is_issued,
     objective_metric_state,
     resolve_metric_state,
 )
@@ -108,20 +113,6 @@ class MetricPublicationSource(StrEnum):
 
     LIVE_PROJECTION = "live_projection"
     V1_COMPATIBILITY_PREVIEW = "v1_compatibility_preview"
-
-
-#: The one state origin each publication source may carry.  The mapping is
-#: total and injective, so neither direction of laundering has a legal encoding.
-_REQUIRED_STATE_ORIGIN = MappingProxyType(
-    {
-        MetricPublicationSource.LIVE_PROJECTION: (
-            MetricStateOrigin.LIVE_V2_PROJECTION
-        ),
-        MetricPublicationSource.V1_COMPATIBILITY_PREVIEW: (
-            MetricStateOrigin.V1_COMPATIBILITY
-        ),
-    }
-)
 
 
 class MetricImplementationState(StrEnum):
@@ -490,14 +481,7 @@ class MetricPublicationV2(StrictModel):
             for item in self.metrics
         ):
             raise ValueError("a compatibility preview cannot claim a live measurement")
-        required_origin = _REQUIRED_STATE_ORIGIN[self.source]
         for item in self.metrics:
-            # The producer identity travels with the state, so a caller cannot
-            # pass compatibility states to the live publisher or the reverse.
-            if item.state.state_origin is not required_origin:
-                raise ValueError(
-                    "published state origin does not match the publication source"
-                )
             # Guidance is not user-constructible: rederive the whole receipt and
             # the implementation state from the validated state and the source.
             if item.guidance != _expected_guidance(item.state, source=self.source):
@@ -531,15 +515,6 @@ class MetricPublicationV2(StrictModel):
             )
             for state in MetricImplementationState
         }
-
-
-def _reject_foreign_origin(
-    state: MetricStateV2,
-    required: MetricStateOrigin,
-) -> bool:
-    raise ValueError(
-        "publication source does not match the state producer origin"
-    )
 
 
 def _derived_factor_evidence(
@@ -605,28 +580,32 @@ def _implementation_state(
 
 
 def publish_metric_states_v2(
-    states: Iterable[MetricStateV2],
-    *,
-    source: MetricPublicationSource,
+    projection: MetricStateProjectionV2,
 ) -> MetricPublicationV2:
-    """Pair every projected state with its guidance receipt.
+    """Pair every producer-issued projection state with its guidance receipt.
 
-    The input must already be a complete registry-order projection; a partial set
-    is a producer defect rather than something to be padded here.  Guidance is
-    always derived from the state and the source: there is no caller-supplied
-    factor-evidence argument to talk this publisher into naming a focus factor.
+    Raw tuples and JSON-reconstructed states are deliberately insufficient:
+    state data is not publication authority.  The live projector and reviewed
+    compatibility adapter issue distinct opaque envelopes, and the source is
+    derived from that envelope rather than supplied by the caller.
     """
 
-    required_origin = _REQUIRED_STATE_ORIGIN[source]
+    if not _metric_state_projection_is_issued(projection):
+        raise TypeError("publication requires a producer-issued metric projection")
+    compatibility = _metric_state_projection_is_compatibility(projection)
+    if compatibility and type(projection) is V1CompatibilityMetricStateProjectionV2:
+        source = MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
+    elif not compatibility and type(projection) is LiveMetricStateProjectionV2:
+        source = MetricPublicationSource.LIVE_PROJECTION
+    else:
+        raise TypeError("metric projection class does not match its producer")
     published = tuple(
         PublishedMetricV2(
             state=state,
             guidance=_expected_guidance(state, source=source),
             implementation_state=_implementation_state(state, source=source),
         )
-        for state in states
-        if state.state_origin is required_origin
-        or _reject_foreign_origin(state, required_origin)
+        for state in projection
     )
 
     def _count(value_state: MetricValueStateV2) -> int:
@@ -666,10 +645,7 @@ def publish_v1_compatibility_preview(
     )
     # An aggregate rubric fraction proves a count, never a factor identity; the
     # downgrade to method-level guidance is derived, not requested.
-    return publish_metric_states_v2(
-        states,
-        source=MetricPublicationSource.V1_COMPATIBILITY_PREVIEW,
-    )
+    return publish_metric_states_v2(states)
 
 
 def _empty_statistics(
@@ -700,7 +676,6 @@ def _withheld(contract: MetricContractV2, reason_code: str) -> MetricStateV2:
         ),
         explanation_code=reason_code,
         unavailable_code=reason_code,
-        state_origin=MetricStateOrigin.V1_COMPATIBILITY,
     )
 
 
@@ -739,7 +714,6 @@ def _compatibility_rubric_state(
     ratio = numerator / denominator
     return MetricStateV2(
         metric_key=contract.metric_key,
-        state_origin=MetricStateOrigin.V1_COMPATIBILITY,
         contract_version=contract.contract_version,
         contract_fingerprint=contract.fingerprint,
         evidence_authority=contract.evidence_authority,
@@ -767,7 +741,6 @@ def _compatibility_state(
     if result.value_state is MetricValueState.EXECUTION_ERROR:
         return MetricStateV2(
             metric_key=contract.metric_key,
-            state_origin=MetricStateOrigin.V1_COMPATIBILITY,
             contract_version=contract.contract_version,
             contract_fingerprint=contract.fingerprint,
             evidence_authority=contract.evidence_authority,
@@ -786,7 +759,6 @@ def _compatibility_state(
     if result.value_state is MetricValueState.ABSTAINED:
         return MetricStateV2(
             metric_key=contract.metric_key,
-            state_origin=MetricStateOrigin.V1_COMPATIBILITY,
             contract_version=contract.contract_version,
             contract_fingerprint=contract.fingerprint,
             evidence_authority=contract.evidence_authority,
@@ -811,7 +783,6 @@ def _compatibility_state(
                 source_complete=True,
             ),
             explanation_code=result.explanation_code,
-            state_origin=MetricStateOrigin.V1_COMPATIBILITY,
         )
     if result.value_state is MetricValueState.UNKNOWN:
         return _withheld(contract, result.explanation_code)
@@ -822,7 +793,7 @@ def rehydrate_v1_compatibility_states(
     results: Iterable[SessionAnalysisResultRecord],
     *,
     objective_overrides: Mapping[str, ObjectiveMetricOverride] | None = None,
-) -> tuple[MetricStateV2, ...]:
+) -> V1CompatibilityMetricStateProjectionV2:
     """Project one stored V1 run onto the V2 registry, fail-closed.
 
     ``objective_overrides`` is the only way an evidence-lane contract can become
@@ -846,7 +817,6 @@ def rehydrate_v1_compatibility_states(
                 objective_metric_state(
                     contract,
                     overrides.get(contract.metric_key),
-                    state_origin=MetricStateOrigin.V1_COMPATIBILITY,
                 )
             )
             continue
@@ -855,7 +825,10 @@ def rehydrate_v1_compatibility_states(
             states.append(_withheld(contract, REASON_RESULT_STATE_UNPUBLISHABLE))
             continue
         states.append(_compatibility_state(contract, by_key.get(contract.metric_key)))
-    return tuple(states)
+    projection = _issue_metric_state_projection(states, compatibility=True)
+    if not isinstance(projection, V1CompatibilityMetricStateProjectionV2):
+        raise AssertionError("compatibility issuer returned the wrong envelope")
+    return projection
 
 
 __all__ = [
@@ -869,7 +842,6 @@ __all__ = [
     "REASON_RUBRIC_DENOMINATOR_MISMATCH",
     "V1_COMPATIBILITY_SOURCE_PACK",
     "MetricImplementationState",
-    "MetricStateOrigin",
     "MetricPublicationSource",
     "MetricPublicationV2",
     "PublishedMetricV2",

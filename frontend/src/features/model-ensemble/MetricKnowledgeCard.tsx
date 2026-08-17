@@ -148,7 +148,7 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
           <p>No knowledge card is registered for this metric key.</p>
         ) : (
           <>
-            <p><b>Target definition.</b> {help.entry.meaning}</p>
+            <p><b>Current local candidate definition.</b> {help.entry.meaning}</p>
             <dl>
               <div><dt>Question</dt><dd>{help.entry.question}</dd></div>
               <div><dt>Unit</dt><dd>{help.entry.observationUnit}</dd></div>
@@ -164,7 +164,7 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
             )}
           </>
         )}
-        <footer>{pinned ? "Pinned · Esc closes" : "Click or tap the control to pin · Esc closes"} · {help?.version ?? "unversioned"} · target contract shown separately from the shipped measurement</footer>
+        <footer>{pinned ? "Pinned · Esc closes" : "Click or tap the control to pin · Esc closes"} · {help?.version ?? "unversioned"} · candidate definition shown separately from its shipped measurement method</footer>
       </div>
     </div>
   );

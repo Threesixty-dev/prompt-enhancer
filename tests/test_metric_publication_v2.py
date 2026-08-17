@@ -21,7 +21,9 @@ from prompt_enhancer.application.analysis.metric_guidance import (
     ValueOrigin,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
-    MetricStateOrigin,
+    LiveMetricStateProjectionV2,
+    MetricStateV2,
+    V1CompatibilityMetricStateProjectionV2,
     project_metric_states_v2,
 )
 from prompt_enhancer.application.analysis.metric_publication_v2 import (
@@ -559,8 +561,7 @@ def test_live_projection_publishes_identical_guidance_for_en_and_pl(
             context=context,
             reconciliation=reconciliation,
             id_factory=IDS,
-        ),
-        source=MetricPublicationSource.LIVE_PROJECTION,
+        )
     )
     by_key = _by_key(publication)
 
@@ -1146,13 +1147,9 @@ def test_partial_authorized_objective_evidence_is_unresolved_not_missing() -> No
     )
 
 
-def test_state_origin_is_bound_by_the_producer_not_the_caller() -> None:
+def test_publication_source_is_derived_from_the_producer_envelope() -> None:
     compatible = rehydrate_v1_compatibility_states(
         (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
-    )
-    assert all(
-        state.state_origin is MetricStateOrigin.V1_COMPATIBILITY
-        for state in compatible
     )
 
     context = _context(
@@ -1172,28 +1169,8 @@ def test_state_origin_is_bound_by_the_producer_not_the_caller() -> None:
         reconciliation=SemanticUnitReconciler(IDS).reconcile(context).reconciliation,
         id_factory=IDS,
     )
-    assert all(
-        state.state_origin is MetricStateOrigin.LIVE_V2_PROJECTION
-        for state in live
-    )
-
-    # Neither direction of laundering has a legal encoding.
-    with pytest.raises(ValueError, match="producer origin"):
-        publish_metric_states_v2(
-            compatible, source=MetricPublicationSource.LIVE_PROJECTION
-        )
-    with pytest.raises(ValueError, match="producer origin"):
-        publish_metric_states_v2(
-            live, source=MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
-        )
-
-    # The matching pairs stay valid and keep their honest implementation states.
-    preview = publish_metric_states_v2(
-        compatible, source=MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
-    )
-    snapshot = publish_metric_states_v2(
-        live, source=MetricPublicationSource.LIVE_PROJECTION
-    )
+    preview = publish_metric_states_v2(compatible)
+    snapshot = publish_metric_states_v2(live)
     assert preview.compatibility_preview is True
     assert snapshot.compatibility_preview is False
     assert (
@@ -1207,15 +1184,82 @@ def test_state_origin_is_bound_by_the_producer_not_the_caller() -> None:
     )
 
 
-def test_publication_rejects_a_forged_state_origin() -> None:
-    payload = _publish(
+def test_model_copy_and_json_cannot_recreate_publication_authority() -> None:
+    compatible = rehydrate_v1_compatibility_states(
         (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
-    ).model_dump()
-    metrics = [dict(item) for item in payload["metrics"]]
-    metrics[0] = {
-        **metrics[0],
-        "state": {**metrics[0]["state"], "state_origin": "live_v2_projection"},
-    }
+    )
+    copied = tuple(state.model_copy() for state in compatible)
+    reconstructed = tuple(
+        MetricStateV2.model_validate(state.model_dump()) for state in compatible
+    )
 
-    with pytest.raises(ValidationError, match="state origin"):
-        MetricPublicationV2.model_validate({**payload, "metrics": metrics})
+    with pytest.raises(TypeError, match="producer-issued"):
+        publish_metric_states_v2(copied)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="producer-issued"):
+        publish_metric_states_v2(reconstructed)  # type: ignore[arg-type]
+
+
+def test_runtime_class_swap_cannot_change_the_bound_producer() -> None:
+    compatible = rehydrate_v1_compatibility_states(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
+    )
+    compatible.__class__ = LiveMetricStateProjectionV2
+    try:
+        with pytest.raises(TypeError, match="class does not match"):
+            publish_metric_states_v2(compatible)
+    finally:
+        compatible.__class__ = V1CompatibilityMetricStateProjectionV2
+
+    context = _context(
+        (
+            _message(
+                "class-swap-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Review the fictional widget export.",
+            ),
+        ),
+        label="class-swap-live",
+    )
+    live = project_metric_states_v2(
+        context=context,
+        reconciliation=SemanticUnitReconciler(IDS).reconcile(context).reconciliation,
+        id_factory=IDS,
+    )
+    live.__class__ = V1CompatibilityMetricStateProjectionV2
+    try:
+        with pytest.raises(TypeError, match="class does not match"):
+            publish_metric_states_v2(live)
+    finally:
+        live.__class__ = LiveMetricStateProjectionV2
+
+
+def test_private_envelope_storage_replacement_invalidates_authority() -> None:
+    compatible = rehydrate_v1_compatibility_states(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
+    )
+    context = _context(
+        (
+            _message(
+                "storage-swap-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Inspect the fictional widget receipt.",
+            ),
+        ),
+        label="storage-swap-live",
+    )
+    live = project_metric_states_v2(
+        context=context,
+        reconciliation=SemanticUnitReconciler(IDS).reconcile(context).reconciliation,
+        id_factory=IDS,
+    )
+    original = live._issued_state_tuple()
+    live._MetricStateProjectionV2__states = tuple(compatible)  # type: ignore[attr-defined]
+    try:
+        with pytest.raises(TypeError, match="producer-issued"):
+            publish_metric_states_v2(live)
+    finally:
+        live._MetricStateProjectionV2__states = original  # type: ignore[attr-defined]

@@ -100,11 +100,11 @@ describe("metric knowledge cards", () => {
     expect(document.querySelectorAll(".metric-knowledge-slot")).toHaveLength(2);
   });
 
-  it("separates the target contract from the shipped measurement inside the card", () => {
+  it("separates the current candidate definition from its shipped measurement method", () => {
     renderWorkspace("full");
     fireEvent.pointerEnter(screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!);
     const card = document.querySelector('[role="tooltip"]')!;
-    expect(card.textContent).toMatch(/Target definition\./);
+    expect(card.textContent).toMatch(/Current local candidate definition\./);
     expect(card.textContent).toMatch(/Current measurement \(shipped definition v\d\)/);
     expect(card.textContent).not.toMatch(/confidence|probability of success/i);
   });

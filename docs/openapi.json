@@ -4232,15 +4232,6 @@
         "title": "MetricSource",
         "type": "string"
       },
-      "MetricStateOrigin": {
-        "description": "Which producer built a state, bound at construction rather than claimed.\n\nWithout this the state tuple is anonymous, so a caller can hand V1\ncompatibility states to the live publisher and have them emitted as live\nmeasurements.  The origin is content-free and travels with the state.",
-        "enum": [
-          "live_v2_projection",
-          "v1_compatibility"
-        ],
-        "title": "MetricStateOrigin",
-        "type": "string"
-      },
       "MetricStateV2": {
         "additionalProperties": false,
         "description": "One projected V2 metric result with censoring bounds.",
@@ -4347,9 +4338,6 @@
             "title": "Registry Version",
             "type": "string"
           },
-          "state_origin": {
-            "$ref": "#/components/schemas/MetricStateOrigin"
-          },
           "statistics": {
             "$ref": "#/components/schemas/OpportunityStatistics"
           },
@@ -4359,7 +4347,6 @@
         },
         "required": [
           "metric_key",
-          "state_origin",
           "contract_version",
           "contract_fingerprint",
           "evidence_authority",
@@ -5445,7 +5432,10 @@
         "additionalProperties": false,
         "properties": {
           "confirmation": {
-            "const": "run_ten_local_models_on_selected_redacted_text",
+            "enum": [
+              "run_local_metric_cascade_on_selected_redacted_text",
+              "run_ten_local_models_on_selected_redacted_text"
+            ],
             "title": "Confirmation",
             "type": "string"
           }
@@ -5498,6 +5488,7 @@
             "type": "boolean"
           },
           "experts": {
+            "description": "Immutable compatibility graph slots, not a claim that ten model processes ran in the current live cascade.",
             "items": {
               "$ref": "#/components/schemas/ModelEnsembleExpertDto"
             },
@@ -5546,6 +5537,7 @@
           },
           "model_count": {
             "const": 10,
+            "description": "Historical compatibility expert-slot count; actual live model stages are listed in predictive_model_stages.",
             "title": "Model Count",
             "type": "integer"
           },

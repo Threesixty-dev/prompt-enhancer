@@ -3394,9 +3394,9 @@ export interface components {
         ModelEnsembleRequest: {
             /**
              * Confirmation
-             * @constant
+             * @enum {string}
              */
-            confirmation: "run_ten_local_models_on_selected_redacted_text";
+            confirmation: "run_local_metric_cascade_on_selected_redacted_text" | "run_ten_local_models_on_selected_redacted_text";
         };
         /** ModelEnsembleRunDto */
         ModelEnsembleRunDto: {
@@ -3421,7 +3421,10 @@ export interface components {
              * @constant
              */
             content_persisted: false;
-            /** Experts */
+            /**
+             * Experts
+             * @description Immutable compatibility graph slots, not a claim that ten model processes ran in the current live cascade.
+             */
             experts: components["schemas"]["ModelEnsembleExpertDto"][];
             /**
              * Local Only
@@ -3436,6 +3439,7 @@ export interface components {
             metrics: components["schemas"]["ModelEnsembleMetricDto"][];
             /**
              * Model Count
+             * @description Historical compatibility expert-slot count; actual live model stages are listed in predictive_model_stages.
              * @constant
              */
             model_count: 10;

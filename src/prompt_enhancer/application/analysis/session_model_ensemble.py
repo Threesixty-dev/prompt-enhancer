@@ -54,7 +54,8 @@ from .text_source import (
 )
 
 
-MODEL_ENSEMBLE_CONFIRMATION = "run_ten_local_models_on_selected_redacted_text"
+MODEL_ENSEMBLE_CONFIRMATION = "run_local_metric_cascade_on_selected_redacted_text"
+LEGACY_MODEL_ENSEMBLE_CONFIRMATION = "run_ten_local_models_on_selected_redacted_text"
 MODEL_ENSEMBLE_POLICY_VERSION = "explicit-local-shadow-ensemble-v1"
 _IDEMPOTENCY = re.compile(r"^[A-Za-z0-9._:-]{16,128}$")
 
@@ -240,7 +241,7 @@ class ModelEnsemblePersistenceError(SessionModelEnsembleError):
 
 
 class SessionModelEnsembleService:
-    """Run ten pinned local experts serially over one bounded redacted window."""
+    """Run the local measured-and-predictive cascade over a redacted window."""
 
     def __init__(
         self,
@@ -295,7 +296,10 @@ class SessionModelEnsembleService:
             )
         ):
             raise ModelEnsembleInputError("model ensemble selection is invalid")
-        if confirmation != MODEL_ENSEMBLE_CONFIRMATION:
+        if confirmation not in {
+            MODEL_ENSEMBLE_CONFIRMATION,
+            LEGACY_MODEL_ENSEMBLE_CONFIRMATION,
+        }:
             raise ModelEnsembleConfirmationError(
                 "explicit model ensemble confirmation is required"
             )
@@ -885,6 +889,7 @@ class SessionModelEnsembleService:
 
 
 __all__ = [
+    "LEGACY_MODEL_ENSEMBLE_CONFIRMATION",
     "MODEL_ENSEMBLE_CONFIRMATION",
     "ModelEnsembleCompatibilityError",
     "ModelEnsembleConfirmationError",

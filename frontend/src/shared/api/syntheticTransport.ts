@@ -686,6 +686,12 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         404,
       );
     },
+    async getActiveModelEnsembleWatch() {
+      throw new TransportError(
+        "No local model-ensemble watch exists in synthetic demo mode",
+        404,
+      );
+    },
     async startModelEnsemble() {
       throw new TransportError(
         "Local model ensembles require the integrated local runtime",

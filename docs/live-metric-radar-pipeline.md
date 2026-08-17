@@ -98,6 +98,14 @@ but the changed plan/model identity creates an explicit history break.
 The historical immutable ten-stage committee graph remains readable for old
 receipts, but it is not executed by the live estimator.
 
+New explicit requests use
+`run_local_metric_cascade_on_selected_redacted_text`. The former
+`run_ten_local_models_on_selected_redacted_text` token remains accepted only so
+older local clients do not break. Likewise, the v1 API's `model_count: 10` and
+`experts` array describe the immutable compatibility graph shape; the
+`predictive_model_stages` array is the authoritative record of which live model
+processes actually ran.
+
 ### Resource contract
 
 - supported target: 8 GB GPU-class VRAM and up to 16 GB system RAM;
@@ -111,9 +119,12 @@ receipts, but it is not executed by the live estimator.
 - CPU-only operation disables the deep lane. A fail-closed host-RAM admission
   check is still required before claiming automatic 8 GB-RAM deep-lane disablement.
 
-Synthetic local hardware verification recorded the complete all-twenty pass with
-the active small specialists and the selective Qwen child below the VRAM ceiling.
-This is resource evidence, not model-quality calibration. The current cold
+Synthetic local hardware verification recorded complete all-twenty receipt
+construction with the active small specialists and selective Qwen child below
+the VRAM ceiling. It did **not** prove that all twenty axes received numeric
+model estimates: the current live sidecar can attempt ranges for eight immediate
+behavioural metrics and truthfully withholds the other twelve. This is resource
+evidence, not model-quality calibration. The current cold
 serial pass is still roughly one minute on the reference machine; the desired
 warm-update, cold-update, and deep-lane p95 targets remain promotion gates. A
 future persistent warm-small-encoder worker must retain the same privacy and
@@ -145,6 +156,25 @@ experimental range with zero pending mass. The five collaboration contracts
 and open-loop closure withhold their model range until typed semantic lifecycle
 receipts can establish closed versus pending/right-censored state; their measured
 value and typed state remain independent and available.
+
+The exact live-sidecar availability set is intentionally explicit:
+
+- **Range may be attempted (8):** task definition, problem evidence, context
+  sufficiency, constraint precision, acceptance testability, deliverable
+  contract, decomposition coverage, and decision-rationale coverage.
+- **Range is structurally withheld (12):** ambiguity resolution, clarification
+  yield, exploration conversion, scope-change discipline, rework candidate
+  rate, open-loop closure, hypothesis-test linkage, requirement-action
+  traceability, agent-claim grounding, verification-strategy adequacy,
+  first-pass verification, and verified-requirement coverage.
+
+Verification-strategy adequacy belongs to the conversational Reasoning lens in
+the V2 contract, but its frozen V1 predictive contract classified it as
+objective. That historical identity is not rewritten; the V1 range remains
+withheld until a new persisted predictive-contract version can activate the
+corrected conversational route. The five evidence-lane metrics remain
+objective-receipt-only, while the six lifecycle metrics require typed horizon
+state. A larger model cannot override either authority boundary.
 
 Before calibration, an experimental range is also withheld unless at least 95%
 of the deterministic Monte Carlo draws resolve to a metric value. This prevents

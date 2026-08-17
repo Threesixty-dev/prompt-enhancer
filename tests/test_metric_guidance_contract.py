@@ -32,7 +32,6 @@ from prompt_enhancer.application.analysis.metric_guidance import (
     metric_guidance_template_set,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
-    MetricStateOrigin,
     MetricStateV2,
     OpportunityStatistics,
     resolve_metric_state,
@@ -73,7 +72,6 @@ def _known_state(metric_key: str, *, met: int, eligible: int) -> MetricStateV2:
     ratio = met / eligible
     return MetricStateV2(
         metric_key=metric_key,
-        state_origin=MetricStateOrigin.LIVE_V2_PROJECTION,
         contract_version=contract.contract_version,
         contract_fingerprint=contract.fingerprint,
         evidence_authority=contract.evidence_authority,
@@ -280,7 +278,6 @@ def test_execution_error_guidance_is_tooling_only_with_no_value_basis() -> None:
     contract = metric_contract_v2("prompt.problem_evidence_quality")
     state = MetricStateV2(
         metric_key=contract.metric_key,
-        state_origin=MetricStateOrigin.LIVE_V2_PROJECTION,
         contract_version=contract.contract_version,
         contract_fingerprint=contract.fingerprint,
         evidence_authority=contract.evidence_authority,

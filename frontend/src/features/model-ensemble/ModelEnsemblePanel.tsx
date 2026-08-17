@@ -399,7 +399,7 @@ export function ModelEnsemblePanel({
       } else {
         const outcome = await transport.startModelEnsemble(
           sessionId,
-          { confirmation: "run_ten_local_models_on_selected_redacted_text" },
+          { confirmation: "run_local_metric_cascade_on_selected_redacted_text" },
           nextIdempotencyKey("model-ensemble"),
           controller.signal,
         );

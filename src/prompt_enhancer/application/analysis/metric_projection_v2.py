@@ -18,11 +18,11 @@ The five objective contracts are resolved only by the typed evidence lane.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from enum import StrEnum
 import re
 from typing import Literal
+from weakref import WeakKeyDictionary
 
 from pydantic import Field, field_validator, model_validator
 
@@ -145,18 +145,6 @@ def _related(left: str, right: str, *, threshold: float = 0.05) -> bool:
     return len(left_tokens & right_tokens) / len(union) >= threshold
 
 
-class MetricStateOrigin(StrEnum):
-    """Which producer built a state, bound at construction rather than claimed.
-
-    Without this the state tuple is anonymous, so a caller can hand V1
-    compatibility states to the live publisher and have them emitted as live
-    measurements.  The origin is content-free and travels with the state.
-    """
-
-    LIVE_V2_PROJECTION = "live_v2_projection"
-    V1_COMPATIBILITY = "v1_compatibility"
-
-
 class OpportunityStatistics(StrictModel):
     """Content-free sufficient statistics for one metric's opportunity set.
 
@@ -210,7 +198,6 @@ class MetricStateV2(StrictModel):
     """One projected V2 metric result with censoring bounds."""
 
     metric_key: str
-    state_origin: MetricStateOrigin
     registry_version: Literal[METRIC_CONTRACT_REGISTRY_VERSION_V2] = (
         METRIC_CONTRACT_REGISTRY_VERSION_V2
     )
@@ -301,6 +288,127 @@ class MetricStateV2(StrictModel):
         return self
 
 
+class MetricStateProjectionV2(Sequence[MetricStateV2]):
+    """Opaque, producer-issued projection consumed by the V2 publisher.
+
+    Metric states are serializable data and therefore cannot carry authority by
+    themselves.  The publisher accepts only one of these in-memory envelopes,
+    issued by a reviewed producer.  Copying or rebuilding the contained models
+    from JSON does not recreate the envelope authority.
+    """
+
+    __slots__ = ("__states", "__weakref__")
+
+    def __init__(
+        self,
+        states: Sequence[MetricStateV2],
+        *,
+        _issuer: object,
+    ) -> None:
+        if _issuer is not _METRIC_STATE_PROJECTION_ISSUER:
+            raise TypeError("metric-state projections are producer-issued")
+        self.__states = tuple(states)
+
+    def __len__(self) -> int:
+        return len(self.__states)
+
+    def __iter__(self) -> Iterator[MetricStateV2]:
+        return iter(self.__states)
+
+    def __getitem__(
+        self,
+        index: int | slice,
+    ) -> MetricStateV2 | tuple[MetricStateV2, ...]:
+        return self.__states[index]
+
+    def _issued_state_tuple(self) -> tuple[MetricStateV2, ...]:
+        """Return the exact sealed storage for the internal authority check."""
+
+        return self.__states
+
+
+class LiveMetricStateProjectionV2(MetricStateProjectionV2):
+    """Projection issued only by the live V2 semantic-unit producer."""
+
+    __slots__ = ()
+
+
+class V1CompatibilityMetricStateProjectionV2(MetricStateProjectionV2):
+    """Projection issued only by the reviewed V1 compatibility adapter."""
+
+    __slots__ = ()
+
+
+_METRIC_STATE_PROJECTION_ISSUER = object()
+
+
+@dataclass(frozen=True, slots=True)
+class _MetricStateProjectionAuthority:
+    compatibility: bool
+    states: tuple[MetricStateV2, ...]
+    serialized_states: tuple[str, ...]
+
+
+_ISSUED_METRIC_STATE_PROJECTIONS: WeakKeyDictionary[
+    MetricStateProjectionV2,
+    _MetricStateProjectionAuthority,
+] = WeakKeyDictionary()
+
+
+def _issue_metric_state_projection(
+    states: Sequence[MetricStateV2],
+    *,
+    compatibility: bool,
+) -> MetricStateProjectionV2:
+    projection_type = (
+        V1CompatibilityMetricStateProjectionV2
+        if compatibility
+        else LiveMetricStateProjectionV2
+    )
+    projection = projection_type(
+        states,
+        _issuer=_METRIC_STATE_PROJECTION_ISSUER,
+    )
+    states_tuple = projection._issued_state_tuple()
+    _ISSUED_METRIC_STATE_PROJECTIONS[projection] = _MetricStateProjectionAuthority(
+        compatibility=compatibility,
+        states=states_tuple,
+        serialized_states=tuple(state.model_dump_json() for state in states_tuple),
+    )
+    return projection
+
+
+def _metric_state_projection_is_issued(
+    projection: object,
+) -> bool:
+    if not isinstance(projection, MetricStateProjectionV2):
+        return False
+    try:
+        authority = _ISSUED_METRIC_STATE_PROJECTIONS[projection]
+    except (KeyError, TypeError):
+        return False
+    current = projection._issued_state_tuple()
+    return (
+        current is authority.states
+        and tuple(state.model_dump_json() for state in current)
+        == authority.serialized_states
+    )
+
+
+def _metric_state_projection_is_compatibility(
+    projection: MetricStateProjectionV2,
+) -> bool:
+    try:
+        authority = _ISSUED_METRIC_STATE_PROJECTIONS[projection]
+    except (KeyError, TypeError) as exc:
+        raise TypeError(
+            "publication requires a producer-issued metric projection"
+        ) from exc
+    if not _metric_state_projection_is_issued(projection):
+        raise TypeError("metric projection contents do not match their producer")
+    return authority.compatibility
+
+
 @dataclass(frozen=True, slots=True)
 class _Opportunity:
     unit_id: str
@@ -347,7 +455,6 @@ def resolve_metric_state(
     *,
     explanation_code: str,
     unavailable_code: str = "opportunity_family_unobservable",
-    state_origin: MetricStateOrigin = MetricStateOrigin.LIVE_V2_PROJECTION,
 ) -> MetricStateV2:
     """Turn sufficient statistics into one typed value state.
 
@@ -367,7 +474,6 @@ def resolve_metric_state(
     ) -> MetricStateV2:
         return MetricStateV2(
             metric_key=contract.metric_key,
-            state_origin=state_origin,
             contract_version=contract.contract_version,
             contract_fingerprint=contract.fingerprint,
             evidence_authority=contract.evidence_authority,
@@ -720,7 +826,6 @@ def _rubric_state(
                 code = "rubric_denominator_mismatch"
         return MetricStateV2(
             metric_key=contract.metric_key,
-            state_origin=MetricStateOrigin.LIVE_V2_PROJECTION,
             contract_version=contract.contract_version,
             contract_fingerprint=contract.fingerprint,
             evidence_authority=contract.evidence_authority,
@@ -734,7 +839,6 @@ def _rubric_state(
     ratio = fraction.numerator / fraction.denominator
     return MetricStateV2(
         metric_key=contract.metric_key,
-        state_origin=MetricStateOrigin.LIVE_V2_PROJECTION,
         contract_version=contract.contract_version,
         contract_fingerprint=contract.fingerprint,
         evidence_authority=contract.evidence_authority,
@@ -828,7 +932,6 @@ def _profile_slot_state(
 def _objective_state(
     contract: MetricContractV2,
     override: ObjectiveMetricOverride | None,
-    state_origin: MetricStateOrigin = MetricStateOrigin.LIVE_V2_PROJECTION,
 ) -> MetricStateV2:
     """Objective precedence: only the typed lane may resolve these contracts."""
 
@@ -844,7 +947,6 @@ def _objective_state(
             statistics,
             explanation_code="typed_objective_absent",
             unavailable_code="typed_objective_absent",
-            state_origin=state_origin,
         )
     eligible = override.eligible_opportunity_count
     resolved = override.resolved_opportunity_count
@@ -868,7 +970,6 @@ def _objective_state(
             statistics,
             explanation_code=override.explanation_code,
             unavailable_code=override.explanation_code,
-            state_origin=state_origin,
         )
     else:
         censored = (
@@ -900,15 +1001,12 @@ def _objective_state(
         contract,
         statistics,
         explanation_code=override.explanation_code,
-        state_origin=state_origin,
     )
 
 
 def objective_metric_state(
     contract: MetricContractV2,
     override: ObjectiveMetricOverride | None,
-    *,
-    state_origin: MetricStateOrigin = MetricStateOrigin.LIVE_V2_PROJECTION,
 ) -> MetricStateV2:
     """Resolve one objective contract from the typed evidence lane only.
 
@@ -918,7 +1016,7 @@ def objective_metric_state(
 
     if contract.denominator_basis is not DenominatorBasis.OBJECTIVE_OPPORTUNITIES:
         raise ValueError("only objective contracts use the objective lane")
-    return _objective_state(contract, override, state_origin)
+    return _objective_state(contract, override)
 
 
 def _unit_state(
@@ -966,7 +1064,7 @@ def project_metric_states_v2(
     id_factory: SemanticUnitIdFactory,
     conversational_results: Mapping[str, TextMetricResult] | None = None,
     objective_overrides: Mapping[str, ObjectiveMetricOverride] | None = None,
-) -> tuple[MetricStateV2, ...]:
+) -> LiveMetricStateProjectionV2:
     """Project all twenty V2 contracts in registry order.
 
     ``reconciliation`` is the persisted semantic-unit head set for the same
@@ -1033,14 +1131,16 @@ def project_metric_states_v2(
             )
         else:
             states.append(_unit_state(contract, context, reconciliation, window))
-    return tuple(states)
+    projection = _issue_metric_state_projection(states, compatibility=False)
+    if not isinstance(projection, LiveMetricStateProjectionV2):
+        raise AssertionError("live projection issuer returned the wrong envelope")
+    return projection
 
 
 __all__ = [
     "METRIC_PROJECTION_V2_ALGORITHM_ID",
     "METRIC_PROJECTION_V2_ALGORITHM_VERSION",
     "METRIC_PROJECTION_V2_VERSION",
-    "MetricStateOrigin",
     "MetricStateV2",
     "OpportunityStatistics",
     "REWORK_CLASSIFIER_VERSION",

@@ -212,6 +212,7 @@ from .model_link_experiments import (
     SessionModelLinkExperimentService,
 )
 from .session_model_ensemble import (
+    LEGACY_MODEL_ENSEMBLE_CONFIRMATION,
     MODEL_ENSEMBLE_CONFIRMATION,
     SessionModelEnsembleOutcome,
     SessionModelEnsembleRunRecord,
@@ -377,6 +378,7 @@ __all__ = [
     "MODEL_LINK_CONFIRMATION",
     "MODEL_LINK_EXPERIMENT_KEY",
     "MODEL_LINK_EXPERIMENT_VERSION",
+    "LEGACY_MODEL_ENSEMBLE_CONFIRMATION",
     "MODEL_ENSEMBLE_CONFIRMATION",
     "MODEL_ENSEMBLE_WATCH_CONFIRMATION",
     "ModelExperimentDevice",

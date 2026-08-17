@@ -9,6 +9,8 @@ for (const viewport of [
     await page.goto("/overlay/model-ensemble");
 
     await expect(page.getByRole("heading", { name: "Live metric watch" })).toBeVisible();
+    await expect(page.locator(".model-ensemble-overlay__connection")).toHaveText("No active watch");
+    await expect(page.getByText(/Reconnecting · last receipt retained/i)).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Live watch scope" })).toBeVisible();
     await expect(page.getByRole("link", { name: /Open selected session in dashboard/i })).toBeVisible();
 

@@ -14,6 +14,7 @@ from ...application.analysis.model_ensemble import (
     ModelExpertRole,
 )
 from ...application.analysis.session_model_ensemble import (
+    LEGACY_MODEL_ENSEMBLE_CONFIRMATION,
     MODEL_ENSEMBLE_CONFIRMATION,
     ModelEnsembleCompatibilityError,
     ModelEnsembleConfirmationError,
@@ -56,7 +57,10 @@ class ModelEnsembleCommand(Protocol):
 
 
 class ModelEnsembleRequest(StrictModel):
-    confirmation: Literal[MODEL_ENSEMBLE_CONFIRMATION]
+    confirmation: Literal[
+        MODEL_ENSEMBLE_CONFIRMATION,
+        LEGACY_MODEL_ENSEMBLE_CONFIRMATION,
+    ]
 
 
 class ModelEnsembleChunkDto(StrictModel):
@@ -241,9 +245,21 @@ class ModelEnsembleRunDto(StrictModel):
     plan_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     source_coverage_state: Literal["complete_window", "incomplete_source"]
     chunk_count: int = Field(ge=1, le=8)
-    model_count: Literal[10]
+    model_count: Literal[10] = Field(
+        description=(
+            "Historical compatibility expert-slot count; actual live model stages "
+            "are listed in predictive_model_stages."
+        )
+    )
     chunks: tuple[ModelEnsembleChunkDto, ...] = Field(min_length=1, max_length=8)
-    experts: tuple[ModelEnsembleExpertDto, ...] = Field(min_length=10, max_length=10)
+    experts: tuple[ModelEnsembleExpertDto, ...] = Field(
+        min_length=10,
+        max_length=10,
+        description=(
+            "Immutable compatibility graph slots, not a claim that ten model "
+            "processes ran in the current live cascade."
+        ),
+    )
     votes: tuple[ModelEnsembleVoteDto, ...] = Field(max_length=640)
     chunk_metrics: tuple[ModelEnsembleChunkMetricDto, ...] = Field(max_length=160)
     metrics: tuple[ModelEnsembleMetricDto, ...] = Field(min_length=1, max_length=20)

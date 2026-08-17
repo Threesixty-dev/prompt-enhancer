@@ -31,7 +31,9 @@ from prompt_enhancer.application.providers import (
     SchemaArtifactProvenance,
 )
 from prompt_enhancer.application.analysis.session_model_ensemble import (
+    LEGACY_MODEL_ENSEMBLE_CONFIRMATION,
     MODEL_ENSEMBLE_CONFIRMATION,
+    ModelEnsembleConfirmationError,
     ModelEnsembleConsentError,
     ModelEnsembleExecutionError,
     SessionModelEnsembleRunRecord,
@@ -432,7 +434,7 @@ def _service(
     return service, source, repository
 
 
-def test_service_runs_all_ten_models_once_and_idempotently_stores_no_text() -> None:
+def test_service_seals_ten_compatibility_slots_once_and_stores_no_text() -> None:
     service, source, repository = _service()
     request = {
         "provider": Provider.CODEX,
@@ -626,6 +628,40 @@ def test_unchanged_legacy_head_gets_typed_projection_without_a_new_model_run() -
     assert upgraded.run.run_id == first.run.run_id
     assert len(upgraded.run.receipt.typed_metrics) == 20
     assert source.read_count == 2
+
+
+@pytest.mark.parametrize(
+    "confirmation",
+    (MODEL_ENSEMBLE_CONFIRMATION, LEGACY_MODEL_ENSEMBLE_CONFIRMATION),
+)
+def test_current_cascade_confirmation_preserves_legacy_request_compatibility(
+    confirmation: str,
+) -> None:
+    service, source, _ = _service()
+
+    outcome = service.run(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        confirmation=confirmation,
+        idempotency_key="example-confirmation-compat-0001",
+    )
+
+    assert outcome.applied is True
+    assert source.read_count == 1
+
+
+def test_unknown_cascade_confirmation_fails_before_source_access() -> None:
+    service, source, _ = _service()
+
+    with pytest.raises(ModelEnsembleConfirmationError):
+        service.run(
+            provider=Provider.CODEX,
+            session_id=SESSION_ID,
+            confirmation="run_unspecified_remote_models",
+            idempotency_key="example-confirmation-invalid-0001",
+        )
+
+    assert source.read_count == 0
 
 
 def test_consent_fails_before_the_local_source_or_models() -> None:

@@ -5,7 +5,8 @@ import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile"
  * Canonical, versioned presentation registry for the twenty workspace metrics.
  *
  * Two layers are kept visibly separate:
- * - `entry` is the TARGET metric contract (what the metric is meant to mean).
+ * - `entry` explains the CURRENT local candidate definition whose legacy
+ *   receipt is rendered by this workspace.
  * - `measurement` is bound to the SHIPPED measurement source: the versioned
  *   coaching definitions whose receipts this UI actually displays today. The
  *   backend V2 publication contract is not integrated in this UI, so nothing
@@ -23,7 +24,7 @@ export type MetricHelpLocale = "en" | "pl";
 export type MetricHelpDirection = "higher_is_better" | "lower_is_better";
 
 export interface MetricHelpEntry {
-  /** One sentence: what the metric is meant to mean (target contract). */
+  /** One sentence: what the current local candidate definition measures. */
   meaning: string;
   question: string;
   observationUnit: string;
