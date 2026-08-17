@@ -880,6 +880,21 @@ def _objective_state(
     )
 
 
+def objective_metric_state(
+    contract: MetricContractV2,
+    override: ObjectiveMetricOverride | None,
+) -> MetricStateV2:
+    """Resolve one objective contract from the typed evidence lane only.
+
+    Exposed so a publication seam that has no conversational window can still
+    reach exactly the same fail-closed decision instead of reimplementing it.
+    """
+
+    if contract.denominator_basis is not DenominatorBasis.OBJECTIVE_OPPORTUNITIES:
+        raise ValueError("only objective contracts use the objective lane")
+    return _objective_state(contract, override)
+
+
 def _unit_state(
     contract: MetricContractV2,
     context: P1TextAnalysisInput,
@@ -1003,6 +1018,7 @@ __all__ = [
     "OpportunityStatistics",
     "REWORK_CLASSIFIER_VERSION",
     "classify_feedback_rework",
+    "objective_metric_state",
     "project_metric_states_v2",
     "resolve_metric_state",
 ]

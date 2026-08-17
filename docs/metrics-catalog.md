@@ -498,3 +498,61 @@ Prompt specification | Requirement traceability | Safety | Workload (private)
 ```
 
 If a user later creates a composite, it must be user-named, use visible versioned weights, preserve underlying dimensions, exclude C-tier signals by default, and never be used for employee ranking.
+
+## Metric Contract V2 publication seam
+
+The V2 registry (`all-20-factor-contracts-v2`) is the canonical safe publication
+surface for the twenty metrics. A publication always lists every metric key once
+in registry order with a typed state, so a consumer never has to guess what an
+absent key meant and no surface can render missing capability as zero.
+
+Two producers reach the same contract:
+
+| Producer | Input | Objective lane |
+|---|---|---|
+| `publish_metric_states_v2` over a live projection | persisted semantic-unit heads for the same analysis window | typed evidence overrides only |
+| `rehydrate_metric_states_v2` over a stored V1 run | already persisted, immutable analysis results | fail-closed without typed overrides |
+
+Rehydration is deliberately narrow. A stored V1 denominator was whatever a
+lexical rule matched, which is neither the exactly owned opportunity set nor the
+declared profile slot set a V2 contract requires, so only the three
+rubric-factor contracts republish a value. Everything else stays `unknown` with
+a fixed reason code (`v1_denominator_not_opportunity_owned`,
+`metric_result_absent`, `model_assisted_result_not_publishable`,
+`rubric_denominator_mismatch`, `stored_result_state_unpublishable`).
+
+The five evidence-lane contracts are resolved only by the typed objective
+projection. A stored conversational ratio never grounds a completion claim, and
+the publication contract re-checks that invariant at its own boundary. A failed
+optional local model stage keeps its own fixed reason code and does not block
+the deterministic or objective metrics in the same run.
+
+### Guidance contract
+
+`metric-guidance-contract-v1` publishes the decision *identity* rather than its
+wording, so the dashboard and the desktop overlay cannot disagree:
+
+- closed `role`, `audience`, `basis`, and `state_class` enums;
+- the projection's own content-free `reason_code`;
+- contract factor keys, never factor descriptions;
+- deterministic `diagnosis`, `action`, and `verification` template identities;
+- the safe opportunity counts and the exact fraction, when one exists.
+
+`basis` follows the evidence hierarchy: `measured` is reserved for a known value
+resolved by an objective receipt, a known conversational observation is
+`experimental`, every non-value state is `readiness`, and a failed stage is
+`method-only`. No field can carry transcript text, a rendered sentence, a path,
+or a provider identifier, and a digest-shaped value is rejected outright.
+
+Both surfaces are read-only:
+
+- `GET /v1/metric-contracts/v2/guidance-catalog` — static identities for all
+  twenty contracts and all eight state classes;
+- `GET /v1/quality-analysis/runs/{run_id}/metric-publication` — one stored run
+  republished against the V2 registry.
+
+The publication is recomputed on demand rather than persisted, so it has no
+lifetime of its own and the run's existing `ON DELETE CASCADE` remains the only
+privacy-deletion path. The next seam is persisting semantic-unit reconciliation
+beside an analysis run, which is what would let the twelve withheld contracts
+publish a truthful denominator instead of an honest unknown.

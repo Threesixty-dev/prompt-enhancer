@@ -7,19 +7,41 @@ from typing import Annotated, Protocol, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
+from ...application.analysis.metric_guidance import (
+    METRIC_GUIDANCE_CONTRACT_VERSION,
+    METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION,
+    METRIC_GUIDANCE_TEMPLATE_VERSION,
+    MetricGuidanceCatalogEntry,
+    metric_guidance_catalog,
+)
 from ...application.analysis.session_coaching_service import (
     SessionCoachingProjection,
     SessionCoachingProjectionError,
     SessionCoachingProjectionService,
 )
+from ...application.analysis.session_metric_publication_service import (
+    SessionMetricPublication,
+    SessionMetricPublicationError,
+    SessionMetricPublicationService,
+)
 from ...application.persistence import SessionAnalysisRunRepository, TaskRepository
 from ...domain import PSEUDONYM_PATTERN
 from .dto import (
+    HttpDto,
     SessionAnalysisResultDto,
     SessionAnalysisRunDto,
     SessionAnalysisRunListResponse,
     SessionAnalysisRunResponse,
 )
+
+
+class MetricGuidanceCatalogResponse(HttpDto):
+    """Static guidance identities; no session, run, or provider data."""
+
+    catalog_version: str
+    contract_version: str
+    template_version: int
+    entries: tuple[MetricGuidanceCatalogEntry, ...]
 
 
 class SessionAnalysisQueryStore(Protocol):
@@ -156,6 +178,53 @@ def create_session_analysis_query_router(
             raise HTTPException(
                 status_code=409,
                 detail=messages.get(exc.code, "coaching summary unavailable"),
+            ) from None
+        if projection is None:
+            raise HTTPException(status_code=404, detail="quality analysis run not found")
+        return projection
+
+    @router.get(
+        "/metric-contracts/v2/guidance-catalog",
+        response_model=MetricGuidanceCatalogResponse,
+    )
+    def metric_guidance_catalog_route() -> MetricGuidanceCatalogResponse:
+        """Serve the static guidance identities the dashboard and overlay share."""
+
+        return MetricGuidanceCatalogResponse(
+            catalog_version=METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION,
+            contract_version=METRIC_GUIDANCE_CONTRACT_VERSION,
+            template_version=METRIC_GUIDANCE_TEMPLATE_VERSION,
+            entries=metric_guidance_catalog(),
+        )
+
+    @router.get(
+        "/quality-analysis/runs/{run_id}/metric-publication",
+        response_model=SessionMetricPublication,
+    )
+    def session_metric_publication(
+        request: Request,
+        run_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> SessionMetricPublication:
+        """Republish a stored run against the V2 registry without writing."""
+
+        store = _query_store(request)
+        service = SessionMetricPublicationService(
+            store.session_analysis_run_repository()
+        )
+        try:
+            projection = service.get(run_id)
+        except SessionMetricPublicationError as exc:
+            messages = {
+                "publication_run_not_completed": (
+                    "completed quality analysis required"
+                ),
+                "publication_pack_unsupported": (
+                    "compatible coaching analysis required"
+                ),
+            }
+            raise HTTPException(
+                status_code=409,
+                detail=messages.get(exc.code, "metric publication unavailable"),
             ) from None
         if projection is None:
             raise HTTPException(status_code=404, detail="quality analysis run not found")
