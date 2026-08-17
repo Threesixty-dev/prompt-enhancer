@@ -636,8 +636,8 @@ Qwen and BGE paths remain separate, synthetic, and activation-disabled.
 
 Pushed schema-v26 checkpoint `1c19359` (`Add chunked ten-model shadow
 ensemble`) makes the previously failing large-session path usable without
-claiming unbounded provider-history coverage. Codex text adapter `0.6.0`,
-canonical content schema `codex-thread-item-text-v7`, and decoder version 7
+claiming unbounded provider-history coverage. Codex text adapter `0.7.0`,
+canonical content schema `codex-thread-item-text-v8`, and decoder version 8
 raise only the text-analysis `thread/read` frame and timeout ceilings, retain a
 newest bounded allowlisted suffix of at most 1,000,000 admitted characters,
 and split oversized admitted text into bounded segments before redaction. The
@@ -650,12 +650,14 @@ The opt-in shadow pipeline partitions that approved redacted window into at
 most eight exhaustive contiguous chunks. Four pinned retrieval experts and two
 pinned rerankers combine bounded evidence rankings with reciprocal-rank fusion;
 three scoped-NLI experts and one structured-rubric expert emit four fixed-role
-votes for every chunk and metric. Only the two reviewed NLI challengers plus
-the rubric participate in the conservative decision; the historical mDeBERTa
-candidate remains diagnostic. Unknown, unsupported, failed, and abstained
-chunks remain separate. The session value is a ratio of known binary chunk
-receipts, never an average of heterogeneous model logits, and non-known chunks
-are omitted rather than converted to zero.
+votes for every persisted chunk-and-metric cell. Only the two reviewed NLI
+challengers plus the rubric participate in the conservative decision; the
+historical mDeBERTa candidate remains diagnostic. Each metric has one eligible
+owned observation in the current shadow policy; structural matrix cells do not
+enter its denominator. Unknown, unsupported, failed, and abstained observations
+remain separate. The session value is a ratio of validated known observations,
+never an average of heterogeneous model logits, and non-known observations are
+omitted rather than converted to zero.
 
 All ten immutable public model revisions execute sequentially in separate
 local child processes. Each child is network-closed after an explicit model
@@ -708,17 +710,21 @@ exact sealed-run/input binding. One partial unique index makes that watch the
 single process-wide model lane. Disabling or deleting its indexed session or
 project removes the scheduling authority without retaining content.
 
-Chunking is now `append-stable-redacted-v2`: fingerprints include message scope
-and an already-redacted fragment digest, but not the whole source-window
-fingerprint. Completed prefix chunks therefore remain reusable when a new turn
-is appended; the previous tail remains provisional and is recomputed. Every
-dirty update still runs the four retrieval, two reranking, three NLI, and one
-rubric stages serially. A child process is killed if its lease heartbeat fails,
+Chunking is now `append-stable-redacted-v3`: fingerprints include message scope,
+focus identity, and an already-redacted fragment digest, but not the whole
+source-window fingerprint. Observation policy `owned-observation-v1` assigns
+each prompt metric to one complete focus-request observation and each
+conversation metric to one chronological bounded-window observation. Other
+chunk-matrix cells are structural and excluded from analytic counts. Exact
+unchanged inputs reuse their sealed run before inference; changed inputs do not
+partially copy decisions until observation lineage is persisted. Every dirty update still runs the four retrieval, two reranking,
+three NLI, and one rubric stages serially. A child process is killed if its lease heartbeat fails,
 and CUDA resource exhaustion retries the same pinned stage on CPU only after the
 CUDA child exits. The scope contract now carries role, kind, language, and focus
 identity into inference. Prompt metrics admit only focus-user request evidence,
-outcome metrics stay unsupported without objective artifacts, and neutral,
-failed, or unsupported promoted NLI evidence can no longer become a known zero.
+outcome metrics and hypothesis-to-test linkage stay unsupported without
+objective artifacts. Neutral, failed, unsupported, or agreed-negative model
+evidence cannot become a known zero without a typed opportunity receipt.
 
 The dashboard polls the content-free watch receipt, preserves a fixed radar axis
 set across generations, and leaves non-known values unplotted rather than at the
@@ -728,8 +734,8 @@ window. It authenticates an existing loopback listener before rendering, starts
 one only when the port is free, and stops only an instance it owns. Tokens and
 session identifiers do not enter its URL, arguments, title, bridge, or output.
 
-Engineering evidence for this continuation is the full backend gate with 2,023
-passed and 4 expected platform-only symlink skips, all 410 frontend tests, the
+Engineering evidence for this continuation is the full backend gate with 2,039
+passed and 4 expected platform-only symlink skips, all 423 frontend tests, the
 production build, focused append/reuse/CPU-fallback/watch/desktop tests,
 compileall, the privacy scanner, and diff validation. A fictional schema-v2
 child-process smoke then completed all ten pinned stages serially on CUDA with
@@ -1003,12 +1009,82 @@ stratum, and there are still no product comparisons, aggregates, snapshots,
 recommendations, or empirical recommendation-outcome/adverse-effect results.
 P3 and P4 remain deferred in phase order.
 
+The live-radar continuation now advances through schema v34. The watch resolves
+and reuses only its exact bound head rather than a
+session-wide latest run. Privacy deletion disables and revokes the matching
+watch, atomically rejects later watch-owned persistence, and conservatively
+erases all shadow-model derivatives for that session. An append-only-by-service publication ledger records
+only changed sealed runs actually published by the leased watch. A bounded
+private trajectory endpoint returns aggregate metric state/counts without
+source fingerprints, fragments, or text. Poll attempts that reuse the same run
+do not manufacture history points.
+
+The dashboard and native mini-window now use four fixed lenses (task framing,
+collaboration flow, reasoning trace, and outcome evidence). Known-only segments
+leave gaps at unknown/not-applicable/abstained/error axes; eligible-observation rings
+are labeled coverage rather than confidence. Structural ownership cells never
+reduce that coverage or create duplicate numerators. Metric selection exposes the raw
+ratio and state partition, while the trajectory can navigate immutable
+publications and overlays a prior outline only when plan and message-window
+scope are comparable. The primary radar now uses a separately sealed
+`coaching-typed-projection-v1` from the deterministic coaching engine; its exact
+fractions and message coverage remain distinct from the ten-model diagnostic.
+The UI exposes **Analyze now**, a running-state **Restart analysis**, and durable
+queued/running/failed/up-to-date status. A renewable five-minute watch lease
+bounds crash recovery, and manual restart revokes the displaced token without
+discarding the last head. Model receipts remain uncalibrated shadow evidence and
+are never averaged across time.
+
+The detailed measurement and interaction contract is documented in
+[Live metric radar pipeline](live-metric-radar-pipeline.md). Remaining work is
+the activity-revision dirty gate, a scheduler/executor split with coalescing and
+hard child cancellation, persisted observation/reuse lineage, richer typed
+per-metric observation contracts, objective tool/test evidence, and representative
+calibration. A visually full radar is not an acceptance criterion: missing
+objective evidence must still remain nonnumeric.
+
+Schema v35 adds the local probabilistic radar as an immutable sidecar to the
+measured receipt. All twenty metric keys receive a predictive state and, when
+locally estimable, a content-free distribution summary: mean, median, four
+quantiles, applicability and pending mass, disagreement, effective observation
+count, model/calibration/contract identities, and resource telemetry. The
+metric-detail endpoint exposes only a fixed twenty-bin density and content-free
+factor contributions. No transcript text, fragments, prompts, generated
+explanations, or raw logits are persisted or returned.
+
+The live model set is `local-factor-router-v2`. Three pinned multilingual NLI
+encoders form the EN/PL baseline; two separately pinned English long-context
+challengers can contribute to eligible English factors. A pinned Qwen3 4B judge
+is invoked only for bounded disagreement/neutral cases and runs in a disposable
+bitsandbytes NF4 child. All children run serially with fixed 6,144 MiB VRAM and
+8,192 MiB RSS ceilings. Small-model resource exhaustion retries once on CPU;
+deep-lane failure cannot erase deterministic or small-model results. The old
+ten-stage graph stays immutable and readable but is emitted as unavailable by
+the v35 live path rather than executed.
+
+The UI now draws solid measured geometry, a dotted experimental median, dark
+central-50 and light central-90 bands, explicit nonnumeric state markers, and a
+separate evidence-coverage ring. Experimental outputs are not called confidence
+or probability. Only a future per-metric calibrated receipt may use predictive
+interval language, and outcome forecasts cannot create solid verified-outcome
+values without objective receipts.
+
+Synthetic local hardware probes completed all twenty experimental projections
+with every five small specialists plus the selective NF4 judge and stayed under
+the child VRAM ceiling. This establishes integration and resource feasibility,
+not prediction validity. The current cold serial pass is still approximately one
+minute, so the three-second warm and eight-second cold targets remain unmet
+promotion gates. Calibration datasets/workflow, per-metric holdout promotion,
+a persistent warm encoder, Claude/generic adapters, and full-suite quantized
+parity evidence remain unfinished. Product eligibility remains false.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
 |---|---|---|
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
-| Ten-model local shadow ensemble | `local-shadow-ensemble-v1`; `append-stable-redacted-v2`; exact ten-model inventory in code-owned immutable manifests | Local, content-free receipt, one-session continuous watch, and separate fixed-axis radar only; calibration not assessed and product eligibility false |
+| Historical ten-model shadow graph | `local-shadow-ensemble-v1`; `append-stable-redacted-v3`; `owned-observation-v1`; `coaching-shadow-prompt-v4`; exact ten-model inventory in code-owned immutable manifests | Immutable/readable compatibility history; not executed by the live v35 estimator |
+| All-20 predictive sidecar | `local-probabilistic-radar-v1`; `local-factor-router-v2`; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |

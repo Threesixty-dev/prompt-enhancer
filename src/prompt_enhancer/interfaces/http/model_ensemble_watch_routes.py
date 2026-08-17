@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Callable, Literal, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from pydantic import Field, field_validator
 
 from ...application.analysis.model_ensemble_watch import (
@@ -15,6 +15,7 @@ from ...application.analysis.model_ensemble_watch import (
     ModelEnsembleWatchNotFoundError,
     ModelEnsembleWatchRecord,
     ModelEnsembleWatchService,
+    ModelEnsembleTrajectoryPage,
 )
 from ...application.analysis.session_model_ensemble import (
     ModelEnsembleCompatibilityError,
@@ -88,8 +89,8 @@ class ModelEnsembleWatchSnapshotDto(StrictModel):
     latest_run: ModelEnsembleRunDto | None
 
 
-class ModelEnsembleLatestReader(Protocol):
-    def latest(self, session_id: str) -> SessionModelEnsembleRunRecord | None: ...
+class ModelEnsembleRunReader(Protocol):
+    def get(self, run_id: str) -> SessionModelEnsembleRunRecord | None: ...
 
 
 def _watch_failure(error: Exception) -> HTTPException:
@@ -113,7 +114,7 @@ def _watch_failure(error: Exception) -> HTTPException:
 def create_model_ensemble_watch_router(
     require_local_auth: Callable[..., None],
     service: ModelEnsembleWatchService,
-    ensemble: ModelEnsembleLatestReader,
+    ensemble: ModelEnsembleRunReader,
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
@@ -122,10 +123,18 @@ def create_model_ensemble_watch_router(
     )
 
     def snapshot(record: ModelEnsembleWatchRecord) -> ModelEnsembleWatchSnapshotDto:
-        try:
-            latest = ensemble.latest(record.session_id)
-        except (ModelEnsembleInputError, ModelEnsemblePersistenceError) as error:
-            raise _watch_failure(error) from None
+        latest = None
+        if record.latest_run_id is not None:
+            try:
+                latest = ensemble.get(record.latest_run_id)
+            except (ModelEnsembleInputError, ModelEnsemblePersistenceError) as error:
+                raise _watch_failure(error) from None
+            if latest is None or latest.session_id != record.session_id:
+                raise _watch_failure(
+                    ModelEnsemblePersistenceError(
+                        "watch result binding is unavailable"
+                    )
+                )
         return ModelEnsembleWatchSnapshotDto(
             watch=ModelEnsembleWatchDto.from_record(record),
             latest_run=None if latest is None else ModelEnsembleRunDto.from_record(latest),
@@ -171,6 +180,24 @@ def create_model_ensemble_watch_router(
             raise HTTPException(404, detail="active model ensemble watch not found")
         return snapshot(record)
 
+    @router.post(
+        "/model-ensemble-watches/{watch_id}/refresh",
+        response_model=ModelEnsembleWatchSnapshotDto,
+    )
+    def refresh_watch(
+        response: Response,
+        watch_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ModelEnsembleWatchSnapshotDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            record = service.refresh(watch_id)
+        except (
+            ModelEnsembleWatchInputError,
+            ModelEnsembleWatchNotFoundError,
+        ) as error:
+            raise _watch_failure(error) from None
+        return snapshot(record)
+
     @router.delete(
         "/model-ensemble-watches/{watch_id}",
         response_model=ModelEnsembleWatchSnapshotDto,
@@ -185,6 +212,32 @@ def create_model_ensemble_watch_router(
         except (ModelEnsembleWatchInputError, ModelEnsembleWatchNotFoundError) as error:
             raise _watch_failure(error) from None
         return snapshot(record)
+
+    @router.get(
+        "/model-ensemble-watches/{watch_id}/trajectory",
+        response_model=ModelEnsembleTrajectoryPage,
+    )
+    def watch_trajectory(
+        response: Response,
+        watch_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        limit: Annotated[int, Query(ge=1, le=60)] = 12,
+        before_generation: Annotated[
+            int | None,
+            Query(ge=1, le=1_000_000_000),
+        ] = None,
+    ) -> ModelEnsembleTrajectoryPage:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            return service.trajectory(
+                watch_id,
+                before_generation=before_generation,
+                limit=limit,
+            )
+        except (
+            ModelEnsembleWatchInputError,
+            ModelEnsembleWatchNotFoundError,
+        ) as error:
+            raise _watch_failure(error) from None
 
     return router
 

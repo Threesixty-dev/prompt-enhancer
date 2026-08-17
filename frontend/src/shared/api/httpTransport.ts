@@ -22,6 +22,8 @@ import type {
   MetricCoverageReport,
   ModelLabInventory,
   ModelEnsembleRequest,
+  ModelPredictiveMetricDetail,
+  ModelEnsembleTrajectoryPage,
   ModelEnsembleWatchRequest,
   ModelLinkAnnotation,
   ModelLinkAnnotationRequest,
@@ -67,6 +69,14 @@ import {
   ModelEnsembleWatchPayloadError,
   parseModelEnsembleWatchSnapshot,
 } from "./modelEnsembleWatchContract";
+import {
+  ModelEnsembleTrajectoryPayloadError,
+  parseModelEnsembleTrajectoryPage,
+} from "./modelEnsembleTrajectoryContract";
+import {
+  ModelPredictiveMetricDetailPayloadError,
+  parseModelPredictiveMetricDetail,
+} from "./modelPredictiveMetricDetailContract";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -2690,6 +2700,23 @@ export function createHttpTransport(options: {
         throw error;
       }
     },
+    async getModelPredictiveMetricDetail(runId, metricKey, signal) {
+      const value = await request<unknown>(
+        `/v1/model-ensemble-runs/${encodeURIComponent(runId)}/metrics/${encodeURIComponent(metricKey)}/predictive-detail`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelPredictiveMetricDetail(value) as ModelPredictiveMetricDetail;
+      } catch (error) {
+        if (error instanceof ModelPredictiveMetricDetailPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
     async getActiveModelEnsembleWatch(signal) {
       const value = await request<unknown>(
         "/v1/model-ensemble-watch/active",
@@ -2744,6 +2771,47 @@ export function createHttpTransport(options: {
         return parseModelEnsembleWatchSnapshot(value);
       } catch (error) {
         if (error instanceof ModelEnsembleWatchPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async refreshModelEnsembleWatch(watchId, signal) {
+      const value = await request<unknown>(
+        `/v1/model-ensemble-watches/${encodeURIComponent(watchId)}/refresh`,
+        { method: "POST" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleWatchSnapshot(value);
+      } catch (error) {
+        if (error instanceof ModelEnsembleWatchPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async getModelEnsembleTrajectory(watchId, limit = 12, beforeGeneration, signal) {
+      const query = new URLSearchParams({ limit: String(limit) });
+      if (beforeGeneration !== undefined) {
+        query.set("before_generation", String(beforeGeneration));
+      }
+      const value = await request<unknown>(
+        `/v1/model-ensemble-watches/${encodeURIComponent(watchId)}/trajectory?${query.toString()}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleTrajectoryPage(
+          value,
+          beforeGeneration === undefined,
+        ) as ModelEnsembleTrajectoryPage;
+      } catch (error) {
+        if (error instanceof ModelEnsembleTrajectoryPayloadError) {
           throw new TransportError(error.message, 200);
         }
         throw error;

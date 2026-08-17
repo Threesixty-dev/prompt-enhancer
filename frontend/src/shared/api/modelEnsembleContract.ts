@@ -11,6 +11,9 @@ export class ModelEnsemblePayloadError extends Error {
 }
 
 type Row = Record<string, unknown>;
+type EnsembleMetric = ModelEnsembleRun["metrics"][number];
+type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
+type PredictiveMetric = ModelEnsembleRun["predictive_metrics"][number];
 
 const HEX_64 = /^[0-9a-f]{64}$/;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -90,14 +93,169 @@ const VOTE_STATES = ["present", "absent", "abstain", "unsupported", "failed"] as
 const VALUE_STATES = ["known", "unknown", "not_applicable", "abstained", "execution_error"] as const;
 const EXPERT_ROLES = ["retrieval", "reranking", "scope_nli", "structured_rubric"] as const;
 const EXPERT_STATUSES = ["completed", "unavailable", "resource_exhausted", "failed"] as const;
+const PREDICTIVE_STATES = [
+  "unavailable", "experimental", "calibrated", "out_of_distribution", "execution_error",
+] as const;
+
+/**
+ * Validate one content-free aggregate metric against its enclosing chunk bound.
+ * Structural graph cells do not count as eligible metric observations, so the
+ * receipt total may be smaller than the physical chunk count.
+ * Kept public so the slim trajectory boundary can reuse the exact same trust
+ * rules without accepting the much larger run graph.
+ */
+export function parseModelEnsembleMetricReceipt(
+  value: unknown,
+  chunkCount: number,
+): EnsembleMetric {
+  const metric = record(value);
+  exact(metric, [
+    "metric_key", "value_state", "numerator", "denominator", "numeric_value",
+    "known_chunk_count", "abstained_chunk_count", "unsupported_chunk_count",
+    "failed_chunk_count", "total_chunk_count", "explanation_code",
+    "calibration_state", "product_metric_eligible",
+  ]);
+  const state = oneOf(metric.value_state, VALUE_STATES);
+  const known = integer(metric.known_chunk_count, 0, chunkCount);
+  const abstained = integer(metric.abstained_chunk_count, 0, chunkCount);
+  const unsupported = integer(metric.unsupported_chunk_count, 0, chunkCount);
+  const failed = integer(metric.failed_chunk_count, 0, chunkCount);
+  const total = integer(metric.total_chunk_count, 1, chunkCount);
+  if (known + abstained + unsupported + failed !== total) {
+    throw new ModelEnsemblePayloadError();
+  }
+  label(metric.metric_key);
+  label(metric.explanation_code);
+  if (metric.calibration_state !== "not_assessed" || metric.product_metric_eligible !== false) {
+    throw new ModelEnsemblePayloadError();
+  }
+  const numerator = metric.numerator === null ? null : integer(metric.numerator, 0, total);
+  const denominator = metric.denominator === null ? null : integer(metric.denominator, 1, total);
+  const numeric = optionalFinite(metric.numeric_value, 0, 1);
+  if (state === "known") {
+    if (denominator !== known || numerator === null || numeric === null || Math.abs(numeric - numerator / denominator) > 1e-12) {
+      throw new ModelEnsemblePayloadError();
+    }
+  } else if (numerator !== null || denominator !== null || numeric !== null) {
+    throw new ModelEnsemblePayloadError();
+  }
+  return value as EnsembleMetric;
+}
+
+export function parseModelEnsembleTypedMetricReceipt(value: unknown): TypedMetric {
+  const metric = record(value);
+  exact(metric, [
+    "metric_key", "metric_version", "value_state", "numerator", "denominator",
+    "numeric_value", "observed_message_count", "eligible_message_count", "coverage",
+    "explanation_code", "error_code", "projection_source", "metric_schema_version",
+    "engine_version", "algorithm_id", "algorithm_version", "rubric_version",
+    "calibration_state", "product_metric_eligible",
+  ]);
+  label(metric.metric_key);
+  integer(metric.metric_version, 1, 1_000_000);
+  const state = oneOf(metric.value_state, VALUE_STATES);
+  const observed = integer(metric.observed_message_count, 0, 100);
+  const eligible = integer(metric.eligible_message_count, 0, 10_000_000);
+  const coverage = finite(metric.coverage, 0, 1);
+  const expectedCoverage = eligible === 0 ? 0 : observed / eligible;
+  if (observed > eligible || Math.abs(coverage - expectedCoverage) > 1e-12) {
+    throw new ModelEnsemblePayloadError();
+  }
+  const numerator = metric.numerator === null
+    ? null
+    : integer(metric.numerator, 0, 1_000_000);
+  const denominator = metric.denominator === null
+    ? null
+    : integer(metric.denominator, 1, 1_000_000);
+  const numeric = optionalFinite(metric.numeric_value, 0, 1);
+  const errorCode = metric.error_code === null ? null : label(metric.error_code);
+  if (state === "known") {
+    if (
+      numerator === null || denominator === null || numerator > denominator
+      || numeric === null || errorCode !== null
+      || Math.abs(numeric - numerator / denominator) > 1e-12
+    ) {
+      throw new ModelEnsemblePayloadError();
+    }
+  } else if (
+    numerator !== null || denominator !== null || numeric !== null
+    || ((state === "execution_error") !== (errorCode !== null))
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  label(metric.explanation_code);
+  if (
+    metric.projection_source !== "deterministic_typed_contract"
+    || metric.calibration_state !== "not_assessed"
+    || metric.product_metric_eligible !== false
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  integer(metric.metric_schema_version, 1, 1_000_000);
+  label(metric.engine_version);
+  label(metric.algorithm_id);
+  label(metric.algorithm_version);
+  label(metric.rubric_version);
+  return value as TypedMetric;
+}
+
+export function parseModelPredictiveMetricSummary(value: unknown): PredictiveMetric {
+  const metric = record(value);
+  exact(metric, [
+    "metric_key", "target", "state", "mean", "median", "q05", "q25", "q75", "q95",
+    "applicability_probability", "pending_probability", "model_disagreement",
+    "effective_observation_count", "model_set_version", "calibration_version",
+    "contract_version", "contract_fingerprint", "product_metric_eligible",
+  ]);
+  label(metric.metric_key);
+  oneOf(metric.target, ["metric_value", "outcome_forecast"] as const);
+  const state = oneOf(metric.state, PREDICTIVE_STATES);
+  const mean = optionalFinite(metric.mean, 0, 1);
+  const median = optionalFinite(metric.median, 0, 1);
+  const q05 = optionalFinite(metric.q05, 0, 1);
+  const q25 = optionalFinite(metric.q25, 0, 1);
+  const q75 = optionalFinite(metric.q75, 0, 1);
+  const q95 = optionalFinite(metric.q95, 0, 1);
+  const applicability = optionalFinite(metric.applicability_probability, 0, 1);
+  const pending = optionalFinite(metric.pending_probability, 0, 1);
+  optionalFinite(metric.model_disagreement, 0, 1);
+  const observations = integer(metric.effective_observation_count, 0, 10_000_000);
+  label(metric.model_set_version);
+  label(metric.calibration_version);
+  label(metric.contract_version);
+  if (typeof metric.contract_fingerprint !== "string" || !HEX_64.test(metric.contract_fingerprint)) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (metric.product_metric_eligible !== false) throw new ModelEnsemblePayloadError();
+  const hasDistribution = ["experimental", "calibrated", "out_of_distribution"].includes(state);
+  if (hasDistribution) {
+    if (
+      mean === null || median === null || q05 === null || q25 === null || q75 === null || q95 === null
+      || applicability === null || pending === null || observations < 1
+      || !(q05 <= q25 && q25 <= median && median <= q75 && q75 <= q95)
+      || (state === "experimental" && metric.calibration_version !== "not-calibrated-v1")
+    ) {
+      throw new ModelEnsemblePayloadError();
+    }
+  } else if (
+    mean !== null || median !== null || q05 !== null || q25 !== null || q75 !== null || q95 !== null
+    || applicability !== null || pending !== null || metric.model_disagreement !== null
+    || observations !== 0
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  return value as PredictiveMetric;
+}
 
 export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
   const run = record(value);
   exact(run, [
     "run_id", "plan_version", "plan_fingerprint", "source_coverage_state",
     "chunk_count", "model_count", "chunks", "experts", "votes", "chunk_metrics",
-    "metrics", "completed_at", "local_only", "content_persisted", "calibration_state",
-    "product_metric_eligible",
+    "metrics", "metric_projection_version", "metric_projection_completed_at",
+    "typed_metrics", "predictive_projection_version", "predictive_projected_at",
+    "predictive_metrics", "predictive_model_stages", "completed_at", "local_only", "content_persisted",
+    "calibration_state", "product_metric_eligible",
   ]);
   if (
     typeof run.run_id !== "string" || !HEX_64.test(run.run_id) ||
@@ -175,36 +333,91 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
   }
   const metricKeys = new Set<string>();
   run.metrics.forEach((candidate) => {
-    const metric = record(candidate);
-    exact(metric, [
-      "metric_key", "value_state", "numerator", "denominator", "numeric_value",
-      "known_chunk_count", "abstained_chunk_count", "unsupported_chunk_count",
-      "failed_chunk_count", "total_chunk_count", "explanation_code",
-      "calibration_state", "product_metric_eligible",
-    ]);
-    const key = label(metric.metric_key);
+    const metric = parseModelEnsembleMetricReceipt(candidate, chunkCount);
+    const key = metric.metric_key;
     if (metricKeys.has(key)) throw new ModelEnsemblePayloadError();
     metricKeys.add(key);
-    const state = oneOf(metric.value_state, VALUE_STATES);
-    const known = integer(metric.known_chunk_count, 0, chunkCount);
-    const abstained = integer(metric.abstained_chunk_count, 0, chunkCount);
-    const unsupported = integer(metric.unsupported_chunk_count, 0, chunkCount);
-    const failed = integer(metric.failed_chunk_count, 0, chunkCount);
-    if (metric.total_chunk_count !== chunkCount || known + abstained + unsupported + failed !== chunkCount) {
+  });
+  const projectionVersion = run.metric_projection_version;
+  const projectionCompletedAt = run.metric_projection_completed_at;
+  if (!Array.isArray(run.typed_metrics) || run.typed_metrics.length > 20) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (
+    (projectionVersion === null) !== (projectionCompletedAt === null)
+    || (projectionVersion === null) !== (run.typed_metrics.length === 0)
+    || (projectionVersion !== null && projectionVersion !== "coaching-typed-projection-v1")
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (projectionCompletedAt !== null) utcTimestamp(projectionCompletedAt);
+  const typedKeys = new Set<string>();
+  run.typed_metrics.forEach((candidate) => {
+    const metric = parseModelEnsembleTypedMetricReceipt(candidate);
+    if (!metricKeys.has(metric.metric_key) || typedKeys.has(metric.metric_key)) {
       throw new ModelEnsemblePayloadError();
     }
-    label(metric.explanation_code);
-    if (metric.calibration_state !== "not_assessed" || metric.product_metric_eligible !== false) {
+    typedKeys.add(metric.metric_key);
+  });
+  if (run.typed_metrics.length > 0 && typedKeys.size !== metricKeys.size) {
+    throw new ModelEnsemblePayloadError();
+  }
+
+  const predictiveVersion = run.predictive_projection_version;
+  const predictiveProjectedAt = run.predictive_projected_at;
+  if (!Array.isArray(run.predictive_metrics) || run.predictive_metrics.length > 20) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (!Array.isArray(run.predictive_model_stages) || run.predictive_model_stages.length > 8) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (
+    (predictiveVersion === null) !== (predictiveProjectedAt === null)
+    || (predictiveVersion === null) !== (run.predictive_metrics.length === 0)
+    || (predictiveVersion === null) !== (run.predictive_model_stages.length === 0)
+    || (predictiveVersion !== null && predictiveVersion !== "local-probabilistic-radar-v1")
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (predictiveProjectedAt !== null) utcTimestamp(predictiveProjectedAt);
+  const predictiveKeys = new Set<string>();
+  run.predictive_metrics.forEach((candidate) => {
+    const metric = parseModelPredictiveMetricSummary(candidate);
+    if (!metricKeys.has(metric.metric_key) || predictiveKeys.has(metric.metric_key)) {
       throw new ModelEnsemblePayloadError();
     }
-    const numerator = metric.numerator === null ? null : integer(metric.numerator, 0, chunkCount);
-    const denominator = metric.denominator === null ? null : integer(metric.denominator, 1, chunkCount);
-    const numeric = optionalFinite(metric.numeric_value, 0, 1);
-    if (state === "known") {
-      if (denominator !== known || numerator === null || numeric === null || Math.abs(numeric - numerator / denominator) > 1e-12) {
-        throw new ModelEnsemblePayloadError();
-      }
-    } else if (numerator !== null || denominator !== null || numeric !== null) {
+    predictiveKeys.add(metric.metric_key);
+  });
+  if (run.predictive_metrics.length > 0 && predictiveKeys.size !== metricKeys.size) {
+    throw new ModelEnsemblePayloadError();
+  }
+  const predictiveModels = new Set<string>();
+  run.predictive_model_stages.forEach((candidate) => {
+    const stage = record(candidate);
+    exact(stage, [
+      "model_key", "repository_id", "revision", "status", "error_code", "device",
+      "quantization", "inference_latency_ms", "peak_accelerator_memory_mb", "process_rss_mb",
+      "unloaded_after_stage",
+    ]);
+    const modelKey = label(stage.model_key);
+    if (predictiveModels.has(modelKey) || stage.unloaded_after_stage !== true) {
+      throw new ModelEnsemblePayloadError();
+    }
+    predictiveModels.add(modelKey);
+    if (typeof stage.repository_id !== "string" || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(stage.repository_id)) {
+      throw new ModelEnsemblePayloadError();
+    }
+    if (typeof stage.revision !== "string" || !/^[0-9a-f]{40}$/.test(stage.revision)) {
+      throw new ModelEnsemblePayloadError();
+    }
+    const status = oneOf(stage.status, EXPERT_STATUSES);
+    const errorCode = stage.error_code === null ? null : label(stage.error_code);
+    const device = stage.device === null ? null : oneOf(stage.device, ["cpu", "cuda", "mps"] as const);
+    oneOf(stage.quantization, ["none", "bitsandbytes_nf4"] as const);
+    optionalFinite(stage.inference_latency_ms);
+    optionalFinite(stage.peak_accelerator_memory_mb, 0, 6_144);
+    optionalFinite(stage.process_rss_mb, 0, 8_192);
+    if ((status === "completed") !== (errorCode === null && device !== null)) {
       throw new ModelEnsemblePayloadError();
     }
   });

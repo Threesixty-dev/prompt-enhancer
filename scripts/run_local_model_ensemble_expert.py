@@ -38,6 +38,7 @@ from prompt_enhancer.infrastructure.text_models.model_ensemble import (
     MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
     ModelEnsembleError,
     ensemble_expert_specs,
+    probabilistic_challenger_specs,
 )
 from prompt_enhancer.infrastructure.text_models.transformers_backends import (
     LocalBackendError,
@@ -61,6 +62,7 @@ _SAFE_ERRORS = {
     "cuda_unavailable",
     "mps_unavailable",
     "model_stage_failed",
+    "quantization_backend_unavailable",
 }
 _ROLES = frozenset({"user", "agent"})
 _KINDS = frozenset(
@@ -87,6 +89,11 @@ def _parser() -> argparse.ArgumentParser:
         choices=("retrieval", "reranking", "scope_nli", "structured_rubric"),
     )
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
+    parser.add_argument(
+        "--quantization",
+        choices=("none", "bitsandbytes_nf4"),
+        default="none",
+    )
     return parser
 
 
@@ -292,7 +299,10 @@ def _safe_error(exc: BaseException) -> str:
 
 
 def run(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
-    specs = {item.identity.model_key: item for item in ensemble_expert_specs()}
+    specs = {
+        item.identity.model_key: item
+        for item in (*ensemble_expert_specs(), *probabilistic_challenger_specs())
+    }
     spec = specs.get(arguments.model_key)
     if spec is None or spec.identity.role.value != arguments.stage:
         return 2, {
@@ -323,13 +333,18 @@ def run(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
                 "mdeberta_xnli": TransformersNliClassifier,
                 "multilingual_minilmv2_l6_nli": TransformersNliClassifier,
                 "multilingual_minilmv2_l12_nli": TransformersNliClassifier,
+                "deberta_small_long_nli": TransformersNliClassifier,
+                "modernbert_base_zeroshot": TransformersNliClassifier,
                 "qwen3_4b_rubric": TransformersDynamicRubricJudge,
             }[spec.identity.model_key]
+            if arguments.quantization != "none" and spec.identity.model_key != "qwen3_4b_rubric":
+                raise LocalBackendError("unsupported_quantization")
             backend = backend_type(
                 spec.manifest,
                 snapshot,
                 device=arguments.device,
                 batch_size=min(8, spec.manifest.max_batch_size),
+                quantization=arguments.quantization,
             )
             started = time.perf_counter()
             if arguments.stage in {"retrieval", "reranking"}:

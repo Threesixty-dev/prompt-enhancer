@@ -99,6 +99,9 @@ export type ModelEnsembleOutcome = Schemas["ModelEnsembleOutcomeDto"];
 export type ModelEnsembleWatchRequest = Schemas["ModelEnsembleWatchRequest"];
 export type ModelEnsembleWatch = Schemas["ModelEnsembleWatchDto"];
 export type ModelEnsembleWatchSnapshot = Schemas["ModelEnsembleWatchSnapshotDto"];
+export type ModelEnsembleTrajectoryPage = Schemas["ModelEnsembleTrajectoryPage"];
+export type ModelEnsembleTrajectoryPoint = Schemas["ModelEnsembleTrajectoryPoint"];
+export type ModelPredictiveMetricDetail = Schemas["ModelPredictiveMetricDetailDto"];
 
 export interface SessionMetric {
   key: string;
@@ -537,6 +540,21 @@ export interface PromptEnhancerTransport {
     watchId: string,
     signal?: AbortSignal,
   ): Promise<ModelEnsembleWatchSnapshot>;
+  refreshModelEnsembleWatch?(
+    watchId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleWatchSnapshot>;
+  getModelEnsembleTrajectory?(
+    watchId: string,
+    limit?: number,
+    beforeGeneration?: number,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleTrajectoryPage>;
+  getModelPredictiveMetricDetail?(
+    runId: string,
+    metricKey: string,
+    signal?: AbortSignal,
+  ): Promise<ModelPredictiveMetricDetail>;
   listCandidates(
     status?: CandidateStatusFilter,
     signal?: AbortSignal,

@@ -9841,3 +9841,536 @@ ADD COLUMN max_messages INTEGER NOT NULL DEFAULT 100
 
 COMMIT;
 """
+
+
+MIGRATION_30 = r"""
+BEGIN IMMEDIATE;
+
+-- Append-only, content-free publication lineage for the live radar.  Values
+-- remain in the immutable v26 run graph; this table records only which sealed
+-- run a leased watch actually published.  Historical rows are not backfilled
+-- because their watch ownership cannot be reconstructed safely.
+CREATE TABLE session_model_ensemble_watch_publications (
+    watch_id TEXT NOT NULL REFERENCES session_model_ensemble_watches(watch_id) ON DELETE CASCADE,
+    generation INTEGER NOT NULL CHECK(generation BETWEEN 1 AND 1000000000),
+    run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    max_messages INTEGER NOT NULL CHECK(max_messages BETWEEN 1 AND 100),
+    published_at TEXT NOT NULL CHECK(length(published_at)=32 AND substr(published_at,27)='+00:00'),
+    PRIMARY KEY(watch_id,generation),
+    UNIQUE(watch_id,run_id)
+);
+
+CREATE INDEX session_model_ensemble_watch_publications_recent
+ON session_model_ensemble_watch_publications(watch_id,generation DESC);
+
+CREATE TRIGGER session_model_ensemble_watch_publication_binding
+BEFORE INSERT ON session_model_ensemble_watch_publications
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM session_model_ensemble_watches watch
+    JOIN session_model_ensemble_runs run ON run.run_id=NEW.run_id
+    JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+    WHERE watch.watch_id=NEW.watch_id
+      AND watch.state='running'
+      AND watch.generation=NEW.generation
+      AND watch.max_messages=NEW.max_messages
+      AND run.session_id=watch.session_id
+      AND run.provider=watch.provider
+      AND run.completed_at<=NEW.published_at
+)
+BEGIN SELECT RAISE(ABORT,'model ensemble watch publication binding is invalid'); END;
+
+CREATE TRIGGER session_model_ensemble_watch_publications_no_update
+BEFORE UPDATE ON session_model_ensemble_watch_publications
+BEGIN SELECT RAISE(ABORT,'model ensemble watch publications are immutable'); END;
+
+COMMIT;
+"""
+
+
+MIGRATION_31 = r"""
+BEGIN IMMEDIATE;
+
+-- Add one separately sealed, content-free deterministic metric projection to
+-- the immutable ten-model graph.  The model committee remains diagnostic;
+-- these rows preserve the typed coaching numerator/denominator used by the
+-- live radar.  Existing runs receive no synthetic backfill.
+CREATE TABLE session_model_ensemble_typed_metrics (
+    run_id TEXT NOT NULL,
+    projection_version TEXT NOT NULL CHECK(projection_version='coaching-typed-projection-v1'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    metric_version INTEGER NOT NULL CHECK(metric_version BETWEEN 1 AND 1000000),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','not_applicable','abstained','execution_error')),
+    numerator INTEGER CHECK(numerator BETWEEN 0 AND 1000000),
+    denominator INTEGER CHECK(denominator BETWEEN 1 AND 1000000),
+    numeric_value REAL CHECK(numeric_value BETWEEN 0.0 AND 1.0),
+    observed_message_count INTEGER NOT NULL CHECK(observed_message_count BETWEEN 0 AND 100),
+    eligible_message_count INTEGER NOT NULL CHECK(eligible_message_count BETWEEN 1 AND 100),
+    coverage REAL NOT NULL CHECK(coverage BETWEEN 0.0 AND 1.0),
+    explanation_code TEXT NOT NULL CHECK(length(explanation_code) BETWEEN 1 AND 128 AND explanation_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    error_code TEXT CHECK(length(error_code) BETWEEN 1 AND 128 AND error_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    projection_source TEXT NOT NULL CHECK(projection_source='deterministic_typed_contract'),
+    metric_schema_version INTEGER NOT NULL CHECK(metric_schema_version BETWEEN 1 AND 1000000),
+    engine_version TEXT NOT NULL CHECK(length(engine_version) BETWEEN 1 AND 128 AND engine_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    algorithm_id TEXT NOT NULL CHECK(length(algorithm_id) BETWEEN 1 AND 128 AND algorithm_id NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    algorithm_version TEXT NOT NULL CHECK(length(algorithm_version) BETWEEN 1 AND 128 AND algorithm_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    rubric_version TEXT NOT NULL CHECK(length(rubric_version) BETWEEN 1 AND 128 AND rubric_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,projection_version,metric_key),
+    FOREIGN KEY(run_id,metric_key)
+      REFERENCES session_model_ensemble_metrics(run_id,metric_key) ON DELETE CASCADE,
+    CHECK(observed_message_count<=eligible_message_count),
+    CHECK(abs(coverage-(CAST(observed_message_count AS REAL)/eligible_message_count))<=0.000000000001),
+    CHECK((value_state='known' AND numerator IS NOT NULL AND denominator IS NOT NULL
+           AND numerator<=denominator AND numeric_value IS NOT NULL
+           AND abs(numeric_value-(CAST(numerator AS REAL)/denominator))<=0.000000000001
+           AND error_code IS NULL)
+       OR (value_state='execution_error' AND numerator IS NULL AND denominator IS NULL
+           AND numeric_value IS NULL AND error_code IS NOT NULL)
+       OR (value_state IN ('unknown','not_applicable','abstained')
+           AND numerator IS NULL AND denominator IS NULL AND numeric_value IS NULL
+           AND error_code IS NULL))
+);
+
+CREATE TABLE session_model_ensemble_typed_metric_seals (
+    run_id TEXT NOT NULL,
+    projection_version TEXT NOT NULL CHECK(projection_version='coaching-typed-projection-v1'),
+    metric_count INTEGER NOT NULL CHECK(metric_count BETWEEN 1 AND 20),
+    projection_fingerprint TEXT NOT NULL UNIQUE CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projected_at TEXT NOT NULL CHECK(length(projected_at)=32 AND substr(projected_at,27)='+00:00'),
+    PRIMARY KEY(run_id,projection_version),
+    FOREIGN KEY(run_id) REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE
+);
+
+CREATE TRIGGER session_model_ensemble_typed_metric_seal_complete
+BEFORE INSERT ON session_model_ensemble_typed_metric_seals
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM session_model_ensemble_runs run
+    JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+    WHERE run.run_id=NEW.run_id
+      AND run.metric_count=NEW.metric_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_typed_metrics metric
+           WHERE metric.run_id=NEW.run_id
+             AND metric.projection_version=NEW.projection_version)=NEW.metric_count
+)
+BEGIN SELECT RAISE(ABORT,'typed metric projection is incomplete'); END;
+
+CREATE TRIGGER session_model_ensemble_typed_metrics_no_update
+BEFORE UPDATE ON session_model_ensemble_typed_metrics
+BEGIN SELECT RAISE(ABORT,'typed metric projections are immutable'); END;
+CREATE TRIGGER session_model_ensemble_typed_metric_seals_no_update
+BEFORE UPDATE ON session_model_ensemble_typed_metric_seals
+BEGIN SELECT RAISE(ABORT,'typed metric projection seals are immutable'); END;
+CREATE TRIGGER session_model_ensemble_typed_metrics_sealed_insert
+BEFORE INSERT ON session_model_ensemble_typed_metrics
+WHEN EXISTS (
+    SELECT 1 FROM session_model_ensemble_typed_metric_seals seal
+    WHERE seal.run_id=NEW.run_id AND seal.projection_version=NEW.projection_version
+)
+BEGIN SELECT RAISE(ABORT,'typed metric projection is sealed'); END;
+CREATE TRIGGER session_model_ensemble_typed_metric_seal_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_typed_metric_seals
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'typed metric projection seal requires parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_typed_metrics_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_typed_metrics
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'typed metric projection requires parent privacy deletion'); END;
+
+COMMIT;
+"""
+
+
+MIGRATION_32 = r"""
+BEGIN IMMEDIATE;
+
+-- A user-requested refresh may revoke a dead or unwanted live lease without
+-- discarding the last sealed head.  The displaced worker loses its token and
+-- therefore cannot heartbeat, save, or publish after this transition.
+DROP TRIGGER session_model_ensemble_watch_transitions;
+CREATE TRIGGER session_model_ensemble_watch_transitions
+BEFORE UPDATE ON session_model_ensemble_watches
+WHEN NEW.state<>OLD.state AND NOT (
+       (OLD.state='queued' AND NEW.state IN ('running','disabled'))
+    OR (OLD.state='running' AND NEW.state IN ('queued','idle','failed','disabled'))
+    OR (OLD.state='idle' AND NEW.state IN ('queued','running','disabled'))
+    OR (OLD.state='failed' AND NEW.state IN ('queued','running','disabled'))
+    OR (OLD.state='disabled' AND NEW.state='queued')
+)
+BEGIN SELECT RAISE(ABORT,'model ensemble watch transition is invalid'); END;
+
+COMMIT;
+"""
+
+
+MIGRATION_33 = r"""
+BEGIN IMMEDIATE;
+
+-- v31 incorrectly required at least one message-level opportunity for every
+-- typed metric.  The underlying reviewed contract permits an exact 0/0,
+-- coverage=0 receipt when a metric has no eligible message in this window.
+-- Preserve those states as nonnumeric rather than inventing a denominator.
+DROP TRIGGER session_model_ensemble_typed_metric_seal_complete;
+DROP TRIGGER session_model_ensemble_typed_metrics_no_update;
+DROP TRIGGER session_model_ensemble_typed_metrics_sealed_insert;
+DROP TRIGGER session_model_ensemble_typed_metrics_privacy_delete_only;
+
+ALTER TABLE session_model_ensemble_typed_metrics
+RENAME TO session_model_ensemble_typed_metrics_v31;
+
+CREATE TABLE session_model_ensemble_typed_metrics (
+    run_id TEXT NOT NULL,
+    projection_version TEXT NOT NULL CHECK(projection_version='coaching-typed-projection-v1'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    metric_version INTEGER NOT NULL CHECK(metric_version BETWEEN 1 AND 1000000),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','not_applicable','abstained','execution_error')),
+    numerator INTEGER CHECK(numerator BETWEEN 0 AND 1000000),
+    denominator INTEGER CHECK(denominator BETWEEN 1 AND 1000000),
+    numeric_value REAL CHECK(numeric_value BETWEEN 0.0 AND 1.0),
+    observed_message_count INTEGER NOT NULL CHECK(observed_message_count BETWEEN 0 AND 100),
+    eligible_message_count INTEGER NOT NULL CHECK(eligible_message_count BETWEEN 0 AND 100),
+    coverage REAL NOT NULL CHECK(coverage BETWEEN 0.0 AND 1.0),
+    explanation_code TEXT NOT NULL CHECK(length(explanation_code) BETWEEN 1 AND 128 AND explanation_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    error_code TEXT CHECK(length(error_code) BETWEEN 1 AND 128 AND error_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    projection_source TEXT NOT NULL CHECK(projection_source='deterministic_typed_contract'),
+    metric_schema_version INTEGER NOT NULL CHECK(metric_schema_version BETWEEN 1 AND 1000000),
+    engine_version TEXT NOT NULL CHECK(length(engine_version) BETWEEN 1 AND 128 AND engine_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    algorithm_id TEXT NOT NULL CHECK(length(algorithm_id) BETWEEN 1 AND 128 AND algorithm_id NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    algorithm_version TEXT NOT NULL CHECK(length(algorithm_version) BETWEEN 1 AND 128 AND algorithm_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    rubric_version TEXT NOT NULL CHECK(length(rubric_version) BETWEEN 1 AND 128 AND rubric_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,projection_version,metric_key),
+    FOREIGN KEY(run_id,metric_key)
+      REFERENCES session_model_ensemble_metrics(run_id,metric_key) ON DELETE CASCADE,
+    CHECK(observed_message_count<=eligible_message_count),
+    CHECK((eligible_message_count=0 AND observed_message_count=0 AND abs(coverage)<=0.000000000001)
+       OR (eligible_message_count>0 AND abs(coverage-(CAST(observed_message_count AS REAL)/eligible_message_count))<=0.000000000001)),
+    CHECK((value_state='known' AND numerator IS NOT NULL AND denominator IS NOT NULL
+           AND numerator<=denominator AND numeric_value IS NOT NULL
+           AND abs(numeric_value-(CAST(numerator AS REAL)/denominator))<=0.000000000001
+           AND error_code IS NULL)
+       OR (value_state='execution_error' AND numerator IS NULL AND denominator IS NULL
+           AND numeric_value IS NULL AND error_code IS NOT NULL)
+       OR (value_state IN ('unknown','not_applicable','abstained')
+           AND numerator IS NULL AND denominator IS NULL AND numeric_value IS NULL
+           AND error_code IS NULL))
+);
+
+INSERT INTO session_model_ensemble_typed_metrics
+SELECT * FROM session_model_ensemble_typed_metrics_v31;
+DROP TABLE session_model_ensemble_typed_metrics_v31;
+
+CREATE TRIGGER session_model_ensemble_typed_metric_seal_complete
+BEFORE INSERT ON session_model_ensemble_typed_metric_seals
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM session_model_ensemble_runs run
+    JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+    WHERE run.run_id=NEW.run_id
+      AND run.metric_count=NEW.metric_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_typed_metrics metric
+           WHERE metric.run_id=NEW.run_id
+             AND metric.projection_version=NEW.projection_version)=NEW.metric_count
+)
+BEGIN SELECT RAISE(ABORT,'typed metric projection is incomplete'); END;
+CREATE TRIGGER session_model_ensemble_typed_metrics_no_update
+BEFORE UPDATE ON session_model_ensemble_typed_metrics
+BEGIN SELECT RAISE(ABORT,'typed metric projections are immutable'); END;
+CREATE TRIGGER session_model_ensemble_typed_metrics_sealed_insert
+BEFORE INSERT ON session_model_ensemble_typed_metrics
+WHEN EXISTS (
+    SELECT 1 FROM session_model_ensemble_typed_metric_seals seal
+    WHERE seal.run_id=NEW.run_id AND seal.projection_version=NEW.projection_version
+)
+BEGIN SELECT RAISE(ABORT,'typed metric projection is sealed'); END;
+CREATE TRIGGER session_model_ensemble_typed_metrics_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_typed_metrics
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'typed metric projection requires parent privacy deletion'); END;
+
+COMMIT;
+"""
+
+
+MIGRATION_34 = r"""
+BEGIN IMMEDIATE;
+
+-- The bounded read observes at most 100 selected messages, while its exact
+-- eligible-source denominator may describe a much larger provider session.
+-- Match the existing reviewed P1 denominator bound without expanding the read.
+DROP TRIGGER session_model_ensemble_typed_metric_seal_complete;
+DROP TRIGGER session_model_ensemble_typed_metrics_no_update;
+DROP TRIGGER session_model_ensemble_typed_metrics_sealed_insert;
+DROP TRIGGER session_model_ensemble_typed_metrics_privacy_delete_only;
+
+ALTER TABLE session_model_ensemble_typed_metrics
+RENAME TO session_model_ensemble_typed_metrics_v33;
+
+CREATE TABLE session_model_ensemble_typed_metrics (
+    run_id TEXT NOT NULL,
+    projection_version TEXT NOT NULL CHECK(projection_version='coaching-typed-projection-v1'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    metric_version INTEGER NOT NULL CHECK(metric_version BETWEEN 1 AND 1000000),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','unknown','not_applicable','abstained','execution_error')),
+    numerator INTEGER CHECK(numerator BETWEEN 0 AND 1000000),
+    denominator INTEGER CHECK(denominator BETWEEN 1 AND 1000000),
+    numeric_value REAL CHECK(numeric_value BETWEEN 0.0 AND 1.0),
+    observed_message_count INTEGER NOT NULL CHECK(observed_message_count BETWEEN 0 AND 100),
+    eligible_message_count INTEGER NOT NULL CHECK(eligible_message_count BETWEEN 0 AND 10000000),
+    coverage REAL NOT NULL CHECK(coverage BETWEEN 0.0 AND 1.0),
+    explanation_code TEXT NOT NULL CHECK(length(explanation_code) BETWEEN 1 AND 128 AND explanation_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    error_code TEXT CHECK(length(error_code) BETWEEN 1 AND 128 AND error_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    projection_source TEXT NOT NULL CHECK(projection_source='deterministic_typed_contract'),
+    metric_schema_version INTEGER NOT NULL CHECK(metric_schema_version BETWEEN 1 AND 1000000),
+    engine_version TEXT NOT NULL CHECK(length(engine_version) BETWEEN 1 AND 128 AND engine_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    algorithm_id TEXT NOT NULL CHECK(length(algorithm_id) BETWEEN 1 AND 128 AND algorithm_id NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    algorithm_version TEXT NOT NULL CHECK(length(algorithm_version) BETWEEN 1 AND 128 AND algorithm_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    rubric_version TEXT NOT NULL CHECK(length(rubric_version) BETWEEN 1 AND 128 AND rubric_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    calibration_state TEXT NOT NULL CHECK(calibration_state='not_assessed'),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,projection_version,metric_key),
+    FOREIGN KEY(run_id,metric_key)
+      REFERENCES session_model_ensemble_metrics(run_id,metric_key) ON DELETE CASCADE,
+    CHECK(observed_message_count<=eligible_message_count),
+    CHECK((eligible_message_count=0 AND observed_message_count=0 AND abs(coverage)<=0.000000000001)
+       OR (eligible_message_count>0 AND abs(coverage-(CAST(observed_message_count AS REAL)/eligible_message_count))<=0.000000000001)),
+    CHECK((value_state='known' AND numerator IS NOT NULL AND denominator IS NOT NULL
+           AND numerator<=denominator AND numeric_value IS NOT NULL
+           AND abs(numeric_value-(CAST(numerator AS REAL)/denominator))<=0.000000000001
+           AND error_code IS NULL)
+       OR (value_state='execution_error' AND numerator IS NULL AND denominator IS NULL
+           AND numeric_value IS NULL AND error_code IS NOT NULL)
+       OR (value_state IN ('unknown','not_applicable','abstained')
+           AND numerator IS NULL AND denominator IS NULL AND numeric_value IS NULL
+           AND error_code IS NULL))
+);
+
+INSERT INTO session_model_ensemble_typed_metrics
+SELECT * FROM session_model_ensemble_typed_metrics_v33;
+DROP TABLE session_model_ensemble_typed_metrics_v33;
+
+CREATE TRIGGER session_model_ensemble_typed_metric_seal_complete
+BEFORE INSERT ON session_model_ensemble_typed_metric_seals
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM session_model_ensemble_runs run
+    JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+    WHERE run.run_id=NEW.run_id
+      AND run.metric_count=NEW.metric_count
+      AND (SELECT COUNT(*) FROM session_model_ensemble_typed_metrics metric
+           WHERE metric.run_id=NEW.run_id
+             AND metric.projection_version=NEW.projection_version)=NEW.metric_count
+)
+BEGIN SELECT RAISE(ABORT,'typed metric projection is incomplete'); END;
+CREATE TRIGGER session_model_ensemble_typed_metrics_no_update
+BEFORE UPDATE ON session_model_ensemble_typed_metrics
+BEGIN SELECT RAISE(ABORT,'typed metric projections are immutable'); END;
+CREATE TRIGGER session_model_ensemble_typed_metrics_sealed_insert
+BEFORE INSERT ON session_model_ensemble_typed_metrics
+WHEN EXISTS (
+    SELECT 1 FROM session_model_ensemble_typed_metric_seals seal
+    WHERE seal.run_id=NEW.run_id AND seal.projection_version=NEW.projection_version
+)
+BEGIN SELECT RAISE(ABORT,'typed metric projection is sealed'); END;
+CREATE TRIGGER session_model_ensemble_typed_metrics_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_typed_metrics
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'typed metric projection requires parent privacy deletion'); END;
+
+COMMIT;
+"""
+
+
+MIGRATION_35 = r"""
+BEGIN IMMEDIATE;
+
+-- A separately sealed predictive sidecar for the all-20 local radar.  The
+-- deterministic typed projection remains the measured layer.  These tables
+-- contain only model/contract identities, bounded probabilities, compact
+-- sufficient statistics and resource telemetry.  No text, prompt, logit,
+-- sample, source identifier, path, or generated explanation is persisted.
+CREATE TABLE session_model_ensemble_predictive_metrics (
+    run_id TEXT NOT NULL,
+    projection_version TEXT NOT NULL CHECK(projection_version='local-probabilistic-radar-v1'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    target TEXT NOT NULL CHECK(target IN ('metric_value','outcome_forecast')),
+    state TEXT NOT NULL CHECK(state IN ('unavailable','experimental','calibrated','out_of_distribution','execution_error')),
+    mean REAL CHECK(mean BETWEEN 0.0 AND 1.0),
+    median REAL CHECK(median BETWEEN 0.0 AND 1.0),
+    q05 REAL CHECK(q05 BETWEEN 0.0 AND 1.0),
+    q25 REAL CHECK(q25 BETWEEN 0.0 AND 1.0),
+    q75 REAL CHECK(q75 BETWEEN 0.0 AND 1.0),
+    q95 REAL CHECK(q95 BETWEEN 0.0 AND 1.0),
+    applicability_probability REAL CHECK(applicability_probability BETWEEN 0.0 AND 1.0),
+    pending_probability REAL CHECK(pending_probability BETWEEN 0.0 AND 1.0),
+    model_disagreement REAL CHECK(model_disagreement BETWEEN 0.0 AND 1.0),
+    effective_observation_count INTEGER NOT NULL CHECK(effective_observation_count BETWEEN 0 AND 10000000),
+    model_set_version TEXT NOT NULL CHECK(model_set_version='local-factor-router-v2'),
+    calibration_version TEXT NOT NULL CHECK(length(calibration_version) BETWEEN 1 AND 128 AND calibration_version NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='probabilistic-metric-contract-v1'),
+    contract_fingerprint TEXT NOT NULL CHECK(length(contract_fingerprint)=64 AND contract_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    factor_count INTEGER NOT NULL CHECK(factor_count BETWEEN 0 AND 8),
+    density_bin_count INTEGER NOT NULL CHECK(density_bin_count IN (0,20)),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,projection_version,metric_key),
+    FOREIGN KEY(run_id,metric_key)
+      REFERENCES session_model_ensemble_metrics(run_id,metric_key) ON DELETE CASCADE,
+    CHECK(
+      (state IN ('experimental','calibrated','out_of_distribution')
+       AND mean IS NOT NULL AND median IS NOT NULL
+       AND q05 IS NOT NULL AND q25 IS NOT NULL AND q75 IS NOT NULL AND q95 IS NOT NULL
+       AND q05<=q25 AND q25<=median AND median<=q75 AND q75<=q95
+       AND applicability_probability IS NOT NULL AND pending_probability IS NOT NULL
+       AND effective_observation_count>=1 AND factor_count>=1 AND density_bin_count=20)
+      OR
+      (state IN ('unavailable','execution_error')
+       AND mean IS NULL AND median IS NULL
+       AND q05 IS NULL AND q25 IS NULL AND q75 IS NULL AND q95 IS NULL
+       AND applicability_probability IS NULL AND pending_probability IS NULL
+       AND model_disagreement IS NULL AND effective_observation_count=0
+       AND factor_count=0 AND density_bin_count=0)
+    ),
+    CHECK(state<>'experimental' OR calibration_version='not-calibrated-v1')
+);
+
+CREATE TABLE session_model_ensemble_predictive_factors (
+    run_id TEXT NOT NULL,
+    projection_version TEXT NOT NULL CHECK(projection_version='local-probabilistic-radar-v1'),
+    metric_key TEXT NOT NULL,
+    factor_ordinal INTEGER NOT NULL CHECK(factor_ordinal BETWEEN 0 AND 7),
+    factor_key TEXT NOT NULL CHECK(length(factor_key) BETWEEN 1 AND 128 AND factor_key NOT GLOB '*[^a-z0-9._-]*'),
+    scale TEXT NOT NULL CHECK(scale IN ('binary','ordinal','proportion')),
+    weight REAL NOT NULL CHECK(weight>0.0),
+    applicability_probability REAL NOT NULL CHECK(applicability_probability BETWEEN 0.0 AND 1.0),
+    present_probability REAL NOT NULL CHECK(present_probability BETWEEN 0.0 AND 1.0),
+    neutral_probability REAL NOT NULL CHECK(neutral_probability BETWEEN 0.0 AND 1.0),
+    absent_probability REAL NOT NULL CHECK(absent_probability BETWEEN 0.0 AND 1.0),
+    expert_count INTEGER NOT NULL CHECK(expert_count BETWEEN 1 AND 8),
+    critical INTEGER NOT NULL CHECK(critical IN (0,1)),
+    PRIMARY KEY(run_id,projection_version,metric_key,factor_ordinal),
+    UNIQUE(run_id,projection_version,metric_key,factor_key),
+    FOREIGN KEY(run_id,projection_version,metric_key)
+      REFERENCES session_model_ensemble_predictive_metrics(run_id,projection_version,metric_key) ON DELETE CASCADE,
+    CHECK(abs((present_probability+neutral_probability+absent_probability)-1.0)<=0.000001)
+);
+
+CREATE TABLE session_model_ensemble_predictive_density_bins (
+    run_id TEXT NOT NULL,
+    projection_version TEXT NOT NULL CHECK(projection_version='local-probabilistic-radar-v1'),
+    metric_key TEXT NOT NULL,
+    bin_ordinal INTEGER NOT NULL CHECK(bin_ordinal BETWEEN 0 AND 19),
+    probability_mass REAL NOT NULL CHECK(probability_mass BETWEEN 0.0 AND 1.0),
+    PRIMARY KEY(run_id,projection_version,metric_key,bin_ordinal),
+    FOREIGN KEY(run_id,projection_version,metric_key)
+      REFERENCES session_model_ensemble_predictive_metrics(run_id,projection_version,metric_key) ON DELETE CASCADE
+);
+
+CREATE TABLE session_model_ensemble_predictive_model_stages (
+    run_id TEXT NOT NULL,
+    projection_version TEXT NOT NULL CHECK(projection_version='local-probabilistic-radar-v1'),
+    stage_ordinal INTEGER NOT NULL CHECK(stage_ordinal BETWEEN 0 AND 7),
+    model_key TEXT NOT NULL CHECK(length(model_key) BETWEEN 1 AND 128 AND model_key NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    repository_id TEXT NOT NULL CHECK(length(repository_id) BETWEEN 3 AND 192 AND repository_id GLOB '*/*' AND repository_id NOT GLOB '*[^A-Za-z0-9._/-]*'),
+    revision TEXT NOT NULL CHECK(length(revision)=40 AND revision NOT GLOB '*[^0-9a-f]*'),
+    status TEXT NOT NULL CHECK(status IN ('completed','unavailable','resource_exhausted','failed')),
+    error_code TEXT CHECK(length(error_code) BETWEEN 1 AND 128 AND error_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    device TEXT CHECK(device IN ('cpu','cuda','mps')),
+    quantization TEXT NOT NULL CHECK(quantization IN ('none','bitsandbytes_nf4')),
+    inference_latency_ms REAL CHECK(inference_latency_ms>=0.0),
+    peak_accelerator_memory_mb REAL CHECK(peak_accelerator_memory_mb BETWEEN 0.0 AND 6144.0),
+    process_rss_mb REAL CHECK(process_rss_mb BETWEEN 0.0 AND 8192.0),
+    unloaded_after_stage INTEGER NOT NULL CHECK(unloaded_after_stage=1),
+    PRIMARY KEY(run_id,projection_version,stage_ordinal),
+    UNIQUE(run_id,projection_version,model_key),
+    FOREIGN KEY(run_id) REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    CHECK((status='completed' AND error_code IS NULL AND device IS NOT NULL)
+       OR (status<>'completed' AND error_code IS NOT NULL AND device IS NULL))
+);
+
+CREATE TABLE session_model_ensemble_predictive_metric_seals (
+    run_id TEXT NOT NULL,
+    projection_version TEXT NOT NULL CHECK(projection_version='local-probabilistic-radar-v1'),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v1'),
+    model_set_version TEXT NOT NULL CHECK(model_set_version='local-factor-router-v2'),
+    metric_count INTEGER NOT NULL CHECK(metric_count=20),
+    factor_count INTEGER NOT NULL CHECK(factor_count BETWEEN 0 AND 160),
+    density_bin_count INTEGER NOT NULL CHECK(density_bin_count BETWEEN 0 AND 400),
+    stage_count INTEGER NOT NULL CHECK(stage_count BETWEEN 0 AND 8),
+    sample_count INTEGER NOT NULL CHECK(sample_count=1024),
+    projection_fingerprint TEXT NOT NULL UNIQUE CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projected_at TEXT NOT NULL CHECK(length(projected_at)=32 AND substr(projected_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    calibrated_as_truth INTEGER NOT NULL CHECK(calibrated_as_truth=0),
+    PRIMARY KEY(run_id,projection_version),
+    FOREIGN KEY(run_id) REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE
+);
+
+CREATE TRIGGER session_model_ensemble_predictive_seal_complete
+BEFORE INSERT ON session_model_ensemble_predictive_metric_seals
+WHEN NOT EXISTS (
+    SELECT 1 FROM session_model_ensemble_runs run
+    JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+    WHERE run.run_id=NEW.run_id AND run.metric_count=NEW.metric_count)
+ OR (SELECT COUNT(*) FROM session_model_ensemble_predictive_metrics metric
+     WHERE metric.run_id=NEW.run_id AND metric.projection_version=NEW.projection_version)<>NEW.metric_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_predictive_factors factor
+     WHERE factor.run_id=NEW.run_id AND factor.projection_version=NEW.projection_version)<>NEW.factor_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_predictive_density_bins bin
+     WHERE bin.run_id=NEW.run_id AND bin.projection_version=NEW.projection_version)<>NEW.density_bin_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_predictive_model_stages stage
+     WHERE stage.run_id=NEW.run_id AND stage.projection_version=NEW.projection_version)<>NEW.stage_count
+ OR EXISTS (
+    SELECT 1 FROM session_model_ensemble_predictive_metrics metric
+    WHERE metric.run_id=NEW.run_id AND metric.projection_version=NEW.projection_version
+      AND ((SELECT COUNT(*) FROM session_model_ensemble_predictive_factors factor
+            WHERE factor.run_id=metric.run_id AND factor.projection_version=metric.projection_version
+              AND factor.metric_key=metric.metric_key)<>metric.factor_count
+        OR (SELECT COUNT(*) FROM session_model_ensemble_predictive_density_bins bin
+            WHERE bin.run_id=metric.run_id AND bin.projection_version=metric.projection_version
+              AND bin.metric_key=metric.metric_key)<>metric.density_bin_count
+        OR (metric.density_bin_count=20 AND abs((SELECT SUM(bin.probability_mass)
+            FROM session_model_ensemble_predictive_density_bins bin
+            WHERE bin.run_id=metric.run_id AND bin.projection_version=metric.projection_version
+              AND bin.metric_key=metric.metric_key)-1.0)>0.000001))
+ )
+BEGIN SELECT RAISE(ABORT,'predictive metric projection is incomplete'); END;
+
+CREATE TRIGGER session_model_ensemble_predictive_metrics_sealed_insert
+BEFORE INSERT ON session_model_ensemble_predictive_metrics
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_predictive_metric_seals seal
+             WHERE seal.run_id=NEW.run_id AND seal.projection_version=NEW.projection_version)
+BEGIN SELECT RAISE(ABORT,'predictive metric projection is sealed'); END;
+CREATE TRIGGER session_model_ensemble_predictive_factors_sealed_insert
+BEFORE INSERT ON session_model_ensemble_predictive_factors
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_predictive_metric_seals seal
+             WHERE seal.run_id=NEW.run_id AND seal.projection_version=NEW.projection_version)
+BEGIN SELECT RAISE(ABORT,'predictive metric projection is sealed'); END;
+CREATE TRIGGER session_model_ensemble_predictive_density_sealed_insert
+BEFORE INSERT ON session_model_ensemble_predictive_density_bins
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_predictive_metric_seals seal
+             WHERE seal.run_id=NEW.run_id AND seal.projection_version=NEW.projection_version)
+BEGIN SELECT RAISE(ABORT,'predictive metric projection is sealed'); END;
+CREATE TRIGGER session_model_ensemble_predictive_stages_sealed_insert
+BEFORE INSERT ON session_model_ensemble_predictive_model_stages
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_predictive_metric_seals seal
+             WHERE seal.run_id=NEW.run_id AND seal.projection_version=NEW.projection_version)
+BEGIN SELECT RAISE(ABORT,'predictive metric projection is sealed'); END;
+
+CREATE TRIGGER session_model_ensemble_predictive_metrics_no_update BEFORE UPDATE ON session_model_ensemble_predictive_metrics BEGIN SELECT RAISE(ABORT,'predictive metric projections are immutable'); END;
+CREATE TRIGGER session_model_ensemble_predictive_factors_no_update BEFORE UPDATE ON session_model_ensemble_predictive_factors BEGIN SELECT RAISE(ABORT,'predictive metric projections are immutable'); END;
+CREATE TRIGGER session_model_ensemble_predictive_density_no_update BEFORE UPDATE ON session_model_ensemble_predictive_density_bins BEGIN SELECT RAISE(ABORT,'predictive metric projections are immutable'); END;
+CREATE TRIGGER session_model_ensemble_predictive_stages_no_update BEFORE UPDATE ON session_model_ensemble_predictive_model_stages BEGIN SELECT RAISE(ABORT,'predictive metric projections are immutable'); END;
+CREATE TRIGGER session_model_ensemble_predictive_seals_no_update BEFORE UPDATE ON session_model_ensemble_predictive_metric_seals BEGIN SELECT RAISE(ABORT,'predictive metric projection seals are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_predictive_metrics_privacy_delete_only BEFORE DELETE ON session_model_ensemble_predictive_metrics WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'predictive metric projection requires parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_predictive_factors_privacy_delete_only BEFORE DELETE ON session_model_ensemble_predictive_factors WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'predictive metric projection requires parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_predictive_density_privacy_delete_only BEFORE DELETE ON session_model_ensemble_predictive_density_bins WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'predictive metric projection requires parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_predictive_stages_privacy_delete_only BEFORE DELETE ON session_model_ensemble_predictive_model_stages WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'predictive metric projection requires parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_predictive_seals_privacy_delete_only BEFORE DELETE ON session_model_ensemble_predictive_metric_seals WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id) BEGIN SELECT RAISE(ABORT,'predictive metric projection seal requires parent privacy deletion'); END;
+
+COMMIT;
+"""

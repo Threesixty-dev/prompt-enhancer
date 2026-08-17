@@ -1,4 +1,4 @@
-"""Authenticated private API for the local ten-model shadow ensemble."""
+"""Authenticated private API for measured metrics and local predictive ranges."""
 
 from __future__ import annotations
 
@@ -9,7 +9,10 @@ from typing import Annotated, Literal, Protocol
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response
 from pydantic import Field
 
-from ...application.analysis.model_ensemble import ModelExpertRole
+from ...application.analysis.model_ensemble import (
+    MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION,
+    ModelExpertRole,
+)
 from ...application.analysis.session_model_ensemble import (
     MODEL_ENSEMBLE_CONFIRMATION,
     ModelEnsembleCompatibilityError,
@@ -24,6 +27,13 @@ from ...application.analysis.session_model_ensemble import (
     SessionModelEnsembleRunRecord,
 )
 from ...application.analysis.text_source import TextSourceFailureReason
+from ...application.analysis.text_contracts import MAX_ELIGIBLE_MESSAGES
+from ...application.analysis.probabilistic_metrics import (
+    PROBABILISTIC_DENSITY_BIN_COUNT,
+    PROBABILISTIC_METRIC_PROJECTION_VERSION,
+    PredictiveMetricState,
+    PredictiveMetricTarget,
+)
 from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider, StrictModel
 
 
@@ -41,6 +51,8 @@ class ModelEnsembleCommand(Protocol):
     ) -> SessionModelEnsembleOutcome: ...
 
     def latest(self, session_id: str) -> SessionModelEnsembleRunRecord | None: ...
+
+    def get(self, run_id: str) -> SessionModelEnsembleRunRecord | None: ...
 
 
 class ModelEnsembleRequest(StrictModel):
@@ -104,14 +116,123 @@ class ModelEnsembleMetricDto(StrictModel):
     numerator: int | None = Field(default=None, ge=0)
     denominator: int | None = Field(default=None, ge=1, le=8)
     numeric_value: float | None = Field(default=None, ge=0, le=1)
-    known_chunk_count: int = Field(ge=0, le=8)
-    abstained_chunk_count: int = Field(ge=0, le=8)
-    unsupported_chunk_count: int = Field(ge=0, le=8)
-    failed_chunk_count: int = Field(ge=0, le=8)
-    total_chunk_count: int = Field(ge=1, le=8)
+    known_chunk_count: int = Field(
+        ge=0,
+        le=8,
+        description="Known eligible observations; legacy field name retained for compatibility.",
+    )
+    abstained_chunk_count: int = Field(
+        ge=0,
+        le=8,
+        description="Abstained eligible observations; structural ownership cells are excluded.",
+    )
+    unsupported_chunk_count: int = Field(
+        ge=0,
+        le=8,
+        description="Unknown or unsupported eligible observations; structural cells are excluded.",
+    )
+    failed_chunk_count: int = Field(
+        ge=0,
+        le=8,
+        description="Execution-failed eligible observations; structural cells are excluded.",
+    )
+    total_chunk_count: int = Field(
+        ge=1,
+        le=8,
+        description="Eligible observation count; may be smaller than the physical chunk count.",
+    )
     explanation_code: str
     calibration_state: Literal["not_assessed"]
     product_metric_eligible: Literal[False]
+
+
+class ModelEnsembleTypedMetricDto(StrictModel):
+    metric_key: str
+    metric_version: int = Field(ge=1, le=1_000_000)
+    value_state: Literal[
+        "known", "unknown", "not_applicable", "abstained", "execution_error"
+    ]
+    numerator: int | None = Field(default=None, ge=0, le=1_000_000)
+    denominator: int | None = Field(default=None, ge=1, le=1_000_000)
+    numeric_value: float | None = Field(default=None, ge=0, le=1)
+    observed_message_count: int = Field(ge=0, le=100)
+    eligible_message_count: int = Field(ge=0, le=MAX_ELIGIBLE_MESSAGES)
+    coverage: float = Field(ge=0, le=1)
+    explanation_code: str
+    error_code: str | None
+    projection_source: Literal["deterministic_typed_contract"]
+    metric_schema_version: int = Field(ge=1, le=1_000_000)
+    engine_version: str
+    algorithm_id: str
+    algorithm_version: str
+    rubric_version: str
+    calibration_state: Literal["not_assessed"]
+    product_metric_eligible: Literal[False]
+
+
+class ModelPredictiveMetricDto(StrictModel):
+    metric_key: str
+    target: PredictiveMetricTarget
+    state: PredictiveMetricState
+    mean: float | None = Field(default=None, ge=0, le=1)
+    median: float | None = Field(default=None, ge=0, le=1)
+    q05: float | None = Field(default=None, ge=0, le=1)
+    q25: float | None = Field(default=None, ge=0, le=1)
+    q75: float | None = Field(default=None, ge=0, le=1)
+    q95: float | None = Field(default=None, ge=0, le=1)
+    applicability_probability: float | None = Field(default=None, ge=0, le=1)
+    pending_probability: float | None = Field(default=None, ge=0, le=1)
+    model_disagreement: float | None = Field(default=None, ge=0, le=1)
+    effective_observation_count: int = Field(ge=0, le=10_000_000)
+    model_set_version: str
+    calibration_version: str
+    contract_version: str
+    contract_fingerprint: str
+    product_metric_eligible: Literal[False]
+
+
+class ModelPredictiveStageDto(StrictModel):
+    model_key: str
+    repository_id: str
+    revision: str
+    status: Literal["completed", "unavailable", "resource_exhausted", "failed"]
+    error_code: str | None
+    device: Literal["cpu", "cuda", "mps"] | None
+    quantization: Literal["none", "bitsandbytes_nf4"]
+    inference_latency_ms: float | None = Field(default=None, ge=0)
+    peak_accelerator_memory_mb: float | None = Field(default=None, ge=0, le=6_144)
+    process_rss_mb: float | None = Field(default=None, ge=0, le=8_192)
+    unloaded_after_stage: Literal[True]
+
+
+class ModelPredictiveFactorDto(StrictModel):
+    factor_key: str
+    scale: Literal["binary", "ordinal", "proportion"]
+    weight: float = Field(gt=0)
+    applicability_probability: float = Field(ge=0, le=1)
+    present_probability: float = Field(ge=0, le=1)
+    neutral_probability: float = Field(ge=0, le=1)
+    absent_probability: float = Field(ge=0, le=1)
+    expert_count: int = Field(ge=1, le=8)
+    critical: bool
+
+
+class ModelPredictiveMetricDetailDto(StrictModel):
+    run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    projection_version: Literal[PROBABILISTIC_METRIC_PROJECTION_VERSION]
+    projected_at: datetime
+    metric: ModelPredictiveMetricDto
+    density_bins: tuple[float, ...] = Field(
+        min_length=PROBABILISTIC_DENSITY_BIN_COUNT,
+        max_length=PROBABILISTIC_DENSITY_BIN_COUNT,
+    )
+    factors: tuple[ModelPredictiveFactorDto, ...] = Field(max_length=8)
+    experimental_label: Literal["Experimental model range"] = (
+        "Experimental model range"
+    )
+    local_only: Literal[True] = True
+    content_persisted: Literal[False] = False
+    universal_trust_percentage_available: Literal[False] = False
 
 
 class ModelEnsembleRunDto(StrictModel):
@@ -126,6 +247,17 @@ class ModelEnsembleRunDto(StrictModel):
     votes: tuple[ModelEnsembleVoteDto, ...] = Field(max_length=640)
     chunk_metrics: tuple[ModelEnsembleChunkMetricDto, ...] = Field(max_length=160)
     metrics: tuple[ModelEnsembleMetricDto, ...] = Field(min_length=1, max_length=20)
+    metric_projection_version: Literal[
+        MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION
+    ] | None
+    metric_projection_completed_at: datetime | None
+    typed_metrics: tuple[ModelEnsembleTypedMetricDto, ...] = Field(max_length=20)
+    predictive_projection_version: Literal[
+        PROBABILISTIC_METRIC_PROJECTION_VERSION
+    ] | None
+    predictive_projected_at: datetime | None
+    predictive_metrics: tuple[ModelPredictiveMetricDto, ...] = Field(max_length=20)
+    predictive_model_stages: tuple[ModelPredictiveStageDto, ...] = Field(max_length=8)
     completed_at: datetime
     local_only: Literal[True]
     content_persisted: Literal[False]
@@ -200,6 +332,40 @@ class ModelEnsembleRunDto(StrictModel):
             metrics=tuple(
                 ModelEnsembleMetricDto.model_validate(item.model_dump())
                 for item in receipt.metrics
+            ),
+            metric_projection_version=receipt.metric_projection_version,
+            metric_projection_completed_at=receipt.metric_projection_completed_at,
+            typed_metrics=tuple(
+                ModelEnsembleTypedMetricDto.model_validate(item.model_dump())
+                for item in receipt.typed_metrics
+            ),
+            predictive_projection_version=(
+                None
+                if receipt.predictive_projection is None
+                else receipt.predictive_projection.projection_version
+            ),
+            predictive_projected_at=(
+                None
+                if receipt.predictive_projection is None
+                else receipt.predictive_projection.projected_at
+            ),
+            predictive_metrics=(
+                ()
+                if receipt.predictive_projection is None
+                else tuple(
+                    ModelPredictiveMetricDto.model_validate(
+                        item.model_dump(exclude={"density_bins", "factors"})
+                    )
+                    for item in receipt.predictive_projection.metrics
+                )
+            ),
+            predictive_model_stages=(
+                ()
+                if receipt.predictive_projection is None
+                else tuple(
+                    ModelPredictiveStageDto.model_validate(item.model_dump())
+                    for item in receipt.predictive_projection.model_stages
+                )
             ),
             completed_at=receipt.completed_at,
             local_only=True,
@@ -306,6 +472,43 @@ def create_model_ensemble_router(
             raise HTTPException(404, detail="model ensemble result not found")
         return ModelEnsembleRunDto.from_record(run)
 
+    @router.get(
+        "/model-ensemble-runs/{run_id}/metrics/{metric_key}/predictive-detail",
+        response_model=ModelPredictiveMetricDetailDto,
+    )
+    def predictive_metric_detail(
+        response: Response,
+        run_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        metric_key: Annotated[str, Path(pattern=SAFE_VERSION_PATTERN.pattern)],
+    ) -> ModelPredictiveMetricDetailDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            run = service.get(run_id)
+        except (ModelEnsembleInputError, ModelEnsemblePersistenceError) as error:
+            raise _failure(error) from None
+        if run is None or run.receipt.predictive_projection is None:
+            raise HTTPException(404, detail="predictive metric result not found")
+        projection = run.receipt.predictive_projection
+        metric = next(
+            (item for item in projection.metrics if item.metric_key == metric_key),
+            None,
+        )
+        if metric is None or not metric.density_bins:
+            raise HTTPException(404, detail="predictive metric detail is unavailable")
+        return ModelPredictiveMetricDetailDto(
+            run_id=run.run_id,
+            projection_version=projection.projection_version,
+            projected_at=projection.projected_at,
+            metric=ModelPredictiveMetricDto.model_validate(
+                metric.model_dump(exclude={"density_bins", "factors"})
+            ),
+            density_bins=metric.density_bins,
+            factors=tuple(
+                ModelPredictiveFactorDto.model_validate(item.model_dump())
+                for item in metric.factors
+            ),
+        )
+
     return router
 
 
@@ -313,5 +516,7 @@ __all__ = [
     "ModelEnsembleOutcomeDto",
     "ModelEnsembleRequest",
     "ModelEnsembleRunDto",
+    "ModelPredictiveMetricDetailDto",
+    "ModelPredictiveMetricDto",
     "create_model_ensemble_router",
 ]

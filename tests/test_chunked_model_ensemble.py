@@ -4,6 +4,7 @@ from pydantic import SecretStr, ValidationError
 import pytest
 
 from prompt_enhancer.application.analysis.model_ensemble import (
+    ChunkMetricCommitteeReceipt,
     MODEL_ENSEMBLE_MAX_CHUNKS,
     ModelExpertRole,
     ModelMetricVote,
@@ -34,6 +35,13 @@ from prompt_enhancer.infrastructure.text_models.model_ensemble import (
     MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
     SerialModelEnsembleRunner,
     ensemble_expert_specs,
+)
+from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
+    LocalProbabilisticMetricRunner,
+)
+from prompt_enhancer.application.analysis.probabilistic_metrics import (
+    PredictiveMetricState,
+    PredictiveMetricTarget,
 )
 
 
@@ -131,7 +139,7 @@ def test_chunker_is_exhaustive_non_overlapping_and_bounded() -> None:
     assert repr(plan).find("fictional segment") == -1
 
 
-def test_chunker_keeps_completed_prefix_stable_when_a_new_turn_is_appended() -> None:
+def test_chunker_invalidates_the_prior_focus_chunk_when_focus_moves() -> None:
     original = _context()
     original_plan = build_ensemble_chunks(original)
     appended_message = EphemeralRedactedMessage(
@@ -154,12 +162,15 @@ def test_chunker_keeps_completed_prefix_stable_when_a_new_turn_is_appended() -> 
     appended_plan = build_ensemble_chunks(appended)
 
     assert len(original_plan.chunks) > 1
-    assert tuple(
-        item.chunk_fingerprint for item in original_plan.chunks[:-1]
-    ) == tuple(
-        item.chunk_fingerprint
-        for item in appended_plan.chunks[: len(original_plan.chunks) - 1]
-    )
+    for index, chunk in enumerate(original_plan.chunks[:-1]):
+        contains_old_focus = any(
+            fragment.source_message_id == original.focus_message_id
+            for fragment in chunk.fragments
+        )
+        if contains_old_focus:
+            assert chunk.chunk_fingerprint != appended_plan.chunks[index].chunk_fingerprint
+        else:
+            assert chunk.chunk_fingerprint == appended_plan.chunks[index].chunk_fingerprint
     assert (
         original_plan.chunks[-1].chunk_fingerprint
         != appended_plan.chunks[len(original_plan.chunks) - 1].chunk_fingerprint
@@ -182,9 +193,325 @@ def test_all_twenty_metric_specs_are_versioned_and_distinct() -> None:
         "conversation",
         "objective_evidence",
     }
+    assert next(
+        item for item in specs if item.metric_key == "logic.hypothesis_test_linkage"
+    ).evidence_scope == "objective_evidence"
 
 
-def test_committee_accepts_supported_present_and_absent_decisions() -> None:
+def test_live_probabilistic_runner_emits_all_twenty_experimental_ranges() -> None:
+    calls = []
+
+    def execute(spec, stage, payload, device):
+        calls.append((spec.identity.model_key, stage, device, len(payload["cases"])))
+        rows = [
+            {
+                "case_id": item["case_id"],
+                "entailment": 0.68,
+                "neutral": 0.20,
+                "contradiction": 0.12,
+            }
+            for item in payload["cases"]
+        ]
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": rows,
+            "runtime": {
+                "inference_latency_ms": 125.0,
+                "peak_cuda_allocated_mb": 1_100.0,
+                "process_rss_after_load_and_inference_mb": 1_700.0,
+            },
+        }
+
+    receipt = LocalProbabilisticMetricRunner(executor=execute).run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert len(calls) == 5
+    assert {call[1] for call in calls} == {"scope_nli"}
+    assert all(call[3] <= 160 for call in calls)
+    assert receipt.predictive_projection is not None
+    projection = receipt.predictive_projection
+    assert len(projection.metrics) == 20
+    assert len(projection.model_stages) == 5
+    assert all(
+        item.state is PredictiveMetricState.EXPERIMENTAL
+        for item in projection.metrics
+    )
+    assert all(len(item.density_bins) == 20 for item in projection.metrics)
+    assert all(abs(sum(item.density_bins) - 1.0) < 1e-6 for item in projection.metrics)
+    assert next(
+        item
+        for item in projection.metrics
+        if item.metric_key == "outcome.verified_requirement_coverage"
+    ).target is PredictiveMetricTarget.OUTCOME_FORECAST
+    assert all(item.numeric_value is None for item in receipt.metrics)
+    assert all(
+        item.status.value == "completed"
+        for item in receipt.experts[6:9]
+    )
+    assert receipt.experts[9].status.value == "unavailable"
+    assert "fictional segment" not in receipt.model_dump_json()
+
+
+def test_live_probabilistic_runner_keeps_polish_on_multilingual_models() -> None:
+    calls: list[tuple[str, tuple[str, ...]]] = []
+
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        calls.append(
+            (
+                spec.identity.model_key,
+                tuple(str(item["language"]) for item in payload["fragments"]),
+            )
+        )
+        return {
+            "status": "completed",
+            "device": "cpu",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.62,
+                    "neutral": 0.25,
+                    "contradiction": 0.13,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 10.0,
+                "peak_cuda_allocated_mb": 0.0,
+                "process_rss_after_load_and_inference_mb": 800.0,
+            },
+        }
+
+    english = _context()
+    polish = english.model_copy(
+        update={
+            "messages": tuple(
+                message.model_copy(
+                    update={
+                        "language": TextLanguage.POLISH,
+                        "text": SecretStr("fikcyjna bezpieczna wiadomość testowa"),
+                    }
+                )
+                for message in english.messages
+            )
+        }
+    )
+    receipt = LocalProbabilisticMetricRunner(
+        executor=execute, device="cpu"
+    ).run(
+        build_ensemble_chunks(polish),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert [model_key for model_key, _languages in calls] == [
+        "mdeberta_xnli",
+        "multilingual_minilmv2_l6_nli",
+        "multilingual_minilmv2_l12_nli",
+    ]
+    assert all(set(languages) == {"pl"} for _model, languages in calls)
+    assert receipt.predictive_projection is not None
+    assert len(receipt.predictive_projection.metrics) == 20
+    assert all(
+        metric.state is PredictiveMetricState.EXPERIMENTAL
+        for metric in receipt.predictive_projection.metrics
+    )
+
+
+def test_live_probabilistic_runner_keeps_failed_predictions_nonnumeric() -> None:
+    def execute(spec, stage, payload, device):
+        return {
+            "status": "failed",
+            "error_code": "model_cache_missing_or_invalid",
+            "device": None,
+            "rows": [],
+            "runtime": {},
+        }
+
+    receipt = LocalProbabilisticMetricRunner(executor=execute).run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert receipt.predictive_projection is not None
+    assert all(
+        item.state is PredictiveMetricState.UNAVAILABLE
+        and item.mean is None
+        and not item.density_bins
+        for item in receipt.predictive_projection.metrics
+    )
+
+
+def test_live_probabilistic_runner_routes_only_uncertain_cases_to_nf4_judge() -> None:
+    deep_calls = []
+
+    def execute(spec, stage, payload, device):
+        model_offset = {
+            "mdeberta_xnli": 0.0,
+            "multilingual_minilmv2_l6_nli": 0.15,
+            "multilingual_minilmv2_l12_nli": -0.15,
+            "deberta_small_long_nli": 0.10,
+            "modernbert_base_zeroshot": -0.10,
+        }[spec.identity.model_key]
+        rows = [
+            {
+                "case_id": item["case_id"],
+                "entailment": 0.45 + model_offset,
+                "neutral": 0.30,
+                "contradiction": 0.25 - model_offset,
+            }
+            for item in payload["cases"]
+        ]
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": rows,
+            "runtime": {
+                "inference_latency_ms": 100.0,
+                "peak_cuda_allocated_mb": 900.0,
+                "process_rss_after_load_and_inference_mb": 1_500.0,
+            },
+        }
+
+    def execute_deep(spec, stage, payload, device, quantization):
+        deep_calls.append(
+            (
+                spec.identity.model_key,
+                stage,
+                device,
+                quantization,
+                tuple(item["case_id"] for item in payload["cases"]),
+            )
+        )
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": [
+                {"case_id": item["case_id"], "label": "present"}
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 800.0,
+                "peak_cuda_allocated_mb": 5_800.0,
+                "process_rss_after_load_and_inference_mb": 7_500.0,
+            },
+        }
+
+    receipt = LocalProbabilisticMetricRunner(
+        executor=execute,
+        deep_executor=execute_deep,
+        device="cuda",
+    ).run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert len(deep_calls) == 1
+    model_key, stage, device, quantization, case_ids = deep_calls[0]
+    assert model_key == "qwen3_4b_rubric"
+    assert stage == "structured_rubric"
+    assert device == "cuda"
+    assert quantization == "bitsandbytes_nf4"
+    assert 1 <= len(case_ids) <= 12
+    assert receipt.predictive_projection is not None
+    assert len(receipt.predictive_projection.model_stages) == 6
+    deep_stage = receipt.predictive_projection.model_stages[-1]
+    assert deep_stage.model_key == "qwen3_4b_rubric"
+    assert deep_stage.quantization == "bitsandbytes_nf4"
+    assert deep_stage.status == "completed"
+    assert all(
+        item.state is PredictiveMetricState.EXPERIMENTAL
+        for item in receipt.predictive_projection.metrics
+    )
+
+
+def test_deep_lane_failure_never_blocks_completed_small_model_ranges() -> None:
+    def execute(spec, stage, payload, device):
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.35,
+                    "neutral": 0.50,
+                    "contradiction": 0.15,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 100.0,
+                "peak_cuda_allocated_mb": 900.0,
+                "process_rss_after_load_and_inference_mb": 1_500.0,
+            },
+        }
+
+    def execute_deep(spec, stage, payload, device, quantization):
+        return {
+            "status": "failed",
+            "error_code": "resource_exhausted",
+            "device": None,
+            "rows": [],
+            "runtime": {},
+        }
+
+    receipt = LocalProbabilisticMetricRunner(
+        executor=execute,
+        deep_executor=execute_deep,
+        device="cuda",
+    ).run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert receipt.predictive_projection is not None
+    assert receipt.predictive_projection.model_stages[-1].status == "resource_exhausted"
+    assert all(
+        item.state is PredictiveMetricState.EXPERIMENTAL
+        for item in receipt.predictive_projection.metrics
+    )
+
+
+def test_stage_resource_ceiling_fails_closed_without_publishing_numbers() -> None:
+    def execute(spec, stage, payload, device):
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.70,
+                    "neutral": 0.20,
+                    "contradiction": 0.10,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 100.0,
+                "peak_cuda_allocated_mb": 6_145.0,
+                "process_rss_after_load_and_inference_mb": 8_193.0,
+            },
+        }
+
+    receipt = LocalProbabilisticMetricRunner(executor=execute).run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert receipt.predictive_projection is not None
+    assert all(
+        stage.status == "resource_exhausted"
+        and stage.error_code == "resource_contract_exceeded"
+        for stage in receipt.predictive_projection.model_stages
+    )
+    assert all(
+        item.state is PredictiveMetricState.UNAVAILABLE and item.mean is None
+        for item in receipt.predictive_projection.metrics
+    )
+
+
+def test_committee_accepts_present_but_abstains_without_typed_opportunity() -> None:
     promoted = frozenset({"minilm_l6", "minilm_l12"})
     present = committee_chunk_receipt(
         chunk_ordinal=0,
@@ -211,8 +538,9 @@ def test_committee_accepts_supported_present_and_absent_decisions() -> None:
 
     assert present.value_state is MetricValueState.KNOWN
     assert (present.numerator, present.denominator) == (1, 1)
-    assert absent.value_state is MetricValueState.KNOWN
-    assert (absent.numerator, absent.denominator) == (0, 1)
+    assert absent.value_state is MetricValueState.ABSTAINED
+    assert (absent.numerator, absent.denominator) == (None, None)
+    assert absent.reason_code == "typed_metric_opportunity_unproven"
 
 
 @pytest.mark.parametrize(
@@ -301,9 +629,9 @@ def test_session_aggregate_is_ratio_of_valid_chunks_not_model_logits() -> None:
         )
     aggregate = aggregate_chunk_metrics(tuple(receipts))[0]
     assert aggregate.value_state is MetricValueState.KNOWN
-    assert (aggregate.numerator, aggregate.denominator) == (1, 2)
-    assert aggregate.numeric_value == 0.5
-    assert aggregate.abstained_chunk_count == 1
+    assert (aggregate.numerator, aggregate.denominator) == (1, 1)
+    assert aggregate.numeric_value == 1.0
+    assert aggregate.abstained_chunk_count == 2
     assert aggregate.product_metric_eligible is False
 
 
@@ -338,7 +666,58 @@ def test_all_unsupported_chunks_remain_unknown() -> None:
     assert aggregate.value_state is MetricValueState.UNKNOWN
     assert aggregate.numeric_value is None
     assert aggregate.unsupported_chunk_count == 2
-    assert aggregate.explanation_code == "model_shadow_no_supported_chunks"
+    assert aggregate.explanation_code == "model_shadow_no_supported_observations"
+
+
+@pytest.mark.parametrize(
+    ("owner_state", "expected_state"),
+    (
+        (MetricValueState.KNOWN, MetricValueState.KNOWN),
+        (MetricValueState.ABSTAINED, MetricValueState.ABSTAINED),
+        (MetricValueState.UNKNOWN, MetricValueState.UNKNOWN),
+        (MetricValueState.EXECUTION_ERROR, MetricValueState.EXECUTION_ERROR),
+    ),
+)
+def test_structural_cells_do_not_distort_the_owned_observation(
+    owner_state: MetricValueState,
+    expected_state: MetricValueState,
+) -> None:
+    metric_key = "logic.open_loop_closure"
+    structural = ChunkMetricCommitteeReceipt(
+        chunk_ordinal=0,
+        metric_key=metric_key,
+        value_state=MetricValueState.NOT_APPLICABLE,
+        rubric_vote=ModelVoteState.UNSUPPORTED,
+        contributing_nli_votes=0,
+        diagnostic_nli_votes=0,
+        reason_code="session_window_observation_owned_by_final_chunk",
+    )
+    owner = ChunkMetricCommitteeReceipt(
+        chunk_ordinal=1,
+        metric_key=metric_key,
+        value_state=owner_state,
+        numerator=1 if owner_state is MetricValueState.KNOWN else None,
+        denominator=1 if owner_state is MetricValueState.KNOWN else None,
+        rubric_vote=(
+            ModelVoteState.PRESENT
+            if owner_state is MetricValueState.KNOWN
+            else ModelVoteState.ABSTAIN
+        ),
+        contributing_nli_votes=2,
+        diagnostic_nli_votes=1,
+        reason_code="synthetic_owner_receipt",
+    )
+
+    aggregate = aggregate_chunk_metrics((structural, owner))[0]
+
+    assert aggregate.value_state is expected_state
+    assert aggregate.total_chunk_count == 1
+    assert (
+        aggregate.known_chunk_count
+        + aggregate.abstained_chunk_count
+        + aggregate.unsupported_chunk_count
+        + aggregate.failed_chunk_count
+    ) == 1
 
 
 def test_vote_contract_rejects_scores_for_abstentions() -> None:
@@ -437,16 +816,16 @@ def test_serial_runner_preserves_scope_and_keeps_outcomes_unsupported() -> None:
     assert len(receipt.experts) == 10
     assert all(item.unloaded_after_stage for item in receipt.experts)
     assert len(receipt.metrics) == 20
-    supported = [
-        item for item in receipt.metrics if not item.metric_key.startswith("outcome.")
-    ]
-    unsupported = [
-        item for item in receipt.metrics if item.metric_key.startswith("outcome.")
-    ]
+    objective_keys = {
+        item.metric_key for item in specs if item.evidence_scope == "objective_evidence"
+    }
+    supported = [item for item in receipt.metrics if item.metric_key not in objective_keys]
+    unsupported = [item for item in receipt.metrics if item.metric_key in objective_keys]
     assert all(item.value_state is MetricValueState.KNOWN for item in supported)
     assert all(item.numeric_value == 1.0 for item in supported)
     assert all(item.value_state is MetricValueState.UNKNOWN for item in unsupported)
     assert all(item.numeric_value is None for item in unsupported)
+    assert all(item.total_chunk_count == 1 for item in receipt.metrics)
     assert all(item.product_metric_eligible is False for item in receipt.metrics)
 
     first_payload = retrieval_payloads[0]
@@ -466,6 +845,15 @@ def test_serial_runner_preserves_scope_and_keeps_outcomes_unsupported() -> None:
         if str(case["metric_key"]).startswith("prompt.")
     ]
     assert prompt_cases
+    assert len(prompt_cases) == sum(
+        item.evidence_scope == "focus_request" for item in specs
+    )
+    focus_ids = [
+        identifier
+        for identifier, metadata in fragment_metadata.items()
+        if metadata["is_focus_message"] is True
+    ]
+    assert all(case["candidate_ids"] == focus_ids for case in prompt_cases)
     assert all(
         fragment_metadata[identifier]["role"] == "user"
         and fragment_metadata[identifier]["kind"] == "request"
@@ -473,12 +861,261 @@ def test_serial_runner_preserves_scope_and_keeps_outcomes_unsupported() -> None:
         for case in prompt_cases
         for identifier in case["candidate_ids"]
     )
+    conversation_cases = [
+        case
+        for case in first_payload["cases"]  # type: ignore[index]
+        if next(
+            item for item in specs if item.metric_key == case["metric_key"]
+        ).evidence_scope == "conversation"
+    ]
+    all_fragment_ids = [
+        item["fragment_id"] for item in first_payload["fragments"]  # type: ignore[index]
+    ]
+    assert len(conversation_cases) == sum(
+        item.evidence_scope == "conversation" for item in specs
+    )
+    assert all(case["candidate_ids"] == all_fragment_ids for case in conversation_cases)
+    assert all(
+        sum(
+            item.metric_key == metric.metric_key
+            and item.value_state is not MetricValueState.NOT_APPLICABLE
+            for item in receipt.chunks
+        )
+        == 1
+        for metric in specs
+    )
     serialized = receipt.model_dump_json()
     assert "fictional segment" not in serialized
     assert '"content_persisted":false' in serialized
 
 
-def test_incremental_runner_reuses_only_sealed_prefix_and_runs_dirty_tail_serially() -> None:
+def test_conversation_owner_sees_later_closure_in_source_chronology() -> None:
+    decision_payloads: list[dict[str, object]] = []
+    opening_marker = "SYNTHETIC_OPEN_LOOP_MARKER"
+    closure_marker = "SYNTHETIC_LOOP_CLOSED_MARKER"
+
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        fragments = {
+            item["fragment_id"]: item["text"] for item in payload["fragments"]
+        }
+        if stage == "scope_nli":
+            decision_payloads.append(payload)
+        rows = []
+        for case in payload["cases"]:
+            evidence = "\n".join(fragments[item] for item in case["candidate_ids"])
+            closes_loop = opening_marker in evidence and closure_marker in evidence
+            if stage in {"retrieval", "reranking"}:
+                rows.append(
+                    {
+                        "case_id": case["case_id"],
+                        "scores": [
+                            {
+                                "fragment_id": identifier,
+                                "score": (
+                                    3.0
+                                    if closure_marker in fragments[identifier]
+                                    else 2.0
+                                    if opening_marker in fragments[identifier]
+                                    else 1.0 / (index + 10)
+                                ),
+                            }
+                            for index, identifier in enumerate(case["candidate_ids"])
+                        ],
+                    }
+                )
+            elif stage == "scope_nli":
+                positive = case["metric_key"] != "logic.open_loop_closure" or closes_loop
+                rows.append(
+                    {
+                        "case_id": case["case_id"],
+                        "entailment": 0.9 if positive else 0.05,
+                        "neutral": 0.05 if positive else 0.9,
+                        "contradiction": 0.05,
+                    }
+                )
+            else:
+                rows.append(
+                    {
+                        "case_id": case["case_id"],
+                        "label": (
+                            "present"
+                            if case["metric_key"] != "logic.open_loop_closure"
+                            or closes_loop
+                            else "abstain"
+                        ),
+                    }
+                )
+        return {
+            "schema_version": MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
+            "model_key": spec.identity.model_key,
+            "status": "completed",
+            "error_code": None,
+            "device": "cpu",
+            "rows": rows,
+            "runtime": {},
+        }
+
+    base = _context()
+    opened = base.model_copy(
+        update={
+            "messages": (
+                base.messages[0].model_copy(
+                    update={
+                        "text": SecretStr(
+                            (opening_marker + " " + ("fictional unresolved question " * 220))[:5_200]
+                        )
+                    }
+                ),
+                *base.messages[1:],
+            ),
+            "analysis_window_fingerprint": _digest("e"),
+        }
+    )
+    runner = SerialModelEnsembleRunner(executor=execute, device="cpu")
+    specs = coaching_ensemble_metric_specs()
+    before = runner.run(build_ensemble_chunks(opened), specs)
+    assert next(
+        item for item in before.metrics if item.metric_key == "logic.open_loop_closure"
+    ).value_state is MetricValueState.ABSTAINED
+
+    closure = EphemeralRedactedMessage(
+        message_id=f"{97:064x}",
+        sequence=len(opened.messages),
+        role=TextRole.AGENT,
+        kind=TextMessageKind.RESPONSE,
+        language=TextLanguage.ENGLISH,
+        text=SecretStr(
+            (closure_marker + " " + ("fictional verified resolution " * 220))[:5_200]
+        ),
+    )
+    closed = opened.model_copy(
+        update={
+            "messages": (*opened.messages, closure),
+            "observed_message_count": opened.observed_message_count + 1,
+            "eligible_message_count": opened.eligible_message_count + 1,
+            "analysis_window_fingerprint": _digest("f"),
+        }
+    )
+    decision_payloads.clear()
+    after = runner.run(build_ensemble_chunks(closed), specs, prior_receipt=before)
+
+    nli_case = next(
+        case
+        for case in decision_payloads[0]["cases"]  # type: ignore[index]
+        if case["metric_key"] == "logic.open_loop_closure"
+    )
+    text_by_id = {
+        item["fragment_id"]: item["text"]
+        for item in decision_payloads[0]["fragments"]  # type: ignore[index]
+    }
+    evidence = [text_by_id[item] for item in nli_case["candidate_ids"]]
+    assert opening_marker in evidence[0]
+    assert closure_marker in evidence[-1]
+    assert nli_case["chunk_ordinal"] == after.chunk_count - 1
+    metric = next(
+        item for item in after.metrics if item.metric_key == "logic.open_loop_closure"
+    )
+    assert metric.value_state is MetricValueState.KNOWN
+    assert (metric.numerator, metric.denominator, metric.total_chunk_count) == (1, 1, 1)
+
+
+def test_long_focus_request_is_one_owned_observation_across_chunks() -> None:
+    retrieval_payloads: list[dict[str, object]] = []
+
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        if stage == "retrieval":
+            retrieval_payloads.append(payload)
+        rows = []
+        for case in payload["cases"]:
+            if stage in {"retrieval", "reranking"}:
+                rows.append(
+                    {
+                        "case_id": case["case_id"],
+                        "scores": [
+                            {"fragment_id": identifier, "score": 1.0 / (index + 1)}
+                            for index, identifier in enumerate(case["candidate_ids"])
+                        ],
+                    }
+                )
+            elif stage == "scope_nli":
+                rows.append(
+                    {
+                        "case_id": case["case_id"],
+                        "entailment": 0.9,
+                        "neutral": 0.05,
+                        "contradiction": 0.05,
+                    }
+                )
+            else:
+                rows.append({"case_id": case["case_id"], "label": "present"})
+        return {
+            "schema_version": MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
+            "model_key": spec.identity.model_key,
+            "status": "completed",
+            "error_code": None,
+            "device": "cpu",
+            "rows": rows,
+            "runtime": {},
+        }
+
+    base = _context()
+    focus = EphemeralRedactedMessage(
+        message_id=f"{96:064x}",
+        sequence=0,
+        role=TextRole.USER,
+        kind=TextMessageKind.REQUEST,
+        language=TextLanguage.ENGLISH,
+        text=SecretStr(("fictional complete focus request clause " * 1_000)[:31_500]),
+    )
+    response = EphemeralRedactedMessage(
+        message_id=f"{95:064x}",
+        sequence=1,
+        role=TextRole.AGENT,
+        kind=TextMessageKind.RESPONSE,
+        language=TextLanguage.ENGLISH,
+        text=SecretStr("fictional acknowledgement"),
+    )
+    context = base.model_copy(
+        update={
+            "messages": (focus, response),
+            "focus_message_id": focus.message_id,
+            "observed_message_count": 2,
+            "eligible_message_count": 2,
+            "analysis_window_fingerprint": _digest("9"),
+        }
+    )
+    plan = build_ensemble_chunks(context)
+    assert len(plan.chunks) > 1
+    receipt = SerialModelEnsembleRunner(executor=execute, device="cpu").run(
+        plan, coaching_ensemble_metric_specs()
+    )
+
+    payload = retrieval_payloads[0]
+    focus_ids = [
+        item["fragment_id"]
+        for item in payload["fragments"]  # type: ignore[index]
+        if item["is_focus_message"] is True
+    ]
+    prompt_cases = [
+        item
+        for item in payload["cases"]  # type: ignore[index]
+        if str(item["metric_key"]).startswith("prompt.")
+    ]
+    focus_owner = max(
+        chunk.ordinal
+        for chunk in plan.chunks
+        if any(item.is_focus_message for item in chunk.fragments)
+    )
+    assert all(case["candidate_ids"] == focus_ids for case in prompt_cases)
+    assert all(case["chunk_ordinal"] == focus_owner for case in prompt_cases)
+    assert all(
+        next(item for item in receipt.metrics if item.metric_key == case["metric_key"]).total_chunk_count
+        == 1
+        for case in prompt_cases
+    )
+
+
+def test_incremental_runner_recomputes_owned_observations_serially() -> None:
     calls: list[tuple[str, str, int]] = []
 
     def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
@@ -530,15 +1167,15 @@ def test_incremental_runner_reuses_only_sealed_prefix_and_runs_dirty_tail_serial
     appended_message = EphemeralRedactedMessage(
         message_id=f"{98:064x}",
         sequence=len(context.messages),
-        role=TextRole.USER,
-        kind=TextMessageKind.REQUEST,
+        role=TextRole.AGENT,
+        kind=TextMessageKind.RESPONSE,
         language=TextLanguage.ENGLISH,
-        text=SecretStr(("fictional incremental request " * 220)[:5_200]),
+        text=SecretStr(("fictional incremental response " * 220)[:5_200]),
     )
     appended = context.model_copy(
         update={
             "messages": (*context.messages, appended_message),
-            "focus_message_id": appended_message.message_id,
+            "focus_message_id": context.focus_message_id,
             "observed_message_count": context.observed_message_count + 1,
             "eligible_message_count": context.eligible_message_count + 1,
             "analysis_window_fingerprint": _digest("d"),
@@ -552,21 +1189,16 @@ def test_incremental_runner_reuses_only_sealed_prefix_and_runs_dirty_tail_serial
     assert [stage for _device, stage, _count in calls] == [
         item.identity.role.value for item in ensemble_expert_specs()
     ]
-    assert calls[0][2] < first_call_counts[0][2]
-    reused_prefix = first.chunk_plan[:-1]
-    assert tuple(item.chunk_fingerprint for item in second.chunk_plan[: len(reused_prefix)]) == tuple(
-        item.chunk_fingerprint for item in reused_prefix
+    # A changed source recomputes both canonical focus-request observations and
+    # whole-window conversation observations. Exact unchanged inputs are reused
+    # by the service before the runner, while partial owner lineage is not yet
+    # persisted and therefore cannot be copied safely here.
+    assert calls[0][2] == first_call_counts[0][2]
+    assert second.plan_fingerprint == first.plan_fingerprint
+    assert tuple(item.chunk_fingerprint for item in second.chunk_plan[: len(first.chunk_plan) - 1]) == tuple(
+        item.chunk_fingerprint for item in first.chunk_plan[:-1]
     )
-    for old in reused_prefix:
-        assert tuple(
-            item.model_dump()
-            for item in second.chunks
-            if item.chunk_ordinal == old.ordinal
-        ) == tuple(
-            item.model_dump()
-            for item in first.chunks
-            if item.chunk_ordinal == old.ordinal
-        )
+    assert all(item.total_chunk_count == 1 for item in second.metrics)
 
 
 def test_cuda_resource_exhaustion_retries_each_stage_on_cpu_after_release() -> None:

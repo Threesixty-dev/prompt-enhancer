@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ModelEnsembleRun,
+  ModelPredictiveMetricDetail,
+  ModelEnsembleTrajectoryPage,
   ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
   ProviderCompatibilityStatus,
@@ -15,7 +17,12 @@ import {
   ModelEnsembleWatchPayloadError,
   parseModelEnsembleWatchSnapshot,
 } from "../../shared/api/modelEnsembleWatchContract";
+import {
+  ModelEnsembleTrajectoryPayloadError,
+  parseModelEnsembleTrajectoryPage,
+} from "../../shared/api/modelEnsembleTrajectoryContract";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
+import { parseModelPredictiveMetricDetail } from "../../shared/api/modelPredictiveMetricDetailContract";
 import { createHttpTransport, TransportError } from "../../shared/api/httpTransport";
 import { ModelEnsemblePanel } from "./ModelEnsemblePanel";
 
@@ -121,6 +128,64 @@ function runFixture(): ModelEnsembleRun {
       calibration_state: "not_assessed" as const,
       product_metric_eligible: false as const,
     })),
+    metric_projection_version: "coaching-typed-projection-v1",
+    metric_projection_completed_at: "2040-01-02T10:00:01Z",
+    typed_metrics: metricKeys.map((metric_key, index) => ({
+      metric_key,
+      metric_version: 3,
+      value_state: "known" as const,
+      numerator: [3, 1, 4][index],
+      denominator: 4,
+      numeric_value: [0.75, 0.25, 1][index],
+      observed_message_count: 4,
+      eligible_message_count: 4,
+      coverage: 1,
+      explanation_code: "typed_requirement_ratio",
+      error_code: null,
+      projection_source: "deterministic_typed_contract" as const,
+      metric_schema_version: 2,
+      engine_version: "coaching-rules-en-pl-2",
+      algorithm_id: "coaching-text-features",
+      algorithm_version: "coaching-features-en-pl-2",
+      rubric_version: "coaching-rubric-v3",
+      calibration_state: "not_assessed" as const,
+      product_metric_eligible: false as const,
+    })),
+    predictive_projection_version: "local-probabilistic-radar-v1",
+    predictive_projected_at: "2040-01-02T10:00:02Z",
+    predictive_metrics: metricKeys.map((metric_key, index) => ({
+      metric_key,
+      target: "metric_value" as const,
+      state: "experimental" as const,
+      mean: [0.7, 0.4, 0.8][index],
+      median: [0.7, 0.4, 0.8][index],
+      q05: [0.45, 0.15, 0.55][index],
+      q25: [0.6, 0.3, 0.7][index],
+      q75: [0.8, 0.5, 0.9][index],
+      q95: [0.95, 0.75, 0.98][index],
+      applicability_probability: 0.9,
+      pending_probability: 0.05,
+      model_disagreement: 0.12,
+      effective_observation_count: 1,
+      model_set_version: "local-factor-router-v2",
+      calibration_version: "not-calibrated-v1",
+      contract_version: "example-contract-v1",
+      contract_fingerprint: (index + 4).toString(16).repeat(64),
+      product_metric_eligible: false as const,
+    })),
+    predictive_model_stages: [0, 1, 2].map((ordinal) => ({
+      model_key: `example_predictive_model_${ordinal}`,
+      repository_id: `example-org/predictive-model-${ordinal}`,
+      revision: (ordinal + 4).toString(16).repeat(40),
+      status: "completed" as const,
+      error_code: null,
+      device: "cpu" as const,
+      quantization: "none" as const,
+      inference_latency_ms: 12,
+      peak_accelerator_memory_mb: 0,
+      process_rss_mb: 256,
+      unloaded_after_stage: true as const,
+    })),
     completed_at: "2040-01-02T10:00:00Z",
     local_only: true,
     content_persisted: false,
@@ -155,6 +220,60 @@ function watchFixture(latestRun: ModelEnsembleRun | null = null): ModelEnsembleW
   };
 }
 
+function trajectoryFixture(): ModelEnsembleTrajectoryPage {
+  const run = runFixture();
+  return {
+    watch_id: "d".repeat(64),
+    head_run_id: run.run_id,
+    head_generation: 2,
+    points: [{
+      generation: 2,
+      run_id: run.run_id,
+      published_at: "2040-01-02T10:00:01Z",
+      completed_at: run.completed_at,
+      max_messages: 100,
+      source_coverage_state: run.source_coverage_state,
+      chunk_count: run.chunk_count,
+      comparable_to_head: true,
+      metrics: run.metrics,
+      metric_projection_version: run.metric_projection_version,
+      metric_projection_completed_at: run.metric_projection_completed_at,
+      typed_metrics: run.typed_metrics,
+      predictive_projection_version: run.predictive_projection_version,
+      predictive_metrics: run.predictive_metrics,
+    }],
+    next_before_generation: null,
+    content_persisted: false,
+    calibrated_as_truth: false,
+  };
+}
+
+function predictiveDetailFixture(metricKey = "prompt.task_definition_coverage"): ModelPredictiveMetricDetail {
+  const metric = runFixture().predictive_metrics.find((item) => item.metric_key === metricKey)!;
+  return {
+    run_id: "b".repeat(64),
+    projection_version: "local-probabilistic-radar-v1",
+    projected_at: "2040-01-02T10:00:02Z",
+    metric,
+    density_bins: Array.from({ length: 20 }, () => 0.05),
+    factors: [{
+      factor_key: "action",
+      scale: "binary",
+      weight: 1,
+      applicability_probability: 0.9,
+      present_probability: 0.7,
+      neutral_probability: 0.2,
+      absent_probability: 0.1,
+      expert_count: 3,
+      critical: true,
+    }],
+    experimental_label: "Experimental model range",
+    local_only: true,
+    content_persisted: false,
+    universal_trust_percentage_available: false,
+  };
+}
+
 function renderPanel(transport: PromptEnhancerTransport) {
   return render(
     <ModelEnsemblePanel
@@ -179,6 +298,32 @@ describe("model ensemble response contract", () => {
     const invalid = structuredClone(valid);
     invalid.votes.pop();
     expect(() => parseModelEnsembleRun(invalid)).toThrow(ModelEnsemblePayloadError);
+  });
+
+  it("preserves a zero-opportunity typed metric as nonnumeric", () => {
+    const valid = structuredClone(runFixture());
+    valid.typed_metrics[0] = {
+      ...valid.typed_metrics[0],
+      value_state: "unknown",
+      numerator: null,
+      denominator: null,
+      numeric_value: null,
+      observed_message_count: 0,
+      eligible_message_count: 0,
+      coverage: 0,
+      explanation_code: "typed_opportunity_unavailable",
+    };
+
+    expect(parseModelEnsembleRun(valid)).toEqual(valid);
+
+    const boundedSuffix = structuredClone(runFixture());
+    boundedSuffix.typed_metrics[0] = {
+      ...boundedSuffix.typed_metrics[0],
+      observed_message_count: 100,
+      eligible_message_count: 324,
+      coverage: 100 / 324,
+    };
+    expect(parseModelEnsembleRun(boundedSuffix)).toEqual(boundedSuffix);
   });
 
   it("rejects false unload claims, impossible dates, and aggregate tampering", () => {
@@ -267,6 +412,46 @@ describe("model ensemble response contract", () => {
     expect(() => parseModelEnsembleWatchSnapshot(invalidWindow)).toThrow(ModelEnsembleWatchPayloadError);
   });
 
+  it("validates the slim trajectory graph and rejects forged chronology or metric counts", () => {
+    const valid = trajectoryFixture();
+    expect(parseModelEnsembleTrajectoryPage(structuredClone(valid))).toEqual(valid);
+
+    const ownedObservation = structuredClone(valid);
+    ownedObservation.points[0].chunk_count = 2;
+    expect(parseModelEnsembleTrajectoryPage(ownedObservation)).toEqual(ownedObservation);
+
+    const extra = structuredClone(valid) as unknown as Record<string, unknown>;
+    extra.private_text = "SYNTHETIC_PRIVATE_CANARY";
+    expect(() => parseModelEnsembleTrajectoryPage(extra)).toThrow(ModelEnsembleTrajectoryPayloadError);
+
+    const chronology = structuredClone(valid);
+    chronology.points[0].published_at = "2040-01-02T09:59:59Z";
+    expect(() => parseModelEnsembleTrajectoryPage(chronology)).toThrow(ModelEnsembleTrajectoryPayloadError);
+
+    const calendar = structuredClone(valid);
+    calendar.points[0].completed_at = "2040-02-31T10:00:00Z";
+    expect(() => parseModelEnsembleTrajectoryPage(calendar)).toThrow(ModelEnsembleTrajectoryPayloadError);
+
+    const counts = structuredClone(valid);
+    counts.points[0].metrics[0].known_chunk_count = 0;
+    expect(() => parseModelEnsembleTrajectoryPage(counts)).toThrow(ModelEnsembleTrajectoryPayloadError);
+
+    const wrongHead = structuredClone(valid);
+    wrongHead.head_generation = 1;
+    expect(() => parseModelEnsembleTrajectoryPage(wrongHead)).toThrow(ModelEnsembleTrajectoryPayloadError);
+  });
+
+  it("validates a fixed-bin predictive detail without accepting source text", () => {
+    const valid = predictiveDetailFixture();
+    expect(parseModelPredictiveMetricDetail(structuredClone(valid))).toEqual(valid);
+    const forged = structuredClone(valid) as unknown as Record<string, unknown>;
+    forged.private_text = "SYNTHETIC_PRIVATE_CANARY";
+    expect(() => parseModelPredictiveMetricDetail(forged)).toThrow();
+    const badDensity = structuredClone(valid);
+    badDensity.density_bins[0] = 0.5;
+    expect(() => parseModelPredictiveMetricDetail(badDensity)).toThrow();
+  });
+
   it("uses exact private watch routes and cache-safe transport", async () => {
     const auth = new Response(
       JSON.stringify({ csrf_token: "example-csrf", expires_in_seconds: 300 }),
@@ -284,7 +469,15 @@ describe("model ensemble response contract", () => {
       .mockResolvedValueOnce(auth)
       .mockResolvedValueOnce(response())
       .mockResolvedValueOnce(response())
-      .mockResolvedValueOnce(response());
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(new Response(JSON.stringify(trajectoryFixture()), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, private",
+          Pragma: "no-cache",
+        },
+      }));
     const transport = createHttpTransport({ fetch, origin: "http://127.0.0.1:8765" });
 
     await transport.getActiveModelEnsembleWatch!();
@@ -294,6 +487,7 @@ describe("model ensemble response contract", () => {
       confirmation: "continuously_analyze_selected_redacted_session",
     });
     await transport.disableModelEnsembleWatch!("d".repeat(64));
+    await transport.getModelEnsembleTrajectory!("d".repeat(64), 24, 8);
 
     const calls = fetch.mock.calls as unknown as Array<[string, RequestInit]>;
     expect(calls[1][0]).toBe("/v1/model-ensemble-watch/active");
@@ -302,24 +496,36 @@ describe("model ensemble response contract", () => {
     expect(calls[2][1].cache).toBe("no-store");
     expect(calls[3][0]).toBe(`/v1/model-ensemble-watches/${"d".repeat(64)}`);
     expect(calls[3][1].method).toBe("DELETE");
+    expect(calls[4][0]).toBe(`/v1/model-ensemble-watches/${"d".repeat(64)}/trajectory?limit=24&before_generation=8`);
+    expect(calls[4][1].method).toBe("GET");
+    expect(calls[4][1].cache).toBe("no-store");
   });
 });
 
 describe("ModelEnsemblePanel", () => {
-  it("shows the separate shadow radar and never describes it as a product score", async () => {
+  it("shows the typed radar with separate diagnostics and never describes it as a product score", async () => {
+    const getDetail = vi.fn(async (_runId: string, metricKey: string) => predictiveDetailFixture(metricKey));
     const transport: PromptEnhancerTransport = {
       ...createSyntheticTransport(),
       getLatestModelEnsemble: async () => structuredClone(runFixture()),
+      getModelPredictiveMetricDetail: getDetail,
     };
     renderPanel(transport);
 
-    expect(await screen.findByRole("img", { name: /shadow model radar/i })).toBeVisible();
-    expect(screen.getByText(/shadow result—not a product score/i)).toBeVisible();
-    expect(screen.getByText(/axes stay fixed between updates/i)).toBeVisible();
-    expect(screen.getByText(/are not placed at zero/i)).toBeVisible();
-    expect(screen.getByText("Models completed").parentElement).toHaveTextContent("10 / 10");
+    expect(await screen.findByRole("img", { name: /typed local metric radar/i })).toBeVisible();
+    expect(screen.getByText(/solid measurements and model ranges stay separate/i)).toBeVisible();
+    expect(screen.getByText(/axes and order stay fixed/i)).toBeVisible();
+    expect(screen.getByText(/gaps are unknown, not zero/i)).toBeVisible();
+    expect(screen.getByText(/coverage, not confidence/i)).toBeVisible();
+    expect(screen.getByText("Predictive stages").parentElement).toHaveTextContent("3 / 3");
     expect(screen.getByText("Source coverage").parentElement).toHaveTextContent("Complete selected window");
-    expect(screen.getAllByText(/unloaded yes/i)).toHaveLength(10);
+    expect(screen.getAllByText(/unloaded yes/i)).toHaveLength(3);
+    expect(await screen.findByLabelText("Predictive density")).toBeVisible();
+    expect(getDetail).toHaveBeenCalledWith(
+      "b".repeat(64),
+      "prompt.task_definition_coverage",
+      expect.any(AbortSignal),
+    );
   });
 
   it("marks an incomplete source window without presenting it as complete-session evidence", async () => {
@@ -336,7 +542,7 @@ describe("ModelEnsemblePanel", () => {
     expect(screen.getByText(/not a complete-session judgment/i)).toBeVisible();
   });
 
-  it("starts exactly one ten-model command with the explicit confirmation", async () => {
+  it("starts exactly one local analysis command with the explicit compatibility confirmation", async () => {
     const start = vi.fn(async () => ({ run: structuredClone(runFixture()), applied: true }));
     const transport: PromptEnhancerTransport = {
       ...createSyntheticTransport(),
@@ -344,7 +550,7 @@ describe("ModelEnsemblePanel", () => {
       startModelEnsemble: start,
     };
     renderPanel(transport);
-    fireEvent.click(await screen.findByRole("button", { name: "Run 10 models locally" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Analyze metric ranges" }));
 
     await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
     const calls = start.mock.calls as unknown as Array<[string, object, string]>;
@@ -353,7 +559,7 @@ describe("ModelEnsemblePanel", () => {
       confirmation: "run_ten_local_models_on_selected_redacted_text",
     });
     expect(calls[0][2]).toMatch(/^dashboard-model-ensemble-/);
-    expect(await screen.findByText(/stored shadow run completed/i)).toBeVisible();
+    expect(await screen.findByText(/stored local analysis completed/i)).toBeVisible();
   });
 
   it("starts the one-session watch with an explicit standing confirmation", async () => {

@@ -291,14 +291,14 @@ class LocalApplication:
         self,
         compatibility_policy: ProviderSurfaceCompatibilityPolicy,
     ) -> SessionModelEnsembleService:
-        """Compose the serial, process-isolated ten-model shadow pipeline."""
+        """Compose the serial, process-isolated all-metric live pipeline."""
 
         from .application.analysis import SessionModelEnsembleService
         from .domain import Provider
         from .infrastructure.identifiers import LocalArtifactIdFactory
         from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
-        from .infrastructure.text_models.model_ensemble import (
-            SerialModelEnsembleRunner,
+        from .infrastructure.text_models.probabilistic_metrics import (
+            LocalProbabilisticMetricRunner,
         )
 
         def source_factory(provider: Provider) -> CodexTextAnalysisSource:
@@ -312,7 +312,7 @@ class LocalApplication:
             source_factory,
             compatibility_policy,
             LocalArtifactIdFactory(self.pseudonymizer),
-            SerialModelEnsembleRunner(),
+            LocalProbabilisticMetricRunner(),
         )
 
     def create_project_quality_aggregation_service(

@@ -13,6 +13,7 @@ _LOWER_HEX_40 = re.compile(r"[0-9a-f]{40}\Z")
 _LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
 _REPOSITORY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 _SAFE_LABELS = frozenset({"entailment", "neutral", "contradiction"})
+_SAFE_BINARY_LABELS = frozenset({"entailment", "not_entailment"})
 _SAFE_AUXILIARY_ARTIFACTS = (
     "config.json",
     "model.safetensors.index.json",
@@ -37,6 +38,7 @@ _SAFE_AUXILIARY_ARTIFACTS = (
 class TextModelTask(str, Enum):
     REQUIREMENT_ACTION_RETRIEVAL = "requirement_action_retrieval"
     SCOPED_NLI = "scoped_nli"
+    BINARY_NLI = "binary_nli"
     PAIR_RERANKING = "pair_reranking"
     STRUCTURED_RUBRIC = "structured_rubric"
 
@@ -122,8 +124,8 @@ class ModelManifest:
                 )
         if self.trust_remote_code:
             raise ValueError("trust_remote_code must remain disabled")
-        if not 8 <= self.max_sequence_length <= 512:
-            raise ValueError("model sequence length must be explicitly bounded at 512 or less")
+        if not 8 <= self.max_sequence_length <= 2_048:
+            raise ValueError("model sequence length must be explicitly bounded at 2048 or less")
         if not 1 <= self.max_batch_size <= 32:
             raise ValueError("model batch size must be explicitly bounded at 32 or less")
 
@@ -133,6 +135,11 @@ class ModelManifest:
         if self.task is TextModelTask.SCOPED_NLI:
             if set(labels.values()) != _SAFE_LABELS or set(labels) != {0, 1, 2}:
                 raise ValueError("NLI manifest must map indexes 0..2 to all three typed labels")
+        elif self.task is TextModelTask.BINARY_NLI:
+            if set(labels.values()) != _SAFE_BINARY_LABELS or set(labels) != {0, 1}:
+                raise ValueError(
+                    "binary NLI manifest must map indexes 0..1 to entailment and not_entailment"
+                )
         elif labels:
             raise ValueError("retrieval manifests cannot declare classification labels")
         if not self.architecture or not self.architecture.replace("_", "").isalnum():
@@ -264,6 +271,47 @@ MDEBERTA_XNLI = ModelManifest(
         (1, "neutral"),
         (2, "contradiction"),
     ),
+)
+
+DEBERTA_SMALL_LONG_NLI = ModelManifest(
+    key="deberta_small_long_nli",
+    task=TextModelTask.SCOPED_NLI,
+    repository_id="tasksource/deberta-small-long-nli",
+    revision="9a77395d4d3751be9e2a69c4ae318491d9b3fffb",
+    tokenizer_repository_id="tasksource/deberta-small-long-nli",
+    tokenizer_revision="9a77395d4d3751be9e2a69c4ae318491d9b3fffb",
+    license_spdx="Apache-2.0",
+    weight_filename="model.safetensors",
+    weight_sha256="9af30c7ad7235a2054300bc2df1d98149ad6008dd1ef06212be8b32b5d1b3458",
+    max_sequence_length=1_680,
+    max_batch_size=8,
+    output_label_by_index=(
+        (0, "entailment"),
+        (1, "neutral"),
+        (2, "contradiction"),
+    ),
+    architecture="deberta_v2_sequence_classifier",
+)
+
+MODERNBERT_BASE_ZEROSHOT = ModelManifest(
+    key="modernbert_base_zeroshot",
+    task=TextModelTask.BINARY_NLI,
+    repository_id="MoritzLaurer/ModernBERT-base-zeroshot-v2.0",
+    revision="d421c4545a438fd006fb43f8b981c5d908faa1e1",
+    tokenizer_repository_id="MoritzLaurer/ModernBERT-base-zeroshot-v2.0",
+    tokenizer_revision="d421c4545a438fd006fb43f8b981c5d908faa1e1",
+    license_spdx="Apache-2.0",
+    weight_filename="model.safetensors",
+    weight_sha256="5af4dac82bf3da16575d0c71c8c96ee7eb6621ae5f4f4726943d0a3583b44b46",
+    # The upstream encoder supports a wider context, but the product contract
+    # deliberately caps every live semantic episode at 2,048 tokens.
+    max_sequence_length=2_048,
+    max_batch_size=8,
+    output_label_by_index=(
+        (0, "entailment"),
+        (1, "not_entailment"),
+    ),
+    architecture="modernbert_sequence_classifier",
 )
 
 BGE_M3_LEGACY_BLOCKED = BlockedModelManifest(
@@ -408,6 +456,8 @@ TEXT_MODEL_MANIFESTS: Mapping[str, ModelManifest] = MappingProxyType(
         E5_MULTILINGUAL_BASE.key: E5_MULTILINGUAL_BASE,
         BGE_M3.key: BGE_M3,
         MDEBERTA_XNLI.key: MDEBERTA_XNLI,
+        DEBERTA_SMALL_LONG_NLI.key: DEBERTA_SMALL_LONG_NLI,
+        MODERNBERT_BASE_ZEROSHOT.key: MODERNBERT_BASE_ZEROSHOT,
         BGE_RERANKER_V2_M3.key: BGE_RERANKER_V2_M3,
         QWEN3_EMBEDDING_06B.key: QWEN3_EMBEDDING_06B,
         QWEN3_RERANKER_06B.key: QWEN3_RERANKER_06B,

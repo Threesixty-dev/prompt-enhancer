@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CodexSession,
+  ModelEnsembleRun,
+  ModelEnsembleTrajectoryPage,
   ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
@@ -52,7 +54,10 @@ function catalogSession(
   };
 }
 
-function watchSnapshot(maxMessages = 25): ModelEnsembleWatchSnapshot {
+function watchSnapshot(
+  maxMessages = 25,
+  latestRun: ModelEnsembleRun | null = null,
+): ModelEnsembleWatchSnapshot {
   return {
     watch: {
       watch_id: "d".repeat(64),
@@ -64,7 +69,7 @@ function watchSnapshot(maxMessages = 25): ModelEnsembleWatchSnapshot {
       generation: 0,
       progress_completed: 0,
       progress_total: 10,
-      has_result: false,
+      has_result: latestRun !== null,
       last_error_code: null,
       next_check_at: "2040-01-02T10:01:00Z",
       updated_at: "2040-01-02T10:00:00Z",
@@ -74,7 +79,75 @@ function watchSnapshot(maxMessages = 25): ModelEnsembleWatchSnapshot {
       content_persisted: false,
       calibrated_as_truth: false,
     },
-    latest_run: null,
+    latest_run: latestRun,
+  };
+}
+
+function radarRun(runId: string, value: number, completedAt: string): ModelEnsembleRun {
+  return {
+    run_id: runId,
+    completed_at: completedAt,
+    metrics: [{
+      metric_key: "prompt.task_definition_coverage",
+      value_state: "known",
+      numerator: value,
+      denominator: 1,
+      numeric_value: value,
+      known_chunk_count: 1,
+      abstained_chunk_count: 0,
+      unsupported_chunk_count: 0,
+      failed_chunk_count: 0,
+      total_chunk_count: 1,
+      explanation_code: "example_ratio",
+      calibration_state: "not_assessed",
+      product_metric_eligible: false,
+    }],
+    metric_projection_version: null,
+    metric_projection_completed_at: null,
+    typed_metrics: [],
+    predictive_projection_version: null,
+    predictive_projected_at: null,
+    predictive_metrics: [],
+    predictive_model_stages: [],
+    chunk_metrics: [{
+      chunk_ordinal: 0,
+      metric_key: "prompt.task_definition_coverage",
+      value_state: "known",
+      numerator: value,
+      denominator: 1,
+      rubric_vote: value === 1 ? "present" : "absent",
+      contributing_nli_votes: 2,
+      diagnostic_nli_votes: 1,
+      reason_code: "example_committee",
+    }],
+  } as unknown as ModelEnsembleRun;
+}
+
+function trajectoryPage(head: ModelEnsembleRun, older: ModelEnsembleRun): ModelEnsembleTrajectoryPage {
+  const point = (run: ModelEnsembleRun, generation: number) => ({
+    generation,
+    run_id: run.run_id,
+    published_at: new Date(new Date(run.completed_at).getTime() + 1000).toISOString(),
+    completed_at: run.completed_at,
+    max_messages: 25,
+    source_coverage_state: "complete_window" as const,
+    chunk_count: 1,
+    comparable_to_head: true,
+    metrics: run.metrics,
+    metric_projection_version: run.metric_projection_version,
+    metric_projection_completed_at: run.metric_projection_completed_at,
+    typed_metrics: run.typed_metrics,
+    predictive_projection_version: run.predictive_projection_version,
+    predictive_metrics: run.predictive_metrics,
+  });
+  return {
+    watch_id: "d".repeat(64),
+    head_run_id: head.run_id,
+    head_generation: 4,
+    points: [point(head, 4), point(older, 2)],
+    next_before_generation: null,
+    content_persisted: false,
+    calibrated_as_truth: false,
   };
 }
 
@@ -138,7 +211,7 @@ describe("ModelEnsembleOverlay", () => {
 
     render(<ModelEnsembleOverlay transport={transport} />);
 
-    expect(await screen.findByText(/Disconnected · retaining last receipt/i)).toBeVisible();
+    expect(await screen.findByText(/Reconnecting · last receipt retained/i)).toBeVisible();
   });
 
   it("navigates indexed projects and sessions, filters catalog dates, and enables an exact message window", async () => {
@@ -177,7 +250,167 @@ describe("ModelEnsembleOverlay", () => {
         confirmation: "continuously_analyze_selected_redacted_session",
       },
     ));
-    expect(await screen.findByText(/Newest 25 messages · generation 0/i)).toBeVisible();
+    expect(await screen.findByText(/Newest 25 messages · waiting for the serial local model lane/i)).toBeVisible();
+    expect(screen.queryByText(/generation 0/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
     expect(screen.getByText(/exact within-session date cutoffs/i)).toBeVisible();
+  });
+
+  it("navigates published radar history and overlays only a comparable prior receipt", async () => {
+    const head = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const older = radarRun("7".repeat(64), 0, "2040-01-02T09:00:00Z");
+    const snapshot = watchSnapshot(25, head);
+    snapshot.watch.state = "idle";
+    snapshot.watch.generation = 4;
+    snapshot.watch.progress_completed = 10;
+    const getModelEnsembleTrajectory = vi.fn(async () => trajectoryPage(head, older));
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleWatch: vi.fn(async () => snapshot),
+      getModelEnsembleTrajectory,
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+
+    expect(await screen.findByText("Live published head")).toBeVisible();
+    await waitFor(() => expect(getModelEnsembleTrajectory).toHaveBeenCalledWith(
+      "d".repeat(64),
+      24,
+      undefined,
+      expect.any(AbortSignal),
+    ));
+    expect(screen.getByText(/Dashed geometry is the immediately preceding comparable publication/i)).toBeVisible();
+    expect(document.querySelectorAll(".model-ensemble__radar-prior-segment")).toHaveLength(0);
+    expect(document.querySelectorAll(".model-ensemble__radar-prior-point")).toHaveLength(1);
+    expect(document.querySelectorAll(".model-ensemble__radar-state")).toHaveLength(5);
+
+    fireEvent.click(screen.getByRole("button", { name: "Older" }));
+    expect(await screen.findByText("Earlier published snapshot")).toBeVisible();
+    expect(screen.getByText(/Aggregate-only history point/i)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Return live" }));
+    expect(await screen.findByText("Live published head")).toBeVisible();
+  });
+
+  it("exposes an explicit analyze-now action with durable watch status", async () => {
+    const head = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const idle = watchSnapshot(25, head);
+    idle.watch.state = "idle";
+    idle.watch.generation = 4;
+    idle.watch.progress_completed = 10;
+    const queued = structuredClone(idle);
+    queued.watch.state = "queued";
+    queued.watch.next_check_at = "2040-01-02T10:00:02Z";
+    const refreshModelEnsembleWatch = vi.fn(async () => queued);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleWatch: vi.fn(async () => idle),
+      getModelEnsembleTrajectory: vi.fn(async () => trajectoryPage(
+        head,
+        radarRun("7".repeat(64), 1, "2040-01-02T09:00:00Z"),
+      )),
+      refreshModelEnsembleWatch,
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Analyze now" }));
+
+    await waitFor(() => expect(refreshModelEnsembleWatch).toHaveBeenCalledWith("d".repeat(64)));
+    expect(await screen.findByRole("button", { name: /Analysis queued/i })).toBeDisabled();
+  });
+
+  it("does not let a refresh revoke an active serial model lease", async () => {
+    const head = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const running = watchSnapshot(25, head);
+    running.watch.state = "running";
+    running.watch.progress_completed = 3;
+    const refreshModelEnsembleWatch = vi.fn(async () => running);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleWatch: vi.fn(async () => running),
+      getModelEnsembleTrajectory: vi.fn(async () => trajectoryPage(
+        head,
+        radarRun("7".repeat(64), 1, "2040-01-02T09:00:00Z"),
+      )),
+      refreshModelEnsembleWatch,
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    const runningButton = await screen.findByRole("button", {
+      name: /Analysis running · step 3 of 10/i,
+    });
+
+    expect(runningButton).toBeDisabled();
+    fireEvent.click(runningButton);
+    expect(refreshModelEnsembleWatch).not.toHaveBeenCalled();
+    expect(await screen.findByText("Live published head")).toBeVisible();
+  });
+
+  it("explains a fixed local failure and offers an explicit retry", async () => {
+    const head = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const failed = watchSnapshot(25, head);
+    failed.watch.state = "failed";
+    failed.watch.last_error_code = "local_model_ensemble_execution_failed";
+    failed.watch.next_check_at = "2040-01-02T10:01:00Z";
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleWatch: vi.fn(async () => failed),
+      getModelEnsembleTrajectory: vi.fn(async () => trajectoryPage(
+        head,
+        radarRun("7".repeat(64), 1, "2040-01-02T09:00:00Z"),
+      )),
+      refreshModelEnsembleWatch: vi.fn(async () => failed),
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+
+    expect(await screen.findByText(/a local model stage did not complete/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Retry analysis" })).toBeEnabled();
+    expect(await screen.findByText("Live published head")).toBeVisible();
+  });
+
+  it("advances a live-following radar when a new watch head is published", async () => {
+    const firstHead = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const older = radarRun("7".repeat(64), 1, "2040-01-02T09:00:00Z");
+    const secondHead = radarRun("9".repeat(64), 0, "2040-01-02T11:00:00Z");
+    let currentSnapshot = watchSnapshot(25, firstHead);
+    currentSnapshot.watch.state = "idle";
+    let currentTrajectory = trajectoryPage(firstHead, older);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleWatch: vi.fn(async () => currentSnapshot),
+      getModelEnsembleTrajectory: vi.fn(async () => currentTrajectory),
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    expect(await screen.findByText("100% signal")).toBeVisible();
+
+    currentSnapshot = watchSnapshot(25, secondHead);
+    currentSnapshot.watch.state = "idle";
+    currentSnapshot.watch.generation = 5;
+    currentSnapshot.watch.progress_completed = 10;
+    currentTrajectory = trajectoryPage(secondHead, firstHead);
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(await screen.findByText("0% signal")).toBeVisible();
+    expect(await screen.findByText("Live published head")).toBeVisible();
+  });
+
+  it("never lets stale trajectory history override a newer exact watch head", async () => {
+    const liveHead = radarRun("9".repeat(64), 0, "2040-01-02T11:00:00Z");
+    const staleHead = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const older = radarRun("7".repeat(64), 1, "2040-01-02T09:00:00Z");
+    const snapshot = watchSnapshot(25, liveHead);
+    snapshot.watch.state = "idle";
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleWatch: vi.fn(async () => snapshot),
+      getModelEnsembleTrajectory: vi.fn(async () => trajectoryPage(staleHead, older)),
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+
+    expect(await screen.findByText("0% signal")).toBeVisible();
+    expect(await screen.findByText(/Trajectory history is temporarily unavailable/i)).toBeVisible();
+    expect(screen.queryByText("Live published head")).not.toBeInTheDocument();
   });
 });

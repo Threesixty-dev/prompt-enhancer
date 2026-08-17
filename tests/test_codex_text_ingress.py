@@ -6,6 +6,12 @@ from copy import deepcopy
 import pytest
 from pydantic import SecretStr, ValidationError
 
+from prompt_enhancer.application.analysis.coaching_baselines import (
+    COACHING_METRIC_PACK_KEY,
+    COACHING_METRIC_PACK_VERSION,
+    DEFAULT_COACHING_METRIC_ENGINE,
+)
+from prompt_enhancer.application.analysis.text_analysis_presets import COACHING_PROFILE_V1
 from prompt_enhancer.application.analysis.text_contracts import (
     P1LocalAnalysisGrant,
     TextAnalysisPrivacyError,
@@ -292,6 +298,7 @@ def test_text_source_is_explicit_read_only_allowlisted_and_repr_safe() -> None:
             TextMessageKind.REQUEST,
             TextMessageKind.RESPONSE,
             TextMessageKind.PLAN,
+            TextMessageKind.FEEDBACK,
         }
     )
     assert context.text_extraction_complete is False
@@ -340,6 +347,98 @@ def test_text_source_is_explicit_read_only_allowlisted_and_repr_safe() -> None:
         and result.provenance.content_schema_version == context.content_schema_version
         for result in results
     )
+
+
+def test_text_source_classifies_only_closed_user_follow_up_as_feedback() -> None:
+    content = _content_read()
+    content["thread"]["turns"][0]["items"] = [  # type: ignore[index]
+        item
+        for item in content["thread"]["turns"][0]["items"]  # type: ignore[index]
+        if item["type"] != "futurePrivateItem"
+    ]
+    content["thread"]["turns"].append(  # type: ignore[index]
+        {
+            "id": "example-turn-follow-up",
+            "items": [
+                {
+                    "type": "userMessage",
+                    "id": "example-follow-up",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Please redo the fictional report; it is wrong.",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    content["thread"]["turns"].append(  # type: ignore[index]
+        {
+            "id": "example-turn-current-request",
+            "items": [
+                {
+                    "type": "userMessage",
+                    "id": "example-current-request",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Add a fictional appendix with one table.",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    transport = RecordingTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(),
+            content,
+        ]
+    )
+    selection = _selection()
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, []),
+    )
+
+    context = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=COACHING_PROFILE_V1.task_profile,
+    )
+
+    assert context.messages[-2].role is TextRole.USER
+    assert context.messages[-2].kind is TextMessageKind.FEEDBACK
+    assert context.messages[-1].role is TextRole.USER
+    assert context.messages[-1].kind is TextMessageKind.REQUEST
+    assert context.focus_message_id == context.messages[-1].message_id
+    assert TextMessageKind.FEEDBACK in context.available_message_kinds
+    grant = P1LocalAnalysisGrant(
+        provider=context.provider,
+        session_id=context.session_id,
+        analysis_window_fingerprint=context.analysis_window_fingerprint,
+        data_tier=DataTier.REDACTED_CONTENT,
+        consent_active=True,
+        local_only=True,
+        content_persistence_allowed=False,
+    )
+    results = DEFAULT_COACHING_METRIC_ENGINE.compute(
+        context,
+        grant,
+        pack_key=COACHING_METRIC_PACK_KEY,
+        pack_version=COACHING_METRIC_PACK_VERSION,
+    )
+    rework = next(
+        result
+        for result in results
+        if result.observation.key == "collaboration.rework_candidate_rate"
+    )
+    assert rework.value_state.value == "known"
+    assert rework.fraction is not None
+    assert rework.fraction.denominator >= 1
+    assert rework.fraction.numerator == rework.fraction.denominator
 
 
 def test_text_source_analyzes_the_newest_safe_suffix_of_a_large_thread() -> None:

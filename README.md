@@ -18,25 +18,35 @@ ratio-of-sums; they never average percentages in the browser. Full paths, previe
 transcripts, credentials, and tool content are not persisted, and no analytics are sent
 online.
 
-An additional opt-in shadow pipeline can divide that approved redacted window into
-at most eight contiguous chunks and run ten revision-pinned Hugging Face experts one
-at a time. Four retrieval experts select bounded evidence, two rerank it, three NLI
-experts and one structured-rubric expert vote, and only compatible known chunk
-fractions are combined into a separate radar. Every model runs in an isolated child
-process with CUDA-first and CPU fallback, then exits before the next model so its
-weights are released. The database stores normalized content-free votes, aggregates,
-provenance, and unload receipts; it never stores the chunk text. This ensemble is
-deliberately marked uncalibrated and is not a product score or a substitute for a
-representative human-labeled holdout.
+An additional opt-in local pipeline projects all twenty metric contracts into a
+second, explicitly experimental layer. It first builds owned task, collaboration,
+reasoning, and outcome-evidence observations so physical chunks never create extra
+denominators. Three pinned multilingual NLI encoders form the EN/PL live baseline;
+two pinned English long-context challengers are available for eligible cases, and a
+4-bit Qwen 4B judge is loaded only for bounded disagreement or manual deep analysis.
+Models run one at a time in isolated child processes under a 6,144 MiB VRAM and
+8,192 MiB RSS ceiling. A failed optional model cannot erase deterministic metrics.
+Only content-free factor summaries, distribution quantiles, provenance, and resource
+receipts are stored. Raw softmax values are never presented as confidence: until a
+metric passes its own held-out calibration gate the UI calls its band an
+**Experimental model range**.
 
 One selected Codex session can also be placed under an explicit continuous local
 watch. The watch checks the selected redacted snapshot on a bounded cadence, reuses
-unchanged sealed prefix chunks, reruns all ten heterogeneous stages only over the
-dirty tail, and publishes a new immutable content-free receipt. Codex activity time
+an exact unchanged sealed run before inference, and recomputes canonical focus-request
+and dependency-bearing whole-window conversation observations when the input changes, then
+publishes a new immutable content-free receipt. The radar's solid values come
+from the reviewed deterministic coaching contracts with their exact typed
+numerators, denominators, message coverage, and missing-value states. A dotted
+median plus translucent central 50% and 90% bands show the separate experimental
+model projection. Models cannot veto or replace measured evidence, and objective
+receipts alone can create a solid verified-outcome value. Codex activity time
 is reduced to a keyed revision rather than persisted as a provider timestamp. A
 fixed-axis radar keeps Unknown and Abstained visible instead of plotting them as
-zero. This is a serial evidence committee—not ten interchangeable predictors and
-not a calibrated estimate of truth.
+zero. A displayed `0%` therefore means an eligible typed denominator really had
+zero positive observations; `—` means the value was not measurable. The live
+model path is a gated external mixture of specialists, not a native MoE, not an
+average of arbitrary scores, and not yet a calibrated estimate of truth.
 
 ## Phase 1 local quickstart
 
@@ -92,10 +102,9 @@ backend. Ordinary `npm run dev` stays synthetic. Granting source access,
 indexing sessions, and starting a selected-session analysis remain separate
 explicit actions in the UI.
 
-The optional ten-model shadow ensemble needs the model extras and all ten
-reviewed public snapshots prepared before the browser run. Preparation is an
-explicit networked step over fictional test cases; the later selected-session
-run is forced offline:
+The optional predictive layer needs the model extras and the reviewed public
+snapshots prepared before the browser run. Preparation is an explicit networked
+step over synthetic test cases; selected-session inference is then forced offline:
 
 ```powershell
 python -m pip install -e ".[models]"
@@ -104,9 +113,12 @@ python scripts/evaluate_specialist_screen.py --device auto --smoke --download
 ```
 
 After those commands pass, open a Prompt Quality or Reasoning Quality session
-page in the integrated app and choose **Run 10 models locally**. The operation
-can take several minutes. It uses CUDA when available, otherwise CPU, and
-executes one model process at a time rather than loading all weights together.
+page in the integrated app and choose **Analyze metric ranges**. The first cold pass
+can take about a minute on the reference machine because model processes load
+serially; the p95 latency targets in the design document remain promotion gates,
+not achieved claims. CUDA is used when available, small-model OOM retries once on
+CPU, and the deep judge is optional. The historical ten-stage committee receipts
+remain readable but that committee is no longer executed for live updates.
 
 To keep the selected session updating, choose **Watch this session** on that
 page. Only one session can hold the continuous serial model lane. An optional
@@ -117,12 +129,20 @@ Its compact scope bar switches among the newest indexed projects and
 sessions and persists an exact newest-message window of 10, 25, 50, or 100
 messages. The date control filters the indexed session catalog; it is not an
 inside-session date cutoff because Codex does not yet expose complete normalized
-timestamps for every admitted message:
+timestamps for every admitted message. Changed sealed publications form a
+bounded radar trajectory; unchanged polls do not create fake points, and
+incomparable scope changes are never overlaid as if they were movement:
 
 ```powershell
 python -m pip install -e ".[desktop]"
 prompt-enhancer-desktop
 ```
+
+The mini-window also has an explicit **Analyze now** action. While work is live,
+that action becomes **Restart analysis**, which atomically revokes a dead or
+unwanted lease, retains the last sealed radar, and queues a fresh run. Normal
+crash recovery uses a five-minute renewable lease; active child inference
+heartbeats keep that lease alive.
 
 `prompt-enhancer-desktop` is a Windows GUI entry point: it opens only the React
 window and does not create or retain a PowerShell/CMD console. It attaches only
@@ -130,6 +150,10 @@ to the authenticated loopback service on the configured port, or starts and
 owns that service when the port is free. Closing the window stops only a server
 instance that the window started itself. `python -m prompt_enhancer desktop`
 remains available as a terminal-oriented diagnostic command.
+
+See [the live metric radar pipeline](docs/live-metric-radar-pipeline.md) for all
+twenty contracts, zero-versus-missing semantics, model routing, distribution and
+trajectory contracts, resource ceilings, and the remaining calibration gates.
 
 See [docs/phase-1.md](docs/phase-1.md) for the safety boundary, explicit Codex workflow, API behavior, and deferred features.
 

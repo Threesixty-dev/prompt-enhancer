@@ -11,22 +11,33 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 import hashlib
 from threading import Event, Lock, Thread
-from typing import Callable, Protocol
+from typing import Callable, Literal, Protocol
 
 from pydantic import Field, field_validator, model_validator
 
 from ...domain import PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTERN, StrictModel
+from .model_ensemble import (
+    MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION,
+    SessionModelEnsembleMetricReceipt,
+    SessionModelEnsembleTypedMetricReceipt,
+    SourceCoverageState,
+)
 from .session_model_ensemble import (
     MODEL_ENSEMBLE_CONFIRMATION,
     SessionModelEnsembleError,
     SessionModelEnsembleOutcome,
+    SessionModelEnsemblePersistenceAuthority,
+)
+from .probabilistic_metrics import (
+    PROBABILISTIC_METRIC_PROJECTION_VERSION,
+    SessionPredictiveMetricSummary,
 )
 
 
 MODEL_ENSEMBLE_WATCH_CONTRACT_VERSION = "model-ensemble-watch-v1"
 MODEL_ENSEMBLE_WATCH_CONFIRMATION = "continuously_analyze_selected_redacted_session"
 MODEL_ENSEMBLE_WATCH_POLL_SECONDS = 60
-MODEL_ENSEMBLE_WATCH_LEASE_SECONDS = 30 * 60
+MODEL_ENSEMBLE_WATCH_LEASE_SECONDS = 5 * 60
 MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL = 10
 
 
@@ -123,6 +134,130 @@ class ModelEnsembleWatchLease(StrictModel):
     _time = field_validator("expires_at")(_utc)
 
 
+class ModelEnsembleTrajectoryPoint(StrictModel):
+    generation: int = Field(ge=1, le=1_000_000_000)
+    run_id: str
+    published_at: datetime
+    completed_at: datetime
+    max_messages: int = Field(ge=1, le=100)
+    source_coverage_state: SourceCoverageState
+    chunk_count: int = Field(ge=1, le=8)
+    comparable_to_head: bool
+    metrics: tuple[SessionModelEnsembleMetricReceipt, ...] = Field(
+        min_length=1,
+        max_length=20,
+    )
+    metric_projection_version: Literal[
+        MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION
+    ] | None = None
+    metric_projection_completed_at: datetime | None = None
+    typed_metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...] = Field(
+        default=(),
+        max_length=20,
+    )
+    predictive_projection_version: Literal[
+        PROBABILISTIC_METRIC_PROJECTION_VERSION
+    ] | None = None
+    predictive_metrics: tuple[SessionPredictiveMetricSummary, ...] = Field(
+        default=(), max_length=20
+    )
+
+    _run = field_validator("run_id")(_safe_id)
+    _times = field_validator("published_at", "completed_at")(_utc)
+
+    @field_validator("metric_projection_completed_at")
+    @classmethod
+    def validate_projection_time(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _utc(value)
+
+    @model_validator(mode="after")
+    def validate_point(self) -> "ModelEnsembleTrajectoryPoint":
+        if self.published_at < self.completed_at:
+            raise ValueError("trajectory publication cannot precede completion")
+        if len({item.metric_key for item in self.metrics}) != len(self.metrics):
+            raise ValueError("trajectory metrics must be unique")
+        if any(item.total_chunk_count > self.chunk_count for item in self.metrics):
+            raise ValueError(
+                "trajectory metric observations cannot exceed the physical chunk count"
+            )
+        projection_identity_complete = (
+            self.metric_projection_version is not None
+            and self.metric_projection_completed_at is not None
+        )
+        if bool(self.typed_metrics) != projection_identity_complete or (
+            (self.metric_projection_version is None)
+            != (self.metric_projection_completed_at is None)
+        ):
+            raise ValueError("trajectory typed projection identity is incomplete")
+        if self.typed_metrics:
+            typed_keys = tuple(item.metric_key for item in self.typed_metrics)
+            committee_keys = tuple(item.metric_key for item in self.metrics)
+            if len(set(typed_keys)) != len(typed_keys) or set(typed_keys) != set(
+                committee_keys
+            ):
+                raise ValueError("trajectory typed projection metric set is incomplete")
+        if bool(self.predictive_metrics) != (
+            self.predictive_projection_version is not None
+        ):
+            raise ValueError("trajectory predictive projection identity is incomplete")
+        if self.predictive_metrics:
+            predictive_keys = tuple(item.metric_key for item in self.predictive_metrics)
+            committee_keys = tuple(item.metric_key for item in self.metrics)
+            if len(set(predictive_keys)) != len(predictive_keys) or set(
+                predictive_keys
+            ) != set(committee_keys):
+                raise ValueError("trajectory predictive metric set is incomplete")
+        return self
+
+
+class ModelEnsembleTrajectoryPage(StrictModel):
+    watch_id: str
+    head_run_id: str | None
+    head_generation: int | None = Field(default=None, ge=1, le=1_000_000_000)
+    points: tuple[ModelEnsembleTrajectoryPoint, ...] = Field(max_length=60)
+    next_before_generation: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000_000,
+    )
+    content_persisted: Literal[False] = False
+    calibrated_as_truth: Literal[False] = False
+
+    _watch = field_validator("watch_id")(_safe_id)
+    _head = field_validator("head_run_id")(
+        lambda value: None if value is None else _safe_id(value)
+    )
+
+    @model_validator(mode="after")
+    def validate_page(self) -> "ModelEnsembleTrajectoryPage":
+        if (self.head_run_id is None) != (self.head_generation is None):
+            raise ValueError("trajectory head identity must be complete")
+        generations = tuple(point.generation for point in self.points)
+        if generations != tuple(sorted(generations, reverse=True)):
+            raise ValueError("trajectory points must be newest first")
+        if len(set(generations)) != len(generations):
+            raise ValueError("trajectory generations must be unique")
+        if self.head_generation is not None and any(
+            generation > self.head_generation for generation in generations
+        ):
+            raise ValueError("trajectory points cannot be newer than the watch head")
+        head_points = tuple(
+            point for point in self.points if point.run_id == self.head_run_id
+        )
+        if head_points and (
+            len(head_points) != 1
+            or head_points[0].generation != self.head_generation
+            or not head_points[0].comparable_to_head
+            or self.points[0] != head_points[0]
+        ):
+            raise ValueError("trajectory head publication is inconsistent")
+        if self.next_before_generation is not None and (
+            not generations or self.next_before_generation != generations[-1]
+        ):
+            raise ValueError("trajectory cursor must identify the last returned point")
+        return self
+
+
 class ModelEnsembleWatchRepository(Protocol):
     def enable(
         self,
@@ -140,6 +275,21 @@ class ModelEnsembleWatchRepository(Protocol):
     def get(self, watch_id: str) -> ModelEnsembleWatchRecord | None: ...
 
     def get_active(self) -> ModelEnsembleWatchRecord | None: ...
+
+    def request_refresh(
+        self,
+        watch_id: str,
+        *,
+        now: datetime,
+    ) -> ModelEnsembleWatchRecord: ...
+
+    def list_publications(
+        self,
+        watch_id: str,
+        *,
+        before_generation: int | None,
+        limit: int,
+    ) -> ModelEnsembleTrajectoryPage: ...
 
     def claim_due(
         self,
@@ -193,6 +343,7 @@ class ContinuousModelEnsembleCommand(Protocol):
         max_messages: int = 100,
         progress_callback: ProgressCallback | None = None,
         reuse_latest: bool = True,
+        prior_run_id: str | None = None,
     ) -> SessionModelEnsembleOutcome: ...
 
 
@@ -298,6 +449,46 @@ class ModelEnsembleWatchService:
     def get_active(self) -> ModelEnsembleWatchRecord | None:
         return self._repository.get_active()
 
+    def refresh(self, watch_id: str) -> ModelEnsembleWatchRecord:
+        """Make a non-disabled watch immediately due without replacing its head."""
+
+        if PSEUDONYM_PATTERN.fullmatch(watch_id) is None:
+            raise ModelEnsembleWatchInputError()
+        try:
+            return self._repository.request_refresh(watch_id, now=self._clock())
+        except ValueError:
+            raise ModelEnsembleWatchNotFoundError() from None
+
+    def trajectory(
+        self,
+        watch_id: str,
+        *,
+        before_generation: int | None = None,
+        limit: int = 12,
+    ) -> ModelEnsembleTrajectoryPage:
+        if (
+            PSEUDONYM_PATTERN.fullmatch(watch_id) is None
+            or not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 60
+            or (
+                before_generation is not None
+                and (
+                    not isinstance(before_generation, int)
+                    or isinstance(before_generation, bool)
+                    or not 1 <= before_generation <= 1_000_000_000
+                )
+            )
+        ):
+            raise ModelEnsembleWatchInputError()
+        if self._repository.get(watch_id) is None:
+            raise ModelEnsembleWatchNotFoundError()
+        return self._repository.list_publications(
+            watch_id,
+            before_generation=before_generation,
+            limit=limit,
+        )
+
     def run_once(self) -> ModelEnsembleWatchRecord | None:
         now = self._clock()
         claimed = self._repository.claim_due(
@@ -323,6 +514,16 @@ class ModelEnsembleWatchService:
             if record.state is not ModelEnsembleWatchState.RUNNING:
                 raise ModelEnsembleWatchStopped()
 
+        def persistence_authority() -> SessionModelEnsemblePersistenceAuthority:
+            return SessionModelEnsemblePersistenceAuthority(
+                watch_id=record.watch_id,
+                owner=lease.owner,
+                token=lease.token,
+                generation=record.generation,
+                observed_at=self._clock(),
+                prior_run_id=record.latest_run_id,
+            )
+
         key = self._id_factory(
             f"{MODEL_ENSEMBLE_WATCH_CONTRACT_VERSION}:{record.watch_id}:{record.generation}"
         )
@@ -335,6 +536,8 @@ class ModelEnsembleWatchService:
                 max_messages=record.max_messages,
                 progress_callback=progress,
                 reuse_latest=True,
+                prior_run_id=record.latest_run_id,
+                persistence_authority=persistence_authority,
             )
             finished_at = self._clock()
             return self._repository.complete(
@@ -430,4 +633,6 @@ __all__ = [
     "ModelEnsembleWatchService",
     "ModelEnsembleWatchState",
     "ModelEnsembleWatchWorker",
+    "ModelEnsembleTrajectoryPage",
+    "ModelEnsembleTrajectoryPoint",
 ]

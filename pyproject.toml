@@ -25,6 +25,8 @@ models = [
   "sentencepiece>=0.2,<1",
   "torch>=2.8,<3",
   "transformers>=4.56,<5",
+  "accelerate>=1,<2",
+  "bitsandbytes>=0.45,<1",
 ]
 desktop = [
   "pywebview>=6,<7",

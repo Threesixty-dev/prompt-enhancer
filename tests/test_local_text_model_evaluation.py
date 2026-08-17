@@ -33,9 +33,11 @@ from prompt_enhancer.infrastructure.text_models.manifests import (
     BGE_M3_BLOCKED,
     BGE_M3_LEGACY_BLOCKED,
     BGE_RERANKER_V2_M3,
+    DEBERTA_SMALL_LONG_NLI,
     E5_MULTILINGUAL_BASE,
     E5_MULTILINGUAL_SMALL,
     MDEBERTA_XNLI,
+    MODERNBERT_BASE_ZEROSHOT,
     QWEN3_4B_RUBRIC,
     QWEN3_EMBEDDING_06B,
     QWEN3_RERANKER_06B,
@@ -121,16 +123,31 @@ def test_candidate_manifests_are_exact_pins_without_remote_code() -> None:
     assert MDEBERTA_XNLI.weight_sha256 == (
         "7c8e29f1115986d032e92b0fbaa0bdef1062a46f658b08705f237c05014a8541"
     )
+    assert DEBERTA_SMALL_LONG_NLI.revision == (
+        "9a77395d4d3751be9e2a69c4ae318491d9b3fffb"
+    )
+    assert DEBERTA_SMALL_LONG_NLI.weight_sha256 == (
+        "9af30c7ad7235a2054300bc2df1d98149ad6008dd1ef06212be8b32b5d1b3458"
+    )
+    assert DEBERTA_SMALL_LONG_NLI.max_sequence_length == 1_680
+    assert MODERNBERT_BASE_ZEROSHOT.revision == (
+        "d421c4545a438fd006fb43f8b981c5d908faa1e1"
+    )
+    assert MODERNBERT_BASE_ZEROSHOT.weight_sha256 == (
+        "5af4dac82bf3da16575d0c71c8c96ee7eb6621ae5f4f4726943d0a3583b44b46"
+    )
+    assert MODERNBERT_BASE_ZEROSHOT.task is TextModelTask.BINARY_NLI
+    assert MODERNBERT_BASE_ZEROSHOT.max_sequence_length == 2_048
     assert BGE_RERANKER_V2_M3.revision == "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e"
     assert QWEN3_EMBEDDING_06B.revision == "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
     assert QWEN3_RERANKER_06B.revision == "e61197ed45024b0ed8a2d74b80b4d909f1255473"
     assert QWEN3_4B_RUBRIC.revision == "cdbee75f17c01a7cc42f958dc650907174af0554"
-    assert len(TEXT_MODEL_MANIFESTS) == 8
+    assert len(TEXT_MODEL_MANIFESTS) == 10
     for manifest in TEXT_MODEL_MANIFESTS.values():
         assert manifest.trust_remote_code is False
         assert all(filename.endswith(".safetensors") for filename, _ in manifest.weight_files)
         assert manifest.revision == manifest.tokenizer_revision
-        assert manifest.max_sequence_length <= 512
+        assert manifest.max_sequence_length <= 2_048
         assert manifest.max_batch_size <= 32
 
     assert BGE_M3_BLOCKED is BGE_M3_LEGACY_BLOCKED

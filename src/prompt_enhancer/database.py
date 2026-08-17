@@ -95,10 +95,16 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_27,
     MIGRATION_28,
     MIGRATION_29,
+    MIGRATION_30,
+    MIGRATION_31,
+    MIGRATION_32,
+    MIGRATION_33,
+    MIGRATION_34,
+    MIGRATION_35,
 )
 
 
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 35
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1607,6 +1613,12 @@ class Database:
                 (27, MIGRATION_27),
                 (28, MIGRATION_28),
                 (29, MIGRATION_29),
+                (30, MIGRATION_30),
+                (31, MIGRATION_31),
+                (32, MIGRATION_32),
+                (33, MIGRATION_33),
+                (34, MIGRATION_34),
+                (35, MIGRATION_35),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1872,7 +1884,7 @@ class Database:
         )
 
     def model_ensemble_repository(self):
-        """Return normalized content-free ten-model shadow persistence."""
+        """Return normalized content-free measured and predictive persistence."""
 
         from .infrastructure.sqlite.model_ensemble import (
             SqliteSessionModelEnsembleRepository,

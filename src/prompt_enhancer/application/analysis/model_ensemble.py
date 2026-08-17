@@ -22,13 +22,25 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, StrictModel
 from ..persistence import MetricValueState
 from .coaching_baselines import COACHING_METRIC_DEFINITIONS
-from .text_contracts import P1TextAnalysisInput, TextLanguage, TextMessageKind, TextRole
+from .probabilistic_metrics import (
+    PROBABILISTIC_METRIC_PROJECTION_VERSION,
+    SessionPredictiveMetricProjection,
+)
+from .text_contracts import (
+    MAX_ELIGIBLE_MESSAGES,
+    P1TextAnalysisInput,
+    TextLanguage,
+    TextMessageKind,
+    TextRole,
+)
 
 
 MODEL_ENSEMBLE_PLAN_VERSION = "local-shadow-ensemble-v1"
-MODEL_ENSEMBLE_CHUNKER_VERSION = "append-stable-redacted-v2"
-MODEL_ENSEMBLE_RUBRIC_VERSION = "coaching-shadow-rubric-v2"
-MODEL_ENSEMBLE_PROMPT_VERSION = "coaching-shadow-prompt-v2"
+MODEL_ENSEMBLE_CHUNKER_VERSION = "append-stable-redacted-v3"
+MODEL_ENSEMBLE_RUBRIC_VERSION = "coaching-shadow-rubric-v3"
+MODEL_ENSEMBLE_PROMPT_VERSION = "coaching-shadow-prompt-v4"
+MODEL_ENSEMBLE_OBSERVATION_POLICY_VERSION = "owned-observation-v1"
+MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION = "coaching-typed-projection-v1"
 MODEL_ENSEMBLE_MAX_CHUNKS = 8
 MODEL_ENSEMBLE_MAX_FRAGMENT_CHARACTERS = 3_500
 # With fragments capped at 3,500 characters, every closed bucket exceeds
@@ -353,11 +365,31 @@ class SessionModelEnsembleMetricReceipt(StrictModel):
     numerator: int | None = Field(default=None, ge=0)
     denominator: int | None = Field(default=None, ge=1)
     numeric_value: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
-    known_chunk_count: int = Field(ge=0, le=MODEL_ENSEMBLE_MAX_CHUNKS)
-    abstained_chunk_count: int = Field(ge=0, le=MODEL_ENSEMBLE_MAX_CHUNKS)
-    unsupported_chunk_count: int = Field(ge=0, le=MODEL_ENSEMBLE_MAX_CHUNKS)
-    failed_chunk_count: int = Field(ge=0, le=MODEL_ENSEMBLE_MAX_CHUNKS)
-    total_chunk_count: int = Field(ge=1, le=MODEL_ENSEMBLE_MAX_CHUNKS)
+    known_chunk_count: int = Field(
+        ge=0,
+        le=MODEL_ENSEMBLE_MAX_CHUNKS,
+        description="Known eligible observations; legacy field name retained for compatibility.",
+    )
+    abstained_chunk_count: int = Field(
+        ge=0,
+        le=MODEL_ENSEMBLE_MAX_CHUNKS,
+        description="Abstained eligible observations; structural ownership cells are excluded.",
+    )
+    unsupported_chunk_count: int = Field(
+        ge=0,
+        le=MODEL_ENSEMBLE_MAX_CHUNKS,
+        description="Unknown or unsupported eligible observations; structural cells are excluded.",
+    )
+    failed_chunk_count: int = Field(
+        ge=0,
+        le=MODEL_ENSEMBLE_MAX_CHUNKS,
+        description="Execution-failed eligible observations; structural cells are excluded.",
+    )
+    total_chunk_count: int = Field(
+        ge=1,
+        le=MODEL_ENSEMBLE_MAX_CHUNKS,
+        description="Eligible observation count; may be smaller than the physical chunk count.",
+    )
     explanation_code: str
     calibration_state: Literal["not_assessed"] = "not_assessed"
     product_metric_eligible: Literal[False] = False
@@ -373,7 +405,7 @@ class SessionModelEnsembleMetricReceipt(StrictModel):
             + self.failed_chunk_count
             != self.total_chunk_count
         ):
-            raise ValueError("chunk states must partition the ensemble window")
+            raise ValueError("observation states must partition eligible observations")
         known = self.value_state is MetricValueState.KNOWN
         if known:
             if (
@@ -387,9 +419,94 @@ class SessionModelEnsembleMetricReceipt(StrictModel):
                     abs_tol=1e-12,
                 )
             ):
-                raise ValueError("known ensemble metrics require ratio-of-chunks")
+                raise ValueError("known ensemble metrics require ratio-of-observations")
         elif any(value is not None for value in (self.numerator, self.denominator, self.numeric_value)):
             raise ValueError("non-known ensemble metrics cannot claim a value")
+        return self
+
+
+class SessionModelEnsembleTypedMetricReceipt(StrictModel):
+    """One content-free typed coaching observation projected beside the committee.
+
+    The measured receipt is produced by the deterministic coaching contract;
+    its numerator and denominator are tied to explicit observation units rather
+    than model agreement.  A separate predictive projection may accompany it,
+    but it cannot rewrite this evidence-backed value.
+    """
+
+    metric_key: str
+    metric_version: int = Field(ge=1, le=1_000_000)
+    value_state: MetricValueState
+    numerator: int | None = Field(default=None, ge=0, le=1_000_000)
+    denominator: int | None = Field(default=None, ge=1, le=1_000_000)
+    numeric_value: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    observed_message_count: int = Field(ge=0, le=100)
+    eligible_message_count: int = Field(ge=0, le=MAX_ELIGIBLE_MESSAGES)
+    coverage: float = Field(ge=0, le=1, allow_inf_nan=False)
+    explanation_code: str
+    error_code: str | None
+    projection_source: Literal["deterministic_typed_contract"]
+    metric_schema_version: int = Field(ge=1, le=1_000_000)
+    engine_version: str
+    algorithm_id: str
+    algorithm_version: str
+    rubric_version: str
+    calibration_state: Literal["not_assessed"]
+    product_metric_eligible: Literal[False]
+
+    _versions = field_validator(
+        "metric_key",
+        "explanation_code",
+        "engine_version",
+        "algorithm_id",
+        "algorithm_version",
+        "rubric_version",
+    )(_safe_version)
+    _error = field_validator("error_code")(
+        lambda value: None if value is None else _safe_version(value)
+    )
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> "SessionModelEnsembleTypedMetricReceipt":
+        if self.observed_message_count > self.eligible_message_count:
+            raise ValueError("typed metric observation count exceeds eligibility")
+        expected_coverage = (
+            0.0
+            if self.eligible_message_count == 0
+            else self.observed_message_count / self.eligible_message_count
+        )
+        if not math.isclose(
+            self.coverage,
+            expected_coverage,
+            rel_tol=0,
+            abs_tol=1e-12,
+        ):
+            raise ValueError("typed metric coverage must match its message counts")
+        known = self.value_state is MetricValueState.KNOWN
+        if known:
+            if (
+                self.numerator is None
+                or self.denominator is None
+                or self.numerator > self.denominator
+                or self.numeric_value is None
+                or self.error_code is not None
+                or not math.isclose(
+                    self.numeric_value,
+                    self.numerator / self.denominator,
+                    rel_tol=0,
+                    abs_tol=1e-12,
+                )
+            ):
+                raise ValueError("known typed metrics require an exact bounded fraction")
+        elif any(
+            value is not None
+            for value in (self.numerator, self.denominator, self.numeric_value)
+        ):
+            raise ValueError("non-known typed metrics cannot claim a value")
+        if (self.value_state is MetricValueState.EXECUTION_ERROR) != (
+            self.error_code is not None
+        ):
+            raise ValueError("only typed execution errors may contain an error code")
         return self
 
 
@@ -406,6 +523,12 @@ class SessionModelEnsembleReceipt(StrictModel):
     )
     chunks: tuple[ChunkMetricCommitteeReceipt, ...]
     metrics: tuple[SessionModelEnsembleMetricReceipt, ...]
+    metric_projection_version: Literal[
+        MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION
+    ] | None = None
+    metric_projection_completed_at: datetime | None = None
+    typed_metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...] = ()
+    predictive_projection: SessionPredictiveMetricProjection | None = None
     experts: tuple[ModelExpertReceipt, ...] = Field(
         min_length=MODEL_ENSEMBLE_MODEL_COUNT,
         max_length=MODEL_ENSEMBLE_MODEL_COUNT,
@@ -421,6 +544,11 @@ class SessionModelEnsembleReceipt(StrictModel):
 
     _fingerprints = field_validator("plan_fingerprint", "source_window_fingerprint")(_digest)
     _times = field_validator("created_at", "completed_at")(_utc)
+
+    @field_validator("metric_projection_completed_at")
+    @classmethod
+    def validate_projection_time(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _utc(value)
 
     @model_validator(mode="after")
     def validate_graph(self) -> "SessionModelEnsembleReceipt":
@@ -444,6 +572,41 @@ class SessionModelEnsembleReceipt(StrictModel):
         actual_pairs = {(item.chunk_ordinal, item.metric_key) for item in self.chunks}
         if expected_pairs != actual_pairs or len(actual_pairs) != len(self.chunks):
             raise ValueError("ensemble chunk metrics must form a complete matrix")
+        projection_complete = (
+            self.metric_projection_version is not None
+            and self.metric_projection_completed_at is not None
+        )
+        if bool(self.typed_metrics) != projection_complete or (
+            (self.metric_projection_version is None)
+            != (self.metric_projection_completed_at is None)
+        ):
+            raise ValueError("typed metric projection identity must be complete")
+        if self.typed_metrics:
+            typed_keys = tuple(item.metric_key for item in self.typed_metrics)
+            metric_keys = tuple(item.metric_key for item in self.metrics)
+            if (
+                len(set(typed_keys)) != len(typed_keys)
+                or set(typed_keys) != set(metric_keys)
+            ):
+                raise ValueError(
+                    "typed metric projection must cover the complete committee metric set"
+                )
+        if self.predictive_projection is not None:
+            if (
+                self.predictive_projection.projection_version
+                != PROBABILISTIC_METRIC_PROJECTION_VERSION
+            ):
+                raise ValueError("predictive metric projection version is unsupported")
+            predictive_keys = tuple(
+                item.metric_key for item in self.predictive_projection.metrics
+            )
+            metric_keys = tuple(item.metric_key for item in self.metrics)
+            if len(set(predictive_keys)) != len(predictive_keys) or set(
+                predictive_keys
+            ) != set(metric_keys):
+                raise ValueError(
+                    "predictive metric projection must cover the complete metric set"
+                )
         expert_keys = {item.identity.model_key for item in self.experts}
         expert_roles = {
             item.identity.model_key: item.identity.role for item in self.experts
@@ -508,11 +671,12 @@ def coaching_ensemble_metric_specs() -> tuple[EnsembleMetricSpec, ...]:
                 display_name=definition.display_name,
                 direction=definition.direction.value,
                 evidence_scope=(
-                    "focus_request"
-                    if definition.dimension == "prompt"
+                    "objective_evidence"
+                    if definition.dimension == "outcome"
+                    or definition.key == "logic.hypothesis_test_linkage"
                     else (
-                        "objective_evidence"
-                        if definition.dimension == "outcome"
+                        "focus_request"
+                        if definition.dimension == "prompt"
                         else "conversation"
                     )
                 ),
@@ -559,6 +723,8 @@ def build_ensemble_chunks(context: P1TextAnalysisInput) -> EnsembleChunkPlan:
                     "role": message.role.value,
                     "kind": message.kind.value,
                     "language": message.language.value,
+                    "is_focus_message": message.message_id
+                    == context.focus_message_id,
                     "redacted_content_digest": hashlib.sha256(
                         piece.encode("utf-8")
                     ).hexdigest(),
@@ -704,15 +870,24 @@ def committee_chunk_receipt(
 
     entailments = sum(item.state is ModelVoteState.PRESENT for item in contributing)
     contradictions = sum(item.state is ModelVoteState.ABSENT for item in contributing)
-    if rubric_vote.state is ModelVoteState.PRESENT:
-        accepted = entailments == len(contributing) and contradictions == 0
-        numerator = 1
-    else:
-        # Absence is a decision only when every promoted NLI model emits an
-        # explicit contradiction.  Neutral, unavailable, and failed evidence
-        # never become a zero merely because no entailment was observed.
-        accepted = contradictions == len(contributing) and entailments == 0
-        numerator = 0
+    if rubric_vote.state is ModelVoteState.ABSENT:
+        # The v3+ shadow pipeline does not yet persist a typed opportunity
+        # receipt.  Agreement that a signal is absent therefore cannot prove
+        # that the metric's denominator existed.  Keep the decision
+        # nonnumeric until a metric-specific eligibility contract supplies
+        # that evidence; semantic missingness must never become a zero.
+        return ChunkMetricCommitteeReceipt(
+            chunk_ordinal=chunk_ordinal,
+            metric_key=metric_key,
+            value_state=MetricValueState.ABSTAINED,
+            rubric_vote=rubric_vote.state,
+            contributing_nli_votes=len(contributing),
+            diagnostic_nli_votes=diagnostic_count,
+            reason_code="typed_metric_opportunity_unproven",
+        )
+
+    accepted = entailments == len(contributing) and contradictions == 0
+    numerator = 1
     if not accepted:
         return ChunkMetricCommitteeReceipt(
             chunk_ordinal=chunk_ordinal,
@@ -739,7 +914,13 @@ def committee_chunk_receipt(
 def aggregate_chunk_metrics(
     receipts: tuple[ChunkMetricCommitteeReceipt, ...],
 ) -> tuple[SessionModelEnsembleMetricReceipt, ...]:
-    """Average chunks by ratio-of-valid-chunks; never average model logits."""
+    """Aggregate eligible owned observations; never average model logits.
+
+    The sealed graph remains a complete chunk-by-metric matrix. Structural
+    ``NOT_APPLICABLE`` cells only identify which chunk owns a focus-request or
+    session-window observation, so they are excluded from the analytic
+    denominator.
+    """
 
     if not receipts:
         raise ValueError("ensemble aggregation requires chunk receipts")
@@ -751,16 +932,24 @@ def aggregate_chunk_metrics(
         rows = sorted(grouped[metric_key], key=lambda item: item.chunk_ordinal)
         if tuple(item.chunk_ordinal for item in rows) != tuple(range(len(rows))):
             raise ValueError("each ensemble metric requires every chunk ordinal")
-        known = [item for item in rows if item.value_state is MetricValueState.KNOWN]
+        eligible = [
+            item
+            for item in rows
+            if item.value_state is not MetricValueState.NOT_APPLICABLE
+        ]
+        if not eligible:
+            raise ValueError("each ensemble metric requires an eligible observation owner")
+        known = [
+            item for item in eligible if item.value_state is MetricValueState.KNOWN
+        ]
         abstained = sum(
-            item.value_state is MetricValueState.ABSTAINED for item in rows
+            item.value_state is MetricValueState.ABSTAINED for item in eligible
         )
         unsupported = sum(
-            item.value_state in {MetricValueState.UNKNOWN, MetricValueState.NOT_APPLICABLE}
-            for item in rows
+            item.value_state is MetricValueState.UNKNOWN for item in eligible
         )
         failed = sum(
-            item.value_state is MetricValueState.EXECUTION_ERROR for item in rows
+            item.value_state is MetricValueState.EXECUTION_ERROR for item in eligible
         )
         numerator = sum(item.numerator or 0 for item in known)
         denominator = len(known)
@@ -772,10 +961,10 @@ def aggregate_chunk_metrics(
                     if denominator
                     else (
                         MetricValueState.EXECUTION_ERROR
-                        if failed == len(rows)
+                        if failed == len(eligible)
                         else (
                             MetricValueState.UNKNOWN
-                            if unsupported == len(rows)
+                            if unsupported == len(eligible)
                             else MetricValueState.ABSTAINED
                         )
                     )
@@ -787,14 +976,14 @@ def aggregate_chunk_metrics(
                 abstained_chunk_count=abstained,
                 unsupported_chunk_count=unsupported,
                 failed_chunk_count=failed,
-                total_chunk_count=len(rows),
+                total_chunk_count=len(eligible),
                 explanation_code=(
-                    "model_shadow_ratio_of_valid_chunks"
+                    "model_shadow_ratio_of_valid_observations"
                     if denominator
                     else (
-                        "model_shadow_no_supported_chunks"
-                        if unsupported == len(rows)
-                        else "model_shadow_no_valid_chunks"
+                        "model_shadow_no_supported_observations"
+                        if unsupported == len(eligible)
+                        else "model_shadow_no_valid_observations"
                     )
                 ),
             )
@@ -814,6 +1003,7 @@ def ensemble_plan_fingerprint(
             "chunker_version": MODEL_ENSEMBLE_CHUNKER_VERSION,
             "rubric_version": MODEL_ENSEMBLE_RUBRIC_VERSION,
             "prompt_version": MODEL_ENSEMBLE_PROMPT_VERSION,
+            "observation_policy_version": MODEL_ENSEMBLE_OBSERVATION_POLICY_VERSION,
             "experts": [item.model_dump(mode="json") for item in experts],
             "metrics": [item.model_dump(mode="json") for item in metrics],
         }
@@ -830,6 +1020,8 @@ __all__ = [
     "MODEL_ENSEMBLE_MAX_CHUNKS",
     "MODEL_ENSEMBLE_TARGET_CHUNK_CHARACTERS",
     "MODEL_ENSEMBLE_MODEL_COUNT",
+    "MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION",
+    "MODEL_ENSEMBLE_OBSERVATION_POLICY_VERSION",
     "MODEL_ENSEMBLE_PLAN_VERSION",
     "MODEL_ENSEMBLE_PROMPT_VERSION",
     "MODEL_ENSEMBLE_RUBRIC_VERSION",
@@ -842,6 +1034,7 @@ __all__ = [
     "ModelVoteState",
     "SessionModelEnsembleMetricReceipt",
     "SessionModelEnsembleReceipt",
+    "SessionModelEnsembleTypedMetricReceipt",
     "SourceCoverageState",
     "aggregate_chunk_metrics",
     "build_ensemble_chunks",

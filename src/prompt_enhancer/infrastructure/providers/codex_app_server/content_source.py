@@ -113,6 +113,19 @@ class _CandidateMessage:
     text: SecretStr
 
 
+CODEX_AVAILABLE_MESSAGE_KINDS = frozenset(
+    {
+        TextMessageKind.REQUEST,
+        TextMessageKind.RESPONSE,
+        TextMessageKind.PLAN,
+        # A user message after locally observed agent activity is a typed
+        # follow-up/feedback opportunity.  This is derived from chronology and
+        # role only; no private text is inspected to mint the capability.
+        TextMessageKind.FEEDBACK,
+    }
+)
+
+
 def _encode_identity(*components: str) -> str:
     return "".join(f"{len(component)}:{component}" for component in components)
 
@@ -393,14 +406,13 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             ),
             _encode_identity(
                 "available-message-kinds",
-                *(kind.value for kind in sorted(
-                    {
-                        TextMessageKind.REQUEST,
-                        TextMessageKind.RESPONSE,
-                        TextMessageKind.PLAN,
-                    },
-                    key=lambda item: item.value,
-                )),
+                    *(
+                        kind.value
+                        for kind in sorted(
+                            CODEX_AVAILABLE_MESSAGE_KINDS,
+                            key=lambda item: item.value,
+                        )
+                    ),
             ),
             *(
                 _encode_identity(
@@ -426,13 +438,7 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             content_schema_version=self._content_schema_version,
             redactor_version=self._redactor.version,
             text_extraction_complete=window_extraction_complete,
-            available_message_kinds=frozenset(
-                {
-                    TextMessageKind.REQUEST,
-                    TextMessageKind.RESPONSE,
-                    TextMessageKind.PLAN,
-                }
-            ),
+            available_message_kinds=CODEX_AVAILABLE_MESSAGE_KINDS,
             analysis_window_fingerprint=fingerprint,
             focus_message_id=focus_message_id,
             observed_message_count=len(messages),
@@ -447,6 +453,18 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
         safe_session_id: str,
     ) -> tuple[_CandidateMessage, ...]:
         candidates: list[_CandidateMessage] = []
+        final_user_item = next(
+            (
+                (
+                    fragment.turn_id.get_secret_value(),
+                    fragment.item_id.get_secret_value(),
+                )
+                for fragment in reversed(thread.fragments)
+                if fragment.kind is CodexTextItemKind.USER_MESSAGE
+            ),
+            None,
+        )
+        observed_agent_activity = False
         for sequence, fragment in enumerate(thread.fragments):
             redacted = self._redactor.redact(fragment.text)
             language = self._language_detector.detect(redacted.text)
@@ -460,20 +478,25 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             message_id = self._pseudonymizer.pseudonymize(
                 f"codex:text-message:{safe_session_id}", raw_identity
             )
-            role, kind = {
-                CodexTextItemKind.USER_MESSAGE: (
-                    TextRole.USER,
-                    TextMessageKind.REQUEST,
-                ),
-                CodexTextItemKind.AGENT_MESSAGE: (
-                    TextRole.AGENT,
-                    TextMessageKind.RESPONSE,
-                ),
-                CodexTextItemKind.PLAN: (
-                    TextRole.AGENT,
-                    TextMessageKind.PLAN,
-                ),
-            }[fragment.kind]
+            if fragment.kind is CodexTextItemKind.USER_MESSAGE:
+                role = TextRole.USER
+                user_item = (
+                    fragment.turn_id.get_secret_value(),
+                    fragment.item_id.get_secret_value(),
+                )
+                kind = (
+                    TextMessageKind.FEEDBACK
+                    if observed_agent_activity and user_item != final_user_item
+                    else TextMessageKind.REQUEST
+                )
+            elif fragment.kind is CodexTextItemKind.AGENT_MESSAGE:
+                role = TextRole.AGENT
+                kind = TextMessageKind.RESPONSE
+                observed_agent_activity = True
+            else:
+                role = TextRole.AGENT
+                kind = TextMessageKind.PLAN
+                observed_agent_activity = True
             candidates.append(
                 _CandidateMessage(
                     message_id=message_id,

@@ -417,6 +417,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model-ensemble-runs/{run_id}/metrics/{metric_key}/predictive-detail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Predictive Metric Detail */
+        get: operations["predictive_metric_detail_v1_model_ensemble_runs__run_id__metrics__metric_key__predictive_detail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model-ensemble-watch/active": {
         parameters: {
             query?: never;
@@ -446,6 +463,40 @@ export interface paths {
         post?: never;
         /** Disable Watch */
         delete: operations["disable_watch_v1_model_ensemble_watches__watch_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/model-ensemble-watches/{watch_id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Watch */
+        post: operations["refresh_watch_v1_model_ensemble_watches__watch_id__refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/model-ensemble-watches/{watch_id}/trajectory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Watch Trajectory */
+        get: operations["watch_trajectory_v1_model_ensemble_watches__watch_id__trajectory_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2606,7 +2657,10 @@ export interface components {
         };
         /** ModelEnsembleMetricDto */
         ModelEnsembleMetricDto: {
-            /** Abstained Chunk Count */
+            /**
+             * Abstained Chunk Count
+             * @description Abstained eligible observations; structural ownership cells are excluded.
+             */
             abstained_chunk_count: number;
             /**
              * Calibration State
@@ -2617,9 +2671,15 @@ export interface components {
             denominator?: number | null;
             /** Explanation Code */
             explanation_code: string;
-            /** Failed Chunk Count */
+            /**
+             * Failed Chunk Count
+             * @description Execution-failed eligible observations; structural cells are excluded.
+             */
             failed_chunk_count: number;
-            /** Known Chunk Count */
+            /**
+             * Known Chunk Count
+             * @description Known eligible observations; legacy field name retained for compatibility.
+             */
             known_chunk_count: number;
             /** Metric Key */
             metric_key: string;
@@ -2632,9 +2692,15 @@ export interface components {
              * @constant
              */
             product_metric_eligible: false;
-            /** Total Chunk Count */
+            /**
+             * Total Chunk Count
+             * @description Eligible observation count; may be smaller than the physical chunk count.
+             */
             total_chunk_count: number;
-            /** Unsupported Chunk Count */
+            /**
+             * Unsupported Chunk Count
+             * @description Unknown or unsupported eligible observations; structural cells are excluded.
+             */
             unsupported_chunk_count: number;
             /**
              * Value State
@@ -2686,6 +2752,10 @@ export interface components {
              * @constant
              */
             local_only: true;
+            /** Metric Projection Completed At */
+            metric_projection_completed_at: string | null;
+            /** Metric Projection Version */
+            metric_projection_version: "coaching-typed-projection-v1" | null;
             /** Metrics */
             metrics: components["schemas"]["ModelEnsembleMetricDto"][];
             /**
@@ -2700,6 +2770,14 @@ export interface components {
              * @constant
              */
             plan_version: "local-shadow-ensemble-v1";
+            /** Predictive Metrics */
+            predictive_metrics: components["schemas"]["ModelPredictiveMetricDto"][];
+            /** Predictive Model Stages */
+            predictive_model_stages: components["schemas"]["ModelPredictiveStageDto"][];
+            /** Predictive Projected At */
+            predictive_projected_at: string | null;
+            /** Predictive Projection Version */
+            predictive_projection_version: "local-probabilistic-radar-v1" | null;
             /**
              * Product Metric Eligible
              * @constant
@@ -2712,8 +2790,130 @@ export interface components {
              * @enum {string}
              */
             source_coverage_state: "complete_window" | "incomplete_source";
+            /** Typed Metrics */
+            typed_metrics: components["schemas"]["ModelEnsembleTypedMetricDto"][];
             /** Votes */
             votes: components["schemas"]["ModelEnsembleVoteDto"][];
+        };
+        /** ModelEnsembleTrajectoryPage */
+        ModelEnsembleTrajectoryPage: {
+            /**
+             * Calibrated As Truth
+             * @default false
+             * @constant
+             */
+            calibrated_as_truth: false;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Head Generation */
+            head_generation?: number | null;
+            /** Head Run Id */
+            head_run_id: string | null;
+            /** Next Before Generation */
+            next_before_generation?: number | null;
+            /** Points */
+            points: components["schemas"]["ModelEnsembleTrajectoryPoint"][];
+            /** Watch Id */
+            watch_id: string;
+        };
+        /** ModelEnsembleTrajectoryPoint */
+        ModelEnsembleTrajectoryPoint: {
+            /** Chunk Count */
+            chunk_count: number;
+            /** Comparable To Head */
+            comparable_to_head: boolean;
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /** Generation */
+            generation: number;
+            /** Max Messages */
+            max_messages: number;
+            /** Metric Projection Completed At */
+            metric_projection_completed_at?: string | null;
+            /** Metric Projection Version */
+            metric_projection_version?: "coaching-typed-projection-v1" | null;
+            /** Metrics */
+            metrics: components["schemas"]["SessionModelEnsembleMetricReceipt"][];
+            /**
+             * Predictive Metrics
+             * @default []
+             */
+            predictive_metrics: components["schemas"]["SessionPredictiveMetricSummary"][];
+            /** Predictive Projection Version */
+            predictive_projection_version?: "local-probabilistic-radar-v1" | null;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Run Id */
+            run_id: string;
+            source_coverage_state: components["schemas"]["SourceCoverageState"];
+            /**
+             * Typed Metrics
+             * @default []
+             */
+            typed_metrics: components["schemas"]["SessionModelEnsembleTypedMetricReceipt"][];
+        };
+        /** ModelEnsembleTypedMetricDto */
+        ModelEnsembleTypedMetricDto: {
+            /** Algorithm Id */
+            algorithm_id: string;
+            /** Algorithm Version */
+            algorithm_version: string;
+            /**
+             * Calibration State
+             * @constant
+             */
+            calibration_state: "not_assessed";
+            /** Coverage */
+            coverage: number;
+            /** Denominator */
+            denominator?: number | null;
+            /** Eligible Message Count */
+            eligible_message_count: number;
+            /** Engine Version */
+            engine_version: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Explanation Code */
+            explanation_code: string;
+            /** Metric Key */
+            metric_key: string;
+            /** Metric Schema Version */
+            metric_schema_version: number;
+            /** Metric Version */
+            metric_version: number;
+            /** Numerator */
+            numerator?: number | null;
+            /** Numeric Value */
+            numeric_value?: number | null;
+            /** Observed Message Count */
+            observed_message_count: number;
+            /**
+             * Product Metric Eligible
+             * @constant
+             */
+            product_metric_eligible: false;
+            /**
+             * Projection Source
+             * @constant
+             */
+            projection_source: "deterministic_typed_contract";
+            /** Rubric Version */
+            rubric_version: string;
+            /**
+             * Value State
+             * @enum {string}
+             */
+            value_state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error";
         };
         /** ModelEnsembleVoteDto */
         ModelEnsembleVoteDto: {
@@ -3120,6 +3320,148 @@ export interface components {
             /** Query Excerpt */
             query_excerpt: string;
         };
+        /** ModelPredictiveFactorDto */
+        ModelPredictiveFactorDto: {
+            /** Absent Probability */
+            absent_probability: number;
+            /** Applicability Probability */
+            applicability_probability: number;
+            /** Critical */
+            critical: boolean;
+            /** Expert Count */
+            expert_count: number;
+            /** Factor Key */
+            factor_key: string;
+            /** Neutral Probability */
+            neutral_probability: number;
+            /** Present Probability */
+            present_probability: number;
+            /**
+             * Scale
+             * @enum {string}
+             */
+            scale: "binary" | "ordinal" | "proportion";
+            /** Weight */
+            weight: number;
+        };
+        /** ModelPredictiveMetricDetailDto */
+        ModelPredictiveMetricDetailDto: {
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Density Bins */
+            density_bins: number[];
+            /**
+             * Experimental Label
+             * @default Experimental model range
+             * @constant
+             */
+            experimental_label: "Experimental model range";
+            /** Factors */
+            factors: components["schemas"]["ModelPredictiveFactorDto"][];
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            metric: components["schemas"]["ModelPredictiveMetricDto"];
+            /**
+             * Projected At
+             * Format: date-time
+             */
+            projected_at: string;
+            /**
+             * Projection Version
+             * @constant
+             */
+            projection_version: "local-probabilistic-radar-v1";
+            /** Run Id */
+            run_id: string;
+            /**
+             * Universal Trust Percentage Available
+             * @default false
+             * @constant
+             */
+            universal_trust_percentage_available: false;
+        };
+        /** ModelPredictiveMetricDto */
+        ModelPredictiveMetricDto: {
+            /** Applicability Probability */
+            applicability_probability?: number | null;
+            /** Calibration Version */
+            calibration_version: string;
+            /** Contract Fingerprint */
+            contract_fingerprint: string;
+            /** Contract Version */
+            contract_version: string;
+            /** Effective Observation Count */
+            effective_observation_count: number;
+            /** Mean */
+            mean?: number | null;
+            /** Median */
+            median?: number | null;
+            /** Metric Key */
+            metric_key: string;
+            /** Model Disagreement */
+            model_disagreement?: number | null;
+            /** Model Set Version */
+            model_set_version: string;
+            /** Pending Probability */
+            pending_probability?: number | null;
+            /**
+             * Product Metric Eligible
+             * @constant
+             */
+            product_metric_eligible: false;
+            /** Q05 */
+            q05?: number | null;
+            /** Q25 */
+            q25?: number | null;
+            /** Q75 */
+            q75?: number | null;
+            /** Q95 */
+            q95?: number | null;
+            state: components["schemas"]["PredictiveMetricState"];
+            target: components["schemas"]["PredictiveMetricTarget"];
+        };
+        /** ModelPredictiveStageDto */
+        ModelPredictiveStageDto: {
+            /** Device */
+            device: ("cpu" | "cuda" | "mps") | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Inference Latency Ms */
+            inference_latency_ms?: number | null;
+            /** Model Key */
+            model_key: string;
+            /** Peak Accelerator Memory Mb */
+            peak_accelerator_memory_mb?: number | null;
+            /** Process Rss Mb */
+            process_rss_mb?: number | null;
+            /**
+             * Quantization
+             * @enum {string}
+             */
+            quantization: "none" | "bitsandbytes_nf4";
+            /** Repository Id */
+            repository_id: string;
+            /** Revision */
+            revision: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "completed" | "unavailable" | "resource_exhausted" | "failed";
+            /**
+             * Unloaded After Stage
+             * @constant
+             */
+            unloaded_after_stage: true;
+        };
         /** ModelRuntimeInventoryDto */
         ModelRuntimeInventoryDto: {
             /**
@@ -3161,6 +3503,16 @@ export interface components {
             /** Task Id */
             task_id: string;
         };
+        /**
+         * PredictiveMetricState
+         * @enum {string}
+         */
+        PredictiveMetricState: "unavailable" | "experimental" | "calibrated" | "out_of_distribution" | "execution_error";
+        /**
+         * PredictiveMetricTarget
+         * @enum {string}
+         */
+        PredictiveMetricTarget: "metric_value" | "outcome_forecast";
         /**
          * ProjectQualityAggregate
          * @description Identifier-free wrapper around the existing compatibility-safe aggregate.
@@ -3850,6 +4202,158 @@ export interface components {
          * @enum {string}
          */
         SessionMetricScopeState: "exact" | "legacy_unknown";
+        /** SessionModelEnsembleMetricReceipt */
+        SessionModelEnsembleMetricReceipt: {
+            /**
+             * Abstained Chunk Count
+             * @description Abstained eligible observations; structural ownership cells are excluded.
+             */
+            abstained_chunk_count: number;
+            /**
+             * Calibration State
+             * @default not_assessed
+             * @constant
+             */
+            calibration_state: "not_assessed";
+            /** Denominator */
+            denominator?: number | null;
+            /** Explanation Code */
+            explanation_code: string;
+            /**
+             * Failed Chunk Count
+             * @description Execution-failed eligible observations; structural cells are excluded.
+             */
+            failed_chunk_count: number;
+            /**
+             * Known Chunk Count
+             * @description Known eligible observations; legacy field name retained for compatibility.
+             */
+            known_chunk_count: number;
+            /** Metric Key */
+            metric_key: string;
+            /** Numerator */
+            numerator?: number | null;
+            /** Numeric Value */
+            numeric_value?: number | null;
+            /**
+             * Product Metric Eligible
+             * @default false
+             * @constant
+             */
+            product_metric_eligible: false;
+            /**
+             * Total Chunk Count
+             * @description Eligible observation count; may be smaller than the physical chunk count.
+             */
+            total_chunk_count: number;
+            /**
+             * Unsupported Chunk Count
+             * @description Unknown or unsupported eligible observations; structural cells are excluded.
+             */
+            unsupported_chunk_count: number;
+            value_state: components["schemas"]["MetricValueState"];
+        };
+        /**
+         * SessionModelEnsembleTypedMetricReceipt
+         * @description One content-free typed coaching observation projected beside the committee.
+         *
+         *     The measured receipt is produced by the deterministic coaching contract;
+         *     its numerator and denominator are tied to explicit observation units rather
+         *     than model agreement.  A separate predictive projection may accompany it,
+         *     but it cannot rewrite this evidence-backed value.
+         */
+        SessionModelEnsembleTypedMetricReceipt: {
+            /** Algorithm Id */
+            algorithm_id: string;
+            /** Algorithm Version */
+            algorithm_version: string;
+            /**
+             * Calibration State
+             * @constant
+             */
+            calibration_state: "not_assessed";
+            /** Coverage */
+            coverage: number;
+            /** Denominator */
+            denominator?: number | null;
+            /** Eligible Message Count */
+            eligible_message_count: number;
+            /** Engine Version */
+            engine_version: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Explanation Code */
+            explanation_code: string;
+            /** Metric Key */
+            metric_key: string;
+            /** Metric Schema Version */
+            metric_schema_version: number;
+            /** Metric Version */
+            metric_version: number;
+            /** Numerator */
+            numerator?: number | null;
+            /** Numeric Value */
+            numeric_value?: number | null;
+            /** Observed Message Count */
+            observed_message_count: number;
+            /**
+             * Product Metric Eligible
+             * @constant
+             */
+            product_metric_eligible: false;
+            /**
+             * Projection Source
+             * @constant
+             */
+            projection_source: "deterministic_typed_contract";
+            /** Rubric Version */
+            rubric_version: string;
+            value_state: components["schemas"]["MetricValueState"];
+        };
+        /**
+         * SessionPredictiveMetricSummary
+         * @description Compact trajectory projection; density/factor detail stays run-scoped.
+         */
+        SessionPredictiveMetricSummary: {
+            /** Applicability Probability */
+            applicability_probability?: number | null;
+            /** Calibration Version */
+            calibration_version: string;
+            /** Contract Fingerprint */
+            contract_fingerprint: string;
+            /** Contract Version */
+            contract_version: string;
+            /** Effective Observation Count */
+            effective_observation_count: number;
+            /** Mean */
+            mean?: number | null;
+            /** Median */
+            median?: number | null;
+            /** Metric Key */
+            metric_key: string;
+            /** Model Disagreement */
+            model_disagreement?: number | null;
+            /** Model Set Version */
+            model_set_version: string;
+            /** Pending Probability */
+            pending_probability?: number | null;
+            /**
+             * Product Metric Eligible
+             * @default false
+             * @constant
+             */
+            product_metric_eligible: false;
+            /** Q05 */
+            q05?: number | null;
+            /** Q25 */
+            q25?: number | null;
+            /** Q75 */
+            q75?: number | null;
+            /** Q95 */
+            q95?: number | null;
+            state: components["schemas"]["PredictiveMetricState"];
+            target: components["schemas"]["PredictiveMetricTarget"];
+        };
         /**
          * SessionQualityAggregate
          * @description Content-free selected-session projection; selected IDs are intentionally absent.
@@ -4149,6 +4653,11 @@ export interface components {
          * @enum {string}
          */
         SignalDirection: "supports_link" | "supports_boundary" | "unknown";
+        /**
+         * SourceCoverageState
+         * @enum {string}
+         */
+        SourceCoverageState: "complete_window" | "incomplete_source";
         /** SplitTaskRequest */
         SplitTaskRequest: {
             /** Candidate Id */
@@ -5459,6 +5968,41 @@ export interface operations {
             };
         };
     };
+    predictive_metric_detail_v1_model_ensemble_runs__run_id__metrics__metric_key__predictive_detail_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                run_id: string;
+                metric_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelPredictiveMetricDetailDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     active_watch_v1_model_ensemble_watch_active_get: {
         parameters: {
             query?: never;
@@ -5512,6 +6056,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEnsembleWatchSnapshotDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_watch_v1_model_ensemble_watches__watch_id__refresh_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                watch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleWatchSnapshotDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    watch_trajectory_v1_model_ensemble_watches__watch_id__trajectory_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before_generation?: number | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                watch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleTrajectoryPage"];
                 };
             };
             /** @description Validation Error */

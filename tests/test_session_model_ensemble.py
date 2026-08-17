@@ -27,6 +27,7 @@ from prompt_enhancer.application.analysis.model_ensemble_watch import (
     ModelEnsembleWatchRecord,
     ModelEnsembleWatchService,
     ModelEnsembleWatchState,
+    ModelEnsembleTrajectoryPage,
 )
 from prompt_enhancer.application.analysis.text_analysis_presets import (
     COACHING_PROFILE_V1,
@@ -154,7 +155,7 @@ class _Repository:
     def __init__(self) -> None:
         self.items: dict[str, SessionModelEnsembleRunRecord] = {}
 
-    def save_completed(self, run: SessionModelEnsembleRunRecord) -> None:
+    def save_completed(self, run: SessionModelEnsembleRunRecord, **_values) -> None:  # type: ignore[no-untyped-def]
         if run.run_id in self.items:
             raise ValueError("duplicate")
         self.items[run.run_id] = run
@@ -165,6 +166,11 @@ class _Repository:
     def get_latest(self, session_id: str):
         rows = [value for value in self.items.values() if value.session_id == session_id]
         return max(rows, key=lambda item: item.receipt.completed_at) if rows else None
+
+    def save_metric_projection(self, run: SessionModelEnsembleRunRecord, **_values) -> None:  # type: ignore[no-untyped-def]
+        if run.run_id not in self.items:
+            raise ValueError("missing")
+        self.items[run.run_id] = run
 
     def delete_for_privacy(self, run_id: str) -> bool:
         return self.items.pop(run_id, None) is not None
@@ -206,6 +212,31 @@ class _WatchRepository:
         if self.record is None or self.record.state is ModelEnsembleWatchState.DISABLED:
             return None
         return self.record
+
+    def request_refresh(self, watch_id, *, now):  # type: ignore[no-untyped-def]
+        if (
+            self.record is None
+            or self.record.watch_id != watch_id
+            or self.record.state is ModelEnsembleWatchState.DISABLED
+        ):
+            raise ValueError("missing")
+        self.record = self.record.model_copy(
+            update={"next_check_at": now, "updated_at": now}
+        )
+        return self.record
+
+    def list_publications(self, watch_id, *, before_generation, limit):  # type: ignore[no-untyped-def]
+        if self.record is None or self.record.watch_id != watch_id:
+            raise ValueError("missing")
+        assert before_generation is None
+        assert 1 <= limit <= 60
+        return ModelEnsembleTrajectoryPage(
+            watch_id=watch_id,
+            head_run_id=None,
+            head_generation=None,
+            points=(),
+            next_before_generation=None,
+        )
 
     def claim_due(self, **_values):  # type: ignore[no-untyped-def]
         if self.record is None or self.record.state not in {
@@ -341,6 +372,12 @@ def test_service_runs_all_ten_models_once_and_idempotently_stores_no_text() -> N
     assert source.read_count == 1
     assert len(first.run.receipt.experts) == MODEL_ENSEMBLE_MODEL_COUNT
     assert len(first.run.receipt.metrics) == 20
+    assert len(first.run.receipt.typed_metrics) == 20
+    assert first.run.receipt.metric_projection_version == "coaching-typed-projection-v1"
+    assert sum(
+        item.value_state.value == "known"
+        for item in first.run.receipt.typed_metrics
+    ) >= 1
     assert len(first.run.receipt.model_votes) == first.run.receipt.chunk_count * 20 * 4
     assert all(item.unloaded_after_stage for item in first.run.receipt.experts)
     assert repository.get(first.run.run_id) is not None
@@ -348,6 +385,40 @@ def test_service_runs_all_ten_models_once_and_idempotently_stores_no_text() -> N
     assert "fictional" not in serialized.lower()
     assert '"content_persisted":false' in serialized
     assert '"product_metric_eligible":false' in serialized
+
+
+def test_unchanged_legacy_head_gets_typed_projection_without_a_new_model_run() -> None:
+    service, source, repository = _service()
+    first = service.run(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        confirmation=MODEL_ENSEMBLE_CONFIRMATION,
+        idempotency_key="example-model-ensemble-legacy-0001",
+    )
+    legacy_receipt = first.run.receipt.model_copy(
+        update={
+            "metric_projection_version": None,
+            "metric_projection_completed_at": None,
+            "typed_metrics": (),
+        }
+    )
+    repository.items[first.run.run_id] = first.run.model_copy(
+        update={"receipt": legacy_receipt}
+    )
+
+    upgraded = service.run(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        confirmation=MODEL_ENSEMBLE_CONFIRMATION,
+        idempotency_key="example-model-ensemble-legacy-0002",
+        reuse_latest=True,
+        prior_run_id=first.run.run_id,
+    )
+
+    assert upgraded.applied is False
+    assert upgraded.run.run_id == first.run.run_id
+    assert len(upgraded.run.receipt.typed_metrics) == 20
+    assert source.read_count == 2
 
 
 def test_consent_fails_before_the_local_source_or_models() -> None:
@@ -471,6 +542,14 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
         )
         active = client.get("/v1/model-ensemble-watch/active", headers=headers)
         watch_id = enabled.json()["watch"]["watch_id"]
+        trajectory = client.get(
+            f"/v1/model-ensemble-watches/{watch_id}/trajectory?limit=12",
+            headers=headers,
+        )
+        refreshed = client.post(
+            f"/v1/model-ensemble-watches/{watch_id}/refresh",
+            headers=headers,
+        )
         disabled = client.delete(
             f"/v1/model-ensemble-watches/{watch_id}", headers=headers
         )
@@ -478,13 +557,32 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
     assert unauthorized.status_code == 401
     assert rejected.status_code == 422
     assert rejected.json() == {"detail": "request validation failed"}
-    assert enabled.status_code == active.status_code == disabled.status_code == 200
+    assert (
+        enabled.status_code
+        == active.status_code
+        == trajectory.status_code
+        == refreshed.status_code
+        == disabled.status_code
+        == 200
+    )
     assert enabled.headers["cache-control"] == "no-store, private"
     assert enabled.headers["pragma"] == "no-cache"
     assert enabled.json()["watch"]["state"] == "queued"
     assert enabled.json()["watch"]["max_messages"] == 25
     assert enabled.json()["latest_run"] is None
     assert active.json() == enabled.json()
+    assert trajectory.headers["cache-control"] == "no-store, private"
+    assert trajectory.headers["pragma"] == "no-cache"
+    assert refreshed.headers["cache-control"] == "no-store, private"
+    assert trajectory.json() == {
+        "watch_id": watch_id,
+        "head_run_id": None,
+        "head_generation": None,
+        "points": [],
+        "next_before_generation": None,
+        "content_persisted": False,
+        "calibrated_as_truth": False,
+    }
     assert disabled.json()["watch"]["state"] == "disabled"
     assert source.read_count == 0
     assert "SYNTHETIC_PRIVATE_CANARY" not in rejected.text
@@ -531,6 +629,102 @@ def test_watch_worker_runs_all_ten_progress_boundaries_and_coalesces_unchanged_i
     assert second.latest_run_id == first.latest_run_id
     assert source.read_count == 2
     assert len(repository.items) == 1
+
+
+def test_watch_recomputes_unchanged_input_after_the_execution_plan_changes() -> None:
+    ensemble, source, repository = _service()
+    watch_repository = _WatchRepository()
+    watch = ModelEnsembleWatchService(
+        watch_repository,
+        ensemble,
+        clock=lambda: datetime(2040, 1, 2, 3, 4, tzinfo=UTC),
+        poll_interval=timedelta(seconds=60),
+    )
+    watch.enable(
+        provider=Provider.CODEX,
+        project_id="c" * 64,
+        session_id=SESSION_ID,
+        max_messages=25,
+        confirmation=MODEL_ENSEMBLE_WATCH_CONFIRMATION,
+    )
+    first = watch.run_once()
+    assert first is not None and first.latest_run_id is not None
+    prior = repository.items[first.latest_run_id]
+    current_plan_fingerprint = prior.receipt.plan_fingerprint
+
+    # Model an immutable receipt created by an older observation policy.  The
+    # source window is unchanged, but the current plan must supersede it.
+    repository.items[first.latest_run_id] = prior.model_copy(
+        update={
+            "receipt": prior.receipt.model_copy(
+                update={"plan_fingerprint": "f" * 64}
+            )
+        }
+    )
+    assert watch_repository.record is not None
+    watch_repository.record = watch_repository.record.model_copy(
+        update={"next_check_at": datetime(2040, 1, 2, 3, 4, tzinfo=UTC)}
+    )
+
+    second = watch.run_once()
+
+    assert second is not None and second.latest_run_id is not None
+    assert second.latest_run_id != first.latest_run_id
+    assert source.read_count == 2
+    assert len(repository.items) == 2
+    current = repository.items[second.latest_run_id]
+    assert current.receipt.plan_fingerprint != "f" * 64
+    assert current.receipt.plan_fingerprint == current_plan_fingerprint
+
+
+def test_watch_api_does_not_substitute_an_unbound_historical_run(tmp_path) -> None:
+    ensemble, _, repository = _service()
+    watch_repository = _WatchRepository()
+    watch = ModelEnsembleWatchService(
+        watch_repository,
+        ensemble,
+        clock=lambda: datetime(2040, 1, 2, 3, 4, tzinfo=UTC),
+        poll_interval=timedelta(seconds=60),
+    )
+    watch.enable(
+        provider=Provider.CODEX,
+        project_id="c" * 64,
+        session_id=SESSION_ID,
+        max_messages=25,
+        confirmation=MODEL_ENSEMBLE_WATCH_CONFIRMATION,
+    )
+    completed = watch.run_once()
+    assert completed is not None and completed.latest_run_id is not None
+    assert repository.get_latest(SESSION_ID) is not None
+
+    # Reconfiguring a watch intentionally clears its bound head.  The API must
+    # not replace that absence with an older or manually-created session run.
+    watch.enable(
+        provider=Provider.CODEX,
+        project_id="c" * 64,
+        session_id=SESSION_ID,
+        max_messages=50,
+        confirmation=MODEL_ENSEMBLE_WATCH_CONFIRMATION,
+    )
+    database = Database(tmp_path / "metrics.sqlite3")
+    database.initialize()
+    app = create_app(
+        settings=AppSettings(home=tmp_path),
+        database=database,
+        api_token=TOKEN,
+        session_model_ensemble_service=ensemble,
+        model_ensemble_watch_service=watch,
+    )
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        response = client.get(
+            "/v1/model-ensemble-watch/active",
+            headers={API_TOKEN_HEADER: TOKEN},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["watch"]["has_result"] is False
+    assert response.json()["latest_run"] is None
 
 
 @dataclass

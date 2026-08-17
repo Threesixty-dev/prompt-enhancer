@@ -22,6 +22,7 @@ from time import monotonic
 from typing import Callable, Mapping, Sequence
 
 from ...application.analysis.model_ensemble import (
+    ChunkMetricCommitteeReceipt,
     EnsembleChunkPlan,
     EnsembleMetricSpec,
     MODEL_ENSEMBLE_MODEL_COUNT,
@@ -39,13 +40,16 @@ from ...application.analysis.model_ensemble import (
     content_free_chunk_plan,
     ensemble_plan_fingerprint,
 )
+from ...application.persistence import MetricValueState
 from .loader import model_eval_cache_root, repository_root
 from .manifests import (
     BGE_M3,
     BGE_RERANKER_V2_M3,
+    DEBERTA_SMALL_LONG_NLI,
     E5_MULTILINGUAL_BASE,
     E5_MULTILINGUAL_SMALL,
     MDEBERTA_XNLI,
+    MODERNBERT_BASE_ZEROSHOT,
     QWEN3_4B_RUBRIC,
     QWEN3_EMBEDDING_06B,
     QWEN3_RERANKER_06B,
@@ -54,7 +58,7 @@ from .manifests import (
 from ..specialist_screen.manifests import MINILMV2_L12_NLI, MINILMV2_L6_NLI
 
 
-MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION = 2
+MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION = 3
 MAX_ENSEMBLE_SUBPROCESS_INPUT_BYTES = 2 * 1024 * 1024
 MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_SELECTED_RETRIEVAL_FRAGMENTS = 8
@@ -157,6 +161,36 @@ def ensemble_expert_specs() -> tuple[EnsembleExpertSpec, ...]:
     return specs
 
 
+def probabilistic_challenger_specs() -> tuple[EnsembleExpertSpec, ...]:
+    """Pinned English/long-context challengers outside the legacy ten-stage graph."""
+
+    root = model_eval_cache_root()
+    return (
+        EnsembleExpertSpec(
+            _identity(
+                6,
+                DEBERTA_SMALL_LONG_NLI,
+                ModelExpertRole.SCOPE_NLI,
+                "deberta_long_nli_probabilities_v1",
+                contributes=False,
+            ),
+            DEBERTA_SMALL_LONG_NLI,
+            root,
+        ),
+        EnsembleExpertSpec(
+            _identity(
+                7,
+                MODERNBERT_BASE_ZEROSHOT,
+                ModelExpertRole.SCOPE_NLI,
+                "modernbert_binary_nli_probabilities_v1",
+                contributes=False,
+            ),
+            MODERNBERT_BASE_ZEROSHOT,
+            root,
+        ),
+    )
+
+
 StageExecutor = Callable[
     [EnsembleExpertSpec, str, Mapping[str, object], str], Mapping[str, object]
 ]
@@ -194,6 +228,15 @@ def _child_environment(root: Path, cache_root: Path) -> dict[str, str]:
             "HF_HUB_DISABLE_PROGRESS_BARS": "1",
             "TOKENIZERS_PARALLELISM": "false",
             "TRANSFORMERS_VERBOSITY": "error",
+            # Torch's ModernBERT module decorates one helper with
+            # ``torch.compile`` at import time. Give it a task-local cache so
+            # it never consults the OS account name or a home directory.
+            "TORCHINDUCTOR_CACHE_DIR": str(cache_root / "torch-inductor"),
+            "TRITON_CACHE_DIR": str(cache_root / "triton"),
+            # A synthetic worker identity prevents third-party cache helpers
+            # from attempting to discover or expose the OS account name.
+            "USERNAME": "prompt-enhancer-worker",
+            "USER": "prompt-enhancer-worker",
         }
     )
     return allowed
@@ -207,7 +250,10 @@ def run_ensemble_expert_subprocess(
     *,
     python_executable: str | None = None,
     heartbeat: Callable[[], None] | None = None,
+    quantization: str = "none",
 ) -> Mapping[str, object]:
+    if quantization not in {"none", "bitsandbytes_nf4"}:
+        raise ModelEnsembleError("model_ensemble_quantization_invalid")
     root = repository_root()
     script = root / "scripts" / "run_local_model_ensemble_expert.py"
     body = json.dumps(
@@ -227,6 +273,8 @@ def run_ensemble_expert_subprocess(
         stage,
         "--device",
         device,
+        "--quantization",
+        quantization,
     ]
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     try:
@@ -391,6 +439,15 @@ class SerialModelEnsembleRunner:
         self._executor = executor or self._execute
         self._heartbeat_callback: Callable[[], None] | None = None
 
+    def plan_fingerprint(
+        self,
+        metric_specs: tuple[EnsembleMetricSpec, ...],
+    ) -> str:
+        """Return the current execution/observation contract identity."""
+
+        identities = tuple(item.identity for item in ensemble_expert_specs())
+        return ensemble_plan_fingerprint(identities, metric_specs)
+
     def _execute(
         self,
         spec: EnsembleExpertSpec,
@@ -426,33 +483,62 @@ class SerialModelEnsembleRunner:
             else lambda: progress_callback(len(receipts), MODEL_ENSEMBLE_MODEL_COUNT)
         )
         experts = ensemble_expert_specs()
-        identities = tuple(item.identity for item in experts)
-        plan_fingerprint = ensemble_plan_fingerprint(identities, metric_specs)
-        reusable_ordinals: dict[int, int] = {}
-        if (
-            prior_receipt is not None
-            and prior_receipt.plan_fingerprint == plan_fingerprint
-            and prior_receipt.source_coverage_state is SourceCoverageState.COMPLETE_WINDOW
-        ):
-            sealed_prior = {
-                item.chunk_fingerprint: item.ordinal
-                for item in prior_receipt.chunk_plan[:-1]
-            }
-            for chunk in chunk_plan.chunks[:-1]:
-                previous = sealed_prior.get(chunk.chunk_fingerprint)
-                if previous is not None:
-                    reusable_ordinals[chunk.ordinal] = previous
-        fragments = {
-            item.fragment_id: item
+        plan_fingerprint = self.plan_fingerprint(metric_specs)
+        # Observation-owner lineage is not persisted yet.  Reusing an older
+        # receipt from only a physical chunk fingerprint could split a long
+        # focus request or miss later conversation context, so a changed input
+        # recomputes every owned observation.  Exact unchanged inputs are
+        # already reused by the service before this runner is entered.
+        _ = prior_receipt
+        ordered_fragments = tuple(
+            item
             for chunk in chunk_plan.chunks
             for item in chunk.fragments
+        )
+        fragments = {item.fragment_id: item for item in ordered_fragments}
+        fragment_order = {
+            item.fragment_id: index for index, item in enumerate(ordered_fragments)
         }
+        all_candidate_ids = tuple(item.fragment_id for item in ordered_fragments)
+        focus_fragments = tuple(
+            item
+            for item in ordered_fragments
+            if item.is_focus_message
+            and item.role.value == "user"
+            and item.kind.value in {"request", "feedback"}
+        )
+        focus_candidate_ids = tuple(item.fragment_id for item in focus_fragments)
+        focus_owner = next(
+            (
+                chunk.ordinal
+                for chunk in reversed(chunk_plan.chunks)
+                if any(item.is_focus_message for item in chunk.fragments)
+            ),
+            chunk_plan.chunks[-1].ordinal,
+        )
+        session_owner = chunk_plan.chunks[-1].ordinal
         base_cases: list[dict[str, object]] = []
+        structural_cases: list[tuple[int, str, str]] = []
         unsupported_cases: list[tuple[int, str, str]] = []
         for chunk in chunk_plan.chunks:
-            if chunk.ordinal in reusable_ordinals:
-                continue
             for metric in metric_specs:
+                if metric.evidence_scope == "focus_request":
+                    owner = focus_owner
+                    candidates = focus_candidate_ids
+                    ownership_reason = "focus_request_observation_owned_by_focus_tail"
+                elif metric.evidence_scope == "conversation":
+                    owner = session_owner
+                    candidates = all_candidate_ids
+                    ownership_reason = "session_window_observation_owned_by_final_chunk"
+                else:
+                    owner = session_owner
+                    candidates = ()
+                    ownership_reason = "objective_observation_owned_by_final_chunk"
+                if chunk.ordinal != owner:
+                    structural_cases.append(
+                        (chunk.ordinal, metric.metric_key, ownership_reason)
+                    )
+                    continue
                 if metric.evidence_scope == "objective_evidence":
                     unsupported_cases.append(
                         (
@@ -462,16 +548,6 @@ class SerialModelEnsembleRunner:
                         )
                     )
                     continue
-                candidates = tuple(
-                    item.fragment_id
-                    for item in chunk.fragments
-                    if metric.evidence_scope == "conversation"
-                    or (
-                        item.is_focus_message
-                        and item.role.value == "user"
-                        and item.kind.value in {"request", "feedback"}
-                    )
-                )
                 if not candidates:
                     unsupported_cases.append(
                         (
@@ -512,24 +588,18 @@ class SerialModelEnsembleRunner:
             progress_callback(0, MODEL_ENSEMBLE_MODEL_COUNT)
         selections: list[ModelEvidenceSelectionReceipt] = []
         votes: list[ModelMetricVote] = []
-        chunk_receipts = []
-        if prior_receipt is not None and reusable_ordinals:
-            reverse = {previous: current for current, previous in reusable_ordinals.items()}
-            selections.extend(
-                item.model_copy(update={"chunk_ordinal": reverse[item.chunk_ordinal]})
-                for item in prior_receipt.evidence_selections
-                if item.chunk_ordinal in reverse
+        chunk_receipts: list[ChunkMetricCommitteeReceipt] = [
+            ChunkMetricCommitteeReceipt(
+                chunk_ordinal=chunk_ordinal,
+                metric_key=metric_key,
+                value_state=MetricValueState.NOT_APPLICABLE,
+                rubric_vote=ModelVoteState.UNSUPPORTED,
+                contributing_nli_votes=0,
+                diagnostic_nli_votes=0,
+                reason_code=reason,
             )
-            votes.extend(
-                item.model_copy(update={"chunk_ordinal": reverse[item.chunk_ordinal]})
-                for item in prior_receipt.model_votes
-                if item.chunk_ordinal in reverse
-            )
-            chunk_receipts.extend(
-                item.model_copy(update={"chunk_ordinal": reverse[item.chunk_ordinal]})
-                for item in prior_receipt.chunks
-                if item.chunk_ordinal in reverse
-            )
+            for chunk_ordinal, metric_key, reason in structural_cases
+        ]
         rankings_by_case: dict[str, list[tuple[str, ...]]] = defaultdict(list)
 
         for spec in experts[:4]:
@@ -628,12 +698,24 @@ class SerialModelEnsembleRunner:
             )
 
         decision_cases = [
-            {**case, "candidate_ids": list(selected_by_case[str(case["case_id"])])}
+            {
+                **case,
+                # Retrieval/reranking receipts retain relevance order, while
+                # cross-turn NLI and rubric decisions receive evidence in the
+                # source chronology so an answer cannot precede its question.
+                "candidate_ids": sorted(
+                    selected_by_case[str(case["case_id"])],
+                    key=fragment_order.__getitem__,
+                ),
+            }
             for case in base_cases
         ]
         votes.extend(
             _unsupported_vote(spec, chunk_ordinal, metric_key, reason)
-            for chunk_ordinal, metric_key, reason in unsupported_cases
+            for chunk_ordinal, metric_key, reason in (
+                *structural_cases,
+                *unsupported_cases,
+            )
             for spec in experts[6:]
         )
         for spec in experts[6:9]:

@@ -4109,6 +4109,7 @@
         "additionalProperties": false,
         "properties": {
           "abstained_chunk_count": {
+            "description": "Abstained eligible observations; structural ownership cells are excluded.",
             "maximum": 8.0,
             "minimum": 0.0,
             "title": "Abstained Chunk Count",
@@ -4137,12 +4138,14 @@
             "type": "string"
           },
           "failed_chunk_count": {
+            "description": "Execution-failed eligible observations; structural cells are excluded.",
             "maximum": 8.0,
             "minimum": 0.0,
             "title": "Failed Chunk Count",
             "type": "integer"
           },
           "known_chunk_count": {
+            "description": "Known eligible observations; legacy field name retained for compatibility.",
             "maximum": 8.0,
             "minimum": 0.0,
             "title": "Known Chunk Count",
@@ -4183,12 +4186,14 @@
             "type": "boolean"
           },
           "total_chunk_count": {
+            "description": "Eligible observation count; may be smaller than the physical chunk count.",
             "maximum": 8.0,
             "minimum": 1.0,
             "title": "Total Chunk Count",
             "type": "integer"
           },
           "unsupported_chunk_count": {
+            "description": "Unknown or unsupported eligible observations; structural cells are excluded.",
             "maximum": 8.0,
             "minimum": 0.0,
             "title": "Unsupported Chunk Count",
@@ -4309,6 +4314,30 @@
             "title": "Local Only",
             "type": "boolean"
           },
+          "metric_projection_completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Projection Completed At"
+          },
+          "metric_projection_version": {
+            "anyOf": [
+              {
+                "const": "coaching-typed-projection-v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Projection Version"
+          },
           "metrics": {
             "items": {
               "$ref": "#/components/schemas/ModelEnsembleMetricDto"
@@ -4333,6 +4362,46 @@
             "title": "Plan Version",
             "type": "string"
           },
+          "predictive_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ModelPredictiveMetricDto"
+            },
+            "maxItems": 20,
+            "title": "Predictive Metrics",
+            "type": "array"
+          },
+          "predictive_model_stages": {
+            "items": {
+              "$ref": "#/components/schemas/ModelPredictiveStageDto"
+            },
+            "maxItems": 8,
+            "title": "Predictive Model Stages",
+            "type": "array"
+          },
+          "predictive_projected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predictive Projected At"
+          },
+          "predictive_projection_version": {
+            "anyOf": [
+              {
+                "const": "local-probabilistic-radar-v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predictive Projection Version"
+          },
           "product_metric_eligible": {
             "const": false,
             "title": "Product Metric Eligible",
@@ -4350,6 +4419,14 @@
             ],
             "title": "Source Coverage State",
             "type": "string"
+          },
+          "typed_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ModelEnsembleTypedMetricDto"
+            },
+            "maxItems": 20,
+            "title": "Typed Metrics",
+            "type": "array"
           },
           "votes": {
             "items": {
@@ -4372,6 +4449,13 @@
           "votes",
           "chunk_metrics",
           "metrics",
+          "metric_projection_version",
+          "metric_projection_completed_at",
+          "typed_metrics",
+          "predictive_projection_version",
+          "predictive_projected_at",
+          "predictive_metrics",
+          "predictive_model_stages",
           "completed_at",
           "local_only",
           "content_persisted",
@@ -4379,6 +4463,354 @@
           "product_metric_eligible"
         ],
         "title": "ModelEnsembleRunDto",
+        "type": "object"
+      },
+      "ModelEnsembleTrajectoryPage": {
+        "additionalProperties": false,
+        "properties": {
+          "calibrated_as_truth": {
+            "const": false,
+            "default": false,
+            "title": "Calibrated As Truth",
+            "type": "boolean"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "head_generation": {
+            "anyOf": [
+              {
+                "maximum": 1000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Generation"
+          },
+          "head_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Run Id"
+          },
+          "next_before_generation": {
+            "anyOf": [
+              {
+                "maximum": 1000000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before Generation"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ModelEnsembleTrajectoryPoint"
+            },
+            "maxItems": 60,
+            "title": "Points",
+            "type": "array"
+          },
+          "watch_id": {
+            "title": "Watch Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "watch_id",
+          "head_run_id",
+          "points"
+        ],
+        "title": "ModelEnsembleTrajectoryPage",
+        "type": "object"
+      },
+      "ModelEnsembleTrajectoryPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_count": {
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "comparable_to_head": {
+            "title": "Comparable To Head",
+            "type": "boolean"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "title": "Completed At",
+            "type": "string"
+          },
+          "generation": {
+            "maximum": 1000000000.0,
+            "minimum": 1.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "max_messages": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Messages",
+            "type": "integer"
+          },
+          "metric_projection_completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Projection Completed At"
+          },
+          "metric_projection_version": {
+            "anyOf": [
+              {
+                "const": "coaching-typed-projection-v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Projection Version"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/SessionModelEnsembleMetricReceipt"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Metrics",
+            "type": "array"
+          },
+          "predictive_metrics": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SessionPredictiveMetricSummary"
+            },
+            "maxItems": 20,
+            "title": "Predictive Metrics",
+            "type": "array"
+          },
+          "predictive_projection_version": {
+            "anyOf": [
+              {
+                "const": "local-probabilistic-radar-v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predictive Projection Version"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source_coverage_state": {
+            "$ref": "#/components/schemas/SourceCoverageState"
+          },
+          "typed_metrics": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SessionModelEnsembleTypedMetricReceipt"
+            },
+            "maxItems": 20,
+            "title": "Typed Metrics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "generation",
+          "run_id",
+          "published_at",
+          "completed_at",
+          "max_messages",
+          "source_coverage_state",
+          "chunk_count",
+          "comparable_to_head",
+          "metrics"
+        ],
+        "title": "ModelEnsembleTrajectoryPoint",
+        "type": "object"
+      },
+      "ModelEnsembleTypedMetricDto": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm_id": {
+            "title": "Algorithm Id",
+            "type": "string"
+          },
+          "algorithm_version": {
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "calibration_state": {
+            "const": "not_assessed",
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "coverage": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Coverage",
+            "type": "number"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "eligible_message_count": {
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Eligible Message Count",
+            "type": "integer"
+          },
+          "engine_version": {
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "explanation_code": {
+            "title": "Explanation Code",
+            "type": "string"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_schema_version": {
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Metric Schema Version",
+            "type": "integer"
+          },
+          "metric_version": {
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Metric Version",
+            "type": "integer"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "observed_message_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Observed Message Count",
+            "type": "integer"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "projection_source": {
+            "const": "deterministic_typed_contract",
+            "title": "Projection Source",
+            "type": "string"
+          },
+          "rubric_version": {
+            "title": "Rubric Version",
+            "type": "string"
+          },
+          "value_state": {
+            "enum": [
+              "known",
+              "unknown",
+              "not_applicable",
+              "abstained",
+              "execution_error"
+            ],
+            "title": "Value State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_key",
+          "metric_version",
+          "value_state",
+          "observed_message_count",
+          "eligible_message_count",
+          "coverage",
+          "explanation_code",
+          "error_code",
+          "projection_source",
+          "metric_schema_version",
+          "engine_version",
+          "algorithm_id",
+          "algorithm_version",
+          "rubric_version",
+          "calibration_state",
+          "product_metric_eligible"
+        ],
+        "title": "ModelEnsembleTypedMetricDto",
         "type": "object"
       },
       "ModelEnsembleVoteDto": {
@@ -5373,6 +5805,439 @@
         "title": "ModelLinkSuggestionDto",
         "type": "object"
       },
+      "ModelPredictiveFactorDto": {
+        "additionalProperties": false,
+        "properties": {
+          "absent_probability": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Absent Probability",
+            "type": "number"
+          },
+          "applicability_probability": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Applicability Probability",
+            "type": "number"
+          },
+          "critical": {
+            "title": "Critical",
+            "type": "boolean"
+          },
+          "expert_count": {
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Expert Count",
+            "type": "integer"
+          },
+          "factor_key": {
+            "title": "Factor Key",
+            "type": "string"
+          },
+          "neutral_probability": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Neutral Probability",
+            "type": "number"
+          },
+          "present_probability": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Present Probability",
+            "type": "number"
+          },
+          "scale": {
+            "enum": [
+              "binary",
+              "ordinal",
+              "proportion"
+            ],
+            "title": "Scale",
+            "type": "string"
+          },
+          "weight": {
+            "exclusiveMinimum": 0.0,
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "factor_key",
+          "scale",
+          "weight",
+          "applicability_probability",
+          "present_probability",
+          "neutral_probability",
+          "absent_probability",
+          "expert_count",
+          "critical"
+        ],
+        "title": "ModelPredictiveFactorDto",
+        "type": "object"
+      },
+      "ModelPredictiveMetricDetailDto": {
+        "additionalProperties": false,
+        "properties": {
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "density_bins": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 20,
+            "minItems": 20,
+            "title": "Density Bins",
+            "type": "array"
+          },
+          "experimental_label": {
+            "const": "Experimental model range",
+            "default": "Experimental model range",
+            "title": "Experimental Label",
+            "type": "string"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/ModelPredictiveFactorDto"
+            },
+            "maxItems": 8,
+            "title": "Factors",
+            "type": "array"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "metric": {
+            "$ref": "#/components/schemas/ModelPredictiveMetricDto"
+          },
+          "projected_at": {
+            "format": "date-time",
+            "title": "Projected At",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "local-probabilistic-radar-v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "universal_trust_percentage_available": {
+            "const": false,
+            "default": false,
+            "title": "Universal Trust Percentage Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run_id",
+          "projection_version",
+          "projected_at",
+          "metric",
+          "density_bins",
+          "factors"
+        ],
+        "title": "ModelPredictiveMetricDetailDto",
+        "type": "object"
+      },
+      "ModelPredictiveMetricDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applicability_probability": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applicability Probability"
+          },
+          "calibration_version": {
+            "title": "Calibration Version",
+            "type": "string"
+          },
+          "contract_fingerprint": {
+            "title": "Contract Fingerprint",
+            "type": "string"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "effective_observation_count": {
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Effective Observation Count",
+            "type": "integer"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "model_disagreement": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Disagreement"
+          },
+          "model_set_version": {
+            "title": "Model Set Version",
+            "type": "string"
+          },
+          "pending_probability": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Probability"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "q05": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q05"
+          },
+          "q25": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q25"
+          },
+          "q75": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q75"
+          },
+          "q95": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q95"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PredictiveMetricState"
+          },
+          "target": {
+            "$ref": "#/components/schemas/PredictiveMetricTarget"
+          }
+        },
+        "required": [
+          "metric_key",
+          "target",
+          "state",
+          "effective_observation_count",
+          "model_set_version",
+          "calibration_version",
+          "contract_version",
+          "contract_fingerprint",
+          "product_metric_eligible"
+        ],
+        "title": "ModelPredictiveMetricDto",
+        "type": "object"
+      },
+      "ModelPredictiveStageDto": {
+        "additionalProperties": false,
+        "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cpu",
+                  "cuda",
+                  "mps"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "inference_latency_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inference Latency Ms"
+          },
+          "model_key": {
+            "title": "Model Key",
+            "type": "string"
+          },
+          "peak_accelerator_memory_mb": {
+            "anyOf": [
+              {
+                "maximum": 6144.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Accelerator Memory Mb"
+          },
+          "process_rss_mb": {
+            "anyOf": [
+              {
+                "maximum": 8192.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Rss Mb"
+          },
+          "quantization": {
+            "enum": [
+              "none",
+              "bitsandbytes_nf4"
+            ],
+            "title": "Quantization",
+            "type": "string"
+          },
+          "repository_id": {
+            "title": "Repository Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "unavailable",
+              "resource_exhausted",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unloaded_after_stage": {
+            "const": true,
+            "title": "Unloaded After Stage",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "model_key",
+          "repository_id",
+          "revision",
+          "status",
+          "error_code",
+          "device",
+          "quantization",
+          "unloaded_after_stage"
+        ],
+        "title": "ModelPredictiveStageDto",
+        "type": "object"
+      },
       "ModelRuntimeInventoryDto": {
         "additionalProperties": false,
         "properties": {
@@ -5461,6 +6326,25 @@
         ],
         "title": "OutputRevisionDto",
         "type": "object"
+      },
+      "PredictiveMetricState": {
+        "enum": [
+          "unavailable",
+          "experimental",
+          "calibrated",
+          "out_of_distribution",
+          "execution_error"
+        ],
+        "title": "PredictiveMetricState",
+        "type": "string"
+      },
+      "PredictiveMetricTarget": {
+        "enum": [
+          "metric_value",
+          "outcome_forecast"
+        ],
+        "title": "PredictiveMetricTarget",
+        "type": "string"
       },
       "ProjectQualityAggregate": {
         "additionalProperties": false,
@@ -7455,6 +8339,439 @@
         "title": "SessionMetricScopeState",
         "type": "string"
       },
+      "SessionModelEnsembleMetricReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "abstained_chunk_count": {
+            "description": "Abstained eligible observations; structural ownership cells are excluded.",
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Abstained Chunk Count",
+            "type": "integer"
+          },
+          "calibration_state": {
+            "const": "not_assessed",
+            "default": "not_assessed",
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "explanation_code": {
+            "title": "Explanation Code",
+            "type": "string"
+          },
+          "failed_chunk_count": {
+            "description": "Execution-failed eligible observations; structural cells are excluded.",
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Failed Chunk Count",
+            "type": "integer"
+          },
+          "known_chunk_count": {
+            "description": "Known eligible observations; legacy field name retained for compatibility.",
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Known Chunk Count",
+            "type": "integer"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "default": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "total_chunk_count": {
+            "description": "Eligible observation count; may be smaller than the physical chunk count.",
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Total Chunk Count",
+            "type": "integer"
+          },
+          "unsupported_chunk_count": {
+            "description": "Unknown or unsupported eligible observations; structural cells are excluded.",
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "Unsupported Chunk Count",
+            "type": "integer"
+          },
+          "value_state": {
+            "$ref": "#/components/schemas/MetricValueState"
+          }
+        },
+        "required": [
+          "metric_key",
+          "value_state",
+          "known_chunk_count",
+          "abstained_chunk_count",
+          "unsupported_chunk_count",
+          "failed_chunk_count",
+          "total_chunk_count",
+          "explanation_code"
+        ],
+        "title": "SessionModelEnsembleMetricReceipt",
+        "type": "object"
+      },
+      "SessionModelEnsembleTypedMetricReceipt": {
+        "additionalProperties": false,
+        "description": "One content-free typed coaching observation projected beside the committee.\n\nThe measured receipt is produced by the deterministic coaching contract;\nits numerator and denominator are tied to explicit observation units rather\nthan model agreement.  A separate predictive projection may accompany it,\nbut it cannot rewrite this evidence-backed value.",
+        "properties": {
+          "algorithm_id": {
+            "title": "Algorithm Id",
+            "type": "string"
+          },
+          "algorithm_version": {
+            "title": "Algorithm Version",
+            "type": "string"
+          },
+          "calibration_state": {
+            "const": "not_assessed",
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "coverage": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Coverage",
+            "type": "number"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "eligible_message_count": {
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Eligible Message Count",
+            "type": "integer"
+          },
+          "engine_version": {
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "explanation_code": {
+            "title": "Explanation Code",
+            "type": "string"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_schema_version": {
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Metric Schema Version",
+            "type": "integer"
+          },
+          "metric_version": {
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Metric Version",
+            "type": "integer"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "observed_message_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Observed Message Count",
+            "type": "integer"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "projection_source": {
+            "const": "deterministic_typed_contract",
+            "title": "Projection Source",
+            "type": "string"
+          },
+          "rubric_version": {
+            "title": "Rubric Version",
+            "type": "string"
+          },
+          "value_state": {
+            "$ref": "#/components/schemas/MetricValueState"
+          }
+        },
+        "required": [
+          "metric_key",
+          "metric_version",
+          "value_state",
+          "observed_message_count",
+          "eligible_message_count",
+          "coverage",
+          "explanation_code",
+          "error_code",
+          "projection_source",
+          "metric_schema_version",
+          "engine_version",
+          "algorithm_id",
+          "algorithm_version",
+          "rubric_version",
+          "calibration_state",
+          "product_metric_eligible"
+        ],
+        "title": "SessionModelEnsembleTypedMetricReceipt",
+        "type": "object"
+      },
+      "SessionPredictiveMetricSummary": {
+        "additionalProperties": false,
+        "description": "Compact trajectory projection; density/factor detail stays run-scoped.",
+        "properties": {
+          "applicability_probability": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applicability Probability"
+          },
+          "calibration_version": {
+            "title": "Calibration Version",
+            "type": "string"
+          },
+          "contract_fingerprint": {
+            "title": "Contract Fingerprint",
+            "type": "string"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "effective_observation_count": {
+            "maximum": 10000000.0,
+            "minimum": 0.0,
+            "title": "Effective Observation Count",
+            "type": "integer"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "model_disagreement": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Disagreement"
+          },
+          "model_set_version": {
+            "title": "Model Set Version",
+            "type": "string"
+          },
+          "pending_probability": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Probability"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "default": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "q05": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q05"
+          },
+          "q25": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q25"
+          },
+          "q75": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q75"
+          },
+          "q95": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q95"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PredictiveMetricState"
+          },
+          "target": {
+            "$ref": "#/components/schemas/PredictiveMetricTarget"
+          }
+        },
+        "required": [
+          "metric_key",
+          "target",
+          "state",
+          "effective_observation_count",
+          "model_set_version",
+          "calibration_version",
+          "contract_version",
+          "contract_fingerprint"
+        ],
+        "title": "SessionPredictiveMetricSummary",
+        "type": "object"
+      },
       "SessionQualityAggregate": {
         "additionalProperties": false,
         "description": "Content-free selected-session projection; selected IDs are intentionally absent.",
@@ -8338,6 +9655,14 @@
           "unknown"
         ],
         "title": "SignalDirection",
+        "type": "string"
+      },
+      "SourceCoverageState": {
+        "enum": [
+          "complete_window",
+          "incomplete_source"
+        ],
+        "title": "SourceCoverageState",
         "type": "string"
       },
       "SplitTaskRequest": {
@@ -11274,6 +12599,91 @@
         "summary": "Metric Definitions"
       }
     },
+    "/v1/model-ensemble-runs/{run_id}/metrics/{metric_key}/predictive-detail": {
+      "get": {
+        "operationId": "predictive_metric_detail_v1_model_ensemble_runs__run_id__metrics__metric_key__predictive_detail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "metric_key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Metric Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPredictiveMetricDetailDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Predictive Metric Detail",
+        "tags": [
+          "local-model-ensemble"
+        ]
+      }
+    },
     "/v1/model-ensemble-watch/active": {
       "get": {
         "operationId": "active_watch_v1_model_ensemble_watch_active_get",
@@ -11409,6 +12819,186 @@
           }
         },
         "summary": "Disable Watch",
+        "tags": [
+          "local-model-ensemble-watch"
+        ]
+      }
+    },
+    "/v1/model-ensemble-watches/{watch_id}/refresh": {
+      "post": {
+        "operationId": "refresh_watch_v1_model_ensemble_watches__watch_id__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "watch_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Watch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEnsembleWatchSnapshotDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh Watch",
+        "tags": [
+          "local-model-ensemble-watch"
+        ]
+      }
+    },
+    "/v1/model-ensemble-watches/{watch_id}/trajectory": {
+      "get": {
+        "operationId": "watch_trajectory_v1_model_ensemble_watches__watch_id__trajectory_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "watch_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Watch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 60,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_generation",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000000000,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Generation"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEnsembleTrajectoryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Watch Trajectory",
         "tags": [
           "local-model-ensemble-watch"
         ]

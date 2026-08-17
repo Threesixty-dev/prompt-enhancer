@@ -54,11 +54,17 @@ class _TransformersBackend:
         *,
         device: str,
         batch_size: int,
+        quantization: str = "none",
     ) -> None:
         if not 1 <= batch_size <= manifest.max_batch_size:
             raise LocalBackendError("batch_size_outside_manifest_bound")
         self.manifest = manifest
         self.device = resolve_device(device)
+        if quantization not in {"none", "bitsandbytes_nf4"}:
+            raise LocalBackendError("unsupported_quantization")
+        if quantization != "none" and self.device != "cuda":
+            raise LocalBackendError("cuda_unavailable")
+        self.quantization = quantization
         self.batch_size = batch_size
         self._load_latency_ms = 0.0
         self._rss_before_mb = _process_rss_mb()
@@ -81,7 +87,8 @@ class _TransformersBackend:
             trust_remote_code=False,
         )
         self._load_model(snapshot)
-        self.model.to(self.device)
+        if self.quantization == "none":
+            self.model.to(self.device)
         self.model.eval()
         self._load_latency_ms = (time.perf_counter() - started) * 1000
 
@@ -245,7 +252,7 @@ class TransformersNliClassifier(_TransformersBackend):
     key = "mdeberta_xnli_argmax_v1"
 
     def __init__(self, manifest: ModelManifest, snapshot: Path, **kwargs: Any) -> None:
-        if manifest.task is not TextModelTask.SCOPED_NLI:
+        if manifest.task not in {TextModelTask.SCOPED_NLI, TextModelTask.BINARY_NLI}:
             raise LocalBackendError("wrong_manifest_task_for_nli_backend")
         super().__init__(manifest, snapshot, **kwargs)
         configured = {
@@ -253,7 +260,11 @@ class TransformersNliClassifier(_TransformersBackend):
             for index, label in getattr(self.model.config, "id2label", {}).items()
         }
         expected = dict(manifest.output_label_by_index)
-        semantic_values = {"entailment", "neutral", "contradiction"}
+        semantic_values = (
+            {"entailment", "neutral", "contradiction"}
+            if manifest.task is TextModelTask.SCOPED_NLI
+            else {"entailment", "not_entailment"}
+        )
         if set(configured.values()) == semantic_values and configured != expected:
             raise LocalBackendError("nli_config_label_order_mismatch")
         if configured and not (
@@ -264,13 +275,26 @@ class TransformersNliClassifier(_TransformersBackend):
         self._label_by_index = expected
 
     def _load_model(self, snapshot: Path) -> None:
-        from transformers import AutoModelForSequenceClassification
+        from transformers import AutoConfig, AutoModelForSequenceClassification
 
+        kwargs: dict[str, object] = {
+            "local_files_only": True,
+            "trust_remote_code": False,
+            "use_safetensors": True,
+        }
+        if self.manifest.architecture == "modernbert_sequence_classifier":
+            config = AutoConfig.from_pretrained(
+                str(snapshot),
+                local_files_only=True,
+                trust_remote_code=False,
+            )
+            # The upstream checkpoint opts into a Triton-backed embedding
+            # compile path. Triton is not available on the supported native
+            # Windows runtime, and compilation is not required for inference.
+            config.reference_compile = False
+            kwargs["config"] = config
         self.model = AutoModelForSequenceClassification.from_pretrained(
-            str(snapshot),
-            local_files_only=True,
-            trust_remote_code=False,
-            use_safetensors=True,
+            str(snapshot), **kwargs
         )
 
     def predict(self, cases: Sequence[NliCase]) -> tuple[str, ...]:
@@ -290,7 +314,12 @@ class TransformersNliClassifier(_TransformersBackend):
                 )
                 encoded = {key: value.to(self.device) for key, value in encoded.items()}
                 indexes = self.model(**encoded).logits.argmax(dim=-1).cpu().tolist()
-                predictions.extend(self._label_by_index[int(index)] for index in indexes)
+                predictions.extend(
+                    "neutral"
+                    if self._label_by_index[int(index)] == "not_entailment"
+                    else self._label_by_index[int(index)]
+                    for index in indexes
+                )
         return tuple(predictions)
 
     def probabilities(
@@ -315,12 +344,23 @@ class TransformersNliClassifier(_TransformersBackend):
                 encoded = {key: value.to(self.device) for key, value in encoded.items()}
                 rows = self.model(**encoded).logits.float().softmax(dim=-1).cpu().tolist()
                 for row in rows:
-                    predictions.append(
-                        {
-                            self._label_by_index[index]: float(value)
-                            for index, value in enumerate(row)
-                        }
-                    )
+                    mapped = {
+                        self._label_by_index[index]: float(value)
+                        for index, value in enumerate(row)
+                    }
+                    if self.manifest.task is TextModelTask.BINARY_NLI:
+                        # Binary non-entailment does not distinguish neutral
+                        # from contradiction. Preserve it as uncertainty rather
+                        # than manufacturing negative evidence.
+                        predictions.append(
+                            {
+                                "entailment": mapped["entailment"],
+                                "neutral": mapped["not_entailment"],
+                                "contradiction": 0.0,
+                            }
+                        )
+                    else:
+                        predictions.append(mapped)
         return tuple(predictions)
 
 
@@ -484,14 +524,31 @@ class TransformersQwenReranker(_TransformersBackend):
             dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         elif self.device == "mps":
             dtype = torch.float16
-        self.model = AutoModelForCausalLM.from_pretrained(
-            str(snapshot),
-            local_files_only=True,
-            trust_remote_code=False,
-            use_safetensors=True,
-            torch_dtype=dtype,
-            low_cpu_mem_usage=True,
-        )
+        kwargs: dict[str, object] = {
+            "local_files_only": True,
+            "trust_remote_code": False,
+            "use_safetensors": True,
+            "torch_dtype": dtype,
+            "low_cpu_mem_usage": True,
+        }
+        if self.quantization == "bitsandbytes_nf4":
+            try:
+                from transformers import BitsAndBytesConfig
+                import bitsandbytes  # noqa: F401 - verifies the reviewed backend is installed
+            except ImportError:
+                raise LocalBackendError("quantization_backend_unavailable") from None
+            kwargs.update(
+                {
+                    "quantization_config": BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_use_double_quant=True,
+                        bnb_4bit_compute_dtype=dtype,
+                    ),
+                    "device_map": {"": 0},
+                }
+            )
+        self.model = AutoModelForCausalLM.from_pretrained(str(snapshot), **kwargs)
 
     @staticmethod
     def _prompt(query: str, document: str) -> str:
@@ -675,14 +732,31 @@ class TransformersDynamicRubricJudge(_TransformersBackend):
             dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         elif self.device == "mps":
             dtype = torch.float16
-        self.model = AutoModelForCausalLM.from_pretrained(
-            str(snapshot),
-            local_files_only=True,
-            trust_remote_code=False,
-            use_safetensors=True,
-            torch_dtype=dtype,
-            low_cpu_mem_usage=True,
-        )
+        kwargs: dict[str, object] = {
+            "local_files_only": True,
+            "trust_remote_code": False,
+            "use_safetensors": True,
+            "torch_dtype": dtype,
+            "low_cpu_mem_usage": True,
+        }
+        if self.quantization == "bitsandbytes_nf4":
+            try:
+                from transformers import BitsAndBytesConfig
+                import bitsandbytes  # noqa: F401 - verifies the reviewed backend is installed
+            except ImportError:
+                raise LocalBackendError("quantization_backend_unavailable") from None
+            kwargs.update(
+                {
+                    "quantization_config": BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_use_double_quant=True,
+                        bnb_4bit_compute_dtype=dtype,
+                    ),
+                    "device_map": {"": 0},
+                }
+            )
+        self.model = AutoModelForCausalLM.from_pretrained(str(snapshot), **kwargs)
 
     def _prompt(self, rubric: str, evidence: str) -> str:
         messages = [

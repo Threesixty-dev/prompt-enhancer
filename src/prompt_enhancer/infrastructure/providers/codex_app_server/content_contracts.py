@@ -24,8 +24,8 @@ from ....application.analysis.text_contracts import (
 from .errors import CodexCompatibilityError, CodexThreadStructureLimitError
 
 
-TEXT_CONTENT_ADAPTER_VERSION = "0.6.0"
-TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v7"
+TEXT_CONTENT_ADAPTER_VERSION = "0.7.0"
+TEXT_CONTENT_SCHEMA_VERSION = "codex-thread-item-text-v8"
 
 
 class CodexTextItemKind(StrEnum):

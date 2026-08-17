@@ -11,7 +11,9 @@ import type { MetricCategory } from "../../shared/platform/platform";
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 import { promptTextCompatibilityBlocker } from "../provider-compatibility";
 import {
+  MODEL_ENSEMBLE_LENSES,
   ModelEnsembleRadar,
+  type ModelEnsembleLensId,
   modelEnsembleMetricPresentation,
 } from "./ModelEnsembleRadar";
 
@@ -57,9 +59,9 @@ function runErrorCopy(error: unknown): string {
     return "The local Codex read timed out or became unavailable. Keep Codex open and retry once.";
   }
   if (statusOf(error) === 501) {
-    return "The ten-model ensemble is available only in the integrated local app.";
+    return "The local probabilistic analysis is available only in the integrated local app.";
   }
-  return "The local ten-model run did not complete. The error contains no session text.";
+  return "The local analysis did not complete. The error contains no session text.";
 }
 
 function blocker(
@@ -110,6 +112,9 @@ export function ModelEnsemblePanel({
   const [error, setError] = useState("");
   const [watch, setWatch] = useState<ModelEnsembleWatchSnapshot | null>(null);
   const [watchChanging, setWatchChanging] = useState(false);
+  const [lensId, setLensId] = useState<ModelEnsembleLensId>(
+    category === "prompt-quality" ? "task-framing" : "reasoning-trace",
+  );
   const controllerRef = useRef<AbortController | null>(null);
   const blocked = blocker(analysisCapability, providerCompatibility, compatibilityLoading);
 
@@ -130,6 +135,10 @@ export function ModelEnsemblePanel({
   }, [sessionId, transport]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    setLensId(category === "prompt-quality" ? "task-framing" : "reasoning-trace");
+  }, [category]);
 
   useEffect(() => {
     if (transport.getActiveModelEnsembleWatch === undefined) return;
@@ -218,43 +227,55 @@ export function ModelEnsemblePanel({
   }
 
   const selectedDefinitions = useMemo(() => {
-    const kind = category === "prompt-quality" ? "prompt" : "logic";
+    const lens = MODEL_ENSEMBLE_LENSES.find((candidate) => candidate.id === lensId);
     const definitions = new Map(
-      QUALITY_ANALYSIS_DEFINITIONS.filter((item) => item.kind === kind)
+      QUALITY_ANALYSIS_DEFINITIONS.filter((item) =>
+        lens?.metrics.some((metric) => metric.key === item.key),
+      )
         .map((item) => [item.key, item]),
     );
-    return run?.metrics
+    const primaryMetrics = run === null
+      ? []
+      : run.typed_metrics.length > 0 ? run.typed_metrics : run.metrics;
+    return primaryMetrics
       .filter((metric) => definitions.has(metric.metric_key))
       .map((metric) => ({ metric, definition: definitions.get(metric.metric_key)! })) ?? [];
-  }, [category, run]);
-  const completedExperts = run?.experts.filter((expert) => expert.status === "completed").length ?? 0;
+  }, [lensId, run]);
+  const availableLenses = MODEL_ENSEMBLE_LENSES.filter((lens) =>
+    category === "prompt-quality"
+      ? lens.id === "task-framing" || lens.id === "collaboration-flow"
+      : lens.id === "reasoning-trace" || lens.id === "outcome-evidence",
+  );
+  const predictiveStages = run?.predictive_model_stages ?? [];
+  const completedPredictiveStages = predictiveStages.filter((stage) => stage.status === "completed").length;
 
   return (
     <section aria-labelledby="model-ensemble-title" className="model-ensemble">
       <header className="model-ensemble__header">
         <div>
-          <p className="eyebrow">Ten-model local shadow ensemble</p>
-          <h2 id="model-ensemble-title">Chunk the bounded session, then ask ten pinned experts in series</h2>
+          <p className="eyebrow">Typed evidence + experimental model ranges</p>
+          <h2 id="model-ensemble-title">Measure the session, then estimate every eligible axis locally</h2>
           <p>
-            Four retrieval models find evidence, two rerank it, three NLI models
-            check scope, and one structured rubric model decides. Each model runs
-            in its own process; process exit releases its RAM and GPU allocation.
+            Typed evidence forms the solid radar. A gated multilingual factor lane
+            runs pinned small models one at a time to produce a separate experimental
+            range. Each child exits before the next model can use RAM or GPU memory.
           </p>
         </div>
         {running ? (
           <button className="button button--secondary" onClick={cancelWait} type="button">Cancel browser wait</button>
         ) : (
           <button className="button button--primary" disabled={blocked !== null} onClick={() => void start()} type="button">
-            Run 10 models locally
+            Analyze metric ranges
           </button>
         )}
       </header>
       <div className="model-ensemble__boundary" role="note">
-        <strong>Shadow result—not a product score</strong>
-        <span>
-          Models see only the selected redacted window, split into at most eight
-          exhaustive chunks. Text is never stored. Per-chunk votes and averages are
-          uncalibrated and cannot replace objective verification or the deterministic metric pack.
+          <strong>Solid measurements and model ranges stay separate</strong>
+          <span>
+          Versioned contracts supply evidence-backed numerators and denominators.
+          The translucent model layer is explicitly experimental until a metric passes
+          calibration. It never erases evidence, turns missing states into zero, or
+          treats prose as proof of an objective outcome.
         </span>
       </div>
       <div className="model-ensemble__watch">
@@ -262,7 +283,7 @@ export function ModelEnsemblePanel({
           <strong>Continuous local updates</strong>
           <span>
             {watch?.watch.session_id === sessionId
-              ? `${watch.watch.state} · model ${watch.watch.progress_completed} of ${watch.watch.progress_total}`
+              ? `${watch.watch.state} · analysis step ${watch.watch.progress_completed} of ${watch.watch.progress_total}`
               : "Off for this session. One selected session can use the serial GPU/CPU lane."}
           </span>
         </div>
@@ -281,10 +302,10 @@ export function ModelEnsemblePanel({
       </div>
       <p aria-live="polite" className="model-ensemble__status" role="status">
         {running
-          ? "Running ten local child processes one at a time. This may take several minutes; cancelling only stops this browser from waiting."
+          ? "Running the local factor pipeline one child at a time. Cancelling only stops this browser from waiting."
           : blocked ?? (run
-            ? `Stored shadow run completed ${formatTimestamp(run.completed_at)}.`
-            : "No ten-model shadow run is stored for this session yet.")}
+            ? `Stored local analysis completed ${formatTimestamp(run.completed_at)}.`
+            : "No measured + predictive analysis is stored for this session yet.")}
       </p>
       {error && <p className="model-ensemble__error" role="alert">{error}</p>}
       {loading ? (
@@ -293,8 +314,13 @@ export function ModelEnsemblePanel({
         <>
           <dl aria-label="Shadow ensemble facts" className="model-ensemble__facts">
             <div><dt>Chunks</dt><dd>{run.chunk_count}</dd></div>
-            <div><dt>Models completed</dt><dd>{completedExperts} / 10</dd></div>
-            <div><dt>Metric definitions</dt><dd>{run.metrics.length}</dd></div>
+             <div>
+               <dt>{predictiveStages.length > 0 ? "Predictive stages" : "Historical stages"}</dt>
+               <dd>{predictiveStages.length > 0
+                 ? `${completedPredictiveStages} / ${predictiveStages.length}`
+                 : `${run.experts.filter((expert) => expert.status === "completed").length} / 10`}</dd>
+             </div>
+            <div><dt>Typed metrics</dt><dd>{run.typed_metrics.length || "Legacy run"}</dd></div>
             <div>
               <dt>Source coverage</dt>
               <dd>{run.source_coverage_state === "complete_window" ? "Complete selected window" : "Incomplete source window"}</dd>
@@ -308,8 +334,20 @@ export function ModelEnsemblePanel({
               complete-session judgment.
             </p>
           )}
+          <div className="model-ensemble__lens-tabs" role="group" aria-label="Shadow radar lens">
+            {availableLenses.map((lens) => (
+              <button
+                aria-pressed={lensId === lens.id}
+                key={lens.id}
+                onClick={() => setLensId(lens.id)}
+                type="button"
+              >
+                {lens.label}
+              </button>
+            ))}
+          </div>
           <div className="model-ensemble__results">
-            <ModelEnsembleRadar category={category} run={run} />
+            <ModelEnsembleRadar detailRunId={run.run_id} detailTransport={transport} lensId={lensId} run={run} />
             <div className="model-ensemble__metric-list">
               {selectedDefinitions.map(({ metric, definition }) => {
                 const presentation = modelEnsembleMetricPresentation(metric, definition.direction);
@@ -318,22 +356,34 @@ export function ModelEnsemblePanel({
                     <div><strong>{definition.label}</strong><small>{metric.value_state.replaceAll("_", " ")}</small></div>
                     <b>{presentation.value}</b>
                     <p>{presentation.detail}</p>
-                    <p>
-                      Known {metric.known_chunk_count}/{metric.total_chunk_count} ·
-                      {" "}abstained {metric.abstained_chunk_count} · unsupported {metric.unsupported_chunk_count} · failed {metric.failed_chunk_count}
-                    </p>
+                    {"projection_source" in metric ? (
+                      <p>
+                        Message coverage {metric.observed_message_count}/{metric.eligible_message_count} ·
+                        {" "}typed contract · experimental model range shown separately
+                      </p>
+                    ) : (
+                      <p>
+                        Known observations {metric.known_chunk_count}/{metric.total_chunk_count} ·
+                        {" "}abstained {metric.abstained_chunk_count} · unsupported {metric.unsupported_chunk_count} · failed {metric.failed_chunk_count}
+                      </p>
+                    )}
                   </article>
                 );
               })}
             </div>
           </div>
           <details className="model-ensemble__models">
-            <summary>Ten pinned model receipts and resource release</summary>
+            <summary>{predictiveStages.length > 0
+              ? "Live predictive model stages and resource release"
+              : "Historical ten-stage receipts and resource release"}</summary>
             <ol>
-              {run.experts.map((expert) => (
-                <li key={expert.model_key}>
-                  <span><strong>{expert.ordinal + 1}. {expert.repository_id}</strong><small>{expert.role.replaceAll("_", " ")} · {expert.license_spdx}</small></span>
-                  <span>{expert.status} · {expert.device?.toUpperCase() ?? "no device"} · unloaded {expert.unloaded_after_stage ? "yes" : "no"}</span>
+              {(predictiveStages.length > 0 ? predictiveStages : run.experts).map((stage, index) => (
+                <li key={stage.model_key}>
+                  <span>
+                    <strong>{index + 1}. {stage.repository_id}</strong>
+                    <small>{"role" in stage ? `${stage.role.replaceAll("_", " ")} · ${stage.license_spdx}` : `factor model · ${stage.quantization}`}</small>
+                  </span>
+                  <span>{stage.status} · {stage.device?.toUpperCase() ?? "no device"} · unloaded {stage.unloaded_after_stage ? "yes" : "no"}</span>
                 </li>
               ))}
             </ol>
@@ -341,7 +391,7 @@ export function ModelEnsemblePanel({
         </>
       ) : (
         <p className="model-ensemble__empty">
-          Start one explicit run to create content-free chunk, expert, vote, and aggregate receipts.
+          Start one explicit run to create typed metric receipts plus content-free experimental ranges.
         </p>
       )}
     </section>
