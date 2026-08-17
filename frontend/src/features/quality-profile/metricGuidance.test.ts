@@ -39,4 +39,17 @@ describe("sessionMetricGuidance", () => {
     expect(guidance.action).toMatch(/no change is required/i);
     expect(guidance.basis).toBe("readiness");
   });
+
+  it("waits for an open episode horizon instead of treating pending as a user defect", () => {
+    const guidance = sessionMetricGuidance("collaboration.open_loop_closure", {
+      state: "unknown",
+      numericValue: null,
+      direction: "higher_is_better",
+      explanationCode: "episode_horizon_open",
+    });
+
+    expect(guidance.action).toMatch(/nothing to change yet.*pending/i);
+    expect(guidance.verification).toMatch(/episode closes/i);
+    expect(guidance.basis).toBe("readiness");
+  });
 });

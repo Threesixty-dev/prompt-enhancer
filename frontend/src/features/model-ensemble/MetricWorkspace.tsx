@@ -10,7 +10,10 @@ import {
   MODEL_ENSEMBLE_LENSES,
   ModelEnsembleRadar,
   modelEnsembleMetricPresentation,
+  modelEnsembleMetricStatus,
+  modelEnsembleMetricStatusLabel,
   modelEnsembleRadarAxes,
+  moveRovingFocus,
   type ModelEnsembleLensId,
   type ModelEnsembleRadarData,
 } from "./ModelEnsembleRadar";
@@ -163,7 +166,10 @@ function ModelConstellation({ run, attemptStages, compact }: { run: ModelEnsembl
           return (
             <section key={group}>
               <strong>{group}</strong>
-              <div className="model-constellation__nodes">
+              <div
+                className="model-constellation__nodes"
+                onKeyDown={(event) => moveRovingFocus(event)}
+              >
                 {groupStages.map((stage) => (
                   <button
                     aria-pressed={stage.modelKey === selected?.modelKey}
@@ -194,11 +200,11 @@ function ModelConstellation({ run, attemptStages, compact }: { run: ModelEnsembl
               {!compact && <div><dt>Peak RAM</dt><dd>{formatResource(selected.rss)}</dd></div>}
               <div><dt>Released</dt><dd>{selected.unloaded ? "yes" : "not confirmed"}</dd></div>
               <div><dt>Revision</dt><dd>{shortIdentity(selected.revision)}</dd></div>
-              <div><dt>Evaluated</dt><dd>{selected.evaluatedCases ?? "not exposed"}</dd></div>
-              <div><dt>Contributed</dt><dd>{selected.contributedCases ?? "not exposed"}</dd></div>
+              <div><dt>Evaluated</dt><dd>{selected.evaluatedCases ?? "unavailable"}</dd></div>
+              <div><dt>Contributed</dt><dd>{selected.contributedCases ?? "unavailable"}</dd></div>
             </dl>
             {selected.errorCode !== null && <p role="alert">{selected.errorCode.replaceAll("_", " ")}</p>}
-            {selected.evaluatedCases === null && <p>Current v1 receipts identify the stage, but do not expose trustworthy per-metric contribution counts.</p>}
+            {(selected.evaluatedCases === null || selected.contributedCases === null) && <p>Case counts are unavailable for this stage receipt; they are not zero. Current v1 receipts identify the stage without trustworthy per-metric contribution counts.</p>}
           </aside>
         )}
       </div>
@@ -314,16 +320,23 @@ export function MetricWorkspace({
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
   const axes = useMemo(() => modelEnsembleRadarAxes(run, lensId), [lensId, run]);
   const known = run.typed_metrics.filter((metric) => metric.value_state === "known").length;
+  const pending = run.typed_metrics.filter((metric) => modelEnsembleMetricStatus(metric) === "pending").length;
   const unavailable = run.typed_metrics.filter((metric) => metric.value_state !== "known").length;
   const experimental = (run.predictive_metrics ?? []).filter((metric) => metric.state === "experimental").length;
   const activeMetricKey = axes.some((axis) => axis.key === selectedMetricKey)
     ? selectedMetricKey
     : axes[0]?.key ?? "";
   const activeDirection = axes.find((axis) => axis.key === activeMetricKey)?.direction ?? "higher_is_better";
+  const activeLens = MODEL_ENSEMBLE_LENSES.find((lens) => lens.id === lensId);
   return (
-    <section className={`metric-workspace metric-workspace--${mode}`} data-run-id={runId}>
+    <section
+      aria-label={`Metric workspace · ${snapshotLabel}`}
+      className={`metric-workspace metric-workspace--${mode}`}
+      data-run-id={runId}
+      data-workspace-mode={mode}
+    >
       <header className="metric-workspace__snapshot">
-        <div><span>{snapshotLabel}</span><strong>Snapshot {shortIdentity(runId)}</strong></div>
+        <div><span>{snapshotLabel}{pending > 0 ? ` · ${pending} pending` : ""}</span><strong>Snapshot {shortIdentity(runId)}</strong></div>
         <dl>
           <div><dt>Measured</dt><dd>{known}/20</dd></div>
           <div><dt>State-only</dt><dd>{unavailable}</dd></div>
@@ -331,10 +344,20 @@ export function MetricWorkspace({
           <div><dt>Window</dt><dd>{scopeLabel}</dd></div>
         </dl>
       </header>
-      <nav aria-label="Metric workspace view" className="metric-workspace__lenses">
+      <nav
+        aria-label="Metric workspace view"
+        className="metric-workspace__lenses"
+        onKeyDown={(event) => moveRovingFocus(event, (index) => onLensChange(MODEL_ENSEMBLE_LENSES[index].id))}
+      >
         {MODEL_ENSEMBLE_LENSES.map((lens) => (
-          <button aria-pressed={lens.id === lensId} key={lens.id} onClick={() => onLensChange(lens.id)} type="button">
-            <span>{lens.shortLabel}</span><small>{lens.expectedMetricCount} metrics</small>
+          <button
+            aria-label={`${lens.label} lens · ${lens.expectedMetricCount} metrics`}
+            aria-pressed={lens.id === lensId}
+            key={lens.id}
+            onClick={() => onLensChange(lens.id)}
+            type="button"
+          >
+            <span aria-hidden="true">{lens.shortLabel}</span><small aria-hidden="true">{lens.expectedMetricCount} metrics</small>
           </button>
         ))}
       </nav>
@@ -353,12 +376,13 @@ export function MetricWorkspace({
         />
         {mode === "full" && (
           <section aria-label="Exact metric values" className="metric-workspace__board">
-            <header><strong>{MODEL_ENSEMBLE_LENSES.find((lens) => lens.id === lensId)?.label}</strong><span>Exact states and next actions</span></header>
-            <div>
+            <header><strong>{activeLens?.label}</strong><span>Exact states and next actions</span></header>
+            <div onKeyDown={(event) => moveRovingFocus(event, (index) => setSelectedMetricKey(axes[index].key))}>
               {axes.map((axis) => {
                 const presentation = axis.metric === null
                   ? { value: "—", detail: "No sealed receipt." }
                   : modelEnsembleMetricPresentation(axis.metric, axis.direction);
+                const status = modelEnsembleMetricStatus(axis.metric);
                 const guidance = sessionMetricGuidance(axis.key, {
                   state: axis.metric?.value_state ?? "missing",
                   numericValue: axis.metric?.numeric_value ?? null,
@@ -368,6 +392,7 @@ export function MetricWorkspace({
                 return (
                   <button
                     aria-pressed={axis.key === activeMetricKey}
+                    data-status={status}
                     key={axis.key}
                     onClick={() => setSelectedMetricKey(axis.key)}
                     type="button"
@@ -375,7 +400,7 @@ export function MetricWorkspace({
                     <span>
                       <strong>{axis.label}</strong>
                       <small>
-                        {axis.metric?.value_state.replaceAll("_", " ") ?? "missing"}
+                        {modelEnsembleMetricStatusLabel(status)}
                         {axis.direction === "lower_is_better" && axis.metric?.value_state === "known" && axis.metric.numeric_value != null
                           ? ` · raw rate ${Math.round(axis.metric.numeric_value! * 100)}%`
                           : ""}

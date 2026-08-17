@@ -390,6 +390,15 @@ export function sessionMetricGuidance(
       factorKeys,
     };
   }
+  if (input.state !== "known" && input.explanationCode === "episode_horizon_open") {
+    return {
+      audience,
+      action: "Nothing to change yet: the newest exchange is still open, so this metric is pending rather than measured or zero.",
+      verification: "Re-measure once the follow-up message arrives and the episode closes; the value is only then decidable.",
+      basis: "readiness",
+      factorKeys,
+    };
+  }
   if (input.state === "unknown" || input.state === "abstained" || input.state === "missing") {
     const objective = audience === "tooling";
     return {

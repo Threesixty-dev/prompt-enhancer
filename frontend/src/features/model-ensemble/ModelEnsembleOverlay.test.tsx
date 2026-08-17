@@ -9,7 +9,12 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
-import { ModelEnsembleOverlay } from "./ModelEnsembleOverlay";
+import {
+  CANCEL_ARMING_DELAY_MS,
+  ModelEnsembleOverlay,
+  stageCaseCountCopy,
+} from "./ModelEnsembleOverlay";
+import { CANONICAL_POLL_WRONG_RUN_MS } from "./canonicalPolling";
 
 async function settlePoll() {
   await act(async () => {
@@ -217,6 +222,17 @@ function idleCanonicalHead(run: ModelEnsembleRun): ModelEnsembleCanonicalHead {
 }
 
 describe("ModelEnsembleOverlay", () => {
+  it("renders absent stage case counts as unavailable rather than zero", () => {
+    expect(stageCaseCountCopy({
+      contributed_case_count: null,
+      evaluated_case_count: null,
+    })).toBe("case counts unavailable");
+    expect(stageCaseCountCopy({
+      contributed_case_count: 0,
+      evaluated_case_count: 4,
+    })).toBe("0/4 cases contributed");
+  });
+
   it("renders custom native chrome and delegates only window controls to the desktop bridge", async () => {
     const minimizeWindow = vi.fn(async () => undefined);
     const toggleMaximizeWindow = vi.fn()
@@ -238,6 +254,10 @@ describe("ModelEnsembleOverlay", () => {
 
     expect(screen.getByText("Prompt Enhancer")).toBeVisible();
     expect(screen.getByText("Live intelligence")).toBeVisible();
+    expect(document.querySelector(".model-ensemble-overlay")).toHaveAttribute("data-host", "native");
+    const dashboardLink = await screen.findByRole("link", { name: /Open selected session in dashboard.*opens in your browser/i });
+    expect(dashboardLink).toHaveAttribute("target", "_blank");
+    expect(dashboardLink).toHaveAttribute("rel", expect.stringMatching(/noopener/));
     fireEvent.click(screen.getByRole("button", { name: "Minimize window" }));
     fireEvent.click(screen.getByRole("button", { name: "Maximize window" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Restore window" })).toBeVisible());
@@ -411,6 +431,39 @@ describe("ModelEnsembleOverlay", () => {
     expect(await screen.findByRole("button", { name: /Analysis queued/i })).toBeDisabled();
   });
 
+  it("queues once on a repeated Analyze click and keeps the separate Cancel control disarmed briefly", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const run = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const initialHead = idleCanonicalHead(run);
+    const nextHead = canonicalHead(run);
+    let resolveEnqueue: ((value: ModelEnsembleCanonicalHead) => void) | undefined;
+    const enqueueModelEnsembleAnalysis = vi.fn(() => new Promise<ModelEnsembleCanonicalHead>((resolve) => {
+      resolveEnqueue = resolve;
+    }));
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => initialHead),
+      getModelEnsembleSnapshot: vi.fn(async () => run),
+      enqueueModelEnsembleAnalysis,
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    const analyze = await screen.findByRole("button", { name: "Analyze now" });
+    fireEvent.click(analyze);
+    fireEvent.click(analyze);
+    expect(enqueueModelEnsembleAnalysis).toHaveBeenCalledTimes(1);
+    await act(async () => resolveEnqueue?.(nextHead));
+
+    const cancel = await screen.findByRole("button", { name: "Cancel analysis" });
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveAttribute("title", expect.stringMatching(/available a moment/i));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(CANCEL_ARMING_DELAY_MS);
+    });
+    expect(screen.getByRole("button", { name: "Cancel analysis" })).toBeEnabled();
+    vi.useRealTimers();
+  });
+
   it("uses the canonical head for dynamic stage status, heavy snapshot changes, and real cancellation", async () => {
     const headRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
     const cancellationHeadRun = radarRun("9".repeat(64), 0, "2040-01-02T10:00:01Z");
@@ -472,6 +525,62 @@ describe("ModelEnsembleOverlay", () => {
 
     expect(await screen.findByText("0% signal")).toBeVisible();
     expect(getModelEnsembleSnapshot).toHaveBeenCalledWith(newRun.run_id);
+  });
+
+  it("does not let a superseded poll overwrite the exact head returned by an analysis command", async () => {
+    const oldRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const newRun = radarRun("9".repeat(64), 0, "2040-01-02T10:00:01Z");
+    const oldHead = idleCanonicalHead(oldRun);
+    const commandHead = canonicalHead(newRun);
+    let resolveStalePoll: ((value: ModelEnsembleCanonicalHead) => void) | undefined;
+    const getActiveModelEnsembleCanonicalHead = vi.fn()
+      .mockResolvedValueOnce(oldHead)
+      .mockImplementationOnce(() => new Promise<ModelEnsembleCanonicalHead>((resolve) => {
+        resolveStalePoll = resolve;
+      }))
+      .mockResolvedValue(commandHead);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead,
+      getModelEnsembleSnapshot: vi.fn(async (runId: string) => runId === oldRun.run_id ? oldRun : newRun),
+      enqueueModelEnsembleAnalysis: vi.fn(async () => commandHead),
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    expect(await screen.findByText("100% signal")).toBeVisible();
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await waitFor(() => expect(getActiveModelEnsembleCanonicalHead).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Analyze now" }));
+    expect(await screen.findByText("0% signal")).toBeVisible();
+
+    await act(async () => resolveStalePoll?.(oldHead));
+    expect(screen.getByText("0% signal")).toBeVisible();
+    expect(screen.queryByText("100% signal")).not.toBeInTheDocument();
+  });
+
+  it("retries when an immutable snapshot does not match the canonical head run id", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const wrongRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const exactRun = radarRun("9".repeat(64), 0, "2040-01-02T10:00:01Z");
+    const head = idleCanonicalHead(exactRun);
+    const getModelEnsembleSnapshot = vi.fn()
+      .mockResolvedValueOnce(wrongRun)
+      .mockResolvedValue(exactRun);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => head),
+      getModelEnsembleSnapshot,
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    await waitFor(() => expect(getModelEnsembleSnapshot).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("100% signal")).not.toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(CANONICAL_POLL_WRONG_RUN_MS);
+    });
+    await waitFor(() => expect(getModelEnsembleSnapshot).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("0% signal")).toBeVisible();
+    vi.useRealTimers();
   });
 
   it("clears the old sealed run when enqueue returns an intentional null head", async () => {

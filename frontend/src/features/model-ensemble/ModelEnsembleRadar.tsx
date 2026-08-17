@@ -45,9 +45,39 @@ function isTypedMetric(metric: EnsembleMetric): metric is TypedMetric {
   return "projection_source" in metric;
 }
 
+/**
+ * Presentation status for one sealed metric. `pending` is a typed unknown whose
+ * episode horizon is still open: candidates were observed, but their follow-up
+ * cannot be judged yet. It stays unplotted and is never converted to zero.
+ */
+export type ModelEnsembleMetricStatus =
+  | EnsembleMetric["value_state"]
+  | "pending"
+  | "missing";
+
+export function modelEnsembleMetricStatus(metric: EnsembleMetric | null): ModelEnsembleMetricStatus {
+  if (metric === null) return "missing";
+  if (
+    isTypedMetric(metric)
+    && metric.value_state !== "known"
+    && metric.explanation_code === "episode_horizon_open"
+  ) return "pending";
+  return metric.value_state;
+}
+
+export function modelEnsembleMetricStatusLabel(status: ModelEnsembleMetricStatus): string {
+  switch (status) {
+    case "pending": return "pending · horizon open";
+    case "missing": return "not observed";
+    default: return status.replaceAll("_", " ");
+  }
+}
+
 function stateExplanation(metric: EnsembleMetric): string {
   if (isTypedMetric(metric)) {
     switch (metric.explanation_code) {
+      case "episode_horizon_open":
+        return "Pending: the newest exchange is still open, so its follow-up cannot be judged yet. The value stays unknown until the episode closes. This is pending evidence, not a zero.";
       case "message_kind_unavailable":
         return "This adapter version does not expose the typed event family required by this metric. This is unavailable evidence, not a zero.";
       case "message_kind_unobserved":
@@ -81,6 +111,7 @@ function stateExplanation(metric: EnsembleMetric): string {
 }
 
 function stateValue(metric: EnsembleMetric | null): string {
+  if (modelEnsembleMetricStatus(metric) === "pending") return "Pending";
   switch (metric?.value_state) {
     case "not_applicable":
       return "N/A";
@@ -155,9 +186,27 @@ function isDeepModel(modelKey: string, repositoryId: string): boolean {
   return /qwen|rubric|deep/i.test(`${modelKey} ${repositoryId}`);
 }
 
+export const PREDICTIVE_WITHHELD_CONTRIBUTOR_PROOF_MISSING =
+  "Withheld because this history point does not expose contributor proof; open the sealed snapshot to check its model stages.";
+export const PREDICTIVE_WITHHELD_TOO_FEW_EXPERTS =
+  "Withheld because fewer than two small experts are proven by this receipt.";
+
+/**
+ * Counts completed small (non-deep) expert stages, or `null` when the receipt
+ * does not expose stage receipts at all. A trajectory-only history point has no
+ * contributor proof; that is not the same as a sealed receipt proving fewer
+ * than two experts.
+ */
+export function modelEnsembleCompletedSmallExperts(run: ModelEnsembleRadarData): number | null {
+  if (run.predictive_model_stages === undefined) return null;
+  return run.predictive_model_stages.filter(
+    (stage) => stage.status === "completed" && !isDeepModel(stage.model_key, stage.repository_id),
+  ).length;
+}
+
 export function modelEnsemblePredictiveVisibility(
   prediction: PredictiveMetric | null,
-  completedSmallExperts: number,
+  completedSmallExperts: number | null,
 ): { visible: boolean; reason: string | null } {
   if (prediction === null || prediction.state === "unavailable" || prediction.state === "execution_error") {
     return { visible: false, reason: "No experimental estimate is available." };
@@ -165,8 +214,11 @@ export function modelEnsemblePredictiveVisibility(
   if (prediction.state === "out_of_distribution") {
     return { visible: false, reason: "Withheld because this receipt is outside its calibration cohort." };
   }
+  if (completedSmallExperts === null) {
+    return { visible: false, reason: PREDICTIVE_WITHHELD_CONTRIBUTOR_PROOF_MISSING };
+  }
   if (completedSmallExperts < 2) {
-    return { visible: false, reason: "Withheld because fewer than two small experts are proven by this receipt." };
+    return { visible: false, reason: PREDICTIVE_WITHHELD_TOO_FEW_EXPERTS };
   }
   if (
     prediction.median == null || prediction.q05 == null || prediction.q25 == null
@@ -194,9 +246,7 @@ export function modelEnsembleRadarAxes(
   const primaryMetrics = (run.typed_metrics?.length ?? 0) > 0 ? run.typed_metrics : run.metrics;
   const metrics = new Map(primaryMetrics.map((metric) => [metric.metric_key, metric]));
   const predictions = new Map((run.predictive_metrics ?? []).map((metric) => [metric.metric_key, metric]));
-  const completedSmallExperts = (run.predictive_model_stages ?? []).filter(
-    (stage) => stage.status === "completed" && !isDeepModel(stage.model_key, stage.repository_id),
-  ).length;
+  const completedSmallExperts = modelEnsembleCompletedSmallExperts(run);
   return lens.metrics.map(({ key }) => {
     const definition = DEFINITIONS.get(key);
     if (definition === undefined) throw new Error("model ensemble lens definition is missing");
@@ -293,7 +343,42 @@ export function modelEnsemblePredictiveBandPath(
 }
 
 function stateLabel(metric: EnsembleMetric | null): string {
-  return metric?.value_state.replaceAll("_", " ") ?? "not observed";
+  return modelEnsembleMetricStatusLabel(modelEnsembleMetricStatus(metric));
+}
+
+/**
+ * Arrow-key navigation for a row of aria-pressed buttons. Tab remains usable;
+ * arrows, Home, and End provide the expected compact-widget interaction.
+ */
+export function moveRovingFocus(
+  event: { key: string; currentTarget: HTMLElement; preventDefault(): void },
+  select?: (index: number) => void,
+): void {
+  const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+  if (buttons.length === 0) return;
+  const current = buttons.findIndex((button) => button === event.currentTarget.ownerDocument.activeElement);
+  let next: number;
+  switch (event.key) {
+    case "ArrowRight":
+    case "ArrowDown":
+      next = current < 0 ? 0 : (current + 1) % buttons.length;
+      break;
+    case "ArrowLeft":
+    case "ArrowUp":
+      next = current < 0 ? buttons.length - 1 : (current - 1 + buttons.length) % buttons.length;
+      break;
+    case "Home":
+      next = 0;
+      break;
+    case "End":
+      next = buttons.length - 1;
+      break;
+    default:
+      return;
+  }
+  event.preventDefault();
+  buttons[next].focus();
+  select?.(next);
 }
 
 export function ModelEnsembleRadar({
@@ -379,6 +464,7 @@ export function ModelEnsembleRadar({
     ] as const;
   };
   const knownCount = axes.filter((axis) => axis.plotted !== null).length;
+  const pendingCount = axes.filter((axis) => modelEnsembleMetricStatus(axis.metric) === "pending").length;
   const explicitZeroCount = axes.filter(modelEnsembleIsRawExplicitZero).length;
   const segments = modelEnsembleRadarSegments(axes);
   const comparisonSegments = comparisonAxes === null ? [] : modelEnsembleRadarSegments(comparisonAxes);
@@ -423,6 +509,7 @@ export function ModelEnsembleRadar({
           <strong>{lens.label}</strong>
           <span>
             {snapshotLabel} · {knownCount} numeric · {axes.length - knownCount} state-only
+            {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
             {predictiveCount > 0 ? ` · ${predictiveCount} experimental ranges` : ""}
             {explicitZeroCount > 0 ? ` · ${explicitZeroCount} explicit zero${explicitZeroCount === 1 ? "" : "s"}` : ""}
           </span>
@@ -534,7 +621,7 @@ export function ModelEnsembleRadar({
               ) : (
                 <circle
                   aria-label={`${axis.label}: ${stateLabel(axis.metric)}`}
-                  className={`model-ensemble__radar-state model-ensemble__radar-state--${axis.metric?.value_state ?? "missing"}`}
+                  className={`model-ensemble__radar-state model-ensemble__radar-state--${modelEnsembleMetricStatus(axis.metric)}`}
                   cx={marker[0]}
                   cy={marker[1]}
                   r="5"
@@ -549,11 +636,15 @@ export function ModelEnsembleRadar({
           return <line className="model-ensemble__radar-value-segment" key={`${fromIndex}-${toIndex}`} x1={from[0]} x2={to[0]} y1={from[1]} y2={to[1]} />;
         })}
       </svg>
-      <nav aria-label={`${lens.label} metric axes`} className="model-ensemble__axis-strip">
+      <nav
+        aria-label={`${lens.label} metric axes`}
+        className="model-ensemble__axis-strip"
+        onKeyDown={(event) => moveRovingFocus(event, (index) => setSelectedKey(axes[index].key))}
+      >
         {axes.map((axis) => (
           <button
             aria-pressed={axis.key === selected?.key}
-            className={`is-${axis.metric?.value_state ?? "missing"}`}
+            className={`is-${modelEnsembleMetricStatus(axis.metric)}`}
             key={axis.key}
             onClick={() => setSelectedKey(axis.key)}
             type="button"

@@ -4,11 +4,14 @@ import {
   MODEL_ENSEMBLE_LENSES,
   modelEnsembleDensityBinsForDirection,
   modelEnsembleMetricPresentation,
+  modelEnsembleMetricStatus,
+  modelEnsembleMetricStatusLabel,
   modelEnsembleIsRawExplicitZero,
   modelEnsemblePredictiveVisibility,
   modelEnsembleRadarAxes,
   modelEnsembleRadarMarkerMagnitude,
   modelEnsembleRadarSegments,
+  moveRovingFocus,
 } from "./ModelEnsembleRadar";
 
 type EnsembleMetric = ModelEnsembleRun["metrics"][number];
@@ -160,6 +163,50 @@ describe("modelEnsembleMetricPresentation", () => {
     expect(value.detail).toMatch(/did not support a numeric decision/i);
   });
 
+  it("presents an open episode horizon as first-class pending state without plotting zero", () => {
+    const pending = typedMetric({
+      value_state: "unknown",
+      numerator: null,
+      denominator: null,
+      numeric_value: null,
+      explanation_code: "episode_horizon_open",
+    });
+    const run = {
+      typed_metrics: [pending],
+      metrics: [],
+      chunk_metrics: [],
+    } as unknown as ModelEnsembleRun;
+
+    expect(modelEnsembleMetricStatus(pending)).toBe("pending");
+    expect(modelEnsembleMetricStatusLabel("pending")).toBe("pending · horizon open");
+    expect(modelEnsembleMetricPresentation(pending, "higher_is_better")).toEqual({
+      value: "Pending",
+      detail: expect.stringMatching(/episode closes.*not a zero/i),
+    });
+    expect(modelEnsembleRadarAxes(run, "task-framing")[0].plotted).toBeNull();
+  });
+
+  it("supports arrow, Home, and End keyboard movement across metric controls", () => {
+    const navigation = document.createElement("nav");
+    navigation.innerHTML = "<button>One</button><button>Two</button><button disabled>Skip</button><button>Three</button>";
+    document.body.append(navigation);
+    const buttons = [...navigation.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+    const selected: number[] = [];
+    buttons[0].focus();
+
+    moveRovingFocus({
+      key: "ArrowRight",
+      currentTarget: navigation,
+      preventDefault: () => undefined,
+    }, (index) => selected.push(index));
+    expect(buttons[1]).toHaveFocus();
+    moveRovingFocus({ key: "End", currentTarget: navigation, preventDefault: () => undefined });
+    expect(buttons[2]).toHaveFocus();
+    moveRovingFocus({ key: "Home", currentTarget: navigation, preventDefault: () => undefined });
+    expect(buttons[0]).toHaveFocus();
+    expect(selected).toEqual([1]);
+  });
+
   it("keeps four versioned lenses with stable axis counts", () => {
     expect(MODEL_ENSEMBLE_LENSES.map((lens) => [lens.id, lens.expectedMetricCount])).toEqual([
       ["task-framing", 6],
@@ -275,5 +322,15 @@ describe("modelEnsembleMetricPresentation", () => {
     expect(modelEnsemblePredictiveVisibility(prediction({ q05: 0, q95: 1 }), 3).reason).toMatch(/uninformative/i);
     expect(modelEnsemblePredictiveVisibility(prediction(), 1).reason).toMatch(/fewer than two/i);
     expect(modelEnsemblePredictiveVisibility(prediction({ state: "out_of_distribution" }), 3).reason).toMatch(/outside/i);
+  });
+
+  it("separates missing contributor proof from a proven shortage of small experts", () => {
+    const missingProof = modelEnsemblePredictiveVisibility(prediction(), null);
+    expect(missingProof.visible).toBe(false);
+    expect(missingProof.reason).toMatch(/does not expose contributor proof/i);
+    expect(missingProof.reason).not.toMatch(/fewer than two/i);
+    expect(modelEnsemblePredictiveVisibility(prediction(), 0).reason).toMatch(/fewer than two/i);
+    // Out-of-distribution outranks both, so a history point never claims cohort membership.
+    expect(modelEnsemblePredictiveVisibility(prediction({ state: "out_of_distribution" }), null).reason).toMatch(/outside/i);
   });
 });

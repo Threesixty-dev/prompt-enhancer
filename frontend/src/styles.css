@@ -3811,6 +3811,160 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
   .model-ensemble-overlay__tabs button[aria-pressed="true"] { border: 1px solid CanvasText; }
 }
 
+/* Metric workspace and native-overlay accessibility refinements.  Compact
+   mode has a real 12px text floor; the 420x620 native window remains a
+   scrollable workspace instead of hiding status or controls. */
+.metric-workspace.metric-workspace--compact,
+.model-ensemble-overlay { font-size: .75rem; }
+.metric-workspace.metric-workspace--compact :is(small, span, p, strong, button, select, dt, dd, b),
+.model-ensemble-overlay :is(small, span, p, strong, button, select, dt, dd, b) { font-size: max(12px, .75rem); }
+.metric-workspace--compact .metric-workspace__snapshot { grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr); }
+.metric-workspace__lenses button { min-height: 40px; border: 2px solid transparent; }
+.metric-workspace__lenses button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metric-workspace__board button[data-status="pending"] small { color: #7a5a1e; }
+.metric-workspace__drawer > summary { min-height: 44px; }
+.model-constellation__nodes button,
+.metric-history__snapshots button { min-height: 40px; }
+.metric-history__snapshots { padding: 3px; }
+.model-ensemble__radar-state--pending { fill: #fff6e6; stroke: #a8722a; stroke-dasharray: 3 2; }
+.model-ensemble__axis-strip button.is-pending b { color: #8a5a1c; }
+
+.model-ensemble-overlay__window-controls { grid-template-columns: repeat(3,44px); }
+.model-ensemble-overlay__window-controls button { width: 44px; min-height: 44px; }
+.model-ensemble-overlay__title { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.model-ensemble-overlay__title > div { min-width: 0; }
+.model-ensemble-overlay__connection { max-width: 170px; line-height: 1.3; }
+.model-ensemble-overlay__scope-title button { min-height: 32px; padding: 4px 10px; }
+.model-ensemble-overlay__scope-summary { margin: 0; }
+.model-ensemble-overlay__scope-grid label > span { font-size: max(12px,.75rem); }
+.model-ensemble-overlay__scope-grid select { height: 36px; }
+.model-ensemble-overlay__watch-button { min-height: 40px; border: 2px solid transparent; }
+.model-ensemble-overlay__watch-button--secondary { color: var(--teal-800); border-color: #b9d3cd; background: #fff; }
+.model-ensemble-overlay__watch-button--secondary:disabled { color: var(--ink-500); background: #f2f6f5; }
+.model-ensemble-overlay__progress { gap: 6px; }
+.model-ensemble-overlay__progress-copy { display: grid; gap: 2px; }
+.model-ensemble-overlay__progress-bar { display: block; }
+.model-ensemble-overlay__progress progress { height: 8px; }
+.model-ensemble-overlay__actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
+.model-ensemble-overlay__open { display: grid; gap: 1px; min-height: 40px; padding: 8px 9px; }
+.model-ensemble-overlay__open small { color: rgba(255,255,255,.8); font-weight: 600; }
+
+/* Keep focus inside clipped cards instead of cutting the ring off. */
+.metric-workspace__lenses button:focus-visible,
+.metric-workspace__board button:focus-visible,
+.metric-workspace__drawer > summary:focus-visible,
+.model-constellation__nodes button:focus-visible,
+.metric-history__snapshots button:focus-visible,
+.model-ensemble__axis-strip button:focus-visible,
+.model-ensemble-overlay__watch-button:focus-visible,
+.model-ensemble-overlay__scope-title button:focus-visible,
+.model-ensemble-overlay__open:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: -3px;
+  box-shadow: 0 0 0 2px #fff inset;
+}
+.metric-workspace__lenses button[aria-pressed="true"]:focus-visible { outline-color: #fff; box-shadow: 0 0 0 2px var(--focus-ring) inset; }
+.model-ensemble-overlay__window-controls button:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: -4px; box-shadow: none; }
+.model-ensemble-overlay__scope-grid select:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 1px; box-shadow: none; }
+
+@media (max-width: 500px), (max-height: 720px) {
+  .model-ensemble-overlay { gap: 8px; padding: 10px; overflow-x: hidden; }
+  .model-ensemble-overlay__chrome { min-height: 40px; margin: -10px -10px 0; }
+  .model-ensemble-overlay__drag { padding: 5px 9px; }
+  .model-ensemble-overlay > header.model-ensemble-overlay__title { display: flex; align-items: center; gap: 8px; }
+  .model-ensemble-overlay__title .eyebrow { display: none; }
+  .model-ensemble-overlay h1 { margin: 0; font-size: 1rem; line-height: 1.2; }
+  .model-ensemble-overlay__connection { max-width: 52%; }
+  .model-ensemble-overlay__scope { gap: 5px; padding: 7px 8px; }
+  .model-ensemble-overlay__scope-title span,
+  .model-ensemble-overlay__scope-summary span,
+  .model-ensemble-overlay__progress span { display: inline; }
+  .model-ensemble-overlay__progress { gap: 5px; padding: 7px 8px; }
+  .model-ensemble-overlay__open { display: grid; }
+  .model-ensemble-overlay footer { display: none; }
+  .metric-workspace--compact .metric-workspace__snapshot { grid-template-columns: 1fr; gap: 6px; }
+  .metric-workspace--compact .metric-workspace__snapshot dl { gap: 4px; }
+  .model-ensemble__radar--compact { padding: 6px; }
+  .model-ensemble__radar--compact svg { max-height: 200px; }
+  .model-ensemble__radar--compact .model-ensemble__axis-strip { display: flex; gap: 4px; margin-top: -3px; padding: 3px 3px 4px; overflow-x: auto; scrollbar-width: thin; }
+  .model-ensemble__radar--compact .model-ensemble__axis-strip button { min-width: 74px; flex: 1 0 74px; }
+  .model-ensemble__radar--compact .model-ensemble__focused-metric { min-height: 0; gap: 4px; margin-top: 4px; padding: 7px 8px; }
+  .model-ensemble__radar--compact .model-ensemble__focused-metric dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+
+@media (max-width: 400px) {
+  .model-ensemble-overlay { padding: 8px; }
+  .model-ensemble-overlay__chrome { margin: -8px -8px 0; }
+  .metric-workspace--compact .metric-workspace__snapshot dl { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .metric-workspace--compact .metric-workspace__lenses { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .metric-workspace--compact .metric-workspace__drawers { grid-template-columns: 1fr; }
+  .model-constellation__inspector dl { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .model-ensemble__radar--compact svg { max-height: 176px; }
+  .model-ensemble-overlay__scope-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-height: 560px) {
+  .model-ensemble-overlay__chrome { min-height: 36px; }
+  .model-ensemble-overlay__window-controls { grid-template-columns: repeat(3,40px); }
+  .model-ensemble-overlay__window-controls button { width: 40px; min-height: 40px; }
+  .model-ensemble__radar--compact svg { max-height: 150px; }
+  .metric-history__body { min-height: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-ensemble-overlay,
+  .model-ensemble-overlay *,
+  .metric-workspace,
+  .metric-workspace * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+@media (forced-colors: active) {
+  .metric-workspace__lenses button,
+  .metric-workspace__board button,
+  .model-ensemble__axis-strip button,
+  .model-constellation__nodes button,
+  .metric-history__snapshots button,
+  .model-ensemble-overlay__watch-button,
+  .model-ensemble-overlay__scope-title button,
+  .model-ensemble-overlay__open { border: 2px solid ButtonText; forced-color-adjust: auto; }
+  .metric-workspace__lenses button[aria-pressed="true"],
+  .metric-workspace__board button[aria-pressed="true"],
+  .model-ensemble__axis-strip button[aria-pressed="true"],
+  .model-constellation__nodes button[aria-pressed="true"],
+  .metric-history__snapshots button[aria-pressed="true"] { border-color: Highlight; box-shadow: none; }
+  .metric-workspace__lenses button:focus-visible,
+  .metric-workspace__board button:focus-visible,
+  .model-ensemble__axis-strip button:focus-visible,
+  .model-constellation__nodes button:focus-visible,
+  .metric-history__snapshots button:focus-visible,
+  .metric-workspace__drawer > summary:focus-visible,
+  .model-ensemble-overlay__watch-button:focus-visible,
+  .model-ensemble-overlay__window-controls button:focus-visible { outline: 3px solid Highlight; box-shadow: none; }
+  .model-ensemble-overlay__connection,
+  .model-ensemble-overlay__scope,
+  .model-ensemble-overlay__progress,
+  .metric-workspace__snapshot,
+  .metric-workspace__board,
+  .metric-workspace__drawer { border: 1px solid CanvasText; }
+  .model-ensemble__radar-ring,
+  .model-ensemble__radar-axis { stroke: GrayText; }
+  .model-ensemble__radar-value-segment,
+  .model-ensemble__radar-coverage-ring { stroke: CanvasText; }
+  .model-ensemble__radar-point { fill: CanvasText; stroke: Canvas; }
+  .model-ensemble__radar-point--zero { fill: Canvas; stroke: CanvasText; }
+  .model-ensemble__radar-state { fill: Canvas; stroke: CanvasText; }
+  .model-ensemble__radar-prior-segment,
+  .model-ensemble__radar-prior-point,
+  .model-ensemble__radar-predictive-point,
+  .model-ensemble__radar-axis-range { stroke: LinkText; }
+  .model-ensemble__radar-label { fill: CanvasText; }
+  .model-ensemble__radar g.is-selected .model-ensemble__radar-label { fill: Highlight; }
+  .metric-history svg line { stroke: CanvasText; }
+  .metric-history svg circle { fill: Canvas; stroke: CanvasText; }
+  .metric-history svg circle.is-selected { fill: Highlight; stroke: Highlight; }
+  .model-constellation__nodes i { border: 3px solid CanvasText; background: Canvas; }
+}
+
 .model-link-experiment {
   min-width: 0;
   display: grid;

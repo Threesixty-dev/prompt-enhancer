@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CodexSession,
+  ModelEnsembleAttemptStage,
   ModelEnsembleCanonicalHead,
   ModelEnsembleRun,
   ModelEnsembleTrajectoryPage,
@@ -19,13 +20,21 @@ import {
   MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES,
   MODEL_ENSEMBLE_MESSAGE_WINDOWS,
 } from "./modelEnsembleConstants";
-
-function statusOf(error: unknown): number | null {
-  return typeof error === "object" && error !== null && "status" in error
-    && typeof error.status === "number"
-    ? error.status
-    : null;
-}
+import {
+  CANONICAL_POLL_IDLE_MS,
+  CANONICAL_POLL_RETRY_MS,
+  CANONICAL_POLL_WRONG_RUN_MS,
+  TRAJECTORY_RETRY_LIMIT,
+  TRAJECTORY_RETRY_MS,
+  PollCoordinator,
+  PollFailureTracker,
+  canonicalHeadIdentity,
+  canonicalHeadPollDelay,
+  httpStatusOf as statusOf,
+  isStaleWatchHead,
+  watchSnapshotIdentity,
+  watchSnapshotPollDelay,
+} from "./canonicalPolling";
 
 type CatalogWindow = "all" | "7" | "30" | "90";
 
@@ -146,9 +155,42 @@ function canonicalDetail(head: ModelEnsembleCanonicalHead | null, snapshot: Mode
     const latestStage = head?.stages.at(-1);
     return latestStage === undefined
       ? "Preparing the first local measurement stage"
-      : `Last completed: ${latestStage.stage_key.replaceAll("_", " ")} · ${latestStage.contributed_case_count ?? 0}/${latestStage.evaluated_case_count ?? 0} cases contributed`;
+      : `Last completed: ${latestStage.stage_key.replaceAll("_", " ")} · ${stageCaseCountCopy(latestStage)}`;
   }
   return watchDetail(snapshot);
+}
+
+/** Null case counts are unavailable evidence; they are never rendered as 0/0. */
+export function stageCaseCountCopy(
+  stage: Pick<ModelEnsembleAttemptStage, "contributed_case_count" | "evaluated_case_count">,
+): string {
+  if (stage.contributed_case_count === null || stage.evaluated_case_count === null) {
+    return "case counts unavailable";
+  }
+  return `${stage.contributed_case_count}/${stage.evaluated_case_count} cases contributed`;
+}
+
+/**
+ * A just-created run cannot be cancelled by the second click of an Analyze
+ * double-click. The controls are separate, and Cancel is briefly disarmed for
+ * the exact attempt queued by this window.
+ */
+export const CANCEL_ARMING_DELAY_MS = 1_500;
+
+const SMALL_VIEWPORT_QUERY = "(max-width: 500px), (max-height: 720px)";
+
+function useSmallViewport(): boolean {
+  const [small, setSmall] = useState(() =>
+    typeof window.matchMedia === "function" && window.matchMedia(SMALL_VIEWPORT_QUERY).matches);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return undefined;
+    const media = window.matchMedia(SMALL_VIEWPORT_QUERY);
+    const update = () => setSmall(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return small;
 }
 
 type DesktopWindowApi = {
@@ -188,15 +230,18 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
   const [catalogWindow, setCatalogWindow] = useState<CatalogWindow>("all");
   const [maxMessages, setMaxMessages] = useState(MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES);
   const [watchChanging, setWatchChanging] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"analyze" | "cancel" | null>(null);
+  const [disarmedAttemptId, setDisarmedAttemptId] = useState<string | null>(null);
   const [scopeExpanded, setScopeExpanded] = useState(true);
   const [nativeHost, setNativeHost] = useState(() => desktopWindowApi() !== null);
   const [maximized, setMaximized] = useState(false);
+  const smallViewport = useSmallViewport();
   const synchronizedWatch = useRef("");
   const followingLive = useRef(true);
   const snapshotRef = useRef<ModelEnsembleWatchSnapshot | null>(null);
-  const failedPolls = useRef(0);
-  const firstFailedPollAt = useRef<number | null>(null);
+  const canonicalHeadRef = useRef<ModelEnsembleCanonicalHead | null>(null);
+  const coordinatorRef = useRef<PollCoordinator | null>(null);
+  const pendingActionRef = useRef<"analyze" | "cancel" | null>(null);
 
   useEffect(() => {
     const ready = () => setNativeHost(desktopWindowApi() !== null);
@@ -206,6 +251,15 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
   }, []);
 
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
+  useEffect(() => { canonicalHeadRef.current = canonicalHead; }, [canonicalHead]);
+
+  /** Applies a head/run pair atomically so watch status and sealed run never disagree. */
+  function applyCanonical(head: ModelEnsembleCanonicalHead | null, latestSnapshot: ModelEnsembleWatchSnapshot | null) {
+    canonicalHeadRef.current = head;
+    snapshotRef.current = latestSnapshot;
+    setCanonicalHead(head);
+    setSnapshot(latestSnapshot);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -242,28 +296,48 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
     }
     if (followingLive.current && trajectoryHeadRunId !== null) setSelectedRunId(trajectoryHeadRunId);
     const controller = new AbortController();
-    transport.getModelEnsembleTrajectory(trajectoryWatchId, 24, undefined, controller.signal)
-      .then((page) => {
-        if (controller.signal.aborted || page.watch_id !== trajectoryWatchId) return;
-        if (page.head_run_id !== trajectoryHeadRunId) {
-          setTrajectoryError(page.head_run_id !== null);
-          return;
-        }
-        setTrajectory(page);
-        setTrajectoryError(false);
-        setSelectedRunId((current) => {
-          if (followingLive.current) return page.head_run_id;
-          if (current !== null && page.points.some((point) => point.run_id === current)) {
-            return current;
+    let retryTimer: number | undefined;
+    let attempts = 0;
+    const fetchTrajectory = transport.getModelEnsembleTrajectory;
+    const load = () => {
+      attempts += 1;
+      fetchTrajectory(trajectoryWatchId, 24, undefined, controller.signal)
+        .then((page) => {
+          if (controller.signal.aborted || page.watch_id !== trajectoryWatchId) return;
+          if (page.head_run_id !== trajectoryHeadRunId) {
+            // Publication race: the exact head and the trajectory index were read
+            // on different sides of a publish. Keep the previously loaded history
+            // visible and retry a bounded number of times before waiting for the
+            // next head change.
+            setTrajectoryError(page.head_run_id !== null);
+            if (attempts < TRAJECTORY_RETRY_LIMIT) {
+              retryTimer = window.setTimeout(() => {
+                retryTimer = undefined;
+                if (!controller.signal.aborted) load();
+              }, TRAJECTORY_RETRY_MS);
+            }
+            return;
           }
-          followingLive.current = true;
-          return page.head_run_id;
+          setTrajectory(page);
+          setTrajectoryError(false);
+          setSelectedRunId((current) => {
+            if (followingLive.current) return page.head_run_id;
+            if (current !== null && page.points.some((point) => point.run_id === current)) {
+              return current;
+            }
+            followingLive.current = true;
+            return page.head_run_id;
+          });
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setTrajectoryError(true);
         });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setTrajectoryError(true);
-      });
-    return () => controller.abort();
+    };
+    load();
+    return () => {
+      controller.abort();
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
   }, [trajectoryHeadRunId, trajectoryWatchId, transport]);
 
   useEffect(() => {
@@ -271,84 +345,101 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
       setDisconnected(true);
       return;
     }
-    let stopped = false;
-    let timer: number | undefined;
-    let controller: AbortController | null = null;
-    const schedule = (delay: number) => {
-      if (timer !== undefined) window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        timer = undefined;
-        void poll();
-      }, delay);
+    const failures = new PollFailureTracker();
+    const healthy = () => {
+      failures.reset();
+      setDisconnected(false);
     };
-    const poll = async () => {
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-        timer = undefined;
-      }
-      controller?.abort();
-      const requestController = new AbortController();
-      controller = requestController;
+    /** A poll that could not be trusted keeps the last complete snapshot and retries. */
+    const degraded = (delay: number) => {
+      if (failures.recordFailure()) setDisconnected(true);
+      coordinator.schedule(delay);
+    };
+    const coordinator = new PollCoordinator(async (ticket) => {
+      const canonicalTransport = transport.getActiveModelEnsembleCanonicalHead !== undefined
+        && transport.getModelEnsembleSnapshot !== undefined;
+      let head: ModelEnsembleCanonicalHead | null = null;
+      let legacy: ModelEnsembleWatchSnapshot | null = null;
       try {
-        if (transport.getActiveModelEnsembleCanonicalHead !== undefined && transport.getModelEnsembleSnapshot !== undefined) {
-          const head = await transport.getActiveModelEnsembleCanonicalHead(requestController.signal);
-          if (stopped || requestController.signal.aborted) return;
-          const existingRun = snapshotRef.current?.latest_run ?? null;
-          let nextRun = existingRun;
-          if (head.head_run_id === null) {
-            nextRun = null;
-          } else if (existingRun?.run_id !== head.head_run_id) {
-            nextRun = await transport.getModelEnsembleSnapshot(head.head_run_id, requestController.signal);
-            if (stopped || requestController.signal.aborted || nextRun.run_id !== head.head_run_id) return;
-          }
-          setCanonicalHead(head);
-          setSnapshot({ watch: head.watch, latest_run: nextRun });
-          failedPolls.current = 0;
-          firstFailedPollAt.current = null;
-          setDisconnected(false);
-          schedule(head.latest_attempt?.state === "running" || head.watch.state === "queued" ? 2_000 : 15_000);
+        if (canonicalTransport) {
+          head = await transport.getActiveModelEnsembleCanonicalHead!(ticket.signal);
+        } else {
+          legacy = await transport.getActiveModelEnsembleWatch!(ticket.signal);
+        }
+      } catch (error) {
+        if (!ticket.isCurrent()) return;
+        if (statusOf(error) === 404) {
+          // A definitive "no active watch" from the head route is state, not a failure.
+          applyCanonical(null, null);
+          healthy();
+          coordinator.schedule(CANONICAL_POLL_IDLE_MS);
           return;
         }
-        const value = await transport.getActiveModelEnsembleWatch!(requestController.signal);
-        if (stopped || requestController.signal.aborted) return;
-        setCanonicalHead(null);
-        setSnapshot(value);
-        failedPolls.current = 0;
-        firstFailedPollAt.current = null;
-        setDisconnected(false);
-        schedule(value.watch.state === "running" || value.watch.state === "queued" ? 2_000 : 15_000);
-      } catch (error) {
-        if (stopped || requestController.signal.aborted) return;
-        if (statusOf(error) === 404) {
-          setSnapshot(null);
-          setCanonicalHead(null);
-          failedPolls.current = 0;
-          firstFailedPollAt.current = null;
-          setDisconnected(false);
-          schedule(15_000);
-        } else {
-          failedPolls.current += 1;
-          firstFailedPollAt.current ??= Date.now();
-          if (failedPolls.current >= 3 || Date.now() - firstFailedPollAt.current >= 10_000) {
-            setDisconnected(true);
-          }
-          schedule(5_000);
+        degraded(CANONICAL_POLL_RETRY_MS);
+        return;
+      }
+      if (!ticket.isCurrent()) return;
+      if (head !== null) {
+        if (isStaleWatchHead(
+          canonicalHeadRef.current === null ? null : canonicalHeadIdentity(canonicalHeadRef.current),
+          canonicalHeadIdentity(head),
+        )) {
+          // Older generation for the same watch: never regress the displayed head.
+          healthy();
+          coordinator.schedule(canonicalHeadPollDelay(canonicalHeadRef.current!));
+          return;
         }
+        const existingRun = snapshotRef.current?.latest_run ?? null;
+        let nextRun = existingRun;
+        if (head.head_run_id === null) {
+          nextRun = null;
+        } else if (existingRun?.run_id !== head.head_run_id) {
+          try {
+            nextRun = await transport.getModelEnsembleSnapshot!(head.head_run_id, ticket.signal);
+          } catch {
+            // The immutable snapshot route failed (including 404): the head is
+            // known but its run is not readable yet. Retain the last complete
+            // snapshot rather than showing a head without its run.
+            if (!ticket.isCurrent()) return;
+            degraded(CANONICAL_POLL_RETRY_MS);
+            return;
+          }
+          if (!ticket.isCurrent()) return;
+          if (nextRun.run_id !== head.head_run_id) {
+            // Parser-valid snapshot for a different run: keep the last complete
+            // snapshot visible and retry rather than stopping the poll loop.
+            degraded(CANONICAL_POLL_WRONG_RUN_MS);
+            return;
+          }
+        }
+        applyCanonical(head, { watch: head.watch, latest_run: nextRun });
+        healthy();
+        coordinator.schedule(canonicalHeadPollDelay(head));
+        return;
       }
-    };
+      if (legacy !== null) {
+        if (isStaleWatchHead(
+          snapshotRef.current === null ? null : watchSnapshotIdentity(snapshotRef.current),
+          watchSnapshotIdentity(legacy),
+        )) {
+          healthy();
+          coordinator.schedule(watchSnapshotPollDelay(snapshotRef.current!));
+          return;
+        }
+        applyCanonical(null, legacy);
+        healthy();
+        coordinator.schedule(watchSnapshotPollDelay(legacy));
+      }
+    });
+    coordinatorRef.current = coordinator;
     const visible = () => {
-      if (document.visibilityState === "visible") {
-        if (timer !== undefined) window.clearTimeout(timer);
-        timer = undefined;
-        void poll();
-      }
+      if (document.visibilityState === "visible") coordinator.pollNow();
     };
     document.addEventListener("visibilitychange", visible);
-    void poll();
+    coordinator.pollNow();
     return () => {
-      stopped = true;
-      controller?.abort();
-      if (timer !== undefined) window.clearTimeout(timer);
+      coordinator.stop();
+      if (coordinatorRef.current === coordinator) coordinatorRef.current = null;
       document.removeEventListener("visibilitychange", visible);
     };
   }, [transport]);
@@ -475,18 +566,71 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
     setSelectedRunId(runId);
   }
 
+  const runningAttempt = canonicalHead?.latest_attempt?.state === "running"
+    ? canonicalHead.latest_attempt
+    : null;
+  const analyzeAvailable = snapshot !== null
+    && snapshot.watch.state !== "disabled"
+    && snapshot.watch.state !== "queued"
+    && snapshot.watch.state !== "running"
+    && runningAttempt === null
+    && pendingAction === null;
+  const cancelArmed = runningAttempt !== null && runningAttempt.attempt_id !== disarmedAttemptId;
+  const cancelAvailable = snapshot !== null && cancelArmed && pendingAction === null;
+
+  useEffect(() => {
+    if (disarmedAttemptId === null) return undefined;
+    const timer = window.setTimeout(() => setDisarmedAttemptId(null), CANCEL_ARMING_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [disarmedAttemptId]);
+
+  function beginAction(action: "analyze" | "cancel"): boolean {
+    if (pendingActionRef.current !== null) return false;
+    pendingActionRef.current = action;
+    setPendingAction(action);
+    return true;
+  }
+
+  function endAction(): void {
+    pendingActionRef.current = null;
+    setPendingAction(null);
+  }
+
+  /**
+   * Resolves the exact sealed run for a command's canonical head. Reuses the
+   * displayed run when the head did not move; otherwise fetches the immutable
+   * snapshot and refuses any run whose id differs from the head.
+   */
+  async function resolveCommandRun(head: ModelEnsembleCanonicalHead): Promise<ModelEnsembleRun | null> {
+    const current = snapshotRef.current;
+    if (
+      current === null
+      || head.watch.watch_id !== current.watch.watch_id
+      || head.watch.session_id !== current.watch.session_id
+    ) throw new Error("durable_watch_identity_mismatch");
+    if (head.head_run_id === null) return null;
+    if (current.latest_run?.run_id === head.head_run_id) return current.latest_run;
+    if (transport.getModelEnsembleSnapshot === undefined) throw new Error("durable_snapshot_unavailable");
+    const exactRun = await transport.getModelEnsembleSnapshot(head.head_run_id);
+    if (exactRun.run_id !== head.head_run_id) throw new Error("durable_snapshot_identity_mismatch");
+    return exactRun;
+  }
+
   async function changeWatch() {
     if (watchChanging || sessionId === "" || projectId === "") return;
     setWatchChanging(true);
     setScopeError("");
+    const coordinator = coordinatorRef.current;
+    coordinator?.beginCommand();
+    let resumeDelay: number | undefined;
     try {
       if (activeForSelection && snapshot !== null) {
         if (transport.disableModelEnsembleWatch === undefined) throw new Error("unavailable");
         await transport.disableModelEnsembleWatch(snapshot.watch.watch_id);
         synchronizedWatch.current = "";
         followingLive.current = true;
-        setSnapshot(null);
-        setCanonicalHead(null);
+        applyCanonical(null, null);
+        resumeDelay = CANONICAL_POLL_IDLE_MS;
       } else {
         if (transport.enableModelEnsembleWatch === undefined) throw new Error("unavailable");
         const next = await transport.enableModelEnsembleWatch(sessionId, {
@@ -494,83 +638,64 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
           max_messages: maxMessages,
           confirmation: "continuously_analyze_selected_redacted_session",
         });
-        setCanonicalHead(null);
-        setSnapshot(next);
+        applyCanonical(null, next);
         followingLive.current = true;
         setScopeExpanded(false);
+        resumeDelay = watchSnapshotPollDelay(next);
       }
     } catch {
       setScopeError("The live watch could not be changed. No session content was retained.");
     } finally {
       setWatchChanging(false);
+      coordinator?.endCommand(resumeDelay);
     }
   }
 
   async function analyzeNow() {
-    if (
-      snapshot === null
-      || snapshot.watch.state === "disabled"
-      || snapshot.watch.state === "queued"
-      || snapshot.watch.state === "running"
-      || refreshing
-    ) return;
-    setRefreshing(true);
+    if (!analyzeAvailable || snapshot === null || !beginAction("analyze")) return;
     setScopeError("");
+    const coordinator = coordinatorRef.current;
+    coordinator?.beginCommand();
+    let resumeDelay: number | undefined;
     try {
       if (transport.enqueueModelEnsembleAnalysis !== undefined) {
         const head = await transport.enqueueModelEnsembleAnalysis(snapshot.watch.watch_id);
-        if (
-          head.watch.watch_id !== snapshot.watch.watch_id
-          || head.watch.session_id !== snapshot.watch.session_id
-        ) throw new Error("durable_watch_identity_mismatch");
-        let exactRun = snapshot.latest_run;
-        if (head.head_run_id === null) {
-          exactRun = null;
-        } else if (exactRun?.run_id !== head.head_run_id) {
-          if (transport.getModelEnsembleSnapshot === undefined) throw new Error("durable_snapshot_unavailable");
-          exactRun = await transport.getModelEnsembleSnapshot(head.head_run_id);
-          if (exactRun.run_id !== head.head_run_id) throw new Error("durable_snapshot_identity_mismatch");
-        }
-        setCanonicalHead(head);
-        setSnapshot({ watch: head.watch, latest_run: exactRun });
+        const exactRun = await resolveCommandRun(head);
+        if (head.latest_attempt?.state === "running") setDisarmedAttemptId(head.latest_attempt.attempt_id);
+        applyCanonical(head, { watch: head.watch, latest_run: exactRun });
+        resumeDelay = canonicalHeadPollDelay(head);
       } else {
         if (transport.refreshModelEnsembleWatch === undefined) throw new Error("unavailable");
         const next = await transport.refreshModelEnsembleWatch(snapshot.watch.watch_id);
-        setSnapshot(next);
+        applyCanonical(null, next);
+        resumeDelay = watchSnapshotPollDelay(next);
       }
       followingLive.current = true;
     } catch {
       setScopeError("Analysis could not be queued. The last complete receipt remains visible.");
     } finally {
-      setRefreshing(false);
+      endAction();
+      coordinator?.endCommand(resumeDelay);
     }
   }
 
   async function cancelAnalysis() {
-    if (snapshot === null || canonicalHead?.latest_attempt?.state !== "running" || refreshing) return;
-    setRefreshing(true);
+    if (!cancelAvailable || snapshot === null || !beginAction("cancel")) return;
     setScopeError("");
+    const coordinator = coordinatorRef.current;
+    coordinator?.beginCommand();
+    let resumeDelay: number | undefined;
     try {
       if (transport.cancelModelEnsembleAnalysis === undefined) throw new Error("unavailable");
       const next = await transport.cancelModelEnsembleAnalysis(snapshot.watch.watch_id);
-      if (
-        next.watch.watch_id !== snapshot.watch.watch_id
-        || next.watch.session_id !== snapshot.watch.session_id
-      ) throw new Error("durable_watch_identity_mismatch");
-      let exactRun = snapshot.latest_run;
-      if (next.head_run_id === null) {
-        exactRun = null;
-      } else if (exactRun?.run_id !== next.head_run_id) {
-        if (transport.getModelEnsembleSnapshot === undefined) throw new Error("durable_snapshot_unavailable");
-        exactRun = await transport.getModelEnsembleSnapshot(next.head_run_id);
-        if (exactRun.run_id !== next.head_run_id) throw new Error("durable_snapshot_identity_mismatch");
-      }
-      setCanonicalHead(next);
-      setSnapshot({ watch: next.watch, latest_run: exactRun });
+      const exactRun = await resolveCommandRun(next);
+      applyCanonical(next, { watch: next.watch, latest_run: exactRun });
+      resumeDelay = canonicalHeadPollDelay(next);
     } catch {
       setScopeError("Cancellation could not be confirmed. The latest sealed snapshot remains visible.");
     } finally {
-      setRefreshing(false);
+      endAction();
+      coordinator?.endCommand(resumeDelay);
     }
   }
 
@@ -599,8 +724,19 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
     }
   }
 
+  const statusCopy = disconnected
+    ? "Reconnecting · last receipt retained"
+    : snapshot === null ? "No active watch" : canonicalStatus(canonicalHead, snapshot);
+  const progressTotal = canonicalHead?.latest_attempt?.progress_total ?? snapshot?.watch.progress_total ?? 0;
+  const progressCompleted = canonicalHead?.latest_attempt?.progress_completed ?? snapshot?.watch.progress_completed ?? 0;
+
   return (
-    <main className={`model-ensemble-overlay${nativeHost ? " model-ensemble-overlay--native" : ""}`}>
+    <main
+      aria-labelledby="model-ensemble-overlay-title"
+      className={`model-ensemble-overlay${nativeHost ? " model-ensemble-overlay--native" : ""}`}
+      data-host={nativeHost ? "native" : "browser"}
+      data-viewport={smallViewport ? "small" : "regular"}
+    >
       <div className="model-ensemble-overlay__chrome" aria-label="Prompt Enhancer window">
         <div
           className="model-ensemble-overlay__drag pywebview-drag-region"
@@ -632,15 +768,16 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
           </div>
         ) : null}
       </div>
-      <header>
+      <header className="model-ensemble-overlay__title">
         <div>
           <p className="eyebrow">Continuous local measurement</p>
-          <h1>Live metric watch</h1>
+          <h1 id="model-ensemble-overlay-title">Live metric watch</h1>
         </div>
-        <span className={`model-ensemble-overlay__connection${disconnected ? " is-stale" : ""}`}>
-          {disconnected
-            ? "Reconnecting · last receipt retained"
-            : snapshot === null ? "No active watch" : canonicalStatus(canonicalHead, snapshot)}
+        <span
+          className={`model-ensemble-overlay__connection${disconnected ? " is-stale" : ""}`}
+          role="status"
+        >
+          {statusCopy}
         </span>
       </header>
       <section aria-label="Live watch scope" className="model-ensemble-overlay__scope">
@@ -749,32 +886,49 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
         </section>
       ) : (
         <>
-          <section className="model-ensemble-overlay__progress" aria-live="polite">
-            <strong>{canonicalStatus(canonicalHead, snapshot)}</strong>
-            <span>{canonicalDetail(canonicalHead, snapshot)}</span>
-            <progress
-              max={canonicalHead?.latest_attempt?.progress_total ?? snapshot.watch.progress_total}
-              value={canonicalHead?.latest_attempt?.progress_completed ?? snapshot.watch.progress_completed}
-            />
-            <button
-              className="model-ensemble-overlay__watch-button"
-              disabled={refreshing || (
-                canonicalHead?.latest_attempt?.state !== "running"
-                && (snapshot.watch.state === "queued" || snapshot.watch.state === "running")
-              )}
-              onClick={() => canonicalHead?.latest_attempt?.state === "running" ? void cancelAnalysis() : void analyzeNow()}
-              type="button"
-            >
-              {refreshing
-                ? canonicalHead?.latest_attempt?.state === "running" ? "Cancelling…" : "Queueing analysis…"
-                : canonicalHead?.latest_attempt?.state === "running"
-                  ? "Cancel analysis"
-                  : snapshot.watch.state === "running"
-                    ? `Analysis running · ${snapshot.watch.progress_completed}/${snapshot.watch.progress_total}`
-                  : snapshot.watch.state === "queued"
-                    ? "Analysis queued…"
-                    : snapshot.watch.state === "failed" ? "Retry analysis" : "Analyze now"}
-            </button>
+          <section aria-labelledby="model-ensemble-overlay-progress-status" className="model-ensemble-overlay__progress">
+            <div aria-live="polite" className="model-ensemble-overlay__progress-copy">
+              <strong id="model-ensemble-overlay-progress-status">{canonicalStatus(canonicalHead, snapshot)}</strong>
+              <span id="model-ensemble-overlay-progress-detail">{canonicalDetail(canonicalHead, snapshot)}</span>
+            </div>
+            <label className="model-ensemble-overlay__progress-bar">
+              <span className="sr-only">Local pipeline progress</span>
+              <progress
+                aria-describedby="model-ensemble-overlay-progress-detail"
+                aria-valuetext={`${progressCompleted} of ${progressTotal} pipeline steps`}
+                max={Math.max(progressTotal, 1)}
+                value={progressCompleted}
+              />
+            </label>
+            <div className="model-ensemble-overlay__actions">
+              <button
+                aria-busy={pendingAction === "analyze"}
+                className="model-ensemble-overlay__watch-button"
+                disabled={!analyzeAvailable}
+                onClick={() => void analyzeNow()}
+                type="button"
+              >
+                {pendingAction === "analyze"
+                  ? "Queueing analysis…"
+                  : runningAttempt !== null
+                    ? `Analysis running · ${runningAttempt.progress_completed}/${runningAttempt.progress_total}`
+                    : snapshot.watch.state === "running"
+                      ? `Analysis running · ${snapshot.watch.progress_completed}/${snapshot.watch.progress_total}`
+                      : snapshot.watch.state === "queued"
+                        ? "Analysis queued…"
+                        : snapshot.watch.state === "failed" ? "Retry analysis" : "Analyze now"}
+              </button>
+              <button
+                aria-busy={pendingAction === "cancel"}
+                className="model-ensemble-overlay__watch-button model-ensemble-overlay__watch-button--secondary"
+                disabled={!cancelAvailable}
+                onClick={() => void cancelAnalysis()}
+                title={runningAttempt !== null && !cancelArmed ? "Cancel becomes available a moment after the run starts" : undefined}
+                type="button"
+              >
+                {pendingAction === "cancel" ? "Cancelling…" : "Cancel analysis"}
+              </button>
+            </div>
           </section>
           {snapshot.latest_run === null ? (
             <p className="model-ensemble__empty">The first typed measurement and experimental model range have not completed yet.</p>
@@ -821,8 +975,11 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
       {linkProjectId !== "" && linkSessionId !== "" ? <a
         className="model-ensemble-overlay__open"
         href={`/projects/${linkProjectId}/sessions/${linkSessionId}/metrics/${category}`}
+        rel="noopener noreferrer"
+        target="_blank"
       >
         Open selected session in dashboard
+        <small>{nativeHost ? "opens in your browser" : "opens in a new tab"}</small>
       </a> : null}
       <footer>Typed local metrics + experimental model ranges · no text persisted · blocking work is not forcibly preempted</footer>
     </main>
