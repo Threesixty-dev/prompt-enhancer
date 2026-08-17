@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { TeamAggregateSnapshot } from "../../shared/api/teamControlPlane";
+import { moveRovingFocus } from "../../shared/ui/rovingFocus";
 import {
   MetricExplainerCardSlot,
   MetricExplainerDescriptions,
@@ -12,9 +13,8 @@ import {
 } from "../model-ensemble/MetricKnowledgeCard";
 import {
   MODEL_ENSEMBLE_LENSES,
-  moveRovingFocus,
   type ModelEnsembleLensId,
-} from "../model-ensemble/ModelEnsembleRadar";
+} from "../model-ensemble/metricAxisModel";
 import {
   percent,
   teamMetricRowsForLens,

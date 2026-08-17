@@ -4,7 +4,7 @@ import {
   type AnalyticsScope,
   type ScopeAccess,
 } from "../../shared/api/teamControlPlane";
-import { moveRovingFocus } from "../model-ensemble/ModelEnsembleRadar";
+import { moveRovingFocus } from "../../shared/ui/rovingFocus";
 import { SCOPE_DESCRIPTIONS, SCOPE_LABELS, scopeAccessCopy } from "./teamAnalyticsCopy";
 
 /**

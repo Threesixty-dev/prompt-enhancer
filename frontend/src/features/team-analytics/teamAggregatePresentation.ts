@@ -1,5 +1,5 @@
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
-import { MODEL_ENSEMBLE_LENSES, type ModelEnsembleLensId } from "../model-ensemble/ModelEnsembleRadar";
+import { MODEL_ENSEMBLE_LENSES, type ModelEnsembleLensId } from "../model-ensemble/metricAxisModel";
 import type { MetricExplainerProvenance } from "../model-ensemble/metricHelpV2";
 import type {
   MetricDirection,
@@ -68,6 +68,14 @@ export interface TeamMetricRow {
   uncertaintyLabel: string;
 }
 
+export interface TeamLensColumn {
+  key: string;
+  label: string;
+  shortLabel: string;
+  direction: MetricDirection;
+  definitionVersion: number;
+}
+
 const DEFINITIONS = new Map(QUALITY_ANALYSIS_DEFINITIONS.map((definition) => [definition.key, definition]));
 
 /**
@@ -93,6 +101,26 @@ export function teamReviewedMetricContractsMatchLenses(
       && contract.definition_version === version
       && contract.definition_version === definition.version
       && contract.direction === definition.direction;
+  });
+}
+
+/** Shared, fail-closed lens columns for aggregate and member presentations. */
+export function teamLensColumns(
+  lensId: ModelEnsembleLensId,
+  reviewed: readonly TeamReviewedMetricContract[] = TEAM_REVIEWED_METRIC_CONTRACTS,
+): TeamLensColumn[] {
+  if (!teamReviewedMetricContractsMatchLenses(reviewed)) return [];
+  const lens = MODEL_ENSEMBLE_LENSES.find((candidate) => candidate.id === lensId);
+  if (lens === undefined) return [];
+  return lens.metrics.map(({ key, version }) => {
+    const definition = DEFINITIONS.get(key);
+    return {
+      key,
+      label: definition?.label ?? key,
+      shortLabel: definition?.shortLabel ?? key,
+      direction: definition?.direction ?? "higher_is_better",
+      definitionVersion: version,
+    };
   });
 }
 
@@ -255,20 +283,17 @@ export function teamMetricRowsForLens(
   lensId: ModelEnsembleLensId,
   reviewed: readonly TeamReviewedMetricContract[] = TEAM_REVIEWED_METRIC_CONTRACTS,
 ): TeamMetricRow[] {
-  if (!teamReviewedMetricContractsMatchLenses(reviewed)) return [];
-  const lens = MODEL_ENSEMBLE_LENSES.find((candidate) => candidate.id === lensId);
-  if (lens === undefined) return [];
+  const columns = teamLensColumns(lensId, reviewed);
+  if (columns.length === 0) return [];
   const measuredByKey = new Map<string, TeamMetricAggregate>();
   const experimentalByKey = new Map<string, TeamMetricAggregate>();
   for (const metric of snapshot?.metrics ?? []) {
     if (metric.provenance === "experimental_model") experimentalByKey.set(metric.metric_key, metric);
     else measuredByKey.set(metric.metric_key, metric);
   }
-  return lens.metrics.map(({ key, version }) => {
-    const definition = DEFINITIONS.get(key);
+  return columns.map(({ key, label, shortLabel, direction, definitionVersion: version }) => {
     const measured = measuredByKey.get(key) ?? null;
     const experimental = experimentalByKey.get(key) ?? null;
-    const direction: MetricDirection = definition?.direction ?? measured?.direction ?? "higher_is_better";
     const status = teamMetricRowStatus(measured?.value_state ?? null);
     const measuredValue = status === "known" && measured !== null ? measured.numeric_value : null;
     const interval = measuredValue !== null
@@ -290,8 +315,8 @@ export function teamMetricRowsForLens(
       : null;
     return {
       key,
-      label: definition?.label ?? key,
-      shortLabel: definition?.shortLabel ?? key,
+      label,
+      shortLabel,
       direction,
       definitionVersion: measured?.definition_version ?? version,
       measured,

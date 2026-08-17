@@ -7,6 +7,7 @@ import {
 import { createSyntheticTeamControlPlanePort } from "../../shared/api/teamControlPlaneSynthetic";
 import {
   memberCellLabel,
+  teamLensColumns,
   teamMetricRowsForLens,
   teamReviewedMetricContractsMatchLenses,
   teamSnapshotSummary,
@@ -32,8 +33,20 @@ describe("teamMetricRowsForLens", () => {
       replaceFirst({ direction: "lower_is_better" }),
     ]) {
       expect(teamReviewedMetricContractsMatchLenses(drifted)).toBe(false);
+      expect(teamLensColumns("task-framing", drifted)).toEqual([]);
       expect(teamMetricRowsForLens(snapshot, "task-framing", drifted)).toEqual([]);
     }
+  });
+
+  it("shares one reviewed lens-column projection across aggregate and member surfaces", () => {
+    expect(teamLensColumns("task-framing")).toEqual([
+      { key: "prompt.task_definition_coverage", label: "Task definition coverage", shortLabel: "Task", direction: "higher_is_better", definitionVersion: 2 },
+      { key: "prompt.problem_evidence_quality", label: "Problem evidence quality", shortLabel: "Evidence", direction: "higher_is_better", definitionVersion: 2 },
+      { key: "prompt.context_sufficiency", label: "Context cue checks", shortLabel: "Context", direction: "higher_is_better", definitionVersion: 2 },
+      { key: "prompt.constraint_precision", label: "Constraint precision candidates", shortLabel: "Constraints", direction: "higher_is_better", definitionVersion: 2 },
+      { key: "prompt.acceptance_testability", label: "Acceptance testability cues", shortLabel: "Checkability", direction: "higher_is_better", definitionVersion: 2 },
+      { key: "prompt.deliverable_contract", label: "Deliverable contract cues", shortLabel: "Deliverable", direction: "higher_is_better", definitionVersion: 3 },
+    ]);
   });
 
   it("keeps every non-numeric state off the value axis and never at zero", async () => {

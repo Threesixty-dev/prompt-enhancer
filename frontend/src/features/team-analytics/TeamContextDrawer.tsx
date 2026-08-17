@@ -10,7 +10,7 @@ import {
   type TeamCapabilityReport,
   type TeamControlPlanePort,
 } from "../../shared/api/teamControlPlane";
-import type { ModelEnsembleLensId } from "../model-ensemble/ModelEnsembleRadar";
+import type { ModelEnsembleLensId } from "../model-ensemble/metricAxisModel";
 import { TeamAggregateBoard } from "./TeamAggregateBoard";
 import { teamSnapshotSummary } from "./teamAggregatePresentation";
 import { SCOPE_REASON_COPY, shortUtcDate } from "./teamAnalyticsCopy";

@@ -1,9 +1,7 @@
 import type { RuntimeDataMode } from "../platform/runtimeMode";
 import type { TeamControlPlanePort } from "./teamControlPlane";
-import {
-  createSyntheticTeamControlPlanePort,
-  createUnavailableTeamControlPlanePort,
-} from "./teamControlPlaneSynthetic";
+import { createSyntheticTeamControlPlanePort } from "./teamControlPlaneSynthetic";
+import { createUnavailableTeamControlPlanePort } from "./teamControlPlaneUnavailable";
 
 interface RegisteredRuntimePort {
   mode: RuntimeDataMode;

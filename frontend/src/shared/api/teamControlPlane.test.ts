@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   TEAM_CONTROL_PLANE_PORT_VERSION,
+  isTeamIdentity,
   isTeamControlPlaneError,
+  memberAuditDestinationForOrigin,
   teamAggregateRequestForAccess,
   teamAggregateSnapshotIsValid,
   teamCapabilityReportIsValid,
   teamControlPlaneResponseMatchesPort,
+  teamScopeIdentityBindingIsCoherent,
   wilsonInterval,
   type TeamControlPlanePort,
   type AnalyticsScope,
@@ -20,6 +23,7 @@ import {
   StickyContributionDisclosurePolicy,
   createSyntheticTeamControlPlanePort,
   createUnavailableTeamControlPlanePort,
+  teamMetricHasValue,
 } from "./teamControlPlaneSynthetic";
 import {
   composeTeamControlPlanePort,
@@ -71,6 +75,48 @@ function byKey(metrics: readonly TeamMetricAggregate[], key: string, provenance:
   if (metric === undefined) throw new Error(`fixture metric ${key} (${provenance}) is missing`);
   return metric;
 }
+
+describe("team control-plane identity bindings", () => {
+  const identity = "ab".repeat(32);
+
+  it.each([
+    ["me", null, null, true],
+    ["me", identity, null, false],
+    ["me", null, identity, false],
+    ["team", identity, null, true],
+    ["team", identity, identity, true],
+    ["team", null, identity, false],
+    ["organization", null, identity, true],
+    ["organization", identity, identity, true],
+    ["organization", identity, null, false],
+    ["team", "not-an-opaque-id", identity, false],
+  ] as const)("binds %s scope to the exact legal identity shape", (scope, teamId, organizationId, expected) => {
+    expect(teamScopeIdentityBindingIsCoherent(scope, teamId, organizationId)).toBe(expected);
+  });
+
+  it("keeps identity and audit-origin rules available through the stable façade", () => {
+    expect(isTeamIdentity(identity)).toBe(true);
+    expect(isTeamIdentity(identity.toUpperCase())).toBe(false);
+    expect(memberAuditDestinationForOrigin("synthetic_fixture")).toBe("local_audit_log");
+    expect(memberAuditDestinationForOrigin("local_loopback")).toBe("local_audit_log");
+    expect(memberAuditDestinationForOrigin("team_control_plane")).toBe("team_control_plane");
+  });
+});
+
+describe("teamMetricHasValue compatibility export", () => {
+  it.each([
+    ["known", true],
+    ["suppressed_small_cohort", false],
+    ["suppressed_privacy_policy", false],
+    ["withheld_not_comparable", false],
+    ["unknown", false],
+    ["not_applicable", false],
+    ["abstained", false],
+    ["unavailable", false],
+  ] as const)("maps %s to %s through the historical synthetic-module import", (state, expected) => {
+    expect(teamMetricHasValue(state)).toBe(expected);
+  });
+});
 
 describe("wilsonInterval", () => {
   it("bounds every fraction inside [0, 1] and refuses invalid inputs", () => {
