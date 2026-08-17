@@ -2822,6 +2822,7 @@
           "known_improve",
           "pending_closure",
           "objective_evidence_missing",
+          "objective_evidence_unresolved",
           "evidence_unresolved",
           "no_opportunity",
           "evidence_coverage_abstained",
@@ -3459,8 +3460,8 @@
             "items": {
               "$ref": "#/components/schemas/MetricGuidanceTemplateSet"
             },
-            "maxItems": 8,
-            "minItems": 8,
+            "maxItems": 9,
+            "minItems": 9,
             "title": "Templates",
             "type": "array"
           }
@@ -3786,6 +3787,7 @@
           "compatibility_projected",
           "method_only_withheld",
           "objective_capability_missing",
+          "objective_evidence_unresolved",
           "pending",
           "no_opportunity",
           "abstained",

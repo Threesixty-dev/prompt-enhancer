@@ -151,6 +151,7 @@ class GuidanceStateClass(StrEnum):
     KNOWN_IMPROVE = "known_improve"
     PENDING_CLOSURE = "pending_closure"
     OBJECTIVE_EVIDENCE_MISSING = "objective_evidence_missing"
+    OBJECTIVE_EVIDENCE_UNRESOLVED = "objective_evidence_unresolved"
     EVIDENCE_UNRESOLVED = "evidence_unresolved"
     NO_OPPORTUNITY = "no_opportunity"
     EVIDENCE_COVERAGE_ABSTAINED = "evidence_coverage_abstained"
@@ -178,6 +179,12 @@ _GENERIC_TEMPLATES = MappingProxyType(
         GuidanceStateClass.OBJECTIVE_EVIDENCE_MISSING: (
             "action.collect_objective_receipt",
             "verification.objective_receipt_scope",
+        ),
+        # A receipt already exists but does not resolve every opportunity, so
+        # asking for one to be collected would be false advice.
+        GuidanceStateClass.OBJECTIVE_EVIDENCE_UNRESOLVED: (
+            "action.resolve_objective_evidence",
+            "verification.objective_evidence_completeness",
         ),
         GuidanceStateClass.EVIDENCE_UNRESOLVED: (
             "action.hold_state_unknown",
@@ -516,6 +523,12 @@ def _state_class(
         # An objective contract cannot be advanced by any wording, so the only
         # honest action is to connect the receipt that could resolve it.
         if contract.evidence_authority is EvidenceAuthority.OBJECTIVE_RECEIPT:
+            if (
+                state.statistics.capability_available
+                and state.statistics.eligible_count > 0
+            ):
+                # Authorized evidence exists; it just does not close the set.
+                return GuidanceStateClass.OBJECTIVE_EVIDENCE_UNRESOLVED
             return GuidanceStateClass.OBJECTIVE_EVIDENCE_MISSING
         return GuidanceStateClass.EVIDENCE_UNRESOLVED
     assert state.numeric_value is not None

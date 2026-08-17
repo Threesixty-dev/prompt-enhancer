@@ -880,6 +880,7 @@ def test_implementation_states_partition_the_twenty_metrics() -> None:
     assert counts[MetricImplementationState.COMPATIBILITY_PROJECTED] == 2
     assert counts[MetricImplementationState.LIVE_MEASURED] == 0
     assert counts[MetricImplementationState.OBJECTIVE_CAPABILITY_MISSING] == 4
+    assert counts[MetricImplementationState.OBJECTIVE_EVIDENCE_UNRESOLVED] == 0
     assert counts[MetricImplementationState.METHOD_ONLY_WITHHELD] == 14
     assert publication.compatibility_preview is True
     assert publication.canonical_live_snapshot is False
@@ -922,3 +923,223 @@ def test_focus_factors_are_empty_for_aggregate_only_compatibility_rows() -> None
         assert item.guidance.basis is GuidanceBasis.METHOD_ONLY
         # The complete factor catalog stays metadata, not session advice.
         assert item.guidance.contract_factor_count >= 3
+
+
+def _forged(publication, index, mutate, **counts):
+    payload = publication.model_dump()
+    metrics = [dict(item) for item in payload["metrics"]]
+    metrics[index] = mutate(
+        {
+            "state": dict(metrics[index]["state"]),
+            "guidance": dict(metrics[index]["guidance"]),
+            "implementation_state": metrics[index]["implementation_state"],
+        }
+    )
+    return {**payload, "metrics": metrics, **counts}
+
+
+def test_known_value_must_equal_its_sufficient_statistics() -> None:
+    baseline = _publish(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
+    )
+
+    def _empty_stats(item):
+        item["state"]["statistics"] = {
+            **item["state"]["statistics"],
+            "eligible_count": 0,
+            "met_count": 0,
+            "not_met_count": 0,
+        }
+        return item
+
+    def _numerator_drift(item):
+        item["state"]["statistics"] = {
+            **item["state"]["statistics"],
+            "met_count": 1,
+            "not_met_count": 2,
+        }
+        return item
+
+    def _leftover_pending(item):
+        stats = {
+            **item["state"]["statistics"],
+            "eligible_count": 4,
+            "met_count": 3,
+            "not_met_count": 0,
+            "pending_count": 1,
+        }
+        item["state"]["statistics"] = stats
+        return item
+
+    def _leftover_unknown(item):
+        stats = {
+            **item["state"]["statistics"],
+            "eligible_count": 4,
+            "met_count": 3,
+            "not_met_count": 0,
+            "unknown_count": 1,
+        }
+        item["state"]["statistics"] = stats
+        return item
+
+    def _incomplete_source(item):
+        item["state"]["statistics"] = {
+            **item["state"]["statistics"],
+            "source_complete": False,
+        }
+        return item
+
+    # A forged 3/3 beside an empty opportunity set is exactly a masked zero.
+    for mutate, match in (
+        (_empty_stats, "eligible opportunit"),
+        (_numerator_drift, "met opportunities"),
+        # A partition-valid statistic cannot both balance and leave a residue,
+        # so these forgeries are caught by the denominator/numerator binding.
+        (_leftover_pending, "eligible opportunit"),
+        (_leftover_unknown, "eligible opportunit"),
+        (_incomplete_source, "complete source"),
+    ):
+        with pytest.raises(ValidationError, match=match):
+            MetricPublicationV2.model_validate(_forged(baseline, 0, mutate))
+
+
+def test_guidance_cannot_be_supplied_independently_of_the_state() -> None:
+    baseline = _publish(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
+    )
+
+    def _swap_reason(item):
+        item["guidance"]["reason_code"] = "no_opportunity_observed"
+        return item
+
+    def _swap_audience(item):
+        item["guidance"]["audience"] = "tooling"
+        return item
+
+    def _swap_role(item):
+        item["guidance"]["role"] = "friction_signal"
+        return item
+
+    def _swap_state_class(item):
+        item["guidance"]["state_class"] = "known_improve"
+        item["guidance"]["action_template_id"] = (
+            "action.improve.prompt.task_definition_coverage.v1"
+        )
+        return item
+
+    def _swap_template(item):
+        item["guidance"]["verification_template_id"] = (
+            "verification.review_evidence_coverage.v1"
+        )
+        return item
+
+    def _swap_diagnosis(item):
+        item["guidance"]["diagnosis_template_id"] = (
+            "diagnosis.prompt.context_sufficiency.v1"
+        )
+        return item
+
+    def _claim_measured(item):
+        item["guidance"]["basis"] = "measured"
+        item["guidance"]["factor_evidence"] = "not_observed"
+        return item
+
+    def _claim_neural(item):
+        item["guidance"]["basis"] = "experimental"
+        item["guidance"]["value_origin"] = "neural_uncalibrated"
+        return item
+
+    def _swap_counts(item):
+        item["guidance"]["met_count"] = 2
+        item["guidance"]["not_met_count"] = 1
+        return item
+
+    def _swap_implementation(item):
+        item["implementation_state"] = "abstained"
+        return item
+
+    for mutate in (
+        _swap_reason,
+        _swap_audience,
+        _swap_role,
+        _swap_state_class,
+        _swap_template,
+        _swap_diagnosis,
+        _claim_measured,
+        _swap_counts,
+    ):
+        with pytest.raises(ValidationError):
+            MetricPublicationV2.model_validate(_forged(baseline, 0, mutate))
+
+    # A preview consumes no model stage, so a neural claim is always rejected.
+    with pytest.raises(ValidationError):
+        MetricPublicationV2.model_validate(_forged(baseline, 0, _claim_neural))
+
+    with pytest.raises(ValidationError):
+        MetricPublicationV2.model_validate(_forged(baseline, 0, _swap_implementation))
+
+
+def test_forged_nonempty_focus_factors_are_rejected() -> None:
+    baseline = _publish(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
+    )
+
+    def _claim_focus(item):
+        item["guidance"]["factor_evidence"] = "per_factor_measured"
+        item["guidance"]["focus_factor_keys"] = ["action"]
+        item["guidance"]["basis"] = "measured"
+        return item
+
+    with pytest.raises(ValidationError):
+        MetricPublicationV2.model_validate(_forged(baseline, 0, _claim_focus))
+
+    # No producer in this tree measures per-factor statistics.
+    assert all(
+        item.guidance.focus_factor_keys == ()
+        and item.guidance.factor_evidence
+        is not GuidanceFactorEvidence.PER_FACTOR_MEASURED
+        for item in baseline.metrics
+    )
+
+
+def test_partial_authorized_objective_evidence_is_unresolved_not_missing() -> None:
+    publication = _publish(
+        (),
+        objective_overrides={
+            # A receipt exists and resolves two of three claims.
+            "outcome.agent_claim_grounding": ObjectiveMetricOverride(
+                value_state=MetricValueState.UNKNOWN,
+                explanation_code="typed_claim_grounding_unresolved",
+                resolved_opportunity_count=2,
+                eligible_opportunity_count=3,
+                met_opportunity_count=1,
+            ),
+        },
+    )
+    by_key = _by_key(publication)
+
+    unresolved = by_key["outcome.agent_claim_grounding"]
+    missing = by_key["outcome.verified_requirement_coverage"]
+
+    assert unresolved.state.value_state is MetricValueStateV2.UNKNOWN
+    assert unresolved.state.statistics.capability_available is True
+    assert unresolved.state.statistics.eligible_count == 3
+    assert unresolved.implementation_state is (
+        MetricImplementationState.OBJECTIVE_EVIDENCE_UNRESOLVED
+    )
+    assert unresolved.guidance.state_class is (
+        GuidanceStateClass.OBJECTIVE_EVIDENCE_UNRESOLVED
+    )
+    # Advising collection of a receipt that already exists would be false.
+    assert unresolved.guidance.action_template_id == (
+        "action.resolve_objective_evidence.v1"
+    )
+    assert unresolved.state.explanation_code == "opportunity_classification_unknown"
+    assert unresolved.state.censoring_lower_bound is not None
+
+    assert missing.implementation_state is (
+        MetricImplementationState.OBJECTIVE_CAPABILITY_MISSING
+    )
+    assert missing.guidance.action_template_id == (
+        "action.collect_objective_receipt.v1"
+    )

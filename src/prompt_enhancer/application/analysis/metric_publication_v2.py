@@ -120,6 +120,7 @@ class MetricImplementationState(StrEnum):
     COMPATIBILITY_PROJECTED = "compatibility_projected"
     METHOD_ONLY_WITHHELD = "method_only_withheld"
     OBJECTIVE_CAPABILITY_MISSING = "objective_capability_missing"
+    OBJECTIVE_EVIDENCE_UNRESOLVED = "objective_evidence_unresolved"
     PENDING = "pending"
     NO_OPPORTUNITY = "no_opportunity"
     ABSTAINED = "abstained"
@@ -246,6 +247,44 @@ def _validate_state_against_contract(state: MetricStateV2) -> MetricContractV2:
     return contract
 
 
+def _validate_known_value_statistics(state: MetricStateV2) -> None:
+    """A published number must be the sufficient statistics, not a claim.
+
+    Without this a producer could publish a forged 3/3 beside an empty
+    opportunity set, which is exactly the shape a masked zero takes.
+    """
+
+    statistics = state.statistics
+    if state.value_state is not MetricValueStateV2.KNOWN:
+        if state.numerator is not None or state.denominator is not None:
+            raise ValueError("only a known state may publish a fraction")
+        return
+    if state.numerator is None or state.denominator is None:
+        raise ValueError("a known state requires an exact fraction")
+    if not statistics.capability_available:
+        raise ValueError("a known value requires an available opportunity family")
+    if not statistics.source_complete:
+        raise ValueError("a known value requires a complete source view")
+    if statistics.eligible_count == 0:
+        raise ValueError("a known value requires at least one eligible opportunity")
+    if state.denominator != statistics.eligible_count:
+        raise ValueError("a known denominator must equal the eligible opportunities")
+    if state.numerator != statistics.met_count:
+        raise ValueError("a known numerator must equal the met opportunities")
+    if statistics.pending_count or statistics.unknown_count:
+        raise ValueError("a known value cannot leave an opportunity undetermined")
+    if statistics.not_met_count != statistics.eligible_count - statistics.met_count:
+        raise ValueError("known opportunity outcomes must partition the eligible set")
+    ratio = statistics.met_count / statistics.eligible_count
+    if (
+        state.numeric_value is None
+        or abs(state.numeric_value - ratio) > 1e-9
+        or state.censoring_lower_bound != state.numeric_value
+        or state.censoring_upper_bound != state.numeric_value
+    ):
+        raise ValueError("a known value must equal its exact resolved fraction")
+
+
 def _validate_guidance_against_contract(
     guidance: MetricGuidanceReceipt,
     contract: MetricContractV2,
@@ -303,6 +342,7 @@ class PublishedMetricV2(StrictModel):
             raise ValueError("published guidance must restate the censoring bounds")
         contract = _validate_state_against_contract(self.state)
         _validate_guidance_against_contract(self.guidance, contract)
+        _validate_known_value_statistics(self.state)
         known = self.state.value_state is MetricValueStateV2.KNOWN
         if known != (
             self.implementation_state
@@ -333,18 +373,15 @@ class PublishedMetricV2(StrictModel):
             self.implementation_state is not expected_withheld
         ):
             raise ValueError("implementation state must restate the metric state")
-        if self.state.value_state is MetricValueStateV2.UNKNOWN:
-            objective = (
-                self.state.evidence_authority
-                is EvidenceAuthority.OBJECTIVE_RECEIPT
-            )
-            expected = (
-                MetricImplementationState.OBJECTIVE_CAPABILITY_MISSING
-                if objective
-                else MetricImplementationState.METHOD_ONLY_WITHHELD
-            )
-            if self.implementation_state is not expected:
-                raise ValueError("an unknown state must name why it was withheld")
+        if self.state.value_state is MetricValueStateV2.UNKNOWN and (
+            self.implementation_state
+            not in {
+                MetricImplementationState.METHOD_ONLY_WITHHELD,
+                MetricImplementationState.OBJECTIVE_CAPABILITY_MISSING,
+                MetricImplementationState.OBJECTIVE_EVIDENCE_UNRESOLVED,
+            }
+        ):
+            raise ValueError("an unknown state must name why it was withheld")
         return self
 
 
@@ -438,6 +475,29 @@ class MetricPublicationV2(StrictModel):
             for item in self.metrics
         ):
             raise ValueError("a compatibility preview cannot claim a live measurement")
+        for item in self.metrics:
+            # Guidance is not user-constructible: rederive the whole receipt and
+            # the implementation state from the validated state and the source.
+            if item.guidance != _expected_guidance(item.state, source=self.source):
+                raise ValueError("published guidance is not the derived receipt")
+            if item.implementation_state is not _implementation_state(
+                item.state, source=self.source
+            ):
+                raise ValueError("published implementation state is not derived")
+            if self.compatibility_preview and (
+                item.guidance.value_origin is ValueOrigin.NEURAL_UNCALIBRATED
+                or item.guidance.basis is GuidanceBasis.EXPERIMENTAL
+            ):
+                raise ValueError(
+                    "a compatibility preview consumes no model stage output"
+                )
+            if item.guidance.focus_factor_keys or (
+                item.guidance.factor_evidence
+                is GuidanceFactorEvidence.PER_FACTOR_MEASURED
+            ):
+                raise ValueError(
+                    "no producer measures per-factor statistics for this publication"
+                )
         return self
 
     def implementation_state_counts(self) -> dict[MetricImplementationState, int]:
@@ -449,6 +509,41 @@ class MetricPublicationV2(StrictModel):
             )
             for state in MetricImplementationState
         }
+
+
+def _derived_factor_evidence(
+    state: MetricStateV2,
+    *,
+    source: MetricPublicationSource,
+) -> GuidanceFactorEvidence:
+    """Factor evidence is a property of the producer, not a caller argument.
+
+    The aggregate compatibility publisher can never prove which factor was met,
+    so it may only ever downgrade to ``AGGREGATE_ONLY``.  There is deliberately
+    no path here that returns ``PER_FACTOR_MEASURED``: no producer in this tree
+    measures per-factor statistics, and inventing one would be a fake API.
+    """
+
+    if (
+        source is MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
+        and state.value_state is MetricValueStateV2.KNOWN
+        and state.evidence_authority is EvidenceAuthority.CONVERSATION
+    ):
+        return GuidanceFactorEvidence.AGGREGATE_ONLY
+    return GuidanceFactorEvidence.NOT_OBSERVED
+
+
+def _expected_guidance(
+    state: MetricStateV2,
+    *,
+    source: MetricPublicationSource,
+) -> MetricGuidanceReceipt:
+    """Rederive the one guidance receipt this state and source may carry."""
+
+    return build_metric_guidance(
+        state,
+        factor_evidence=_derived_factor_evidence(state, source=source),
+    )
 
 
 def _implementation_state(
@@ -471,6 +566,9 @@ def _implementation_state(
     if state.value_state is MetricValueStateV2.EXECUTION_ERROR:
         return MetricImplementationState.ERROR
     if state.evidence_authority is EvidenceAuthority.OBJECTIVE_RECEIPT:
+        if state.statistics.capability_available and state.statistics.eligible_count:
+            # Authorized evidence exists but does not close the opportunity set.
+            return MetricImplementationState.OBJECTIVE_EVIDENCE_UNRESOLVED
         return MetricImplementationState.OBJECTIVE_CAPABILITY_MISSING
     return MetricImplementationState.METHOD_ONLY_WITHHELD
 
@@ -479,25 +577,19 @@ def publish_metric_states_v2(
     states: Iterable[MetricStateV2],
     *,
     source: MetricPublicationSource,
-    factor_evidence: Mapping[str, GuidanceFactorEvidence] | None = None,
 ) -> MetricPublicationV2:
     """Pair every projected state with its guidance receipt.
 
     The input must already be a complete registry-order projection; a partial set
-    is a producer defect rather than something to be padded here.  ``factor_evidence``
-    is supplied only by a producer that genuinely measured per-factor statistics.
+    is a producer defect rather than something to be padded here.  Guidance is
+    always derived from the state and the source: there is no caller-supplied
+    factor-evidence argument to talk this publisher into naming a focus factor.
     """
 
-    evidence = dict(factor_evidence or {})
     published = tuple(
         PublishedMetricV2(
             state=state,
-            guidance=build_metric_guidance(
-                state,
-                factor_evidence=evidence.get(
-                    state.metric_key, GuidanceFactorEvidence.NOT_OBSERVED
-                ),
-            ),
+            guidance=_expected_guidance(state, source=source),
             implementation_state=_implementation_state(state, source=source),
         )
         for state in states
@@ -538,16 +630,11 @@ def publish_v1_compatibility_preview(
     states = rehydrate_v1_compatibility_states(
         results, objective_overrides=objective_overrides
     )
+    # An aggregate rubric fraction proves a count, never a factor identity; the
+    # downgrade to method-level guidance is derived, not requested.
     return publish_metric_states_v2(
         states,
         source=MetricPublicationSource.V1_COMPATIBILITY_PREVIEW,
-        # An aggregate rubric fraction proves a count, never a factor identity.
-        factor_evidence={
-            state.metric_key: GuidanceFactorEvidence.AGGREGATE_ONLY
-            for state in states
-            if state.value_state is MetricValueStateV2.KNOWN
-            and state.evidence_authority is EvidenceAuthority.CONVERSATION
-        },
     )
 
 
