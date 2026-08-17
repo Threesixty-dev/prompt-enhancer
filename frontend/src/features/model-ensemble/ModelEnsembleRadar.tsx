@@ -6,6 +6,7 @@ import type {
 } from "../../shared/api/contracts";
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 import { QUALITY_LENSES } from "../quality-profile/qualityLenses";
+import { sessionMetricGuidance } from "../quality-profile/metricGuidance";
 
 type CommitteeMetric = ModelEnsembleRun["metrics"][number];
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
@@ -14,6 +15,7 @@ type EnsembleMetric = CommitteeMetric | TypedMetric;
 export type ModelEnsembleRadarData = Pick<ModelEnsembleRun, "metrics" | "chunk_metrics"> & {
   typed_metrics: readonly TypedMetric[];
   predictive_metrics?: readonly PredictiveMetric[];
+  predictive_model_stages?: ModelEnsembleRun["predictive_model_stages"];
 };
 type MetricDirection = "higher_is_better" | "lower_is_better";
 
@@ -107,9 +109,16 @@ export function modelEnsembleMetricPresentation(
   }
   const rawPercent = Math.round(metric.numeric_value * 100);
   const radarPercent = direction === "lower_is_better" ? 100 - rawPercent : rawPercent;
-  const signalKind = direction === "lower_is_better"
-    ? "lower-is-better signal"
-    : "positive signal";
+  if (direction === "lower_is_better") {
+    const source = isTypedMetric(metric)
+      ? `${metric.numerator}/${metric.denominator} typed opportunities`
+      : `${metric.numerator}/${metric.denominator} known eligible observations`;
+    return {
+      value: `${radarPercent}% radar quality`,
+      detail: `Raw lower-is-better rate ${rawPercent}% (${source}). The radar quality is ${radarPercent}%, so a lower observed rate appears farther from the center.`,
+    };
+  }
+  const signalKind = "positive signal";
   if (isTypedMetric(metric)) {
     return {
       value: `${rawPercent}% measured`,
@@ -139,6 +148,41 @@ export interface ModelEnsembleRadarAxis {
   predictiveQ25: number | null;
   predictiveQ75: number | null;
   predictiveQ95: number | null;
+  predictiveWithheldReason: string | null;
+}
+
+function isDeepModel(modelKey: string, repositoryId: string): boolean {
+  return /qwen|rubric|deep/i.test(`${modelKey} ${repositoryId}`);
+}
+
+export function modelEnsemblePredictiveVisibility(
+  prediction: PredictiveMetric | null,
+  completedSmallExperts: number,
+): { visible: boolean; reason: string | null } {
+  if (prediction === null || prediction.state === "unavailable" || prediction.state === "execution_error") {
+    return { visible: false, reason: "No experimental estimate is available." };
+  }
+  if (prediction.state === "out_of_distribution") {
+    return { visible: false, reason: "Withheld because this receipt is outside its calibration cohort." };
+  }
+  if (completedSmallExperts < 2) {
+    return { visible: false, reason: "Withheld because fewer than two small experts are proven by this receipt." };
+  }
+  if (
+    prediction.median == null || prediction.q05 == null || prediction.q25 == null
+    || prediction.q75 == null || prediction.q95 == null
+  ) return { visible: false, reason: "The estimate does not contain a complete interval summary." };
+  if (prediction.q95 - prediction.q05 >= 0.65) {
+    return { visible: false, reason: "Uninformative experimental range withheld (90% span is at least 65 points)." };
+  }
+  return { visible: true, reason: null };
+}
+
+export function modelEnsembleDensityBinsForDirection(
+  bins: readonly number[],
+  direction: MetricDirection,
+): number[] {
+  return direction === "lower_is_better" ? [...bins].reverse() : [...bins];
 }
 
 export function modelEnsembleRadarAxes(
@@ -150,6 +194,9 @@ export function modelEnsembleRadarAxes(
   const primaryMetrics = (run.typed_metrics?.length ?? 0) > 0 ? run.typed_metrics : run.metrics;
   const metrics = new Map(primaryMetrics.map((metric) => [metric.metric_key, metric]));
   const predictions = new Map((run.predictive_metrics ?? []).map((metric) => [metric.metric_key, metric]));
+  const completedSmallExperts = (run.predictive_model_stages ?? []).filter(
+    (stage) => stage.status === "completed" && !isDeepModel(stage.model_key, stage.repository_id),
+  ).length;
   return lens.metrics.map(({ key }) => {
     const definition = DEFINITIONS.get(key);
     if (definition === undefined) throw new Error("model ensemble lens definition is missing");
@@ -158,10 +205,9 @@ export function modelEnsembleRadarAxes(
       ? metric.numeric_value
       : null;
     const prediction = predictions.get(key) ?? null;
-    const distribution = prediction !== null
-      && ["experimental", "calibrated", "out_of_distribution"].includes(prediction.state)
-      && prediction.median != null && prediction.q05 != null && prediction.q25 != null
-      && prediction.q75 != null && prediction.q95 != null;
+    const visibility = modelEnsemblePredictiveVisibility(prediction, completedSmallExperts);
+    const distribution = visibility.visible;
+    const visiblePrediction = distribution ? prediction! : null;
     const orient = (value: number | null | undefined): number | null => value == null
       ? null
       : definition.direction === "lower_is_better" ? 1 - value : value;
@@ -174,19 +220,20 @@ export function modelEnsembleRadarAxes(
       metric,
       plotted: raw == null ? null : definition.direction === "lower_is_better" ? 1 - raw : raw,
       prediction,
-      predictiveMedian: distribution ? orient(prediction.median) : null,
+      predictiveMedian: distribution ? orient(visiblePrediction!.median) : null,
       predictiveQ05: distribution
-        ? definition.direction === "lower_is_better" ? orient(prediction.q95) : orient(prediction.q05)
+        ? definition.direction === "lower_is_better" ? orient(visiblePrediction!.q95) : orient(visiblePrediction!.q05)
         : null,
       predictiveQ25: distribution
-        ? definition.direction === "lower_is_better" ? orient(prediction.q75) : orient(prediction.q25)
+        ? definition.direction === "lower_is_better" ? orient(visiblePrediction!.q75) : orient(visiblePrediction!.q25)
         : null,
       predictiveQ75: distribution
-        ? definition.direction === "lower_is_better" ? orient(prediction.q25) : orient(prediction.q75)
+        ? definition.direction === "lower_is_better" ? orient(visiblePrediction!.q25) : orient(visiblePrediction!.q75)
         : null,
       predictiveQ95: distribution
-        ? definition.direction === "lower_is_better" ? orient(prediction.q05) : orient(prediction.q95)
+        ? definition.direction === "lower_is_better" ? orient(visiblePrediction!.q05) : orient(visiblePrediction!.q95)
         : null,
+      predictiveWithheldReason: visibility.reason,
     };
   });
 }
@@ -210,6 +257,11 @@ export function modelEnsembleRadarSegments(
 export function modelEnsembleRadarMarkerMagnitude(plotted: number | null): number {
   if (plotted === null) return 0.1;
   return plotted === 0 ? 0.075 : plotted;
+}
+
+/** Explicit zero is a property of the sealed raw measurement, not radar geometry. */
+export function modelEnsembleIsRawExplicitZero(axis: ModelEnsembleRadarAxis): boolean {
+  return axis.metric?.value_state === "known" && axis.metric.numeric_value === 0;
 }
 
 export function modelEnsemblePredictiveSegments(
@@ -253,6 +305,8 @@ export function ModelEnsembleRadar({
   comparisonLabel = "Previous comparable snapshot",
   detailRunId,
   detailTransport,
+  selectedMetricKey,
+  onSelectedMetricKeyChange,
 }: {
   run: ModelEnsembleRadarData;
   lensId: ModelEnsembleLensId;
@@ -262,6 +316,8 @@ export function ModelEnsembleRadar({
   comparisonLabel?: string;
   detailRunId?: string;
   detailTransport?: Pick<PromptEnhancerTransport, "getModelPredictiveMetricDetail">;
+  selectedMetricKey?: string;
+  onSelectedMetricKeyChange?: (metricKey: string) => void;
 }) {
   const axes = useMemo(() => modelEnsembleRadarAxes(run, lensId), [lensId, run]);
   const comparisonAxes = useMemo(
@@ -269,7 +325,12 @@ export function ModelEnsembleRadar({
     [comparisonRun, lensId],
   );
   const lens = MODEL_ENSEMBLE_LENSES.find((candidate) => candidate.id === lensId)!;
-  const [selectedKey, setSelectedKey] = useState(axes.find((axis) => axis.metric !== null)?.key ?? axes[0]?.key ?? "");
+  const [internalSelectedKey, setInternalSelectedKey] = useState(axes.find((axis) => axis.metric !== null)?.key ?? axes[0]?.key ?? "");
+  const selectedKey = selectedMetricKey ?? internalSelectedKey;
+  const setSelectedKey = (metricKey: string) => {
+    setInternalSelectedKey(metricKey);
+    onSelectedMetricKeyChange?.(metricKey);
+  };
   const [predictiveDetail, setPredictiveDetail] = useState<ModelPredictiveMetricDetail | null>(null);
   const [predictiveDetailState, setPredictiveDetailState] = useState<"idle" | "loading" | "failed">("idle");
   useEffect(() => {
@@ -280,7 +341,13 @@ export function ModelEnsembleRadar({
   const selected = axes.find((axis) => axis.key === selectedKey) ?? axes[0];
   useEffect(() => {
     const load = detailTransport?.getModelPredictiveMetricDetail;
-    if (load === undefined || detailRunId === undefined || selected?.prediction === null || selected === undefined) {
+    if (
+      load === undefined
+      || detailRunId === undefined
+      || selected === undefined
+      || selected.prediction === null
+      || selected.predictiveMedian === null
+    ) {
       setPredictiveDetail(null);
       setPredictiveDetailState("idle");
       return undefined;
@@ -300,10 +367,10 @@ export function ModelEnsembleRadar({
         setPredictiveDetailState("failed");
       });
     return () => controller.abort();
-  }, [detailRunId, detailTransport, selected?.key, selected?.prediction]);
-  const size = compact ? 286 : 356;
+  }, [detailRunId, detailTransport, selected?.key, selected?.prediction, selected?.predictiveMedian]);
+  const size = compact ? 320 : 356;
   const center = size / 2;
-  const radius = compact ? 82 : 108;
+  const radius = compact ? 96 : 108;
   const point = (index: number, magnitude: number) => {
     const angle = -Math.PI / 2 + (Math.PI * 2 * index) / axes.length;
     return [
@@ -312,9 +379,8 @@ export function ModelEnsembleRadar({
     ] as const;
   };
   const knownCount = axes.filter((axis) => axis.plotted !== null).length;
-  const explicitZeroCount = axes.filter((axis) => axis.plotted === 0).length;
+  const explicitZeroCount = axes.filter(modelEnsembleIsRawExplicitZero).length;
   const segments = modelEnsembleRadarSegments(axes);
-  const predictiveSegments = modelEnsemblePredictiveSegments(axes);
   const comparisonSegments = comparisonAxes === null ? [] : modelEnsembleRadarSegments(comparisonAxes);
   const selectedPresentation = selected?.metric === null || selected === undefined
     ? { value: "—", detail: "This metric is not present in the current receipt." }
@@ -329,8 +395,26 @@ export function ModelEnsembleRadar({
     ? null
     : run.metrics.find((metric) => metric.metric_key === selected.key) ?? null;
   const predictiveCount = axes.filter((axis) => axis.predictiveMedian !== null).length;
-  const band90 = modelEnsemblePredictiveBandPath(axes, "predictiveQ95", "predictiveQ05", point);
-  const band50 = modelEnsemblePredictiveBandPath(axes, "predictiveQ75", "predictiveQ25", point);
+  const weakestFactorKeys = predictiveDetail?.factors
+    .slice()
+    .sort((left, right) => left.present_probability - right.present_probability)
+    .slice(0, 2)
+    .map((factor) => factor.factor_key) ?? [];
+  const guidance = selected === undefined
+    ? null
+    : sessionMetricGuidance(selected.key, {
+        state: selected.metric?.value_state ?? "missing",
+        numericValue: selected.metric?.numeric_value ?? null,
+        direction: selected.direction,
+        explanationCode: selected.metric !== null && isTypedMetric(selected.metric)
+          ? selected.metric.explanation_code
+          : null,
+        factorKeys: weakestFactorKeys,
+        experimentalOnly: selected.metric?.value_state !== "known" && selected.prediction !== null,
+      });
+  const displayDensityBins = predictiveDetail === null || selected === undefined
+    ? []
+    : modelEnsembleDensityBinsForDirection(predictiveDetail.density_bins, selected.direction);
 
   return (
     <figure className={`model-ensemble__radar${compact ? " model-ensemble__radar--compact" : ""}`}>
@@ -359,10 +443,8 @@ export function ModelEnsembleRadar({
             points={axes.map((_, index) => point(index, level).join(",")).join(" ")}
           />
         ))}
-        {band90 !== null && <path className="model-ensemble__radar-band model-ensemble__radar-band--90" d={band90} fillRule="evenodd" />}
-        {band50 !== null && <path className="model-ensemble__radar-band model-ensemble__radar-band--50" d={band50} fillRule="evenodd" />}
         {axes.map((axis, index) => {
-          if (band90 !== null || axis.predictiveQ05 === null || axis.predictiveQ95 === null) return null;
+          if (axis.predictiveQ05 === null || axis.predictiveQ95 === null) return null;
           const low = point(index, axis.predictiveQ05);
           const high = point(index, axis.predictiveQ95);
           const innerLow = point(index, axis.predictiveQ25!);
@@ -374,15 +456,19 @@ export function ModelEnsembleRadar({
             </g>
           );
         })}
-        {predictiveSegments.map(([fromIndex, toIndex]) => {
-          const from = point(fromIndex, axes[fromIndex].predictiveMedian!);
-          const to = point(toIndex, axes[toIndex].predictiveMedian!);
-          return <line className="model-ensemble__radar-predictive-segment" key={`predictive-${fromIndex}-${toIndex}`} x1={from[0]} x2={to[0]} y1={from[1]} y2={to[1]} />;
-        })}
         {axes.map((axis, index) => {
           if (axis.predictiveMedian === null) return null;
           const value = point(index, axis.predictiveMedian);
-          return <circle aria-label={`${axis.label}: experimental model median`} className="model-ensemble__radar-predictive-point" cx={value[0]} cy={value[1]} key={`predictive-point-${axis.key}`} r="2.8" />;
+          return <rect
+            aria-label={`${axis.label}: experimental radar-quality median`}
+            className="model-ensemble__radar-predictive-point"
+            height="6"
+            key={`predictive-point-${axis.key}`}
+            transform={`rotate(45 ${value[0]} ${value[1]})`}
+            width="6"
+            x={value[0] - 3}
+            y={value[1] - 3}
+          />;
         })}
         {comparisonAxes !== null && comparisonSegments.map(([fromIndex, toIndex]) => {
           const from = point(fromIndex, comparisonAxes[fromIndex].plotted!);
@@ -410,6 +496,7 @@ export function ModelEnsembleRadar({
           const label = point(index, compact ? 1.24 : 1.28);
           const value = axis.plotted === null ? null : point(index, axis.plotted);
           const marker = point(index, modelEnsembleRadarMarkerMagnitude(axis.plotted));
+          const rawExplicitZero = modelEnsembleIsRawExplicitZero(axis);
           const coverage = axis.metric === null
             ? 0
             : isTypedMetric(axis.metric)
@@ -419,18 +506,8 @@ export function ModelEnsembleRadar({
                 : axis.metric.known_chunk_count / axis.metric.total_chunk_count;
           return (
             <g
-              aria-label={`${axis.label}: ${stateLabel(axis.metric)}`}
               className={axis.key === selected?.key ? "is-selected" : undefined}
               key={axis.key}
-              onClick={() => setSelectedKey(axis.key)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setSelectedKey(axis.key);
-                }
-              }}
-              role="button"
-              tabIndex={0}
             >
               <line className="model-ensemble__radar-axis" x1={center} x2={end[0]} y1={center} y2={end[1]} />
               <text className="model-ensemble__radar-label" textAnchor="middle" x={label[0]} y={label[1]}>
@@ -447,8 +524,8 @@ export function ModelEnsembleRadar({
                     strokeDasharray={`${Math.round(coverage * 100)} ${100 - Math.round(coverage * 100)}`}
                   />
                   <circle
-                    aria-label={axis.plotted === 0 ? `${axis.label}: explicit known zero` : undefined}
-                    className={`model-ensemble__radar-point${axis.plotted === 0 ? " model-ensemble__radar-point--zero" : ""}`}
+                    aria-label={rawExplicitZero ? `${axis.label}: explicit known raw zero` : undefined}
+                    className={`model-ensemble__radar-point${rawExplicitZero ? " model-ensemble__radar-point--zero" : ""}`}
                     cx={marker[0]}
                     cy={marker[1]}
                     r="4"
@@ -482,8 +559,19 @@ export function ModelEnsembleRadar({
             type="button"
           >
             <span>{axis.shortLabel}</span>
-            <b>{axis.plotted === null ? stateValue(axis.metric) : `${Math.round(axis.plotted * 100)}%`}</b>
-            {axis.predictiveMedian !== null && <small>~{Math.round(axis.predictiveMedian * 100)}% model</small>}
+            <b>
+              {axis.plotted === null
+                ? stateValue(axis.metric)
+                : axis.direction === "lower_is_better"
+                  ? `${Math.round(axis.plotted * 100)}% radar quality`
+                  : `${Math.round(axis.plotted * 100)}%`}
+            </b>
+            {axis.direction === "lower_is_better" && axis.metric?.value_state === "known" && axis.metric.numeric_value != null
+              ? <small>raw rate {Math.round(axis.metric.numeric_value * 100)}%</small>
+              : null}
+            {axis.predictiveMedian !== null
+              ? <small>◇ {Math.round(axis.predictiveMedian * 100)}% radar-quality estimate</small>
+              : axis.prediction !== null ? <small>Estimate withheld</small> : null}
           </button>
         ))}
       </nav>
@@ -494,29 +582,45 @@ export function ModelEnsembleRadar({
             <b>{selectedPresentation.value}</b>
           </header>
           <p>{selectedPresentation.detail}</p>
-          <p>{selected.question}</p>
-          {selected.prediction !== null && selected.predictiveMedian !== null && (
+          {guidance !== null && (
+            <aside className="model-ensemble__guidance" data-basis={guidance.basis}>
+              <span>{guidance.audience} guidance · {guidance.basis}</span>
+              <strong>{guidance.action}</strong>
+              <details><summary>Why?</summary><p>{guidance.verification}</p></details>
+            </aside>
+          )}
+          {selected.prediction !== null && (
             <aside className="model-ensemble__predictive-detail">
-              <strong>{selected.prediction.state === "calibrated" ? "Predictive interval" : "Experimental model range"}</strong>
-              <span>
-                median {Math.round(selected.predictiveMedian * 100)}% · central 50% {Math.round(selected.predictiveQ25! * 100)}–{Math.round(selected.predictiveQ75! * 100)}% · central 90% {Math.round(selected.predictiveQ05! * 100)}–{Math.round(selected.predictiveQ95! * 100)}%
-              </span>
+              <strong>{selected.prediction.state === "calibrated" ? "Predictive interval" : "Experimental estimate"}</strong>
+              {selected.predictiveMedian === null ? (
+                <span>{selected.predictiveWithheldReason}</span>
+              ) : (
+                <span>
+                  radar-quality median {Math.round(selected.predictiveMedian * 100)}% · central 50% {Math.round(selected.predictiveQ25! * 100)}–{Math.round(selected.predictiveQ75! * 100)}% · central 90% {Math.round(selected.predictiveQ05! * 100)}–{Math.round(selected.predictiveQ95! * 100)}%
+                </span>
+              )}
+              {selected.direction === "lower_is_better" && selected.prediction.median != null && (
+                <small>
+                  Raw modeled lower-is-better rate: median {Math.round(selected.prediction.median! * 100)}%
+                  {selected.prediction.q05 != null && selected.prediction.q95 != null
+                    ? ` · central 90% ${Math.round(selected.prediction.q05! * 100)}–${Math.round(selected.prediction.q95! * 100)}%`
+                    : ""}.
+                </small>
+              )}
               <small>
-                applicability {Math.round((selected.prediction.applicability_probability ?? 0) * 100)}% · disagreement {selected.prediction.model_disagreement == null ? "not estimable" : `${Math.round(selected.prediction.model_disagreement * 100)}%`} · n={selected.prediction.effective_observation_count} · {selected.prediction.calibration_version.replaceAll("-", " ")}
+                applicability {selected.prediction.applicability_probability == null
+                  ? "not estimable"
+                  : `${Math.round(selected.prediction.applicability_probability! * 100)}%`} · disagreement {selected.prediction.model_disagreement == null ? "not estimable" : `${Math.round(selected.prediction.model_disagreement * 100)}%`} · n={selected.prediction.effective_observation_count} · {selected.prediction.calibration_version.replaceAll("-", " ")}
               </small>
               {predictiveDetailState === "loading" && <small>Loading the content-free factor distribution…</small>}
               {predictiveDetailState === "failed" && <small>Detailed factor distribution is temporarily unavailable.</small>}
               {predictiveDetail !== null && (
                 <>
-                  <div aria-label="Predictive density" className="model-ensemble__density">
-                    {predictiveDetail.density_bins.map((mass, index) => (
-                      <i
-                        aria-label={`${index * 5}–${(index + 1) * 5}%: ${Math.round(mass * 100)}% mass`}
-                        key={index}
-                        style={{ height: `${Math.max(2, mass * 100)}%` }}
-                      />
-                    ))}
-                  </div>
+                  <svg aria-label="Radar-quality predictive density" className="model-ensemble__density" role="img" viewBox="0 0 200 36">
+                    <title>Experimental radar-quality density across twenty five-point bins</title>
+                    <path d={`M 0 36 ${displayDensityBins.map((mass, index) => `L ${index * (200 / 19)} ${36 - Math.min(34, mass * 180)}`).join(" ")} L 200 36 Z`} />
+                  </svg>
+                  <small>The density uses the same radar-quality direction as the diamond and whiskers.</small>
                   <ul className="model-ensemble__factor-list">
                     {predictiveDetail.factors.map((factor) => (
                       <li key={factor.factor_key}>
@@ -536,7 +640,7 @@ export function ModelEnsembleRadar({
               {isTypedMetric(selected.metric) ? (
                 <>
                   <div><dt>Typed fraction</dt><dd>{selected.metric.numerator ?? "—"}/{selected.metric.denominator ?? "—"}</dd></div>
-                  <div><dt>Message coverage</dt><dd>{selected.metric.observed_message_count}/{selected.metric.eligible_message_count}</dd></div>
+                  <div><dt>Metric coverage</dt><dd>{selected.metric.observed_message_count}/{selected.metric.eligible_message_count}</dd></div>
                   <div><dt>Model diagnostic</dt><dd>{selectedCommitteeMetric?.value_state.replaceAll("_", " ") ?? "unavailable"}</dd></div>
                   <div><dt>Calibration</dt><dd>not assessed</dd></div>
                 </>
@@ -574,9 +678,9 @@ export function ModelEnsembleRadar({
       )}
       <figcaption>
         Axes and order stay fixed for this versioned lens. Solid segments connect
-        adjacent measured values only; gaps are unknown, not zero. The dotted line is the
-        model median; dark and light translucent bands are central 50% and 90% experimental
-        model ranges until a metric is independently calibrated. Rings around known
+        adjacent measured values only; gaps are unknown, not zero. A model estimate
+        appears as an independent diamond with per-axis whiskers only when
+        at least two small experts are proven and the 90% span is informative. Rings around known
         points show source-message coverage for typed measurements (legacy
         receipts show eligible committee-observation coverage). Structural
         ownership cells are not analytic observations. The outline has no area fill because

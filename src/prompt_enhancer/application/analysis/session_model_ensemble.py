@@ -10,6 +10,11 @@ from typing import Callable, Protocol
 from pydantic import field_validator, model_validator
 
 from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTERN, StrictModel
+from ..providers import DecoderDescriptor
+from .evidence_contracts import (
+    EphemeralTypedEvidenceProjection,
+    validate_projection_descriptor,
+)
 from .model_ensemble import (
     EnsembleChunkPlan,
     EnsembleMetricSpec,
@@ -18,6 +23,13 @@ from .model_ensemble import (
     SessionModelEnsembleTypedMetricReceipt,
     build_ensemble_chunks,
     coaching_ensemble_metric_specs,
+)
+from .objective_metric_projection import project_objective_metric_overrides
+from .provider_evidence import bind_semantic_unit_opportunities
+from .semantic_units import (
+    SemanticUnitProjection,
+    SemanticUnitReconciliation,
+    SemanticUnitReconciler,
 )
 from .coaching_baselines import (
     COACHING_METRIC_PACK_KEY,
@@ -142,7 +154,22 @@ class SessionModelEnsembleRunner(Protocol):
         *,
         progress_callback: Callable[[int, int], None] | None = None,
         prior_receipt: SessionModelEnsembleReceipt | None = None,
+        typed_evidence: EphemeralTypedEvidenceProjection | None = None,
     ) -> SessionModelEnsembleReceipt: ...
+
+
+class SessionTypedEvidenceProjector(Protocol):
+    """Optional content-free provider-event bridge for the measured lane."""
+
+    @property
+    def descriptor(self) -> DecoderDescriptor: ...
+
+    def project(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+    ) -> EphemeralTypedEvidenceProjection | None: ...
 
 
 class SessionModelEnsembleRepository(Protocol):
@@ -151,6 +178,7 @@ class SessionModelEnsembleRepository(Protocol):
         run: SessionModelEnsembleRunRecord,
         *,
         authority: SessionModelEnsemblePersistenceAuthority | None = None,
+        semantic_units: SemanticUnitReconciliation | None = None,
     ) -> None: ...
 
     def get(self, run_id: str) -> SessionModelEnsembleRunRecord | None: ...
@@ -163,6 +191,11 @@ class SessionModelEnsembleRepository(Protocol):
         *,
         authority: SessionModelEnsemblePersistenceAuthority | None = None,
     ) -> None: ...
+
+    def get_semantic_unit_reconciliation(
+        self,
+        run_id: str,
+    ) -> SemanticUnitReconciliation | None: ...
 
     def delete_for_privacy(self, run_id: str) -> bool: ...
 
@@ -219,6 +252,8 @@ class SessionModelEnsembleService:
         runner: SessionModelEnsembleRunner,
         metric_engine: TextMetricEngine = DEFAULT_COACHING_METRIC_ENGINE,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        typed_evidence_projector: SessionTypedEvidenceProjector | None = None,
+        semantic_unit_reconciler: SemanticUnitReconciler | None = None,
     ) -> None:
         self._access_policy = access_policy
         self._repository = repository
@@ -228,6 +263,8 @@ class SessionModelEnsembleService:
         self._runner = runner
         self._metric_engine = metric_engine
         self._clock = clock
+        self._typed_evidence_projector = typed_evidence_projector
+        self._semantic_unit_reconciler = semantic_unit_reconciler
         self._lock = Lock()
 
     def run(
@@ -282,8 +319,12 @@ class SessionModelEnsembleService:
                 return SessionModelEnsembleOutcome(run=existing, applied=False)
             self._enforce_access(provider, session_id)
             context = self._read_context(provider, session_id, max_messages)
-            typed_metrics, projection_completed_at = self._project_metrics(context)
+            typed_evidence = self._project_typed_evidence(provider, session_id)
+            typed_metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...] | None = None
+            projection_completed_at: datetime | None = None
             latest: SessionModelEnsembleRunRecord | None = None
+            prior_semantic_units: SemanticUnitReconciliation | None = None
+            semantic_projection: SemanticUnitProjection | None = None
             specs = coaching_ensemble_metric_specs()
             try:
                 current_plan_fingerprint = self._runner.plan_fingerprint(specs)
@@ -313,10 +354,31 @@ class SessionModelEnsembleService:
                 )
                 if latest is not None and not compatible:
                     latest = None
+                semantic_projection, prior_semantic_units = (
+                    self._reconcile_semantic_units(context, latest)
+                )
+                typed_evidence = self._bind_objective_opportunities(
+                    typed_evidence,
+                    semantic_projection,
+                )
+                typed_metrics, projection_completed_at = self._project_metrics(
+                    context,
+                    typed_evidence,
+                )
+                semantic_units_reusable = (
+                    semantic_projection is None
+                    or (
+                        prior_semantic_units is not None
+                        and not semantic_projection.reconciliation.appended
+                        and semantic_projection.reconciliation.heads
+                        == prior_semantic_units.heads
+                    )
+                )
                 if (
                     latest is not None
                     and latest.input_fingerprint == context.analysis_window_fingerprint
                     and latest.receipt.plan_fingerprint == current_plan_fingerprint
+                    and semantic_units_reusable
                 ):
                     if (
                         latest.receipt.metric_projection_version
@@ -359,30 +421,32 @@ class SessionModelEnsembleService:
                             run=projected,
                             applied=False,
                         )
-                    # The same projection version must be deterministic for an
-                    # identical source window.  Refuse to hide version drift.
-                    raise ModelEnsembleExecutionError(
-                        "typed metric projection identity changed without a version bump"
-                    )
+                    # Provider event evidence is a second, content-free input
+                    # plane. It may change while the bounded text window stays
+                    # byte-identical, so a new run must be published instead
+                    # of treating that measured change as version drift.
+            if semantic_projection is None:
+                semantic_projection, prior_semantic_units = (
+                    self._reconcile_semantic_units(context, latest)
+                )
+            if typed_metrics is None or projection_completed_at is None:
+                typed_evidence = self._bind_objective_opportunities(
+                    typed_evidence,
+                    semantic_projection,
+                )
+                typed_metrics, projection_completed_at = self._project_metrics(
+                    context,
+                    typed_evidence,
+                )
             plan = build_ensemble_chunks(context)
             try:
-                if progress_callback is None and latest is None:
-                    receipt = self._runner.run(plan, specs)
-                elif progress_callback is None:
-                    receipt = self._runner.run(
-                        plan, specs, prior_receipt=latest.receipt
-                    )
-                elif latest is None:
-                    receipt = self._runner.run(
-                        plan, specs, progress_callback=progress_callback
-                    )
-                else:
-                    receipt = self._runner.run(
-                        plan,
-                        specs,
-                        progress_callback=progress_callback,
-                        prior_receipt=latest.receipt,
-                    )
+                receipt = self._run_pipeline(
+                    plan,
+                    specs,
+                    progress_callback=progress_callback,
+                    prior_receipt=None if latest is None else latest.receipt,
+                    typed_evidence=typed_evidence,
+                )
                 projected_receipt = SessionModelEnsembleReceipt.model_validate(
                     {
                         **receipt.model_dump(),
@@ -413,16 +477,30 @@ class SessionModelEnsembleService:
                     "local model ensemble failed"
                 ) from None
             try:
-                if persistence_authority is None:
-                    self._repository.save_completed(record)
-                else:
-                    self._repository.save_completed(
-                        record,
-                        authority=persistence_authority(),
+                save_arguments = {}
+                if persistence_authority is not None:
+                    save_arguments["authority"] = persistence_authority()
+                if semantic_projection is not None:
+                    save_arguments["semantic_units"] = (
+                        semantic_projection.reconciliation
                     )
+                self._repository.save_completed(record, **save_arguments)
             except Exception:
                 race = self._safe_get(run_id)
                 if race is not None:
+                    if semantic_projection is not None:
+                        try:
+                            race_semantic = (
+                                self._repository.get_semantic_unit_reconciliation(
+                                    run_id
+                                )
+                            )
+                        except Exception:
+                            race_semantic = None
+                        if race_semantic != semantic_projection.reconciliation:
+                            raise ModelEnsemblePersistenceError(
+                                "semantic-unit sidecar could not be stored"
+                            ) from None
                     return SessionModelEnsembleOutcome(run=race, applied=False)
                 raise ModelEnsemblePersistenceError(
                     "model ensemble result could not be stored"
@@ -529,6 +607,7 @@ class SessionModelEnsembleService:
     def _project_metrics(
         self,
         context: P1TextAnalysisInput,
+        typed_evidence: EphemeralTypedEvidenceProjection | None = None,
     ) -> tuple[tuple[SessionModelEnsembleTypedMetricReceipt, ...], datetime]:
         grant = P1LocalAnalysisGrant(
             provider=context.provider,
@@ -549,34 +628,113 @@ class SessionModelEnsembleService:
             projected_at = self._clock()
             if projected_at.tzinfo is None or projected_at.utcoffset() != timedelta(0):
                 raise ValueError("metric projection clock must return UTC")
-            projected = tuple(
-                SessionModelEnsembleTypedMetricReceipt(
+            objective_overrides = project_objective_metric_overrides(
+                typed_evidence,
+                self._objective_evidence_descriptor(),
+            )
+            projected_items: list[SessionModelEnsembleTypedMetricReceipt] = []
+            for result in results:
+                objective_override = objective_overrides.get(result.observation.key)
+                objective_eligible_count = (
+                    0
+                    if objective_override is None
+                    else objective_override.eligible_opportunity_count
+                )
+                objective_observed_count = (
+                    0
+                    if objective_override is None
+                    else objective_override.resolved_opportunity_count
+                )
+                projected_items.append(SessionModelEnsembleTypedMetricReceipt(
                     metric_key=result.observation.key,
                     metric_version=result.observation.version,
-                    value_state=result.value_state,
+                    value_state=(
+                        objective_override.value_state
+                        if objective_override is not None
+                        else result.value_state
+                    ),
                     numerator=(
-                        None if result.fraction is None else result.fraction.numerator
+                        objective_override.numerator
+                        if objective_override is not None
+                        else None
+                        if result.fraction is None
+                        else result.fraction.numerator
                     ),
                     denominator=(
-                        None if result.fraction is None else result.fraction.denominator
+                        objective_override.denominator
+                        if objective_override is not None
+                        else None
+                        if result.fraction is None
+                        else result.fraction.denominator
                     ),
-                    numeric_value=result.observation.numeric_value,
-                    observed_message_count=result.observation.observed_count,
-                    eligible_message_count=result.observation.eligible_count,
-                    coverage=result.observation.coverage,
-                    explanation_code=result.explanation_code,
-                    error_code=result.error_code,
+                    numeric_value=(
+                        (
+                            objective_override.numerator
+                            / objective_override.denominator
+                        )
+                        if objective_override is not None
+                        and objective_override.numerator is not None
+                        and objective_override.denominator is not None
+                        else None
+                        if objective_override is not None
+                        else result.observation.numeric_value
+                    ),
+                    observed_message_count=(
+                        objective_observed_count
+                        if objective_override is not None
+                        else result.observation.observed_count
+                    ),
+                    eligible_message_count=(
+                        objective_eligible_count
+                        if objective_override is not None
+                        else result.observation.eligible_count
+                    ),
+                    coverage=(
+                        (
+                            0.0
+                            if objective_eligible_count == 0
+                            else objective_observed_count
+                            / objective_eligible_count
+                        )
+                        if objective_override is not None
+                        else result.observation.coverage
+                    ),
+                    explanation_code=(
+                        objective_override.explanation_code
+                        if objective_override is not None
+                        else result.explanation_code
+                    ),
+                    error_code=(
+                        None
+                        if objective_override is not None
+                        else result.error_code
+                    ),
                     projection_source="deterministic_typed_contract",
                     metric_schema_version=result.provenance.metric_schema_version,
-                    engine_version=self._metric_engine.engine_version,
-                    algorithm_id=result.provenance.algorithm_id,
-                    algorithm_version=result.provenance.algorithm_version,
-                    rubric_version=self._metric_engine.rubric_version,
+                    engine_version=(
+                        "typed-objective-evidence-v2"
+                        if objective_override is not None
+                        else self._metric_engine.engine_version
+                    ),
+                    algorithm_id=(
+                        "typed-objective-evidence"
+                        if objective_override is not None
+                        else result.provenance.algorithm_id
+                    ),
+                    algorithm_version=(
+                        "2"
+                        if objective_override is not None
+                        else result.provenance.algorithm_version
+                    ),
+                    rubric_version=(
+                        "objective-evidence-no-rubric-v2"
+                        if objective_override is not None
+                        else self._metric_engine.rubric_version
+                    ),
                     calibration_state="not_assessed",
                     product_metric_eligible=False,
-                )
-                for result in results
-            )
+                ))
+            projected = tuple(projected_items)
         except SessionModelEnsembleError:
             raise
         except Exception:
@@ -584,6 +742,128 @@ class SessionModelEnsembleService:
                 "typed local metric projection failed"
             ) from None
         return projected, projected_at
+
+    def _project_typed_evidence(
+        self,
+        provider: Provider,
+        session_id: str,
+    ) -> EphemeralTypedEvidenceProjection | None:
+        if self._typed_evidence_projector is None:
+            return None
+        try:
+            projection = self._typed_evidence_projector.project(
+                provider=provider,
+                session_id=session_id,
+            )
+            if projection is None:
+                return None
+            if (
+                projection.session_id != session_id
+                or projection.provenance.provider is not provider
+            ):
+                raise ValueError("typed evidence belongs to another session")
+            validate_projection_descriptor(
+                projection,
+                self._typed_evidence_projector.descriptor,
+            )
+            return projection
+        except Exception:
+            # The safe metadata bridge is additive. Losing it must withhold
+            # objective measurements, never discard deterministic text output.
+            return None
+
+    def _objective_evidence_descriptor(self) -> DecoderDescriptor | None:
+        if self._typed_evidence_projector is None:
+            return None
+        try:
+            descriptor = self._typed_evidence_projector.descriptor
+            return descriptor if isinstance(descriptor, DecoderDescriptor) else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _bind_objective_opportunities(
+        projection: EphemeralTypedEvidenceProjection | None,
+        semantic_projection: SemanticUnitProjection | None,
+    ) -> EphemeralTypedEvidenceProjection | None:
+        try:
+            return bind_semantic_unit_opportunities(
+                projection,
+                None
+                if semantic_projection is None
+                else semantic_projection.reconciliation,
+            )
+        except Exception:
+            # A semantic-link binding is optional objective authority. Any
+            # mismatch withholds it without discarding deterministic metrics.
+            return None
+
+    def _reconcile_semantic_units(
+        self,
+        context: P1TextAnalysisInput,
+        prior_run: SessionModelEnsembleRunRecord | None,
+    ) -> tuple[SemanticUnitProjection | None, SemanticUnitReconciliation | None]:
+        if self._semantic_unit_reconciler is None:
+            return None, None
+        prior: SemanticUnitReconciliation | None = None
+        if prior_run is not None:
+            try:
+                prior = self._repository.get_semantic_unit_reconciliation(
+                    prior_run.run_id
+                )
+            except Exception:
+                raise ModelEnsemblePersistenceError(
+                    "semantic-unit history is unavailable"
+                ) from None
+        try:
+            projection = self._semantic_unit_reconciler.reconcile(
+                context,
+                prior_receipts=() if prior is None else prior.heads,
+                include_ephemeral_evidence=False,
+            )
+        except Exception:
+            raise ModelEnsembleExecutionError(
+                "semantic-unit reconciliation failed"
+            ) from None
+        return projection, prior
+
+    def _run_pipeline(
+        self,
+        plan: EnsembleChunkPlan,
+        specs: tuple[EnsembleMetricSpec, ...],
+        *,
+        progress_callback: Callable[[int, int], None] | None,
+        prior_receipt: SessionModelEnsembleReceipt | None,
+        typed_evidence: EphemeralTypedEvidenceProjection | None,
+    ) -> SessionModelEnsembleReceipt:
+        if typed_evidence is None:
+            if progress_callback is None and prior_receipt is None:
+                return self._runner.run(plan, specs)
+            if progress_callback is None:
+                return self._runner.run(
+                    plan,
+                    specs,
+                    prior_receipt=prior_receipt,
+                )
+            if prior_receipt is None:
+                return self._runner.run(
+                    plan,
+                    specs,
+                    progress_callback=progress_callback,
+                )
+            return self._runner.run(
+                plan,
+                specs,
+                progress_callback=progress_callback,
+                prior_receipt=prior_receipt,
+            )
+        return self._runner.run(
+            plan,
+            specs,
+            progress_callback=progress_callback,
+            prior_receipt=prior_receipt,
+            typed_evidence=typed_evidence,
+        )
 
     @staticmethod
     def _with_metric_projection(
@@ -621,4 +901,5 @@ __all__ = [
     "SessionModelEnsembleRunRecord",
     "SessionModelEnsembleRunner",
     "SessionModelEnsembleService",
+    "SessionTypedEvidenceProjector",
 ]

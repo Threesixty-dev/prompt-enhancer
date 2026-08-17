@@ -37,9 +37,9 @@ an exact unchanged sealed run before inference, and recomputes canonical focus-r
 and dependency-bearing whole-window conversation observations when the input changes, then
 publishes a new immutable content-free receipt. The radar's solid values come
 from the reviewed deterministic coaching contracts with their exact typed
-numerators, denominators, message coverage, and missing-value states. A dotted
-median plus translucent central 50% and 90% bands show the separate experimental
-model projection. Models cannot veto or replace measured evidence, and objective
+numerators, denominators, message coverage, and missing-value states. Informative
+indigo median markers plus per-axis central 50% and 90% whiskers show the separate
+experimental model projection; weak ranges are withheld. Models cannot veto or replace measured evidence, and objective
 receipts alone can create a solid verified-outcome value. Codex activity time
 is reduced to a keyed revision rather than persisted as a provider timestamp. A
 fixed-axis radar keeps Unknown and Abstained visible instead of plotting them as
@@ -47,6 +47,18 @@ zero. A displayed `0%` therefore means an eligible typed denominator really had
 zero positive observations; `—` means the value was not measurable. The live
 model path is a gated external mixture of specialists, not a native MoE, not an
 average of arbitrary scores, and not yet a calibrated estimate of truth.
+NLI neutrality is treated as uncertainty, never as temporal pending evidence;
+non-immediate collaboration ranges are withheld until a typed lifecycle proves
+that their observation horizon is closed.
+
+The dashboard and floating window consume one canonical durable watch head, so
+Analyze, Cancel, stage status, advice, history, and snapshot identity no longer
+come from competing UI paths. Content-free attempt/stage receipts survive retry
+and partial optional-model failure, and an immutable semantic-unit sidecar prevents
+stable provider message IDs from hiding changed content. The current source scope
+is still the newest 100 messages / 100,000 redacted characters rather than proven
+full-session history; immediate subprocess-tree cancellation and calibrated metric
+truth remain future gates.
 
 ## Phase 1 local quickstart
 

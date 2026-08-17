@@ -1084,6 +1084,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/model-ensemble-attempts/{attempt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Analysis Attempt */
+        get: operations["analysis_attempt_v2_model_ensemble_attempts__attempt_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/model-ensemble-snapshots/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Immutable Snapshot */
+        get: operations["immutable_snapshot_v2_model_ensemble_snapshots__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/model-ensemble-watch/active/head": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Active Canonical Head */
+        get: operations["active_canonical_head_v2_model_ensemble_watch_active_head_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/model-ensemble-watches/{watch_id}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enqueue Analysis */
+        post: operations["enqueue_analysis_v2_model_ensemble_watches__watch_id__analysis_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/model-ensemble-watches/{watch_id}/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Analysis Attempts */
+        get: operations["analysis_attempts_v2_model_ensemble_watches__watch_id__attempts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/model-ensemble-watches/{watch_id}/attempts/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Cancel Analysis */
+        delete: operations["cancel_analysis_v2_model_ensemble_watches__watch_id__attempts_active_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/model-ensemble-watches/{watch_id}/head": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Canonical Head */
+        get: operations["canonical_head_v2_model_ensemble_watches__watch_id__head_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/model-ensemble-head": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session Canonical Head */
+        get: operations["session_canonical_head_v2_sessions__session_id__model_ensemble_head_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2577,6 +2713,138 @@ export interface components {
              * @constant
              */
             trust_remote_code: false;
+        };
+        /** ModelEnsembleAttemptDto */
+        ModelEnsembleAttemptDto: {
+            /** Attempt Id */
+            attempt_id: string;
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Error Code */
+            error_code: string | null;
+            /** Generation */
+            generation: number;
+            /** Prior Head Run Id */
+            prior_head_run_id: string | null;
+            /** Progress Completed */
+            progress_completed: number;
+            /** Progress Total */
+            progress_total: number;
+            /** Published Run Id */
+            published_run_id: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /** Stage Count */
+            stage_count: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "running" | "completed" | "partial" | "failed" | "cancelled";
+            /** Warning Count */
+            warning_count: number;
+            /** Watch Id */
+            watch_id: string;
+        };
+        /** ModelEnsembleAttemptPageDto */
+        ModelEnsembleAttemptPageDto: {
+            /** Attempts */
+            attempts: components["schemas"]["ModelEnsembleAttemptDto"][];
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Watch Id */
+            watch_id: string;
+        };
+        /** ModelEnsembleAttemptSnapshotDto */
+        ModelEnsembleAttemptSnapshotDto: {
+            attempt: components["schemas"]["ModelEnsembleAttemptDto"];
+            /** Stages */
+            stages: components["schemas"]["ModelEnsembleAttemptStageDto"][];
+        };
+        /** ModelEnsembleAttemptStageDto */
+        ModelEnsembleAttemptStageDto: {
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /** Contributed Case Count */
+            contributed_case_count?: number | null;
+            /** Device */
+            device: ("cpu" | "cuda" | "mps") | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Evaluated Case Count */
+            evaluated_case_count?: number | null;
+            /** Inference Latency Ms */
+            inference_latency_ms?: number | null;
+            /** Model Key */
+            model_key: string | null;
+            /** Peak Accelerator Memory Mb */
+            peak_accelerator_memory_mb?: number | null;
+            /** Process Rss Mb */
+            process_rss_mb?: number | null;
+            /**
+             * Quantization
+             * @enum {string}
+             */
+            quantization: "none" | "bitsandbytes_nf4";
+            /** Repository Id */
+            repository_id: string | null;
+            /** Revision */
+            revision: string | null;
+            /** Stage Key */
+            stage_key: string;
+            /** Stage Ordinal */
+            stage_ordinal: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "completed" | "unavailable" | "resource_exhausted" | "failed" | "cancelled";
+            /** Unloaded After Stage */
+            unloaded_after_stage: boolean | null;
+        };
+        /** ModelEnsembleCanonicalHeadDto */
+        ModelEnsembleCanonicalHeadDto: {
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Head Generation */
+            head_generation: number | null;
+            /** Head Run Id */
+            head_run_id: string | null;
+            latest_attempt: components["schemas"]["ModelEnsembleAttemptDto"] | null;
+            /**
+             * Schema Version
+             * @default analysis-snapshot-v2
+             * @constant
+             */
+            schema_version: "analysis-snapshot-v2";
+            /** Stages */
+            stages: components["schemas"]["ModelEnsembleAttemptStageDto"][];
+            watch: components["schemas"]["ModelEnsembleWatchDto"];
         };
         /** ModelEnsembleChunkDto */
         ModelEnsembleChunkDto: {
@@ -7655,6 +7923,279 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskAnalysisResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analysis_attempt_v2_model_ensemble_attempts__attempt_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleAttemptSnapshotDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    immutable_snapshot_v2_model_ensemble_snapshots__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "if-none-match"?: string | null;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleRunDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    active_canonical_head_v2_model_ensemble_watch_active_head_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleCanonicalHeadDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_analysis_v2_model_ensemble_watches__watch_id__analysis_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                watch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleCanonicalHeadDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analysis_attempts_v2_model_ensemble_watches__watch_id__attempts_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                watch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleAttemptPageDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_analysis_v2_model_ensemble_watches__watch_id__attempts_active_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                watch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleCanonicalHeadDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    canonical_head_v2_model_ensemble_watches__watch_id__head_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                watch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleCanonicalHeadDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_canonical_head_v2_sessions__session_id__model_ensemble_head_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleCanonicalHeadDto"];
                 };
             };
             /** @description Validation Error */

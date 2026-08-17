@@ -520,6 +520,7 @@ export function ProjectWorkspace({
     useState<ProviderCompatibilityStatus | null>(null);
   const [compatibilityLoading, setCompatibilityLoading] = useState(false);
   const [compactMasthead, setCompactMasthead] = useState(false);
+  const [legacyQualityExpanded, setLegacyQualityExpanded] = useState(false);
   const compatibilityRequestGeneration = useRef(0);
   const mastheadSentinelRef = useRef<HTMLSpanElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
@@ -796,7 +797,7 @@ export function ProjectWorkspace({
   }, [categoryPlanned, currentSession, qualityCategory, sessionId, transport]);
 
   useEffect(() => {
-    if (!sessionId || !currentSession || !qualityCategory) {
+    if (!sessionId || !currentSession || !qualityCategory || !legacyQualityExpanded) {
       setQualityRun(null);
       setQualityError("");
       setQualityLoading(false);
@@ -830,10 +831,10 @@ export function ProjectWorkspace({
         if (!controller.signal.aborted) setQualityLoading(false);
       });
     return () => controller.abort();
-  }, [currentSession, qualityCategory, qualityRetryKey, sessionId, transport]);
+  }, [currentSession, legacyQualityExpanded, qualityCategory, qualityRetryKey, sessionId, transport]);
 
   useEffect(() => {
-    if (!sessionId || !currentSession || !qualityCategory) {
+    if (!sessionId || !currentSession || !qualityCategory || !legacyQualityExpanded) {
       setMetricReadiness(null);
       setMetricReadinessError("");
       setMetricReadinessLoading(false);
@@ -872,6 +873,7 @@ export function ProjectWorkspace({
     return () => controller.abort();
   }, [
     currentSession,
+    legacyQualityExpanded,
     metricReadinessRefreshKey,
     qualityCategory,
     qualityRetryKey,
@@ -881,7 +883,7 @@ export function ProjectWorkspace({
 
   useEffect(() => {
     const runId = qualityRun?.run.run_id;
-    if (!sessionId || !currentSession || !qualityCategory || !runId) {
+    if (!sessionId || !currentSession || !qualityCategory || !legacyQualityExpanded || !runId) {
       setCoachingProjection(null);
       setCoachingError("");
       setCoachingLoading(false);
@@ -926,7 +928,7 @@ export function ProjectWorkspace({
         if (!controller.signal.aborted) setCoachingLoading(false);
       });
     return () => controller.abort();
-  }, [currentSession, qualityCategory, qualityRun, sessionId, transport]);
+  }, [currentSession, legacyQualityExpanded, qualityCategory, qualityRun, sessionId, transport]);
 
   useEffect(() => {
     if (
@@ -985,14 +987,10 @@ export function ProjectWorkspace({
   ).length;
   const qualityProfileOwnsTitle =
     qualityCategory &&
-    ((route.name === "session_metrics" &&
-      Boolean(currentSession) &&
-      !qualityLoading &&
-      !qualityError) ||
-      (route.name === "project_metrics" &&
+    route.name === "project_metrics" &&
         !projectSessionsTruncated &&
         !qualityAggregateLoading &&
-        !qualityAggregateError));
+        !qualityAggregateError;
   useEffect(() => {
     if (sessions === null) return;
     if (qualityProfileOwnsTitle) return;
@@ -1019,7 +1017,7 @@ export function ProjectWorkspace({
     if (previousRouteIdentity === null || previousRouteIdentity === routeIdentity) {
       return;
     }
-    if (qualityCategory) return;
+    if (qualityCategory && route.name === "project_metrics") return;
 
     const headingId =
       route.name === "project_overview"
@@ -1028,6 +1026,8 @@ export function ProjectWorkspace({
           ? "session-index-title"
           : route.name === "project_metrics"
             ? "metric-scope-title"
+            : qualityCategory
+              ? "model-ensemble-title"
             : categoryPlanned
               ? "metric-plan-title"
               : "session-metrics-title";
@@ -1035,9 +1035,11 @@ export function ProjectWorkspace({
   }, [
     categoryPlanned,
     qualityCategory,
+    route.name,
     routeIdentity,
     sessions,
   ]);
+  useEffect(() => setLegacyQualityExpanded(false), [routeIdentity]);
   const coachingModel = useMemo(
     () => createCoachingLoopViewModel(coachingProjection),
     [coachingProjection],
@@ -1406,92 +1408,99 @@ export function ProjectWorkspace({
       ) : !currentSession || !category ? (
         <ErrorState message="The selected session is not part of this indexed project." />
       ) : qualityCategory ? (
-        qualityLoading ? (
-          <LoadingState label="Loading the stored qualitative metric profile..." />
-        ) : qualityError ? (
-          <ErrorState
-            message={qualityError}
-            onRetry={() => setQualityRetryKey((value) => value + 1)}
-          />
-        ) : (
-          <>
-            <QualityProfileView
+        <>
+          <section aria-label="Canonical session metric workspace" className="project-canonical-metrics">
+            <ModelEnsemblePanel
               analysisCapability={analysisCapability}
+              category={category}
               compatibilityLoading={compatibilityLoading}
-              key={currentSession.session_id}
-              onCheckProviderCompatibility={
-                transport.checkProviderCompatibility
-                  ? checkProviderCompatibility
-                  : undefined
-              }
-              onAnalyzeLocally={{
-                exactSessionId: currentSession.session_id,
-                preparePreview: prepareQualityPreview,
-                approvePreview: approveQualityPreview,
-              }}
-              onRetryMetricReadiness={() =>
-                setMetricReadinessRefreshKey((value) => value + 1)
-              }
-              metricReadiness={metricReadiness}
-              metricReadinessError={metricReadinessError}
-              metricReadinessLoading={metricReadinessLoading}
+              key={`model-ensemble-${currentSession.session_id}-${category}`}
+              projectId={route.projectId}
               providerCompatibility={providerCompatibility}
-              profile={createQualityMetricProfile(
-                category,
-                qualityRun,
-                currentSession.session_id,
-              )!}
-              sessionDescriptor={`${visibleLabel(currentSession.session_display_name, "Unnamed session")} · ${safeTimestamp(currentSession.started_at)} · ${currentSession.session_id.slice(0, 8)}`}
-              primaryContent={
-                coachingLoading ? (
-                  <section className="project-coaching-state" aria-live="polite">
-                    <span className="project-coaching-state__icon"><Icon name="activity" /></span>
-                    <div>
-                      <p className="eyebrow">Coaching loop</p>
-                      <h3>Building the content-free coaching summary</h3>
-                      <p>No provider content is read by this summary step.</p>
-                    </div>
-                  </section>
-                ) : coachingModel ? (
-                  <CoachingLoop model={coachingModel} />
-                ) : (
-                  <section className="project-coaching-state" role={coachingError ? "alert" : "note"}>
-                    <span className="project-coaching-state__icon"><Icon name="activity" /></span>
-                    <div>
-                      <p className="eyebrow">Coaching loop</p>
-                      <h3>No evidence-bounded coaching summary yet</h3>
-                      <p>
-                        {coachingError ||
-                          "Use Analyze locally once. The summary will abstain unless this session belongs to one reviewed task."}
-                      </p>
-                    </div>
-                  </section>
-                )
-              }
+              sessionId={currentSession.session_id}
+              transport={transport}
             />
-            <details className="project-model-ensemble" open>
-              <summary>
+          </section>
+          <details
+            className="project-model-ensemble project-model-ensemble--legacy"
+            onToggle={(event) => setLegacyQualityExpanded(event.currentTarget.open)}
+          >
+            <summary>
+              <span>
+                <Icon name="activity" />
                 <span>
-                  <Icon name="activity" />
-                  <span>
-                    <strong>Ten-model chunk ensemble</strong>
-                    <small>Separate uncalibrated radar—never merged into the product score</small>
-                  </span>
+                  <strong>Legacy coaching profile</strong>
+                  <small>Prior v1 candidates · not the canonical measurement snapshot</small>
                 </span>
-                <span>Local shadow analysis</span>
-              </summary>
-              <ModelEnsemblePanel
-                analysisCapability={analysisCapability}
-                category={category}
-                compatibilityLoading={compatibilityLoading}
-                key={`model-ensemble-${currentSession.session_id}-${category}`}
-                projectId={route.projectId}
-                providerCompatibility={providerCompatibility}
-                sessionId={currentSession.session_id}
-                transport={transport}
+              </span>
+              <span>Optional legacy view</span>
+            </summary>
+            {legacyQualityExpanded ? qualityLoading ? (
+              <LoadingState label="Loading the legacy qualitative profile..." />
+            ) : qualityError ? (
+              <ErrorState
+                message={qualityError}
+                onRetry={() => setQualityRetryKey((value) => value + 1)}
               />
-            </details>
-            <details className="project-model-lab">
+            ) : (
+              <QualityProfileView
+                analysisCapability={analysisCapability}
+                compatibilityLoading={compatibilityLoading}
+                key={currentSession.session_id}
+                onCheckProviderCompatibility={
+                  transport.checkProviderCompatibility
+                    ? checkProviderCompatibility
+                    : undefined
+                }
+                onAnalyzeLocally={{
+                  exactSessionId: currentSession.session_id,
+                  preparePreview: prepareQualityPreview,
+                  approvePreview: approveQualityPreview,
+                }}
+                onRetryMetricReadiness={() =>
+                  setMetricReadinessRefreshKey((value) => value + 1)
+                }
+                metricReadiness={metricReadiness}
+                metricReadinessError={metricReadinessError}
+                metricReadinessLoading={metricReadinessLoading}
+                manageDocumentContext={false}
+                providerCompatibility={providerCompatibility}
+                profile={createQualityMetricProfile(
+                  category,
+                  qualityRun,
+                  currentSession.session_id,
+                )!}
+                sessionDescriptor={`${visibleLabel(currentSession.session_display_name, "Unnamed session")} · ${safeTimestamp(currentSession.started_at)} · ${currentSession.session_id.slice(0, 8)}`}
+                primaryContent={
+                  coachingLoading ? (
+                    <section className="project-coaching-state" aria-live="polite">
+                      <span className="project-coaching-state__icon"><Icon name="activity" /></span>
+                      <div>
+                        <p className="eyebrow">Coaching loop</p>
+                        <h3>Building the content-free coaching summary</h3>
+                        <p>No provider content is read by this summary step.</p>
+                      </div>
+                    </section>
+                  ) : coachingModel ? (
+                    <CoachingLoop model={coachingModel} />
+                  ) : (
+                    <section className="project-coaching-state" role={coachingError ? "alert" : "note"}>
+                      <span className="project-coaching-state__icon"><Icon name="activity" /></span>
+                      <div>
+                        <p className="eyebrow">Coaching loop</p>
+                        <h3>No evidence-bounded coaching summary yet</h3>
+                        <p>
+                          {coachingError ||
+                            "Use the legacy analyzer once. The summary will abstain unless this session belongs to one reviewed task."}
+                        </p>
+                      </div>
+                    </section>
+                  )
+                }
+              />
+            ) : null}
+          </details>
+          <details className="project-model-lab">
               <summary>
                 <span>
                   <Icon name="layers" />
@@ -1510,9 +1519,8 @@ export function ProjectWorkspace({
                 sessionId={currentSession.session_id}
                 transport={transport}
               />
-            </details>
-          </>
-        )
+          </details>
+        </>
       ) : categoryPlanned ? (
         <PlannedCategoryState category={category} />
       ) : (

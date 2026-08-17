@@ -55,8 +55,8 @@ describe("quality lenses", () => {
     ).toEqual([
       { id: "task-framing", version: 1, expectedMetricCount: 6 },
       { id: "collaboration-flow", version: 1, expectedMetricCount: 5 },
-      { id: "reasoning-trace", version: 1, expectedMetricCount: 5 },
-      { id: "outcome-evidence", version: 1, expectedMetricCount: 4 },
+      { id: "reasoning-trace", version: 1, expectedMetricCount: 4 },
+      { id: "outcome-evidence", version: 1, expectedMetricCount: 5 },
       { id: "legacy-task-contract", version: 1, expectedMetricCount: 5 },
       { id: "legacy-reasoning-trace", version: 1, expectedMetricCount: 5 },
     ]);
@@ -104,6 +104,24 @@ describe("quality lenses", () => {
     expect(lenses[1].metrics.map((item) => item.definition.key)).toEqual([
       "collaboration.ambiguity_resolution",
       "collaboration.clarification_yield",
+    ]);
+  });
+
+  it("keeps all five evidence-lane keys even when objective evidence spans logic and outcome dimensions", () => {
+    const evidence = qualityLensesFor([
+      metric("outcome.verified_requirement_coverage", "outcome"),
+      metric("logic.requirement_action_traceability", "logic", 3),
+      metric("outcome.agent_claim_grounding", "outcome"),
+      metric("logic.hypothesis_test_linkage", "logic"),
+      metric("outcome.first_pass_verification", "outcome"),
+    ]).find((lens) => lens.definition.id === "outcome-evidence");
+
+    expect(evidence?.metrics.map((item) => item.definition.key)).toEqual([
+      "logic.hypothesis_test_linkage",
+      "logic.requirement_action_traceability",
+      "outcome.agent_claim_grounding",
+      "outcome.first_pass_verification",
+      "outcome.verified_requirement_coverage",
     ]);
   });
 

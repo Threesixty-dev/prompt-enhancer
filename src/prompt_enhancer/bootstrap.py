@@ -294,9 +294,27 @@ class LocalApplication:
         """Compose the serial, process-isolated all-metric live pipeline."""
 
         from .application.analysis import SessionModelEnsembleService
+        from .application.analysis.provider_evidence import (
+            SAFE_EVENT_EVIDENCE_DECODER_KEY,
+            SAFE_EVENT_EVIDENCE_DECODER_VERSION,
+            SafeEventTypedEvidenceProjector,
+        )
+        from .application.analysis.semantic_units import SemanticUnitReconciler
+        from .application.providers import (
+            CapabilityKey,
+            DecoderDescriptor,
+            ProviderIdentity,
+            ProviderSurface,
+            SchemaArtifactKind,
+            SchemaArtifactProvenance,
+        )
         from .domain import Provider
         from .infrastructure.identifiers import LocalArtifactIdFactory
         from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
+        from .infrastructure.providers.codex_app_server.contracts import (
+            ADAPTER_VERSION,
+            SOURCE_SCHEMA_VERSION,
+        )
         from .infrastructure.text_models.probabilistic_metrics import (
             LocalProbabilisticMetricRunner,
         )
@@ -306,6 +324,22 @@ class LocalApplication:
                 raise ValueError("unsupported local model-ensemble provider")
             return CodexTextAnalysisSource(self.pseudonymizer)
 
+        safe_event_descriptor = DecoderDescriptor(
+            provider=ProviderIdentity(key="codex"),
+            surface=ProviderSurface.OPERATIONAL_EVENTS,
+            adapter_version=ADAPTER_VERSION,
+            decoder_key=SAFE_EVENT_EVIDENCE_DECODER_KEY,
+            decoder_version=SAFE_EVENT_EVIDENCE_DECODER_VERSION,
+            wire_schema_family="codex.app-server.v2.safe-events",
+            canonical_schema_version=SOURCE_SCHEMA_VERSION,
+            schema_artifact=SchemaArtifactProvenance(
+                artifact_key="codex.safe-event-index",
+                artifact_version="1",
+                kind=SchemaArtifactKind.MINIMIZED,
+            ),
+            capabilities=(CapabilityKey.TOOL_EVENTS,),
+        )
+
         return SessionModelEnsembleService(
             self.database,
             self.database.model_ensemble_repository(),
@@ -313,6 +347,14 @@ class LocalApplication:
             compatibility_policy,
             LocalArtifactIdFactory(self.pseudonymizer),
             LocalProbabilisticMetricRunner(),
+            typed_evidence_projector=SafeEventTypedEvidenceProjector(
+                self.database,
+                LocalArtifactIdFactory(self.pseudonymizer),
+                safe_event_descriptor,
+            ),
+            semantic_unit_reconciler=SemanticUnitReconciler(
+                LocalArtifactIdFactory(self.pseudonymizer),
+            ),
         )
 
     def create_project_quality_aggregation_service(

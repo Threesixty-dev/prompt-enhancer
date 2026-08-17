@@ -101,6 +101,7 @@ def test_projection_accepts_all_four_documented_evidence_kinds() -> None:
         ),
     )
     projection = EphemeralTypedEvidenceProjection(
+        session_id=FOUR,
         provenance=_provenance(),
         declared_kinds=frozenset(TypedEvidenceKind),
         records=records,
@@ -121,6 +122,7 @@ def test_projection_accepts_all_four_documented_evidence_kinds() -> None:
 
 def test_projection_rejects_undeclared_or_mismatched_provider_evidence() -> None:
     projection = EphemeralTypedEvidenceProjection(
+        session_id=FOUR,
         provenance=_provenance(),
         declared_kinds=frozenset({TypedEvidenceKind.ACTION}),
         records=(
@@ -184,4 +186,23 @@ def test_decision_rationale_state_cannot_be_fabricated() -> None:
             sequence=0,
             state=DecisionState.ACCEPTED,
             rationale_state=RationaleState.PRESENT,
+        )
+
+
+def test_links_cannot_define_or_escape_their_own_denominator() -> None:
+    linked_action = ActionEvidence(
+        evidence_id=ONE,
+        source_reference_id=TWO,
+        sequence=0,
+        family=ActionFamily.TOOL,
+        state=ActionState.COMPLETED,
+        requirement_reference_ids=(THREE,),
+    )
+
+    with pytest.raises(ValidationError, match="opportunity declaration"):
+        EphemeralTypedEvidenceProjection(
+            session_id=FOUR,
+            provenance=_provenance(),
+            declared_kinds=frozenset({TypedEvidenceKind.ACTION}),
+            records=(linked_action,),
         )

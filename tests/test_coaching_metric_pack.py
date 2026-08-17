@@ -191,6 +191,107 @@ def test_exploration_conversion_requires_a_later_related_structured_item() -> No
     assert hard_negative.fraction.denominator == 1
 
 
+def test_right_edge_interaction_candidates_never_become_solid_negatives() -> None:
+    base = _context()
+    cases = (
+        (
+            "collaboration.ambiguity_resolution",
+            TextRole.USER,
+            TextMessageKind.REQUEST,
+            "Maybe use this thing or something?",
+        ),
+        (
+            "collaboration.clarification_yield",
+            TextRole.AGENT,
+            TextMessageKind.RESPONSE,
+            "Which deployment route should be used?",
+        ),
+        (
+            "collaboration.exploration_conversion",
+            TextRole.AGENT,
+            TextMessageKind.RESPONSE,
+            "My hypothesis is that the render cache might be stale.",
+        ),
+        (
+            "collaboration.scope_change_discipline",
+            TextRole.USER,
+            TextMessageKind.FEEDBACK,
+            "Actually change scope and additionally remove the export option.",
+        ),
+        (
+            "logic.open_loop_closure",
+            TextRole.USER,
+            TextMessageKind.REQUEST,
+            "How should the new export route behave?",
+        ),
+    )
+
+    for ordinal, (metric_key, role, kind, text) in enumerate(cases, start=1):
+        last = EphemeralRedactedMessage(
+            message_id=_id(str(ordinal)),
+            sequence=4,
+            role=role,
+            kind=kind,
+            language=TextLanguage.ENGLISH,
+            text=SecretStr(text),
+        )
+        messages = (*base.messages, last)
+        context = base.model_copy(
+            update={
+                "messages": messages,
+                "observed_message_count": len(messages),
+                "eligible_message_count": len(messages),
+                "available_message_kinds": frozenset(
+                    {*base.available_message_kinds, kind}
+                ),
+            }
+        )
+        result = {
+            item.observation.key: item for item in _compute(context)
+        }[metric_key]
+
+        assert result.value_state is MetricValueState.UNKNOWN
+        assert result.observation.numeric_value is None
+        assert result.explanation_code == "episode_horizon_open"
+
+
+def test_later_episode_boundary_allows_a_true_negative_candidate() -> None:
+    base = _context()
+    hypothesis = EphemeralRedactedMessage(
+        message_id=_id("6"),
+        sequence=4,
+        role=TextRole.AGENT,
+        kind=TextMessageKind.RESPONSE,
+        language=TextLanguage.ENGLISH,
+        text=SecretStr("My hypothesis is that the render cache might be stale."),
+    )
+    unrelated_plan = EphemeralRedactedMessage(
+        message_id=_id("7"),
+        sequence=5,
+        role=TextRole.AGENT,
+        kind=TextMessageKind.PLAN,
+        language=TextLanguage.ENGLISH,
+        text=SecretStr("Plan: rotate archived audit records and review storage quotas."),
+    )
+    messages = (*base.messages, hypothesis, unrelated_plan)
+    context = base.model_copy(
+        update={
+            "messages": messages,
+            "observed_message_count": len(messages),
+            "eligible_message_count": len(messages),
+        }
+    )
+
+    result = {
+        item.observation.key: item for item in _compute(context)
+    }["collaboration.exploration_conversion"]
+
+    assert result.value_state is MetricValueState.KNOWN
+    assert result.fraction is not None
+    assert result.fraction.numerator == 1
+    assert result.fraction.denominator == 2
+
+
 def test_task_and_context_fixed_rubrics_use_only_the_focus_request() -> None:
     context = _context()
     focus_only_messages = list(context.messages)

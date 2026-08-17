@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import SecretStr
 
 from prompt_enhancer.application.discovery import CandidateIdentity
 from prompt_enhancer.domain import Provider
@@ -59,3 +60,39 @@ def test_artifact_factory_rejects_content_like_or_invalid_inputs() -> None:
         factory.task_id(decision_id, -1)
     with pytest.raises(ValueError, match="namespace"):
         factory.fingerprint("unsafe namespace", ("a" * 64,))
+
+
+def test_secret_fingerprint_is_keyed_stable_and_content_sensitive() -> None:
+    factory = _factory()
+    metadata = ("synthetic", "a" * 64)
+    first = factory.fingerprint_secret(
+        "semantic-source-version-v1",
+        metadata,
+        SecretStr("First synthetic redacted value."),
+    )
+    repeated = factory.fingerprint_secret(
+        "semantic-source-version-v1",
+        metadata,
+        SecretStr("First synthetic redacted value."),
+    )
+    changed = factory.fingerprint_secret(
+        "semantic-source-version-v1",
+        metadata,
+        SecretStr("Changed synthetic redacted value."),
+    )
+
+    assert first == repeated
+    assert first != changed
+    assert first != _factory(8).fingerprint_secret(
+        "semantic-source-version-v1",
+        metadata,
+        SecretStr("First synthetic redacted value."),
+    )
+    assert len(first) == 64
+    assert "First synthetic" not in first
+    with pytest.raises(TypeError, match="SecretStr"):
+        factory.fingerprint_secret(  # type: ignore[arg-type]
+            "semantic-source-version-v1",
+            metadata,
+            "plain string",
+        )

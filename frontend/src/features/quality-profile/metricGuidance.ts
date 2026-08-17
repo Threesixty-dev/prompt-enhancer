@@ -11,6 +11,26 @@ export interface MetricDecisionGuidance {
   confirmWith: string;
 }
 
+export type MetricGuidanceAudience = "user" | "agent" | "tooling" | "workflow";
+export type MetricGuidanceBasis = "measured" | "experimental" | "readiness" | "method-only";
+
+export interface SessionMetricGuidance {
+  audience: MetricGuidanceAudience;
+  action: string;
+  verification: string;
+  basis: MetricGuidanceBasis;
+  factorKeys: readonly string[];
+}
+
+export interface SessionMetricGuidanceInput {
+  state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error" | "missing";
+  numericValue: number | null;
+  direction: "higher_is_better" | "lower_is_better";
+  explanationCode?: string | null;
+  factorKeys?: readonly string[];
+  experimentalOnly?: boolean;
+}
+
 type MetricReviewGuidance = Pick<
   MetricDecisionGuidance,
   "role" | "whyItMatters" | "reviewNext"
@@ -321,5 +341,98 @@ export function metricDecisionGuidance(
       tryNext: DEFAULT_GUIDANCE.tryNext,
       confirmWith: DEFAULT_GUIDANCE.confirmWith,
     }),
+  };
+}
+
+function audienceFor(metricKey: string, explanationCode?: string | null): MetricGuidanceAudience {
+  if (
+    metricKey.startsWith("outcome.")
+    || metricKey === "logic.hypothesis_test_linkage"
+    || metricKey === "logic.requirement_action_traceability"
+    || explanationCode?.includes("objective_")
+    || explanationCode === "message_kind_unavailable"
+  ) return "tooling";
+  if (metricKey.startsWith("prompt.")) return "user";
+  if (metricKey.startsWith("collaboration.")) return "workflow";
+  return "agent";
+}
+
+function readableFactor(value: string): string {
+  return value.replaceAll("_", " ").replaceAll(".", " ");
+}
+
+/**
+ * Produce content-free, reviewed advice from the typed state and factor keys.
+ * This never changes the metric and never fabricates a transcript-specific explanation.
+ */
+export function sessionMetricGuidance(
+  metricKey: string,
+  input: SessionMetricGuidanceInput,
+): SessionMetricGuidance {
+  const base = metricDecisionGuidance(metricKey);
+  const factorKeys = [...new Set(input.factorKeys ?? [])].slice(0, 2);
+  const audience = audienceFor(metricKey, input.explanationCode);
+  if (input.state === "not_applicable") {
+    return {
+      audience,
+      action: "No change is required for this metric because no eligible opportunity was observed in the selected scope.",
+      verification: "Reassess only when a later request creates an eligible opportunity.",
+      basis: "readiness",
+      factorKeys,
+    };
+  }
+  if (input.state === "execution_error") {
+    return {
+      audience: "tooling",
+      action: "Keep the last valid value and repair or retry the failed local analysis stage.",
+      verification: "Confirm that a fresh sealed receipt completes before comparing this metric.",
+      basis: "method-only",
+      factorKeys,
+    };
+  }
+  if (input.state === "unknown" || input.state === "abstained" || input.state === "missing") {
+    const objective = audience === "tooling";
+    return {
+      audience,
+      action: objective
+        ? "Connect the required local tool, test, artifact, action, or acceptance receipt; prose alone cannot establish this value."
+        : "Keep this metric unknown until its required opportunity and evidence are observable.",
+      verification: objective
+        ? "Verify that the receipt is fresh, scoped to the active requirement, and produced by a supported local adapter."
+        : base.confirmWith,
+      basis: "readiness",
+      factorKeys,
+    };
+  }
+  if (input.experimentalOnly || input.numericValue === null) {
+    return {
+      audience,
+      action: `If the experimental signal persists, ${base.tryNext.charAt(0).toLowerCase()}${base.tryNext.slice(1)}`,
+      verification: base.confirmWith,
+      basis: "experimental",
+      factorKeys,
+    };
+  }
+  const oriented = input.direction === "lower_is_better"
+    ? 1 - input.numericValue
+    : input.numericValue;
+  if (oriented >= 0.75) {
+    return {
+      audience,
+      action: `Keep the observed practice: ${base.whyItMatters.charAt(0).toLowerCase()}${base.whyItMatters.slice(1)}`,
+      verification: base.confirmWith,
+      basis: "measured",
+      factorKeys,
+    };
+  }
+  const focus = factorKeys.length === 0
+    ? ""
+    : `Focus on ${factorKeys.map(readableFactor).join(" and ")}: `;
+  return {
+    audience,
+    action: `${focus}${base.tryNext}`,
+    verification: base.confirmWith,
+    basis: "measured",
+    factorKeys,
   };
 }

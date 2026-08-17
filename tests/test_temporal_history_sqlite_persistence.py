@@ -388,7 +388,7 @@ def test_v21_schema_is_normalized_zero_backfill_and_auth_is_transient(tmp_path) 
     database = Database(tmp_path / "schema.sqlite3")
     database.initialize()
     with database._connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 35
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 37
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         temporal_tables = tuple(
             row["name"]
@@ -608,7 +608,7 @@ def test_populated_v20_migrates_to_v21_without_temporal_backfill(tmp_path) -> No
     database = Database(path)
     database.initialize()
     with database._connection() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 35
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 37
         after = tuple(
             (row["version"], row["checksum"])
             for row in connection.execute(
@@ -616,7 +616,7 @@ def test_populated_v20_migrates_to_v21_without_temporal_backfill(tmp_path) -> No
             )
         )
         assert after[:20] == before
-        assert len(after) == 35
+        assert len(after) == 37
         durable_tables = tuple(
             row["name"]
             for row in connection.execute(

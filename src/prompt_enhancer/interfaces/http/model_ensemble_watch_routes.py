@@ -5,11 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Callable, Literal, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
-from pydantic import Field, field_validator
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Response
+from pydantic import Field, field_validator, model_validator
 
 from ...application.analysis.model_ensemble_watch import (
     MODEL_ENSEMBLE_WATCH_CONFIRMATION,
+    ModelEnsembleAttemptRecord,
+    ModelEnsembleAttemptStageReceipt,
+    ModelEnsembleCanonicalHead,
     ModelEnsembleWatchConflictError,
     ModelEnsembleWatchInputError,
     ModelEnsembleWatchNotFoundError,
@@ -89,6 +92,106 @@ class ModelEnsembleWatchSnapshotDto(StrictModel):
     latest_run: ModelEnsembleRunDto | None
 
 
+class ModelEnsembleAttemptDto(StrictModel):
+    attempt_id: str
+    watch_id: str
+    generation: int
+    state: Literal["running", "completed", "partial", "failed", "cancelled"]
+    prior_head_run_id: str | None
+    published_run_id: str | None
+    progress_completed: int = Field(ge=0, le=32)
+    progress_total: int = Field(ge=1, le=32)
+    stage_count: int = Field(ge=0, le=32)
+    warning_count: int = Field(ge=0, le=32)
+    error_code: str | None
+    requested_at: datetime
+    started_at: datetime
+    completed_at: datetime | None
+    content_persisted: Literal[False] = False
+
+    @classmethod
+    def from_record(
+        cls, value: ModelEnsembleAttemptRecord
+    ) -> "ModelEnsembleAttemptDto":
+        return cls(**value.model_dump(), content_persisted=False)
+
+
+class ModelEnsembleAttemptStageDto(StrictModel):
+    stage_ordinal: int = Field(ge=0, le=31)
+    stage_key: str
+    state: Literal[
+        "completed", "unavailable", "resource_exhausted", "failed", "cancelled"
+    ]
+    model_key: str | None
+    repository_id: str | None
+    revision: str | None
+    error_code: str | None
+    device: Literal["cpu", "cuda", "mps"] | None
+    quantization: Literal["none", "bitsandbytes_nf4"]
+    inference_latency_ms: float | None = Field(default=None, ge=0)
+    peak_accelerator_memory_mb: float | None = Field(default=None, ge=0)
+    process_rss_mb: float | None = Field(default=None, ge=0)
+    evaluated_case_count: int | None = Field(default=None, ge=0)
+    contributed_case_count: int | None = Field(default=None, ge=0)
+    unloaded_after_stage: bool | None
+    completed_at: datetime
+
+    @classmethod
+    def from_record(
+        cls, value: ModelEnsembleAttemptStageReceipt
+    ) -> "ModelEnsembleAttemptStageDto":
+        return cls.model_validate(value.model_dump(exclude={"attempt_id"}))
+
+
+class ModelEnsembleAttemptSnapshotDto(StrictModel):
+    attempt: ModelEnsembleAttemptDto
+    stages: tuple[ModelEnsembleAttemptStageDto, ...] = Field(max_length=32)
+
+    @model_validator(mode="after")
+    def exact_terminal_graph(self) -> "ModelEnsembleAttemptSnapshotDto":
+        if self.attempt.state == "running":
+            if self.stages:
+                raise ValueError("running attempt snapshots cannot claim sealed stages")
+        elif len(self.stages) != self.attempt.stage_count:
+            raise ValueError("terminal attempt snapshot stage graph is incomplete")
+        return self
+
+
+class ModelEnsembleAttemptPageDto(StrictModel):
+    watch_id: str
+    attempts: tuple[ModelEnsembleAttemptDto, ...] = Field(max_length=60)
+    content_persisted: Literal[False] = False
+
+
+class ModelEnsembleCanonicalHeadDto(StrictModel):
+    schema_version: Literal["analysis-snapshot-v2"] = "analysis-snapshot-v2"
+    watch: ModelEnsembleWatchDto
+    head_run_id: str | None
+    head_generation: int | None
+    latest_attempt: ModelEnsembleAttemptDto | None
+    stages: tuple[ModelEnsembleAttemptStageDto, ...] = Field(max_length=32)
+    content_persisted: Literal[False] = False
+
+    @classmethod
+    def from_record(
+        cls, value: ModelEnsembleCanonicalHead
+    ) -> "ModelEnsembleCanonicalHeadDto":
+        return cls(
+            watch=ModelEnsembleWatchDto.from_record(value.watch),
+            head_run_id=value.head_run_id,
+            head_generation=value.head_generation,
+            latest_attempt=(
+                None
+                if value.latest_attempt is None
+                else ModelEnsembleAttemptDto.from_record(value.latest_attempt)
+            ),
+            stages=tuple(
+                ModelEnsembleAttemptStageDto.from_record(stage)
+                for stage in value.stages
+            ),
+        )
+
+
 class ModelEnsembleRunReader(Protocol):
     def get(self, run_id: str) -> SessionModelEnsembleRunRecord | None: ...
 
@@ -119,6 +222,11 @@ def create_model_ensemble_watch_router(
     router = APIRouter(
         prefix="/v1",
         tags=["local-model-ensemble-watch"],
+        dependencies=[Depends(require_local_auth)],
+    )
+    v2 = APIRouter(
+        prefix="/v2",
+        tags=["local-model-ensemble-workspace"],
         dependencies=[Depends(require_local_auth)],
     )
 
@@ -239,11 +347,182 @@ def create_model_ensemble_watch_router(
         ) as error:
             raise _watch_failure(error) from None
 
-    return router
+    @v2.get(
+        "/model-ensemble-watch/active/head",
+        response_model=ModelEnsembleCanonicalHeadDto,
+    )
+    def active_canonical_head(response: Response) -> ModelEnsembleCanonicalHeadDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            return ModelEnsembleCanonicalHeadDto.from_record(
+                service.canonical_head()
+            )
+        except ModelEnsembleWatchNotFoundError as error:
+            raise _watch_failure(error) from None
+
+    @v2.get(
+        "/model-ensemble-watches/{watch_id}/head",
+        response_model=ModelEnsembleCanonicalHeadDto,
+    )
+    def canonical_head(
+        response: Response,
+        watch_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ModelEnsembleCanonicalHeadDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            return ModelEnsembleCanonicalHeadDto.from_record(
+                service.canonical_head(watch_id)
+            )
+        except (
+            ModelEnsembleWatchInputError,
+            ModelEnsembleWatchNotFoundError,
+        ) as error:
+            raise _watch_failure(error) from None
+
+    @v2.get(
+        "/sessions/{session_id}/model-ensemble-head",
+        response_model=ModelEnsembleCanonicalHeadDto,
+    )
+    def session_canonical_head(
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ModelEnsembleCanonicalHeadDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            return ModelEnsembleCanonicalHeadDto.from_record(
+                service.canonical_head_for_session(session_id)
+            )
+        except (
+            ModelEnsembleWatchInputError,
+            ModelEnsembleWatchNotFoundError,
+        ) as error:
+            raise _watch_failure(error) from None
+
+    @v2.post(
+        "/model-ensemble-watches/{watch_id}/analysis",
+        response_model=ModelEnsembleCanonicalHeadDto,
+    )
+    def enqueue_analysis(
+        response: Response,
+        watch_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ModelEnsembleCanonicalHeadDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            service.refresh(watch_id)
+            return ModelEnsembleCanonicalHeadDto.from_record(
+                service.canonical_head(watch_id)
+            )
+        except (
+            ModelEnsembleWatchInputError,
+            ModelEnsembleWatchNotFoundError,
+        ) as error:
+            raise _watch_failure(error) from None
+
+    @v2.delete(
+        "/model-ensemble-watches/{watch_id}/attempts/active",
+        response_model=ModelEnsembleCanonicalHeadDto,
+    )
+    def cancel_analysis(
+        response: Response,
+        watch_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ModelEnsembleCanonicalHeadDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            return ModelEnsembleCanonicalHeadDto.from_record(service.cancel(watch_id))
+        except (
+            ModelEnsembleWatchConflictError,
+            ModelEnsembleWatchInputError,
+        ) as error:
+            raise _watch_failure(error) from None
+
+    @v2.get(
+        "/model-ensemble-watches/{watch_id}/attempts",
+        response_model=ModelEnsembleAttemptPageDto,
+    )
+    def analysis_attempts(
+        response: Response,
+        watch_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        limit: Annotated[int, Query(ge=1, le=60)] = 12,
+    ) -> ModelEnsembleAttemptPageDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            attempts = service.attempts(watch_id, limit=limit)
+        except (
+            ModelEnsembleWatchInputError,
+            ModelEnsembleWatchNotFoundError,
+        ) as error:
+            raise _watch_failure(error) from None
+        return ModelEnsembleAttemptPageDto(
+            watch_id=watch_id,
+            attempts=tuple(
+                ModelEnsembleAttemptDto.from_record(item) for item in attempts
+            ),
+        )
+
+    @v2.get(
+        "/model-ensemble-attempts/{attempt_id}",
+        response_model=ModelEnsembleAttemptSnapshotDto,
+    )
+    def analysis_attempt(
+        response: Response,
+        attempt_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+    ) -> ModelEnsembleAttemptSnapshotDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            attempt, stages = service.attempt_snapshot(attempt_id)
+        except (
+            ModelEnsembleWatchInputError,
+            ModelEnsembleWatchNotFoundError,
+        ) as error:
+            raise _watch_failure(error) from None
+        return ModelEnsembleAttemptSnapshotDto(
+            attempt=ModelEnsembleAttemptDto.from_record(attempt),
+            stages=tuple(
+                ModelEnsembleAttemptStageDto.from_record(stage) for stage in stages
+            ),
+        )
+
+    @v2.get(
+        "/model-ensemble-snapshots/{run_id}",
+        response_model=ModelEnsembleRunDto,
+    )
+    def immutable_snapshot(
+        response: Response,
+        run_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> ModelEnsembleRunDto | Response:
+        try:
+            run = ensemble.get(run_id)
+        except (ModelEnsembleInputError, ModelEnsemblePersistenceError) as error:
+            raise _watch_failure(error) from None
+        if run is None:
+            raise HTTPException(
+                404,
+                detail={
+                    "code": "model_ensemble_snapshot_not_found",
+                    "message": "model ensemble snapshot was not found",
+                },
+            )
+        etag = f'"{run_id}"'
+        if if_none_match == etag:
+            return Response(status_code=304, headers={**_PRIVATE_HEADERS, "ETag": etag})
+        response.headers.update(_PRIVATE_HEADERS)
+        response.headers["ETag"] = etag
+        return ModelEnsembleRunDto.from_record(run)
+
+    container = APIRouter()
+    container.include_router(router)
+    container.include_router(v2)
+    return container
 
 
 __all__ = [
     "ModelEnsembleWatchDto",
+    "ModelEnsembleAttemptDto",
+    "ModelEnsembleAttemptPageDto",
+    "ModelEnsembleAttemptSnapshotDto",
+    "ModelEnsembleAttemptStageDto",
+    "ModelEnsembleCanonicalHeadDto",
     "ModelEnsembleWatchRequest",
     "ModelEnsembleWatchSnapshotDto",
     "create_model_ensemble_watch_router",

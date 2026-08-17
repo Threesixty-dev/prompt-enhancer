@@ -331,7 +331,7 @@ describe("App discovery navigation", () => {
     expect(coverage).toHaveBeenCalledWith("codex", expect.any(AbortSignal));
   });
 
-  it("supports a direct fictional quality-profile route for browser QA", async () => {
+  it("supports a direct fictional canonical metric route with an optional legacy QA disclosure", async () => {
     render(
       <App
         platform={createMemoryPlatform({
@@ -344,6 +344,10 @@ describe("App discovery navigation", () => {
       />,
     );
 
+    expect(await screen.findByRole("heading", {
+      name: "Measure the session, then estimate every eligible axis locally",
+    })).toBeVisible();
+    fireEvent.click(screen.getByText("Legacy coaching profile"));
     expect(await screen.findByText("Coherent metric pack v3")).toBeVisible();
     expect(
       screen.getByRole("img", { name: /6-axis 100% fixed-scale quality lens radar/i }),

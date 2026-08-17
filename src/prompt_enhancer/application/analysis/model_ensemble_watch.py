@@ -39,6 +39,7 @@ MODEL_ENSEMBLE_WATCH_CONFIRMATION = "continuously_analyze_selected_redacted_sess
 MODEL_ENSEMBLE_WATCH_POLL_SECONDS = 60
 MODEL_ENSEMBLE_WATCH_LEASE_SECONDS = 5 * 60
 MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL = 10
+MODEL_ENSEMBLE_ATTEMPT_CONTRACT_VERSION = "model-ensemble-attempt-v1"
 
 
 def _utc_now() -> datetime:
@@ -69,6 +70,201 @@ class ModelEnsembleWatchState(StrEnum):
     IDLE = "idle"
     FAILED = "failed"
     DISABLED = "disabled"
+
+
+class ModelEnsembleAttemptState(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ModelEnsembleStageState(StrEnum):
+    COMPLETED = "completed"
+    UNAVAILABLE = "unavailable"
+    RESOURCE_EXHAUSTED = "resource_exhausted"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ModelEnsembleAttemptRecord(StrictModel):
+    """Content-free execution ledger for one exact watch generation."""
+
+    attempt_id: str
+    watch_id: str
+    generation: int = Field(ge=1, le=1_000_000_000)
+    state: ModelEnsembleAttemptState
+    prior_head_run_id: str | None = None
+    published_run_id: str | None = None
+    progress_completed: int = Field(ge=0, le=32)
+    progress_total: int = Field(ge=1, le=32)
+    stage_count: int = Field(ge=0, le=32)
+    warning_count: int = Field(ge=0, le=32)
+    error_code: str | None = None
+    requested_at: datetime
+    started_at: datetime
+    completed_at: datetime | None = None
+
+    _ids = field_validator(
+        "attempt_id", "watch_id", "prior_head_run_id", "published_run_id"
+    )(lambda value: None if value is None else _safe_id(value))
+    _reason = field_validator("error_code")(
+        lambda value: None if value is None else _safe_code(value)
+    )
+    _times = field_validator("requested_at", "started_at", "completed_at")(
+        lambda value: None if value is None else _utc(value)
+    )
+
+    @model_validator(mode="after")
+    def validate_attempt(self) -> "ModelEnsembleAttemptRecord":
+        terminal = self.state is not ModelEnsembleAttemptState.RUNNING
+        if terminal != (self.completed_at is not None):
+            raise ValueError("only terminal attempts have a completion timestamp")
+        if self.progress_completed > self.progress_total:
+            raise ValueError("attempt progress cannot exceed its total")
+        if self.state in {
+            ModelEnsembleAttemptState.COMPLETED,
+            ModelEnsembleAttemptState.PARTIAL,
+        } and self.published_run_id is None:
+            raise ValueError("published attempts require an exact run binding")
+        if self.state is ModelEnsembleAttemptState.COMPLETED and (
+            self.warning_count != 0 or self.error_code is not None
+        ):
+            raise ValueError("completed attempts cannot contain warnings")
+        if self.state is ModelEnsembleAttemptState.PARTIAL and self.warning_count < 1:
+            raise ValueError("partial attempts require at least one warning")
+        if self.state in {
+            ModelEnsembleAttemptState.FAILED,
+            ModelEnsembleAttemptState.CANCELLED,
+        } and self.error_code is None:
+            raise ValueError("failed or cancelled attempts require a fixed reason")
+        if self.state is ModelEnsembleAttemptState.RUNNING and (
+            self.published_run_id is not None
+            or self.warning_count != 0
+            or self.error_code is not None
+        ):
+            raise ValueError("running attempts cannot claim a result")
+        return self
+
+
+class ModelEnsembleAttemptStageReceipt(StrictModel):
+    """One immutable, content-free stage result within an attempt."""
+
+    attempt_id: str
+    stage_ordinal: int = Field(ge=0, le=31)
+    stage_key: str
+    state: ModelEnsembleStageState
+    model_key: str | None = None
+    repository_id: str | None = None
+    revision: str | None = None
+    error_code: str | None = None
+    device: Literal["cpu", "cuda", "mps"] | None = None
+    quantization: Literal["none", "bitsandbytes_nf4"] = "none"
+    inference_latency_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    peak_accelerator_memory_mb: float | None = Field(
+        default=None, ge=0, le=16_384, allow_inf_nan=False
+    )
+    process_rss_mb: float | None = Field(
+        default=None, ge=0, le=32_768, allow_inf_nan=False
+    )
+    evaluated_case_count: int | None = Field(default=None, ge=0, le=100_000)
+    contributed_case_count: int | None = Field(default=None, ge=0, le=100_000)
+    unloaded_after_stage: bool | None = None
+    completed_at: datetime
+
+    _attempt = field_validator("attempt_id")(_safe_id)
+    _safe_values = field_validator("stage_key", "model_key", "revision")(
+        lambda value: None if value is None else _safe_code(value)
+    )
+    _error = field_validator("error_code")(
+        lambda value: None if value is None else _safe_code(value)
+    )
+    _time = field_validator("completed_at")(_utc)
+
+    @field_validator("repository_id")
+    @classmethod
+    def validate_repository(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if (
+            not 3 <= len(value) <= 192
+            or "/" not in value
+            or ".." in value
+            or any(
+                character
+                not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-/"
+                for character in value
+            )
+        ):
+            raise ValueError("stage repository identity is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_stage(self) -> "ModelEnsembleAttemptStageReceipt":
+        if self.state is ModelEnsembleStageState.COMPLETED:
+            if self.error_code is not None:
+                raise ValueError("completed stages cannot contain an error")
+        elif self.error_code is None:
+            raise ValueError("incomplete stages require a fixed error")
+        if (
+            self.evaluated_case_count is not None
+            and self.contributed_case_count is not None
+            and self.contributed_case_count > self.evaluated_case_count
+        ):
+            raise ValueError("stage contributions cannot exceed evaluated cases")
+        return self
+
+
+class ModelEnsembleCanonicalHead(StrictModel):
+    """Lightweight head and active-attempt identity shared by all clients."""
+
+    watch: "ModelEnsembleWatchRecord"
+    head_run_id: str | None = None
+    head_generation: int | None = Field(default=None, ge=1, le=1_000_000_000)
+    latest_attempt: ModelEnsembleAttemptRecord | None = None
+    stages: tuple[ModelEnsembleAttemptStageReceipt, ...] = Field(
+        default=(), max_length=32
+    )
+
+    @model_validator(mode="after")
+    def validate_head(self) -> "ModelEnsembleCanonicalHead":
+        if (self.head_run_id is None) != (self.head_generation is None):
+            raise ValueError("canonical head identity must be complete")
+        if self.head_run_id != self.watch.latest_run_id:
+            raise ValueError("canonical head must match the watch binding")
+        if self.latest_attempt is not None:
+            if (
+                self.latest_attempt.watch_id != self.watch.watch_id
+                or self.latest_attempt.generation != self.watch.generation
+            ):
+                raise ValueError("attempt is not bound to the canonical watch head")
+            if self.latest_attempt.state in {
+                ModelEnsembleAttemptState.COMPLETED,
+                ModelEnsembleAttemptState.PARTIAL,
+            } and self.latest_attempt.published_run_id != self.head_run_id:
+                raise ValueError("published attempt does not match the canonical head")
+            if self.latest_attempt.state is ModelEnsembleAttemptState.RUNNING:
+                if self.stages or self.latest_attempt.stage_count != 0:
+                    raise ValueError("running attempts cannot expose terminal stages")
+            elif len(self.stages) != self.latest_attempt.stage_count:
+                raise ValueError("terminal attempt stage graph is incomplete")
+            if self.latest_attempt.warning_count != sum(
+                stage.state is not ModelEnsembleStageState.COMPLETED
+                for stage in self.stages
+            ):
+                raise ValueError("attempt warning count does not match its stages")
+        if self.stages:
+            if self.latest_attempt is None or any(
+                stage.attempt_id != self.latest_attempt.attempt_id
+                for stage in self.stages
+            ):
+                raise ValueError("attempt stages are not bound to the latest attempt")
+            if tuple(stage.stage_ordinal for stage in self.stages) != tuple(
+                range(len(self.stages))
+            ):
+                raise ValueError("attempt stages must use canonical ordinals")
+        return self
 
 
 class ModelEnsembleWatchRecord(StrictModel):
@@ -276,6 +472,27 @@ class ModelEnsembleWatchRepository(Protocol):
 
     def get_active(self) -> ModelEnsembleWatchRecord | None: ...
 
+    def get_for_session(self, session_id: str) -> ModelEnsembleWatchRecord | None: ...
+
+    def canonical_head(self, watch_id: str) -> ModelEnsembleCanonicalHead: ...
+
+    def get_attempt(self, attempt_id: str) -> ModelEnsembleAttemptRecord | None: ...
+
+    def get_attempt_stages(
+        self, attempt_id: str
+    ) -> tuple[ModelEnsembleAttemptStageReceipt, ...]: ...
+
+    def get_attempt_snapshot(
+        self, attempt_id: str
+    ) -> tuple[
+        ModelEnsembleAttemptRecord,
+        tuple[ModelEnsembleAttemptStageReceipt, ...],
+    ] | None: ...
+
+    def list_attempts(
+        self, watch_id: str, *, limit: int
+    ) -> tuple[ModelEnsembleAttemptRecord, ...]: ...
+
     def request_refresh(
         self,
         watch_id: str,
@@ -324,6 +541,14 @@ class ModelEnsembleWatchRepository(Protocol):
         now: datetime,
         next_check_at: datetime,
         reason_code: str,
+    ) -> ModelEnsembleWatchRecord: ...
+
+    def cancel_attempt(
+        self,
+        watch_id: str,
+        *,
+        now: datetime,
+        next_check_at: datetime,
     ) -> ModelEnsembleWatchRecord: ...
 
 
@@ -448,6 +673,91 @@ class ModelEnsembleWatchService:
 
     def get_active(self) -> ModelEnsembleWatchRecord | None:
         return self._repository.get_active()
+
+    def canonical_head(self, watch_id: str | None = None) -> ModelEnsembleCanonicalHead:
+        if watch_id is None:
+            record = self._repository.get_active()
+            if record is None:
+                raise ModelEnsembleWatchNotFoundError()
+            watch_id = record.watch_id
+        elif PSEUDONYM_PATTERN.fullmatch(watch_id) is None:
+            raise ModelEnsembleWatchInputError()
+        try:
+            return self._repository.canonical_head(watch_id)
+        except ValueError:
+            raise ModelEnsembleWatchNotFoundError() from None
+
+    def canonical_head_for_session(
+        self, session_id: str
+    ) -> ModelEnsembleCanonicalHead:
+        if PSEUDONYM_PATTERN.fullmatch(session_id) is None:
+            raise ModelEnsembleWatchInputError()
+        record = self._repository.get_for_session(session_id)
+        if record is None:
+            raise ModelEnsembleWatchNotFoundError()
+        try:
+            return self._repository.canonical_head(record.watch_id)
+        except ValueError:
+            raise ModelEnsembleWatchNotFoundError() from None
+
+    def attempt(self, attempt_id: str) -> ModelEnsembleAttemptRecord:
+        if PSEUDONYM_PATTERN.fullmatch(attempt_id) is None:
+            raise ModelEnsembleWatchInputError()
+        attempt = self._repository.get_attempt(attempt_id)
+        if attempt is None:
+            raise ModelEnsembleWatchNotFoundError()
+        return attempt
+
+    def attempt_stages(
+        self, attempt_id: str
+    ) -> tuple[ModelEnsembleAttemptStageReceipt, ...]:
+        self.attempt(attempt_id)
+        return self._repository.get_attempt_stages(attempt_id)
+
+    def attempt_snapshot(
+        self, attempt_id: str
+    ) -> tuple[
+        ModelEnsembleAttemptRecord,
+        tuple[ModelEnsembleAttemptStageReceipt, ...],
+    ]:
+        """Read one sealed attempt graph from a single repository snapshot."""
+
+        if PSEUDONYM_PATTERN.fullmatch(attempt_id) is None:
+            raise ModelEnsembleWatchInputError()
+        snapshot = self._repository.get_attempt_snapshot(attempt_id)
+        if snapshot is None:
+            raise ModelEnsembleWatchNotFoundError()
+        return snapshot
+
+    def attempts(
+        self, watch_id: str, *, limit: int = 12
+    ) -> tuple[ModelEnsembleAttemptRecord, ...]:
+        if (
+            PSEUDONYM_PATTERN.fullmatch(watch_id) is None
+            or not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 60
+        ):
+            raise ModelEnsembleWatchInputError()
+        if self._repository.get(watch_id) is None:
+            raise ModelEnsembleWatchNotFoundError()
+        return self._repository.list_attempts(watch_id, limit=limit)
+
+    def cancel(self, watch_id: str) -> ModelEnsembleCanonicalHead:
+        """Revoke the active lease while retaining the last valid publication."""
+
+        if PSEUDONYM_PATTERN.fullmatch(watch_id) is None:
+            raise ModelEnsembleWatchInputError()
+        now = self._clock()
+        try:
+            self._repository.cancel_attempt(
+                watch_id,
+                now=now,
+                next_check_at=now + self._poll_interval,
+            )
+            return self._repository.canonical_head(watch_id)
+        except ValueError:
+            raise ModelEnsembleWatchConflictError() from None
 
     def refresh(self, watch_id: str) -> ModelEnsembleWatchRecord:
         """Make a non-disabled watch immediately due without replacing its head."""
@@ -619,10 +929,16 @@ class ModelEnsembleWatchWorker:
 
 
 __all__ = [
+    "MODEL_ENSEMBLE_ATTEMPT_CONTRACT_VERSION",
     "MODEL_ENSEMBLE_WATCH_CONFIRMATION",
     "MODEL_ENSEMBLE_WATCH_CONTRACT_VERSION",
     "MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL",
     "ContinuousModelEnsembleCommand",
+    "ModelEnsembleAttemptRecord",
+    "ModelEnsembleAttemptStageReceipt",
+    "ModelEnsembleAttemptState",
+    "ModelEnsembleCanonicalHead",
+    "ModelEnsembleStageState",
     "ModelEnsembleWatchConflictError",
     "ModelEnsembleWatchError",
     "ModelEnsembleWatchInputError",

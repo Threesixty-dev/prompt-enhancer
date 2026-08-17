@@ -18,7 +18,7 @@ from ..providers import CapabilityKey, DecoderDescriptor
 from .text_contracts import TextLanguage
 
 
-TYPED_EVIDENCE_SCHEMA_VERSION = 1
+TYPED_EVIDENCE_SCHEMA_VERSION = 2
 MAX_TYPED_EVIDENCE_RECORDS = 5_000
 
 
@@ -46,6 +46,20 @@ class TypedEvidenceKind(StrEnum):
     DECISION = "decision"
     FEEDBACK = "feedback"
     VERIFICATION = "verification"
+
+
+class TypedEvidenceOpportunityKind(StrEnum):
+    """Denominator families an adapter can authoritatively enumerate.
+
+    Declaring a family is distinct from supplying a non-empty set.  This lets
+    an adapter truthfully report an empty eligible set without making an
+    absent/unsupported denominator look like not-applicable.
+    """
+
+    REQUIREMENT = "requirement"
+    HYPOTHESIS = "hypothesis"
+    MATERIAL_CLAIM = "material_claim"
+    VERIFICATION_TASK = "verification_task"
 
 
 class ActionFamily(StrEnum):
@@ -110,10 +124,12 @@ class ActionEvidence(_EvidenceBase):
     family: ActionFamily
     state: ActionState
     requirement_reference_ids: tuple[str, ...] = ()
+    hypothesis_reference_ids: tuple[str, ...] = ()
 
-    _validate_requirements = field_validator("requirement_reference_ids")(
-        _unique_pseudonyms
-    )
+    _validate_links = field_validator(
+        "requirement_reference_ids",
+        "hypothesis_reference_ids",
+    )(_unique_pseudonyms)
 
 
 class DecisionEvidence(_EvidenceBase):
@@ -122,13 +138,15 @@ class DecisionEvidence(_EvidenceBase):
     rationale_state: RationaleState
     rationale_reference_id: str | None = None
     requirement_reference_ids: tuple[str, ...] = ()
+    hypothesis_reference_ids: tuple[str, ...] = ()
 
     _validate_rationale_reference = field_validator("rationale_reference_id")(
         lambda value: None if value is None else _pseudonym(value)
     )
-    _validate_requirements = field_validator("requirement_reference_ids")(
-        _unique_pseudonyms
-    )
+    _validate_links = field_validator(
+        "requirement_reference_ids",
+        "hypothesis_reference_ids",
+    )(_unique_pseudonyms)
 
     @model_validator(mode="after")
     def rationale_reference_matches_state(self) -> DecisionEvidence:
@@ -172,13 +190,19 @@ class VerificationEvidence(_EvidenceBase):
     objective: Literal[True] = True
     receipt_reference_ids: tuple[str, ...] = Field(min_length=1)
     requirement_reference_ids: tuple[str, ...] = ()
+    hypothesis_reference_ids: tuple[str, ...] = ()
+    claim_reference_ids: tuple[str, ...] = ()
+    verification_task_reference_ids: tuple[str, ...] = ()
 
     _validate_receipts = field_validator("receipt_reference_ids")(
         _unique_pseudonyms
     )
-    _validate_requirements = field_validator("requirement_reference_ids")(
-        _unique_pseudonyms
-    )
+    _validate_links = field_validator(
+        "requirement_reference_ids",
+        "hypothesis_reference_ids",
+        "claim_reference_ids",
+        "verification_task_reference_ids",
+    )(_unique_pseudonyms)
 
 
 TypedEvidenceRecord = Annotated[
@@ -209,12 +233,36 @@ class TypedEvidenceProvenance(StrictModel):
 class EphemeralTypedEvidenceProjection(StrictModel):
     """Bounded secret-bearing projection that must never be persisted."""
 
+    session_id: str
     provenance: TypedEvidenceProvenance
     declared_kinds: frozenset[TypedEvidenceKind]
+    declared_opportunity_kinds: frozenset[TypedEvidenceOpportunityKind] = (
+        frozenset()
+    )
+    eligible_requirement_reference_ids: tuple[str, ...] = Field(
+        default=(), max_length=MAX_TYPED_EVIDENCE_RECORDS
+    )
+    eligible_hypothesis_reference_ids: tuple[str, ...] = Field(
+        default=(), max_length=MAX_TYPED_EVIDENCE_RECORDS
+    )
+    eligible_claim_reference_ids: tuple[str, ...] = Field(
+        default=(), max_length=MAX_TYPED_EVIDENCE_RECORDS
+    )
+    eligible_verification_task_reference_ids: tuple[str, ...] = Field(
+        default=(), max_length=MAX_TYPED_EVIDENCE_RECORDS
+    )
     records: tuple[TypedEvidenceRecord, ...] = Field(
         repr=False,
         max_length=MAX_TYPED_EVIDENCE_RECORDS,
     )
+
+    _validate_opportunity_ids = field_validator(
+        "eligible_requirement_reference_ids",
+        "eligible_hypothesis_reference_ids",
+        "eligible_claim_reference_ids",
+        "eligible_verification_task_reference_ids",
+    )(_unique_pseudonyms)
+    _validate_session_id = field_validator("session_id")(_pseudonym)
 
     @model_validator(mode="after")
     def validate_projection(self) -> EphemeralTypedEvidenceProjection:
@@ -229,6 +277,68 @@ class EphemeralTypedEvidenceProjection(StrictModel):
         observed = {record.kind for record in self.records}
         if not observed.issubset(self.declared_kinds):
             raise ValueError("observed evidence was not declared by the adapter")
+
+        opportunity_sets = {
+            TypedEvidenceOpportunityKind.REQUIREMENT: frozenset(
+                self.eligible_requirement_reference_ids
+            ),
+            TypedEvidenceOpportunityKind.HYPOTHESIS: frozenset(
+                self.eligible_hypothesis_reference_ids
+            ),
+            TypedEvidenceOpportunityKind.MATERIAL_CLAIM: frozenset(
+                self.eligible_claim_reference_ids
+            ),
+            TypedEvidenceOpportunityKind.VERIFICATION_TASK: frozenset(
+                self.eligible_verification_task_reference_ids
+            ),
+        }
+        for kind, references in opportunity_sets.items():
+            if references and kind not in self.declared_opportunity_kinds:
+                raise ValueError(
+                    "eligible evidence opportunities were not declared by the adapter"
+                )
+
+        linked_by_kind = {
+            TypedEvidenceOpportunityKind.REQUIREMENT: frozenset(
+                reference
+                for record in self.records
+                if isinstance(
+                    record,
+                    (ActionEvidence, DecisionEvidence, VerificationEvidence),
+                )
+                for reference in record.requirement_reference_ids
+            ),
+            TypedEvidenceOpportunityKind.HYPOTHESIS: frozenset(
+                reference
+                for record in self.records
+                if isinstance(
+                    record,
+                    (ActionEvidence, DecisionEvidence, VerificationEvidence),
+                )
+                for reference in record.hypothesis_reference_ids
+            ),
+            TypedEvidenceOpportunityKind.MATERIAL_CLAIM: frozenset(
+                reference
+                for record in self.records
+                if isinstance(record, VerificationEvidence)
+                for reference in record.claim_reference_ids
+            ),
+            TypedEvidenceOpportunityKind.VERIFICATION_TASK: frozenset(
+                reference
+                for record in self.records
+                if isinstance(record, VerificationEvidence)
+                for reference in record.verification_task_reference_ids
+            ),
+        }
+        for kind, linked in linked_by_kind.items():
+            if linked and kind not in self.declared_opportunity_kinds:
+                raise ValueError(
+                    "evidence links require an authoritative opportunity declaration"
+                )
+            if not linked.issubset(opportunity_sets[kind]):
+                raise ValueError(
+                    "evidence links fall outside the authoritative eligible set"
+                )
         return self
 
 
@@ -274,6 +384,7 @@ __all__ = [
     "RationaleState",
     "TYPED_EVIDENCE_SCHEMA_VERSION",
     "TypedEvidenceKind",
+    "TypedEvidenceOpportunityKind",
     "TypedEvidenceProvenance",
     "TypedEvidenceRecord",
     "VerificationEvidence",

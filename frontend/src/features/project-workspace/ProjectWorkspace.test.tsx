@@ -78,6 +78,13 @@ afterEach(() => {
   MastheadIntersectionObserver.instances = [];
 });
 
+async function openLegacyQualityProfile() {
+  const label = await screen.findByText("Legacy coaching profile");
+  const disclosure = label.closest("details");
+  if (!disclosure?.hasAttribute("open")) fireEvent.click(label);
+  expect(disclosure).toHaveAttribute("open");
+}
+
 const EXACT_COMPATIBILITY: ProviderCompatibilityStatus = {
   provider: "codex",
   capability: "session_text_analysis",
@@ -843,6 +850,8 @@ describe("ProjectWorkspace", () => {
 
     render(<ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />);
 
+    await openLegacyQualityProfile();
+
     expect(
       await screen.findByRole(
         "heading",
@@ -945,7 +954,7 @@ describe("ProjectWorkspace", () => {
     });
   });
 
-  it("loads only the latest immutable quality run and treats 404 as no run", async () => {
+  it("promotes the canonical metric workspace and keeps the prior quality profile in an explicit legacy disclosure", async () => {
     const {
       transport,
       getSessionMetrics,
@@ -962,16 +971,17 @@ describe("ProjectWorkspace", () => {
     );
 
     expect(
-      await screen.findByText("Prompt & collaboration coaching"),
+      await screen.findByRole("heading", { name: "Measure the session, then estimate every eligible axis locally" }),
     ).toBeVisible();
+    expect(screen.getByText("Legacy coaching profile")).toBeVisible();
+    expect(screen.getByText(/not the canonical measurement snapshot/i)).toBeVisible();
+    expect(screen.queryByText("Prompt & collaboration coaching")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Ten-model chunk ensemble/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Legacy coaching profile"));
+    expect(await screen.findByText("Prompt & collaboration coaching")).toBeVisible();
     expect(screen.getByText("0 assessable · 11 unavailable")).toBeVisible();
     expect(screen.getByText(/no placeholder values are generated/i)).toBeVisible();
-    await waitFor(() =>
-      expect(
-        screen.getByRole("heading", { name: "Prompt & collaboration coaching" }),
-      ).toHaveFocus(),
-    );
-    expect(document.title).toBe("Prompt & collaboration coaching · Prompt Enhancer");
+    expect(document.title).toMatch(/^Prompt & collaboration signals ·/);
     expect(getSessionMetrics).not.toHaveBeenCalled();
     expect(getLatestSessionQualityAnalysis).toHaveBeenCalledWith(
       sessionId,
@@ -995,6 +1005,8 @@ describe("ProjectWorkspace", () => {
     render(
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
+
+    await openLegacyQualityProfile();
 
     await waitFor(() =>
       expect(getSessionMetricReadiness).toHaveBeenCalledWith(
@@ -1021,6 +1033,8 @@ describe("ProjectWorkspace", () => {
     render(
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
+
+    await openLegacyQualityProfile();
 
     expect(
       await screen.findByText("Coherent metric pack v3", {}, { timeout: 5_000 }),
@@ -1051,6 +1065,8 @@ describe("ProjectWorkspace", () => {
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
 
+    await openLegacyQualityProfile();
+
     expect(
       await screen.findByText(/Content-free metric readiness could not be loaded/i),
     ).toBeVisible();
@@ -1072,6 +1088,8 @@ describe("ProjectWorkspace", () => {
     render(
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
+
+    await openLegacyQualityProfile();
 
     expect(
       await screen.findByText("Coherent metric pack v1", {}, { timeout: 5_000 }),
@@ -1104,6 +1122,8 @@ describe("ProjectWorkspace", () => {
     render(
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
+
+    await openLegacyQualityProfile();
 
     expect(
       await screen.findByRole(
@@ -1145,6 +1165,8 @@ describe("ProjectWorkspace", () => {
     render(
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
+
+    await openLegacyQualityProfile();
 
     const analyze = await screen.findByRole("button", { name: "Analyze locally" });
     await waitFor(() => expect(analyze).toBeEnabled());
@@ -1196,6 +1218,8 @@ describe("ProjectWorkspace", () => {
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
 
+    await openLegacyQualityProfile();
+
     const analyze = await screen.findByRole("button", { name: "Analyze locally" });
     await waitFor(() => expect(analyze).toBeEnabled());
     fireEvent.click(analyze);
@@ -1235,6 +1259,8 @@ describe("ProjectWorkspace", () => {
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
 
+    await openLegacyQualityProfile();
+
     expect(
       await screen.findByRole("heading", { name: "Goal cue coverage" }),
     ).toBeVisible();
@@ -1270,6 +1296,8 @@ describe("ProjectWorkspace", () => {
     render(
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
+
+    await openLegacyQualityProfile();
 
     await screen.findByText(/no compatible Coaching v1 analysis run/i);
     expect(prepareSessionQualityAnalysisPreview).not.toHaveBeenCalled();
@@ -1335,6 +1363,8 @@ describe("ProjectWorkspace", () => {
     };
     render(<ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />);
 
+    await openLegacyQualityProfile();
+
     const analyze = await screen.findByRole("button", { name: "Analyze locally" });
     await waitFor(() => expect(analyze).toBeEnabled());
     fireEvent.click(analyze);
@@ -1379,6 +1409,7 @@ describe("ProjectWorkspace", () => {
     const { rerender } = render(
       <ProjectWorkspace navigate={vi.fn()} route={firstRoute} transport={transport} />,
     );
+    await openLegacyQualityProfile();
     const analyze = await screen.findByRole("button", { name: "Analyze locally" });
     await waitFor(() => expect(analyze).toBeEnabled());
     fireEvent.click(analyze);
@@ -1419,6 +1450,8 @@ describe("ProjectWorkspace", () => {
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
 
+    await openLegacyQualityProfile();
+
     const button = await screen.findByRole("button", { name: "Analyze locally" });
     await waitFor(() => expect(button).toBeDisabled());
     expect(
@@ -1453,6 +1486,8 @@ describe("ProjectWorkspace", () => {
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
 
+    await openLegacyQualityProfile();
+
     expect(
       await screen.findByText(/redacted-text consent is not active/i),
     ).toBeVisible();
@@ -1478,6 +1513,8 @@ describe("ProjectWorkspace", () => {
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
 
+    await openLegacyQualityProfile();
+
     expect(
       await screen.findByText(/consent status could not be verified/i),
     ).toBeVisible();
@@ -1502,6 +1539,8 @@ describe("ProjectWorkspace", () => {
     render(
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
+
+    await openLegacyQualityProfile();
 
     expect(
       await screen.findByText(/consent status could not be verified/i),

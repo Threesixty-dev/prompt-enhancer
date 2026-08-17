@@ -21,6 +21,8 @@ import type {
   ManualDisplayLabelResult,
   MetricCoverageReport,
   ModelLabInventory,
+  ModelEnsembleCanonicalHead,
+  ModelEnsembleAttemptSnapshot,
   ModelEnsembleRequest,
   ModelPredictiveMetricDetail,
   ModelEnsembleTrajectoryPage,
@@ -60,6 +62,11 @@ import type {
   TextAnalysisResearchCatalog,
   TextAnalysisPresetId,
 } from "./contracts";
+import {
+  ModelEnsembleHeadPayloadError,
+  parseModelEnsembleAttemptSnapshot,
+  parseModelEnsembleCanonicalHead,
+} from "./modelEnsembleHeadContract";
 import {
   ModelEnsemblePayloadError,
   parseModelEnsembleOutcome,
@@ -2731,6 +2738,96 @@ export function createHttpTransport(options: {
         if (error instanceof ModelEnsembleWatchPayloadError) {
           throw new TransportError(error.message, 200);
         }
+        throw error;
+      }
+    },
+    async getActiveModelEnsembleCanonicalHead(signal) {
+      const value = await request<unknown>(
+        "/v2/model-ensemble-watch/active/head",
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleCanonicalHead(value) as ModelEnsembleCanonicalHead;
+      } catch (error) {
+        if (error instanceof ModelEnsembleHeadPayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async getSessionModelEnsembleCanonicalHead(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v2/sessions/${encodeURIComponent(sessionId)}/model-ensemble-head`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleCanonicalHead(value) as ModelEnsembleCanonicalHead;
+      } catch (error) {
+        if (error instanceof ModelEnsembleHeadPayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async getModelEnsembleSnapshot(runId, signal) {
+      const value = await request<unknown>(
+        `/v2/model-ensemble-snapshots/${encodeURIComponent(runId)}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleRun(value);
+      } catch (error) {
+        if (error instanceof ModelEnsemblePayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async enqueueModelEnsembleAnalysis(watchId, signal) {
+      const value = await request<unknown>(
+        `/v2/model-ensemble-watches/${encodeURIComponent(watchId)}/analysis`,
+        { method: "POST" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleCanonicalHead(value) as ModelEnsembleCanonicalHead;
+      } catch (error) {
+        if (error instanceof ModelEnsembleHeadPayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async cancelModelEnsembleAnalysis(watchId, signal) {
+      const value = await request<unknown>(
+        `/v2/model-ensemble-watches/${encodeURIComponent(watchId)}/attempts/active`,
+        { method: "DELETE" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleCanonicalHead(value) as ModelEnsembleCanonicalHead;
+      } catch (error) {
+        if (error instanceof ModelEnsembleHeadPayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async getModelEnsembleAttempt(attemptId, signal) {
+      const value = await request<unknown>(
+        `/v2/model-ensemble-attempts/${encodeURIComponent(attemptId)}`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try {
+        return parseModelEnsembleAttemptSnapshot(value) as ModelEnsembleAttemptSnapshot;
+      } catch (error) {
+        if (error instanceof ModelEnsembleHeadPayloadError) throw new TransportError(error.message, 200);
         throw error;
       }
     },

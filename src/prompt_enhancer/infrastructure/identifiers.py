@@ -1,13 +1,16 @@
-"""Installation-local identifiers for immutable discovery artifacts.
+"""Installation-local identifiers for immutable local artifacts.
 
-The adapter accepts only already-pseudonymized identifiers and short safe codes.
-It never hashes transcript text, paths, account data, or provider credentials.
+Normal identity methods accept only pseudonyms and short safe codes. The one
+explicit secret-fingerprint method accepts ``SecretStr`` for privacy-reviewed,
+local-only derived receipts; it never returns or persists the source value.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+
+from pydantic import SecretStr
 
 from ..application.discovery import CandidateIdentity
 from ..domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider
@@ -138,4 +141,28 @@ class LocalArtifactIdFactory:
             raise ValueError("fingerprint namespace must be a safe identifier")
         return self.pseudonymizer.pseudonymize(
             f"artifact-fingerprint/{namespace}", _canonical(values)
+        )
+
+    def fingerprint_secret(
+        self,
+        namespace: str,
+        values: tuple[str, ...],
+        secret: SecretStr,
+    ) -> str:
+        """Create a keyed digest from transient secret content and safe metadata.
+
+        This separate method makes the secret-bearing boundary explicit. Only
+        the installation-local HMAC pseudonym may leave the method.
+        """
+
+        if not SAFE_VERSION_PATTERN.fullmatch(namespace):
+            raise ValueError("fingerprint namespace must be a safe identifier")
+        if not isinstance(secret, SecretStr):
+            raise TypeError("secret fingerprinting accepts SecretStr input only")
+        raw = secret.get_secret_value()
+        if not raw or "\x00" in raw:
+            raise ValueError("secret fingerprint source is invalid")
+        payload = _canonical(values) + "\x00" + raw
+        return self.pseudonymizer.pseudonymize(
+            f"artifact-secret-fingerprint/{namespace}", payload
         )

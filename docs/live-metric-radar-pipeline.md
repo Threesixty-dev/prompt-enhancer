@@ -8,9 +8,8 @@ radar. It contains no source text, model output, local paths, or account data.
 The radar intentionally shows two different kinds of information:
 
 - The **solid line and points** are evidence-backed typed measurements.
-- The **dotted line** is the local model median.
-- The **dark translucent band** is the model's central 50% range.
-- The **light translucent band** is its central 90% range.
+- An **indigo diamond** is an informative experimental local-model median.
+- Per-axis dark and light **radial whiskers** show central 50% and 90% ranges.
 - The outer coverage ring reports observed eligible evidence, not confidence.
 
 All twenty axes always remain visible. `Not applicable`, `Pending`, `Unknown`,
@@ -26,8 +25,8 @@ Four fixed lenses keep unlike constructs separate:
 |---|---|
 | Task framing | task definition, problem evidence, context, constraints, acceptance testability, deliverable contract |
 | Collaboration | ambiguity resolution, clarification yield, exploration conversion, scope-change discipline, rework candidate rate |
-| Reasoning trace | decomposition, hypothesis-test linkage, decision rationale, requirement-action traceability, open-loop closure |
-| Outcome evidence | claim grounding, verification strategy, first-pass verification, verified requirements |
+| Reasoning trace | decomposition, decision rationale, open-loop closure, verification-strategy adequacy |
+| Evidence lane | hypothesis-test linkage, requirement-action traceability, claim grounding, first-pass verification, verified requirements |
 
 There is no combined developer score and no universal trust percentage.
 
@@ -74,8 +73,9 @@ large native MoE and does not average ten unrelated scores.
 
 1. Deterministic matching and BM25 select bounded candidate evidence first.
 2. Three revision-pinned multilingual NLI encoders provide the EN/PL baseline.
-3. English eligible cases may use pinned DeBERTa-small-long-NLI and
-   ModernBERT-base zero-shot challengers.
+3. English eligible cases may use the pinned ModernBERT-base zero-shot
+   challenger. DeBERTa-small-long-NLI remains disabled until its separate
+   resource and quality gates pass.
 4. High disagreement, neutral evidence, or manual deep analysis may invoke the
    pinned Qwen3 4B judge in 4-bit NF4.
 5. Models execute serially in isolated child processes. Only typed probabilities,
@@ -85,20 +85,23 @@ large native MoE and does not average ten unrelated scores.
    a typed diagnostic failure.
 
 The historical immutable ten-stage committee graph remains readable for old
-receipts, but it is not executed by the live v35 estimator.
+receipts, but it is not executed by the live estimator.
 
 ### Resource contract
 
 - supported target: 8 GB GPU-class VRAM and up to 16 GB system RAM;
 - per-child ceilings: 6,144 MiB peak VRAM and 8,192 MiB RSS;
 - one GPU child at a time; no simultaneous weights;
-- at least 1.5 GiB VRAM reserved for display and runtime buffers;
+- the 6,144 MiB child ceiling leaves roughly 1.5 GiB on an 8 GB-class device,
+  but this is currently a post-execution exclusion gate rather than an
+  allocator reservation;
 - at most 2,048 tokens per semantic episode;
 - Qwen 4B always runs in a disposable 4-bit child;
-- CPU-only or 8 GB RAM operation disables the deep lane.
+- CPU-only operation disables the deep lane. A fail-closed host-RAM admission
+  check is still required before claiming automatic 8 GB-RAM deep-lane disablement.
 
 Synthetic local hardware verification recorded the complete all-twenty pass with
-all five small specialists and the selective Qwen child below the VRAM ceiling.
+the active small specialists and the selective Qwen child below the VRAM ceiling.
 This is resource evidence, not model-quality calibration. The current cold
 serial pass is still roughly one minute on the reference machine; the desired
 warm-update, cold-update, and deep-lane p95 targets remain promotion gates. A
@@ -125,12 +128,26 @@ become eligible one metric at a time only after the required project/time-separa
 holdout gates pass. A cohort mismatch becomes `Out of distribution` and withholds
 the calibrated claim.
 
-Outcome metrics may have an experimental forecast band, but only fresh scoped
-objective receipts can create a solid verified-outcome measurement.
+NLI `neutral` is epistemic uncertainty, not proof that a temporal horizon is
+still open. Nine structurally immediate behavioral contracts may publish an
+experimental range with zero pending mass. The five collaboration contracts
+and open-loop closure withhold their model range until typed semantic lifecycle
+receipts can establish closed versus pending/right-censored state; their measured
+value and typed state remain independent and available.
+
+Before calibration, an experimental range is also withheld unless at least 95%
+of the deterministic Monte Carlo draws resolve to a metric value. This prevents
+the displayed quantiles from looking precise after silently conditioning away
+material neutral model mass. The unresolved mass is not converted to zero or
+relabeled as temporal pending evidence.
+
+Evidence-lane metrics do not receive transcript-model forecasts in the current
+contract. Only fresh, scoped objective receipts can create a solid evidence
+measurement.
 
 ## Persistence, API, and privacy
 
-Schema v35 is additive. Existing v1-v34 receipt bytes and checksums are unchanged;
+Schemas v35-v37 are additive. Existing v1-v34 receipt bytes and checksums are unchanged;
 there is no predictive backfill. New normalized rows are immutable, content-free,
 and privacy-cascade with secure-delete and WAL verification. Stored data includes
 only pseudonymous digests, typed states, sufficient statistics, distribution
@@ -144,10 +161,20 @@ contributions for one run/metric. Old/new geometry is comparable only when the
 contract, model set, calibration, quantization, provider and content schemas,
 redactor, and analysis scope match.
 
-The mini-window provides project/session/window navigation, a stable four-lens
-radar, an explicit **Analyze now** action, progress and stage resource receipts,
-and a changed-publication trajectory. Opening the window alone grants no source
-read. It keeps the last sealed snapshot through transient failures.
+The dashboard and mini-window render one shared workspace over the same canonical
+watch head. Both use the same durable **Analyze** and **Cancel** actions, values,
+guidance, model-stage status, and publication history. Their lightweight poll
+fetches the immutable heavy run only when the head changes and keeps the last
+sealed snapshot mounted through transient failures. Opening either view alone
+grants no source read.
+
+Schema v36 adds content-free, per-generation attempt and stage receipts with a
+sealed terminal graph. Optional model failure may publish a partial result; a
+failed or cancelled attempt retains the previous head. Cancellation revokes the
+lease and is cooperative at a model-stage boundary; immediate child-process-tree
+termination is not yet implemented. Schema v37 adds a content-free semantic-unit
+sidecar keyed by message-content digests. It preserves exact-one ownership and
+append-idempotent lifecycle heads without persisting evidence text.
 
 ## Provider boundary
 
@@ -165,7 +192,11 @@ Implemented now:
 - EN/PL small-model routing and English long-context challengers;
 - selective 4-bit Qwen lane with child resource enforcement;
 - immutable v35 persistence, trajectory and metric-detail API;
-- fixed-axis solid/dotted/50%/90% radar rendering;
+- one full/compact workspace with fixed-axis measured geometry and informative
+  experimental median/50%/90% whiskers;
+- a durable canonical head, partial/failure history, real enqueue, cooperative
+  cancellation, and stale-while-refresh behavior;
+- conservative semantic-unit identities and immutable sidecar persistence;
 - tests for unknown-not-zero, objective precedence, exact ownership, model
   resource failure, API validation, migration, privacy, and visual semantics.
 
@@ -176,6 +207,15 @@ Still deliberately not claimed:
   holdout for every metric;
 - p95 warm update at three seconds and cold update at eight seconds;
 - a production persistent 60-second warm encoder process;
+- full-session incremental source coverage (the current Codex watch remains a
+  newest-100-message / 100,000-character bounded view);
+- a standalone `AnalysisSnapshotV2` graph or generic analysis-job executor (v2
+  currently wraps the existing immutable run and watch worker);
+- immediate process-tree termination, complete failed-stage resource telemetry,
+  or per-factor model contribution counts;
+- complete provider requirement/action/verification linkage; the current safe
+  Codex event adapter has no requirement-reference surface, so it withholds
+  numeric objective overrides rather than guessing them;
 - Claude Code and generic adapter SDK support;
 - proof that quantized Qwen preserves quality across the complete factor suite.
 

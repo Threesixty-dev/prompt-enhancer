@@ -1078,6 +1078,37 @@ promotion gates. Calibration datasets/workflow, per-metric holdout promotion,
 a persistent warm encoder, Claude/generic adapters, and full-suite quantized
 parity evidence remain unfinished. Product eligibility remains false.
 
+Schema v36 and v37 replace the split first-party live-analysis control plane with
+one canonical watch head shared by the dashboard and floating window. A durable,
+content-free attempt ledger records queued/running/partial/failed/cancelled
+generations and immutable sealed stage graphs. Optional model failures can
+publish a partial snapshot with warnings; cancellation retains the prior head.
+The dashboard no longer starts a competing synchronous v1 run. Both clients use
+the same v2 enqueue, cooperative cancel, head, immutable run, and history routes,
+fetch the heavy receipt only when the head changes, and retain the last complete
+view during retry or reconnect.
+
+The shared full/compact workspace uses six framing, five collaboration, four
+reasoning, and five evidence metrics. It draws only measured teal geometry and
+informative per-axis experimental median/50%/90% whiskers. Connected lavender
+uncertainty polygons were removed because they implied joint structure that
+marginal experimental ranges do not establish. Unknown, pending, not-applicable,
+and error states remain nonnumeric. Guidance is deterministic and factor-aware,
+and model nodes describe contribution to factors rather than ownership of a
+metric.
+
+V37 also adds an immutable content-free semantic-unit sidecar. Installation-keyed
+content digests ensure an edit under a stable provider message ID creates a new
+unit revision; exact-one owners and lifecycle heads prevent chunk boundaries from
+inventing denominators. Only the conservative documented message kinds are
+currently extracted in production. The Codex safe-event adapter does not expose
+requirement references, so objective overrides are withheld rather than linking
+tests/actions by temporal proximity. The remaining watch scope is the newest 100
+messages / 100,000 redacted characters, not proven full-session history. Generic
+analysis-job execution, immediate child-process-tree cancellation, complete
+failed-stage telemetry, a distinct persisted `AnalysisSnapshotV2`, full provider
+semantic linkage, calibration, and Claude/generic adapters remain unfinished.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |

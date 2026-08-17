@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 import sqlite3
 
 from fastapi.testclient import TestClient
 import pytest
 from pydantic import SecretStr
 
+import prompt_enhancer.application.analysis.probabilistic_metrics as probabilistic_module
 from prompt_enhancer.adapters.synthetic import SyntheticAdapter
 from prompt_enhancer.application.analysis.coaching_baselines import (
     COACHING_METRIC_DEFINITIONS,
@@ -16,10 +18,13 @@ from prompt_enhancer.application.analysis.model_ensemble import (
     coaching_ensemble_metric_specs,
 )
 from prompt_enhancer.application.analysis.probabilistic_metrics import (
+    EVIDENCE_LANE_METRIC_KEYS,
+    PROBABILISTIC_METRIC_CONTRACTS,
     PROBABILISTIC_METRIC_PROJECTION_VERSION,
     PredictiveMetricState,
 )
 from prompt_enhancer.application.analysis.session_model_ensemble import (
+    SessionModelEnsembleOutcome,
     SessionModelEnsembleRunRecord,
 )
 from prompt_enhancer.application.analysis.text_contracts import (
@@ -138,9 +143,9 @@ def _completed_result(payload):
         "rows": [
             {
                 "case_id": item["case_id"],
-                "entailment": 0.64,
-                "neutral": 0.24,
-                "contradiction": 0.12,
+                "entailment": 0.98,
+                "neutral": 0.01,
+                "contradiction": 0.01,
             }
             for item in payload["cases"]
         ],
@@ -154,6 +159,7 @@ def _completed_result(payload):
 
 def test_predictive_projection_round_trips_is_immutable_and_privacy_cascades(
     tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database, session_id = _database_and_session(tmp_path)
     runner = LocalProbabilisticMetricRunner(
@@ -180,16 +186,98 @@ def test_predictive_projection_round_trips_is_immutable_and_privacy_cascades(
 
     repository = database.model_ensemble_repository()
     repository.save_completed(record)
+
+    # A stored v35/v1 receipt is historical data. Advancing the active live
+    # registry must not make that immutable row unreadable.
+    advanced = replace(
+        PROBABILISTIC_METRIC_CONTRACTS[0],
+        contract_version="probabilistic-metric-contract-v2",
+    )
+    advanced_registry = (advanced, *PROBABILISTIC_METRIC_CONTRACTS[1:])
+    monkeypatch.setattr(
+        probabilistic_module,
+        "PROBABILISTIC_METRIC_CONTRACTS",
+        advanced_registry,
+    )
+    monkeypatch.setattr(
+        probabilistic_module,
+        "_CONTRACT_BY_KEY",
+        {item.metric_key: item for item in advanced_registry},
+    )
     loaded = repository.get(record.run_id)
 
     assert loaded is not None
     assert loaded.receipt.predictive_projection == receipt.predictive_projection
     assert loaded.receipt.predictive_projection is not None
     assert len(loaded.receipt.predictive_projection.metrics) == 20
-    assert all(
-        item.state is PredictiveMetricState.EXPERIMENTAL
+    by_key = {
+        item.metric_key: item
         for item in loaded.receipt.predictive_projection.metrics
+    }
+    assert all(
+        by_key[key].state is PredictiveMetricState.UNAVAILABLE
+        for key in EVIDENCE_LANE_METRIC_KEYS
     )
+    contract_by_key = {
+        item.metric_key: item for item in PROBABILISTIC_METRIC_CONTRACTS
+    }
+    assert all(
+        item.state
+        is (
+            PredictiveMetricState.EXPERIMENTAL
+            if contract_by_key[key].closure_horizon == "immediate"
+            and not contract_by_key[key].objective_evidence_required
+            and key not in EVIDENCE_LANE_METRIC_KEYS
+            else PredictiveMetricState.UNAVAILABLE
+        )
+        for key, item in by_key.items()
+    )
+
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "9" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        max_messages=100,
+        now=NOW,
+    )
+    claimed = watches.claim_due(
+        owner="8" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=1),
+        next_check_at=NOW + timedelta(seconds=61),
+        outcome=SessionModelEnsembleOutcome(run=record, applied=True),
+    )
+    first_attempt = watches.list_attempts(watch_id, limit=1)[0]
+    assert first_attempt.stage_count == 4
+
+    claimed = watches.claim_due(
+        owner="8" * 64,
+        now=NOW + timedelta(seconds=61),
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=62),
+        next_check_at=NOW + timedelta(seconds=122),
+        outcome=SessionModelEnsembleOutcome(run=record, applied=False),
+    )
+    reused_attempt = watches.list_attempts(watch_id, limit=1)[0]
+    assert reused_attempt.stage_count == 0
+    assert watches.get_attempt_stages(reused_attempt.attempt_id) == ()
     with sqlite3.connect(database.path) as connection:
         counts = {
             table: connection.execute(
@@ -204,8 +292,8 @@ def test_predictive_projection_round_trips_is_immutable_and_privacy_cascades(
             )
         }
         assert counts["session_model_ensemble_predictive_metrics"] == 20
-        assert counts["session_model_ensemble_predictive_density_bins"] == 400
-        assert counts["session_model_ensemble_predictive_model_stages"] == 5
+        assert counts["session_model_ensemble_predictive_density_bins"] == 160
+        assert counts["session_model_ensemble_predictive_model_stages"] == 4
         assert counts["session_model_ensemble_predictive_metric_seals"] == 1
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(

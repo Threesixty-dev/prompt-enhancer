@@ -83,6 +83,63 @@ class TextLanguage(StrEnum):
     UNKNOWN = "unknown"
 
 
+class TextAnalysisScopeKind(StrEnum):
+    """Closed scope vocabulary shared by every provider text adapter.
+
+    ``FULL_AVAILABLE_SESSION`` means every analyzable message the provider made
+    available for the selected session.  It is not a synonym for "the newest
+    messages that fit".  ``BOUNDED_RECENT`` preserves the explicitly bounded
+    legacy window for callers that intentionally choose it.
+    """
+
+    FULL_AVAILABLE_SESSION = "full_available_session"
+    BOUNDED_RECENT = "bounded_recent"
+
+
+class TextAnalysisScopeState(StrEnum):
+    COMPLETE = "complete"
+    INCOMPLETE_SOURCE = "incomplete_source"
+
+
+class TextAnalysisScopeReason(StrEnum):
+    """Content-free reasons why the requested scope could not be completed."""
+
+    SOURCE_HISTORY_LIMIT = "source_history_limit"
+    SOURCE_VARIANT_UNCLASSIFIED = "source_variant_unclassified"
+    MESSAGE_LIMIT = "analysis_message_limit"
+    CHARACTER_LIMIT = "analysis_character_limit"
+    COMPLETENESS_UNPROVEN = "source_completeness_unproven"
+
+
+class TextAnalysisScope(StrictModel):
+    """Ephemeral, content-free authority for the exact requested text scope."""
+
+    kind: TextAnalysisScopeKind
+    state: TextAnalysisScopeState
+    requested_max_messages: int = Field(ge=1, le=MAX_ANALYSIS_MESSAGES)
+    requested_max_characters: int = Field(ge=1, le=MAX_ANALYSIS_CHARACTERS)
+    source_history_complete: bool = False
+    reason_codes: tuple[TextAnalysisScopeReason, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_scope_state(self) -> TextAnalysisScope:
+        if len(set(self.reason_codes)) != len(self.reason_codes):
+            raise ValueError("analysis scope reasons cannot contain duplicates")
+        if self.state is TextAnalysisScopeState.COMPLETE:
+            if self.reason_codes:
+                raise ValueError("complete analysis scope cannot have failure reasons")
+            if (
+                self.kind is TextAnalysisScopeKind.FULL_AVAILABLE_SESSION
+                and not self.source_history_complete
+            ):
+                raise ValueError(
+                    "complete full-session scope requires complete source history"
+                )
+        elif not self.reason_codes:
+            raise ValueError("incomplete analysis scope requires a bounded reason")
+        return self
+
+
 class EvidenceOrigin(StrEnum):
     DIRECT = "direct"
     INHERITED = "inherited"
@@ -248,6 +305,10 @@ class P1TextAnalysisInput(StrictModel):
     source_schema_version: str
     content_schema_version: str
     redactor_version: str
+    # New provider adapters must supply this exact scope authority.  ``None``
+    # keeps historical/synthetic producers readable without pretending their
+    # legacy window was a complete session.
+    analysis_scope: TextAnalysisScope | None = None
     # False is the safe default for adapters that have not proved every
     # content-bearing source variant was either admitted or deliberately
     # classified. Providers must opt into completeness explicitly.
@@ -277,6 +338,9 @@ class P1TextAnalysisInput(StrictModel):
 
     @model_validator(mode="after")
     def validate_window(self) -> P1TextAnalysisInput:
+        observed_characters = sum(
+            len(message.text.get_secret_value()) for message in self.messages
+        )
         if self.observed_message_count != len(self.messages):
             raise ValueError("observed message count must match the bounded window")
         observed_kinds = {message.kind for message in self.messages}
@@ -286,10 +350,28 @@ class P1TextAnalysisInput(StrictModel):
             )
         if self.observed_message_count > self.eligible_message_count:
             raise ValueError("observed message count cannot exceed eligible count")
-        if (
-            sum(len(message.text.get_secret_value()) for message in self.messages)
-            > MAX_ANALYSIS_CHARACTERS
-        ):
+        if self.analysis_scope is not None:
+            if self.observed_message_count > self.analysis_scope.requested_max_messages:
+                raise ValueError("observed window exceeds the requested message scope")
+            if observed_characters > self.analysis_scope.requested_max_characters:
+                raise ValueError("observed window exceeds the requested character scope")
+            if (
+                self.analysis_scope.state is TextAnalysisScopeState.COMPLETE
+                and not self.text_extraction_complete
+            ):
+                raise ValueError(
+                    "complete analysis scope requires complete text extraction"
+                )
+            if (
+                self.analysis_scope.kind
+                is TextAnalysisScopeKind.FULL_AVAILABLE_SESSION
+                and self.analysis_scope.state is TextAnalysisScopeState.COMPLETE
+                and self.observed_message_count != self.eligible_message_count
+            ):
+                raise ValueError(
+                    "complete full-session scope must include every eligible message"
+                )
+        if observed_characters > MAX_ANALYSIS_CHARACTERS:
             raise ValueError("analysis window exceeds the redacted-text budget")
         ids = tuple(message.message_id for message in self.messages)
         if len(set(ids)) != len(ids):
@@ -326,6 +408,21 @@ class P1TextAnalysisInput(StrictModel):
     @property
     def window_complete(self) -> bool:
         return self.observed_message_count == self.eligible_message_count
+
+    @property
+    def requested_scope_complete(self) -> bool:
+        """Whether this input proves the caller's exact requested scope.
+
+        Legacy inputs without explicit scope metadata fail closed for this new
+        claim even though their historical ``window_complete`` property remains
+        available for versioned legacy calculations.
+        """
+
+        return (
+            self.analysis_scope is not None
+            and self.analysis_scope.state is TextAnalysisScopeState.COMPLETE
+            and self.text_extraction_complete
+        )
 
 
 class P1LocalAnalysisGrant(StrictModel):

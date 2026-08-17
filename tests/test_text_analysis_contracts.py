@@ -18,6 +18,10 @@ from prompt_enhancer.application.analysis.text_contracts import (
     MetricApplicabilityDecision,
     P1LocalAnalysisGrant,
     P1TextAnalysisInput,
+    TextAnalysisScope,
+    TextAnalysisScopeKind,
+    TextAnalysisScopeReason,
+    TextAnalysisScopeState,
     TextLanguage,
     TextMessageKind,
     TextMetricProvenance,
@@ -139,6 +143,79 @@ def test_extraction_completeness_defaults_fail_closed_for_new_adapters() -> None
     reconstructed = P1TextAnalysisInput.model_validate(payload)
 
     assert reconstructed.text_extraction_complete is False
+
+
+def test_full_session_scope_cannot_claim_complete_for_a_partial_window() -> None:
+    message = _message("c", 0, "Build the report.")
+    context = _context(
+        (message,),
+        _profile(("prompt.goal_definition", MetricApplicability.APPLICABLE)),
+        eligible_count=2,
+    )
+
+    with pytest.raises(ValidationError, match="every eligible message"):
+        P1TextAnalysisInput.model_validate(
+            {
+                **context.model_dump(),
+                "analysis_scope": TextAnalysisScope(
+                    kind=TextAnalysisScopeKind.FULL_AVAILABLE_SESSION,
+                    state=TextAnalysisScopeState.COMPLETE,
+                    requested_max_messages=100,
+                    requested_max_characters=100_000,
+                    source_history_complete=True,
+                ),
+            }
+        )
+
+
+def test_explicit_incomplete_full_session_scope_fails_closed_without_claim() -> None:
+    message = _message("c", 0, "Build the report.")
+    context = P1TextAnalysisInput.model_validate(
+        {
+            **_context(
+                (message,),
+                _profile(
+                    ("prompt.goal_definition", MetricApplicability.APPLICABLE)
+                ),
+                eligible_count=2,
+            ).model_dump(),
+            "text_extraction_complete": False,
+            "analysis_scope": TextAnalysisScope(
+                kind=TextAnalysisScopeKind.FULL_AVAILABLE_SESSION,
+                state=TextAnalysisScopeState.INCOMPLETE_SOURCE,
+                requested_max_messages=1,
+                requested_max_characters=100_000,
+                source_history_complete=True,
+                reason_codes=(TextAnalysisScopeReason.MESSAGE_LIMIT,),
+            ),
+        }
+    )
+
+    assert context.requested_scope_complete is False
+    assert context.analysis_scope is not None
+    assert context.analysis_scope.state is TextAnalysisScopeState.INCOMPLETE_SOURCE
+
+
+def test_analysis_scope_enforces_its_requested_character_bound() -> None:
+    message = _message("c", 0, "Build the report.")
+    context = _context(
+        (message,),
+        _profile(("prompt.goal_definition", MetricApplicability.APPLICABLE)),
+    )
+
+    with pytest.raises(ValidationError, match="requested character scope"):
+        P1TextAnalysisInput.model_validate(
+            {
+                **context.model_dump(),
+                "analysis_scope": TextAnalysisScope(
+                    kind=TextAnalysisScopeKind.BOUNDED_RECENT,
+                    state=TextAnalysisScopeState.COMPLETE,
+                    requested_max_messages=1,
+                    requested_max_characters=3,
+                    source_history_complete=True,
+                ),
+            }
+        )
 
 
 def test_input_window_is_bounded_but_coverage_can_represent_larger_source() -> None:

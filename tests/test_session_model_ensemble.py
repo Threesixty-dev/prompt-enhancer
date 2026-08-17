@@ -13,6 +13,23 @@ from prompt_enhancer.application.analysis.model_ensemble import (
     MODEL_ENSEMBLE_MODEL_COUNT,
     ModelExpertRole,
 )
+from prompt_enhancer.application.analysis.evidence_contracts import (
+    EphemeralTypedEvidenceProjection,
+    TypedEvidenceKind,
+    TypedEvidenceOpportunityKind,
+    TypedEvidenceProvenance,
+    VerificationEvidence,
+    VerificationMethod,
+    VerificationOutcome,
+)
+from prompt_enhancer.application.providers import (
+    CapabilityKey,
+    DecoderDescriptor,
+    ProviderIdentity,
+    ProviderSurface,
+    SchemaArtifactKind,
+    SchemaArtifactProvenance,
+)
 from prompt_enhancer.application.analysis.session_model_ensemble import (
     MODEL_ENSEMBLE_CONFIRMATION,
     ModelEnsembleConsentError,
@@ -20,10 +37,12 @@ from prompt_enhancer.application.analysis.session_model_ensemble import (
     SessionModelEnsembleRunRecord,
     SessionModelEnsembleService,
 )
+from prompt_enhancer.application.analysis.semantic_units import SemanticUnitReconciler
 from prompt_enhancer.application.analysis.model_ensemble_watch import (
     MODEL_ENSEMBLE_WATCH_CONFIRMATION,
     MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL,
     ModelEnsembleWatchLease,
+    ModelEnsembleCanonicalHead,
     ModelEnsembleWatchRecord,
     ModelEnsembleWatchService,
     ModelEnsembleWatchState,
@@ -46,6 +65,9 @@ from prompt_enhancer.domain import DataTier, Provider
 from prompt_enhancer.infrastructure.text_models.model_ensemble import (
     MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
     SerialModelEnsembleRunner,
+)
+from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
+    LocalProbabilisticMetricRunner,
 )
 
 
@@ -129,6 +151,16 @@ class _Identifiers:
     def fingerprint(self, namespace: str, values: tuple[str, ...]) -> str:
         return _id("\x1f".join((namespace, *values)))
 
+    def fingerprint_secret(
+        self,
+        namespace: str,
+        values: tuple[str, ...],
+        secret: SecretStr,
+    ) -> str:
+        return _id(
+            "\x1f".join((namespace, *values, secret.get_secret_value()))
+        )
+
 
 class _Source:
     provider = Provider.CODEX
@@ -154,11 +186,14 @@ class _Source:
 class _Repository:
     def __init__(self) -> None:
         self.items: dict[str, SessionModelEnsembleRunRecord] = {}
+        self.semantic_units = {}
 
     def save_completed(self, run: SessionModelEnsembleRunRecord, **_values) -> None:  # type: ignore[no-untyped-def]
         if run.run_id in self.items:
             raise ValueError("duplicate")
         self.items[run.run_id] = run
+        if _values.get("semantic_units") is not None:
+            self.semantic_units[run.run_id] = _values["semantic_units"]
 
     def get(self, run_id: str):
         return self.items.get(run_id)
@@ -171,6 +206,9 @@ class _Repository:
         if run.run_id not in self.items:
             raise ValueError("missing")
         self.items[run.run_id] = run
+
+    def get_semantic_unit_reconciliation(self, run_id: str):  # type: ignore[no-untyped-def]
+        return self.semantic_units.get(run_id)
 
     def delete_for_privacy(self, run_id: str) -> bool:
         return self.items.pop(run_id, None) is not None
@@ -212,6 +250,36 @@ class _WatchRepository:
         if self.record is None or self.record.state is ModelEnsembleWatchState.DISABLED:
             return None
         return self.record
+
+    def get_for_session(self, session_id):  # type: ignore[no-untyped-def]
+        if self.record is None or self.record.session_id != session_id:
+            return None
+        return self.record
+
+    def canonical_head(self, watch_id):  # type: ignore[no-untyped-def]
+        if self.record is None or self.record.watch_id != watch_id:
+            raise ValueError("missing")
+        return ModelEnsembleCanonicalHead(
+            watch=self.record,
+            head_run_id=self.record.latest_run_id,
+            head_generation=(
+                None if self.record.latest_run_id is None else self.record.generation
+            ),
+        )
+
+    def get_attempt(self, attempt_id):  # type: ignore[no-untyped-def]
+        return None
+
+    def get_attempt_stages(self, attempt_id):  # type: ignore[no-untyped-def]
+        return ()
+
+    def get_attempt_snapshot(self, attempt_id):  # type: ignore[no-untyped-def]
+        return None
+
+    def list_attempts(self, watch_id, *, limit):  # type: ignore[no-untyped-def]
+        assert self.record is not None and self.record.watch_id == watch_id
+        assert 1 <= limit <= 60
+        return ()
 
     def request_refresh(self, watch_id, *, now):  # type: ignore[no-untyped-def]
         if (
@@ -341,7 +409,11 @@ def _execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
     }
 
 
-def _service(policy: _Policy | None = None):
+def _service(
+    policy: _Policy | None = None,
+    *,
+    with_semantic_units: bool = False,
+):
     source = _Source()
     repository = _Repository()
     service = SessionModelEnsembleService(
@@ -351,6 +423,11 @@ def _service(policy: _Policy | None = None):
         _Compatibility(),
         _Identifiers(),
         SerialModelEnsembleRunner(executor=_execute, device="cpu"),
+        semantic_unit_reconciler=(
+            SemanticUnitReconciler(_Identifiers())
+            if with_semantic_units
+            else None
+        ),
     )
     return service, source, repository
 
@@ -378,6 +455,19 @@ def test_service_runs_all_ten_models_once_and_idempotently_stores_no_text() -> N
         item.value_state.value == "known"
         for item in first.run.receipt.typed_metrics
     ) >= 1
+    typed_by_key = {
+        item.metric_key: item for item in first.run.receipt.typed_metrics
+    }
+    assert all(
+        typed_by_key[key].value_state.value == "unknown"
+        for key in (
+            "logic.hypothesis_test_linkage",
+            "logic.requirement_action_traceability",
+            "outcome.agent_claim_grounding",
+            "outcome.first_pass_verification",
+            "outcome.verified_requirement_coverage",
+        )
+    )
     assert len(first.run.receipt.model_votes) == first.run.receipt.chunk_count * 20 * 4
     assert all(item.unloaded_after_stage for item in first.run.receipt.experts)
     assert repository.get(first.run.run_id) is not None
@@ -385,6 +475,123 @@ def test_service_runs_all_ten_models_once_and_idempotently_stores_no_text() -> N
     assert "fictional" not in serialized.lower()
     assert '"content_persisted":false' in serialized
     assert '"product_metric_eligible":false' in serialized
+
+
+def test_service_atomically_persists_content_free_semantic_unit_heads() -> None:
+    service, _source, repository = _service(with_semantic_units=True)
+
+    outcome = service.run(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        confirmation=MODEL_ENSEMBLE_CONFIRMATION,
+        idempotency_key="example-semantic-unit-run-0001",
+    )
+
+    reconciliation = repository.get_semantic_unit_reconciliation(
+        outcome.run.run_id
+    )
+    assert reconciliation is not None
+    assert reconciliation.session_id == SESSION_ID
+    assert len(reconciliation.heads) == 1
+    assert reconciliation.heads[0].kind.value == "request_revision"
+    serialized = reconciliation.model_dump_json()
+    assert "fictional" not in serialized.lower()
+
+
+def test_typed_provider_verification_updates_only_the_measured_evidence_lane() -> None:
+    class _EvidenceProjector:
+        descriptor = DecoderDescriptor(
+            provider=ProviderIdentity(key="codex"),
+            surface=ProviderSurface.OPERATIONAL_EVENTS,
+            adapter_version="example-adapter-v1",
+            decoder_key="example-events",
+            decoder_version="1",
+            wire_schema_family="example-events-v1",
+            canonical_schema_version="example-source-v1",
+            schema_artifact=SchemaArtifactProvenance(
+                artifact_key="example-events",
+                artifact_version="1",
+                kind=SchemaArtifactKind.SYNTHETIC,
+            ),
+            capabilities=(CapabilityKey.VERIFICATION_EVENTS,),
+        )
+
+        def project(self, *, provider, session_id):  # type: ignore[no-untyped-def]
+            assert provider is Provider.CODEX and session_id == SESSION_ID
+            task_id = _id("typed-verification-task")
+            return EphemeralTypedEvidenceProjection(
+                session_id=SESSION_ID,
+                provenance=TypedEvidenceProvenance(
+                    provider=Provider.CODEX,
+                    provider_version="example-provider-v1",
+                    adapter_version="example-adapter-v1",
+                    decoder_key="example-events",
+                    decoder_version="1",
+                    source_schema_version="example-source-v1",
+                    extraction_complete=True,
+                ),
+                declared_kinds=frozenset({TypedEvidenceKind.VERIFICATION}),
+                declared_opportunity_kinds=frozenset(
+                    {TypedEvidenceOpportunityKind.VERIFICATION_TASK}
+                ),
+                eligible_verification_task_reference_ids=(task_id,),
+                records=(
+                    VerificationEvidence(
+                        evidence_id=_id("typed-verification"),
+                        sequence=0,
+                        source_reference_id=_id("typed-source"),
+                        method=VerificationMethod.TEST,
+                        outcome=VerificationOutcome.PASSED,
+                        receipt_reference_ids=(_id("typed-receipt"),),
+                        verification_task_reference_ids=(task_id,),
+                    ),
+                ),
+            )
+
+    source = _Source()
+    repository = _Repository()
+    service = SessionModelEnsembleService(
+        _Policy(),
+        repository,
+        lambda provider: source,
+        _Compatibility(),
+        _Identifiers(),
+        LocalProbabilisticMetricRunner(
+            executor=_execute,
+            device="cpu",
+            deep_enabled=False,
+        ),
+        typed_evidence_projector=_EvidenceProjector(),
+    )
+
+    outcome = service.run(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        confirmation=MODEL_ENSEMBLE_CONFIRMATION,
+        idempotency_key="example-objective-evidence-0001",
+    )
+    measured = next(
+        item
+        for item in outcome.run.receipt.typed_metrics
+        if item.metric_key == "outcome.first_pass_verification"
+    )
+    predicted = next(
+        item
+        for item in outcome.run.receipt.predictive_projection.metrics
+        if item.metric_key == "outcome.first_pass_verification"
+    )
+    assert (measured.value_state.value, measured.numerator, measured.denominator) == (
+        "known",
+        1,
+        1,
+    )
+    assert measured.explanation_code == "typed_first_verification_outcomes"
+    assert measured.algorithm_id == "typed-objective-evidence"
+    assert measured.engine_version == "typed-objective-evidence-v2"
+    assert measured.observed_message_count == measured.eligible_message_count == 1
+    assert measured.coverage == 1.0
+    assert predicted.state.value == "unavailable"
+    assert predicted.mean is None and predicted.density_bins == ()
 
 
 def test_unchanged_legacy_head_gets_typed_projection_without_a_new_model_run() -> None:
@@ -514,6 +721,9 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
     path = f"/v1/sessions/{SESSION_ID}/model-ensemble-watch"
 
     with TestClient(app, base_url="http://127.0.0.1") as client:
+        missing_session_head = client.get(
+            f"/v2/sessions/{SESSION_ID}/model-ensemble-head", headers=headers
+        )
         unauthorized = client.put(
             path,
             json={
@@ -542,6 +752,15 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
         )
         active = client.get("/v1/model-ensemble-watch/active", headers=headers)
         watch_id = enabled.json()["watch"]["watch_id"]
+        canonical = client.get(
+            "/v2/model-ensemble-watch/active/head", headers=headers
+        )
+        session_canonical = client.get(
+            f"/v2/sessions/{SESSION_ID}/model-ensemble-head", headers=headers
+        )
+        attempts = client.get(
+            f"/v2/model-ensemble-watches/{watch_id}/attempts", headers=headers
+        )
         trajectory = client.get(
             f"/v1/model-ensemble-watches/{watch_id}/trajectory?limit=12",
             headers=headers,
@@ -555,6 +774,9 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
         )
 
     assert unauthorized.status_code == 401
+    assert missing_session_head.status_code == 404
+    assert missing_session_head.headers["cache-control"] == "no-store, private"
+    assert missing_session_head.headers["pragma"] == "no-cache"
     assert rejected.status_code == 422
     assert rejected.json() == {"detail": "request validation failed"}
     assert (
@@ -563,6 +785,9 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
         == trajectory.status_code
         == refreshed.status_code
         == disabled.status_code
+        == canonical.status_code
+        == session_canonical.status_code
+        == attempts.status_code
         == 200
     )
     assert enabled.headers["cache-control"] == "no-store, private"
@@ -571,6 +796,13 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
     assert enabled.json()["watch"]["max_messages"] == 25
     assert enabled.json()["latest_run"] is None
     assert active.json() == enabled.json()
+    assert canonical.json()["schema_version"] == "analysis-snapshot-v2"
+    assert canonical.json()["head_run_id"] is None
+    assert canonical.json()["latest_attempt"] is None
+    assert session_canonical.json() == canonical.json()
+    assert session_canonical.headers["cache-control"] == "no-store, private"
+    assert session_canonical.headers["pragma"] == "no-cache"
+    assert attempts.json()["attempts"] == []
     assert trajectory.headers["cache-control"] == "no-store, private"
     assert trajectory.headers["pragma"] == "no-cache"
     assert refreshed.headers["cache-control"] == "no-store, private"
@@ -721,10 +953,39 @@ def test_watch_api_does_not_substitute_an_unbound_historical_run(tmp_path) -> No
             "/v1/model-ensemble-watch/active",
             headers={API_TOKEN_HEADER: TOKEN},
         )
+        snapshot = client.get(
+            f"/v2/model-ensemble-snapshots/{completed.latest_run_id}",
+            headers={API_TOKEN_HEADER: TOKEN},
+        )
+        unchanged = client.get(
+            f"/v2/model-ensemble-snapshots/{completed.latest_run_id}",
+            headers={
+                API_TOKEN_HEADER: TOKEN,
+                "If-None-Match": f'"{completed.latest_run_id}"',
+            },
+        )
+        nonexistent_id = "f" * 64
+        nonexistent = client.get(
+            f"/v2/model-ensemble-snapshots/{nonexistent_id}",
+            headers={
+                API_TOKEN_HEADER: TOKEN,
+                "If-None-Match": f'"{nonexistent_id}"',
+            },
+        )
 
     assert response.status_code == 200
     assert response.json()["watch"]["has_result"] is False
     assert response.json()["latest_run"] is None
+    assert snapshot.status_code == 200
+    assert snapshot.headers["cache-control"] == "no-store, private"
+    assert snapshot.headers["pragma"] == "no-cache"
+    assert snapshot.headers["etag"] == f'"{completed.latest_run_id}"'
+    assert snapshot.json()["run_id"] == completed.latest_run_id
+    assert unchanged.status_code == 304
+    assert unchanged.headers["cache-control"] == "no-store, private"
+    assert unchanged.headers["pragma"] == "no-cache"
+    assert unchanged.content == b""
+    assert nonexistent.status_code == 404
 
 
 @dataclass

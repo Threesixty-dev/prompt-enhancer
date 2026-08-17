@@ -19,7 +19,7 @@ import json
 import math
 import random
 import re
-from statistics import fmean, pstdev
+from statistics import median, pstdev
 from typing import Callable, Mapping, Sequence
 
 from ...application.analysis.model_ensemble import (
@@ -37,23 +37,34 @@ from ...application.analysis.model_ensemble import (
     content_free_chunk_plan,
 )
 from ...application.analysis.probabilistic_metrics import (
+    EVIDENCE_LANE_METRIC_KEYS,
     EXPERIMENTAL_CALIBRATION_VERSION,
     PROBABILISTIC_DENSITY_BIN_COUNT,
+    PROBABILISTIC_MAX_INFORMATIVE_INTERVAL_WIDTH,
+    PROBABILISTIC_MAX_CRITICAL_UNRESOLVED_MASS,
+    PROBABILISTIC_MAX_UNRESOLVED_FACTOR_MASS,
+    PROBABILISTIC_MAX_WEIGHTED_UNRESOLVED_MASS,
     PROBABILISTIC_MAX_RSS_MIB,
     PROBABILISTIC_MAX_VRAM_MIB,
     PROBABILISTIC_METRIC_CONTRACTS,
+    PROBABILISTIC_MIN_EXPERT_CONTRIBUTORS,
+    PROBABILISTIC_MIN_RETAINED_SAMPLE_RATE,
     PROBABILISTIC_MODEL_SET_VERSION,
+    PROBABILISTIC_PROMPT_PACKET_VERSION,
     PROBABILISTIC_SAMPLE_COUNT,
     EvidenceLane,
     MetricContract,
     ObservationScope,
+    PromptLocale,
     PredictiveFactorContribution,
     PredictiveMetricState,
     PredictiveModelStageReceipt,
     SessionPredictiveMetricProjection,
     SessionPredictiveMetricReceipt,
     probabilistic_contract_set_fingerprint,
+    probabilistic_metric_prompt_packet,
 )
+from ...application.analysis.evidence_contracts import EphemeralTypedEvidenceProjection
 from ...application.persistence import MetricValueState
 from .model_ensemble import (
     MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
@@ -66,9 +77,10 @@ from .model_ensemble import (
 )
 
 
-LIVE_PROBABILISTIC_PLAN_VERSION = "small-factor-router-v2"
+LIVE_PROBABILISTIC_PLAN_VERSION = "small-factor-router-v3"
 LIVE_PROBABILISTIC_MAX_SELECTED_FRAGMENTS = 4
 LIVE_PROBABILISTIC_MAX_DEEP_CASES = 12
+DISABLED_PROBABILISTIC_MODEL_KEYS = frozenset({"deberta_small_long_nli"})
 _TOKEN = re.compile(r"[^\W_]{2,}", flags=re.UNICODE)
 
 DeepStageExecutor = Callable[
@@ -106,7 +118,7 @@ def _tokens(value: str) -> frozenset[str]:
 def _select_fragments(
     plan: EnsembleChunkPlan,
     contract: MetricContract,
-    factor_description: str,
+    factor_key: str,
 ) -> tuple[str, ...]:
     ordered = tuple(fragment for chunk in plan.chunks for fragment in chunk.fragments)
     if contract.scope is ObservationScope.FOCUS_REQUEST:
@@ -128,7 +140,15 @@ def _select_fragments(
     if len(eligible) <= LIVE_PROBABILISTIC_MAX_SELECTED_FRAGMENTS:
         return tuple(item.fragment_id for item in eligible)
 
-    query_tokens = _tokens(factor_description.replace(".", " "))
+    factor_packet = probabilistic_metric_prompt_packet(contract.metric_key).factor(
+        factor_key
+    )
+    # Retrieval is bilingual even though an individual NLI hypothesis is
+    # localized later. This prevents Polish evidence selection from degrading
+    # into role/recency-only ranking against an English query.
+    query_tokens = _tokens(
+        f"{factor_packet.statement_en} {factor_packet.statement_pl}".replace(".", " ")
+    )
     scored: list[tuple[float, int, str]] = []
     for ordinal, item in enumerate(eligible):
         text_tokens = _tokens(item.text.get_secret_value())
@@ -154,16 +174,52 @@ def _build_cases(plan: EnsembleChunkPlan) -> tuple[dict[str, object], ...]:
     cases: list[dict[str, object]] = []
     owner = plan.chunks[-1].ordinal
     for contract in PROBABILISTIC_METRIC_CONTRACTS:
+        # These metrics require typed objective receipts. Text models may help
+        # route/link evidence later, but must not forecast the evidence result.
+        if contract.metric_key in EVIDENCE_LANE_METRIC_KEYS:
+            continue
+        packet = probabilistic_metric_prompt_packet(contract.metric_key)
         for factor in contract.factors:
-            candidates = _select_fragments(plan, contract, factor.description)
+            candidates = _select_fragments(plan, contract, factor.factor_key)
             if not candidates:
                 continue
+            selected = tuple(
+                fragment
+                for chunk in plan.chunks
+                for fragment in chunk.fragments
+                if fragment.fragment_id in candidates
+            )
+            locale = (
+                PromptLocale.POLISH
+                if selected
+                and all(item.language.value == "pl" for item in selected)
+                else PromptLocale.ENGLISH
+            )
+            factor_statement = packet.factor(factor.factor_key).statement(locale)
+            if locale is PromptLocale.POLISH:
+                applicability_hypothesis = (
+                    "Ten ograniczony epizod zawiera obserwowalną możliwość oceny "
+                    f"następującego czynnika: {factor_statement}"
+                )
+                satisfaction_hypothesis = (
+                    "Wybrane dowody spełniają następujący czynnik w określonym "
+                    f"zakresie: {factor_statement}"
+                )
+            else:
+                applicability_hypothesis = (
+                    "This bounded episode contains an observable opportunity to "
+                    f"assess the following factor: {factor_statement}"
+                )
+                satisfaction_hypothesis = (
+                    "The selected evidence satisfies the following factor under "
+                    f"its stated scope: {factor_statement}"
+                )
             common = {
                 "chunk_ordinal": owner,
                 "metric_key": contract.metric_key,
                 "candidate_ids": list(candidates),
-                "query": factor.description,
-                "rubric": factor.description,
+                "query": factor_statement,
+                "rubric": packet.deep_rubric(factor.factor_key, locale),
             }
             cases.append(
                 {
@@ -171,10 +227,7 @@ def _build_cases(plan: EnsembleChunkPlan) -> tuple[dict[str, object], ...]:
                     "case_id": _case_id(
                         contract.metric_key, factor.factor_key, "applicability"
                     ),
-                    "hypothesis": (
-                        "This bounded episode contains an observable opportunity to "
-                        f"assess the following factor: {factor.description}"
-                    ),
+                    "hypothesis": applicability_hypothesis,
                 }
             )
             cases.append(
@@ -183,10 +236,7 @@ def _build_cases(plan: EnsembleChunkPlan) -> tuple[dict[str, object], ...]:
                     "case_id": _case_id(
                         contract.metric_key, factor.factor_key, "satisfaction"
                     ),
-                    "hypothesis": (
-                        "The selected evidence satisfies the following factor under "
-                        f"its stated scope: {factor.description}"
-                    ),
+                    "hypothesis": satisfaction_hypothesis,
                 }
             )
     if not 1 <= len(cases) <= 160:
@@ -301,6 +351,23 @@ def _stage_receipt(
     )
 
 
+def _invalid_output_stage(
+    spec: EnsembleExpertSpec,
+    *,
+    error_code: str,
+    quantization: str = "none",
+) -> PredictiveModelStageReceipt:
+    return PredictiveModelStageReceipt(
+        model_key=spec.identity.model_key,
+        repository_id=spec.identity.repository_id,
+        revision=spec.identity.revision,
+        status="failed",
+        error_code=error_code,
+        quantization=quantization,
+        unloaded_after_stage=True,
+    )
+
+
 def _old_stage_receipt(
     spec: EnsembleExpertSpec,
     stage: PredictiveModelStageReceipt | None,
@@ -361,6 +428,24 @@ def _density(values: Sequence[float]) -> tuple[float, ...]:
     return tuple(result)
 
 
+def _robust_probability_pool(
+    rows: Sequence[tuple[float, float, float]],
+) -> tuple[float, float, float]:
+    """Pool uncalibrated experts without treating softmax scores as weights.
+
+    Component-wise medians are deliberately conservative under one extreme
+    challenger. Calibration may replace this with a trained stacker later.
+    """
+
+    if len(rows) < PROBABILISTIC_MIN_EXPERT_CONTRIBUTORS:
+        raise ValueError("robust probability pool requires two contributors")
+    pooled = tuple(median(row[index] for row in rows) for index in range(3))
+    total = sum(pooled)
+    if total <= 1e-9:
+        raise ValueError("robust probability pool has no mass")
+    return tuple(value / total for value in pooled)  # type: ignore[return-value]
+
+
 def _unavailable_metric(contract: MetricContract) -> SessionPredictiveMetricReceipt:
     return SessionPredictiveMetricReceipt(
         metric_key=contract.metric_key,
@@ -389,7 +474,7 @@ def _deep_cases(
         if len(rows) < 2:
             continue
         present = [item[0] for item in rows]
-        neutral = fmean(item[1] for item in rows)
+        neutral = median(item[1] for item in rows)
         if max(present) - min(present) >= 0.25 or neutral >= 0.34:
             selected.append(case)
         if len(selected) >= LIVE_PROBABILISTIC_MAX_DEEP_CASES:
@@ -438,6 +523,52 @@ def _cuda_deep_lane_available(device: str) -> bool:
         return False
 
 
+def _draw_metric_samples(
+    contributions: Sequence[PredictiveFactorContribution],
+    *,
+    seed: int,
+) -> tuple[tuple[float, ...], int]:
+    """Draw exact aggregation samples while retaining unresolved mass."""
+
+    generator = random.Random(seed)
+    samples: list[float] = []
+    applicable_draws = 0
+    for _ in range(PROBABILISTIC_SAMPLE_COUNT):
+        numerator = 0.0
+        denominator = 0.0
+        unresolved_draw = False
+        any_applicable = False
+        for factor in contributions:
+            if generator.random() > factor.applicability_probability:
+                continue
+            any_applicable = True
+            draw = generator.random()
+            if draw < factor.present_probability:
+                value = 1.0
+            elif draw < factor.present_probability + factor.neutral_probability:
+                # NLI neutral is unresolved evidence, never ordinal partial
+                # credit. Invalidate the whole metric draw instead of
+                # conditioning the surviving density on resolved factors.
+                unresolved_draw = True
+                continue
+            else:
+                value = 0.0
+            numerator += value * factor.weight
+            denominator += factor.weight
+        if any_applicable:
+            applicable_draws += 1
+        if denominator > 0 and not unresolved_draw:
+            samples.append(numerator / denominator)
+    return tuple(samples), applicable_draws
+
+
+def _has_sufficient_retained_samples(samples: Sequence[float]) -> bool:
+    return (
+        len(samples) / PROBABILISTIC_SAMPLE_COUNT
+        >= PROBABILISTIC_MIN_RETAINED_SAMPLE_RATE
+    )
+
+
 def _project_metric(
     contract: MetricContract,
     outputs: Mapping[
@@ -447,8 +578,28 @@ def _project_metric(
     model_keys: tuple[str, ...],
     source_fingerprint: str,
 ) -> SessionPredictiveMetricReceipt:
+    if contract.metric_key in EVIDENCE_LANE_METRIC_KEYS:
+        return _unavailable_metric(contract)
+    # v1 marks verification-strategy adequacy as objective-only even though the
+    # future product route belongs in the behavioral reasoning view. Mutating
+    # that frozen contract would invalidate persisted receipts, so v1 fails
+    # closed here. TODO(v2): define a new CONVERSATION D+S contract and registry
+    # identity before enabling its experimental estimate.
+    if contract.objective_evidence_required:
+        return _unavailable_metric(contract)
+    # This v1 predictor has no typed semantic-lifecycle input.  A neutral NLI
+    # class is epistemic uncertainty, not evidence that an interaction horizon
+    # is still open.  Until lifecycle receipts are wired into this projection,
+    # only structurally immediate contracts may publish an experimental range.
+    if contract.closure_horizon != "immediate":
+        return _unavailable_metric(contract)
     contributions: list[PredictiveFactorContribution] = []
     expert_factor_values: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    unresolved_weighted_mass = 0.0
+    unresolved_weight = 0.0
+    maximum_unresolved_factor_mass = 0.0
+    joint_resolved_mass = 1.0
+    critical_unresolved = False
     for factor in contract.factors:
         applicability_rows = []
         satisfaction_rows = []
@@ -468,28 +619,55 @@ def _project_metric(
                 expert_factor_values[model_key].append(
                     (satisfaction[0] / decisive, factor.weight)
                 )
-        if not applicability_rows or not satisfaction_rows:
+        if (
+            len(applicability_rows) < PROBABILISTIC_MIN_EXPERT_CONTRIBUTORS
+            or len(satisfaction_rows) < PROBABILISTIC_MIN_EXPERT_CONTRIBUTORS
+        ):
             continue
-        present = fmean(row[0] for row in satisfaction_rows)
-        neutral = fmean(row[1] for row in satisfaction_rows)
-        absent = fmean(row[2] for row in satisfaction_rows)
-        total = present + neutral + absent
+        present, neutral, absent = _robust_probability_pool(satisfaction_rows)
+        applicability, app_neutral, _app_absent = _robust_probability_pool(
+            applicability_rows
+        )
+        # Applicability neutral and satisfaction neutral are both unresolved
+        # model evidence. Neither is temporal pending and neither may be
+        # conditioned away to make the score distribution look sharper.
+        factor_unresolved_mass = max(neutral, app_neutral)
+        unresolved_weighted_mass += factor_unresolved_mass * factor.weight
+        unresolved_weight += factor.weight
+        maximum_unresolved_factor_mass = max(
+            maximum_unresolved_factor_mass,
+            factor_unresolved_mass,
+        )
+        joint_resolved_mass *= 1.0 - factor_unresolved_mass
+        if (
+            factor.critical
+            and factor_unresolved_mass
+            >= PROBABILISTIC_MAX_CRITICAL_UNRESOLVED_MASS
+        ):
+            critical_unresolved = True
         contributions.append(
             PredictiveFactorContribution(
                 factor_key=factor.factor_key,
                 scale=factor.scale,
                 weight=factor.weight,
-                applicability_probability=fmean(
-                    row[0] for row in applicability_rows
-                ),
-                present_probability=present / total,
-                neutral_probability=neutral / total,
-                absent_probability=absent / total,
+                applicability_probability=applicability,
+                present_probability=present,
+                neutral_probability=neutral,
+                absent_probability=absent,
                 expert_count=len(satisfaction_rows),
                 critical=factor.critical,
             )
         )
     if len(contributions) != len(contract.factors):
+        return _unavailable_metric(contract)
+    if (
+        critical_unresolved
+        or maximum_unresolved_factor_mass
+        >= PROBABILISTIC_MAX_UNRESOLVED_FACTOR_MASS
+        or unresolved_weighted_mass / unresolved_weight
+        >= PROBABILISTIC_MAX_WEIGHTED_UNRESOLVED_MASS
+        or joint_resolved_mass < PROBABILISTIC_MIN_RETAINED_SAMPLE_RATE
+    ):
         return _unavailable_metric(contract)
 
     seed = int(
@@ -500,36 +678,11 @@ def _project_metric(
         ).hexdigest(),
         16,
     )
-    generator = random.Random(seed)
-    samples: list[float] = []
-    applicable_draws = 0
-    pending_draws = 0
-    for _ in range(PROBABILISTIC_SAMPLE_COUNT):
-        numerator = 0.0
-        denominator = 0.0
-        critical_missing = False
-        any_applicable = False
-        for factor in contributions:
-            if generator.random() > factor.applicability_probability:
-                continue
-            any_applicable = True
-            draw = generator.random()
-            if draw < factor.present_probability:
-                value = 1.0
-            elif draw < factor.present_probability + factor.neutral_probability:
-                pending_draws += 1
-                if factor.critical:
-                    critical_missing = True
-                continue
-            else:
-                value = 0.0
-            numerator += value * factor.weight
-            denominator += factor.weight
-        if any_applicable:
-            applicable_draws += 1
-        if denominator > 0 and not critical_missing:
-            samples.append(numerator / denominator)
-    if not samples:
+    samples, applicable_draws = _draw_metric_samples(
+        contributions,
+        seed=seed,
+    )
+    if not _has_sufficient_retained_samples(samples):
         return _unavailable_metric(contract)
 
     expert_means = []
@@ -540,18 +693,25 @@ def _project_metric(
                 / sum(weight for _value, weight in values)
             )
     disagreement = pstdev(expert_means) if len(expert_means) >= 2 else None
+    q05 = _quantile(samples, 0.05)
+    q95 = _quantile(samples, 0.95)
+    if q95 - q05 >= PROBABILISTIC_MAX_INFORMATIVE_INTERVAL_WIDTH:
+        return _unavailable_metric(contract)
     return SessionPredictiveMetricReceipt(
         metric_key=contract.metric_key,
         target=contract.target,
         state=PredictiveMetricState.EXPERIMENTAL,
-        mean=fmean(samples),
+        mean=sum(samples) / len(samples),
         median=_quantile(samples, 0.50),
-        q05=_quantile(samples, 0.05),
+        q05=q05,
         q25=_quantile(samples, 0.25),
         q75=_quantile(samples, 0.75),
-        q95=_quantile(samples, 0.95),
+        q95=q95,
         applicability_probability=applicable_draws / PROBABILISTIC_SAMPLE_COUNT,
-        pending_probability=min(1.0, pending_draws / max(1, PROBABILISTIC_SAMPLE_COUNT * len(contributions))),
+        # Immediate contracts have no open/right-censored horizon by
+        # definition.  Neutral mass remains in factor uncertainty and never
+        # masquerades as temporal pending probability.
+        pending_probability=0.0,
         model_disagreement=disagreement,
         effective_observation_count=1,
         calibration_version=EXPERIMENTAL_CALIBRATION_VERSION,
@@ -631,11 +791,17 @@ class LocalProbabilisticMetricRunner:
         metric_specs: tuple[EnsembleMetricSpec, ...],
     ) -> str:
         all_specs = ensemble_expert_specs()
-        specs = (*all_specs[6:9], *probabilistic_challenger_specs(), all_specs[9])
+        challengers = tuple(
+            item
+            for item in probabilistic_challenger_specs()
+            if item.identity.model_key not in DISABLED_PROBABILISTIC_MODEL_KEYS
+        )
+        specs = (*all_specs[6:9], *challengers, all_specs[9])
         return _digest(
             {
                 "plan": LIVE_PROBABILISTIC_PLAN_VERSION,
                 "contract_set": probabilistic_contract_set_fingerprint(),
+                "prompt_packets": PROBABILISTIC_PROMPT_PACKET_VERSION,
                 "models": [
                     {
                         "key": item.identity.model_key,
@@ -666,6 +832,7 @@ class LocalProbabilisticMetricRunner:
         *,
         progress_callback: Callable[[int, int], None] | None = None,
         prior_receipt: SessionModelEnsembleReceipt | None = None,
+        typed_evidence: EphemeralTypedEvidenceProjection | None = None,
     ) -> SessionModelEnsembleReceipt:
         if chunk_plan.source_coverage_state is not SourceCoverageState.COMPLETE_WINDOW:
             raise ModelEnsembleError("probabilistic_source_incomplete")
@@ -673,6 +840,10 @@ class LocalProbabilisticMetricRunner:
         if {item.metric_key for item in metric_specs} != expected_keys:
             raise ModelEnsembleError("probabilistic_metric_registry_mismatch")
         _ = prior_receipt
+        # The objective projection is accepted as an ephemeral seam for the
+        # measured semantic-unit lane. Predictive evidence-lane forecasts are
+        # intentionally disabled regardless of its contents.
+        _ = typed_evidence
         created_at = self._clock()
         fragments = tuple(
             fragment for chunk in chunk_plan.chunks for fragment in chunk.fragments
@@ -694,7 +865,11 @@ class LocalProbabilisticMetricRunner:
             "cases": list(cases),
         }
         nli_specs = ensemble_expert_specs()[6:9]
-        challenger_specs = probabilistic_challenger_specs()
+        challenger_specs = tuple(
+            item
+            for item in probabilistic_challenger_specs()
+            if item.identity.model_key not in DISABLED_PROBABILISTIC_MODEL_KEYS
+        )
         language_by_fragment = {
             item.fragment_id: item.language.value for item in fragments
         }
@@ -709,10 +884,13 @@ class LocalProbabilisticMetricRunner:
         active_specs = (
             (*nli_specs, *challenger_specs) if english_cases else nli_specs
         )
+        heartbeat_progress = [0]
         self._heartbeat = (
             None
             if progress_callback is None
-            else lambda: progress_callback(0, MODEL_ENSEMBLE_MODEL_COUNT)
+            else lambda: progress_callback(
+                heartbeat_progress[0], MODEL_ENSEMBLE_MODEL_COUNT
+            )
         )
         if progress_callback is not None:
             progress_callback(0, MODEL_ENSEMBLE_MODEL_COUNT)
@@ -737,23 +915,35 @@ class LocalProbabilisticMetricRunner:
                     )
             except Exception:
                 result = None
-            stage = _stage_receipt(spec, result)
+            try:
+                stage = _stage_receipt(spec, result)
+            except (ModelEnsembleError, ValueError):
+                stage = _invalid_output_stage(
+                    spec,
+                    error_code="probabilistic_stage_output_invalid",
+                )
             stage_receipts.append(stage)
             if stage.status == "completed":
-                rows_by_model[spec.identity.model_key] = _parse_rows(
-                    result, stage_cases
-                )
+                try:
+                    parsed_rows = _parse_rows(result, stage_cases)
+                except ModelEnsembleError:
+                    stage_receipts[-1] = _invalid_output_stage(
+                        spec,
+                        error_code="probabilistic_factor_output_invalid",
+                    )
+                else:
+                    rows_by_model[spec.identity.model_key] = parsed_rows
             if progress_callback is not None:
-                progress_callback(
-                    min(
-                        MODEL_ENSEMBLE_MODEL_COUNT - 1,
-                        round(
-                            index
-                            * (MODEL_ENSEMBLE_MODEL_COUNT - 1)
-                            / len(active_specs)
-                        ),
+                heartbeat_progress[0] = min(
+                    MODEL_ENSEMBLE_MODEL_COUNT - 1,
+                    round(
+                        index
+                        * (MODEL_ENSEMBLE_MODEL_COUNT - 1)
+                        / len(active_specs)
                     ),
-                    MODEL_ENSEMBLE_MODEL_COUNT,
+                )
+                progress_callback(
+                    heartbeat_progress[0], MODEL_ENSEMBLE_MODEL_COUNT
                 )
         case_identity = {
             _case_id(contract.metric_key, factor.factor_key, purpose): (
@@ -784,38 +974,54 @@ class LocalProbabilisticMetricRunner:
                 )
             except Exception:
                 deep_result = None
-            deep_stage = _stage_receipt(
-                deep_spec,
-                deep_result,
-                quantization="bitsandbytes_nf4",
-            )
+            try:
+                deep_stage = _stage_receipt(
+                    deep_spec,
+                    deep_result,
+                    quantization="bitsandbytes_nf4",
+                )
+            except (ModelEnsembleError, ValueError):
+                deep_stage = _invalid_output_stage(
+                    deep_spec,
+                    error_code="probabilistic_deep_stage_output_invalid",
+                    quantization="bitsandbytes_nf4",
+                )
             stage_receipts.append(deep_stage)
             if deep_stage.status == "completed":
-                labels = _parse_deep_rows(deep_result, deep_cases)
-                deep_values: dict[str, tuple[float, float, float]] = {}
-                for case in deep_cases:
-                    case_id = str(case["case_id"])
-                    metric_key, factor_key, _purpose = case_identity[case_id]
-                    label = labels[case_id]
-                    deep_values[case_id] = {
-                        "present": (0.85, 0.10, 0.05),
-                        "absent": (0.05, 0.10, 0.85),
-                        "abstain": (0.15, 0.70, 0.15),
-                    }[label]
-                    applicability_id = _case_id(
-                        metric_key, factor_key, "applicability"
+                try:
+                    labels = _parse_deep_rows(deep_result, deep_cases)
+                except ModelEnsembleError:
+                    stage_receipts[-1] = _invalid_output_stage(
+                        deep_spec,
+                        error_code="probabilistic_deep_output_invalid",
+                        quantization="bitsandbytes_nf4",
                     )
-                    applicability_rows = [
-                        values[applicability_id]
-                        for values in rows_by_model.values()
-                        if applicability_id in values
-                    ]
-                    if applicability_rows:
-                        deep_values[applicability_id] = tuple(
-                            fmean(row[index] for row in applicability_rows)
-                            for index in range(3)
+                else:
+                    deep_values: dict[str, tuple[float, float, float]] = {}
+                    for case in deep_cases:
+                        case_id = str(case["case_id"])
+                        metric_key, factor_key, _purpose = case_identity[case_id]
+                        label = labels[case_id]
+                        # The deep judge emits a categorical state, not a
+                        # calibrated probability. Preserve exactly that state.
+                        deep_values[case_id] = {
+                            "present": (1.0, 0.0, 0.0),
+                            "absent": (0.0, 0.0, 1.0),
+                            "abstain": (0.0, 1.0, 0.0),
+                        }[label]
+                        applicability_id = _case_id(
+                            metric_key, factor_key, "applicability"
                         )
-                rows_by_model[deep_spec.identity.model_key] = deep_values
+                        applicability_rows = [
+                            values[applicability_id]
+                            for values in rows_by_model.values()
+                            if applicability_id in values
+                        ]
+                        if len(applicability_rows) >= PROBABILISTIC_MIN_EXPERT_CONTRIBUTORS:
+                            deep_values[applicability_id] = _robust_probability_pool(
+                                applicability_rows
+                            )
+                    rows_by_model[deep_spec.identity.model_key] = deep_values
             if progress_callback is not None:
                 progress_callback(MODEL_ENSEMBLE_MODEL_COUNT, MODEL_ENSEMBLE_MODEL_COUNT)
         self._heartbeat = None

@@ -85,28 +85,28 @@ export const QUALITY_LENSES: readonly QualityLensDefinition[] = [
     question: "How well did observable requirements, plans, decisions, and actions connect?",
     boundary:
       "Observable work traces only; hidden chain-of-thought is never accessed or inferred.",
-    expectedMetricCount: 5,
+    expectedMetricCount: 4,
     metrics: [
       { key: "logic.decomposition_coverage", version: 2 },
-      { key: "logic.hypothesis_test_linkage", version: 2 },
       { key: "logic.decision_rationale_coverage", version: 3 },
-      { key: "logic.requirement_action_traceability", version: 3 },
       { key: "logic.open_loop_closure", version: 2 },
+      { key: "outcome.verification_strategy_adequacy", version: 2 },
     ],
   },
   {
     id: "outcome-evidence",
     version: 1,
     dimension: "outcome",
-    label: "Outcome evidence",
-    shortLabel: "Outcome",
-    question: "What objective evidence supports completion and verification?",
+    label: "Evidence lane",
+    shortLabel: "Evidence",
+    question: "Which observable actions and objective receipts support the work?",
     boundary:
       "Verification evidence only; an assistant completion claim never proves success.",
-    expectedMetricCount: 4,
+    expectedMetricCount: 5,
     metrics: [
+      { key: "logic.hypothesis_test_linkage", version: 2 },
+      { key: "logic.requirement_action_traceability", version: 3 },
       { key: "outcome.agent_claim_grounding", version: 2 },
-      { key: "outcome.verification_strategy_adequacy", version: 2 },
       { key: "outcome.first_pass_verification", version: 2 },
       { key: "outcome.verified_requirement_coverage", version: 2 },
     ],
@@ -163,7 +163,6 @@ function orderedLensMetrics(
     .map((metric, sourceIndex) => ({ metric, sourceIndex }))
     .filter(
       ({ metric }) =>
-        metric.definition.dimension === definition.dimension &&
         rank.has(`${metric.definition.key}@${metric.definition.version}`),
     );
   const identities = dimensionMetrics.map(

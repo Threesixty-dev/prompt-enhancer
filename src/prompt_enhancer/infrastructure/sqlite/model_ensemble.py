@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 import hashlib
 import json
 
@@ -26,6 +27,12 @@ from ...application.analysis.session_model_ensemble import (
     SessionModelEnsemblePersistenceAuthority,
     SessionModelEnsembleRepository,
     SessionModelEnsembleRunRecord,
+)
+from ...application.analysis.semantic_units import (
+    SEMANTIC_UNIT_CONTRACT_VERSION,
+    SEMANTIC_UNIT_SCHEMA_VERSION,
+    SemanticUnitReceipt,
+    SemanticUnitReconciliation,
 )
 from ...application.analysis.probabilistic_metrics import (
     PROBABILISTIC_METRIC_PROJECTION_VERSION,
@@ -139,6 +146,21 @@ def _predictive_projection_fingerprint(
     ).hexdigest()
 
 
+def _semantic_unit_reconciliation_fingerprint(
+    reconciliation: SemanticUnitReconciliation,
+) -> str:
+    """Seal an already content-free canonical semantic-unit projection."""
+
+    return hashlib.sha256(
+        json.dumps(
+            reconciliation.model_dump(mode="json"),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
     def __init__(
         self,
@@ -153,6 +175,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
         run: SessionModelEnsembleRunRecord,
         *,
         authority: SessionModelEnsemblePersistenceAuthority | None = None,
+        semantic_units: SemanticUnitReconciliation | None = None,
     ) -> None:
         self._ensure_initialized()
         receipt = run.receipt
@@ -410,10 +433,23 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 )
                 self._insert_metric_projection(connection, run)
                 self._insert_predictive_projection(connection, run)
+                self._insert_semantic_unit_reconciliation(
+                    connection,
+                    run,
+                    semantic_units,
+                )
                 hydrated = self._hydrate(connection, run.run_id)
                 if hydrated is None or _graph_fingerprint(hydrated) != _graph_fingerprint(run):
                     raise DatabaseInvariantError(
                         "stored model ensemble graph failed exact rehydration"
+                    )
+                hydrated_semantic_units = self._hydrate_semantic_units(
+                    connection,
+                    run.run_id,
+                )
+                if hydrated_semantic_units != semantic_units:
+                    raise DatabaseInvariantError(
+                        "stored semantic-unit sidecar failed exact rehydration"
                     )
                 connection.commit()
             except Exception:
@@ -685,6 +721,108 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             ),
         )
 
+    @staticmethod
+    def _insert_semantic_unit_reconciliation(
+        connection,
+        run: SessionModelEnsembleRunRecord,
+        reconciliation: SemanticUnitReconciliation | None,
+    ) -> None:
+        if reconciliation is None:
+            return
+        if (
+            reconciliation.schema_version != SEMANTIC_UNIT_SCHEMA_VERSION
+            or reconciliation.contract_version != SEMANTIC_UNIT_CONTRACT_VERSION
+            or reconciliation.provider is not run.provider
+            or reconciliation.session_id != run.session_id
+            or reconciliation.analysis_window_fingerprint != run.input_fingerprint
+        ):
+            raise DatabaseInvariantError(
+                "semantic-unit sidecar does not match the ensemble run"
+            )
+        appended_ids = {item.receipt_id for item in reconciliation.appended}
+        connection.executemany(
+            """
+            INSERT INTO session_model_ensemble_semantic_unit_heads(
+                run_id,unit_ordinal,schema_version,contract_version,
+                unit_kind_version,receipt_id,unit_id,unit_digest,revision,
+                previous_receipt_id,kind,lifecycle,extraction_basis,
+                owner_source_digest,source_version_digest,source_count,
+                first_sequence,closed_at_sequence,
+                superseded_by_source_digest,superseded_by_unit_id,
+                owner_role,owner_message_kind,rework_class,disposition
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                (
+                    run.run_id,
+                    ordinal,
+                    item.schema_version,
+                    item.contract_version,
+                    item.unit_kind_version,
+                    item.receipt_id,
+                    item.unit_id,
+                    item.unit_digest,
+                    item.revision,
+                    item.previous_receipt_id,
+                    item.kind.value,
+                    item.lifecycle.value,
+                    item.extraction_basis.value,
+                    item.owner_source_digest,
+                    item.source_version_digest,
+                    len(item.source_digests),
+                    item.first_sequence,
+                    item.closed_at_sequence,
+                    item.superseded_by_source_digest,
+                    item.superseded_by_unit_id,
+                    None if item.owner_role is None else item.owner_role.value,
+                    (
+                        None
+                        if item.owner_message_kind is None
+                        else item.owner_message_kind.value
+                    ),
+                    None if item.rework_class is None else item.rework_class.value,
+                    "appended" if item.receipt_id in appended_ids else "unchanged",
+                )
+                for ordinal, item in enumerate(reconciliation.heads)
+            ),
+        )
+        connection.executemany(
+            """
+            INSERT INTO session_model_ensemble_semantic_unit_sources(
+                run_id,unit_id,source_ordinal,source_digest
+            ) VALUES(?,?,?,?)
+            """,
+            (
+                (run.run_id, item.unit_id, ordinal, source_digest)
+                for item in reconciliation.heads
+                for ordinal, source_digest in enumerate(item.source_digests)
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO session_model_ensemble_semantic_unit_seals(
+                run_id,schema_version,contract_version,reconciliation_id,
+                analysis_window_fingerprint,source_complete,head_count,
+                appended_count,unchanged_count,retained_unobserved_unit_count,
+                reconciliation_fingerprint,sealed_at,local_only,content_persisted
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,0)
+            """,
+            (
+                run.run_id,
+                reconciliation.schema_version,
+                reconciliation.contract_version,
+                reconciliation.reconciliation_id,
+                reconciliation.analysis_window_fingerprint,
+                int(reconciliation.source_complete),
+                len(reconciliation.heads),
+                len(reconciliation.appended),
+                len(reconciliation.unchanged_receipt_ids),
+                reconciliation.retained_unobserved_unit_count,
+                _semantic_unit_reconciliation_fingerprint(reconciliation),
+                to_iso(run.receipt.completed_at),
+            ),
+        )
+
     def get(self, run_id: str) -> SessionModelEnsembleRunRecord | None:
         self._ensure_initialized()
         require_safe_id(run_id)
@@ -704,6 +842,17 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             ).fetchone()
             return None if row is None else self._hydrate(connection, row["run_id"])
 
+    def get_semantic_unit_reconciliation(
+        self,
+        run_id: str,
+    ) -> SemanticUnitReconciliation | None:
+        """Read the immutable semantic-unit sidecar for one run, if present."""
+
+        self._ensure_initialized()
+        require_safe_id(run_id)
+        with self._connection_scope(readonly=True) as connection:
+            return self._hydrate_semantic_units(connection, run_id)
+
     def delete_for_privacy(self, run_id: str) -> bool:
         self._ensure_initialized()
         require_safe_id(run_id)
@@ -718,6 +867,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 if target is None:
                     connection.rollback()
                     return False
+                privacy_stamp = to_iso(datetime.now(UTC))
                 # Privacy removal is session-wide for shadow-model derivatives.
                 # Disable and revoke the standing watch before erasing the
                 # graph.  A watch-owned save validates this lease in the same
@@ -727,14 +877,50 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 # session also closes the opposite transaction ordering, where
                 # an in-flight descendant committed immediately before this
                 # privacy transaction acquired the writer lock.
+                running_attempt_ids = tuple(
+                    row["attempt_id"]
+                    for row in connection.execute(
+                        """SELECT attempt.attempt_id
+                           FROM session_model_ensemble_analysis_attempts attempt
+                           JOIN session_model_ensemble_watches watch
+                             ON watch.watch_id=attempt.watch_id
+                           WHERE watch.session_id=? AND attempt.state='running'""",
+                        (target["session_id"],),
+                    ).fetchall()
+                )
+                if running_attempt_ids:
+                    placeholders = ",".join("?" for _ in running_attempt_ids)
+                    connection.execute(
+                        """UPDATE session_model_ensemble_analysis_attempts
+                           SET state='cancelled',error_code='privacy_deleted',
+                               completed_at=?
+                           WHERE attempt_id IN ("""
+                        + placeholders
+                        + ") AND state='running'",
+                        (privacy_stamp, *running_attempt_ids),
+                    )
+                    connection.execute(
+                        """INSERT INTO session_model_ensemble_analysis_attempt_seals(
+                               attempt_id,contract_version,stage_count,warning_count,
+                               sealed_at,local_only,content_persisted
+                           )
+                           SELECT attempt_id,'model-ensemble-attempt-stage-seal-v1',
+                                  stage_count,warning_count,completed_at,1,0
+                           FROM session_model_ensemble_analysis_attempts
+                           WHERE attempt_id IN ("""
+                        + placeholders
+                        + ")",
+                        running_attempt_ids,
+                    )
                 connection.execute(
                     """UPDATE session_model_ensemble_watches
                        SET state='disabled',latest_run_id=NULL,
                            latest_input_fingerprint=NULL,
                            last_error_code='privacy_deleted',
-                           lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL
+                           lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+                           updated_at=?
                        WHERE session_id=?""",
-                    (target["session_id"],),
+                    (privacy_stamp, target["session_id"]),
                 )
                 deleted = connection.execute(
                     "DELETE FROM session_model_ensemble_runs WHERE session_id=?",
@@ -756,6 +942,111 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             except Exception:
                 connection.rollback()
                 raise
+
+    @staticmethod
+    def _hydrate_semantic_units(
+        connection,
+        run_id: str,
+    ) -> SemanticUnitReconciliation | None:
+        seal = connection.execute(
+            """SELECT seal.*,run.session_id,run.provider
+               FROM session_model_ensemble_semantic_unit_seals seal
+               JOIN session_model_ensemble_runs run ON run.run_id=seal.run_id
+               WHERE seal.run_id=?""",
+            (run_id,),
+        ).fetchone()
+        if seal is None:
+            return None
+        rows = connection.execute(
+            """SELECT * FROM session_model_ensemble_semantic_unit_heads
+               WHERE run_id=? ORDER BY unit_ordinal""",
+            (run_id,),
+        ).fetchall()
+        heads: list[SemanticUnitReceipt] = []
+        dispositions: list[str] = []
+        for row in rows:
+            sources = tuple(
+                item["source_digest"]
+                for item in connection.execute(
+                    """SELECT source_digest
+                       FROM session_model_ensemble_semantic_unit_sources
+                       WHERE run_id=? AND unit_id=? ORDER BY source_ordinal""",
+                    (run_id, row["unit_id"]),
+                ).fetchall()
+            )
+            if len(sources) != int(row["source_count"]):
+                raise DatabaseInvariantError(
+                    "semantic-unit source graph is incomplete"
+                )
+            heads.append(
+                SemanticUnitReceipt(
+                    schema_version=row["schema_version"],
+                    contract_version=row["contract_version"],
+                    unit_kind_version=row["unit_kind_version"],
+                    provider=Provider(seal["provider"]),
+                    session_id=seal["session_id"],
+                    receipt_id=row["receipt_id"],
+                    unit_id=row["unit_id"],
+                    unit_digest=row["unit_digest"],
+                    revision=row["revision"],
+                    previous_receipt_id=row["previous_receipt_id"],
+                    kind=row["kind"],
+                    lifecycle=row["lifecycle"],
+                    extraction_basis=row["extraction_basis"],
+                    owner_source_digest=row["owner_source_digest"],
+                    source_digests=sources,
+                    source_version_digest=row["source_version_digest"],
+                    first_sequence=row["first_sequence"],
+                    closed_at_sequence=row["closed_at_sequence"],
+                    superseded_by_source_digest=row[
+                        "superseded_by_source_digest"
+                    ],
+                    superseded_by_unit_id=row["superseded_by_unit_id"],
+                    owner_role=row["owner_role"],
+                    owner_message_kind=row["owner_message_kind"],
+                    rework_class=row["rework_class"],
+                )
+            )
+            dispositions.append(row["disposition"])
+        appended = tuple(
+            item
+            for item, disposition in zip(heads, dispositions, strict=True)
+            if disposition == "appended"
+        )
+        unchanged_receipt_ids = tuple(
+            sorted(
+                item.receipt_id
+                for item, disposition in zip(heads, dispositions, strict=True)
+                if disposition == "unchanged"
+            )
+        )
+        reconciliation = SemanticUnitReconciliation(
+            schema_version=seal["schema_version"],
+            contract_version=seal["contract_version"],
+            provider=Provider(seal["provider"]),
+            session_id=seal["session_id"],
+            analysis_window_fingerprint=seal["analysis_window_fingerprint"],
+            source_complete=bool(seal["source_complete"]),
+            reconciliation_id=seal["reconciliation_id"],
+            heads=tuple(heads),
+            appended=appended,
+            unchanged_receipt_ids=unchanged_receipt_ids,
+            retained_unobserved_unit_count=seal[
+                "retained_unobserved_unit_count"
+            ],
+        )
+        if (
+            int(seal["head_count"]) != len(reconciliation.heads)
+            or int(seal["appended_count"]) != len(reconciliation.appended)
+            or int(seal["unchanged_count"])
+            != len(reconciliation.unchanged_receipt_ids)
+            or not bool(seal["local_only"])
+            or bool(seal["content_persisted"])
+            or seal["reconciliation_fingerprint"]
+            != _semantic_unit_reconciliation_fingerprint(reconciliation)
+        ):
+            raise DatabaseInvariantError("semantic-unit sidecar seal is invalid")
+        return reconciliation
 
     def _hydrate(self, connection, run_id: str) -> SessionModelEnsembleRunRecord | None:
         row = connection.execute(

@@ -7,7 +7,13 @@ from datetime import datetime, timedelta
 import hashlib
 
 from ...application.analysis.model_ensemble_watch import (
+    MODEL_ENSEMBLE_ATTEMPT_CONTRACT_VERSION,
     MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL,
+    ModelEnsembleAttemptRecord,
+    ModelEnsembleAttemptStageReceipt,
+    ModelEnsembleAttemptState,
+    ModelEnsembleCanonicalHead,
+    ModelEnsembleStageState,
     ModelEnsembleWatchLease,
     ModelEnsembleWatchRecord,
     ModelEnsembleWatchRepository,
@@ -57,6 +63,52 @@ def _record(row: object) -> ModelEnsembleWatchRecord:
         ),
         created_at=from_iso(row["created_at"]),  # type: ignore[index]
         updated_at=from_iso(row["updated_at"]),  # type: ignore[index]
+    )
+
+
+def _attempt(row: object) -> ModelEnsembleAttemptRecord:
+    return ModelEnsembleAttemptRecord(
+        attempt_id=row["attempt_id"],  # type: ignore[index]
+        watch_id=row["watch_id"],  # type: ignore[index]
+        generation=int(row["generation"]),  # type: ignore[index]
+        state=ModelEnsembleAttemptState(row["state"]),  # type: ignore[index]
+        prior_head_run_id=row["prior_head_run_id"],  # type: ignore[index]
+        published_run_id=row["published_run_id"],  # type: ignore[index]
+        progress_completed=int(row["progress_completed"]),  # type: ignore[index]
+        progress_total=int(row["progress_total"]),  # type: ignore[index]
+        stage_count=int(row["stage_count"]),  # type: ignore[index]
+        warning_count=int(row["warning_count"]),  # type: ignore[index]
+        error_code=row["error_code"],  # type: ignore[index]
+        requested_at=from_iso(row["requested_at"]),  # type: ignore[index]
+        started_at=from_iso(row["started_at"]),  # type: ignore[index]
+        completed_at=(
+            None
+            if row["completed_at"] is None  # type: ignore[index]
+            else from_iso(row["completed_at"])  # type: ignore[index]
+        ),
+    )
+
+
+def _attempt_stage(row: object) -> ModelEnsembleAttemptStageReceipt:
+    unloaded = row["unloaded_after_stage"]  # type: ignore[index]
+    return ModelEnsembleAttemptStageReceipt(
+        attempt_id=row["attempt_id"],  # type: ignore[index]
+        stage_ordinal=int(row["stage_ordinal"]),  # type: ignore[index]
+        stage_key=row["stage_key"],  # type: ignore[index]
+        state=ModelEnsembleStageState(row["state"]),  # type: ignore[index]
+        model_key=row["model_key"],  # type: ignore[index]
+        repository_id=row["repository_id"],  # type: ignore[index]
+        revision=row["revision"],  # type: ignore[index]
+        error_code=row["error_code"],  # type: ignore[index]
+        device=row["device"],  # type: ignore[index]
+        quantization=row["quantization"],  # type: ignore[index]
+        inference_latency_ms=row["inference_latency_ms"],  # type: ignore[index]
+        peak_accelerator_memory_mb=row["peak_accelerator_memory_mb"],  # type: ignore[index]
+        process_rss_mb=row["process_rss_mb"],  # type: ignore[index]
+        evaluated_case_count=row["evaluated_case_count"],  # type: ignore[index]
+        contributed_case_count=row["contributed_case_count"],  # type: ignore[index]
+        unloaded_after_stage=None if unloaded is None else bool(unloaded),
+        completed_at=from_iso(row["completed_at"]),  # type: ignore[index]
     )
 
 
@@ -127,6 +179,46 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             (watch_id,),
         ).fetchone()
 
+    @staticmethod
+    def _seal_terminal_attempts(
+        connection: object,
+        attempt_ids: tuple[str, ...],
+    ) -> None:
+        """Seal complete terminal graphs without scanning the unbounded ledger."""
+
+        if not attempt_ids:
+            return
+        placeholders = ",".join("?" for _ in attempt_ids)
+        connection.execute(  # type: ignore[attr-defined]
+            """INSERT INTO session_model_ensemble_analysis_attempt_seals(
+                   attempt_id,contract_version,stage_count,warning_count,sealed_at,
+                   local_only,content_persisted
+               )
+               SELECT attempt.attempt_id,'model-ensemble-attempt-stage-seal-v1',
+                      attempt.stage_count,attempt.warning_count,attempt.completed_at,1,0
+               FROM session_model_ensemble_analysis_attempts attempt
+               WHERE attempt.attempt_id IN ("""
+            + placeholders
+            + """)
+                 AND attempt.state<>'running' AND attempt.completed_at IS NOT NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM session_model_ensemble_analysis_attempt_seals seal
+                     WHERE seal.attempt_id=attempt.attempt_id
+                 )
+                 AND attempt.stage_count=(
+                     SELECT COUNT(*)
+                     FROM session_model_ensemble_analysis_attempt_stages stage
+                     WHERE stage.attempt_id=attempt.attempt_id
+                 )
+                 AND attempt.warning_count=(
+                     SELECT COUNT(*)
+                     FROM session_model_ensemble_analysis_attempt_stages stage
+                     WHERE stage.attempt_id=attempt.attempt_id
+                       AND stage.state<>'completed'
+                 )""",
+            attempt_ids,
+        )
+
     def enable(
         self,
         *,
@@ -168,6 +260,25 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                 ):
                     connection.rollback()
                     return _record(existing)
+                terminal_attempt_ids = tuple(
+                    row["attempt_id"]
+                    for row in connection.execute(
+                        """SELECT attempt.attempt_id
+                           FROM session_model_ensemble_analysis_attempts attempt
+                           JOIN session_model_ensemble_watches watch
+                             ON watch.watch_id=attempt.watch_id
+                           WHERE attempt.state='running' AND watch.state<>'disabled'"""
+                    ).fetchall()
+                )
+                connection.execute(
+                    """UPDATE session_model_ensemble_analysis_attempts
+                       SET state='cancelled',error_code='watch_reconfigured',completed_at=?
+                       WHERE state='running' AND watch_id IN (
+                           SELECT watch_id FROM session_model_ensemble_watches
+                           WHERE state<>'disabled')""",
+                    (stamp,),
+                )
+                self._seal_terminal_attempts(connection, terminal_attempt_ids)
                 connection.execute(
                     """UPDATE session_model_ensemble_watches
                        SET state='disabled',lease_owner=NULL,lease_token=NULL,
@@ -203,15 +314,27 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                                    lease_expires_at=NULL,updated_at=? WHERE watch_id=?""",
                             (stamp, watch_id),
                         )
-                    connection.execute(
-                        """UPDATE session_model_ensemble_watches
-                           SET state='queued',max_messages=?,progress_completed=0,
-                               latest_run_id=NULL,latest_input_fingerprint=NULL,last_error_code=NULL,
-                               next_check_at=?,lease_owner=NULL,lease_token=NULL,
-                               lease_expires_at=NULL,updated_at=?
-                           WHERE watch_id=?""",
-                        (max_messages, stamp, stamp, watch_id),
-                    )
+                    same_scope = int(existing["max_messages"]) == max_messages
+                    if same_scope:
+                        connection.execute(
+                            """UPDATE session_model_ensemble_watches
+                               SET state='queued',max_messages=?,progress_completed=0,
+                                   last_error_code=NULL,next_check_at=?,lease_owner=NULL,
+                                   lease_token=NULL,lease_expires_at=NULL,updated_at=?
+                               WHERE watch_id=?""",
+                            (max_messages, stamp, stamp, watch_id),
+                        )
+                    else:
+                        connection.execute(
+                            """UPDATE session_model_ensemble_watches
+                               SET state='queued',max_messages=?,
+                                   generation=generation+1,progress_completed=0,
+                                   latest_run_id=NULL,latest_input_fingerprint=NULL,
+                                   last_error_code=NULL,next_check_at=?,lease_owner=NULL,
+                                   lease_token=NULL,lease_expires_at=NULL,updated_at=?
+                               WHERE watch_id=?""",
+                            (max_messages, stamp, stamp, watch_id),
+                        )
                 row = self._row(connection, watch_id)
                 connection.commit()
             except Exception:
@@ -227,6 +350,22 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
         stamp = to_iso(now)
         with self._connection_scope() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            terminal_attempt_ids = tuple(
+                row["attempt_id"]
+                for row in connection.execute(
+                    """SELECT attempt_id
+                       FROM session_model_ensemble_analysis_attempts
+                       WHERE watch_id=? AND state='running'""",
+                    (watch_id,),
+                ).fetchall()
+            )
+            connection.execute(
+                """UPDATE session_model_ensemble_analysis_attempts
+                   SET state='cancelled',error_code='watch_disabled',completed_at=?
+                   WHERE watch_id=? AND state='running'""",
+                (stamp, watch_id),
+            )
+            self._seal_terminal_attempts(connection, terminal_attempt_ids)
             result = connection.execute(
                 """UPDATE session_model_ensemble_watches
                    SET state='disabled',lease_owner=NULL,lease_token=NULL,
@@ -257,6 +396,197 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                    ORDER BY updated_at DESC,watch_id LIMIT 1"""
             ).fetchone()
         return None if row is None else _record(row)
+
+    def get_for_session(self, session_id: str) -> ModelEnsembleWatchRecord | None:
+        require_safe_id(session_id)
+        self._ensure_initialized()
+        with self._connection_scope(readonly=True) as connection:
+            row = connection.execute(
+                """SELECT * FROM session_model_ensemble_watches
+                   WHERE session_id=? LIMIT 1""",
+                (session_id,),
+            ).fetchone()
+        return None if row is None else _record(row)
+
+    def get_attempt(self, attempt_id: str) -> ModelEnsembleAttemptRecord | None:
+        require_safe_id(attempt_id)
+        self._ensure_initialized()
+        with self._connection_scope(readonly=True) as connection:
+            row = connection.execute(
+                """SELECT * FROM session_model_ensemble_analysis_attempts attempt
+                   WHERE attempt_id=? AND (
+                       attempt.state='running' OR EXISTS (
+                           SELECT 1 FROM session_model_ensemble_analysis_attempt_seals seal
+                           WHERE seal.attempt_id=attempt.attempt_id
+                       )
+                   )""",
+                (attempt_id,),
+            ).fetchone()
+        return None if row is None else _attempt(row)
+
+    def get_attempt_stages(
+        self, attempt_id: str
+    ) -> tuple[ModelEnsembleAttemptStageReceipt, ...]:
+        require_safe_id(attempt_id)
+        self._ensure_initialized()
+        with self._connection_scope(readonly=True) as connection:
+            rows = connection.execute(
+                """SELECT stage.*
+                   FROM session_model_ensemble_analysis_attempt_stages stage
+                   JOIN session_model_ensemble_analysis_attempt_seals seal
+                     ON seal.attempt_id=stage.attempt_id
+                   WHERE stage.attempt_id=? ORDER BY stage.stage_ordinal""",
+                (attempt_id,),
+            ).fetchall()
+        return tuple(_attempt_stage(row) for row in rows)
+
+    def get_attempt_snapshot(
+        self, attempt_id: str
+    ) -> tuple[
+        ModelEnsembleAttemptRecord,
+        tuple[ModelEnsembleAttemptStageReceipt, ...],
+    ] | None:
+        require_safe_id(attempt_id)
+        self._ensure_initialized()
+        with self._connection_scope(readonly=True) as connection:
+            try:
+                connection.execute("BEGIN")
+                row = connection.execute(
+                    """SELECT * FROM session_model_ensemble_analysis_attempts attempt
+                       WHERE attempt_id=? AND (
+                           attempt.state='running' OR EXISTS (
+                               SELECT 1 FROM session_model_ensemble_analysis_attempt_seals seal
+                               WHERE seal.attempt_id=attempt.attempt_id
+                           )
+                       )""",
+                    (attempt_id,),
+                ).fetchone()
+                if row is None:
+                    connection.commit()
+                    return None
+                stages = ()
+                if row["state"] != "running":
+                    stages = tuple(
+                        _attempt_stage(stage)
+                        for stage in connection.execute(
+                            """SELECT stage.*
+                               FROM session_model_ensemble_analysis_attempt_stages stage
+                               JOIN session_model_ensemble_analysis_attempt_seals seal
+                                 ON seal.attempt_id=stage.attempt_id
+                               WHERE stage.attempt_id=? ORDER BY stage.stage_ordinal""",
+                            (attempt_id,),
+                        ).fetchall()
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return _attempt(row), stages
+
+    def list_attempts(
+        self, watch_id: str, *, limit: int
+    ) -> tuple[ModelEnsembleAttemptRecord, ...]:
+        require_safe_id(watch_id)
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 60
+        ):
+            raise ValueError("attempt page is invalid")
+        self._ensure_initialized()
+        with self._connection_scope(readonly=True) as connection:
+            rows = connection.execute(
+                """SELECT * FROM session_model_ensemble_analysis_attempts attempt
+                   WHERE watch_id=? AND (
+                       attempt.state='running' OR EXISTS (
+                           SELECT 1 FROM session_model_ensemble_analysis_attempt_seals seal
+                           WHERE seal.attempt_id=attempt.attempt_id
+                       )
+                   ) ORDER BY generation DESC LIMIT ?""",
+                (watch_id, limit),
+            ).fetchall()
+        return tuple(_attempt(row) for row in rows)
+
+    def canonical_head(self, watch_id: str) -> ModelEnsembleCanonicalHead:
+        require_safe_id(watch_id)
+        self._ensure_initialized()
+        with self._connection_scope(readonly=True) as connection:
+            try:
+                connection.execute("BEGIN")
+                watch_row = self._row(connection, watch_id)
+                if watch_row is None:
+                    raise ValueError("watch does not exist")
+                publication = connection.execute(
+                    """SELECT generation FROM session_model_ensemble_watch_publications
+                       WHERE watch_id=? AND run_id=?""",
+                    (watch_id, watch_row["latest_run_id"]),
+                ).fetchone()
+                effective_head_run_id = (
+                    watch_row["latest_run_id"] if publication is not None else None
+                )
+                attempt_row = None
+                if watch_row["state"] != "queued":
+                    attempt_row = connection.execute(
+                        """SELECT * FROM session_model_ensemble_analysis_attempts attempt
+                           WHERE watch_id=? AND generation=? AND (
+                               attempt.state='running' OR EXISTS (
+                                   SELECT 1 FROM session_model_ensemble_analysis_attempt_seals seal
+                                   WHERE seal.attempt_id=attempt.attempt_id
+                               )
+                           )
+                             AND (
+                               attempt.state NOT IN ('completed','partial')
+                               OR attempt.published_run_id=?
+                             )
+                             AND (
+                               ? IS NOT NULL
+                               OR attempt.prior_head_run_id IS NULL
+                             )
+                           ORDER BY generation DESC LIMIT 1""",
+                        (
+                            watch_id,
+                            int(watch_row["generation"]),
+                            effective_head_run_id,
+                            effective_head_run_id,
+                        ),
+                    ).fetchone()
+                stages = ()
+                if attempt_row is not None and attempt_row["state"] != "running":
+                    stages = tuple(
+                        _attempt_stage(row)
+                        for row in connection.execute(
+                            """SELECT stage.*
+                               FROM session_model_ensemble_analysis_attempt_stages stage
+                               JOIN session_model_ensemble_analysis_attempt_seals seal
+                                 ON seal.attempt_id=stage.attempt_id
+                               WHERE stage.attempt_id=? ORDER BY stage.stage_ordinal""",
+                            (attempt_row["attempt_id"],),
+                        ).fetchall()
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        watch_record = _record(watch_row)
+        if publication is None and watch_record.latest_run_id is not None:
+            # v30 intentionally did not invent publication lineage for legacy
+            # watch heads.  Such a row is not a canonical v2 snapshot until a
+            # fresh analysis publishes it through the sealed ledger.
+            watch_record = watch_record.model_copy(
+                update={
+                    "latest_run_id": None,
+                    "latest_input_fingerprint": None,
+                }
+            )
+        return ModelEnsembleCanonicalHead(
+            watch=watch_record,
+            head_run_id=effective_head_run_id,
+            head_generation=(
+                None if publication is None else int(publication["generation"])
+            ),
+            latest_attempt=None if attempt_row is None else _attempt(attempt_row),
+            stages=stages,
+        )
 
     def request_refresh(
         self,
@@ -555,6 +885,27 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
+                recovered_attempt_ids = tuple(
+                    row["attempt_id"]
+                    for row in connection.execute(
+                        """SELECT attempt.attempt_id
+                           FROM session_model_ensemble_analysis_attempts attempt
+                           JOIN session_model_ensemble_watches watch
+                             ON watch.watch_id=attempt.watch_id
+                           WHERE attempt.state='running' AND watch.state='running'
+                             AND watch.lease_expires_at<=?""",
+                        (stamp,),
+                    ).fetchall()
+                )
+                connection.execute(
+                    """UPDATE session_model_ensemble_analysis_attempts
+                       SET state='failed',error_code='watch_lease_recovered',completed_at=?
+                       WHERE state='running' AND watch_id IN (
+                           SELECT watch_id FROM session_model_ensemble_watches
+                           WHERE state='running' AND lease_expires_at<=?)""",
+                    (stamp, stamp),
+                )
+                self._seal_terminal_attempts(connection, recovered_attempt_ids)
                 connection.execute(
                     """UPDATE session_model_ensemble_watches
                        SET state='queued',lease_owner=NULL,lease_token=NULL,
@@ -564,7 +915,7 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                     (stamp, stamp, stamp),
                 )
                 candidate = connection.execute(
-                    """SELECT watch_id,generation
+                    """SELECT watch_id,generation,next_check_at
                        FROM session_model_ensemble_watches
                        WHERE state IN ('queued','idle','failed') AND next_check_at<=?
                        ORDER BY next_check_at,created_at,watch_id LIMIT 1""",
@@ -589,6 +940,31 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                         owner,
                         token,
                         to_iso(expires),
+                        stamp,
+                        candidate["watch_id"],
+                    ),
+                )
+                attempt_id = hashlib.sha256(
+                    f"{MODEL_ENSEMBLE_ATTEMPT_CONTRACT_VERSION}:{candidate['watch_id']}:{generation}".encode(
+                        "ascii"
+                    )
+                ).hexdigest()
+                connection.execute(
+                    """INSERT INTO session_model_ensemble_analysis_attempts(
+                           attempt_id,contract_version,watch_id,generation,state,
+                           prior_head_run_id,published_run_id,progress_completed,
+                           progress_total,stage_count,warning_count,error_code,
+                           requested_at,started_at,completed_at,local_only,content_persisted
+                       ) SELECT ?,?,?,?,'running',latest_run_id,NULL,0,?,0,0,NULL,
+                                ?,?,NULL,1,0
+                         FROM session_model_ensemble_watches WHERE watch_id=?""",
+                    (
+                        attempt_id,
+                        MODEL_ENSEMBLE_ATTEMPT_CONTRACT_VERSION,
+                        candidate["watch_id"],
+                        generation,
+                        MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL,
+                        candidate["next_check_at"],
                         stamp,
                         candidate["watch_id"],
                     ),
@@ -638,6 +1014,14 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             if result.rowcount != 1:
                 connection.rollback()
                 raise ValueError("watch lease is no longer active")
+            connection.execute(
+                """UPDATE session_model_ensemble_analysis_attempts
+                   SET progress_completed=?
+                   WHERE watch_id=? AND generation=(
+                       SELECT generation FROM session_model_ensemble_watches WHERE watch_id=?
+                   ) AND state='running'""",
+                (progress_completed, lease.watch_id, lease.watch_id),
+            )
             row = self._row(connection, lease.watch_id)
             connection.commit()
         record = _record(row)
@@ -702,6 +1086,80 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             if result.rowcount != 1:
                 connection.rollback()
                 raise ValueError("watch lease is no longer active")
+            predictive = run.receipt.predictive_projection
+            # A coalesced unchanged observation publishes no new execution.
+            # Do not copy old stage telemetry into the new durable attempt.
+            model_stages = (
+                ()
+                if predictive is None or not outcome.applied
+                else predictive.model_stages
+            )
+            warnings = sum(item.status != "completed" for item in model_stages)
+            attempt_state = "partial" if warnings else "completed"
+            attempt_result = connection.execute(
+                """UPDATE session_model_ensemble_analysis_attempts
+                   SET state=?,published_run_id=?,progress_completed=?,progress_total=?,
+                       stage_count=?,warning_count=?,completed_at=?
+                   WHERE watch_id=? AND generation=(
+                       SELECT generation FROM session_model_ensemble_watches WHERE watch_id=?
+                   ) AND state='running'""",
+                (
+                    attempt_state,
+                    run.run_id,
+                    MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL,
+                    MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL,
+                    len(model_stages),
+                    warnings,
+                    to_iso(now),
+                    lease.watch_id,
+                    lease.watch_id,
+                ),
+            )
+            if attempt_result.rowcount != 1:
+                connection.rollback()
+                raise ValueError("watch attempt is no longer active")
+            attempt_row = connection.execute(
+                """SELECT attempt_id FROM session_model_ensemble_analysis_attempts
+                   WHERE watch_id=? AND generation=(
+                       SELECT generation FROM session_model_ensemble_watches WHERE watch_id=?)""",
+                (lease.watch_id, lease.watch_id),
+            ).fetchone()
+            if attempt_row is None:
+                connection.rollback()
+                raise ValueError("watch attempt is unavailable")
+            connection.executemany(
+                """INSERT INTO session_model_ensemble_analysis_attempt_stages(
+                       attempt_id,stage_ordinal,stage_key,state,model_key,
+                       repository_id,revision,error_code,device,quantization,
+                       inference_latency_ms,peak_accelerator_memory_mb,process_rss_mb,
+                       evaluated_case_count,contributed_case_count,unloaded_after_stage,
+                       completed_at,local_only,content_persisted
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,1,0)""",
+                tuple(
+                    (
+                        attempt_row["attempt_id"],
+                        ordinal,
+                        item.model_key,
+                        item.status,
+                        item.model_key,
+                        item.repository_id,
+                        item.revision,
+                        item.error_code,
+                        item.device,
+                        item.quantization,
+                        item.inference_latency_ms,
+                        item.peak_accelerator_memory_mb,
+                        item.process_rss_mb,
+                        int(item.unloaded_after_stage),
+                        to_iso(now),
+                    )
+                    for ordinal, item in enumerate(model_stages)
+                ),
+            )
+            self._seal_terminal_attempts(
+                connection,
+                (attempt_row["attempt_id"],),
+            )
             row = self._row(connection, lease.watch_id)
             connection.commit()
         return _record(row)
@@ -737,7 +1195,89 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             if result.rowcount != 1:
                 connection.rollback()
                 raise ValueError("watch lease is no longer active")
+            attempt_result = connection.execute(
+                """UPDATE session_model_ensemble_analysis_attempts
+                   SET state='failed',stage_count=1,warning_count=1,error_code=?,completed_at=?
+                   WHERE watch_id=? AND generation=(
+                       SELECT generation FROM session_model_ensemble_watches WHERE watch_id=?
+                   ) AND state='running'""",
+                (reason_code, to_iso(now), lease.watch_id, lease.watch_id),
+            )
+            if attempt_result.rowcount != 1:
+                connection.rollback()
+                raise ValueError("watch attempt is no longer active")
+            attempt_row = connection.execute(
+                """SELECT attempt_id FROM session_model_ensemble_analysis_attempts
+                   WHERE watch_id=? AND generation=(
+                       SELECT generation FROM session_model_ensemble_watches WHERE watch_id=?)""",
+                (lease.watch_id, lease.watch_id),
+            ).fetchone()
+            connection.execute(
+                """INSERT INTO session_model_ensemble_analysis_attempt_stages(
+                       attempt_id,stage_ordinal,stage_key,state,error_code,quantization,
+                       completed_at,local_only,content_persisted
+                   ) VALUES(?,0,'analysis_pipeline','failed',?,'none',?,1,0)""",
+                (attempt_row["attempt_id"], reason_code, to_iso(now)),
+            )
+            self._seal_terminal_attempts(
+                connection,
+                (attempt_row["attempt_id"],),
+            )
             row = self._row(connection, lease.watch_id)
+            connection.commit()
+        return _record(row)
+
+    def cancel_attempt(
+        self,
+        watch_id: str,
+        *,
+        now: datetime,
+        next_check_at: datetime,
+    ) -> ModelEnsembleWatchRecord:
+        require_safe_id(watch_id)
+        self._ensure_initialized()
+        stamp = to_iso(now)
+        with self._connection_scope() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = self._row(connection, watch_id)
+            if current is None or current["state"] != "running":
+                connection.rollback()
+                raise ValueError("watch has no active attempt")
+            attempt_row = connection.execute(
+                """SELECT attempt_id FROM session_model_ensemble_analysis_attempts
+                   WHERE watch_id=? AND generation=? AND state='running'""",
+                (watch_id, int(current["generation"])),
+            ).fetchone()
+            if attempt_row is None:
+                connection.rollback()
+                raise ValueError("watch attempt is unavailable")
+            connection.execute(
+                """UPDATE session_model_ensemble_analysis_attempts
+                   SET state='cancelled',stage_count=1,warning_count=1,
+                       error_code='analysis_cancelled',completed_at=?
+                   WHERE attempt_id=? AND state='running'""",
+                (stamp, attempt_row["attempt_id"]),
+            )
+            connection.execute(
+                """INSERT INTO session_model_ensemble_analysis_attempt_stages(
+                       attempt_id,stage_ordinal,stage_key,state,error_code,quantization,
+                       completed_at,local_only,content_persisted
+                   ) VALUES(?,0,'analysis_pipeline','cancelled','analysis_cancelled',
+                            'none',?,1,0)""",
+                (attempt_row["attempt_id"], stamp),
+            )
+            self._seal_terminal_attempts(
+                connection,
+                (attempt_row["attempt_id"],),
+            )
+            connection.execute(
+                """UPDATE session_model_ensemble_watches
+                   SET state='idle',progress_completed=0,last_error_code=NULL,next_check_at=?,
+                       lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+                   WHERE watch_id=? AND state='running'""",
+                (to_iso(next_check_at), stamp, watch_id),
+            )
+            row = self._row(connection, watch_id)
             connection.commit()
         return _record(row)
 

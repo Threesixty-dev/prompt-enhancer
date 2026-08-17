@@ -264,6 +264,7 @@ export function QualityProfileView({
   metricReadinessError = "",
   metricReadinessLoading = false,
   sessionDescriptor,
+  manageDocumentContext = true,
 }: {
   profile: QualityMetricProfile;
   onAnalyzeLocally?: AnalyzeLocallyHandler;
@@ -282,6 +283,8 @@ export function QualityProfileView({
   primaryContent?: ReactNode;
   /** Content-free identity shown before a real provider read begins. */
   sessionDescriptor?: string;
+  /** False when this profile is embedded as a demoted legacy disclosure. */
+  manageDocumentContext?: boolean;
 }) {
   const [snapshotKind, setSnapshotKind] = useState<QualitySnapshotKind>("latest");
   const [shareOpen, setShareOpen] = useState(false);
@@ -322,6 +325,7 @@ export function QualityProfileView({
   const analysisDisabled = analysisBlocker !== null;
 
   useEffect(() => {
+    if (!manageDocumentContext) return undefined;
     const previousTitle = document.title;
     const profileTitle = `${profile.title} · Prompt Enhancer`;
     document.title = profileTitle;
@@ -329,7 +333,7 @@ export function QualityProfileView({
     return () => {
       if (document.title === profileTitle) document.title = previousTitle;
     };
-  }, [profile.title]);
+  }, [manageDocumentContext, profile.title]);
 
   useEffect(() => {
     setSnapshotKind("latest");

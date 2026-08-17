@@ -1,4 +1,4 @@
-import type { ModelEnsembleWatchSnapshot } from "./contracts";
+import type { ModelEnsembleWatch, ModelEnsembleWatchSnapshot } from "./contracts";
 import { parseModelEnsembleRun } from "./modelEnsembleContract";
 
 export class ModelEnsembleWatchPayloadError extends Error {
@@ -44,10 +44,8 @@ function timestamp(value: unknown): void {
   ) throw new ModelEnsembleWatchPayloadError();
 }
 
-export function parseModelEnsembleWatchSnapshot(value: unknown): ModelEnsembleWatchSnapshot {
-  const snapshot = row(value);
-  exact(snapshot, ["watch", "latest_run"]);
-  const watch = row(snapshot.watch);
+export function parseModelEnsembleWatch(value: unknown): ModelEnsembleWatch {
+  const watch = row(value);
   exact(watch, [
     "watch_id", "provider", "project_id", "session_id", "max_messages", "state", "generation",
     "progress_completed", "progress_total", "has_result", "last_error_code",
@@ -78,6 +76,13 @@ export function parseModelEnsembleWatchSnapshot(value: unknown): ModelEnsembleWa
   ) throw new ModelEnsembleWatchPayloadError();
   timestamp(watch.next_check_at);
   timestamp(watch.updated_at);
+  return value as ModelEnsembleWatch;
+}
+
+export function parseModelEnsembleWatchSnapshot(value: unknown): ModelEnsembleWatchSnapshot {
+  const snapshot = row(value);
+  exact(snapshot, ["watch", "latest_run"]);
+  const watch = parseModelEnsembleWatch(snapshot.watch);
   if (snapshot.latest_run === null) {
     if (watch.has_result !== false) throw new ModelEnsembleWatchPayloadError();
   } else {

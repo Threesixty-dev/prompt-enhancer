@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CodexSession,
+  ModelEnsembleCanonicalHead,
   ModelEnsembleRun,
   ModelEnsembleTrajectoryPage,
   ModelEnsembleWatchSnapshot,
@@ -151,6 +152,70 @@ function trajectoryPage(head: ModelEnsembleRun, older: ModelEnsembleRun): ModelE
   };
 }
 
+function canonicalHead(run: ModelEnsembleRun, state: "running" | "cancelled" = "running"): ModelEnsembleCanonicalHead {
+  const snapshot = watchSnapshot(25, run);
+  snapshot.watch.state = state === "running" ? "running" : "idle";
+  snapshot.watch.generation = 4;
+  snapshot.watch.progress_completed = state === "running" ? 1 : 0;
+  const completedAt = state === "cancelled" ? "2040-01-02T10:00:02Z" : null;
+  return {
+    schema_version: "analysis-snapshot-v2",
+    watch: snapshot.watch,
+    head_run_id: run.run_id,
+    head_generation: 4,
+    latest_attempt: {
+      attempt_id: "c".repeat(64),
+      watch_id: snapshot.watch.watch_id,
+      generation: snapshot.watch.generation,
+      state,
+      prior_head_run_id: run.run_id,
+      published_run_id: null,
+      progress_completed: 1,
+      progress_total: 6,
+      stage_count: state === "cancelled" ? 1 : 0,
+      warning_count: state === "cancelled" ? 1 : 0,
+      error_code: state === "cancelled" ? "analysis_cancelled" : null,
+      requested_at: "2040-01-02T10:00:00Z",
+      started_at: "2040-01-02T10:00:00Z",
+      completed_at: completedAt,
+      content_persisted: false,
+    },
+    stages: state === "running" ? [] : [{
+      stage_ordinal: 0,
+      stage_key: "mdeberta_xnli",
+      state: "cancelled",
+      model_key: "mdeberta_xnli",
+      repository_id: "example-org/example-model",
+      revision: "f".repeat(40),
+      error_code: "analysis_cancelled",
+      device: "cuda",
+      quantization: "none",
+      inference_latency_ms: 120,
+      peak_accelerator_memory_mb: 1024,
+      process_rss_mb: 1536,
+      evaluated_case_count: 20,
+      contributed_case_count: 14,
+      unloaded_after_stage: true,
+      completed_at: "2040-01-02T10:00:01Z",
+    }],
+    content_persisted: false,
+  };
+}
+
+function idleCanonicalHead(run: ModelEnsembleRun): ModelEnsembleCanonicalHead {
+  const head = canonicalHead(run);
+  head.watch.state = "idle";
+  head.watch.progress_completed = 10;
+  head.latest_attempt = {
+    ...head.latest_attempt!,
+    state: "completed",
+    published_run_id: run.run_id,
+    progress_completed: head.latest_attempt!.progress_total,
+    completed_at: "2040-01-02T10:00:02Z",
+  };
+  return head;
+}
+
 describe("ModelEnsembleOverlay", () => {
   it("renders custom native chrome and delegates only window controls to the desktop bridge", async () => {
     const minimizeWindow = vi.fn(async () => undefined);
@@ -203,6 +268,7 @@ describe("ModelEnsembleOverlay", () => {
   });
 
   it("reserves disconnected for an actual service failure", async () => {
+    vi.useFakeTimers();
     const getActiveModelEnsembleWatch = vi.fn().mockRejectedValue({ status: 503 });
     const transport: PromptEnhancerTransport = {
       ...createSyntheticTransport(),
@@ -210,8 +276,34 @@ describe("ModelEnsembleOverlay", () => {
     };
 
     render(<ModelEnsembleOverlay transport={transport} />);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(screen.getByText(/Reconnecting · last receipt retained/i)).toBeVisible();
+    vi.useRealTimers();
+  });
 
-    expect(await screen.findByText(/Reconnecting · last receipt retained/i)).toBeVisible();
+  it("does not count intentionally superseded visibility polls as failures", async () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const getActiveModelEnsembleWatch = vi.fn((signal?: AbortSignal) => new Promise<ModelEnsembleWatchSnapshot>(
+      (_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      },
+    ));
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleWatch,
+    };
+
+    const view = render(<ModelEnsembleOverlay transport={transport} />);
+    await waitFor(() => expect(getActiveModelEnsembleWatch).toHaveBeenCalledTimes(1));
+    for (const expectedCalls of [2, 3, 4]) {
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await waitFor(() => expect(getActiveModelEnsembleWatch).toHaveBeenCalledTimes(expectedCalls));
+    }
+    await settlePoll();
+
+    expect(screen.queryByText(/Reconnecting · last receipt retained/i)).not.toBeInTheDocument();
+    view.unmount();
+    visibility.mockRestore();
   });
 
   it("navigates indexed projects and sessions, filters catalog dates, and enables an exact message window", async () => {
@@ -284,10 +376,11 @@ describe("ModelEnsembleOverlay", () => {
     expect(document.querySelectorAll(".model-ensemble__radar-prior-point")).toHaveLength(1);
     expect(document.querySelectorAll(".model-ensemble__radar-state")).toHaveLength(5);
 
-    fireEvent.click(screen.getByRole("button", { name: "Older" }));
+    fireEvent.click(screen.getByText("History"));
+    fireEvent.click(screen.getByRole("button", { name: "Open earlier snapshot 2" }));
     expect(await screen.findByText("Earlier published snapshot")).toBeVisible();
     expect(screen.getByText(/Aggregate-only history point/i)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Return live" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open live snapshot" }));
     expect(await screen.findByText("Live published head")).toBeVisible();
   });
 
@@ -318,6 +411,115 @@ describe("ModelEnsembleOverlay", () => {
     expect(await screen.findByRole("button", { name: /Analysis queued/i })).toBeDisabled();
   });
 
+  it("uses the canonical head for dynamic stage status, heavy snapshot changes, and real cancellation", async () => {
+    const headRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const cancellationHeadRun = radarRun("9".repeat(64), 0, "2040-01-02T10:00:01Z");
+    const runningHead = canonicalHead(headRun);
+    const cancelledHead = canonicalHead(cancellationHeadRun, "cancelled");
+    const getModelEnsembleSnapshot = vi.fn(async (runId: string) =>
+      runId === headRun.run_id ? headRun : cancellationHeadRun);
+    const cancelModelEnsembleAnalysis = vi.fn(async () => cancelledHead);
+    const getActiveModelEnsembleWatch = vi.fn();
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => runningHead),
+      getModelEnsembleSnapshot,
+      cancelModelEnsembleAnalysis,
+      getActiveModelEnsembleWatch,
+      getModelEnsembleTrajectory: vi.fn(async () => trajectoryPage(
+        headRun,
+        radarRun("7".repeat(64), 1, "2040-01-02T09:00:00Z"),
+      )),
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+
+    expect((await screen.findAllByText("Updating · 1/6 pipeline steps")).length).toBeGreaterThanOrEqual(1);
+    expect(getModelEnsembleSnapshot).toHaveBeenCalledWith(headRun.run_id, expect.any(AbortSignal));
+    expect(getActiveModelEnsembleWatch).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel analysis" }));
+    await waitFor(() => expect(cancelModelEnsembleAnalysis).toHaveBeenCalledWith("d".repeat(64)));
+    expect(await screen.findByText("0% signal")).toBeVisible();
+    expect(getModelEnsembleSnapshot).toHaveBeenCalledWith(cancellationHeadRun.run_id);
+    fireEvent.click(screen.getByText("Models"));
+    expect(screen.getByText("Evaluated").parentElement).toHaveTextContent("20");
+    expect(screen.getByText("Contributed").parentElement).toHaveTextContent("14");
+    expect((await screen.findAllByText(/Analysis cancelled · last valid snapshot retained/i)).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("atomically replaces the sealed run when enqueue returns a newer exact head", async () => {
+    const oldRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const newRun = radarRun("9".repeat(64), 0, "2040-01-02T10:00:01Z");
+    const initialHead = idleCanonicalHead(oldRun);
+    const enqueueHead = canonicalHead(newRun);
+    enqueueHead.watch.state = "queued";
+    const getModelEnsembleSnapshot = vi.fn(async (runId: string) => runId === oldRun.run_id ? oldRun : newRun);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => initialHead),
+      getModelEnsembleSnapshot,
+      enqueueModelEnsembleAnalysis: vi.fn(async () => enqueueHead),
+      getModelEnsembleTrajectory: vi.fn(async () => trajectoryPage(
+        oldRun,
+        radarRun("7".repeat(64), 1, "2040-01-02T09:00:00Z"),
+      )),
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    expect(await screen.findByText("100% signal")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Analyze now" }));
+
+    expect(await screen.findByText("0% signal")).toBeVisible();
+    expect(getModelEnsembleSnapshot).toHaveBeenCalledWith(newRun.run_id);
+  });
+
+  it("clears the old sealed run when enqueue returns an intentional null head", async () => {
+    const oldRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const initialHead = idleCanonicalHead(oldRun);
+    const emptyHead = canonicalHead(oldRun);
+    emptyHead.watch.state = "queued";
+    emptyHead.watch.has_result = false;
+    emptyHead.head_run_id = null;
+    emptyHead.head_generation = null;
+    const getModelEnsembleSnapshot = vi.fn(async () => oldRun);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => initialHead),
+      getModelEnsembleSnapshot,
+      enqueueModelEnsembleAnalysis: vi.fn(async () => emptyHead),
+    };
+
+    render(<ModelEnsembleOverlay transport={transport} />);
+    expect(await screen.findByText("100% signal")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Analyze now" }));
+
+    expect(await screen.findByText(/first typed measurement and experimental model range have not completed/i)).toBeVisible();
+    expect(screen.queryByText("100% signal")).not.toBeInTheDocument();
+  });
+
+  it("keeps Analyze disabled while a canonical watch is queued", async () => {
+    const headRun = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
+    const queuedHead = canonicalHead(headRun);
+    queuedHead.watch.state = "queued";
+    queuedHead.latest_attempt = {
+      ...queuedHead.latest_attempt!,
+      state: "completed",
+      published_run_id: headRun.run_id,
+      completed_at: "2040-01-02T10:00:02Z",
+    };
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getActiveModelEnsembleCanonicalHead: vi.fn(async () => queuedHead),
+      getModelEnsembleSnapshot: vi.fn(async () => headRun),
+    };
+    render(<ModelEnsembleOverlay transport={transport} />);
+
+    const queuedButton = await screen.findByRole("button", { name: "Analysis queued…" });
+    expect(queuedButton).toBeDisabled();
+    expect((await screen.findAllByText("Queued · waiting for the local model lane")).length).toBeGreaterThanOrEqual(1);
+  });
+
   it("does not let a refresh revoke an active serial model lease", async () => {
     const head = radarRun("8".repeat(64), 1, "2040-01-02T10:00:00Z");
     const running = watchSnapshot(25, head);
@@ -336,7 +538,7 @@ describe("ModelEnsembleOverlay", () => {
 
     render(<ModelEnsembleOverlay transport={transport} />);
     const runningButton = await screen.findByRole("button", {
-      name: /Analysis running · step 3 of 10/i,
+      name: /Analysis running · 3\/10/i,
     });
 
     expect(runningButton).toBeDisabled();

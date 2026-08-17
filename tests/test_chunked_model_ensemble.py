@@ -38,8 +38,15 @@ from prompt_enhancer.infrastructure.text_models.model_ensemble import (
 )
 from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
     LocalProbabilisticMetricRunner,
+    _draw_metric_samples,
+    _has_sufficient_retained_samples,
 )
 from prompt_enhancer.application.analysis.probabilistic_metrics import (
+    EVIDENCE_LANE_METRIC_KEYS,
+    PROBABILISTIC_MIN_RETAINED_SAMPLE_RATE,
+    PROBABILISTIC_METRIC_CONTRACTS,
+    FactorScale,
+    PredictiveFactorContribution,
     PredictiveMetricState,
     PredictiveMetricTarget,
 )
@@ -198,7 +205,7 @@ def test_all_twenty_metric_specs_are_versioned_and_distinct() -> None:
     ).evidence_scope == "objective_evidence"
 
 
-def test_live_probabilistic_runner_emits_all_twenty_experimental_ranges() -> None:
+def test_live_probabilistic_runner_emits_behavioral_ranges_only() -> None:
     calls = []
 
     def execute(spec, stage, payload, device):
@@ -206,9 +213,9 @@ def test_live_probabilistic_runner_emits_all_twenty_experimental_ranges() -> Non
         rows = [
             {
                 "case_id": item["case_id"],
-                "entailment": 0.68,
-                "neutral": 0.20,
-                "contradiction": 0.12,
+                "entailment": 0.98,
+                "neutral": 0.01,
+                "contradiction": 0.01,
             }
             for item in payload["cases"]
         ]
@@ -228,24 +235,64 @@ def test_live_probabilistic_runner_emits_all_twenty_experimental_ranges() -> Non
         coaching_ensemble_metric_specs(),
     )
 
-    assert len(calls) == 5
+    assert len(calls) == 4
     assert {call[1] for call in calls} == {"scope_nli"}
     assert all(call[3] <= 160 for call in calls)
     assert receipt.predictive_projection is not None
     projection = receipt.predictive_projection
     assert len(projection.metrics) == 20
-    assert len(projection.model_stages) == 5
+    assert len(projection.model_stages) == 4
     assert all(
-        item.state is PredictiveMetricState.EXPERIMENTAL
+        item.state is PredictiveMetricState.UNAVAILABLE
         for item in projection.metrics
+        if item.metric_key in EVIDENCE_LANE_METRIC_KEYS
     )
-    assert all(len(item.density_bins) == 20 for item in projection.metrics)
-    assert all(abs(sum(item.density_bins) - 1.0) < 1e-6 for item in projection.metrics)
+    behavioral = tuple(
+        item
+        for item in projection.metrics
+        if item.metric_key not in EVIDENCE_LANE_METRIC_KEYS
+        and next(
+            contract
+            for contract in PROBABILISTIC_METRIC_CONTRACTS
+            if contract.metric_key == item.metric_key
+        ).closure_horizon == "immediate"
+        and not next(
+            contract
+            for contract in PROBABILISTIC_METRIC_CONTRACTS
+            if contract.metric_key == item.metric_key
+        ).objective_evidence_required
+    )
+    assert all(item.state is PredictiveMetricState.EXPERIMENTAL for item in behavioral)
+    assert len(behavioral) == 8
+    assert all(item.pending_probability == 0 for item in behavioral)
+    assert all(len(item.density_bins) == 20 for item in behavioral)
+    assert all(abs(sum(item.density_bins) - 1.0) < 1e-6 for item in behavioral)
+    assert all(
+        item.state is PredictiveMetricState.UNAVAILABLE
+        for item in projection.metrics
+        if next(
+            contract
+            for contract in PROBABILISTIC_METRIC_CONTRACTS
+            if contract.metric_key == item.metric_key
+        ).closure_horizon != "immediate"
+        or next(
+            contract
+            for contract in PROBABILISTIC_METRIC_CONTRACTS
+            if contract.metric_key == item.metric_key
+        ).objective_evidence_required
+    )
     assert next(
         item
         for item in projection.metrics
         if item.metric_key == "outcome.verified_requirement_coverage"
     ).target is PredictiveMetricTarget.OUTCOME_FORECAST
+    verification_strategy = next(
+        item
+        for item in projection.metrics
+        if item.metric_key == "outcome.verification_strategy_adequacy"
+    )
+    assert verification_strategy.state is PredictiveMetricState.UNAVAILABLE
+    assert verification_strategy.mean is None
     assert all(item.numeric_value is None for item in receipt.metrics)
     assert all(
         item.status.value == "completed"
@@ -253,6 +300,46 @@ def test_live_probabilistic_runner_emits_all_twenty_experimental_ranges() -> Non
     )
     assert receipt.experts[9].status.value == "unavailable"
     assert "fictional segment" not in receipt.model_dump_json()
+
+
+def test_live_probabilistic_heartbeats_never_regress_completed_progress() -> None:
+    progress: list[tuple[int, int]] = []
+
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        assert runner._heartbeat is not None
+        runner._heartbeat()
+        return {
+            "status": "completed",
+            "device": "cpu",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.98,
+                    "neutral": 0.01,
+                    "contradiction": 0.01,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 10.0,
+                "peak_cuda_allocated_mb": 0.0,
+                "process_rss_after_load_and_inference_mb": 900.0,
+            },
+        }
+
+    runner = LocalProbabilisticMetricRunner(executor=execute, device="cpu")
+    runner.run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+        progress_callback=lambda completed, total: progress.append((completed, total)),
+    )
+
+    assert progress
+    assert all(total == 10 for _, total in progress)
+    assert [completed for completed, _ in progress] == sorted(
+        completed for completed, _ in progress
+    )
+    assert progress[-1] == (10, 10)
 
 
 def test_live_probabilistic_runner_keeps_polish_on_multilingual_models() -> None:
@@ -271,9 +358,9 @@ def test_live_probabilistic_runner_keeps_polish_on_multilingual_models() -> None
             "rows": [
                 {
                     "case_id": item["case_id"],
-                    "entailment": 0.62,
-                    "neutral": 0.25,
-                    "contradiction": 0.13,
+                    "entailment": 0.98,
+                    "neutral": 0.01,
+                    "contradiction": 0.01,
                 }
                 for item in payload["cases"]
             ],
@@ -314,8 +401,28 @@ def test_live_probabilistic_runner_keeps_polish_on_multilingual_models() -> None
     assert receipt.predictive_projection is not None
     assert len(receipt.predictive_projection.metrics) == 20
     assert all(
-        metric.state is PredictiveMetricState.EXPERIMENTAL
+        metric.state
+        is (
+            PredictiveMetricState.EXPERIMENTAL
+            if next(
+                contract
+                for contract in PROBABILISTIC_METRIC_CONTRACTS
+                if contract.metric_key == metric.metric_key
+            ).closure_horizon == "immediate"
+            and not next(
+                contract
+                for contract in PROBABILISTIC_METRIC_CONTRACTS
+                if contract.metric_key == metric.metric_key
+            ).objective_evidence_required
+            and metric.metric_key not in EVIDENCE_LANE_METRIC_KEYS
+            else PredictiveMetricState.UNAVAILABLE
+        )
         for metric in receipt.predictive_projection.metrics
+    )
+    assert all(
+        metric.state is PredictiveMetricState.UNAVAILABLE
+        for metric in receipt.predictive_projection.metrics
+        if metric.metric_key in EVIDENCE_LANE_METRIC_KEYS
     )
 
 
@@ -342,6 +449,217 @@ def test_live_probabilistic_runner_keeps_failed_predictions_nonnumeric() -> None
         for item in receipt.predictive_projection.metrics
     )
 
+
+def test_malformed_optional_model_output_is_isolated() -> None:
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        if spec.identity.model_key == "mdeberta_xnli":
+            rows = []
+        else:
+            rows = [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.98,
+                    "neutral": 0.01,
+                    "contradiction": 0.01,
+                }
+                for item in payload["cases"]
+            ]
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": rows,
+            "runtime": {
+                "inference_latency_ms": 10.0,
+                "peak_cuda_allocated_mb": 500.0,
+                "process_rss_after_load_and_inference_mb": 900.0,
+            },
+        }
+
+    receipt = LocalProbabilisticMetricRunner(executor=execute).run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert receipt.predictive_projection is not None
+    stages = {item.model_key: item for item in receipt.predictive_projection.model_stages}
+    assert stages["mdeberta_xnli"].status == "failed"
+    assert stages["mdeberta_xnli"].error_code == "probabilistic_factor_output_invalid"
+    assert any(
+        item.state is PredictiveMetricState.EXPERIMENTAL
+        for item in receipt.predictive_projection.metrics
+    )
+
+
+def test_one_expert_is_insufficient_for_an_experimental_range() -> None:
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        if spec.identity.model_key != "mdeberta_xnli":
+            return {
+                "status": "failed",
+                "error_code": "model_cache_missing_or_invalid",
+                "device": None,
+                "rows": [],
+                "runtime": {},
+            }
+        return {
+            "status": "completed",
+            "device": "cpu",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.99,
+                    "neutral": 0.005,
+                    "contradiction": 0.005,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 10.0,
+                "peak_cuda_allocated_mb": 0.0,
+                "process_rss_after_load_and_inference_mb": 900.0,
+            },
+        }
+
+    receipt = LocalProbabilisticMetricRunner(executor=execute, device="cpu").run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert receipt.predictive_projection is not None
+    assert all(
+        item.state is PredictiveMetricState.UNAVAILABLE
+        for item in receipt.predictive_projection.metrics
+    )
+
+
+def test_unresolved_neutral_mass_is_withheld_instead_of_conditioned_away() -> None:
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        return {
+            "status": "completed",
+            "device": "cpu",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": (
+                        0.79
+                        if item["metric_key"] == "prompt.task_definition_coverage"
+                        else 0.94
+                    ),
+                    "neutral": (
+                        0.20
+                        if item["metric_key"] == "prompt.task_definition_coverage"
+                        else 0.05
+                    ),
+                    "contradiction": 0.01,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 10.0,
+                "peak_cuda_allocated_mb": 0.0,
+                "process_rss_after_load_and_inference_mb": 900.0,
+            },
+        }
+
+    receipt = LocalProbabilisticMetricRunner(executor=execute, device="cpu").run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert receipt.predictive_projection is not None
+    metrics = {
+        item.metric_key: item for item in receipt.predictive_projection.metrics
+    }
+    critical = metrics["prompt.task_definition_coverage"]
+    noncritical = metrics["prompt.constraint_precision"]
+    assert critical.state is PredictiveMetricState.UNAVAILABLE
+    assert critical.pending_probability is None
+    assert critical.mean is None
+    assert noncritical.state is PredictiveMetricState.UNAVAILABLE
+    assert noncritical.pending_probability is None
+    assert not noncritical.density_bins
+
+
+def test_weighted_neutral_mass_withholds_noncritical_estimate() -> None:
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        return {
+            "status": "completed",
+            "device": "cpu",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.66,
+                    "neutral": 0.33,
+                    "contradiction": 0.01,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 10.0,
+                "peak_cuda_allocated_mb": 0.0,
+                "process_rss_after_load_and_inference_mb": 900.0,
+            },
+        }
+
+    receipt = LocalProbabilisticMetricRunner(executor=execute, device="cpu").run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert receipt.predictive_projection is not None
+    constraint = next(
+        item
+        for item in receipt.predictive_projection.metrics
+        if item.metric_key == "prompt.constraint_precision"
+    )
+    assert constraint.state is PredictiveMetricState.UNAVAILABLE
+    assert constraint.pending_probability is None
+    assert not constraint.density_bins
+
+
+def test_joint_subthreshold_critical_neutral_mass_fails_retained_sample_gate() -> None:
+    contributions = tuple(
+        PredictiveFactorContribution(
+            factor_key=f"synthetic_factor_{index}",
+            scale=FactorScale.BINARY,
+            weight=1.0,
+            applicability_probability=1.0,
+            present_probability=0.80,
+            neutral_probability=0.19,
+            absent_probability=0.01,
+            expert_count=2,
+            critical=True,
+        )
+        for index in range(4)
+    )
+
+    samples, applicable_draws = _draw_metric_samples(contributions, seed=17)
+
+    assert applicable_draws == 1_024
+    assert len(samples) / 1_024 < PROBABILISTIC_MIN_RETAINED_SAMPLE_RATE
+    assert _has_sufficient_retained_samples(samples) is False
+
+
+def test_ten_percent_neutral_per_factor_cannot_hide_outside_the_range() -> None:
+    contributions = tuple(
+        PredictiveFactorContribution(
+            factor_key=f"synthetic_noncritical_{index}",
+            scale=FactorScale.BINARY,
+            weight=1.0,
+            applicability_probability=1.0,
+            present_probability=0.89,
+            neutral_probability=0.10,
+            absent_probability=0.01,
+            expert_count=2,
+            critical=False,
+        )
+        for index in range(4)
+    )
+
+    samples, applicable_draws = _draw_metric_samples(contributions, seed=19)
+
+    assert applicable_draws == 1_024
+    assert len(samples) / 1_024 < PROBABILISTIC_MIN_RETAINED_SAMPLE_RATE
+    assert _has_sufficient_retained_samples(samples) is False
 
 def test_live_probabilistic_runner_routes_only_uncertain_cases_to_nf4_judge() -> None:
     deep_calls = []
@@ -415,13 +733,13 @@ def test_live_probabilistic_runner_routes_only_uncertain_cases_to_nf4_judge() ->
     assert quantization == "bitsandbytes_nf4"
     assert 1 <= len(case_ids) <= 12
     assert receipt.predictive_projection is not None
-    assert len(receipt.predictive_projection.model_stages) == 6
+    assert len(receipt.predictive_projection.model_stages) == 5
     deep_stage = receipt.predictive_projection.model_stages[-1]
     assert deep_stage.model_key == "qwen3_4b_rubric"
     assert deep_stage.quantization == "bitsandbytes_nf4"
     assert deep_stage.status == "completed"
     assert all(
-        item.state is PredictiveMetricState.EXPERIMENTAL
+        item.state is not PredictiveMetricState.EXECUTION_ERROR
         for item in receipt.predictive_projection.metrics
     )
 
@@ -468,7 +786,7 @@ def test_deep_lane_failure_never_blocks_completed_small_model_ranges() -> None:
     assert receipt.predictive_projection is not None
     assert receipt.predictive_projection.model_stages[-1].status == "resource_exhausted"
     assert all(
-        item.state is PredictiveMetricState.EXPERIMENTAL
+        item.state is PredictiveMetricState.UNAVAILABLE
         for item in receipt.predictive_projection.metrics
     )
 

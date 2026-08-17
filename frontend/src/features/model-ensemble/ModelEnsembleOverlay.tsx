@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CodexSession,
+  ModelEnsembleCanonicalHead,
+  ModelEnsembleRun,
   ModelEnsembleTrajectoryPage,
-  ModelEnsembleTrajectoryPoint,
   ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import {
-  MODEL_ENSEMBLE_LENSES,
-  ModelEnsembleRadar,
   type ModelEnsembleLensId,
   type ModelEnsembleRadarData,
 } from "./ModelEnsembleRadar";
+import {
+  MetricWorkspace,
+  modelEnsembleTrajectoryRadarData,
+} from "./MetricWorkspace";
+import {
+  MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES,
+  MODEL_ENSEMBLE_MESSAGE_WINDOWS,
+} from "./modelEnsembleConstants";
 
 function statusOf(error: unknown): number | null {
   return typeof error === "object" && error !== null && "status" in error
@@ -88,21 +95,12 @@ function watchFailureCopy(code: string | null): string {
   }
 }
 
-function trajectoryRadarData(point: ModelEnsembleTrajectoryPoint): ModelEnsembleRadarData {
-  return {
-    metrics: point.metrics,
-    typed_metrics: point.typed_metrics ?? [],
-    predictive_metrics: point.predictive_metrics ?? [],
-    chunk_metrics: [],
-  };
-}
-
 function watchStatus(snapshot: ModelEnsembleWatchSnapshot): string {
   switch (snapshot.watch.state) {
     case "queued": return "Waiting for the local model lane";
     case "running": return snapshot.watch.last_error_code === null
-      ? `Updating · analysis step ${snapshot.watch.progress_completed} of ${snapshot.watch.progress_total}`
-      : `Retrying · analysis step ${snapshot.watch.progress_completed} of ${snapshot.watch.progress_total}`;
+      ? `Updating · local pipeline ${snapshot.watch.progress_completed}/${snapshot.watch.progress_total}`
+      : `Retrying · local pipeline ${snapshot.watch.progress_completed}/${snapshot.watch.progress_total}`;
     case "failed": return "Update failed · retaining the last valid receipt";
     case "idle": return snapshot.latest_run === null
       ? "Waiting for the first completed receipt"
@@ -117,7 +115,7 @@ function watchDetail(snapshot: ModelEnsembleWatchSnapshot): string {
     const retry = snapshot.watch.last_error_code === null
       ? ""
       : ` · retrying after ${watchFailureCopy(snapshot.watch.last_error_code)}`;
-    return `${prefix} · local stages run one at a time${retry} · next observation follows this run`;
+    return `${prefix} · stage names are unavailable in this v1 status receipt${retry}`;
   }
   if (snapshot.watch.state === "queued") {
     const retry = snapshot.watch.last_error_code === null
@@ -129,6 +127,28 @@ function watchDetail(snapshot: ModelEnsembleWatchSnapshot): string {
     return `${prefix} · ${watchFailureCopy(snapshot.watch.last_error_code)} · automatic retry ${shortTime(snapshot.watch.next_check_at)} UTC`;
   }
   return `${prefix} · next observation ${shortTime(snapshot.watch.next_check_at)} UTC · serial local lane`;
+}
+
+function canonicalStatus(head: ModelEnsembleCanonicalHead | null, snapshot: ModelEnsembleWatchSnapshot): string {
+  const attempt = head?.latest_attempt;
+  if (attempt === null || attempt === undefined) return watchStatus(snapshot);
+  if (attempt.state === "running") return `Updating · ${attempt.progress_completed}/${attempt.progress_total} pipeline steps`;
+  if (snapshot.watch.state === "queued") return "Queued · waiting for the local model lane";
+  if (attempt.state === "failed") return "Update failed · retaining the last valid snapshot";
+  if (attempt.state === "cancelled") return "Analysis cancelled · last valid snapshot retained";
+  if (attempt.state === "partial") return `Updated with ${attempt.warning_count} warning${attempt.warning_count === 1 ? "" : "s"}`;
+  return snapshot.latest_run === null ? "Waiting for the first sealed snapshot" : `Up to date · completed ${shortTime(snapshot.latest_run.completed_at)} UTC`;
+}
+
+function canonicalDetail(head: ModelEnsembleCanonicalHead | null, snapshot: ModelEnsembleWatchSnapshot): string {
+  const attempt = head?.latest_attempt;
+  if (attempt?.state === "running") {
+    const latestStage = head?.stages.at(-1);
+    return latestStage === undefined
+      ? "Preparing the first local measurement stage"
+      : `Last completed: ${latestStage.stage_key.replaceAll("_", " ")} · ${latestStage.contributed_case_count ?? 0}/${latestStage.evaluated_case_count ?? 0} cases contributed`;
+  }
+  return watchDetail(snapshot);
 }
 
 type DesktopWindowApi = {
@@ -152,9 +172,11 @@ function desktopWindowApi(): DesktopWindowApi | null {
 
 export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerTransport }) {
   const [snapshot, setSnapshot] = useState<ModelEnsembleWatchSnapshot | null>(null);
+  const [canonicalHead, setCanonicalHead] = useState<ModelEnsembleCanonicalHead | null>(null);
   const [trajectory, setTrajectory] = useState<ModelEnsembleTrajectoryPage | null>(null);
   const [trajectoryError, setTrajectoryError] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [historicalRun, setHistoricalRun] = useState<ModelEnsembleRun | null>(null);
   const [lensId, setLensId] = useState<ModelEnsembleLensId>("task-framing");
   const [disconnected, setDisconnected] = useState(false);
   const [sessions, setSessions] = useState<CodexSession[]>([]);
@@ -164,7 +186,7 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
   const [projectId, setProjectId] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [catalogWindow, setCatalogWindow] = useState<CatalogWindow>("all");
-  const [maxMessages, setMaxMessages] = useState(100);
+  const [maxMessages, setMaxMessages] = useState(MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES);
   const [watchChanging, setWatchChanging] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [scopeExpanded, setScopeExpanded] = useState(true);
@@ -172,6 +194,9 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
   const [maximized, setMaximized] = useState(false);
   const synchronizedWatch = useRef("");
   const followingLive = useRef(true);
+  const snapshotRef = useRef<ModelEnsembleWatchSnapshot | null>(null);
+  const failedPolls = useRef(0);
+  const firstFailedPollAt = useRef<number | null>(null);
 
   useEffect(() => {
     const ready = () => setNativeHost(desktopWindowApi() !== null);
@@ -179,6 +204,8 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
     ready();
     return () => window.removeEventListener("pywebviewready", ready);
   }, []);
+
+  useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -213,15 +240,13 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
       followingLive.current = true;
       return;
     }
+    if (followingLive.current && trajectoryHeadRunId !== null) setSelectedRunId(trajectoryHeadRunId);
     const controller = new AbortController();
     transport.getModelEnsembleTrajectory(trajectoryWatchId, 24, undefined, controller.signal)
       .then((page) => {
         if (controller.signal.aborted || page.watch_id !== trajectoryWatchId) return;
         if (page.head_run_id !== trajectoryHeadRunId) {
-          setTrajectory(null);
           setTrajectoryError(page.head_run_id !== null);
-          setSelectedRunId(null);
-          followingLive.current = true;
           return;
         }
         setTrajectory(page);
@@ -242,7 +267,7 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
   }, [trajectoryHeadRunId, trajectoryWatchId, transport]);
 
   useEffect(() => {
-    if (transport.getActiveModelEnsembleWatch === undefined) {
+    if (transport.getActiveModelEnsembleCanonicalHead === undefined && transport.getActiveModelEnsembleWatch === undefined) {
       setDisconnected(true);
       return;
     }
@@ -262,21 +287,51 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
         timer = undefined;
       }
       controller?.abort();
-      controller = new AbortController();
+      const requestController = new AbortController();
+      controller = requestController;
       try {
-        const value = await transport.getActiveModelEnsembleWatch!(controller.signal);
-        if (stopped) return;
+        if (transport.getActiveModelEnsembleCanonicalHead !== undefined && transport.getModelEnsembleSnapshot !== undefined) {
+          const head = await transport.getActiveModelEnsembleCanonicalHead(requestController.signal);
+          if (stopped || requestController.signal.aborted) return;
+          const existingRun = snapshotRef.current?.latest_run ?? null;
+          let nextRun = existingRun;
+          if (head.head_run_id === null) {
+            nextRun = null;
+          } else if (existingRun?.run_id !== head.head_run_id) {
+            nextRun = await transport.getModelEnsembleSnapshot(head.head_run_id, requestController.signal);
+            if (stopped || requestController.signal.aborted || nextRun.run_id !== head.head_run_id) return;
+          }
+          setCanonicalHead(head);
+          setSnapshot({ watch: head.watch, latest_run: nextRun });
+          failedPolls.current = 0;
+          firstFailedPollAt.current = null;
+          setDisconnected(false);
+          schedule(head.latest_attempt?.state === "running" || head.watch.state === "queued" ? 2_000 : 15_000);
+          return;
+        }
+        const value = await transport.getActiveModelEnsembleWatch!(requestController.signal);
+        if (stopped || requestController.signal.aborted) return;
+        setCanonicalHead(null);
         setSnapshot(value);
+        failedPolls.current = 0;
+        firstFailedPollAt.current = null;
         setDisconnected(false);
         schedule(value.watch.state === "running" || value.watch.state === "queued" ? 2_000 : 15_000);
       } catch (error) {
-        if (stopped || controller.signal.aborted) return;
+        if (stopped || requestController.signal.aborted) return;
         if (statusOf(error) === 404) {
           setSnapshot(null);
+          setCanonicalHead(null);
+          failedPolls.current = 0;
+          firstFailedPollAt.current = null;
           setDisconnected(false);
           schedule(15_000);
         } else {
-          setDisconnected(true);
+          failedPolls.current += 1;
+          firstFailedPollAt.current ??= Date.now();
+          if (failedPolls.current >= 3 || Date.now() - firstFailedPollAt.current >= 10_000) {
+            setDisconnected(true);
+          }
           schedule(5_000);
         }
       }
@@ -376,18 +431,34 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
   const category = lensId === "task-framing" || lensId === "collaboration-flow"
     ? "prompt-quality"
     : "reasoning";
-  const visibleTrajectory = trajectory?.watch_id === trajectoryWatchId
-    && trajectory.head_run_id === trajectoryHeadRunId
-    ? trajectory
-    : null;
+  const visibleTrajectory = trajectory?.watch_id === trajectoryWatchId ? trajectory : null;
   const trajectoryPoints = visibleTrajectory?.points ?? [];
   const selectedPointIndex = trajectoryPoints.findIndex((point) => point.run_id === selectedRunId);
   const selectedPoint = selectedPointIndex < 0 ? null : trajectoryPoints[selectedPointIndex];
+  const historicalRunId = selectedPoint !== null && selectedPoint.run_id !== snapshot?.latest_run?.run_id
+    ? selectedPoint.run_id
+    : null;
+  useEffect(() => {
+    if (historicalRunId === null || transport.getModelEnsembleSnapshot === undefined) {
+      setHistoricalRun(null);
+      return;
+    }
+    const controller = new AbortController();
+    setHistoricalRun(null);
+    transport.getModelEnsembleSnapshot(historicalRunId, controller.signal)
+      .then((value) => {
+        if (!controller.signal.aborted && value.run_id === historicalRunId) setHistoricalRun(value);
+      })
+      .catch(() => { if (!controller.signal.aborted) setHistoricalRun(null); });
+    return () => controller.abort();
+  }, [historicalRunId, transport]);
   const selectedRadarRun: ModelEnsembleRadarData | null = selectedPoint === null
     ? snapshot?.latest_run ?? null
     : selectedPoint.run_id === snapshot?.latest_run?.run_id
       ? snapshot.latest_run
-      : trajectoryRadarData(selectedPoint);
+      : historicalRun?.run_id === selectedPoint.run_id
+        ? historicalRun
+        : modelEnsembleTrajectoryRadarData(selectedPoint);
   const comparisonPoint = selectedPointIndex >= 0
     ? trajectoryPoints[selectedPointIndex + 1] ?? null
     : null;
@@ -396,11 +467,11 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
     && selectedPoint.comparable_to_head
     && comparisonPoint.comparable_to_head
     && selectedPoint.max_messages === comparisonPoint.max_messages
-    ? trajectoryRadarData(comparisonPoint)
+    ? modelEnsembleTrajectoryRadarData(comparisonPoint)
     : null;
 
   function selectTrajectoryRun(runId: string | null) {
-    followingLive.current = runId !== null && runId === visibleTrajectory?.head_run_id;
+    followingLive.current = runId !== null && runId === trajectoryHeadRunId;
     setSelectedRunId(runId);
   }
 
@@ -415,6 +486,7 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
         synchronizedWatch.current = "";
         followingLive.current = true;
         setSnapshot(null);
+        setCanonicalHead(null);
       } else {
         if (transport.enableModelEnsembleWatch === undefined) throw new Error("unavailable");
         const next = await transport.enableModelEnsembleWatch(sessionId, {
@@ -422,6 +494,7 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
           max_messages: maxMessages,
           confirmation: "continuously_analyze_selected_redacted_session",
         });
+        setCanonicalHead(null);
         setSnapshot(next);
         followingLive.current = true;
         setScopeExpanded(false);
@@ -444,14 +517,58 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
     setRefreshing(true);
     setScopeError("");
     try {
-      if (transport.refreshModelEnsembleWatch === undefined) {
-        throw new Error("unavailable");
+      if (transport.enqueueModelEnsembleAnalysis !== undefined) {
+        const head = await transport.enqueueModelEnsembleAnalysis(snapshot.watch.watch_id);
+        if (
+          head.watch.watch_id !== snapshot.watch.watch_id
+          || head.watch.session_id !== snapshot.watch.session_id
+        ) throw new Error("durable_watch_identity_mismatch");
+        let exactRun = snapshot.latest_run;
+        if (head.head_run_id === null) {
+          exactRun = null;
+        } else if (exactRun?.run_id !== head.head_run_id) {
+          if (transport.getModelEnsembleSnapshot === undefined) throw new Error("durable_snapshot_unavailable");
+          exactRun = await transport.getModelEnsembleSnapshot(head.head_run_id);
+          if (exactRun.run_id !== head.head_run_id) throw new Error("durable_snapshot_identity_mismatch");
+        }
+        setCanonicalHead(head);
+        setSnapshot({ watch: head.watch, latest_run: exactRun });
+      } else {
+        if (transport.refreshModelEnsembleWatch === undefined) throw new Error("unavailable");
+        const next = await transport.refreshModelEnsembleWatch(snapshot.watch.watch_id);
+        setSnapshot(next);
       }
-      const next = await transport.refreshModelEnsembleWatch(snapshot.watch.watch_id);
-      setSnapshot(next);
       followingLive.current = true;
     } catch {
       setScopeError("Analysis could not be queued. The last complete receipt remains visible.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function cancelAnalysis() {
+    if (snapshot === null || canonicalHead?.latest_attempt?.state !== "running" || refreshing) return;
+    setRefreshing(true);
+    setScopeError("");
+    try {
+      if (transport.cancelModelEnsembleAnalysis === undefined) throw new Error("unavailable");
+      const next = await transport.cancelModelEnsembleAnalysis(snapshot.watch.watch_id);
+      if (
+        next.watch.watch_id !== snapshot.watch.watch_id
+        || next.watch.session_id !== snapshot.watch.session_id
+      ) throw new Error("durable_watch_identity_mismatch");
+      let exactRun = snapshot.latest_run;
+      if (next.head_run_id === null) {
+        exactRun = null;
+      } else if (exactRun?.run_id !== next.head_run_id) {
+        if (transport.getModelEnsembleSnapshot === undefined) throw new Error("durable_snapshot_unavailable");
+        exactRun = await transport.getModelEnsembleSnapshot(next.head_run_id);
+        if (exactRun.run_id !== next.head_run_id) throw new Error("durable_snapshot_identity_mismatch");
+      }
+      setCanonicalHead(next);
+      setSnapshot({ watch: next.watch, latest_run: exactRun });
+    } catch {
+      setScopeError("Cancellation could not be confirmed. The latest sealed snapshot remains visible.");
     } finally {
       setRefreshing(false);
     }
@@ -523,7 +640,7 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
         <span className={`model-ensemble-overlay__connection${disconnected ? " is-stale" : ""}`}>
           {disconnected
             ? "Reconnecting · last receipt retained"
-            : snapshot === null ? "No active watch" : watchStatus(snapshot)}
+            : snapshot === null ? "No active watch" : canonicalStatus(canonicalHead, snapshot)}
         </span>
       </header>
       <section aria-label="Live watch scope" className="model-ensemble-overlay__scope">
@@ -598,7 +715,7 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
                   onChange={(event) => setMaxMessages(Number(event.target.value))}
                   value={maxMessages}
                 >
-                  {[10, 25, 50, 100].map((count) => <option key={count} value={count}>Newest {count} messages</option>)}
+                  {MODEL_ENSEMBLE_MESSAGE_WINDOWS.map((count) => <option key={count} value={count}>Newest {count} messages</option>)}
                 </select>
               </label>
             </div>
@@ -633,104 +750,68 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
       ) : (
         <>
           <section className="model-ensemble-overlay__progress" aria-live="polite">
-            <strong>{watchStatus(snapshot)}</strong>
-            <span>{watchDetail(snapshot)}</span>
-            <progress max={snapshot.watch.progress_total} value={snapshot.watch.progress_completed} />
+            <strong>{canonicalStatus(canonicalHead, snapshot)}</strong>
+            <span>{canonicalDetail(canonicalHead, snapshot)}</span>
+            <progress
+              max={canonicalHead?.latest_attempt?.progress_total ?? snapshot.watch.progress_total}
+              value={canonicalHead?.latest_attempt?.progress_completed ?? snapshot.watch.progress_completed}
+            />
             <button
               className="model-ensemble-overlay__watch-button"
-              disabled={refreshing || snapshot.watch.state === "queued" || snapshot.watch.state === "running"}
-              onClick={() => void analyzeNow()}
+              disabled={refreshing || (
+                canonicalHead?.latest_attempt?.state !== "running"
+                && (snapshot.watch.state === "queued" || snapshot.watch.state === "running")
+              )}
+              onClick={() => canonicalHead?.latest_attempt?.state === "running" ? void cancelAnalysis() : void analyzeNow()}
               type="button"
             >
               {refreshing
-                ? "Queueing analysis…"
-                : snapshot.watch.state === "running"
-                  ? `Analysis running · step ${snapshot.watch.progress_completed} of ${snapshot.watch.progress_total}`
+                ? canonicalHead?.latest_attempt?.state === "running" ? "Cancelling…" : "Queueing analysis…"
+                : canonicalHead?.latest_attempt?.state === "running"
+                  ? "Cancel analysis"
+                  : snapshot.watch.state === "running"
+                    ? `Analysis running · ${snapshot.watch.progress_completed}/${snapshot.watch.progress_total}`
                   : snapshot.watch.state === "queued"
                     ? "Analysis queued…"
                     : snapshot.watch.state === "failed" ? "Retry analysis" : "Analyze now"}
             </button>
           </section>
-          <div className="model-ensemble-overlay__tabs" role="group" aria-label="Radar lens">
-            {MODEL_ENSEMBLE_LENSES.map((lens) => (
-              <button
-                aria-pressed={lensId === lens.id}
-                key={lens.id}
-                onClick={() => setLensId(lens.id)}
-                type="button"
-              >
-                {lens.shortLabel}
-              </button>
-            ))}
-          </div>
           {snapshot.latest_run === null ? (
             <p className="model-ensemble__empty">The first typed measurement and experimental model range have not completed yet.</p>
           ) : (
             <>
-              {trajectoryPoints.length > 0 && visibleTrajectory?.head_run_id !== null ? (
-                <section aria-label="Published radar trajectory" className="model-ensemble-overlay__trajectory">
-                  <header>
-                    <div>
-                      <strong>{selectedPoint?.run_id === visibleTrajectory?.head_run_id ? "Live published head" : "Earlier published snapshot"}</strong>
-                      <span>
-                        {selectedPoint === null ? "Current receipt" : `${snapshotTime(selectedPoint.published_at)} UTC`}
-                        {selectedPoint?.source_coverage_state === "incomplete_source" ? " · incomplete source window" : ""}
-                      </span>
-                    </div>
-                    <span>{selectedPointIndex < 0 ? 1 : selectedPointIndex + 1} of {trajectoryPoints.length}</span>
-                  </header>
-                  <div className="model-ensemble-overlay__trajectory-strip">
-                    {trajectoryPoints.map((point, index) => (
-                      <button
-                        aria-label={`Open published snapshot ${index + 1} of ${trajectoryPoints.length}`}
-                        aria-pressed={point.run_id === (selectedPoint?.run_id ?? visibleTrajectory?.head_run_id)}
-                        className={point.comparable_to_head ? "is-comparable" : "is-scope-change"}
-                        key={point.run_id}
-                        onClick={() => selectTrajectoryRun(point.run_id)}
-                        title={`${snapshotTime(point.published_at)} UTC · ${point.max_messages} messages`}
-                        type="button"
-                      />
-                    ))}
-                  </div>
-                  <nav aria-label="Trajectory navigation">
-                    <button
-                      disabled={selectedPointIndex <= 0}
-                      onClick={() => selectTrajectoryRun(trajectoryPoints[selectedPointIndex - 1]?.run_id ?? null)}
-                      type="button"
-                    >Newer</button>
-                    {selectedPoint?.run_id !== visibleTrajectory?.head_run_id ? (
-                      <button onClick={() => selectTrajectoryRun(visibleTrajectory?.head_run_id ?? null)} type="button">Return live</button>
-                    ) : null}
-                    <button
-                      disabled={selectedPointIndex < 0 || selectedPointIndex >= trajectoryPoints.length - 1}
-                      onClick={() => selectTrajectoryRun(trajectoryPoints[selectedPointIndex + 1]?.run_id ?? null)}
-                      type="button"
-                    >Older</button>
-                  </nav>
-                  {selectedPoint !== null && !selectedPoint.comparable_to_head ? (
-                    <p>Scope or plan changed; this point is shown alone and is not overlaid as a like-for-like comparison.</p>
-                  ) : comparisonRadarRun !== null ? (
-                    <p>Dashed geometry is the immediately preceding comparable publication.</p>
-                  ) : null}
-                </section>
-              ) : null}
               {trajectoryError ? (
                 <p className="model-ensemble-overlay__trajectory-error">Trajectory history is temporarily unavailable; the last live receipt remains visible.</p>
               ) : null}
               {selectedRadarRun !== null ? (
-                <ModelEnsembleRadar
-                  compact
+                <MetricWorkspace
                   comparisonLabel="previous comparable publication"
                   comparisonRun={comparisonRadarRun}
-                  detailRunId={selectedPoint?.run_id ?? snapshot.latest_run.run_id}
-                  detailTransport={transport}
+                  history={visibleTrajectory === null ? undefined : {
+                    points: trajectoryPoints,
+                    headRunId: trajectoryHeadRunId ?? visibleTrajectory.head_run_id,
+                    selectedRunId: selectedPoint?.run_id ?? snapshot.latest_run.run_id,
+                    onSelectRun: selectTrajectoryRun,
+                    error: trajectoryError,
+                  }}
                   lensId={lensId}
+                  mode="compact"
+                  onLensChange={setLensId}
                   run={selectedRadarRun}
+                  runId={selectedPoint?.run_id ?? snapshot.latest_run.run_id}
+                  scopeLabel={`Newest ${selectedPoint?.max_messages ?? snapshot.watch.max_messages} messages`}
                   snapshotLabel={selectedPoint === null
                     ? "Current sealed receipt"
                     : selectedPoint.run_id === visibleTrajectory?.head_run_id
                       ? "Live published head"
-                      : "Published snapshot"}
+                      : "Earlier published snapshot"}
+                  stageRun={selectedPoint === null || selectedPoint.run_id === snapshot.latest_run.run_id
+                    ? snapshot.latest_run
+                    : historicalRun}
+                  attemptStages={selectedPoint === null || selectedPoint.run_id === snapshot.latest_run.run_id
+                    ? canonicalHead?.stages ?? []
+                    : []}
+                  transport={transport}
                 />
               ) : null}
             </>

@@ -458,6 +458,46 @@ def _later_related(
     )
 
 
+def _has_later_boundary(
+    source: _Clause,
+    candidates: tuple[_Clause, ...],
+    *,
+    opposite_role: bool = False,
+) -> bool:
+    """Return whether the bounded window proves an episode horizon advanced.
+
+    A missing relation is a measured negative only after the kind of later turn
+    that could have closed the episode was actually observed. At the right
+    edge there is no such evidence, so candidate baselines remain non-numeric
+    until typed semantic-unit lifecycle receipts can represent pending.
+    """
+
+    return any(
+        candidate.sequence > source.sequence
+        and (not opposite_role or candidate.role is not source.role)
+        for candidate in candidates
+    )
+
+
+def _has_open_episode_horizon(
+    candidates: tuple[_Clause, ...],
+    closed: tuple[_Clause, ...],
+    boundary_candidates: tuple[_Clause, ...],
+    *,
+    opposite_role: bool = False,
+) -> bool:
+    closed_set = frozenset(closed)
+    return any(
+        candidate not in closed_set
+        and not _has_later_boundary(
+            candidate,
+            boundary_candidates,
+            opposite_role=opposite_role,
+        )
+        for candidate in candidates
+    )
+
+
 class CoachingTextFeatureExtractor:
     required_tier = DataTier.REDACTED_CONTENT
     algorithm_id = COACHING_METRIC_ALGORITHM_ID
@@ -908,6 +948,24 @@ class AmbiguityResolutionCalculator(_RequestCalculator):
             return guard
         if not features.ambiguity_clauses:
             return _empty(MetricValueState.UNKNOWN, "ambiguity_candidates_unobserved")
+        ambiguity_boundaries = tuple(
+            clause
+            for clause in features.user_clauses
+            if clause.kind in {TextMessageKind.REQUEST, TextMessageKind.FEEDBACK}
+        )
+        if _has_open_episode_horizon(
+            features.ambiguity_clauses,
+            features.resolved_ambiguities,
+            ambiguity_boundaries,
+        ):
+            return _empty(
+                MetricValueState.UNKNOWN,
+                "episode_horizon_open",
+                signals=(
+                    _count("ambiguity.candidates", len(features.ambiguity_clauses)),
+                    _unknown("ambiguity.pending_right_edge"),
+                ),
+            )
         return _known(
             len(features.resolved_ambiguities),
             len(features.ambiguity_clauses),
@@ -932,6 +990,19 @@ class ClarificationYieldCalculator(_Calculator):
             return guard
         if not features.agent_questions:
             return _empty(MetricValueState.UNKNOWN, "agent_questions_unobserved")
+        if _has_open_episode_horizon(
+            features.agent_questions,
+            features.productive_questions,
+            features.user_clauses,
+        ):
+            return _empty(
+                MetricValueState.UNKNOWN,
+                "episode_horizon_open",
+                signals=(
+                    _count("clarification.questions", len(features.agent_questions)),
+                    _unknown("clarification.pending_right_edge"),
+                ),
+            )
         return _known(
             len(features.productive_questions),
             len(features.agent_questions),
@@ -957,6 +1028,30 @@ class ExplorationConversionCalculator(_Calculator):
             {TextMessageKind.PLAN, TextMessageKind.DECISION, TextMessageKind.ACTION, TextMessageKind.VERIFICATION}
         ):
             return _empty(MetricValueState.ABSTAINED, "conversion_evidence_unavailable")
+        conversion_boundaries = tuple(
+            clause
+            for clause in features.clauses
+            if clause.kind
+            in {
+                TextMessageKind.PLAN,
+                TextMessageKind.DECISION,
+                TextMessageKind.ACTION,
+                TextMessageKind.VERIFICATION,
+            }
+        )
+        if _has_open_episode_horizon(
+            features.hypotheses,
+            features.converted_hypotheses,
+            conversion_boundaries,
+        ):
+            return _empty(
+                MetricValueState.UNKNOWN,
+                "episode_horizon_open",
+                signals=(
+                    _count("exploration.hypotheses", len(features.hypotheses)),
+                    _unknown("exploration.pending_right_edge"),
+                ),
+            )
         return _known(
             len(features.converted_hypotheses),
             len(features.hypotheses),
@@ -977,6 +1072,24 @@ class ScopeChangeDisciplineCalculator(_RequestCalculator):
             return guard
         if not features.scope_changes:
             return _empty(MetricValueState.UNKNOWN, "scope_changes_unobserved")
+        scope_boundaries = tuple(
+            clause
+            for clause in features.agent_clauses
+            if clause.kind in {TextMessageKind.RESPONSE, TextMessageKind.PLAN}
+        )
+        if _has_open_episode_horizon(
+            features.scope_changes,
+            features.acknowledged_scope_changes,
+            scope_boundaries,
+        ):
+            return _empty(
+                MetricValueState.UNKNOWN,
+                "episode_horizon_open",
+                signals=(
+                    _count("scope.changes", len(features.scope_changes)),
+                    _unknown("scope.pending_right_edge"),
+                ),
+            )
         return _known(
             len(features.acknowledged_scope_changes),
             len(features.scope_changes),
@@ -1121,6 +1234,23 @@ class OpenLoopClosureCalculator(_Calculator):
             return guard
         if not features.questions:
             return _empty(MetricValueState.UNKNOWN, "questions_unobserved")
+        non_question_clauses = tuple(
+            clause for clause in features.clauses if clause not in features.questions
+        )
+        if _has_open_episode_horizon(
+            features.questions,
+            features.closed_questions,
+            non_question_clauses,
+            opposite_role=True,
+        ):
+            return _empty(
+                MetricValueState.UNKNOWN,
+                "episode_horizon_open",
+                signals=(
+                    _count("loops.questions", len(features.questions)),
+                    _unknown("loops.pending_right_edge"),
+                ),
+            )
         return _known(
             len(features.closed_questions),
             len(features.questions),

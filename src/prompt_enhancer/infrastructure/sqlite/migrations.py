@@ -10374,3 +10374,405 @@ CREATE TRIGGER session_model_ensemble_predictive_seals_privacy_delete_only BEFOR
 
 COMMIT;
 """
+
+
+MIGRATION_36 = r"""
+BEGIN IMMEDIATE;
+
+-- Content-free execution receipts for the canonical model-measurement head.
+-- No transcript, prompt, source identifier, model output, logit, path, or
+-- generated explanation has a column in this schema.
+CREATE TABLE session_model_ensemble_analysis_attempts (
+    attempt_id TEXT PRIMARY KEY CHECK(length(attempt_id)=64 AND attempt_id NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='model-ensemble-attempt-v1'),
+    watch_id TEXT NOT NULL REFERENCES session_model_ensemble_watches(watch_id) ON DELETE CASCADE,
+    generation INTEGER NOT NULL CHECK(generation BETWEEN 1 AND 1000000000),
+    state TEXT NOT NULL CHECK(state IN ('running','completed','partial','failed','cancelled')),
+    prior_head_run_id TEXT REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    published_run_id TEXT REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    progress_completed INTEGER NOT NULL CHECK(progress_completed BETWEEN 0 AND 32),
+    progress_total INTEGER NOT NULL CHECK(progress_total BETWEEN 1 AND 32 AND progress_completed<=progress_total),
+    stage_count INTEGER NOT NULL CHECK(stage_count BETWEEN 0 AND 32),
+    warning_count INTEGER NOT NULL CHECK(warning_count BETWEEN 0 AND 32),
+    error_code TEXT CHECK(length(error_code) BETWEEN 1 AND 128 AND error_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    requested_at TEXT NOT NULL CHECK(length(requested_at)=32 AND substr(requested_at,27)='+00:00'),
+    started_at TEXT NOT NULL CHECK(length(started_at)=32 AND substr(started_at,27)='+00:00'),
+    completed_at TEXT CHECK(length(completed_at)=32 AND substr(completed_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    UNIQUE(watch_id,generation),
+    CHECK((state='running' AND published_run_id IS NULL AND warning_count=0
+           AND error_code IS NULL AND completed_at IS NULL)
+       OR (state='completed' AND published_run_id IS NOT NULL AND warning_count=0
+           AND error_code IS NULL AND completed_at IS NOT NULL)
+       OR (state='partial' AND published_run_id IS NOT NULL AND warning_count>=1
+           AND error_code IS NULL AND completed_at IS NOT NULL)
+       OR (state IN ('failed','cancelled') AND published_run_id IS NULL
+           AND error_code IS NOT NULL AND completed_at IS NOT NULL))
+);
+
+CREATE TABLE session_model_ensemble_analysis_attempt_stages (
+    attempt_id TEXT NOT NULL REFERENCES session_model_ensemble_analysis_attempts(attempt_id) ON DELETE CASCADE,
+    stage_ordinal INTEGER NOT NULL CHECK(stage_ordinal BETWEEN 0 AND 31),
+    stage_key TEXT NOT NULL CHECK(length(stage_key) BETWEEN 1 AND 128 AND stage_key NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    state TEXT NOT NULL CHECK(state IN ('completed','unavailable','resource_exhausted','failed','cancelled')),
+    model_key TEXT CHECK(length(model_key) BETWEEN 1 AND 128 AND model_key NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    repository_id TEXT CHECK(length(repository_id) BETWEEN 3 AND 192 AND repository_id GLOB '*/*' AND repository_id NOT GLOB '*[^A-Za-z0-9._/-]*' AND repository_id NOT LIKE '%..%'),
+    revision TEXT CHECK(length(revision) BETWEEN 1 AND 128 AND revision NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    error_code TEXT CHECK(length(error_code) BETWEEN 1 AND 128 AND error_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    device TEXT CHECK(device IN ('cpu','cuda','mps')),
+    quantization TEXT NOT NULL CHECK(quantization IN ('none','bitsandbytes_nf4')),
+    inference_latency_ms REAL CHECK(inference_latency_ms>=0.0),
+    peak_accelerator_memory_mb REAL CHECK(peak_accelerator_memory_mb BETWEEN 0.0 AND 16384.0),
+    process_rss_mb REAL CHECK(process_rss_mb BETWEEN 0.0 AND 32768.0),
+    evaluated_case_count INTEGER CHECK(evaluated_case_count BETWEEN 0 AND 100000),
+    contributed_case_count INTEGER CHECK(contributed_case_count BETWEEN 0 AND 100000),
+    unloaded_after_stage INTEGER CHECK(unloaded_after_stage IN (0,1)),
+    completed_at TEXT NOT NULL CHECK(length(completed_at)=32 AND substr(completed_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    PRIMARY KEY(attempt_id,stage_ordinal),
+    UNIQUE(attempt_id,stage_key),
+    CHECK(contributed_case_count IS NULL OR evaluated_case_count IS NULL OR contributed_case_count<=evaluated_case_count),
+    CHECK((state='completed' AND error_code IS NULL) OR (state<>'completed' AND error_code IS NOT NULL))
+);
+
+CREATE INDEX session_model_ensemble_analysis_attempts_recent
+ON session_model_ensemble_analysis_attempts(watch_id,generation DESC);
+
+-- Terminal attempts are visible only after this exact stage-set seal exists.
+-- This lets the repository append the terminal attempt and its immutable stage
+-- receipts in one transaction without exposing or accepting a partial graph.
+CREATE TABLE session_model_ensemble_analysis_attempt_seals (
+    attempt_id TEXT PRIMARY KEY REFERENCES session_model_ensemble_analysis_attempts(attempt_id) ON DELETE CASCADE,
+    contract_version TEXT NOT NULL CHECK(contract_version='model-ensemble-attempt-stage-seal-v1'),
+    stage_count INTEGER NOT NULL CHECK(stage_count BETWEEN 0 AND 32),
+    warning_count INTEGER NOT NULL CHECK(warning_count BETWEEN 0 AND stage_count),
+    sealed_at TEXT NOT NULL CHECK(length(sealed_at)=32 AND substr(sealed_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0)
+);
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_insert_binding
+BEFORE INSERT ON session_model_ensemble_analysis_attempts
+WHEN NOT EXISTS (
+    SELECT 1 FROM session_model_ensemble_watches watch
+    WHERE watch.watch_id=NEW.watch_id
+      AND watch.state='running'
+      AND watch.generation=NEW.generation
+      AND NEW.state='running'
+      AND NEW.prior_head_run_id IS watch.latest_run_id
+)
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt binding is invalid'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_identity_immutable
+BEFORE UPDATE ON session_model_ensemble_analysis_attempts
+WHEN NEW.attempt_id IS NOT OLD.attempt_id
+  OR NEW.contract_version IS NOT OLD.contract_version
+  OR NEW.watch_id IS NOT OLD.watch_id
+  OR NEW.generation IS NOT OLD.generation
+  OR NEW.requested_at IS NOT OLD.requested_at
+  OR NEW.started_at IS NOT OLD.started_at
+  OR NEW.local_only IS NOT OLD.local_only
+  OR NEW.content_persisted IS NOT OLD.content_persisted
+  OR NEW.prior_head_run_id IS NOT OLD.prior_head_run_id
+  OR (NEW.published_run_id IS NOT OLD.published_run_id AND NOT (
+      OLD.state='running' AND OLD.published_run_id IS NULL
+      AND NEW.state IN ('completed','partial') AND NEW.published_run_id IS NOT NULL
+  ))
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt identity is immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_terminal_immutable
+BEFORE UPDATE ON session_model_ensemble_analysis_attempts
+WHEN OLD.state<>'running' AND (
+     NEW.state IS NOT OLD.state
+  OR NEW.progress_completed IS NOT OLD.progress_completed
+  OR NEW.progress_total IS NOT OLD.progress_total
+  OR NEW.stage_count IS NOT OLD.stage_count
+  OR NEW.warning_count IS NOT OLD.warning_count
+  OR NEW.error_code IS NOT OLD.error_code
+  OR NEW.completed_at IS NOT OLD.completed_at)
+BEGIN SELECT RAISE(ABORT,'terminal model ensemble attempts are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_transition
+BEFORE UPDATE OF state ON session_model_ensemble_analysis_attempts
+WHEN OLD.state<>'running' OR NEW.state NOT IN ('completed','partial','failed','cancelled')
+BEGIN SELECT RAISE(ABORT,'invalid model ensemble attempt transition'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_publication_binding
+BEFORE UPDATE OF state ON session_model_ensemble_analysis_attempts
+WHEN NEW.state IN ('completed','partial') AND NOT EXISTS (
+    SELECT 1
+    FROM session_model_ensemble_watch_publications publication
+    JOIN session_model_ensemble_watches watch
+      ON watch.watch_id=publication.watch_id
+    JOIN session_model_ensemble_runs run
+      ON run.run_id=publication.run_id
+    WHERE publication.watch_id=OLD.watch_id
+      AND publication.run_id=NEW.published_run_id
+      AND watch.latest_run_id=NEW.published_run_id
+      AND run.session_id=watch.session_id
+      AND run.provider=watch.provider
+)
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt publication is not bound'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_stage_parent_terminal
+BEFORE INSERT ON session_model_ensemble_analysis_attempt_stages
+WHEN NOT EXISTS (
+    SELECT 1 FROM session_model_ensemble_analysis_attempts attempt
+    WHERE attempt.attempt_id=NEW.attempt_id AND attempt.state<>'running'
+      AND NEW.stage_ordinal<attempt.stage_count
+      AND NEW.completed_at<=attempt.completed_at
+      AND NOT EXISTS (
+          SELECT 1 FROM session_model_ensemble_analysis_attempt_seals seal
+          WHERE seal.attempt_id=attempt.attempt_id
+      ))
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt stages require a terminal attempt'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_stages_no_update
+BEFORE UPDATE ON session_model_ensemble_analysis_attempt_stages
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt stages are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_seal_complete
+BEFORE INSERT ON session_model_ensemble_analysis_attempt_seals
+WHEN NOT EXISTS (
+    SELECT 1 FROM session_model_ensemble_analysis_attempts attempt
+    WHERE attempt.attempt_id=NEW.attempt_id
+      AND attempt.state<>'running'
+      AND attempt.stage_count=NEW.stage_count
+      AND attempt.warning_count=NEW.warning_count
+      AND attempt.completed_at=NEW.sealed_at
+      AND NEW.stage_count=(
+          SELECT COUNT(*) FROM session_model_ensemble_analysis_attempt_stages stage
+          WHERE stage.attempt_id=attempt.attempt_id
+      )
+      AND NEW.warning_count=(
+          SELECT COUNT(*) FROM session_model_ensemble_analysis_attempt_stages stage
+          WHERE stage.attempt_id=attempt.attempt_id AND stage.state<>'completed'
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM session_model_ensemble_analysis_attempt_stages stage
+          WHERE stage.attempt_id=attempt.attempt_id
+            AND (stage.stage_ordinal<0
+                 OR stage.stage_ordinal>=attempt.stage_count)
+      )
+)
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt stage seal is incomplete'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_seals_no_update
+BEFORE UPDATE ON session_model_ensemble_analysis_attempt_seals
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt stage seals are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempts_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_analysis_attempts
+WHEN EXISTS(
+        SELECT 1
+        FROM session_model_ensemble_watches watch
+        JOIN sessions session ON session.session_id=watch.session_id
+        JOIN projects project ON project.project_id=watch.project_id
+        WHERE watch.watch_id=OLD.watch_id)
+ AND (OLD.prior_head_run_id IS NULL OR EXISTS(
+        SELECT 1 FROM session_model_ensemble_runs run
+        WHERE run.run_id=OLD.prior_head_run_id))
+ AND (OLD.published_run_id IS NULL OR EXISTS(
+        SELECT 1 FROM session_model_ensemble_runs run
+        WHERE run.run_id=OLD.published_run_id))
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt requires parent privacy deletion'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_stages_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_analysis_attempt_stages
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_analysis_attempts attempt
+            WHERE attempt.attempt_id=OLD.attempt_id)
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt stage requires parent privacy deletion'); END;
+
+CREATE TRIGGER session_model_ensemble_analysis_attempt_seals_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_analysis_attempt_seals
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_analysis_attempts attempt
+            WHERE attempt.attempt_id=OLD.attempt_id)
+BEGIN SELECT RAISE(ABORT,'model ensemble attempt stage seal requires parent privacy deletion'); END;
+
+CREATE TRIGGER session_model_ensemble_watch_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_watches
+WHEN EXISTS(SELECT 1 FROM sessions session
+            WHERE session.session_id=OLD.session_id)
+ AND EXISTS(SELECT 1 FROM projects project
+            WHERE project.project_id=OLD.project_id)
+BEGIN SELECT RAISE(ABORT,'model ensemble watch requires session privacy deletion'); END;
+
+CREATE TRIGGER session_model_ensemble_watch_publications_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_watch_publications
+WHEN EXISTS(
+        SELECT 1
+        FROM session_model_ensemble_watches watch
+        JOIN sessions session ON session.session_id=watch.session_id
+        JOIN projects project ON project.project_id=watch.project_id
+        WHERE watch.watch_id=OLD.watch_id)
+ AND EXISTS(SELECT 1 FROM session_model_ensemble_runs run
+            WHERE run.run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'model ensemble publication requires parent privacy deletion'); END;
+
+COMMIT;
+"""
+
+
+MIGRATION_37 = r"""
+BEGIN IMMEDIATE;
+
+-- Immutable, content-free semantic-unit heads for an ensemble run. Historical
+-- runs intentionally have no sidecar; this migration performs no backfill.
+CREATE TABLE session_model_ensemble_semantic_unit_heads (
+    run_id TEXT NOT NULL REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    unit_ordinal INTEGER NOT NULL CHECK(unit_ordinal BETWEEN 0 AND 19999),
+    schema_version INTEGER NOT NULL CHECK(schema_version=1),
+    contract_version TEXT NOT NULL CHECK(contract_version='semantic-units.v1'),
+    unit_kind_version INTEGER NOT NULL CHECK(unit_kind_version=1),
+    receipt_id TEXT NOT NULL CHECK(length(receipt_id)=64 AND receipt_id NOT GLOB '*[^0-9a-f]*'),
+    unit_id TEXT NOT NULL CHECK(length(unit_id)=64 AND unit_id NOT GLOB '*[^0-9a-f]*'),
+    unit_digest TEXT NOT NULL CHECK(length(unit_digest)=64 AND unit_digest NOT GLOB '*[^0-9a-f]*'),
+    revision INTEGER NOT NULL CHECK(revision>=1),
+    previous_receipt_id TEXT CHECK(length(previous_receipt_id)=64 AND previous_receipt_id NOT GLOB '*[^0-9a-f]*'),
+    kind TEXT NOT NULL CHECK(kind IN (
+        'request_revision','requirement','constraint','deliverable','ambiguity',
+        'clarification','scope_change','feedback','hypothesis','decision',
+        'open_loop','action','verification'
+    )),
+    lifecycle TEXT NOT NULL CHECK(lifecycle IN ('open','closed','superseded','right_censored')),
+    extraction_basis TEXT NOT NULL CHECK(extraction_basis IN (
+        'documented_message_kind','explicit_supersession',
+        'typed_provider_event','versioned_local_classifier'
+    )),
+    owner_source_digest TEXT NOT NULL CHECK(length(owner_source_digest)=64 AND owner_source_digest NOT GLOB '*[^0-9a-f]*'),
+    source_version_digest TEXT NOT NULL CHECK(length(source_version_digest)=64 AND source_version_digest NOT GLOB '*[^0-9a-f]*'),
+    source_count INTEGER NOT NULL CHECK(source_count BETWEEN 1 AND 64),
+    first_sequence INTEGER NOT NULL CHECK(first_sequence>=0),
+    closed_at_sequence INTEGER CHECK(closed_at_sequence>=first_sequence),
+    superseded_by_source_digest TEXT CHECK(length(superseded_by_source_digest)=64 AND superseded_by_source_digest NOT GLOB '*[^0-9a-f]*'),
+    superseded_by_unit_id TEXT CHECK(length(superseded_by_unit_id)=64 AND superseded_by_unit_id NOT GLOB '*[^0-9a-f]*'),
+    owner_role TEXT CHECK(owner_role IN ('user','agent')),
+    owner_message_kind TEXT CHECK(owner_message_kind IN (
+        'request','response','plan','action','verification','decision','feedback','summary'
+    )),
+    rework_class TEXT CHECK(rework_class IN (
+        'avoidable_correction','new_information','scope_evolution',
+        'preference_change','unknown'
+    )),
+    disposition TEXT NOT NULL CHECK(disposition IN ('appended','unchanged')),
+    PRIMARY KEY(run_id,unit_id),
+    UNIQUE(run_id,unit_ordinal),
+    UNIQUE(run_id,receipt_id),
+    CHECK((revision=1 AND previous_receipt_id IS NULL)
+       OR (revision>1 AND previous_receipt_id IS NOT NULL)),
+    CHECK((lifecycle='superseded' AND closed_at_sequence IS NOT NULL
+           AND superseded_by_source_digest IS NOT NULL
+           AND superseded_by_unit_id IS NOT unit_id)
+       OR (lifecycle='closed' AND closed_at_sequence IS NOT NULL
+           AND superseded_by_source_digest IS NULL AND superseded_by_unit_id IS NULL)
+       OR (lifecycle IN ('open','right_censored') AND closed_at_sequence IS NULL
+           AND superseded_by_source_digest IS NULL AND superseded_by_unit_id IS NULL)),
+    CHECK((kind='feedback' AND rework_class IS NOT NULL)
+       OR (kind<>'feedback' AND rework_class IS NULL)),
+    CHECK(extraction_basis<>'documented_message_kind'
+       OR (owner_role IS NOT NULL AND owner_message_kind IS NOT NULL))
+);
+
+CREATE TABLE session_model_ensemble_semantic_unit_sources (
+    run_id TEXT NOT NULL,
+    unit_id TEXT NOT NULL,
+    source_ordinal INTEGER NOT NULL CHECK(source_ordinal BETWEEN 0 AND 63),
+    source_digest TEXT NOT NULL CHECK(length(source_digest)=64 AND source_digest NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(run_id,unit_id,source_ordinal),
+    UNIQUE(run_id,unit_id,source_digest),
+    FOREIGN KEY(run_id,unit_id)
+      REFERENCES session_model_ensemble_semantic_unit_heads(run_id,unit_id)
+      ON DELETE CASCADE
+);
+
+CREATE TABLE session_model_ensemble_semantic_unit_seals (
+    run_id TEXT PRIMARY KEY REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    schema_version INTEGER NOT NULL CHECK(schema_version=1),
+    contract_version TEXT NOT NULL CHECK(contract_version='semantic-units.v1'),
+    reconciliation_id TEXT NOT NULL CHECK(length(reconciliation_id)=64 AND reconciliation_id NOT GLOB '*[^0-9a-f]*'),
+    analysis_window_fingerprint TEXT NOT NULL CHECK(length(analysis_window_fingerprint)=64 AND analysis_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    source_complete INTEGER NOT NULL CHECK(source_complete IN (0,1)),
+    head_count INTEGER NOT NULL CHECK(head_count BETWEEN 0 AND 20000),
+    appended_count INTEGER NOT NULL CHECK(appended_count BETWEEN 0 AND 20000),
+    unchanged_count INTEGER NOT NULL CHECK(unchanged_count BETWEEN 0 AND 20000),
+    retained_unobserved_unit_count INTEGER NOT NULL CHECK(retained_unobserved_unit_count BETWEEN 0 AND head_count),
+    reconciliation_fingerprint TEXT NOT NULL CHECK(length(reconciliation_fingerprint)=64 AND reconciliation_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    sealed_at TEXT NOT NULL CHECK(length(sealed_at)=32 AND substr(sealed_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    CHECK(head_count=appended_count+unchanged_count)
+);
+
+CREATE TRIGGER session_model_ensemble_semantic_unit_seal_complete
+BEFORE INSERT ON session_model_ensemble_semantic_unit_seals
+WHEN (SELECT COUNT(*) FROM session_model_ensemble_semantic_unit_heads head
+      WHERE head.run_id=NEW.run_id)<>NEW.head_count
+  OR (SELECT COUNT(*) FROM session_model_ensemble_semantic_unit_heads head
+      WHERE head.run_id=NEW.run_id AND head.disposition='appended')<>NEW.appended_count
+  OR (SELECT COUNT(*) FROM session_model_ensemble_semantic_unit_heads head
+      WHERE head.run_id=NEW.run_id AND head.disposition='unchanged')<>NEW.unchanged_count
+  OR (SELECT COALESCE(MIN(unit_ordinal),0) FROM session_model_ensemble_semantic_unit_heads head
+      WHERE head.run_id=NEW.run_id)<>0
+  OR (SELECT COALESCE(MAX(unit_ordinal),-1) FROM session_model_ensemble_semantic_unit_heads head
+      WHERE head.run_id=NEW.run_id)<>NEW.head_count-1
+  OR EXISTS (
+      SELECT 1 FROM session_model_ensemble_semantic_unit_heads head
+      WHERE head.run_id=NEW.run_id AND (
+          head.schema_version<>NEW.schema_version
+          OR head.contract_version<>NEW.contract_version
+          OR head.source_count<>(
+              SELECT COUNT(*) FROM session_model_ensemble_semantic_unit_sources source
+              WHERE source.run_id=head.run_id AND source.unit_id=head.unit_id
+          )
+          OR NOT EXISTS (
+              SELECT 1 FROM session_model_ensemble_semantic_unit_sources source
+              WHERE source.run_id=head.run_id AND source.unit_id=head.unit_id
+                AND source.source_digest=head.owner_source_digest
+          )
+      )
+  )
+BEGIN SELECT RAISE(ABORT,'semantic-unit sidecar is incomplete'); END;
+
+CREATE TRIGGER session_model_ensemble_semantic_unit_heads_sealed_insert
+BEFORE INSERT ON session_model_ensemble_semantic_unit_heads
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_semantic_unit_seals seal
+             WHERE seal.run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'semantic-unit sidecar is sealed'); END;
+
+CREATE TRIGGER session_model_ensemble_semantic_unit_sources_sealed_insert
+BEFORE INSERT ON session_model_ensemble_semantic_unit_sources
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_semantic_unit_seals seal
+             WHERE seal.run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'semantic-unit sidecar is sealed'); END;
+
+CREATE TRIGGER session_model_ensemble_semantic_unit_heads_no_update
+BEFORE UPDATE ON session_model_ensemble_semantic_unit_heads
+BEGIN SELECT RAISE(ABORT,'semantic-unit sidecars are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_semantic_unit_sources_no_update
+BEFORE UPDATE ON session_model_ensemble_semantic_unit_sources
+BEGIN SELECT RAISE(ABORT,'semantic-unit sidecars are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_semantic_unit_seals_no_update
+BEFORE UPDATE ON session_model_ensemble_semantic_unit_seals
+BEGIN SELECT RAISE(ABORT,'semantic-unit sidecar seals are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_semantic_unit_heads_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_semantic_unit_heads
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'semantic-unit sidecar requires parent privacy deletion'); END;
+
+CREATE TRIGGER session_model_ensemble_semantic_unit_sources_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_semantic_unit_sources
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'semantic-unit sidecar requires parent privacy deletion'); END;
+
+CREATE TRIGGER session_model_ensemble_semantic_unit_seals_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_semantic_unit_seals
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'semantic-unit sidecar seal requires parent privacy deletion'); END;
+
+COMMIT;
+"""

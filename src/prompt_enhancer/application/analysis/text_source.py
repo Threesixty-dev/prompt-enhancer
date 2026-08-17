@@ -17,6 +17,7 @@ from .text_contracts import (
     MAX_ANALYSIS_CHARACTERS,
     MAX_ANALYSIS_MESSAGES,
     P1TextAnalysisInput,
+    TextAnalysisScopeKind,
     TextTaskProfile,
 )
 
@@ -57,6 +58,10 @@ class TextAnalysisSelection(StrictModel):
     purpose: TextAnalysisPurpose = TextAnalysisPurpose.TEXT_ANALYSIS
     provider: Provider
     session_id: str
+    # Compatibility default.  New durable full-session callers must explicitly
+    # request ``FULL_AVAILABLE_SESSION`` until their persistence schema can bind
+    # and publish this scope end to end.
+    scope_kind: TextAnalysisScopeKind = TextAnalysisScopeKind.BOUNDED_RECENT
     max_messages: int = Field(default=MAX_ANALYSIS_MESSAGES, ge=1, le=MAX_ANALYSIS_MESSAGES)
     max_characters: int = Field(
         default=MAX_ANALYSIS_CHARACTERS,
@@ -70,6 +75,30 @@ class TextAnalysisSelection(StrictModel):
         if PSEUDONYM_PATTERN.fullmatch(value) is None:
             raise ValueError("text-analysis selection requires a safe session identifier")
         return value
+
+    @classmethod
+    def full_available_session(
+        cls,
+        *,
+        provider: Provider,
+        session_id: str,
+        max_messages: int = MAX_ANALYSIS_MESSAGES,
+        max_characters: int = MAX_ANALYSIS_CHARACTERS,
+    ) -> TextAnalysisSelection:
+        """Build an explicit full-available-session request.
+
+        Bounds remain mandatory resource ceilings.  Reaching one does not
+        silently redefine the requested scope; the provider result must report
+        ``incomplete_source``.
+        """
+
+        return cls(
+            provider=provider,
+            session_id=session_id,
+            scope_kind=TextAnalysisScopeKind.FULL_AVAILABLE_SESSION,
+            max_messages=max_messages,
+            max_characters=max_characters,
+        )
 
 
 class TextSourceAccessGrant(StrictModel):

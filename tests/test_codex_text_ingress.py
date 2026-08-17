@@ -14,6 +14,9 @@ from prompt_enhancer.application.analysis.coaching_baselines import (
 from prompt_enhancer.application.analysis.text_analysis_presets import COACHING_PROFILE_V1
 from prompt_enhancer.application.analysis.text_contracts import (
     P1LocalAnalysisGrant,
+    TextAnalysisScopeKind,
+    TextAnalysisScopeReason,
+    TextAnalysisScopeState,
     TextAnalysisPrivacyError,
     TextLanguage,
     TextMessageKind,
@@ -1339,12 +1342,109 @@ def test_bounded_analysis_window_is_complete_inside_a_truncated_history_suffix()
     assert context.observed_message_count == selection.max_messages == 100
     assert context.eligible_message_count == 500
     assert context.text_extraction_complete is True
+    assert context.analysis_scope is not None
+    assert context.analysis_scope.kind is TextAnalysisScopeKind.BOUNDED_RECENT
+    assert context.analysis_scope.state is TextAnalysisScopeState.COMPLETE
     assert context.messages[0].text.get_secret_value().startswith(
         "Implement fictional local report 401"
     )
     assert context.messages[-1].text.get_secret_value().startswith(
         "Implement fictional local report 500"
     )
+
+
+def test_full_available_session_scope_reports_incomplete_when_history_is_bounded() -> None:
+    raw_id = "example-thread-full-bounded"
+    turns = [
+        {
+            "id": f"turn-{index}",
+            "items": [
+                {
+                    "type": "userMessage",
+                    "id": f"user-{index}",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Implement reserved example report {index}.",
+                        }
+                    ],
+                }
+            ],
+        }
+        for index in range(501)
+    ]
+    transport = RecordingTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(raw_id),
+            {"thread": {"id": raw_id, "turns": turns}},
+        ]
+    )
+    selection = CodexTextAnalysisSelection.full_available_session(
+        provider=Provider.CODEX,
+        session_id=_safe_session_id(_pseudonymizer(), raw_id),
+        max_messages=100,
+        max_characters=100_000,
+    )
+    source = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, []),
+    )
+
+    context = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=_profile(),
+    )
+
+    assert context.text_extraction_complete is False
+    assert context.requested_scope_complete is False
+    assert context.analysis_scope is not None
+    assert context.analysis_scope.kind is TextAnalysisScopeKind.FULL_AVAILABLE_SESSION
+    assert context.analysis_scope.state is TextAnalysisScopeState.INCOMPLETE_SOURCE
+    assert set(context.analysis_scope.reason_codes) == {
+        TextAnalysisScopeReason.SOURCE_HISTORY_LIMIT,
+        TextAnalysisScopeReason.MESSAGE_LIMIT,
+    }
+
+
+def test_full_available_session_scope_is_complete_when_every_message_is_proven() -> None:
+    raw_id = "example-thread-full-complete"
+    read = _content_read(raw_id)
+    read["thread"]["turns"][0]["items"] = [  # type: ignore[index]
+        item
+        for item in read["thread"]["turns"][0]["items"]  # type: ignore[index]
+        if item.get("type") != "futurePrivateItem"
+    ]
+    transport = RecordingTransport(
+        [
+            {"serverInfo": {"version": "example-1.0"}},
+            _listed(raw_id),
+            read,
+        ]
+    )
+    selection = CodexTextAnalysisSelection.full_available_session(
+        provider=Provider.CODEX,
+        session_id=_safe_session_id(_pseudonymizer(), raw_id),
+        max_messages=100,
+        max_characters=100_000,
+    )
+
+    context = CodexTextAnalysisSource(
+        _pseudonymizer(),
+        client_factory=_factory(transport, []),
+    ).read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=_profile(),
+    )
+
+    assert context.text_extraction_complete is True
+    assert context.requested_scope_complete is True
+    assert context.analysis_scope is not None
+    assert context.analysis_scope.state is TextAnalysisScopeState.COMPLETE
+    assert context.analysis_scope.source_history_complete is True
+    assert context.analysis_scope.reason_codes == ()
 
 
 def test_truncated_history_stays_incomplete_when_the_window_reaches_its_left_edge() -> None:

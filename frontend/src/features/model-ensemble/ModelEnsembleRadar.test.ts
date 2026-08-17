@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { ModelEnsembleRun } from "../../shared/api/contracts";
 import {
   MODEL_ENSEMBLE_LENSES,
+  modelEnsembleDensityBinsForDirection,
   modelEnsembleMetricPresentation,
+  modelEnsembleIsRawExplicitZero,
+  modelEnsemblePredictiveVisibility,
   modelEnsembleRadarAxes,
   modelEnsembleRadarMarkerMagnitude,
   modelEnsembleRadarSegments,
@@ -10,6 +13,31 @@ import {
 
 type EnsembleMetric = ModelEnsembleRun["metrics"][number];
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
+type PredictiveMetric = ModelEnsembleRun["predictive_metrics"][number];
+
+function prediction(overrides: Partial<PredictiveMetric> = {}): PredictiveMetric {
+  return {
+    metric_key: "prompt.task_definition_coverage",
+    target: "metric_value",
+    state: "experimental",
+    mean: 0.5,
+    median: 0.5,
+    q05: 0.2,
+    q25: 0.4,
+    q75: 0.6,
+    q95: 0.8,
+    applicability_probability: 0.9,
+    pending_probability: 0.05,
+    model_disagreement: 0.2,
+    effective_observation_count: 2,
+    model_set_version: "example-model-set-v1",
+    calibration_version: "not-calibrated-v1",
+    contract_version: "example-contract-v1",
+    contract_fingerprint: "a".repeat(64),
+    product_metric_eligible: false,
+    ...overrides,
+  };
+}
 
 function metric(overrides: Partial<EnsembleMetric> = {}): EnsembleMetric {
   return {
@@ -67,9 +95,52 @@ describe("modelEnsembleMetricPresentation", () => {
   it("explains that lower-is-better raw zero maps to the radar edge", () => {
     const value = modelEnsembleMetricPresentation(metric(), "lower_is_better");
 
-    expect(value.value).toBe("0% signal");
-    expect(value.detail).toMatch(/lower-is-better signal/i);
-    expect(value.detail).toMatch(/radar 100%/i);
+    expect(value.value).toBe("100% radar quality");
+    expect(value.detail).toMatch(/raw lower-is-better rate 0%/i);
+    expect(value.detail).toMatch(/radar quality is 100%/i);
+  });
+
+  it("orients lower-is-better estimates and density as radar quality while preserving the raw rate", () => {
+    const rework = "collaboration.rework_candidate_rate";
+    const run = {
+      typed_metrics: [typedMetric({
+        metric_key: rework,
+        numerator: 2,
+        denominator: 100,
+        numeric_value: 0.02,
+      })],
+      metrics: [],
+      chunk_metrics: [],
+      predictive_metrics: [prediction({
+        metric_key: rework,
+        median: 0.02,
+        q05: 0.01,
+        q25: 0.015,
+        q75: 0.03,
+        q95: 0.04,
+      })],
+      predictive_model_stages: [0, 1].map((index) => ({
+        model_key: `example_small_${index}`,
+        repository_id: `example-org/small-${index}`,
+        status: "completed",
+      })),
+    } as unknown as ModelEnsembleRun;
+
+    const axis = modelEnsembleRadarAxes(run, "collaboration-flow")
+      .find((candidate) => candidate.key === rework)!;
+    expect(axis.plotted).toBe(0.98);
+    expect(modelEnsembleIsRawExplicitZero(axis)).toBe(false);
+    expect(axis.predictiveMedian).toBe(0.98);
+    expect(axis.predictiveQ05).toBe(0.96);
+    expect(axis.predictiveQ95).toBe(0.99);
+    expect(modelEnsembleMetricPresentation(axis.metric!, axis.direction)).toEqual({
+      value: "98% radar quality",
+      detail: expect.stringMatching(/raw lower-is-better rate 2%/i),
+    });
+    expect(modelEnsembleDensityBinsForDirection([0.1, 0.2, 0.7], "lower_is_better"))
+      .toEqual([0.7, 0.2, 0.1]);
+    expect(modelEnsembleDensityBinsForDirection([0.1, 0.2, 0.7], "higher_is_better"))
+      .toEqual([0.1, 0.2, 0.7]);
   });
 
   it("never presents abstention as numeric zero", () => {
@@ -93,8 +164,8 @@ describe("modelEnsembleMetricPresentation", () => {
     expect(MODEL_ENSEMBLE_LENSES.map((lens) => [lens.id, lens.expectedMetricCount])).toEqual([
       ["task-framing", 6],
       ["collaboration-flow", 5],
-      ["reasoning-trace", 5],
-      ["outcome-evidence", 4],
+      ["reasoning-trace", 4],
+      ["outcome-evidence", 5],
     ]);
   });
 
@@ -150,6 +221,25 @@ describe("modelEnsembleMetricPresentation", () => {
     expect(modelEnsembleRadarMarkerMagnitude(0.67)).toBe(0.67);
   });
 
+  it("derives explicit zero from the raw receipt rather than inverted radar geometry", () => {
+    const rework = "collaboration.rework_candidate_rate";
+    const zeroRateRun = {
+      typed_metrics: [typedMetric({ metric_key: rework, numerator: 0, denominator: 5, numeric_value: 0 })],
+      metrics: [], chunk_metrics: [],
+    } as unknown as ModelEnsembleRun;
+    const worstRateRun = {
+      typed_metrics: [typedMetric({ metric_key: rework, numerator: 5, denominator: 5, numeric_value: 1 })],
+      metrics: [], chunk_metrics: [],
+    } as unknown as ModelEnsembleRun;
+
+    const best = modelEnsembleRadarAxes(zeroRateRun, "collaboration-flow").find((axis) => axis.key === rework)!;
+    const worst = modelEnsembleRadarAxes(worstRateRun, "collaboration-flow").find((axis) => axis.key === rework)!;
+    expect(best.plotted).toBe(1);
+    expect(modelEnsembleIsRawExplicitZero(best)).toBe(true);
+    expect(worst.plotted).toBe(0);
+    expect(modelEnsembleIsRawExplicitZero(worst)).toBe(false);
+  });
+
   it("explains adapter and objective-receipt gaps instead of calling them low scores", () => {
     const unavailable = modelEnsembleMetricPresentation(
       typedMetric({
@@ -178,5 +268,12 @@ describe("modelEnsembleMetricPresentation", () => {
     expect(unavailable.detail).toMatch(/not a zero/i);
     expect(unavailable.value).toBe("Needs evidence");
     expect(objective.detail).toMatch(/typed local tool, test, artifact, or verification receipt/i);
+  });
+
+  it("withholds broad, out-of-distribution, and single-expert estimates", () => {
+    expect(modelEnsemblePredictiveVisibility(prediction(), 2)).toEqual({ visible: true, reason: null });
+    expect(modelEnsemblePredictiveVisibility(prediction({ q05: 0, q95: 1 }), 3).reason).toMatch(/uninformative/i);
+    expect(modelEnsemblePredictiveVisibility(prediction(), 1).reason).toMatch(/fewer than two/i);
+    expect(modelEnsemblePredictiveVisibility(prediction({ state: "out_of_distribution" }), 3).reason).toMatch(/outside/i);
   });
 });

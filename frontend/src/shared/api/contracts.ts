@@ -103,6 +103,58 @@ export type ModelEnsembleTrajectoryPage = Schemas["ModelEnsembleTrajectoryPage"]
 export type ModelEnsembleTrajectoryPoint = Schemas["ModelEnsembleTrajectoryPoint"];
 export type ModelPredictiveMetricDetail = Schemas["ModelPredictiveMetricDetailDto"];
 
+export interface ModelEnsembleAttempt {
+  attempt_id: string;
+  watch_id: string;
+  generation: number;
+  state: "running" | "completed" | "partial" | "failed" | "cancelled";
+  prior_head_run_id: string | null;
+  published_run_id: string | null;
+  progress_completed: number;
+  progress_total: number;
+  stage_count: number;
+  warning_count: number;
+  error_code: string | null;
+  requested_at: string;
+  started_at: string;
+  completed_at: string | null;
+  content_persisted: false;
+}
+
+export interface ModelEnsembleAttemptStage {
+  stage_ordinal: number;
+  stage_key: string;
+  state: "completed" | "unavailable" | "resource_exhausted" | "failed" | "cancelled";
+  model_key: string | null;
+  repository_id: string | null;
+  revision: string | null;
+  error_code: string | null;
+  device: "cpu" | "cuda" | "mps" | null;
+  quantization: "none" | "bitsandbytes_nf4";
+  inference_latency_ms: number | null;
+  peak_accelerator_memory_mb: number | null;
+  process_rss_mb: number | null;
+  evaluated_case_count: number | null;
+  contributed_case_count: number | null;
+  unloaded_after_stage: boolean | null;
+  completed_at: string;
+}
+
+export interface ModelEnsembleCanonicalHead {
+  schema_version: "analysis-snapshot-v2";
+  watch: ModelEnsembleWatch;
+  head_run_id: string | null;
+  head_generation: number | null;
+  latest_attempt: ModelEnsembleAttempt | null;
+  stages: ModelEnsembleAttemptStage[];
+  content_persisted: false;
+}
+
+export interface ModelEnsembleAttemptSnapshot {
+  attempt: ModelEnsembleAttempt;
+  stages: ModelEnsembleAttemptStage[];
+}
+
 export interface SessionMetric {
   key: string;
   version: number;
@@ -531,6 +583,29 @@ export interface PromptEnhancerTransport {
   getActiveModelEnsembleWatch?(
     signal?: AbortSignal,
   ): Promise<ModelEnsembleWatchSnapshot>;
+  getActiveModelEnsembleCanonicalHead?(
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleCanonicalHead>;
+  getSessionModelEnsembleCanonicalHead?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleCanonicalHead>;
+  getModelEnsembleSnapshot?(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleRun>;
+  enqueueModelEnsembleAnalysis?(
+    watchId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleCanonicalHead>;
+  cancelModelEnsembleAnalysis?(
+    watchId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleCanonicalHead>;
+  getModelEnsembleAttempt?(
+    attemptId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelEnsembleAttemptSnapshot>;
   enableModelEnsembleWatch?(
     sessionId: string,
     request: ModelEnsembleWatchRequest,

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ModelEnsembleRun,
+  ModelEnsembleCanonicalHead,
+  ModelEnsembleTrajectoryPage,
   ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
   ProviderCompatibilityStatus,
@@ -8,14 +10,13 @@ import type {
 } from "../../shared/api/contracts";
 import { nextIdempotencyKey } from "../../shared/api/idempotency";
 import type { MetricCategory } from "../../shared/platform/platform";
-import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 import { promptTextCompatibilityBlocker } from "../provider-compatibility";
+import type { ModelEnsembleLensId, ModelEnsembleRadarData } from "./ModelEnsembleRadar";
 import {
-  MODEL_ENSEMBLE_LENSES,
-  ModelEnsembleRadar,
-  type ModelEnsembleLensId,
-  modelEnsembleMetricPresentation,
-} from "./ModelEnsembleRadar";
+  MetricWorkspace,
+  modelEnsembleTrajectoryRadarData,
+} from "./MetricWorkspace";
+import { MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES } from "./modelEnsembleConstants";
 
 const TERMINAL_SOURCE_REASONS = new Set([
   "source_selection_limit",
@@ -111,20 +112,41 @@ export function ModelEnsemblePanel({
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [watch, setWatch] = useState<ModelEnsembleWatchSnapshot | null>(null);
+  const [canonicalHead, setCanonicalHead] = useState<ModelEnsembleCanonicalHead | null>(null);
+  const [trajectory, setTrajectory] = useState<ModelEnsembleTrajectoryPage | null>(null);
+  const [trajectoryError, setTrajectoryError] = useState(false);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [historicalRun, setHistoricalRun] = useState<ModelEnsembleRun | null>(null);
   const [watchChanging, setWatchChanging] = useState(false);
   const [lensId, setLensId] = useState<ModelEnsembleLensId>(
     category === "prompt-quality" ? "task-framing" : "reasoning-trace",
   );
   const controllerRef = useRef<AbortController | null>(null);
+  const runRef = useRef<ModelEnsembleRun | null>(null);
+  const canonicalHeadRef = useRef<ModelEnsembleCanonicalHead | null>(null);
+  const followingLive = useRef(true);
   const blocked = blocker(analysisCapability, providerCompatibility, compatibilityLoading);
+  const supportsCanonicalSnapshots = transport.getSessionModelEnsembleCanonicalHead !== undefined
+    && transport.getModelEnsembleSnapshot !== undefined;
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError("");
     setRun(null);
+    if (supportsCanonicalSnapshots) {
+      return () => controller.abort();
+    }
     transport.getLatestModelEnsemble(sessionId, controller.signal)
-      .then((value) => { if (!controller.signal.aborted) setRun(value); })
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        const exactHead = canonicalHeadRef.current;
+        if (
+          exactHead?.watch.session_id === sessionId
+          && exactHead.head_run_id !== value.run_id
+        ) return;
+        setRun(value);
+      })
       .catch((loadError: unknown) => {
         if (!controller.signal.aborted && statusOf(loadError) !== 404) {
           setError("The stored shadow ensemble could not be validated or loaded.");
@@ -132,35 +154,102 @@ export function ModelEnsemblePanel({
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [sessionId, transport]);
+  }, [sessionId, supportsCanonicalSnapshots, transport]);
+
+  const trajectoryWatchId = watch?.watch.session_id === sessionId
+    && watch.watch.state !== "disabled"
+    ? watch.watch.watch_id
+    : null;
+  const trajectoryHeadRunId = run?.run_id ?? null;
+
+  useEffect(() => {
+    if (trajectoryWatchId === null || trajectoryHeadRunId === null || transport.getModelEnsembleTrajectory === undefined) {
+      setTrajectory(null);
+      setTrajectoryError(false);
+      setSelectedRunId(null);
+      followingLive.current = true;
+      return;
+    }
+    if (followingLive.current) setSelectedRunId(trajectoryHeadRunId);
+    const controller = new AbortController();
+    transport.getModelEnsembleTrajectory(trajectoryWatchId, 24, undefined, controller.signal)
+      .then((page) => {
+        if (controller.signal.aborted || page.watch_id !== trajectoryWatchId) return;
+        if (page.head_run_id !== trajectoryHeadRunId) {
+          setTrajectoryError(page.head_run_id !== null);
+          return;
+        }
+        setTrajectory(page);
+        setTrajectoryError(false);
+        setSelectedRunId((current) => {
+          if (followingLive.current) return page.head_run_id;
+          if (current !== null && page.points.some((point) => point.run_id === current)) return current;
+          followingLive.current = true;
+          return page.head_run_id;
+        });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setTrajectoryError(true);
+      });
+    return () => controller.abort();
+  }, [trajectoryHeadRunId, trajectoryWatchId, transport]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
+  useEffect(() => { runRef.current = run; }, [run]);
 
   useEffect(() => {
     setLensId(category === "prompt-quality" ? "task-framing" : "reasoning-trace");
   }, [category]);
 
   useEffect(() => {
-    if (transport.getActiveModelEnsembleWatch === undefined) return;
+    if (transport.getSessionModelEnsembleCanonicalHead === undefined && transport.getActiveModelEnsembleWatch === undefined) return;
     let stopped = false;
     let timer: number | undefined;
     const controller = new AbortController();
     const poll = async () => {
       try {
+        if (transport.getSessionModelEnsembleCanonicalHead !== undefined && transport.getModelEnsembleSnapshot !== undefined) {
+          const head = await transport.getSessionModelEnsembleCanonicalHead(sessionId, controller.signal);
+          if (stopped) return;
+          if (head.watch.session_id !== sessionId) throw new Error("durable_watch_identity_mismatch");
+          canonicalHeadRef.current = head;
+          let latestRun = runRef.current;
+          if (head.head_run_id === null) {
+            latestRun = null;
+          } else if (latestRun?.run_id !== head.head_run_id) {
+            latestRun = await transport.getModelEnsembleSnapshot(head.head_run_id!, controller.signal);
+            if (stopped || latestRun.run_id !== head.head_run_id) return;
+          }
+          setCanonicalHead(head);
+          setWatch({ watch: head.watch, latest_run: latestRun });
+          setRun(latestRun);
+          setLoading(false);
+          timer = window.setTimeout(() => void poll(), head.latest_attempt?.state === "running" ? 2_000 : 15_000);
+          return;
+        }
         const snapshot = await transport.getActiveModelEnsembleWatch!(controller.signal);
         if (stopped) return;
+        canonicalHeadRef.current = null;
         setWatch(snapshot);
-        if (snapshot.watch.session_id === sessionId && snapshot.latest_run !== null) {
+        setCanonicalHead(null);
+        if (snapshot.watch.session_id === sessionId) {
           setRun(snapshot.latest_run);
-          setLoading(false);
         }
+        setLoading(false);
         timer = window.setTimeout(
           () => void poll(),
           snapshot.watch.state === "running" || snapshot.watch.state === "queued" ? 2_000 : 15_000,
         );
       } catch (watchError) {
         if (stopped || controller.signal.aborted) return;
-        if (statusOf(watchError) === 404) setWatch(null);
+        setLoading(false);
+        if (statusOf(watchError) === 404) {
+          canonicalHeadRef.current = null;
+          setCanonicalHead(null);
+          setWatch(null);
+          if (supportsCanonicalSnapshots) setRun(null);
+          setLoading(false);
+        }
         timer = window.setTimeout(() => void poll(), 15_000);
       }
     };
@@ -170,22 +259,56 @@ export function ModelEnsemblePanel({
       controller.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [sessionId, transport]);
+  }, [sessionId, supportsCanonicalSnapshots, transport]);
 
   async function start() {
-    if (running || blocked !== null) return;
+    if (running || blocked !== null || durableAttemptRunning || watchQueued || legacyWatchBusy) return;
     const controller = new AbortController();
     controllerRef.current = controller;
     setRunning(true);
     setError("");
     try {
-      const outcome = await transport.startModelEnsemble(
-        sessionId,
-        { confirmation: "run_ten_local_models_on_selected_redacted_text" },
-        nextIdempotencyKey("model-ensemble"),
-        controller.signal,
-      );
-      if (!controller.signal.aborted) setRun(outcome.run);
+      if (transport.enqueueModelEnsembleAnalysis !== undefined) {
+        let activeWatch = watch;
+        if (
+          activeWatch === null
+          || activeWatch.watch.session_id !== sessionId
+          || activeWatch.watch.state === "disabled"
+        ) {
+          if (transport.enableModelEnsembleWatch === undefined) throw new Error("durable_watch_unavailable");
+          activeWatch = await transport.enableModelEnsembleWatch(sessionId, {
+            project_id: projectId,
+            max_messages: MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES,
+            confirmation: "continuously_analyze_selected_redacted_session",
+          }, controller.signal);
+          if (controller.signal.aborted) return;
+          setWatch(activeWatch);
+        }
+        const head = await transport.enqueueModelEnsembleAnalysis(activeWatch.watch.watch_id, controller.signal);
+        if (controller.signal.aborted) return;
+        if (head.watch.session_id !== sessionId) throw new Error("durable_watch_identity_mismatch");
+        let exactRun = runRef.current;
+        if (head.head_run_id === null) {
+          exactRun = null;
+        } else if (exactRun?.run_id !== head.head_run_id) {
+          if (transport.getModelEnsembleSnapshot === undefined) throw new Error("durable_snapshot_unavailable");
+          exactRun = await transport.getModelEnsembleSnapshot(head.head_run_id, controller.signal);
+          if (controller.signal.aborted || exactRun.run_id !== head.head_run_id) return;
+        }
+        setCanonicalHead(head);
+        canonicalHeadRef.current = head;
+        setRun(exactRun);
+        setWatch({ watch: head.watch, latest_run: exactRun });
+        followingLive.current = true;
+      } else {
+        const outcome = await transport.startModelEnsemble(
+          sessionId,
+          { confirmation: "run_ten_local_models_on_selected_redacted_text" },
+          nextIdempotencyKey("model-ensemble"),
+          controller.signal,
+        );
+        if (!controller.signal.aborted) setRun(outcome.run);
+      }
     } catch (runError) {
       if (!controller.signal.aborted) setError(runErrorCopy(runError));
     } finally {
@@ -200,6 +323,36 @@ export function ModelEnsemblePanel({
     setRunning(false);
   }
 
+  async function cancelAnalysis() {
+    if (
+      running
+      || canonicalHead?.latest_attempt?.state !== "running"
+      || transport.cancelModelEnsembleAnalysis === undefined
+    ) return;
+    setRunning(true);
+    setError("");
+    try {
+      const head = await transport.cancelModelEnsembleAnalysis(canonicalHead.watch.watch_id);
+      if (head.watch.session_id !== sessionId) throw new Error("durable_watch_identity_mismatch");
+      let exactRun = runRef.current;
+      if (head.head_run_id === null) {
+        exactRun = null;
+      } else if (exactRun?.run_id !== head.head_run_id) {
+        if (transport.getModelEnsembleSnapshot === undefined) throw new Error("durable_snapshot_unavailable");
+        exactRun = await transport.getModelEnsembleSnapshot(head.head_run_id);
+        if (exactRun.run_id !== head.head_run_id) throw new Error("durable_snapshot_identity_mismatch");
+      }
+      canonicalHeadRef.current = head;
+      setCanonicalHead(head);
+      setRun(exactRun);
+      setWatch({ watch: head.watch, latest_run: exactRun });
+    } catch {
+      setError("Cancellation could not be confirmed. The latest sealed snapshot remains visible.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
   async function toggleWatch() {
     if (watchChanging) return;
     setWatchChanging(true);
@@ -210,12 +363,14 @@ export function ModelEnsemblePanel({
         ? await transport.disableModelEnsembleWatch?.(watch.watch.watch_id)
         : await transport.enableModelEnsembleWatch?.(sessionId, {
             project_id: projectId,
-            max_messages: 100,
+            max_messages: MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES,
             confirmation: "continuously_analyze_selected_redacted_session",
           });
       if (snapshot !== undefined) {
+        setCanonicalHead(null);
+        canonicalHeadRef.current = null;
         setWatch(snapshot.watch.state === "disabled" ? null : snapshot);
-        if (snapshot.latest_run !== null) setRun(snapshot.latest_run);
+        setRun(snapshot.latest_run);
       } else {
         setError("Continuous local analysis is available only in the integrated desktop app.");
       }
@@ -226,28 +381,57 @@ export function ModelEnsemblePanel({
     }
   }
 
-  const selectedDefinitions = useMemo(() => {
-    const lens = MODEL_ENSEMBLE_LENSES.find((candidate) => candidate.id === lensId);
-    const definitions = new Map(
-      QUALITY_ANALYSIS_DEFINITIONS.filter((item) =>
-        lens?.metrics.some((metric) => metric.key === item.key),
-      )
-        .map((item) => [item.key, item]),
-    );
-    const primaryMetrics = run === null
-      ? []
-      : run.typed_metrics.length > 0 ? run.typed_metrics : run.metrics;
-    return primaryMetrics
-      .filter((metric) => definitions.has(metric.metric_key))
-      .map((metric) => ({ metric, definition: definitions.get(metric.metric_key)! })) ?? [];
-  }, [lensId, run]);
-  const availableLenses = MODEL_ENSEMBLE_LENSES.filter((lens) =>
-    category === "prompt-quality"
-      ? lens.id === "task-framing" || lens.id === "collaboration-flow"
-      : lens.id === "reasoning-trace" || lens.id === "outcome-evidence",
-  );
-  const predictiveStages = run?.predictive_model_stages ?? [];
-  const completedPredictiveStages = predictiveStages.filter((stage) => stage.status === "completed").length;
+  const durableAttemptRunning = canonicalHead?.watch.session_id === sessionId
+    && canonicalHead.latest_attempt?.state === "running";
+  const watchQueued = watch?.watch.session_id === sessionId
+    && watch.watch.state === "queued"
+    && !durableAttemptRunning;
+  const legacyWatchBusy = canonicalHead === null
+    && watch?.watch.session_id === sessionId
+    && watch.watch.state === "running";
+  const visibleTrajectory = trajectory?.watch_id === trajectoryWatchId ? trajectory : null;
+  const trajectoryPoints = visibleTrajectory?.points ?? [];
+  const selectedPointIndex = trajectoryPoints.findIndex((point) => point.run_id === selectedRunId);
+  const selectedPoint = selectedPointIndex < 0 ? null : trajectoryPoints[selectedPointIndex];
+  const historicalRunId = selectedPoint !== null && selectedPoint.run_id !== run?.run_id
+    ? selectedPoint.run_id
+    : null;
+  useEffect(() => {
+    if (historicalRunId === null || transport.getModelEnsembleSnapshot === undefined) {
+      setHistoricalRun(null);
+      return;
+    }
+    const controller = new AbortController();
+    setHistoricalRun(null);
+    transport.getModelEnsembleSnapshot(historicalRunId, controller.signal)
+      .then((value) => {
+        if (!controller.signal.aborted && value.run_id === historicalRunId) setHistoricalRun(value);
+      })
+      .catch(() => { if (!controller.signal.aborted) setHistoricalRun(null); });
+    return () => controller.abort();
+  }, [historicalRunId, transport]);
+  const selectedRadarRun: ModelEnsembleRadarData | null = selectedPoint === null
+    ? run
+    : selectedPoint.run_id === run?.run_id
+      ? run
+      : historicalRun?.run_id === selectedPoint.run_id
+        ? historicalRun
+        : modelEnsembleTrajectoryRadarData(selectedPoint);
+  const comparisonPoint = selectedPointIndex >= 0
+    ? trajectoryPoints[selectedPointIndex + 1] ?? null
+    : null;
+  const comparisonRadarRun = selectedPoint !== null
+    && comparisonPoint !== null
+    && selectedPoint.comparable_to_head
+    && comparisonPoint.comparable_to_head
+    && selectedPoint.max_messages === comparisonPoint.max_messages
+    ? modelEnsembleTrajectoryRadarData(comparisonPoint)
+    : null;
+
+  function selectTrajectoryRun(runId: string) {
+    followingLive.current = runId === trajectoryHeadRunId;
+    setSelectedRunId(runId);
+  }
 
   return (
     <section aria-labelledby="model-ensemble-title" className="model-ensemble">
@@ -261,8 +445,18 @@ export function ModelEnsemblePanel({
             range. Each child exits before the next model can use RAM or GPU memory.
           </p>
         </div>
-        {running ? (
-          <button className="button button--secondary" onClick={cancelWait} type="button">Cancel browser wait</button>
+        {durableAttemptRunning ? (
+          <button className="button button--secondary" disabled={running} onClick={() => void cancelAnalysis()} type="button">
+            {running ? "Cancelling…" : "Cancel analysis"}
+          </button>
+        ) : watchQueued ? (
+          <button className="button button--secondary" disabled type="button">Analysis queued</button>
+        ) : legacyWatchBusy ? (
+          <button className="button button--secondary" disabled type="button">Analysis active</button>
+        ) : running ? (
+          <button className="button button--secondary" onClick={cancelWait} type="button">
+            {transport.enqueueModelEnsembleAnalysis === undefined ? "Cancel browser wait" : "Cancel queue request"}
+          </button>
         ) : (
           <button className="button button--primary" disabled={blocked !== null} onClick={() => void start()} type="button">
             Analyze metric ranges
@@ -273,9 +467,9 @@ export function ModelEnsemblePanel({
           <strong>Solid measurements and model ranges stay separate</strong>
           <span>
           Versioned contracts supply evidence-backed numerators and denominators.
-          The translucent model layer is explicitly experimental until a metric passes
-          calibration. It never erases evidence, turns missing states into zero, or
-          treats prose as proof of an objective outcome.
+          Separate model markers are explicitly experimental until a metric passes
+          calibration. They never erase evidence, turn missing states into zero, or
+          treat prose as proof of an objective outcome.
         </span>
       </div>
       <div className="model-ensemble__watch">
@@ -283,7 +477,11 @@ export function ModelEnsemblePanel({
           <strong>Continuous local updates</strong>
           <span>
             {watch?.watch.session_id === sessionId
-              ? `${watch.watch.state} · analysis step ${watch.watch.progress_completed} of ${watch.watch.progress_total}`
+              ? watch.watch.state === "queued"
+                ? "queued · waiting for the local model lane"
+                : canonicalHead?.latest_attempt === null || canonicalHead?.latest_attempt === undefined
+                ? `${watch.watch.state} · local pipeline ${watch.watch.progress_completed}/${watch.watch.progress_total}`
+                : `${canonicalHead.latest_attempt.state} · ${canonicalHead.latest_attempt.progress_completed}/${canonicalHead.latest_attempt.progress_total} pipeline steps`
               : "Off for this session. One selected session can use the serial GPU/CPU lane."}
           </span>
         </div>
@@ -301,8 +499,16 @@ export function ModelEnsemblePanel({
         </button>
       </div>
       <p aria-live="polite" className="model-ensemble__status" role="status">
-        {running
-          ? "Running the local factor pipeline one child at a time. Cancelling only stops this browser from waiting."
+        {durableAttemptRunning
+          ? `Durable local analysis is running · ${canonicalHead.latest_attempt!.progress_completed}/${canonicalHead.latest_attempt!.progress_total} pipeline steps. The last sealed snapshot remains visible.`
+          : watchQueued
+            ? "Analysis is queued for the serial local model lane. The last sealed snapshot remains visible."
+          : legacyWatchBusy
+            ? `The local watch is ${watch!.watch.state}. The last sealed snapshot remains visible while canonical stage status loads.`
+          : running
+          ? transport.enqueueModelEnsembleAnalysis === undefined
+            ? "Running the local factor pipeline one child at a time. Cancelling only stops this browser from waiting."
+            : "Queueing a durable local analysis. The last sealed snapshot remains visible."
           : blocked ?? (run
             ? `Stored local analysis completed ${formatTimestamp(run.completed_at)}.`
             : "No measured + predictive analysis is stored for this session yet.")}
@@ -310,84 +516,49 @@ export function ModelEnsemblePanel({
       {error && <p className="model-ensemble__error" role="alert">{error}</p>}
       {loading ? (
         <p className="model-ensemble__empty">Loading stored content-free receipts…</p>
-      ) : run ? (
+      ) : selectedRadarRun ? (
         <>
-          <dl aria-label="Shadow ensemble facts" className="model-ensemble__facts">
-            <div><dt>Chunks</dt><dd>{run.chunk_count}</dd></div>
-             <div>
-               <dt>{predictiveStages.length > 0 ? "Predictive stages" : "Historical stages"}</dt>
-               <dd>{predictiveStages.length > 0
-                 ? `${completedPredictiveStages} / ${predictiveStages.length}`
-                 : `${run.experts.filter((expert) => expert.status === "completed").length} / 10`}</dd>
-             </div>
-            <div><dt>Typed metrics</dt><dd>{run.typed_metrics.length || "Legacy run"}</dd></div>
-            <div>
-              <dt>Source coverage</dt>
-              <dd>{run.source_coverage_state === "complete_window" ? "Complete selected window" : "Incomplete source window"}</dd>
-            </div>
-            <div><dt>Persisted text</dt><dd>None</dd></div>
-          </dl>
-          {run.source_coverage_state === "incomplete_source" && (
+          {selectedPoint === null && run?.source_coverage_state === "incomplete_source" && (
             <p className="model-ensemble__error" role="note">
               The adapter could not prove the selected source window complete.
               This shadow shape reflects retained content only and is not a
               complete-session judgment.
             </p>
           )}
-          <div className="model-ensemble__lens-tabs" role="group" aria-label="Shadow radar lens">
-            {availableLenses.map((lens) => (
-              <button
-                aria-pressed={lensId === lens.id}
-                key={lens.id}
-                onClick={() => setLensId(lens.id)}
-                type="button"
-              >
-                {lens.label}
-              </button>
-            ))}
-          </div>
-          <div className="model-ensemble__results">
-            <ModelEnsembleRadar detailRunId={run.run_id} detailTransport={transport} lensId={lensId} run={run} />
-            <div className="model-ensemble__metric-list">
-              {selectedDefinitions.map(({ metric, definition }) => {
-                const presentation = modelEnsembleMetricPresentation(metric, definition.direction);
-                return (
-                  <article key={metric.metric_key}>
-                    <div><strong>{definition.label}</strong><small>{metric.value_state.replaceAll("_", " ")}</small></div>
-                    <b>{presentation.value}</b>
-                    <p>{presentation.detail}</p>
-                    {"projection_source" in metric ? (
-                      <p>
-                        Message coverage {metric.observed_message_count}/{metric.eligible_message_count} ·
-                        {" "}typed contract · experimental model range shown separately
-                      </p>
-                    ) : (
-                      <p>
-                        Known observations {metric.known_chunk_count}/{metric.total_chunk_count} ·
-                        {" "}abstained {metric.abstained_chunk_count} · unsupported {metric.unsupported_chunk_count} · failed {metric.failed_chunk_count}
-                      </p>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-          <details className="model-ensemble__models">
-            <summary>{predictiveStages.length > 0
-              ? "Live predictive model stages and resource release"
-              : "Historical ten-stage receipts and resource release"}</summary>
-            <ol>
-              {(predictiveStages.length > 0 ? predictiveStages : run.experts).map((stage, index) => (
-                <li key={stage.model_key}>
-                  <span>
-                    <strong>{index + 1}. {stage.repository_id}</strong>
-                    <small>{"role" in stage ? `${stage.role.replaceAll("_", " ")} · ${stage.license_spdx}` : `factor model · ${stage.quantization}`}</small>
-                  </span>
-                  <span>{stage.status} · {stage.device?.toUpperCase() ?? "no device"} · unloaded {stage.unloaded_after_stage ? "yes" : "no"}</span>
-                </li>
-              ))}
-            </ol>
-          </details>
+          <MetricWorkspace
+            comparisonLabel="previous comparable publication"
+            comparisonRun={comparisonRadarRun}
+            history={visibleTrajectory === null ? undefined : {
+              points: trajectoryPoints,
+              headRunId: trajectoryHeadRunId ?? visibleTrajectory.head_run_id,
+              selectedRunId: selectedPoint?.run_id ?? run?.run_id ?? null,
+              onSelectRun: selectTrajectoryRun,
+              error: trajectoryError,
+            }}
+            lensId={lensId}
+            mode="full"
+            onLensChange={setLensId}
+            run={selectedRadarRun}
+            runId={selectedPoint?.run_id ?? run?.run_id ?? ""}
+            scopeLabel={selectedPoint !== null
+              ? `Newest ${selectedPoint.max_messages} messages`
+              : watch?.watch.session_id === sessionId
+              ? `Newest ${watch.watch.max_messages} messages`
+              : "Scope not exposed"}
+            snapshotLabel={selectedPoint === null
+              ? run?.source_coverage_state === "complete_window" ? "Sealed source window" : "Incomplete source window"
+              : selectedPoint.run_id === visibleTrajectory?.head_run_id
+                ? "Live published head"
+                : "Earlier published snapshot"}
+            stageRun={selectedPoint === null || selectedPoint.run_id === run?.run_id ? run : historicalRun}
+            attemptStages={
+              (selectedPoint === null || selectedPoint.run_id === run?.run_id)
+              && canonicalHead?.watch.session_id === sessionId
+                ? canonicalHead.stages
+                : []
+            }
+            transport={transport}
+          />
         </>
       ) : (
         <p className="model-ensemble__empty">

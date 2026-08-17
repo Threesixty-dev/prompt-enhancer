@@ -16,6 +16,10 @@ from pydantic import SecretStr
 from ....application.analysis.text_contracts import (
     EphemeralRedactedMessage,
     P1TextAnalysisInput,
+    TextAnalysisScope,
+    TextAnalysisScopeKind,
+    TextAnalysisScopeReason,
+    TextAnalysisScopeState,
     TextAnalysisPrivacyError,
     TextLanguage,
     TextMessageKind,
@@ -367,10 +371,39 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             focus_position,
             selection,
         )
-        window_extraction_complete = thread.extraction_complete or (
-            thread.older_history_truncated
-            and not thread.unclassified_omission
-            and left_boundary_closed
+        if selection.scope_kind is TextAnalysisScopeKind.FULL_AVAILABLE_SESSION:
+            # Full available-session scope never treats a saturated suffix as
+            # equivalent to the requested session.  Both provider-history and
+            # selected-window completeness must be proven.
+            window_extraction_complete = (
+                thread.extraction_complete and len(observed) == len(candidates)
+            )
+        else:
+            # An explicitly requested recent window may be complete even when
+            # older provider history lies outside that intentional boundary.
+            window_extraction_complete = thread.extraction_complete or (
+                thread.older_history_truncated
+                and not thread.unclassified_omission
+                and left_boundary_closed
+            )
+        scope_reasons = self._scope_incomplete_reasons(
+            thread=thread,
+            selection=selection,
+            observed=observed,
+            eligible_count=len(candidates),
+            extraction_complete=window_extraction_complete,
+        )
+        analysis_scope = TextAnalysisScope(
+            kind=selection.scope_kind,
+            state=(
+                TextAnalysisScopeState.COMPLETE
+                if window_extraction_complete
+                else TextAnalysisScopeState.INCOMPLETE_SOURCE
+            ),
+            requested_max_messages=selection.max_messages,
+            requested_max_characters=selection.max_characters,
+            source_history_complete=thread.extraction_complete,
+            reason_codes=scope_reasons,
         )
         focus_message_id = candidates[focus_position].message_id
         messages = tuple(
@@ -388,6 +421,15 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             selection.session_id,
             self._content_schema_version,
             self._redactor.version,
+            _encode_identity(
+                "analysis-scope",
+                analysis_scope.kind.value,
+                analysis_scope.state.value,
+                str(analysis_scope.requested_max_messages),
+                str(analysis_scope.requested_max_characters),
+                str(analysis_scope.source_history_complete).casefold(),
+                *(reason.value for reason in analysis_scope.reason_codes),
+            ),
             _encode_identity(
                 "window-text-extraction-complete",
                 str(window_extraction_complete).casefold(),
@@ -437,6 +479,7 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             source_schema_version=SOURCE_SCHEMA_VERSION,
             content_schema_version=self._content_schema_version,
             redactor_version=self._redactor.version,
+            analysis_scope=analysis_scope,
             text_extraction_complete=window_extraction_complete,
             available_message_kinds=CODEX_AVAILABLE_MESSAGE_KINDS,
             analysis_window_fingerprint=fingerprint,
@@ -446,6 +489,31 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             messages=messages,
             task_profile=task_profile,
         )
+
+    @staticmethod
+    def _scope_incomplete_reasons(
+        *,
+        thread: RawCodexTextThread,
+        selection: TextAnalysisSelection,
+        observed: tuple[_CandidateMessage, ...],
+        eligible_count: int,
+        extraction_complete: bool,
+    ) -> tuple[TextAnalysisScopeReason, ...]:
+        if extraction_complete:
+            return ()
+        reasons: list[TextAnalysisScopeReason] = []
+        if thread.older_history_truncated:
+            reasons.append(TextAnalysisScopeReason.SOURCE_HISTORY_LIMIT)
+        if thread.unclassified_omission:
+            reasons.append(TextAnalysisScopeReason.SOURCE_VARIANT_UNCLASSIFIED)
+        if len(observed) < eligible_count:
+            if len(observed) >= selection.max_messages:
+                reasons.append(TextAnalysisScopeReason.MESSAGE_LIMIT)
+            else:
+                reasons.append(TextAnalysisScopeReason.CHARACTER_LIMIT)
+        if not reasons:
+            reasons.append(TextAnalysisScopeReason.COMPLETENESS_UNPROVEN)
+        return tuple(reasons)
 
     def _redacted_candidates(
         self,

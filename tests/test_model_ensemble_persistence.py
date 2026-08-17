@@ -27,6 +27,13 @@ from prompt_enhancer.application.analysis.session_model_ensemble import (
     SessionModelEnsemblePersistenceAuthority,
     SessionModelEnsembleRunRecord,
 )
+from prompt_enhancer.application.analysis.semantic_units import (
+    SemanticUnitExtractionBasis,
+    SemanticUnitKind,
+    SemanticUnitLifecycle,
+    SemanticUnitReceipt,
+    SemanticUnitReconciliation,
+)
 from prompt_enhancer.application.analysis.model_ensemble import (
     coaching_ensemble_metric_specs,
 )
@@ -203,6 +210,37 @@ def _with_typed_projection(
     )
 
 
+def _semantic_units(run: SessionModelEnsembleRunRecord) -> SemanticUnitReconciliation:
+    head = SemanticUnitReceipt(
+        provider=run.provider,
+        session_id=run.session_id,
+        receipt_id="1" * 64,
+        unit_id="2" * 64,
+        unit_digest="3" * 64,
+        revision=1,
+        kind=SemanticUnitKind.REQUEST_REVISION,
+        lifecycle=SemanticUnitLifecycle.OPEN,
+        extraction_basis=SemanticUnitExtractionBasis.DOCUMENTED_MESSAGE_KIND,
+        owner_source_digest="4" * 64,
+        source_digests=("4" * 64,),
+        source_version_digest="5" * 64,
+        first_sequence=1,
+        owner_role="user",
+        owner_message_kind="request",
+    )
+    return SemanticUnitReconciliation(
+        provider=run.provider,
+        session_id=run.session_id,
+        analysis_window_fingerprint=run.input_fingerprint,
+        source_complete=True,
+        reconciliation_id="6" * 64,
+        heads=(head,),
+        appended=(head,),
+        unchanged_receipt_ids=(),
+        retained_unobserved_unit_count=0,
+    )
+
+
 def test_model_ensemble_graph_round_trips_and_contains_no_content_columns(tmp_path) -> None:
     database, session_id = _database_and_session(tmp_path)
     repository = database.model_ensemble_repository()
@@ -233,6 +271,74 @@ def test_model_ensemble_graph_round_trips_and_contains_no_content_columns(tmp_pa
         for column in columns
         for fragment in ("text", "prompt", "response", "output", "path")
     )
+
+
+def test_semantic_unit_sidecar_is_atomic_immutable_and_round_trips(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    repository = database.model_ensemble_repository()
+    run = _run(session_id)
+    reconciliation = _semantic_units(run)
+
+    repository.save_completed(run, semantic_units=reconciliation)
+
+    assert repository.get(run.run_id) == run
+    assert repository.get_semantic_unit_reconciliation(run.run_id) == reconciliation
+    with sqlite3.connect(database.path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        assert connection.execute(
+            "SELECT COUNT(*) FROM session_model_ensemble_semantic_unit_heads"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM session_model_ensemble_semantic_unit_sources"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM session_model_ensemble_semantic_unit_seals"
+        ).fetchone()[0] == 1
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                """UPDATE session_model_ensemble_semantic_unit_heads
+                   SET lifecycle='closed' WHERE run_id=?""",
+                (run.run_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="privacy deletion"):
+            connection.execute(
+                "DELETE FROM session_model_ensemble_semantic_unit_heads WHERE run_id=?",
+                (run.run_id,),
+            )
+
+    assert repository.delete_for_privacy(run.run_id) is True
+    assert repository.get_semantic_unit_reconciliation(run.run_id) is None
+    with sqlite3.connect(database.path) as connection:
+        assert tuple(
+            connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in (
+                "session_model_ensemble_semantic_unit_heads",
+                "session_model_ensemble_semantic_unit_sources",
+                "session_model_ensemble_semantic_unit_seals",
+            )
+        ) == (0, 0, 0)
+
+
+def test_semantic_unit_binding_failure_rolls_back_the_ensemble_graph(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    repository = database.model_ensemble_repository()
+    run = _run(session_id)
+    reconciliation = SemanticUnitReconciliation.model_validate(
+        {
+            **_semantic_units(run).model_dump(),
+            "analysis_window_fingerprint": "e" * 64,
+        }
+    )
+
+    with pytest.raises(DatabaseInvariantError, match="does not match"):
+        repository.save_completed(run, semantic_units=reconciliation)
+
+    assert repository.get(run.run_id) is None
+    assert repository.get_semantic_unit_reconciliation(run.run_id) is None
+    with sqlite3.connect(database.path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM session_model_ensemble_runs"
+        ).fetchone()[0] == 0
 
 
 def test_typed_metric_projection_round_trips_and_can_upgrade_a_legacy_seal(tmp_path) -> None:
@@ -363,16 +469,24 @@ def test_model_ensemble_graph_is_immutable_sealed_and_privacy_deletable(tmp_path
 def test_model_ensemble_migrations_have_zero_backfill(tmp_path) -> None:
     database, _ = _database_and_session(tmp_path)
     with sqlite3.connect(database.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 35
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 37
         assert tuple(
             row[0]
             for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-        ) == tuple(range(1, 36))
+        ) == tuple(range(1, 38))
         assert connection.execute(
             "SELECT COUNT(*) FROM session_model_ensemble_runs"
         ).fetchone()[0] == 0
+        assert tuple(
+            connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in (
+                "session_model_ensemble_semantic_unit_heads",
+                "session_model_ensemble_semantic_unit_sources",
+                "session_model_ensemble_semantic_unit_seals",
+            )
+        ) == (0, 0, 0)
 
 
 def test_v28_watch_upgrade_preserves_the_original_message_window(tmp_path) -> None:
@@ -445,7 +559,7 @@ def test_v28_watch_upgrade_preserves_the_original_message_window(tmp_path) -> No
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 35
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 37
         assert tuple(row[1] for row in rows[:28]) == checksums
         assert rows[28][1] == hashlib.sha256(
             migrations.MIGRATION_29.encode("utf-8")
@@ -467,6 +581,12 @@ def test_v28_watch_upgrade_preserves_the_original_message_window(tmp_path) -> No
         ).hexdigest()
         assert rows[34][1] == hashlib.sha256(
             migrations.MIGRATION_35.encode("utf-8")
+        ).hexdigest()
+        assert rows[35][1] == hashlib.sha256(
+            migrations.MIGRATION_36.encode("utf-8")
+        ).hexdigest()
+        assert rows[36][1] == hashlib.sha256(
+            migrations.MIGRATION_37.encode("utf-8")
         ).hexdigest()
         assert connection.execute(
             "SELECT max_messages FROM session_model_ensemble_watches"
@@ -550,8 +670,8 @@ def test_v25_to_v26_preserves_prior_checksums_and_rows(tmp_path, populated: bool
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 35
-        assert tuple(row[0] for row in rows) == tuple(range(1, 36))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 37
+        assert tuple(row[0] for row in rows) == tuple(range(1, 38))
         assert tuple(row[1] for row in rows[:25]) == checksums
         assert rows[25][1] == hashlib.sha256(
             migrations.MIGRATION_26.encode("utf-8")
@@ -659,6 +779,32 @@ def test_continuous_watch_claim_progress_completion_and_disable(tmp_path) -> Non
         MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION
     )
     assert trajectory.points[0].typed_metrics[0].numeric_value == 0.75
+    head = repository.canonical_head(watch_id)
+    assert head.head_run_id == run.run_id
+    assert head.head_generation == 1
+    assert head.latest_attempt is not None
+    assert head.latest_attempt.state.value == "completed"
+    assert head.latest_attempt.published_run_id == run.run_id
+    assert head.latest_attempt.progress_completed == 10
+    assert head.latest_attempt.progress_total == 10
+    assert head.stages == ()
+
+    repository.disable(watch_id, now=NOW + timedelta(seconds=7))
+    reenabled_same_scope = repository.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        max_messages=25,
+        now=NOW + timedelta(seconds=8),
+    )
+    assert reenabled_same_scope.state.value == "queued"
+    assert reenabled_same_scope.latest_run_id == run.run_id
+    retained_head = repository.canonical_head(watch_id)
+    assert retained_head.head_run_id == run.run_id
+    assert retained_head.head_generation == 1
+    assert retained_head.latest_attempt is None
+    assert retained_head.stages == ()
 
     refreshed = repository.request_refresh(watch_id, now=NOW + timedelta(seconds=8))
     assert refreshed.state.value == "queued"
@@ -702,9 +848,19 @@ def test_continuous_watch_claim_progress_completion_and_disable(tmp_path) -> Non
     assert reconfigured.progress_completed == 0
     assert reconfigured.latest_run_id is None
     assert reconfigured.latest_input_fingerprint is None
+    reconfigured_head = repository.canonical_head(watch_id)
+    assert reconfigured_head.head_run_id is None
+    assert reconfigured_head.head_generation is None
+    assert reconfigured_head.latest_attempt is None
+    assert reconfigured_head.stages == ()
 
     disabled = repository.disable(watch_id, now=NOW + timedelta(seconds=22))
     assert disabled.state.value == "disabled"
+    disabled_head = repository.canonical_head(watch_id)
+    assert disabled_head.head_run_id is None
+    assert disabled_head.head_generation is None
+    assert disabled_head.latest_attempt is None
+    assert disabled_head.stages == ()
     assert repository.get_active() is None
 
 
@@ -740,6 +896,14 @@ def test_watch_retry_preserves_the_fixed_failure_reason_until_success(tmp_path) 
     )
     assert failed.state.value == "failed"
     assert failed.last_error_code == "local_model_ensemble_execution_failed"
+    failed_head = repository.canonical_head(watch_id)
+    assert failed_head.head_run_id is None
+    assert failed_head.latest_attempt is not None
+    assert failed_head.latest_attempt.state.value == "failed"
+    assert failed_head.latest_attempt.error_code == "local_model_ensemble_execution_failed"
+    assert tuple(stage.stage_key for stage in failed_head.stages) == (
+        "analysis_pipeline",
+    )
 
     queued = repository.request_refresh(
         watch_id,
@@ -765,6 +929,278 @@ def test_watch_retry_preserves_the_fixed_failure_reason_until_success(tmp_path) 
     )
     assert completed.state.value == "idle"
     assert completed.last_error_code is None
+    attempts = repository.list_attempts(watch_id, limit=12)
+    assert tuple(item.generation for item in attempts) == (2, 1)
+    assert tuple(item.state.value for item in attempts) == ("completed", "failed")
+    assert attempts[1].error_code == "local_model_ensemble_execution_failed"
+
+
+def test_legacy_watch_head_without_a_publication_is_exposed_as_unpublished(
+    tmp_path,
+) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    runs = database.model_ensemble_repository()
+    run = _with_typed_projection(_run(session_id))
+    runs.save_completed(run)
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "5" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        now=NOW,
+    )
+    claimed = watches.claim_due(
+        owner="6" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=5),
+        next_check_at=NOW + timedelta(minutes=1),
+        outcome=SessionModelEnsembleOutcome(run=run, applied=True),
+    )
+
+    # Migration 30 deliberately performs zero backfill.  Removing only this
+    # synthetic publication reproduces a legitimate upgraded pre-v30 watch;
+    # DDL-owner attacks are outside the DML security boundary.
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "DROP TRIGGER session_model_ensemble_watch_publications_privacy_delete_only"
+        )
+        connection.execute(
+            "DELETE FROM session_model_ensemble_watch_publications WHERE watch_id=?",
+            (watch_id,),
+        )
+        connection.commit()
+
+    canonical = watches.canonical_head(watch_id)
+    assert canonical.head_run_id is None
+    assert canonical.head_generation is None
+    assert canonical.watch.latest_run_id is None
+    assert canonical.watch.latest_input_fingerprint is None
+    assert canonical.latest_attempt is None
+    assert canonical.stages == ()
+
+
+def test_watch_cancellation_retains_prior_head_and_seals_the_attempt(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    runs = database.model_ensemble_repository()
+    run = _with_typed_projection(_run(session_id))
+    runs.save_completed(run)
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "5" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        now=NOW,
+    )
+    first = watches.claim_due(
+        owner="6" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert first is not None
+    watches.complete(
+        first[1],
+        now=NOW + timedelta(seconds=5),
+        next_check_at=NOW + timedelta(seconds=6),
+        outcome=SessionModelEnsembleOutcome(run=run, applied=True),
+    )
+    second = watches.claim_due(
+        owner="6" * 64,
+        now=NOW + timedelta(seconds=6),
+        lease_duration=timedelta(minutes=30),
+    )
+    assert second is not None
+    cancelled = watches.cancel_attempt(
+        watch_id,
+        now=NOW + timedelta(seconds=7),
+        next_check_at=NOW + timedelta(minutes=1),
+    )
+    assert cancelled.state.value == "idle"
+    assert cancelled.latest_run_id == run.run_id
+    head = watches.canonical_head(watch_id)
+    assert head.head_run_id == run.run_id
+    assert head.head_generation == 1
+    assert head.latest_attempt is not None
+    assert head.latest_attempt.state.value == "cancelled"
+    assert head.latest_attempt.prior_head_run_id == run.run_id
+    assert head.latest_attempt.published_run_id is None
+    assert head.stages[0].state.value == "cancelled"
+
+
+def test_terminal_attempt_graph_rejects_raw_mutation_and_unbound_publication(
+    tmp_path,
+) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    runs = database.model_ensemble_repository()
+    run = _with_typed_projection(_run(session_id))
+    other = _run(session_id).model_copy(
+        update={"run_id": "f" * 64, "request_fingerprint": "e" * 64}
+    )
+    runs.save_completed(run)
+    runs.save_completed(other)
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "1" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        now=NOW,
+    )
+    first = watches.claim_due(
+        owner="2" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert first is not None
+    watches.complete(
+        first[1],
+        now=NOW + timedelta(seconds=5),
+        next_check_at=NOW + timedelta(seconds=6),
+        outcome=SessionModelEnsembleOutcome(run=run, applied=True),
+    )
+    second = watches.claim_due(
+        owner="2" * 64,
+        now=NOW + timedelta(seconds=6),
+        lease_duration=timedelta(minutes=30),
+    )
+    assert second is not None
+    watches.fail(
+        second[1],
+        now=NOW + timedelta(seconds=7),
+        next_check_at=NOW + timedelta(seconds=60),
+        reason_code="synthetic_stage_failure",
+    )
+    head = watches.canonical_head(watch_id)
+    assert head.latest_attempt is not None and len(head.stages) == 1
+    attempt_id = head.latest_attempt.attempt_id
+    attempt_snapshot = watches.get_attempt_snapshot(attempt_id)
+    assert attempt_snapshot is not None
+    assert attempt_snapshot[0] == head.latest_attempt
+    assert attempt_snapshot[1] == head.stages
+
+    with sqlite3.connect(database.path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        for statement, parameters in (
+            (
+                "DELETE FROM session_model_ensemble_watch_publications WHERE watch_id=?",
+                (watch_id,),
+            ),
+            (
+                "DELETE FROM session_model_ensemble_watches WHERE watch_id=?",
+                (watch_id,),
+            ),
+            (
+                "DELETE FROM session_model_ensemble_analysis_attempt_stages WHERE attempt_id=?",
+                (attempt_id,),
+            ),
+            (
+                "UPDATE session_model_ensemble_analysis_attempts SET prior_head_run_id=NULL WHERE attempt_id=?",
+                (attempt_id,),
+            ),
+            (
+                "DELETE FROM session_model_ensemble_analysis_attempts WHERE attempt_id=?",
+                (attempt_id,),
+            ),
+            (
+                """INSERT INTO session_model_ensemble_analysis_attempt_stages(
+                       attempt_id,stage_ordinal,stage_key,state,repository_id,
+                       error_code,quantization,completed_at,local_only,content_persisted
+                   ) VALUES(?,1,'forged','failed','../../../private/model',
+                            'forged','none',?,1,0)""",
+                (attempt_id, (NOW + timedelta(seconds=7)).isoformat(timespec="microseconds")),
+            ),
+        ):
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(statement, parameters)
+            connection.rollback()
+
+    queued = watches.request_refresh(
+        watch_id,
+        now=NOW + timedelta(seconds=61),
+    )
+    assert queued.state.value == "queued"
+    third = watches.claim_due(
+        owner="2" * 64,
+        now=NOW + timedelta(seconds=62),
+        lease_duration=timedelta(minutes=30),
+    )
+    assert third is not None
+    running_attempt = watches.canonical_head(watch_id).latest_attempt
+    assert running_attempt is not None
+    with sqlite3.connect(database.path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """UPDATE session_model_ensemble_analysis_attempts
+                   SET state='completed',published_run_id=?,progress_completed=10,
+                       progress_total=10,completed_at=? WHERE attempt_id=?""",
+                (
+                    other.run_id,
+                    (NOW + timedelta(seconds=63)).isoformat(timespec="microseconds"),
+                    running_attempt.attempt_id,
+                ),
+            )
+        connection.rollback()
+
+    unchanged = watches.canonical_head(watch_id)
+    assert unchanged.latest_attempt is not None
+    assert unchanged.latest_attempt.state.value == "running"
+
+
+def test_watch_attempt_graph_is_removed_by_session_privacy_cascade(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path / "session")
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "3" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        now=NOW,
+    )
+    assert watches.claim_due(
+        owner="5" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    ) is not None
+
+    with database._connection() as connection:
+        # Parent-cascade semantics are probed at the SQLite-owner boundary;
+        # production privacy services add their own transient authorizations.
+        connection.execute("PRAGMA trusted_schema=ON")
+        connection.execute("DELETE FROM sessions WHERE session_id=?", (session_id,))
+        connection.commit()
+        assert connection.execute(
+            "SELECT COUNT(*) FROM session_model_ensemble_watches WHERE watch_id=?",
+            (watch_id,),
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM session_model_ensemble_analysis_attempts WHERE watch_id=?",
+            (watch_id,),
+        ).fetchone()[0] == 0
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_watch_publication_history_skips_unchanged_runs_and_pages_newest_first(tmp_path) -> None:
@@ -1102,6 +1538,12 @@ def test_privacy_deletion_revokes_inflight_watch_persistence_and_erases_a_racing
     assert runs.delete_for_privacy(first.run_id) is True
     assert runs.get(first.run_id) is None
     assert runs.get(descendant.run_id) is None
+    surviving_attempts = watches.list_attempts(watch_id, limit=12)
+    assert all(item.state.value != "running" for item in surviving_attempts)
+    assert any(
+        item.state.value == "cancelled" and item.error_code == "privacy_deleted"
+        for item in surviving_attempts
+    )
 
 
 def test_continuous_watch_replaces_another_active_session_atomically(tmp_path) -> None:
