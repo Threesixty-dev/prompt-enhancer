@@ -68,8 +68,8 @@ const SEEDS: readonly MetricHelpSeed[] = [
   },
   {
     key: "prompt.problem_evidence_quality", direction: "higher_is_better", objective: false,
-    en: { meaning: "Share of diagnostic evidence cues (observed, expected, reproduction, environment) present when a bug or diagnosis candidate is detected.", question: "For a diagnosis task, were observed behavior, expected behavior, reproduction, and environment described?", observationUnit: "one evidence cue check per detected diagnosis request (four per request)", direction: HIGHER_EN, counts: "A described observed behavior, expected behavior, reproduction step, or environment detail.", doesNotCount: "Requests without a detected diagnosis candidate: they stay Unknown, never zero. Evidence supplied only by the agent is not counted.", objectiveEvidence: TEXT_CANDIDATE_EN },
-    pl: { meaning: "Udział sygnałów dowodowych diagnozy (obserwacja, oczekiwanie, reprodukcja, środowisko) obecnych, gdy wykryto kandydata diagnozy.", question: "Czy dla zadania diagnostycznego opisano zachowanie obserwowane, oczekiwane, reprodukcję i środowisko?", observationUnit: "jedna kontrola sygnału dowodowego na wykrytą prośbę diagnostyczną (cztery na prośbę)", direction: HIGHER_PL, counts: "Opisane zachowanie obserwowane, oczekiwane, krok reprodukcji lub szczegół środowiska.", doesNotCount: "Prośby bez wykrytego kandydata diagnozy: pozostają Nieznane, nigdy zero. Dowody podane wyłącznie przez agenta nie są liczone.", objectiveEvidence: TEXT_CANDIDATE_PL },
+    en: { meaning: "Share of four legacy diagnostic cue checks (observed/diagnostic wording, expected, reproduction, environment) present when a bug or diagnosis candidate is detected.", question: "For a detected diagnosis request, which of the four legacy cue checks fired?", observationUnit: "one legacy evidence-cue check per detected diagnosis request (four per request)", direction: HIGHER_EN, counts: "Observed wording or any diagnostic keyword satisfies the shipped observed check; expected wording, reproduction wording, and environment details satisfy the other checks.", doesNotCount: "Requests without a detected diagnosis candidate: they stay Unknown, never zero. A fired cue is not proof that the evidence is complete or correct.", objectiveEvidence: TEXT_CANDIDATE_EN },
+    pl: { meaning: "Udział czterech starszych kontroli sygnałów diagnozy (sformułowanie obserwacji lub diagnozy, oczekiwanie, reprodukcja, środowisko), gdy wykryto kandydata diagnozy.", question: "Które z czterech starszych kontroli sygnałów zadziałały dla wykrytej prośby diagnostycznej?", observationUnit: "jedna starsza kontrola sygnału na wykrytą prośbę diagnostyczną (cztery na prośbę)", direction: HIGHER_PL, counts: "Sformułowanie obserwacji lub dowolne słowo diagnostyczne spełnia dostarczaną kontrolę obserwacji; osobne kontrole dotyczą oczekiwań, reprodukcji i środowiska.", doesNotCount: "Prośby bez wykrytego kandydata diagnozy: pozostają Nieznane, nigdy zero. Zadziałanie sygnału nie dowodzi kompletności ani poprawności dowodu.", objectiveEvidence: TEXT_CANDIDATE_PL },
   },
   {
     key: "prompt.context_sufficiency", direction: "higher_is_better", objective: false,
@@ -78,8 +78,8 @@ const SEEDS: readonly MetricHelpSeed[] = [
   },
   {
     key: "prompt.constraint_precision", direction: "higher_is_better", objective: false,
-    en: { meaning: "Share of detected constraint clauses that carry a concrete boundary, value, platform, version, or prohibition.", question: "How many detected constraints contain a concrete boundary, value, platform, version, or prohibition?", observationUnit: "one detected constraint clause", direction: HIGHER_EN, counts: "A constraint clause with a concrete limit, threshold, platform, version, or prohibition.", doesNotCount: "Absent constraints (they yield Unknown, never zero) and vague wording without a boundary.", objectiveEvidence: TEXT_CANDIDATE_EN },
-    pl: { meaning: "Udział wykrytych klauzul ograniczeń zawierających konkretną granicę, wartość, platformę, wersję lub zakaz.", question: "Ile wykrytych ograniczeń zawiera konkretną granicę, wartość, platformę, wersję lub zakaz?", observationUnit: "jedna wykryta klauzula ograniczenia", direction: HIGHER_PL, counts: "Klauzula ograniczenia z konkretnym limitem, progiem, platformą, wersją lub zakazem.", doesNotCount: "Brak ograniczeń (daje Nieznane, nigdy zero) oraz ogólnikowe sformułowania bez granicy.", objectiveEvidence: TEXT_CANDIDATE_PL },
+    en: { meaning: "Share of detected constraint clauses that also match the shipped concrete-detail vocabulary or a numeric bound.", question: "How many detected constraints include a recognized platform, version, numeric threshold, unit, or concrete environment term?", observationUnit: "one detected constraint clause", direction: HIGHER_EN, counts: "A constraint clause with a recognized numeric limit, threshold, platform, version, unit, or concrete environment term.", doesNotCount: "Absent constraints (they yield Unknown, never zero), vague wording, and a generic prohibition such as 'must not write files' without another recognized concrete detail.", objectiveEvidence: TEXT_CANDIDATE_EN },
+    pl: { meaning: "Udział wykrytych klauzul ograniczeń, które pasują też do dostarczanego słownika konkretów lub granicy liczbowej.", question: "Ile wykrytych ograniczeń zawiera rozpoznaną platformę, wersję, próg liczbowy, jednostkę lub konkretny termin środowiska?", observationUnit: "jedna wykryta klauzula ograniczenia", direction: HIGHER_PL, counts: "Klauzula ograniczenia z rozpoznanym limitem liczbowym, progiem, platformą, wersją, jednostką lub konkretnym terminem środowiska.", doesNotCount: "Brak ograniczeń (daje Nieznane, nigdy zero), ogólniki oraz sam ogólny zakaz bez innego rozpoznanego konkretu.", objectiveEvidence: TEXT_CANDIDATE_PL },
   },
   {
     key: "prompt.acceptance_testability", direction: "higher_is_better", objective: false,
@@ -88,8 +88,8 @@ const SEEDS: readonly MetricHelpSeed[] = [
   },
   {
     key: "prompt.deliverable_contract", direction: "higher_is_better", objective: false,
-    en: { meaning: "Share of requested deliverables that name a format, interface, location, audience, or compatibility detail.", question: "How many requested deliverables include a format, interface, location, audience, or compatibility detail?", observationUnit: "one detected deliverable clause", direction: HIGHER_EN, counts: "A deliverable clause with at least one concrete output detail.", doesNotCount: "A universal output-slot checklist; only detected deliverables form the denominator.", objectiveEvidence: TEXT_CANDIDATE_EN },
-    pl: { meaning: "Udział żądanych rezultatów, które wskazują format, interfejs, lokalizację, odbiorcę lub szczegół zgodności.", question: "Ile żądanych rezultatów zawiera format, interfejs, lokalizację, odbiorcę lub szczegół zgodności?", observationUnit: "jedna wykryta klauzula rezultatu", direction: HIGHER_PL, counts: "Klauzula rezultatu z co najmniej jednym konkretnym szczegółem wyniku.", doesNotCount: "Uniwersalna lista pól wyniku; mianownik tworzą tylko wykryte rezultaty.", objectiveEvidence: TEXT_CANDIDATE_PL },
+    en: { meaning: "Share of detected deliverable clauses that also match the shipped format, interface, audience, compatibility, or platform-detail vocabulary.", question: "How many detected deliverables include a recognized format, interface, audience, compatibility, or platform detail?", observationUnit: "one detected deliverable clause", direction: HIGHER_EN, counts: "A deliverable clause with a recognized format, interface, audience, compatibility, or platform token.", doesNotCount: "A path or location alone is not recognized by the shipped detail heuristic; only detected deliverable clauses form the denominator.", objectiveEvidence: TEXT_CANDIDATE_EN },
+    pl: { meaning: "Udział wykrytych klauzul rezultatu, które pasują też do dostarczanego słownika formatu, interfejsu, odbiorcy, zgodności lub platformy.", question: "Ile wykrytych rezultatów zawiera rozpoznany format, interfejs, odbiorcę, zgodność lub szczegół platformy?", observationUnit: "jedna wykryta klauzula rezultatu", direction: HIGHER_PL, counts: "Klauzula rezultatu z rozpoznanym tokenem formatu, interfejsu, odbiorcy, zgodności lub platformy.", doesNotCount: "Sama ścieżka lub lokalizacja nie jest rozpoznawana przez dostarczaną heurystykę szczegółu; mianownik tworzą tylko wykryte rezultaty.", objectiveEvidence: TEXT_CANDIDATE_PL },
   },
   {
     key: "collaboration.ambiguity_resolution", direction: "higher_is_better", objective: false,
@@ -127,7 +127,7 @@ const SEEDS: readonly MetricHelpSeed[] = [
     pl: { meaning: "Udział hipotez technicznych, po których nastąpiła rozstrzygająca ustrukturyzowana kontrola.", question: "Czy po każdej hipotezie technicznej nastąpiła rozstrzygająca ustrukturyzowana kontrola?", observationUnit: "jedna hipoteza techniczna", direction: HIGHER_PL, counts: "Typowany epizod weryfikacji zdolny odróżnić hipotezę od alternatyw.", doesNotCount: "Bliskość czasowa ani deklaracja agenta, że coś przetestował.", objectiveEvidence: TYPED_EVIDENCE_PL },
   },
   {
-    key: "logic.decision_rationale_coverage", direction: "higher_is_better", objective: true,
+    key: "logic.decision_rationale_coverage", direction: "higher_is_better", objective: false,
     en: { meaning: "Share of structured decisions connected to a rationale, alternative, constraint, or evidence.", question: "Were observable decisions connected to a rationale, alternative, constraint, or evidence?", observationUnit: "one structured decision item", direction: HIGHER_EN, counts: "A rationale-bearing structured decision item.", doesNotCount: "Free-text decisions; when the projection exposes no decision items the metric abstains.", objectiveEvidence: "Requires structured decision items from the local projection; without them the metric abstains rather than scoring prose." },
     pl: { meaning: "Udział ustrukturyzowanych decyzji powiązanych z uzasadnieniem, alternatywą, ograniczeniem lub dowodem.", question: "Czy obserwowalne decyzje powiązano z uzasadnieniem, alternatywą, ograniczeniem lub dowodem?", observationUnit: "jeden ustrukturyzowany element decyzji", direction: HIGHER_PL, counts: "Ustrukturyzowany element decyzji niosący uzasadnienie.", doesNotCount: "Decyzje w luźnym tekście; bez elementów decyzji w projekcji metryka wstrzymuje ocenę.", objectiveEvidence: "Wymaga ustrukturyzowanych elementów decyzji z lokalnej projekcji; bez nich metryka wstrzymuje ocenę zamiast punktować prozę." },
   },
@@ -143,8 +143,8 @@ const SEEDS: readonly MetricHelpSeed[] = [
   },
   {
     key: "outcome.agent_claim_grounding", direction: "higher_is_better", objective: true,
-    en: { meaning: "Share of detected completion or correctness claim candidates backed by typed objective evidence.", question: "Are material completion claims backed by objective evidence?", observationUnit: "one detected agent claim candidate (broad legacy lexical detection)", direction: HIGHER_EN, counts: "A claim candidate linked to a typed tool, test, source, or artifact receipt.", doesNotCount: "An assistant completion claim on its own is never proof of delivery; the broad legacy candidate detector does not judge claim materiality.", objectiveEvidence: TYPED_EVIDENCE_EN },
-    pl: { meaning: "Udział wykrytych kandydatów deklaracji ukończenia lub poprawności popartych typowanymi obiektywnymi dowodami.", question: "Czy istotne deklaracje ukończenia są poparte obiektywnymi dowodami?", observationUnit: "jeden wykryty kandydat deklaracji agenta (szeroka leksykalna detekcja)", direction: HIGHER_PL, counts: "Kandydat deklaracji powiązany z typowanym pokwitowaniem narzędzia, testu, źródła lub artefaktu.", doesNotCount: "Sama deklaracja ukończenia przez asystenta nigdy nie jest dowodem dostarczenia; szeroki detektor kandydatów nie ocenia istotności deklaracji.", objectiveEvidence: TYPED_EVIDENCE_PL },
+    en: { meaning: "Share of agent response or summary clauses treated by the shipped compatibility calculator as claim candidates and backed by typed objective evidence.", question: "Which agent response or summary clauses have an authorized objective-evidence link?", observationUnit: "one agent response or summary clause (every such clause is a legacy candidate)", direction: HIGHER_EN, counts: "A candidate clause linked to a typed tool, test, source, or artifact receipt.", doesNotCount: "An assistant statement on its own is never proof of delivery; the shipped compatibility calculator does not detect material claims and conservatively treats every response or summary clause as a candidate.", objectiveEvidence: TYPED_EVIDENCE_EN },
+    pl: { meaning: "Udział klauzul odpowiedzi lub podsumowania agenta traktowanych przez dostarczany kalkulator zgodności jako kandydaci deklaracji i popartych typowanym obiektywnym dowodem.", question: "Które klauzule odpowiedzi lub podsumowania agenta mają autoryzowane powiązanie z obiektywnym dowodem?", observationUnit: "jedna klauzula odpowiedzi lub podsumowania agenta (każda jest starszym kandydatem)", direction: HIGHER_PL, counts: "Klauzula kandydata powiązana z typowanym pokwitowaniem narzędzia, testu, źródła lub artefaktu.", doesNotCount: "Sama wypowiedź asystenta nigdy nie dowodzi dostarczenia; dostarczany kalkulator zgodności nie wykrywa istotnych deklaracji i ostrożnie traktuje każdą klauzulę odpowiedzi lub podsumowania jako kandydata.", objectiveEvidence: TYPED_EVIDENCE_PL },
   },
   {
     key: "outcome.verification_strategy_adequacy", direction: "higher_is_better", objective: false,
@@ -250,7 +250,7 @@ export interface MetricInspectorInput {
 
 export interface MetricInspectorSentences {
   kind: MetricInspectorKind;
-  /** What this state or exact value means for this session. */
+  /** What this state or exact value means for the analyzed window. */
   meaning: string;
   /** The safest next action plus how to verify it. */
   action: string;
@@ -284,7 +284,7 @@ function inspectorKind(input: MetricInspectorInput): MetricInspectorKind {
 
 /**
  * Exactly two deterministic sentences for the selected-metric inspector: what
- * the typed state or exact known value means for this session, and the safest
+ * the typed state or exact known value means for the analyzed window, and the safest
  * next action with its verification. No validated quality bands are declared,
  * and predictive factor probabilities are never described as measured.
  */
@@ -313,7 +313,7 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
   let action = `${guidance.action.replace(/[.\s]+$/u, "")} — verify: ${lowerFirst(guidance.verification)}`;
   switch (kind) {
     case "pending":
-      meaning = `Pending: the newest episode is still open, so ${input.label} cannot be judged yet in this session; this is open evidence, not a zero and not a measurement.`;
+      meaning = `Pending: the newest episode is still open, so ${input.label} cannot be judged yet in the analyzed window; this is open evidence, not a zero and not a measurement.`;
       break;
     case "not_applicable":
       meaning = `Not applicable: no eligible ${unit} was observed in this window, so ${input.label} has nothing to score and no value is implied.`;
@@ -335,7 +335,7 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       meaning = `No record: ${input.label} is not present in this sealed receipt, so nothing was measured or estimated for it.`;
       break;
     case "experimental":
-      meaning = `Experimental only: ${input.label} has no measured value in this session; the visible ${input.experimentalMedian == null ? "estimate" : `${percent(input.experimentalMedian)} radar-quality estimate`} is an uncalibrated model range, not a measurement.${experimentalNote}`;
+      meaning = `Experimental only: ${input.label} has no measured value in the analyzed window; the visible ${input.experimentalMedian == null ? "estimate" : `${percent(input.experimentalMedian)} radar-quality estimate`} is an uncalibrated model range, not a measurement.${experimentalNote}`;
       break;
     case "zero":
       meaning = input.direction === "lower_is_better"

@@ -971,7 +971,7 @@ describe("ProjectWorkspace", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Measure the session, then estimate every eligible axis locally" }),
+      await screen.findByRole("heading", { name: "Measure the analyzed window, then estimate every eligible axis locally" }),
     ).toBeVisible();
     expect(screen.getByText("Legacy coaching profile")).toBeVisible();
     expect(screen.getByText(/not the canonical measurement snapshot/i)).toBeVisible();

@@ -52,4 +52,28 @@ describe("sessionMetricGuidance", () => {
     expect(guidance.verification).toMatch(/episode closes/i);
     expect(guidance.basis).toBe("readiness");
   });
+
+  it("keeps an unknown metric with a visible model range explicitly experimental", () => {
+    const guidance = sessionMetricGuidance("prompt.task_definition_coverage", {
+      state: "unknown",
+      numericValue: null,
+      direction: "higher_is_better",
+      experimentalOnly: true,
+    });
+
+    expect(guidance.action).toMatch(/^if the experimental signal persists/i);
+    expect(guidance.basis).toBe("experimental");
+  });
+
+  it("does not call a partial measured fraction a practice to keep", () => {
+    const guidance = sessionMetricGuidance("prompt.constraint_precision", {
+      state: "known",
+      numericValue: 0.8,
+      direction: "higher_is_better",
+    });
+
+    expect(guidance.action).not.toMatch(/keep the observed practice/i);
+    expect(guidance.action).toMatch(/convert .*vague constraint/i);
+    expect(guidance.basis).toBe("measured");
+  });
 });

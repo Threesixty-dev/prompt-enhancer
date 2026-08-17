@@ -345,7 +345,7 @@ describe("App discovery navigation", () => {
     );
 
     expect(await screen.findByRole("heading", {
-      name: "Measure the session, then estimate every eligible axis locally",
+      name: "Measure the analyzed window, then estimate every eligible axis locally",
     })).toBeVisible();
     fireEvent.click(screen.getByText("Legacy coaching profile"));
     expect(await screen.findByText("Coherent metric pack v3")).toBeVisible();

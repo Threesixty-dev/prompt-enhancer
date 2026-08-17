@@ -383,6 +383,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metric-contracts/v2/guidance-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Metric Guidance Catalog Route
+         * @description Serve the static guidance identities the dashboard and overlay share.
+         */
+        get: operations["metric_guidance_catalog_route_v1_metric_contracts_v2_guidance_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metric-coverage": {
         parameters: {
             query?: never;
@@ -684,6 +704,26 @@ export interface paths {
          * @description Project stored results only; never initiate a provider content read.
          */
         get: operations["session_coaching_summary_v1_quality_analysis_runs__run_id__coaching_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/quality-analysis/runs/{run_id}/metric-v2-compatibility-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Session Metric Publication
+         * @description Read-only V1 compatibility preview; not the canonical live snapshot.
+         */
+        get: operations["session_metric_publication_v1_quality_analysis_runs__run_id__metric_v2_compatibility_preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2205,6 +2245,64 @@ export interface components {
          * @enum {string}
          */
         DecisionRevisionRole: "input" | "output";
+        /**
+         * DenominatorBasis
+         * @description Where a contract's exact denominator comes from.
+         *
+         *     ``RUBRIC_FACTORS`` scores one canonical opportunity against a fixed factor
+         *     list.  The other three enumerate opportunities and never invent them.
+         * @enum {string}
+         */
+        DenominatorBasis: "rubric_factors" | "semantic_unit_opportunities" | "declared_profile_slots" | "objective_opportunities";
+        /**
+         * EvidenceAuthority
+         * @description Highest authority allowed to publish a known value.
+         *
+         *     ``OBJECTIVE_RECEIPT`` outranks ``CONVERSATION``.  A conversational
+         *     projection may never resolve an objective contract, and no volume of
+         *     assistant prose upgrades a conversational observation into a receipt.
+         * @enum {string}
+         */
+        EvidenceAuthority: "conversation" | "objective_receipt";
+        /**
+         * GuidanceAudience
+         * @description Who can act on the guidance without inventing evidence.
+         * @enum {string}
+         */
+        GuidanceAudience: "user" | "agent" | "workflow" | "tooling";
+        /**
+         * GuidanceBasis
+         * @description How far the guidance may go, given origin and factor evidence.
+         *
+         *     ``MEASURED`` is a measured local observation, deterministic or objective.
+         *     ``EXPERIMENTAL`` is reserved for an uncalibrated neural estimate.
+         *     ``METHOD_ONLY`` covers a known value whose factor attribution is unproven
+         *     and any failed stage.  ``READINESS`` covers every non-value state.
+         * @enum {string}
+         */
+        GuidanceBasis: "measured" | "experimental" | "readiness" | "method-only";
+        /**
+         * GuidanceFactorEvidence
+         * @description Whether per-factor sufficient statistics exist for this opportunity.
+         *
+         *     ``AGGREGATE_ONLY`` means a fraction is known but which factors were met is
+         *     not: a rubric numerator proves a count, never an identity.  Advice must then
+         *     stay method-level rather than naming a factor the evidence cannot support.
+         * @enum {string}
+         */
+        GuidanceFactorEvidence: "not_observed" | "aggregate_only" | "per_factor_measured";
+        /**
+         * GuidanceRole
+         * @description What kind of signal the metric is; never a judgement about a person.
+         * @enum {string}
+         */
+        GuidanceRole: "specification_signal" | "collaboration_signal" | "traceability_signal" | "outcome_evidence" | "friction_signal";
+        /**
+         * GuidanceStateClass
+         * @description Deterministic bridge from a typed metric state to a template family.
+         * @enum {string}
+         */
+        GuidanceStateClass: "known_retain" | "known_improve" | "pending_closure" | "objective_evidence_missing" | "objective_evidence_unresolved" | "evidence_unresolved" | "no_opportunity" | "evidence_coverage_abstained" | "analysis_failed";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -2541,6 +2639,260 @@ export interface components {
          */
         MetricEvidenceCapability: "request_text" | "response_text" | "plan_text" | "action_evidence" | "decision_evidence" | "feedback_text" | "objective_verification";
         /**
+         * MetricGuidanceCatalogEntry
+         * @description Static, session-free guidance identity for one V2 metric contract.
+         */
+        MetricGuidanceCatalogEntry: {
+            audience: components["schemas"]["GuidanceAudience"];
+            /** Contract Factor Keys */
+            contract_factor_keys: string[];
+            /** Contract Fingerprint */
+            contract_fingerprint: string;
+            /** Contract Version */
+            contract_version: string;
+            denominator_basis: components["schemas"]["DenominatorBasis"];
+            direction: components["schemas"]["MetricDirection"];
+            evidence_authority: components["schemas"]["EvidenceAuthority"];
+            /** Metric Key */
+            metric_key: string;
+            /** Metric Version */
+            metric_version: number;
+            /**
+             * Registry Version
+             * @default all-20-factor-contracts-v2
+             * @constant
+             */
+            registry_version: "all-20-factor-contracts-v2";
+            role: components["schemas"]["GuidanceRole"];
+            /** Templates */
+            templates: components["schemas"]["MetricGuidanceTemplateSet"][];
+        };
+        /**
+         * MetricGuidanceCatalogResponse
+         * @description Static guidance identities; no session, run, or provider data.
+         *
+         *     The canonical contract identity travels with the catalog so a presentation
+         *     surface that must keep prose locally can bind that prose to one exact
+         *     registry fingerprint instead of drifting away from it silently.
+         */
+        MetricGuidanceCatalogResponse: {
+            /** Catalog Version */
+            catalog_version: string;
+            /** Contract Set Fingerprint */
+            contract_set_fingerprint: string;
+            /** Contract Version */
+            contract_version: string;
+            /** Entries */
+            entries: components["schemas"]["MetricGuidanceCatalogEntry"][];
+            /** Registry Version */
+            registry_version: string;
+            /** Template Version */
+            template_version: number;
+        };
+        /**
+         * MetricGuidanceReceipt
+         * @description One content-free guidance decision for one projected metric state.
+         *
+         *     Every field is an enum, an integer, a bounded ratio, or a reviewed code.
+         *     There is no field capable of carrying transcript text, a rendered sentence,
+         *     a path, or a provider identifier.
+         */
+        MetricGuidanceReceipt: {
+            /** Action Template Id */
+            action_template_id: string;
+            audience: components["schemas"]["GuidanceAudience"];
+            basis: components["schemas"]["GuidanceBasis"];
+            /** Censoring Lower Bound */
+            censoring_lower_bound?: number | null;
+            /** Censoring Upper Bound */
+            censoring_upper_bound?: number | null;
+            /** Contract Factor Count */
+            contract_factor_count: number;
+            /**
+             * Contract Version
+             * @default metric-guidance-contract-v1
+             * @constant
+             */
+            contract_version: "metric-guidance-contract-v1";
+            /** Denominator */
+            denominator?: number | null;
+            denominator_basis: components["schemas"]["DenominatorBasis"];
+            /** Diagnosis Template Id */
+            diagnosis_template_id: string;
+            /** Eligible Count */
+            eligible_count: number;
+            evidence_authority: components["schemas"]["EvidenceAuthority"];
+            factor_evidence: components["schemas"]["GuidanceFactorEvidence"];
+            /**
+             * Focus Factor Keys
+             * @default []
+             */
+            focus_factor_keys: string[];
+            /** Met Count */
+            met_count: number;
+            /** Metric Contract Fingerprint */
+            metric_contract_fingerprint: string;
+            /** Metric Contract Version */
+            metric_contract_version: string;
+            /** Metric Key */
+            metric_key: string;
+            /** Metric Version */
+            metric_version: number;
+            /** Not Met Count */
+            not_met_count: number;
+            /** Numerator */
+            numerator?: number | null;
+            /** Pending Count */
+            pending_count: number;
+            /**
+             * Product Metric Eligible
+             * @default false
+             * @constant
+             */
+            product_metric_eligible: false;
+            /** Reason Code */
+            reason_code: string;
+            /**
+             * Registry Version
+             * @default all-20-factor-contracts-v2
+             * @constant
+             */
+            registry_version: "all-20-factor-contracts-v2";
+            role: components["schemas"]["GuidanceRole"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            state_class: components["schemas"]["GuidanceStateClass"];
+            /**
+             * Template Catalog Version
+             * @default metric-guidance-templates-v1
+             * @constant
+             */
+            template_catalog_version: "metric-guidance-templates-v1";
+            /**
+             * Template Version
+             * @default 1
+             */
+            template_version: number;
+            /** Unknown Count */
+            unknown_count: number;
+            value_origin: components["schemas"]["ValueOrigin"];
+            value_state: components["schemas"]["MetricValueStateV2"];
+            /** Verification Template Id */
+            verification_template_id: string;
+        };
+        /**
+         * MetricGuidanceTemplateSet
+         * @description The three template identities a client renders for one state class.
+         */
+        MetricGuidanceTemplateSet: {
+            /** Action Template Id */
+            action_template_id: string;
+            /** Diagnosis Template Id */
+            diagnosis_template_id: string;
+            state_class: components["schemas"]["GuidanceStateClass"];
+            /** Verification Template Id */
+            verification_template_id: string;
+        };
+        /**
+         * MetricImplementationState
+         * @description What a client may claim about one published metric today.
+         *
+         *     This is the honesty dimension: it separates a live measurement from a
+         *     read-only compatibility projection and from a value that was withheld.
+         * @enum {string}
+         */
+        MetricImplementationState: "live_measured" | "compatibility_projected" | "method_only_withheld" | "objective_capability_missing" | "objective_evidence_unresolved" | "pending" | "no_opportunity" | "abstained" | "error";
+        /**
+         * MetricPublicationSource
+         * @description Where the published states came from; never mixed within one bundle.
+         * @enum {string}
+         */
+        MetricPublicationSource: "live_projection" | "v1_compatibility_preview";
+        /**
+         * MetricPublicationV2
+         * @description A complete twenty-metric publication with no absent key and no zero fill.
+         */
+        MetricPublicationV2: {
+            /** Abstained Count */
+            abstained_count: number;
+            /**
+             * Canonical Live Snapshot
+             * @default false
+             * @constant
+             */
+            canonical_live_snapshot: false;
+            /** Compatibility Preview */
+            compatibility_preview: boolean;
+            /** Contract Set Fingerprint */
+            contract_set_fingerprint: string;
+            /** Execution Error Count */
+            execution_error_count: number;
+            /**
+             * Guidance Contract Version
+             * @default metric-guidance-contract-v1
+             * @constant
+             */
+            guidance_contract_version: "metric-guidance-contract-v1";
+            /**
+             * Guidance Template Catalog Version
+             * @default metric-guidance-templates-v1
+             * @constant
+             */
+            guidance_template_catalog_version: "metric-guidance-templates-v1";
+            /** Known Count */
+            known_count: number;
+            /** Metrics */
+            metrics: components["schemas"]["PublishedMetricV2"][];
+            /**
+             * Model Stage Consumed
+             * @default false
+             * @constant
+             */
+            model_stage_consumed: false;
+            /** Not Applicable Count */
+            not_applicable_count: number;
+            /** Objective Measured Count */
+            objective_measured_count: number;
+            /** Pending Count */
+            pending_count: number;
+            /**
+             * Product Metric Eligible
+             * @default false
+             * @constant
+             */
+            product_metric_eligible: false;
+            /**
+             * Projection Version
+             * @default metric-contract-v2-projection-1
+             * @constant
+             */
+            projection_version: "metric-contract-v2-projection-1";
+            /**
+             * Publication Key
+             * @default metric.contract-v2.publication
+             * @constant
+             */
+            publication_key: "metric.contract-v2.publication";
+            /**
+             * Publication Version
+             * @default 2
+             */
+            publication_version: number;
+            /**
+             * Registry Version
+             * @default all-20-factor-contracts-v2
+             * @constant
+             */
+            registry_version: "all-20-factor-contracts-v2";
+            source: components["schemas"]["MetricPublicationSource"];
+            /** Unknown Count */
+            unknown_count: number;
+        };
+        /**
          * MetricRadarPolicy
          * @description Server-owned plotting policy; clients never infer or invert direction.
          * @enum {string}
@@ -2644,6 +2996,51 @@ export interface components {
          */
         MetricSource: "provider_reported" | "deterministic" | "human_label" | "estimated";
         /**
+         * MetricStateV2
+         * @description One projected V2 metric result with censoring bounds.
+         */
+        MetricStateV2: {
+            /** Censoring Lower Bound */
+            censoring_lower_bound?: number | null;
+            /** Censoring Upper Bound */
+            censoring_upper_bound?: number | null;
+            /** Contract Fingerprint */
+            contract_fingerprint: string;
+            /** Contract Version */
+            contract_version: string;
+            /** Denominator */
+            denominator?: number | null;
+            evidence_authority: components["schemas"]["EvidenceAuthority"];
+            /** Explanation Code */
+            explanation_code: string;
+            /** Metric Key */
+            metric_key: string;
+            /** Numerator */
+            numerator?: number | null;
+            /** Numeric Value */
+            numeric_value?: number | null;
+            /**
+             * Product Metric Eligible
+             * @default false
+             * @constant
+             */
+            product_metric_eligible: false;
+            /**
+             * Projection Version
+             * @default metric-contract-v2-projection-1
+             * @constant
+             */
+            projection_version: "metric-contract-v2-projection-1";
+            /**
+             * Registry Version
+             * @default all-20-factor-contracts-v2
+             * @constant
+             */
+            registry_version: "all-20-factor-contracts-v2";
+            statistics: components["schemas"]["OpportunityStatistics"];
+            value_state: components["schemas"]["MetricValueStateV2"];
+        };
+        /**
          * MetricStructuralSupportState
          * @enum {string}
          */
@@ -2653,6 +3050,17 @@ export interface components {
          * @enum {string}
          */
         MetricValueState: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error";
+        /**
+         * MetricValueStateV2
+         * @description Persistable value states, including first-class right-censored pending.
+         *
+         *     ``PENDING`` is temporal: an eligible opportunity exists and its outcome is
+         *     still undetermined at the right edge of the observed window.  It is not a
+         *     synonym for ``UNKNOWN`` (missing capability or unclassifiable evidence) and
+         *     never a synonym for ``NOT_APPLICABLE`` (no opportunity at all).
+         * @enum {string}
+         */
+        MetricValueStateV2: "known" | "pending" | "unknown" | "not_applicable" | "abstained" | "execution_error";
         /** ModelBenchmarkDto */
         ModelBenchmarkDto: {
             /** Benchmark Key */
@@ -3764,6 +4172,55 @@ export interface components {
              */
             subprocess_isolation: true;
         };
+        /**
+         * OpportunityStatistics
+         * @description Content-free sufficient statistics for one metric's opportunity set.
+         *
+         *     These are the only numbers a downstream aggregate needs: no text, no
+         *     identifiers, and no per-opportunity receipt beyond the counts.
+         */
+        OpportunityStatistics: {
+            /** Capability Available */
+            capability_available: boolean;
+            denominator_basis: components["schemas"]["DenominatorBasis"];
+            /**
+             * Distinct Owner Count
+             * @default 0
+             */
+            distinct_owner_count: number;
+            /** Eligible Count */
+            eligible_count: number;
+            /**
+             * Met Count
+             * @default 0
+             */
+            met_count: number;
+            /** Metric Key */
+            metric_key: string;
+            /**
+             * Not Met Count
+             * @default 0
+             */
+            not_met_count: number;
+            opportunity_unit_kind?: components["schemas"]["SemanticUnitKind"] | null;
+            /**
+             * Pending Count
+             * @default 0
+             */
+            pending_count: number;
+            /** Source Complete */
+            source_complete: boolean;
+            /**
+             * Superseded Excluded Count
+             * @default 0
+             */
+            superseded_excluded_count: number;
+            /**
+             * Unknown Count
+             * @default 0
+             */
+            unknown_count: number;
+        };
         /** OutputRevisionDto */
         OutputRevisionDto: {
             /** Revision */
@@ -4062,6 +4519,15 @@ export interface components {
          */
         ProviderTextCapabilityStateDto: "supported" | "unsupported" | "unknown";
         /**
+         * PublishedMetricV2
+         * @description One projected state, its guidance, and what may be claimed about it.
+         */
+        PublishedMetricV2: {
+            guidance: components["schemas"]["MetricGuidanceReceipt"];
+            implementation_state: components["schemas"]["MetricImplementationState"];
+            state: components["schemas"]["MetricStateV2"];
+        };
+        /**
          * RedactionPreviewBinding
          * @description Everything whose change invalidates a user's approval.
          */
@@ -4180,6 +4646,12 @@ export interface components {
              */
             detail: "request validation failed";
         };
+        /**
+         * SemanticUnitKind
+         * @description Versioned semantic opportunities used by the 20 metric contracts.
+         * @enum {string}
+         */
+        SemanticUnitKind: "request_revision" | "requirement" | "constraint" | "deliverable" | "ambiguity" | "clarification" | "scope_change" | "feedback" | "hypothesis" | "decision" | "open_loop" | "action" | "verification";
         /** SessionAnalysisEvidenceDto */
         SessionAnalysisEvidenceDto: {
             /** Message Id */
@@ -4445,6 +4917,44 @@ export interface components {
             denominator: number;
             /** Numerator */
             numerator: number;
+        };
+        /**
+         * SessionMetricPublication
+         * @description Current preview identity plus the complete twenty-metric bundle.
+         */
+        SessionMetricPublication: {
+            /**
+             * Preview Limits
+             * @default [
+             *       "read_only_v1_compatibility_preview",
+             *       "reviewed_compatible_rubric_rows_only_numeric",
+             *       "other_behavioral_states_withheld",
+             *       "objective_values_unknown_without_authorized_override",
+             *       "not_canonical_live_snapshot",
+             *       "no_model_stage_output_consumed"
+             *     ]
+             */
+            preview_limits: string[];
+            /**
+             * Projection Key
+             * @default metric.contract-v2.v1-compatibility-preview
+             */
+            projection_key: string;
+            /**
+             * Projection Version
+             * @default 2
+             */
+            projection_version: number;
+            provider: components["schemas"]["Provider"];
+            publication: components["schemas"]["MetricPublicationV2"];
+            /** Run Id */
+            run_id: string;
+            /** Source Metric Pack Key */
+            source_metric_pack_key: string;
+            /** Source Metric Pack Version */
+            source_metric_pack_version: number;
+            /** Source Result Count */
+            source_result_count: number;
         };
         /** SessionMetricReadinessReport */
         SessionMetricReadinessReport: {
@@ -5129,6 +5639,17 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * ValueOrigin
+         * @description What produced a value, kept separate from its calibration status.
+         *
+         *     A deterministic local rule and a typed objective receipt are both *measured*
+         *     observations; they differ in authority, not in whether they were measured.
+         *     Only a neural estimate is uncalibrated, and it is the sole origin allowed to
+         *     claim the experimental basis.
+         * @enum {string}
+         */
+        ValueOrigin: "none" | "deterministic_local" | "typed_objective" | "neural_uncalibrated";
         /**
          * VerificationCapability
          * @description Truthful provider capability shown before any verification claim.
@@ -6168,6 +6689,38 @@ export interface operations {
             };
         };
     };
+    metric_guidance_catalog_route_v1_metric_contracts_v2_guidance_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricGuidanceCatalogResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     provider_metric_coverage_v1_metric_coverage_get: {
         parameters: {
             query?: {
@@ -6859,6 +7412,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionCoachingProjection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_metric_publication_v1_quality_analysis_runs__run_id__metric_v2_compatibility_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionMetricPublication"];
                 };
             };
             /** @description Validation Error */

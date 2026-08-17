@@ -536,7 +536,7 @@ export function ModelEnsemblePanel({
       <header className="model-ensemble__header">
         <div>
           <p className="eyebrow">Typed evidence + experimental model ranges</p>
-          <h2 id="model-ensemble-title">Measure the session, then estimate every eligible axis locally</h2>
+          <h2 id="model-ensemble-title">Measure the analyzed window, then estimate every eligible axis locally</h2>
           <p>
             Typed evidence forms the solid radar. A gated multilingual factor lane
             runs pinned small models one at a time to produce a separate experimental

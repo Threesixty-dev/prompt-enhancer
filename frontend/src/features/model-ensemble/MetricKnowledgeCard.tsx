@@ -6,8 +6,8 @@ import { metricHelpV2 } from "./metricHelpV2";
  * at most one card is visible across every trigger surface (axis strip and
  * exact-value board). Triggers get `aria-describedby` pointing at an always
  * present hidden one-sentence description, so semantics never depend on the
- * visible card. The visible card is an in-flow disclosure below its trigger
- * surface: it never moves the radar and cannot overflow its container.
+ * visible card. The visible card is a viewport-clamped overlay: opening it
+ * never changes the radar/workspace layout.
  */
 export type MetricKnowledgeSurface = "strip" | "board";
 export interface MetricKnowledgeTarget { surface: MetricKnowledgeSurface; metricKey: string }
@@ -109,7 +109,7 @@ export function MetricKnowledgeDescriptions({ controller, entries }: {
   );
 }
 
-/** In-flow disclosure slot for one surface; renders the single open card, if it targets this surface. */
+/** Viewport overlay slot for one surface; renders the single open card, if it targets this surface. */
 export function MetricKnowledgeCardSlot({ controller, surface, entries, compact = false }: {
   controller: MetricKnowledgeCardController;
   surface: MetricKnowledgeSurface;
@@ -120,6 +120,12 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
   const entry = target !== null && target.surface === surface
     ? entries.find((candidate) => candidate.key === target.metricKey) ?? null
     : null;
+  const staleTarget = target !== null && target.surface === surface && entry === null;
+  useEffect(() => {
+    // A pinned key can disappear when the user changes lens.  Dismiss it so
+    // the next pointer/focus preview is never blocked by an invisible target.
+    if (staleTarget) controller.dismiss();
+  }, [controller.dismiss, staleTarget]);
   if (entry === null) return <div className="metric-knowledge-slot" data-surface={surface} />;
   const help = metricHelpV2(entry.key, "en");
   const pinned = controller.pinned;
@@ -127,7 +133,7 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
     <div className="metric-knowledge-slot" data-surface={surface}>
       <div
         aria-label={`${entry.label} knowledge card`}
-        className={`metric-knowledge-card${compact ? " metric-knowledge-card--compact" : ""}`}
+        className={`metric-knowledge-card metric-knowledge-card--viewport${compact ? " metric-knowledge-card--compact" : ""}`}
         data-metric-key={entry.key}
         data-pinned={pinned ? "true" : "false"}
         onPointerEnter={() => controller.preview({ surface, metricKey: entry.key })}

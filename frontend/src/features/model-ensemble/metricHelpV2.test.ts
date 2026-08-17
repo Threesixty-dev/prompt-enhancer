@@ -5,6 +5,7 @@ import {
   METRIC_HELP_V2_DIRECTIONS,
   METRIC_HELP_V2_KEYS,
   metricHelpV2,
+  metricHelpV2IsObjective,
   metricInspectorSentences,
 } from "./metricHelpV2";
 
@@ -43,6 +44,24 @@ describe("metricHelpV2 registry", () => {
         expect(JSON.stringify(entry)).not.toMatch(/confidence|probability of success/i);
       }
     }
+  });
+
+  it("marks exactly the five typed-evidence metrics as objective", () => {
+    const objectiveKeys = KEYS.filter(metricHelpV2IsObjective);
+    expect(objectiveKeys).toEqual([
+      "logic.hypothesis_test_linkage",
+      "logic.requirement_action_traceability",
+      "outcome.agent_claim_grounding",
+      "outcome.first_pass_verification",
+      "outcome.verified_requirement_coverage",
+    ]);
+  });
+
+  it("documents the shipped compatibility heuristic quirks instead of idealizing them", () => {
+    expect(METRIC_HELP_V2.en["prompt.problem_evidence_quality"].counts).toMatch(/diagnostic keyword/i);
+    expect(METRIC_HELP_V2.en["prompt.constraint_precision"].doesNotCount).toMatch(/generic prohibition/i);
+    expect(METRIC_HELP_V2.en["prompt.deliverable_contract"].doesNotCount).toMatch(/path or location alone/i);
+    expect(METRIC_HELP_V2.en["outcome.agent_claim_grounding"].observationUnit).toMatch(/every such clause/i);
   });
 });
 

@@ -5097,13 +5097,14 @@ canvas { max-width: 100%; }
   .project-workspace__context-icon { color: LinkText; background: Canvas; }
 }
 
-/* Metric knowledge cards (metric-help-v2): in-flow disclosure, one visible card per workspace. */
+/* Metric knowledge cards (metric-help-v2): one viewport-clamped card per workspace. */
 .metric-knowledge-descriptions[hidden] { display: none; }
 .metric-knowledge-slot { min-width: 0; }
 .metric-knowledge-slot:empty { display: none; }
 .model-ensemble__radar-withheld { fill: none; stroke: #8a9bac; stroke-dasharray: 2 1; stroke-width: 1.4; }
-.metric-knowledge-card { box-sizing: border-box; width: 100%; max-width: 100%; max-height: 42vh; overflow: auto; overflow-wrap: anywhere; margin: 6px 0 0; padding: 9px 11px; border: 1px solid #b9cbc7; border-radius: 9px; color: var(--ink-800); background: #fff; font-size: 14px; line-height: 1.4; text-align: left; text-transform: none; }
-.metric-knowledge-card--compact { font-size: 12px; max-height: 38vh; padding: 7px 8px; }
+.metric-knowledge-card { box-sizing: border-box; width: min(360px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: min(70vh, 520px); overflow: auto; overflow-wrap: anywhere; margin: 0; padding: 9px 11px; border: 1px solid #b9cbc7; border-radius: 9px; color: var(--ink-800); background: #fff; box-shadow: 0 10px 30px rgb(24 54 51 / 18%); font-size: 14px; line-height: 1.4; text-align: left; text-transform: none; }
+.metric-knowledge-card--viewport { position: fixed; z-index: 120; inset-inline-end: max(12px, env(safe-area-inset-right)); inset-block-end: max(12px, env(safe-area-inset-bottom)); }
+.metric-knowledge-card--compact { font-size: 12px; max-height: min(55vh, 360px); padding: 7px 8px; }
 .metric-knowledge-card header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .metric-knowledge-card header strong, .metric-knowledge-card header span, .metric-knowledge-card p, .metric-knowledge-card dt, .metric-knowledge-card dd { font-size: inherit; text-transform: none; }
 .metric-knowledge-card header span { color: var(--ink-500); }
@@ -5123,7 +5124,7 @@ canvas { max-width: 100%; }
 .model-ensemble__radar:not(.model-ensemble__radar--compact) .model-ensemble__focused-metric p,
 .model-ensemble__radar:not(.model-ensemble__radar--compact) .model-ensemble__focused-metric > header strong { font-size: 14px; }
 @media (max-width: 360px), (max-height: 500px) {
-  .metric-knowledge-card { font-size: 12px; max-height: 34vh; }
+  .metric-knowledge-card { font-size: 12px; max-height: min(60vh, 300px); }
   .metric-knowledge-card dl div { grid-template-columns: 1fr; gap: 1px; }
 }
 @media (forced-colors: active) {

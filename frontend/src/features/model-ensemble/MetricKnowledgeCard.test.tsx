@@ -129,13 +129,38 @@ describe("metric knowledge cards", () => {
     expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
   });
 
-  it("renders the compact card in a stable in-flow slot", () => {
+  it("renders the compact card in a viewport overlay without inserting panel height", () => {
     renderWorkspace("compact");
     fireEvent.pointerEnter(screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!);
     const card = document.querySelector('[role="tooltip"]')!;
     const slot = card.closest(".metric-knowledge-slot");
     expect(slot).not.toBeNull();
     expect(slot?.getAttribute("data-surface")).toBe("strip");
+    expect(card.classList.contains("metric-knowledge-card--viewport")).toBe(true);
     expect(card.classList.contains("metric-knowledge-card--compact")).toBe(true);
+  });
+
+  it("dismisses a pinned key when a lens change makes that target unavailable", () => {
+    const view = renderWorkspace("full");
+    const first = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
+    fireEvent.click(first);
+    expect(document.querySelector('[role="tooltip"]')?.getAttribute("data-pinned")).toBe("true");
+
+    view.rerender(
+      <MetricWorkspace
+        lensId="collaboration-flow"
+        mode="full"
+        onLensChange={() => undefined}
+        run={run}
+        runId="example-run-0001"
+        snapshotLabel="Synthetic snapshot"
+        transport={transport}
+      />,
+    );
+
+    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(0);
+    const next = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
+    fireEvent.pointerEnter(next);
+    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
   });
 });

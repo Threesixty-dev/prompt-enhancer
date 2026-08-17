@@ -399,6 +399,15 @@ export function sessionMetricGuidance(
       factorKeys,
     };
   }
+  if (input.experimentalOnly) {
+    return {
+      audience,
+      action: `If the experimental signal persists, ${base.tryNext.charAt(0).toLowerCase()}${base.tryNext.slice(1)}`,
+      verification: base.confirmWith,
+      basis: "experimental",
+      factorKeys,
+    };
+  }
   if (input.state === "unknown" || input.state === "abstained" || input.state === "missing") {
     const objective = audience === "tooling";
     return {
@@ -413,7 +422,7 @@ export function sessionMetricGuidance(
       factorKeys,
     };
   }
-  if (input.experimentalOnly || input.numericValue === null) {
+  if (input.numericValue === null) {
     return {
       audience,
       action: `If the experimental signal persists, ${base.tryNext.charAt(0).toLowerCase()}${base.tryNext.slice(1)}`,
@@ -425,7 +434,9 @@ export function sessionMetricGuidance(
   const oriented = input.direction === "lower_is_better"
     ? 1 - input.numericValue
     : input.numericValue;
-  if (oriented >= 0.75) {
+  // Reinforce only an exact, fully met observed fraction.  This is a receipt
+  // fact, unlike an arbitrary quality threshold on an uncalibrated metric.
+  if (oriented === 1) {
     return {
       audience,
       action: `Keep the observed practice: ${base.whyItMatters.charAt(0).toLowerCase()}${base.whyItMatters.slice(1)}`,
