@@ -10776,3 +10776,68 @@ BEGIN SELECT RAISE(ABORT,'semantic-unit sidecar seal requires parent privacy del
 
 COMMIT;
 """
+
+
+MIGRATION_38 = r"""
+BEGIN IMMEDIATE;
+
+-- Durable, bounded failure control for the continuous watch.  A watch that
+-- keeps failing backs off exponentially (persisted through next_check_at and
+-- this streak counter) and is quarantined after a fixed number of consecutive
+-- failures or immediately on a structurally nonretryable failure.  A
+-- quarantined watch is never auto-claimed again; only an explicit user
+-- action (refresh, re-enable, or disable) leaves quarantine.  These columns
+-- hold only fixed reason codes, counters, and timestamps.  Existing rows keep
+-- their state with a zero streak and no quarantine; nothing is backfilled.
+ALTER TABLE session_model_ensemble_watches
+ADD COLUMN failure_streak INTEGER NOT NULL DEFAULT 0
+    CHECK(failure_streak BETWEEN 0 AND 64);
+
+ALTER TABLE session_model_ensemble_watches
+ADD COLUMN quarantined_at TEXT
+    CHECK(quarantined_at IS NULL
+          OR (length(quarantined_at)=32 AND substr(quarantined_at,27)='+00:00'));
+
+ALTER TABLE session_model_ensemble_watches
+ADD COLUMN quarantine_reason_code TEXT
+    CHECK(quarantine_reason_code IS NULL
+          OR (length(quarantine_reason_code) BETWEEN 1 AND 64
+              AND quarantine_reason_code GLOB '[a-z0-9]*'
+              AND quarantine_reason_code NOT GLOB '*[^a-z0-9._-]*'));
+
+CREATE TRIGGER session_model_ensemble_watch_failure_control_insert
+BEFORE INSERT ON session_model_ensemble_watches
+WHEN (NEW.quarantined_at IS NULL)<>(NEW.quarantine_reason_code IS NULL)
+  OR (NEW.quarantined_at IS NOT NULL AND NEW.state NOT IN ('failed','disabled'))
+  OR (NEW.state='idle' AND NEW.failure_streak<>0)
+BEGIN SELECT RAISE(ABORT,'model ensemble watch failure control is inconsistent'); END;
+
+CREATE TRIGGER session_model_ensemble_watch_failure_control_update
+BEFORE UPDATE ON session_model_ensemble_watches
+WHEN (NEW.quarantined_at IS NULL)<>(NEW.quarantine_reason_code IS NULL)
+  OR (NEW.quarantined_at IS NOT NULL AND NEW.state NOT IN ('failed','disabled'))
+  OR (NEW.state='idle' AND NEW.failure_streak<>0)
+BEGIN SELECT RAISE(ABORT,'model ensemble watch failure control is inconsistent'); END;
+
+CREATE INDEX session_model_ensemble_watch_quarantine
+ON session_model_ensemble_watches(quarantined_at) WHERE quarantined_at IS NOT NULL;
+
+-- Consent revocation must stop a queued or idle watch without a lease.  The
+-- only new transition is a non-running watch entering 'failed' together with
+-- a quarantine mark; every previously reviewed transition is unchanged.
+DROP TRIGGER session_model_ensemble_watch_transitions;
+CREATE TRIGGER session_model_ensemble_watch_transitions
+BEFORE UPDATE ON session_model_ensemble_watches
+WHEN NEW.state<>OLD.state AND NOT (
+       (OLD.state='queued' AND NEW.state IN ('running','disabled'))
+    OR (OLD.state='running' AND NEW.state IN ('queued','idle','failed','disabled'))
+    OR (OLD.state='idle' AND NEW.state IN ('queued','running','disabled'))
+    OR (OLD.state='failed' AND NEW.state IN ('queued','running','disabled'))
+    OR (OLD.state='disabled' AND NEW.state='queued')
+    OR (OLD.state IN ('queued','idle') AND NEW.state='failed'
+        AND NEW.quarantined_at IS NOT NULL)
+)
+BEGIN SELECT RAISE(ABORT,'model ensemble watch transition is invalid'); END;
+
+COMMIT;
+"""

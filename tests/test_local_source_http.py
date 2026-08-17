@@ -189,6 +189,26 @@ def build_source_app(tmp_path: Path):
     return app, store, repository, runner, factory_calls
 
 
+def test_consent_revocation_stops_bound_local_workers_without_provider_read() -> None:
+    repository = FakeSourceRepository()
+    repository.active = True
+    runner = RecordingIngestionRunner()
+    revoked: list[Provider] = []
+    service = CodexLocalSourceService(
+        repository,
+        runner,
+        lambda operational_history: NeverReadAdapter(operational_history),
+        VERIFICATION_CAPABILITY,
+        automation_revoker=lambda provider: revoked.append(provider) or 1,
+    )
+
+    status = service.revoke_local_history()
+
+    assert status.consent_active is False
+    assert revoked == [Provider.CODEX]
+    assert runner.calls == []
+
+
 def bootstrap_browser(client: TestClient) -> str:
     response = client.get(
         "/auth/session",

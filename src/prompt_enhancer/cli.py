@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from datetime import UTC, datetime
 import sys
 from typing import Any
 
@@ -142,6 +143,15 @@ def _run_codex_consent(
     tier = _codex_tier(str(args.scope))
     if revoke:
         application.database.revoke_consent(Provider.CODEX, tier)
+        from .application.analysis.model_ensemble_watch import (
+            MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED,
+        )
+
+        application.database.model_ensemble_watch_repository().quarantine_provider_watches(
+            Provider.CODEX,
+            now=datetime.now(UTC),
+            reason_code=MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED,
+        )
         print("Revoked the selected local Codex source-access scope.")
     else:
         application.database.grant_consent(Provider.CODEX, tier)

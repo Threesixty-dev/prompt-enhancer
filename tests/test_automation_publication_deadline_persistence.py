@@ -472,9 +472,9 @@ def test_v24_to_v25_preserves_prior_checksums_and_existing_data(
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 37
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 37
-        assert tuple(row[0] for row in rows) == tuple(range(1, 38))
+        assert SCHEMA_VERSION == 38
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 38
+        assert tuple(row[0] for row in rows) == tuple(range(1, 39))
         assert tuple(row[1] for row in rows[:24]) == checksums
         assert rows[24][1] == hashlib.sha256(
             migrations.MIGRATION_25.encode("utf-8")

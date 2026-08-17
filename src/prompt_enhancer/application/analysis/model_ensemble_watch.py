@@ -40,6 +40,40 @@ MODEL_ENSEMBLE_WATCH_POLL_SECONDS = 60
 MODEL_ENSEMBLE_WATCH_LEASE_SECONDS = 5 * 60
 MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL = 10
 MODEL_ENSEMBLE_ATTEMPT_CONTRACT_VERSION = "model-ensemble-attempt-v1"
+MODEL_ENSEMBLE_WATCH_MAX_FAILURE_STREAK = 6
+MODEL_ENSEMBLE_WATCH_MAX_BACKOFF_SECONDS = 60 * 60
+MODEL_ENSEMBLE_WATCH_STREAK_EXHAUSTED = "watch_failure_streak_exhausted"
+MODEL_ENSEMBLE_WATCH_LEASE_RECOVERED = "watch_lease_recovered"
+MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED = "redacted_content_consent_revoked"
+
+# Failures that no amount of retrying can repair without a user action.  A
+# watch that hits one of these is quarantined immediately instead of being
+# hot-looped on the poll cadence.  Every other reason is retried under the
+# bounded exponential backoff until the streak budget is exhausted.
+MODEL_ENSEMBLE_WATCH_NONRETRYABLE_REASONS = frozenset(
+    {
+        "invalid_model_ensemble_request",
+        "model_ensemble_confirmation_required",
+        "redacted_content_consent_required",
+        MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED,
+        "session_not_in_safe_index",
+        "provider_compatibility_blocked",
+        "privacy_deleted",
+    }
+)
+
+
+class ModelEnsembleWatchFailureClass(StrEnum):
+    RETRYABLE = "retryable"
+    NONRETRYABLE = "nonretryable"
+
+
+def classify_watch_failure(reason_code: str) -> ModelEnsembleWatchFailureClass:
+    """Map a fixed reason code to its durable retry class."""
+
+    if reason_code in MODEL_ENSEMBLE_WATCH_NONRETRYABLE_REASONS:
+        return ModelEnsembleWatchFailureClass.NONRETRYABLE
+    return ModelEnsembleWatchFailureClass.RETRYABLE
 
 
 def _utc_now() -> datetime:
@@ -267,6 +301,44 @@ class ModelEnsembleCanonicalHead(StrictModel):
         return self
 
 
+class ModelEnsembleWatchFailurePolicy(StrictModel):
+    """Bounded exponential backoff and quarantine budget for one watch.
+
+    The policy contains no content and is applied inside the repository's
+    writer transaction so that the persisted streak, the persisted next check
+    time, and the quarantine flags can never disagree.
+    """
+
+    base_delay: timedelta = Field(default=timedelta(seconds=MODEL_ENSEMBLE_WATCH_POLL_SECONDS))
+    max_delay: timedelta = Field(
+        default=timedelta(seconds=MODEL_ENSEMBLE_WATCH_MAX_BACKOFF_SECONDS)
+    )
+    max_failure_streak: int = Field(
+        default=MODEL_ENSEMBLE_WATCH_MAX_FAILURE_STREAK, ge=1, le=64
+    )
+
+    @model_validator(mode="after")
+    def validate_policy(self) -> "ModelEnsembleWatchFailurePolicy":
+        if not timedelta(seconds=1) <= self.base_delay <= self.max_delay:
+            raise ValueError("watch backoff base delay is outside the reviewed bound")
+        if self.max_delay > timedelta(hours=24):
+            raise ValueError("watch backoff ceiling is outside the reviewed bound")
+        return self
+
+    def next_delay(self, failure_streak: int) -> timedelta:
+        """Delay before the retry that follows the given consecutive failure."""
+
+        if not isinstance(failure_streak, int) or isinstance(failure_streak, bool):
+            raise ValueError("failure streak must be an integer")
+        if failure_streak < 1:
+            raise ValueError("backoff requires at least one failure")
+        exponent = min(failure_streak - 1, 30)
+        return min(self.max_delay, self.base_delay * (2**exponent))
+
+    def quarantines(self, failure_streak: int) -> bool:
+        return failure_streak >= self.max_failure_streak
+
+
 class ModelEnsembleWatchRecord(StrictModel):
     watch_id: str
     provider: Provider
@@ -284,6 +356,9 @@ class ModelEnsembleWatchRecord(StrictModel):
     lease_owner: str | None = None
     lease_token: str | None = None
     lease_expires_at: datetime | None = None
+    failure_streak: int = Field(default=0, ge=0, le=64)
+    quarantined_at: datetime | None = None
+    quarantine_reason_code: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -294,15 +369,20 @@ class ModelEnsembleWatchRecord(StrictModel):
         "lease_owner",
         "lease_token",
     )(lambda value: None if value is None else _safe_id(value))
-    _reason = field_validator("last_error_code")(
+    _reason = field_validator("last_error_code", "quarantine_reason_code")(
         lambda value: None if value is None else _safe_code(value)
     )
     _times = field_validator(
         "next_check_at",
         "lease_expires_at",
+        "quarantined_at",
         "created_at",
         "updated_at",
     )(lambda value: None if value is None else _utc(value))
+
+    @property
+    def quarantined(self) -> bool:
+        return self.quarantined_at is not None
 
     @model_validator(mode="after")
     def validate_state(self) -> "ModelEnsembleWatchRecord":
@@ -317,6 +397,15 @@ class ModelEnsembleWatchRecord(StrictModel):
             raise ValueError("watch progress cannot exceed its total")
         if self.state is ModelEnsembleWatchState.IDLE and self.last_error_code is not None:
             raise ValueError("an idle watch cannot retain a failure code")
+        if (self.quarantined_at is None) != (self.quarantine_reason_code is None):
+            raise ValueError("watch quarantine identity must be complete")
+        if self.quarantined_at is not None and self.state not in {
+            ModelEnsembleWatchState.FAILED,
+            ModelEnsembleWatchState.DISABLED,
+        }:
+            raise ValueError("only a failed or disabled watch may be quarantined")
+        if self.state is ModelEnsembleWatchState.IDLE and self.failure_streak != 0:
+            raise ValueError("an idle watch cannot retain a failure streak")
         return self
 
 
@@ -514,7 +603,24 @@ class ModelEnsembleWatchRepository(Protocol):
         owner: str,
         now: datetime,
         lease_duration: timedelta,
+        policy: ModelEnsembleWatchFailurePolicy,
     ) -> tuple[ModelEnsembleWatchRecord, ModelEnsembleWatchLease] | None: ...
+
+    def recover_orphaned_leases(
+        self,
+        *,
+        owner: str,
+        now: datetime,
+        policy: ModelEnsembleWatchFailurePolicy,
+    ) -> int: ...
+
+    def quarantine_provider_watches(
+        self,
+        provider: Provider,
+        *,
+        now: datetime,
+        reason_code: str,
+    ) -> int: ...
 
     def heartbeat(
         self,
@@ -539,8 +645,9 @@ class ModelEnsembleWatchRepository(Protocol):
         lease: ModelEnsembleWatchLease,
         *,
         now: datetime,
-        next_check_at: datetime,
         reason_code: str,
+        failure_class: ModelEnsembleWatchFailureClass,
+        policy: ModelEnsembleWatchFailurePolicy,
     ) -> ModelEnsembleWatchRecord: ...
 
     def cancel_attempt(
@@ -604,6 +711,7 @@ class ModelEnsembleWatchService:
         poll_interval: timedelta = timedelta(seconds=MODEL_ENSEMBLE_WATCH_POLL_SECONDS),
         lease_duration: timedelta = timedelta(seconds=MODEL_ENSEMBLE_WATCH_LEASE_SECONDS),
         id_factory: Callable[[str], str] | None = None,
+        failure_policy: ModelEnsembleWatchFailurePolicy | None = None,
     ) -> None:
         if not timedelta(seconds=5) <= poll_interval <= timedelta(minutes=15):
             raise ValueError("watch poll interval is outside the reviewed bound")
@@ -614,6 +722,9 @@ class ModelEnsembleWatchService:
         self._clock = clock
         self._poll_interval = poll_interval
         self._lease_duration = lease_duration
+        self._failure_policy = failure_policy or ModelEnsembleWatchFailurePolicy(
+            base_delay=poll_interval
+        )
         self._id_factory = id_factory or (
             lambda value: hashlib.sha256(value.encode("ascii")).hexdigest()
         )
@@ -799,12 +910,56 @@ class ModelEnsembleWatchService:
             limit=limit,
         )
 
+    @property
+    def failure_policy(self) -> ModelEnsembleWatchFailurePolicy:
+        return self._failure_policy
+
+    def recover_orphaned_leases(self) -> int:
+        """Recover expired leases without stealing work from another process.
+
+        Each expired lease counts as one failure toward the durable
+        backoff/quarantine budget so that a crash loop cannot restart local
+        inference without bound.  Unexpired leases remain authoritative even
+        when their owner differs from this process.
+        """
+
+        return self._repository.recover_orphaned_leases(
+            owner=self._owner,
+            now=self._clock(),
+            policy=self._failure_policy,
+        )
+
+    def quarantine_for_provider(
+        self,
+        provider: Provider,
+        *,
+        reason_code: str = MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED,
+    ) -> int:
+        """Stop future analysis for a provider without deleting any result.
+
+        Used when local-history consent is revoked.  The last sealed head is
+        retained; erasing derived data stays a separate explicit user action.
+        """
+
+        if not isinstance(provider, Provider):
+            raise ModelEnsembleWatchInputError()
+        try:
+            _safe_code(reason_code)
+        except ValueError:
+            raise ModelEnsembleWatchInputError() from None
+        return self._repository.quarantine_provider_watches(
+            provider,
+            now=self._clock(),
+            reason_code=reason_code,
+        )
+
     def run_once(self) -> ModelEnsembleWatchRecord | None:
         now = self._clock()
         claimed = self._repository.claim_due(
             owner=self._owner,
             now=now,
             lease_duration=self._lease_duration,
+            policy=self._failure_policy,
         )
         if claimed is None:
             return None
@@ -868,8 +1023,9 @@ class ModelEnsembleWatchService:
             return self._repository.fail(
                 lease,
                 now=failed_at,
-                next_check_at=failed_at + self._poll_interval,
                 reason_code=reason,
+                failure_class=classify_watch_failure(reason),
+                policy=self._failure_policy,
             )
         except ValueError:
             return self._repository.get(record.watch_id)
@@ -904,6 +1060,16 @@ class ModelEnsembleWatchWorker:
             )
             self._thread.start()
 
+    def recover(self) -> int:
+        """Run the durable startup recovery sweep once, swallowing detail text."""
+
+        try:
+            return self._service.recover_orphaned_leases()
+        except Exception:
+            # Exception text may carry private adapter details; the periodic
+            # claim path recovers expired leases later regardless.
+            return 0
+
     def stop(self, *, timeout: float = 5.0) -> None:
         with self._lock:
             thread = self._thread
@@ -919,6 +1085,7 @@ class ModelEnsembleWatchWorker:
         return self._service.run_once()
 
     def _run(self) -> None:
+        self.recover()
         while not self._stop.is_set():
             try:
                 self.run_once()
@@ -931,9 +1098,18 @@ class ModelEnsembleWatchWorker:
 __all__ = [
     "MODEL_ENSEMBLE_ATTEMPT_CONTRACT_VERSION",
     "MODEL_ENSEMBLE_WATCH_CONFIRMATION",
+    "MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED",
     "MODEL_ENSEMBLE_WATCH_CONTRACT_VERSION",
+    "MODEL_ENSEMBLE_WATCH_LEASE_RECOVERED",
+    "MODEL_ENSEMBLE_WATCH_MAX_BACKOFF_SECONDS",
+    "MODEL_ENSEMBLE_WATCH_MAX_FAILURE_STREAK",
+    "MODEL_ENSEMBLE_WATCH_NONRETRYABLE_REASONS",
     "MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL",
+    "MODEL_ENSEMBLE_WATCH_STREAK_EXHAUSTED",
     "ContinuousModelEnsembleCommand",
+    "ModelEnsembleWatchFailureClass",
+    "ModelEnsembleWatchFailurePolicy",
+    "classify_watch_failure",
     "ModelEnsembleAttemptRecord",
     "ModelEnsembleAttemptStageReceipt",
     "ModelEnsembleAttemptState",

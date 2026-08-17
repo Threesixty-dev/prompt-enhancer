@@ -8,12 +8,16 @@ import hashlib
 
 from ...application.analysis.model_ensemble_watch import (
     MODEL_ENSEMBLE_ATTEMPT_CONTRACT_VERSION,
+    MODEL_ENSEMBLE_WATCH_LEASE_RECOVERED,
     MODEL_ENSEMBLE_WATCH_PROGRESS_TOTAL,
+    MODEL_ENSEMBLE_WATCH_STREAK_EXHAUSTED,
     ModelEnsembleAttemptRecord,
     ModelEnsembleAttemptStageReceipt,
     ModelEnsembleAttemptState,
     ModelEnsembleCanonicalHead,
     ModelEnsembleStageState,
+    ModelEnsembleWatchFailureClass,
+    ModelEnsembleWatchFailurePolicy,
     ModelEnsembleWatchLease,
     ModelEnsembleWatchRecord,
     ModelEnsembleWatchRepository,
@@ -61,6 +65,13 @@ def _record(row: object) -> ModelEnsembleWatchRecord:
             if row["lease_expires_at"] is None  # type: ignore[index]
             else from_iso(row["lease_expires_at"])  # type: ignore[index]
         ),
+        failure_streak=int(row["failure_streak"]),  # type: ignore[index]
+        quarantined_at=(
+            None
+            if row["quarantined_at"] is None  # type: ignore[index]
+            else from_iso(row["quarantined_at"])  # type: ignore[index]
+        ),
+        quarantine_reason_code=row["quarantine_reason_code"],  # type: ignore[index]
         created_at=from_iso(row["created_at"]),  # type: ignore[index]
         updated_at=from_iso(row["updated_at"]),  # type: ignore[index]
     )
@@ -219,6 +230,78 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             attempt_ids,
         )
 
+    @classmethod
+    def _recover_expired_leases(
+        cls,
+        connection: object,
+        *,
+        now: datetime,
+        policy: ModelEnsembleWatchFailurePolicy,
+    ) -> int:
+        """Seal expired attempts and apply the durable failure policy.
+
+        An unexpired lease may belong to another live process and is never
+        stolen.  Recovery is performed in the caller's writer transaction so
+        the attempt seal, streak, retry time, and quarantine marker cannot
+        become torn.
+        """
+
+        stamp = to_iso(now)
+        rows = connection.execute(  # type: ignore[attr-defined]
+            """SELECT watch.watch_id,watch.failure_streak,attempt.attempt_id
+               FROM session_model_ensemble_watches watch
+               LEFT JOIN session_model_ensemble_analysis_attempts attempt
+                 ON attempt.watch_id=watch.watch_id
+                AND attempt.generation=watch.generation
+                AND attempt.state='running'
+               WHERE watch.state='running' AND watch.lease_expires_at<=?
+                 AND (attempt.state='running' OR attempt.attempt_id IS NULL)
+               ORDER BY watch.watch_id""",
+            (stamp,),
+        ).fetchall()
+        for row in rows:
+            streak = min(64, int(row["failure_streak"]) + 1)
+            quarantined = policy.quarantines(streak)
+            next_check_at = now if quarantined else now + policy.next_delay(streak)
+            quarantine_code = (
+                MODEL_ENSEMBLE_WATCH_STREAK_EXHAUSTED if quarantined else None
+            )
+            if row["attempt_id"] is not None:
+                attempt_result = connection.execute(  # type: ignore[attr-defined]
+                    """UPDATE session_model_ensemble_analysis_attempts
+                       SET state='failed',error_code=?,completed_at=?
+                       WHERE attempt_id=? AND state='running'""",
+                    (
+                        MODEL_ENSEMBLE_WATCH_LEASE_RECOVERED,
+                        stamp,
+                        row["attempt_id"],
+                    ),
+                )
+                if attempt_result.rowcount != 1:
+                    raise ValueError("expired watch attempt changed during recovery")
+                cls._seal_terminal_attempts(connection, (row["attempt_id"],))
+            watch_result = connection.execute(  # type: ignore[attr-defined]
+                """UPDATE session_model_ensemble_watches
+                   SET state='failed',lease_owner=NULL,lease_token=NULL,
+                       lease_expires_at=NULL,last_error_code=?,failure_streak=?,
+                       next_check_at=?,quarantined_at=?,quarantine_reason_code=?,
+                       updated_at=?
+                   WHERE watch_id=? AND state='running' AND lease_expires_at<=?""",
+                (
+                    MODEL_ENSEMBLE_WATCH_LEASE_RECOVERED,
+                    streak,
+                    to_iso(next_check_at),
+                    stamp if quarantined else None,
+                    quarantine_code,
+                    stamp,
+                    row["watch_id"],
+                    stamp,
+                ),
+            )
+            if watch_result.rowcount != 1:
+                raise ValueError("expired watch lease changed during recovery")
+        return len(rows)
+
     def enable(
         self,
         *,
@@ -292,8 +375,10 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                            watch_id,provider,project_id,session_id,max_messages,state,generation,
                            progress_completed,progress_total,latest_run_id,
                            latest_input_fingerprint,last_error_code,next_check_at,
-                           lease_owner,lease_token,lease_expires_at,created_at,updated_at
-                           ) VALUES(?,?,?,?,?,'queued',0,0,?,NULL,NULL,NULL,?,NULL,NULL,NULL,?,?)""",
+                           lease_owner,lease_token,lease_expires_at,failure_streak,
+                           quarantined_at,quarantine_reason_code,created_at,updated_at
+                           ) VALUES(?,?,?,?,?,'queued',0,0,?,NULL,NULL,NULL,?,NULL,NULL,NULL,
+                                    0,NULL,NULL,?,?)""",
                         (
                             watch_id,
                             provider.value,
@@ -320,7 +405,9 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                             """UPDATE session_model_ensemble_watches
                                SET state='queued',max_messages=?,progress_completed=0,
                                    last_error_code=NULL,next_check_at=?,lease_owner=NULL,
-                                   lease_token=NULL,lease_expires_at=NULL,updated_at=?
+                                   lease_token=NULL,lease_expires_at=NULL,
+                                   failure_streak=0,quarantined_at=NULL,
+                                   quarantine_reason_code=NULL,updated_at=?
                                WHERE watch_id=?""",
                             (max_messages, stamp, stamp, watch_id),
                         )
@@ -331,7 +418,9 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                                    generation=generation+1,progress_completed=0,
                                    latest_run_id=NULL,latest_input_fingerprint=NULL,
                                    last_error_code=NULL,next_check_at=?,lease_owner=NULL,
-                                   lease_token=NULL,lease_expires_at=NULL,updated_at=?
+                                   lease_token=NULL,lease_expires_at=NULL,
+                                   failure_streak=0,quarantined_at=NULL,
+                                   quarantine_reason_code=NULL,updated_at=?
                                WHERE watch_id=?""",
                             (max_messages, stamp, stamp, watch_id),
                         )
@@ -369,7 +458,8 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             result = connection.execute(
                 """UPDATE session_model_ensemble_watches
                    SET state='disabled',lease_owner=NULL,lease_token=NULL,
-                       lease_expires_at=NULL,updated_at=?
+                       lease_expires_at=NULL,failure_streak=0,
+                       quarantined_at=NULL,quarantine_reason_code=NULL,updated_at=?
                    WHERE watch_id=?""",
                 (stamp, watch_id),
             )
@@ -609,13 +699,16 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                 if current["state"] == "running":
                     connection.rollback()
                     return _record(current)
+                # An explicit user refresh is the reviewed exit from quarantine
+                # and restarts the bounded failure budget.
                 connection.execute(
                     """UPDATE session_model_ensemble_watches
                        SET state='queued',progress_completed=0,
                            last_error_code=CASE WHEN state='failed'
                                THEN last_error_code ELSE NULL END,next_check_at=?,
                            lease_owner=NULL,lease_token=NULL,
-                           lease_expires_at=NULL,updated_at=?
+                           lease_expires_at=NULL,failure_streak=0,
+                           quarantined_at=NULL,quarantine_reason_code=NULL,updated_at=?
                        WHERE watch_id=?""",
                     (to_iso(now), to_iso(now), watch_id),
                 )
@@ -877,47 +970,26 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
         owner: str,
         now: datetime,
         lease_duration: timedelta,
+        policy: ModelEnsembleWatchFailurePolicy | None = None,
     ) -> tuple[ModelEnsembleWatchRecord, ModelEnsembleWatchLease] | None:
         require_safe_id(owner)
+        active_policy = policy or ModelEnsembleWatchFailurePolicy()
         self._ensure_initialized()
         stamp = to_iso(now)
         expires = now + lease_duration
         with self._connection_scope() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
-                recovered_attempt_ids = tuple(
-                    row["attempt_id"]
-                    for row in connection.execute(
-                        """SELECT attempt.attempt_id
-                           FROM session_model_ensemble_analysis_attempts attempt
-                           JOIN session_model_ensemble_watches watch
-                             ON watch.watch_id=attempt.watch_id
-                           WHERE attempt.state='running' AND watch.state='running'
-                             AND watch.lease_expires_at<=?""",
-                        (stamp,),
-                    ).fetchall()
-                )
-                connection.execute(
-                    """UPDATE session_model_ensemble_analysis_attempts
-                       SET state='failed',error_code='watch_lease_recovered',completed_at=?
-                       WHERE state='running' AND watch_id IN (
-                           SELECT watch_id FROM session_model_ensemble_watches
-                           WHERE state='running' AND lease_expires_at<=?)""",
-                    (stamp, stamp),
-                )
-                self._seal_terminal_attempts(connection, recovered_attempt_ids)
-                connection.execute(
-                    """UPDATE session_model_ensemble_watches
-                       SET state='queued',lease_owner=NULL,lease_token=NULL,
-                           lease_expires_at=NULL,last_error_code='watch_lease_recovered',
-                           next_check_at=?,updated_at=?
-                       WHERE state='running' AND lease_expires_at<=?""",
-                    (stamp, stamp, stamp),
+                self._recover_expired_leases(
+                    connection,
+                    now=now,
+                    policy=active_policy,
                 )
                 candidate = connection.execute(
                     """SELECT watch_id,generation,next_check_at
                        FROM session_model_ensemble_watches
                        WHERE state IN ('queued','idle','failed') AND next_check_at<=?
+                         AND quarantined_at IS NULL
                        ORDER BY next_check_at,created_at,watch_id LIMIT 1""",
                     (stamp,),
                 ).fetchone()
@@ -981,6 +1053,99 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             token=token,
             expires_at=expires,
         )
+
+    def recover_orphaned_leases(
+        self,
+        *,
+        owner: str,
+        now: datetime,
+        policy: ModelEnsembleWatchFailurePolicy,
+    ) -> int:
+        """Recover only expired leases; an unexpired lease may still be live."""
+
+        require_safe_id(owner)
+        self._ensure_initialized()
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                recovered = self._recover_expired_leases(
+                    connection,
+                    now=now,
+                    policy=policy,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return recovered
+
+    def quarantine_provider_watches(
+        self,
+        provider: Provider,
+        *,
+        now: datetime,
+        reason_code: str,
+    ) -> int:
+        """Atomically stop every watch for a provider and retain sealed heads."""
+
+        require_safe_label(reason_code)
+        self._ensure_initialized()
+        stamp = to_iso(now)
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                running = tuple(
+                    connection.execute(
+                        """SELECT attempt.attempt_id
+                           FROM session_model_ensemble_analysis_attempts attempt
+                           JOIN session_model_ensemble_watches watch
+                             ON watch.watch_id=attempt.watch_id
+                            AND watch.generation=attempt.generation
+                           WHERE watch.provider=? AND watch.state='running'
+                             AND attempt.state='running'""",
+                        (provider.value,),
+                    ).fetchall()
+                )
+                for row in running:
+                    connection.execute(
+                        """UPDATE session_model_ensemble_analysis_attempts
+                           SET state='cancelled',stage_count=1,warning_count=1,
+                               error_code=?,completed_at=?
+                           WHERE attempt_id=? AND state='running'""",
+                        (reason_code, stamp, row["attempt_id"]),
+                    )
+                    connection.execute(
+                        """INSERT INTO session_model_ensemble_analysis_attempt_stages(
+                               attempt_id,stage_ordinal,stage_key,state,error_code,
+                               quantization,completed_at,local_only,content_persisted
+                           ) VALUES(?,0,'analysis_pipeline','cancelled',?,'none',?,1,0)""",
+                        (row["attempt_id"], reason_code, stamp),
+                    )
+                    self._seal_terminal_attempts(connection, (row["attempt_id"],))
+                result = connection.execute(
+                    """UPDATE session_model_ensemble_watches
+                       SET state=CASE WHEN state='disabled' THEN 'disabled' ELSE 'failed' END,
+                           progress_completed=0,last_error_code=?,next_check_at=?,
+                           lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+                           quarantined_at=?,quarantine_reason_code=?,updated_at=?
+                       WHERE provider=? AND (
+                           quarantined_at IS NULL OR quarantine_reason_code<>?
+                       )""",
+                    (
+                        reason_code,
+                        stamp,
+                        stamp,
+                        reason_code,
+                        stamp,
+                        provider.value,
+                        reason_code,
+                    ),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return int(result.rowcount)
 
     def heartbeat(
         self,
@@ -1067,7 +1232,9 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                 """UPDATE session_model_ensemble_watches
                    SET state='idle',progress_completed=?,latest_run_id=?,
                        latest_input_fingerprint=?,last_error_code=NULL,next_check_at=?,
-                       lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+                       lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+                       failure_streak=0,quarantined_at=NULL,
+                       quarantine_reason_code=NULL,updated_at=?
                    WHERE watch_id=? AND state='running' AND lease_owner=?
                      AND lease_token=? AND lease_expires_at>? AND session_id=?""",
                 (
@@ -1169,22 +1336,60 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
         lease: ModelEnsembleWatchLease,
         *,
         now: datetime,
-        next_check_at: datetime,
         reason_code: str,
+        failure_class: ModelEnsembleWatchFailureClass | None = None,
+        policy: ModelEnsembleWatchFailurePolicy | None = None,
+        next_check_at: datetime | None = None,
     ) -> ModelEnsembleWatchRecord:
         require_safe_label(reason_code)
+        active_policy = policy or ModelEnsembleWatchFailurePolicy()
+        active_class = failure_class or ModelEnsembleWatchFailureClass.RETRYABLE
         self._ensure_initialized()
         with self._connection_scope() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            current = self._row(connection, lease.watch_id)
+            if (
+                current is None
+                or current["state"] != "running"
+                or current["lease_owner"] != lease.owner
+                or current["lease_token"] != lease.token
+                or from_iso(current["lease_expires_at"]) <= now
+            ):
+                connection.rollback()
+                raise ValueError("watch lease is no longer active")
+            failure_streak = min(64, int(current["failure_streak"]) + 1)
+            quarantined = (
+                active_class is ModelEnsembleWatchFailureClass.NONRETRYABLE
+                or active_policy.quarantines(failure_streak)
+            )
+            scheduled_at = (
+                now
+                if quarantined
+                else (
+                    next_check_at
+                    if next_check_at is not None
+                    else now + active_policy.next_delay(failure_streak)
+                )
+            )
+            quarantine_reason = (
+                reason_code
+                if active_class is ModelEnsembleWatchFailureClass.NONRETRYABLE
+                else MODEL_ENSEMBLE_WATCH_STREAK_EXHAUSTED
+            ) if quarantined else None
             result = connection.execute(
                 """UPDATE session_model_ensemble_watches
                    SET state='failed',last_error_code=?,next_check_at=?,
-                       lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+                       lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,
+                       failure_streak=?,quarantined_at=?,quarantine_reason_code=?,
+                       updated_at=?
                    WHERE watch_id=? AND state='running' AND lease_owner=?
                      AND lease_token=? AND lease_expires_at>?""",
                 (
                     reason_code,
-                    to_iso(next_check_at),
+                    to_iso(scheduled_at),
+                    failure_streak,
+                    to_iso(now) if quarantined else None,
+                    quarantine_reason,
                     to_iso(now),
                     lease.watch_id,
                     lease.owner,

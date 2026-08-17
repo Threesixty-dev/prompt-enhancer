@@ -27,6 +27,13 @@ from prompt_enhancer.application.analysis.session_model_ensemble import (
     SessionModelEnsemblePersistenceAuthority,
     SessionModelEnsembleRunRecord,
 )
+from prompt_enhancer.application.analysis.model_ensemble_watch import (
+    MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED,
+    MODEL_ENSEMBLE_WATCH_LEASE_RECOVERED,
+    MODEL_ENSEMBLE_WATCH_STREAK_EXHAUSTED,
+    ModelEnsembleWatchFailureClass,
+    ModelEnsembleWatchFailurePolicy,
+)
 from prompt_enhancer.application.analysis.semantic_units import (
     SemanticUnitExtractionBasis,
     SemanticUnitKind,
@@ -469,13 +476,13 @@ def test_model_ensemble_graph_is_immutable_sealed_and_privacy_deletable(tmp_path
 def test_model_ensemble_migrations_have_zero_backfill(tmp_path) -> None:
     database, _ = _database_and_session(tmp_path)
     with sqlite3.connect(database.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 37
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 38
         assert tuple(
             row[0]
             for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-        ) == tuple(range(1, 38))
+        ) == tuple(range(1, 39))
         assert connection.execute(
             "SELECT COUNT(*) FROM session_model_ensemble_runs"
         ).fetchone()[0] == 0
@@ -559,7 +566,7 @@ def test_v28_watch_upgrade_preserves_the_original_message_window(tmp_path) -> No
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 37
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 38
         assert tuple(row[1] for row in rows[:28]) == checksums
         assert rows[28][1] == hashlib.sha256(
             migrations.MIGRATION_29.encode("utf-8")
@@ -588,9 +595,14 @@ def test_v28_watch_upgrade_preserves_the_original_message_window(tmp_path) -> No
         assert rows[36][1] == hashlib.sha256(
             migrations.MIGRATION_37.encode("utf-8")
         ).hexdigest()
+        assert rows[37][1] == hashlib.sha256(
+            migrations.MIGRATION_38.encode("utf-8")
+        ).hexdigest()
         assert connection.execute(
-            "SELECT max_messages FROM session_model_ensemble_watches"
-        ).fetchone()[0] == 100
+            """SELECT max_messages,failure_streak,quarantined_at,
+                      quarantine_reason_code
+               FROM session_model_ensemble_watches"""
+        ).fetchone() == (100, 0, None, None)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -670,8 +682,8 @@ def test_v25_to_v26_preserves_prior_checksums_and_rows(tmp_path, populated: bool
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 37
-        assert tuple(row[0] for row in rows) == tuple(range(1, 38))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 38
+        assert tuple(row[0] for row in rows) == tuple(range(1, 39))
         assert tuple(row[1] for row in rows[:25]) == checksums
         assert rows[25][1] == hashlib.sha256(
             migrations.MIGRATION_26.encode("utf-8")
@@ -933,6 +945,252 @@ def test_watch_retry_preserves_the_fixed_failure_reason_until_success(tmp_path) 
     assert tuple(item.generation for item in attempts) == (2, 1)
     assert tuple(item.state.value for item in attempts) == ("completed", "failed")
     assert attempts[1].error_code == "local_model_ensemble_execution_failed"
+
+
+def test_watch_failures_back_off_and_quarantine_until_explicit_refresh(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    repository = database.model_ensemble_watch_repository()
+    watch_id = "b" * 64
+    owner = "c" * 64
+    policy = ModelEnsembleWatchFailurePolicy(
+        base_delay=timedelta(seconds=60),
+        max_delay=timedelta(minutes=10),
+        max_failure_streak=3,
+    )
+    repository.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        now=NOW,
+    )
+
+    first = repository.claim_due(
+        owner=owner,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+        policy=policy,
+    )
+    assert first is not None
+    failed_once = repository.fail(
+        first[1],
+        now=NOW + timedelta(seconds=1),
+        reason_code="synthetic_transient_failure",
+        failure_class=ModelEnsembleWatchFailureClass.RETRYABLE,
+        policy=policy,
+    )
+    assert failed_once.failure_streak == 1
+    assert failed_once.next_check_at == NOW + timedelta(seconds=61)
+    assert failed_once.quarantined is False
+    assert repository.claim_due(
+        owner=owner,
+        now=NOW + timedelta(seconds=60),
+        lease_duration=timedelta(minutes=30),
+        policy=policy,
+    ) is None
+
+    second = repository.claim_due(
+        owner=owner,
+        now=NOW + timedelta(seconds=61),
+        lease_duration=timedelta(minutes=30),
+        policy=policy,
+    )
+    assert second is not None
+    failed_twice = repository.fail(
+        second[1],
+        now=NOW + timedelta(seconds=62),
+        reason_code="synthetic_transient_failure",
+        failure_class=ModelEnsembleWatchFailureClass.RETRYABLE,
+        policy=policy,
+    )
+    assert failed_twice.failure_streak == 2
+    assert failed_twice.next_check_at == NOW + timedelta(seconds=182)
+
+    third = repository.claim_due(
+        owner=owner,
+        now=NOW + timedelta(seconds=182),
+        lease_duration=timedelta(minutes=30),
+        policy=policy,
+    )
+    assert third is not None
+    quarantined = repository.fail(
+        third[1],
+        now=NOW + timedelta(seconds=183),
+        reason_code="synthetic_transient_failure",
+        failure_class=ModelEnsembleWatchFailureClass.RETRYABLE,
+        policy=policy,
+    )
+    assert quarantined.failure_streak == 3
+    assert quarantined.quarantined_at == NOW + timedelta(seconds=183)
+    assert quarantined.quarantine_reason_code == MODEL_ENSEMBLE_WATCH_STREAK_EXHAUSTED
+    assert repository.claim_due(
+        owner=owner,
+        now=NOW + timedelta(days=1),
+        lease_duration=timedelta(minutes=30),
+        policy=policy,
+    ) is None
+
+    refreshed = repository.request_refresh(
+        watch_id,
+        now=NOW + timedelta(days=1, seconds=1),
+    )
+    assert refreshed.state.value == "queued"
+    assert refreshed.failure_streak == 0
+    assert refreshed.quarantined is False
+    assert repository.claim_due(
+        owner=owner,
+        now=NOW + timedelta(days=1, seconds=1),
+        lease_duration=timedelta(minutes=30),
+        policy=policy,
+    ) is not None
+
+
+def test_nonretryable_failure_quarantines_immediately(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    repository = database.model_ensemble_watch_repository()
+    watch_id = "d" * 64
+    repository.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        now=NOW,
+    )
+    claimed = repository.claim_due(
+        owner="e" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    failed = repository.fail(
+        claimed[1],
+        now=NOW + timedelta(seconds=1),
+        reason_code="redacted_content_consent_required",
+        failure_class=ModelEnsembleWatchFailureClass.NONRETRYABLE,
+        policy=ModelEnsembleWatchFailurePolicy(),
+    )
+    assert failed.state.value == "failed"
+    assert failed.failure_streak == 1
+    assert failed.quarantine_reason_code == "redacted_content_consent_required"
+    assert failed.quarantined_at == NOW + timedelta(seconds=1)
+
+
+def test_startup_recovery_never_steals_an_unexpired_lease(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    repository = database.model_ensemble_watch_repository()
+    watch_id = "a" * 64
+    owner = "1" * 64
+    policy = ModelEnsembleWatchFailurePolicy()
+    repository.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        now=NOW,
+    )
+    claimed = repository.claim_due(
+        owner=owner,
+        now=NOW,
+        lease_duration=timedelta(seconds=30),
+        policy=policy,
+    )
+    assert claimed is not None
+    assert repository.recover_orphaned_leases(
+        owner="2" * 64,
+        now=NOW + timedelta(seconds=29),
+        policy=policy,
+    ) == 0
+    still_running = repository.get(watch_id)
+    assert still_running is not None and still_running.state.value == "running"
+    assert still_running.lease_owner == owner
+
+    assert repository.recover_orphaned_leases(
+        owner="2" * 64,
+        now=NOW + timedelta(seconds=30),
+        policy=policy,
+    ) == 1
+    recovered = repository.get(watch_id)
+    assert recovered is not None
+    assert recovered.state.value == "failed"
+    assert recovered.last_error_code == MODEL_ENSEMBLE_WATCH_LEASE_RECOVERED
+    assert recovered.failure_streak == 1
+    assert recovered.next_check_at == NOW + timedelta(seconds=90)
+    head = repository.canonical_head(watch_id)
+    assert head.latest_attempt is not None
+    assert head.latest_attempt.state.value == "failed"
+    assert head.latest_attempt.error_code == MODEL_ENSEMBLE_WATCH_LEASE_RECOVERED
+
+
+def test_provider_consent_quarantine_cancels_inflight_and_retains_head(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    runs = database.model_ensemble_repository()
+    run = _with_typed_projection(_run(session_id))
+    runs.save_completed(run)
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "f" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        now=NOW,
+    )
+    first = watches.claim_due(
+        owner="3" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert first is not None
+    watches.complete(
+        first[1],
+        now=NOW + timedelta(seconds=5),
+        next_check_at=NOW + timedelta(seconds=6),
+        outcome=SessionModelEnsembleOutcome(run=run, applied=True),
+    )
+    second = watches.claim_due(
+        owner="3" * 64,
+        now=NOW + timedelta(seconds=6),
+        lease_duration=timedelta(minutes=30),
+    )
+    assert second is not None
+
+    assert watches.quarantine_provider_watches(
+        Provider.CODEX,
+        now=NOW + timedelta(seconds=7),
+        reason_code=MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED,
+    ) == 1
+    stopped = watches.get(watch_id)
+    assert stopped is not None
+    assert stopped.state.value == "failed"
+    assert stopped.latest_run_id == run.run_id
+    assert stopped.quarantine_reason_code == MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED
+    head = watches.canonical_head(watch_id)
+    assert head.head_run_id == run.run_id
+    assert head.latest_attempt is not None
+    assert head.latest_attempt.state.value == "cancelled"
+    assert head.stages[0].error_code == MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED
+    assert watches.claim_due(
+        owner="3" * 64,
+        now=NOW + timedelta(days=1),
+        lease_duration=timedelta(minutes=30),
+    ) is None
+
+    disabled = watches.disable(watch_id, now=NOW + timedelta(days=1, seconds=1))
+    assert disabled.state.value == "disabled"
+    assert disabled.failure_streak == 0
+    assert disabled.quarantined is False
 
 
 def test_legacy_watch_head_without_a_publication_is_exposed_as_unpublished(

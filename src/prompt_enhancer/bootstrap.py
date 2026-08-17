@@ -503,6 +503,7 @@ class LocalApplication:
             ProviderSurface,
             ProviderSurfaceCompatibilityPolicy,
         )
+        from .domain import Provider
         from .infrastructure.text_models.jobs import LocalTextModelEvaluationService
 
         token = load_or_create_api_token(self.settings.api_token_path)
@@ -558,9 +559,13 @@ class LocalApplication:
             session_text_analysis_service=session_text_analysis_service,
             analysis_job_service=analysis_job_service,
         )
-        codex_source_service.set_automation_revoker(
-            automation_grant_service.revoke_provider
-        )
+        def revoke_local_workers(provider: Provider) -> int:
+            return (
+                automation_grant_service.revoke_provider(provider)
+                + model_ensemble_watch_service.quarantine_for_provider(provider)
+            )
+
+        codex_source_service.set_automation_revoker(revoke_local_workers)
         return create_app(
             settings=self.settings,
             database=self.database,
