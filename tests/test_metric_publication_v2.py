@@ -21,6 +21,7 @@ from prompt_enhancer.application.analysis.metric_guidance import (
     ValueOrigin,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
+    MetricStateOrigin,
     project_metric_states_v2,
 )
 from prompt_enhancer.application.analysis.metric_publication_v2 import (
@@ -1143,3 +1144,78 @@ def test_partial_authorized_objective_evidence_is_unresolved_not_missing() -> No
     assert missing.guidance.action_template_id == (
         "action.collect_objective_receipt.v1"
     )
+
+
+def test_state_origin_is_bound_by_the_producer_not_the_caller() -> None:
+    compatible = rehydrate_v1_compatibility_states(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
+    )
+    assert all(
+        state.state_origin is MetricStateOrigin.V1_COMPATIBILITY
+        for state in compatible
+    )
+
+    context = _context(
+        (
+            _message(
+                "origin-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Implement the fictional widget export.",
+            ),
+        ),
+        label="origin",
+    )
+    live = project_metric_states_v2(
+        context=context,
+        reconciliation=SemanticUnitReconciler(IDS).reconcile(context).reconciliation,
+        id_factory=IDS,
+    )
+    assert all(
+        state.state_origin is MetricStateOrigin.LIVE_V2_PROJECTION
+        for state in live
+    )
+
+    # Neither direction of laundering has a legal encoding.
+    with pytest.raises(ValueError, match="producer origin"):
+        publish_metric_states_v2(
+            compatible, source=MetricPublicationSource.LIVE_PROJECTION
+        )
+    with pytest.raises(ValueError, match="producer origin"):
+        publish_metric_states_v2(
+            live, source=MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
+        )
+
+    # The matching pairs stay valid and keep their honest implementation states.
+    preview = publish_metric_states_v2(
+        compatible, source=MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
+    )
+    snapshot = publish_metric_states_v2(
+        live, source=MetricPublicationSource.LIVE_PROJECTION
+    )
+    assert preview.compatibility_preview is True
+    assert snapshot.compatibility_preview is False
+    assert (
+        _by_key(preview)["prompt.task_definition_coverage"].implementation_state
+        is MetricImplementationState.COMPATIBILITY_PROJECTED
+    )
+    assert all(
+        item.implementation_state
+        is not MetricImplementationState.COMPATIBILITY_PROJECTED
+        for item in snapshot.metrics
+    )
+
+
+def test_publication_rejects_a_forged_state_origin() -> None:
+    payload = _publish(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
+    ).model_dump()
+    metrics = [dict(item) for item in payload["metrics"]]
+    metrics[0] = {
+        **metrics[0],
+        "state": {**metrics[0]["state"], "state_origin": "live_v2_projection"},
+    }
+
+    with pytest.raises(ValidationError, match="state origin"):
+        MetricPublicationV2.model_validate({**payload, "metrics": metrics})

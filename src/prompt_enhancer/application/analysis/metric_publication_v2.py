@@ -78,6 +78,7 @@ from .metric_guidance import (
 )
 from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION,
+    MetricStateOrigin,
     MetricStateV2,
     OpportunityStatistics,
     objective_metric_state,
@@ -107,6 +108,20 @@ class MetricPublicationSource(StrEnum):
 
     LIVE_PROJECTION = "live_projection"
     V1_COMPATIBILITY_PREVIEW = "v1_compatibility_preview"
+
+
+#: The one state origin each publication source may carry.  The mapping is
+#: total and injective, so neither direction of laundering has a legal encoding.
+_REQUIRED_STATE_ORIGIN = MappingProxyType(
+    {
+        MetricPublicationSource.LIVE_PROJECTION: (
+            MetricStateOrigin.LIVE_V2_PROJECTION
+        ),
+        MetricPublicationSource.V1_COMPATIBILITY_PREVIEW: (
+            MetricStateOrigin.V1_COMPATIBILITY
+        ),
+    }
+)
 
 
 class MetricImplementationState(StrEnum):
@@ -475,7 +490,14 @@ class MetricPublicationV2(StrictModel):
             for item in self.metrics
         ):
             raise ValueError("a compatibility preview cannot claim a live measurement")
+        required_origin = _REQUIRED_STATE_ORIGIN[self.source]
         for item in self.metrics:
+            # The producer identity travels with the state, so a caller cannot
+            # pass compatibility states to the live publisher or the reverse.
+            if item.state.state_origin is not required_origin:
+                raise ValueError(
+                    "published state origin does not match the publication source"
+                )
             # Guidance is not user-constructible: rederive the whole receipt and
             # the implementation state from the validated state and the source.
             if item.guidance != _expected_guidance(item.state, source=self.source):
@@ -509,6 +531,15 @@ class MetricPublicationV2(StrictModel):
             )
             for state in MetricImplementationState
         }
+
+
+def _reject_foreign_origin(
+    state: MetricStateV2,
+    required: MetricStateOrigin,
+) -> bool:
+    raise ValueError(
+        "publication source does not match the state producer origin"
+    )
 
 
 def _derived_factor_evidence(
@@ -586,6 +617,7 @@ def publish_metric_states_v2(
     factor-evidence argument to talk this publisher into naming a focus factor.
     """
 
+    required_origin = _REQUIRED_STATE_ORIGIN[source]
     published = tuple(
         PublishedMetricV2(
             state=state,
@@ -593,6 +625,8 @@ def publish_metric_states_v2(
             implementation_state=_implementation_state(state, source=source),
         )
         for state in states
+        if state.state_origin is required_origin
+        or _reject_foreign_origin(state, required_origin)
     )
 
     def _count(value_state: MetricValueStateV2) -> int:
@@ -666,6 +700,7 @@ def _withheld(contract: MetricContractV2, reason_code: str) -> MetricStateV2:
         ),
         explanation_code=reason_code,
         unavailable_code=reason_code,
+        state_origin=MetricStateOrigin.V1_COMPATIBILITY,
     )
 
 
@@ -704,6 +739,7 @@ def _compatibility_rubric_state(
     ratio = numerator / denominator
     return MetricStateV2(
         metric_key=contract.metric_key,
+        state_origin=MetricStateOrigin.V1_COMPATIBILITY,
         contract_version=contract.contract_version,
         contract_fingerprint=contract.fingerprint,
         evidence_authority=contract.evidence_authority,
@@ -731,6 +767,7 @@ def _compatibility_state(
     if result.value_state is MetricValueState.EXECUTION_ERROR:
         return MetricStateV2(
             metric_key=contract.metric_key,
+            state_origin=MetricStateOrigin.V1_COMPATIBILITY,
             contract_version=contract.contract_version,
             contract_fingerprint=contract.fingerprint,
             evidence_authority=contract.evidence_authority,
@@ -749,6 +786,7 @@ def _compatibility_state(
     if result.value_state is MetricValueState.ABSTAINED:
         return MetricStateV2(
             metric_key=contract.metric_key,
+            state_origin=MetricStateOrigin.V1_COMPATIBILITY,
             contract_version=contract.contract_version,
             contract_fingerprint=contract.fingerprint,
             evidence_authority=contract.evidence_authority,
@@ -773,6 +811,7 @@ def _compatibility_state(
                 source_complete=True,
             ),
             explanation_code=result.explanation_code,
+            state_origin=MetricStateOrigin.V1_COMPATIBILITY,
         )
     if result.value_state is MetricValueState.UNKNOWN:
         return _withheld(contract, result.explanation_code)
@@ -804,7 +843,11 @@ def rehydrate_v1_compatibility_states(
     for contract in METRIC_CONTRACTS_V2:
         if contract.denominator_basis is DenominatorBasis.OBJECTIVE_OPPORTUNITIES:
             states.append(
-                objective_metric_state(contract, overrides.get(contract.metric_key))
+                objective_metric_state(
+                    contract,
+                    overrides.get(contract.metric_key),
+                    state_origin=MetricStateOrigin.V1_COMPATIBILITY,
+                )
             )
             continue
         if contract.metric_key in duplicated:
@@ -826,6 +869,7 @@ __all__ = [
     "REASON_RUBRIC_DENOMINATOR_MISMATCH",
     "V1_COMPATIBILITY_SOURCE_PACK",
     "MetricImplementationState",
+    "MetricStateOrigin",
     "MetricPublicationSource",
     "MetricPublicationV2",
     "PublishedMetricV2",

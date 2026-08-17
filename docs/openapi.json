@@ -4232,6 +4232,15 @@
         "title": "MetricSource",
         "type": "string"
       },
+      "MetricStateOrigin": {
+        "description": "Which producer built a state, bound at construction rather than claimed.\n\nWithout this the state tuple is anonymous, so a caller can hand V1\ncompatibility states to the live publisher and have them emitted as live\nmeasurements.  The origin is content-free and travels with the state.",
+        "enum": [
+          "live_v2_projection",
+          "v1_compatibility"
+        ],
+        "title": "MetricStateOrigin",
+        "type": "string"
+      },
       "MetricStateV2": {
         "additionalProperties": false,
         "description": "One projected V2 metric result with censoring bounds.",
@@ -4338,6 +4347,9 @@
             "title": "Registry Version",
             "type": "string"
           },
+          "state_origin": {
+            "$ref": "#/components/schemas/MetricStateOrigin"
+          },
           "statistics": {
             "$ref": "#/components/schemas/OpportunityStatistics"
           },
@@ -4347,6 +4359,7 @@
         },
         "required": [
           "metric_key",
+          "state_origin",
           "contract_version",
           "contract_fingerprint",
           "evidence_authority",

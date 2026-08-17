@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 import re
 from typing import Literal
 
@@ -144,6 +145,18 @@ def _related(left: str, right: str, *, threshold: float = 0.05) -> bool:
     return len(left_tokens & right_tokens) / len(union) >= threshold
 
 
+class MetricStateOrigin(StrEnum):
+    """Which producer built a state, bound at construction rather than claimed.
+
+    Without this the state tuple is anonymous, so a caller can hand V1
+    compatibility states to the live publisher and have them emitted as live
+    measurements.  The origin is content-free and travels with the state.
+    """
+
+    LIVE_V2_PROJECTION = "live_v2_projection"
+    V1_COMPATIBILITY = "v1_compatibility"
+
+
 class OpportunityStatistics(StrictModel):
     """Content-free sufficient statistics for one metric's opportunity set.
 
@@ -197,6 +210,7 @@ class MetricStateV2(StrictModel):
     """One projected V2 metric result with censoring bounds."""
 
     metric_key: str
+    state_origin: MetricStateOrigin
     registry_version: Literal[METRIC_CONTRACT_REGISTRY_VERSION_V2] = (
         METRIC_CONTRACT_REGISTRY_VERSION_V2
     )
@@ -333,6 +347,7 @@ def resolve_metric_state(
     *,
     explanation_code: str,
     unavailable_code: str = "opportunity_family_unobservable",
+    state_origin: MetricStateOrigin = MetricStateOrigin.LIVE_V2_PROJECTION,
 ) -> MetricStateV2:
     """Turn sufficient statistics into one typed value state.
 
@@ -352,6 +367,7 @@ def resolve_metric_state(
     ) -> MetricStateV2:
         return MetricStateV2(
             metric_key=contract.metric_key,
+            state_origin=state_origin,
             contract_version=contract.contract_version,
             contract_fingerprint=contract.fingerprint,
             evidence_authority=contract.evidence_authority,
@@ -704,6 +720,7 @@ def _rubric_state(
                 code = "rubric_denominator_mismatch"
         return MetricStateV2(
             metric_key=contract.metric_key,
+            state_origin=MetricStateOrigin.LIVE_V2_PROJECTION,
             contract_version=contract.contract_version,
             contract_fingerprint=contract.fingerprint,
             evidence_authority=contract.evidence_authority,
@@ -717,6 +734,7 @@ def _rubric_state(
     ratio = fraction.numerator / fraction.denominator
     return MetricStateV2(
         metric_key=contract.metric_key,
+        state_origin=MetricStateOrigin.LIVE_V2_PROJECTION,
         contract_version=contract.contract_version,
         contract_fingerprint=contract.fingerprint,
         evidence_authority=contract.evidence_authority,
@@ -810,6 +828,7 @@ def _profile_slot_state(
 def _objective_state(
     contract: MetricContractV2,
     override: ObjectiveMetricOverride | None,
+    state_origin: MetricStateOrigin = MetricStateOrigin.LIVE_V2_PROJECTION,
 ) -> MetricStateV2:
     """Objective precedence: only the typed lane may resolve these contracts."""
 
@@ -825,6 +844,7 @@ def _objective_state(
             statistics,
             explanation_code="typed_objective_absent",
             unavailable_code="typed_objective_absent",
+            state_origin=state_origin,
         )
     eligible = override.eligible_opportunity_count
     resolved = override.resolved_opportunity_count
@@ -848,6 +868,7 @@ def _objective_state(
             statistics,
             explanation_code=override.explanation_code,
             unavailable_code=override.explanation_code,
+            state_origin=state_origin,
         )
     else:
         censored = (
@@ -876,13 +897,18 @@ def _objective_state(
         source_complete=True,
     )
     return resolve_metric_state(
-        contract, statistics, explanation_code=override.explanation_code
+        contract,
+        statistics,
+        explanation_code=override.explanation_code,
+        state_origin=state_origin,
     )
 
 
 def objective_metric_state(
     contract: MetricContractV2,
     override: ObjectiveMetricOverride | None,
+    *,
+    state_origin: MetricStateOrigin = MetricStateOrigin.LIVE_V2_PROJECTION,
 ) -> MetricStateV2:
     """Resolve one objective contract from the typed evidence lane only.
 
@@ -892,7 +918,7 @@ def objective_metric_state(
 
     if contract.denominator_basis is not DenominatorBasis.OBJECTIVE_OPPORTUNITIES:
         raise ValueError("only objective contracts use the objective lane")
-    return _objective_state(contract, override)
+    return _objective_state(contract, override, state_origin)
 
 
 def _unit_state(
@@ -1014,6 +1040,7 @@ __all__ = [
     "METRIC_PROJECTION_V2_ALGORITHM_ID",
     "METRIC_PROJECTION_V2_ALGORITHM_VERSION",
     "METRIC_PROJECTION_V2_VERSION",
+    "MetricStateOrigin",
     "MetricStateV2",
     "OpportunityStatistics",
     "REWORK_CLASSIFIER_VERSION",
