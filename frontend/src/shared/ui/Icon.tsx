@@ -3,6 +3,7 @@ import type { ReactNode, SVGProps } from "react";
 export type IconName =
   | "activity"
   | "arrow"
+  | "board"
   | "branch"
   | "check"
   | "chevron"
@@ -13,11 +14,18 @@ export type IconName =
   | "search"
   | "split"
   | "tasks"
+  | "users"
   | "x";
 
 const paths: Record<IconName, ReactNode> = {
   activity: <path d="M3 12h4l2.5-7 5 14 2.5-7h4" />,
   arrow: <path d="m9 18 6-6-6-6" />,
+  board: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16M15 4v16M3 10h6M15 13h6" />
+    </>
+  ),
   branch: (
     <>
       <circle cx="6" cy="5" r="2" />
@@ -58,6 +66,14 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <rect x="4" y="4" width="16" height="16" rx="3" />
       <path d="m8 9 1.5 1.5L12 8M14 9h3M8 15h9" />
+    </>
+  ),
+  users: (
+    <>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+      <circle cx="16.5" cy="9" r="2.5" />
+      <path d="M15.5 14.4a4.6 4.6 0 0 1 5 4.6" />
     </>
   ),
   x: <path d="m6 6 12 12M18 6 6 18" />,

@@ -73,6 +73,7 @@ describe("metricInspectorSentences", () => {
     numericValue: null,
     numerator: null,
     denominator: null,
+    evidenceAuthority: "Typed fixture receipts only",
   };
 
   it("produces distinct truthful copy per state without bands or invented factors", () => {
@@ -81,20 +82,32 @@ describe("metricInspectorSentences", () => {
     const na = metricInspectorSentences({ ...base, state: "not_applicable" });
     const unknown = metricInspectorSentences({ ...base, state: "unknown" });
     const abstained = metricInspectorSentences({ ...base, state: "abstained" });
+    const suppressedSmall = metricInspectorSentences({ ...base, state: "suppressed", suppressionReason: "small_cohort" });
+    const suppressedOverlap = metricInspectorSentences({ ...base, state: "suppressed", suppressionReason: "overlap_or_differencing" });
+    const withheld = metricInspectorSentences({ ...base, state: "withheld", comparabilityState: "mixed_definition_versions" });
+    const unavailable = metricInspectorSentences({ ...base, state: "unavailable", explanationCode: "capability_unavailable" });
     const objective = metricInspectorSentences({ ...base, metricKey: "outcome.agent_claim_grounding", label: "Agent claim grounding", state: "abstained" });
     const error = metricInspectorSentences({ ...base, state: "execution_error" });
     const missing = metricInspectorSentences({ ...base, state: "missing" });
     const experimental = metricInspectorSentences({ ...base, state: "unknown", experimentalVisible: true, experimentalMedian: 0.6 });
     const measured = metricInspectorSentences({ ...base, state: "known", numericValue: 0.5, numerator: 1, denominator: 2, experimentalFactorKeys: ["goal_cue"] });
     const zero = metricInspectorSentences({ ...base, state: "known", numericValue: 0, numerator: 0, denominator: 3 });
-    const all = [pending, na, unknown, abstained, error, missing, experimental, measured, zero];
-    expect(new Set(all.map((sentence) => sentence.kind)).size).toBe(9);
+    const all = [pending, na, unknown, abstained, suppressedSmall, withheld, unavailable, error, missing, experimental, measured, zero];
+    expect(new Set(all.map((sentence) => sentence.kind)).size).toBe(12);
     expect(pending.meaning).toMatch(/not a zero/);
     expect(pendingV2).toEqual(pending);
     expect(na.meaning).toMatch(/nothing to score/);
+    expect(na.action).toMatch(/^No action for this window:/);
     expect(unknown.meaning).toMatch(/not a low value/);
     expect(unknown.meaning).not.toMatch(/No objective receipt/);
     expect(abstained.meaning).toMatch(/abstained instead of guessing/);
+    expect(suppressedSmall.meaning).toMatch(/below the publication minimum/);
+    expect(suppressedOverlap.meaning).toMatch(/minimum was met.*overlap or differencing/);
+    expect(suppressedSmall.meaning).not.toBe(suppressedOverlap.meaning);
+    expect(suppressedSmall.action).toMatch(/^No member-level action is justified:/);
+    expect(withheld.meaning).toMatch(/mixes metric definition versions/);
+    expect(withheld.action).toMatch(/^Do not compare or combine/);
+    expect(unavailable.meaning).toMatch(/runtime does not expose/);
     expect(objective.meaning).toMatch(/authoritative typed links or receipts are missing/);
     expect(objective.meaning).not.toMatch(/denominator/);
     expect(error.meaning).toMatch(/not a low score/);
@@ -106,7 +119,11 @@ describe("metricInspectorSentences", () => {
     for (const sentence of all) {
       expect(sentence.meaning).not.toMatch(/strong band|75%/);
       expect(sentence.action).toMatch(/ — verify: /);
+      expect(sentence.evidenceAuthority).toBe("Typed fixture receipts only");
     }
+    expect(suppressedOverlap.suppressionReason).toBe("overlap_or_differencing");
+    expect(withheld.comparabilityState).toBe("mixed_definition_versions");
+    expect(unavailable.explanationCode).toBe("capability_unavailable");
   });
 
   it("labels predictive factor keys as model judgment only when an estimate is visible", () => {

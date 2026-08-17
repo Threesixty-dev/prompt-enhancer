@@ -3,10 +3,13 @@ import {
   Suspense,
   lazy,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
 import type { PromptEnhancerTransport, Provider } from "../shared/api/contracts";
+import type { TeamControlPlanePort } from "../shared/api/teamControlPlane";
+import { composeTeamControlPlanePort } from "../shared/api/teamControlPlaneRuntime";
 import type { AppRoute, PlatformAdapter } from "../shared/platform/platform";
 import { routePath } from "../shared/platform/platform";
 import type {
@@ -52,6 +55,16 @@ const ResearchLabScreen = lazy(() =>
 const TaskDetailScreen = lazy(() =>
   import("../features/task-detail/TaskDetail").then((module) => ({
     default: module.TaskDetail,
+  })),
+);
+const TeamAnalyticsScreen = lazy(() =>
+  import("../features/team-analytics").then((module) => ({
+    default: module.TeamAnalyticsPage,
+  })),
+);
+const TaskFlowScreen = lazy(() =>
+  import("../features/task-flow").then((module) => ({
+    default: module.TaskFlowPage,
   })),
 );
 
@@ -129,8 +142,14 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "project_automation") return "Project automation";
   if (route.name === "projects") return "Projects";
   if (route.name === "research") return "Methods & models";
+  if (route.name === "team") return "Team analytics";
+  if (route.name === "task_flow") return "Task flow";
   if (isProjectWorkspaceRoute(route)) return "Project workspace";
   return "Task analysis";
+}
+
+function workspaceTrail(route: AppRoute): string {
+  return route.name === "team" ? "Scoped workspace" : "Personal workspace";
 }
 
 function RouteLoading({ route }: { route: AppRoute }) {
@@ -176,11 +195,18 @@ function runtimeStatusCopy(
 export function App({
   platform,
   runtime,
+  teamControlPlane,
 }: {
   platform: PlatformAdapter;
   runtime: RuntimeComposition;
+  /** Defaults to the honest port for the runtime: fixture in synthetic demo, unavailable in local real. */
+  teamControlPlane?: TeamControlPlanePort;
 }) {
   const transport: PromptEnhancerTransport = runtime.transport;
+  const teamPort = useMemo(
+    () => composeTeamControlPlanePort(runtime.mode, teamControlPlane),
+    [runtime.mode, teamControlPlane],
+  );
   const [route, setRoute] = useState<AppRoute>(() => platform.currentRoute());
   const [navigationNotice, setNavigationNotice] = useState("");
   const [undecidedCount, setUndecidedCount] = useState<number | null>(null);
@@ -293,6 +319,24 @@ export function App({
             <Icon name="tasks" />
             <span>Reviewed tasks</span>
           </button>
+          <button
+            aria-current={route.name === "task_flow" ? "page" : undefined}
+            className={route.name === "task_flow" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "task_flow" })}
+            type="button"
+          >
+            <Icon name="board" />
+            <span>Task flow</span>
+          </button>
+          <button
+            aria-current={route.name === "team" ? "page" : undefined}
+            className={route.name === "team" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "team" })}
+            type="button"
+          >
+            <Icon name="users" />
+            <span>Team analytics</span>
+          </button>
           {runtime.mode === "local_real" && (
             <button
               aria-current={route.name === "local_sources" ? "page" : undefined}
@@ -343,7 +387,7 @@ export function App({
       <div className="workspace" data-route={route.name}>
         <header className="topbar">
           <div aria-label="Current location" className="topbar__trail">
-            <span>Personal workspace</span>
+            <span>{workspaceTrail(route)}</span>
             <Icon name="chevron" />
             <strong>{routeTitle(route)}</strong>
           </div>
@@ -423,6 +467,19 @@ export function App({
                 />
               ) : route.name === "research" ? (
                 <ResearchLabScreen transport={transport} />
+              ) : route.name === "team" ? (
+                <TeamAnalyticsScreen
+                  navigate={navigate}
+                  port={teamPort}
+                  runtimeMode={runtime.mode}
+                  serviceState={serviceState}
+                />
+              ) : route.name === "task_flow" ? (
+                <TaskFlowScreen
+                  navigate={navigate}
+                  runtimeMode={runtime.mode}
+                  transport={transport}
+                />
               ) : (
                 <TaskDetailScreen
                   navigate={navigate}

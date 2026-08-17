@@ -8,6 +8,8 @@ import type {
   ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
+import type { TeamControlPlanePort } from "../../shared/api/teamControlPlane";
+import { TeamContextDrawer } from "../team-analytics/TeamContextDrawer";
 import type { ModelEnsembleLensId } from "./metricAxisModel";
 import { MetricWorkspace } from "./MetricWorkspace";
 import {
@@ -207,7 +209,13 @@ function desktopWindowApi(): DesktopWindowApi | null {
     : null;
 }
 
-export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerTransport }) {
+export function ModelEnsembleOverlay({
+  transport,
+  teamControlPlane = null,
+}: {
+  transport: PromptEnhancerTransport;
+  teamControlPlane?: TeamControlPlanePort | null;
+}) {
   const [snapshot, setSnapshot] = useState<ModelEnsembleWatchSnapshot | null>(null);
   const [canonicalHead, setCanonicalHead] = useState<ModelEnsembleCanonicalHead | null>(null);
   const [trajectory, setTrajectory] = useState<ModelEnsembleTrajectoryPage | null>(null);
@@ -941,6 +949,7 @@ export function ModelEnsembleOverlay({ transport }: { transport: PromptEnhancerT
           )}
         </>
       )}
+      {teamControlPlane === null ? null : <TeamContextDrawer lensId={lensId} port={teamControlPlane} />}
       {linkProjectId !== "" && linkSessionId !== "" ? <a
         className="model-ensemble-overlay__open"
         href={`/projects/${linkProjectId}/sessions/${linkSessionId}/metrics/${category}`}

@@ -58,7 +58,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("metric knowledge cards", () => {
+describe("personal metric explainers", () => {
   it("keeps the radar SVG presentation-only", () => {
     renderWorkspace("full");
     const svg = document.querySelector(".model-ensemble__radar svg")!;
@@ -100,12 +100,16 @@ describe("metric knowledge cards", () => {
     expect(document.querySelectorAll(".metric-knowledge-slot")).toHaveLength(2);
   });
 
-  it("separates the current candidate definition from its shipped measurement method", () => {
+  it("shows state and provenance-aware two-sentence guidance", () => {
     renderWorkspace("full");
     fireEvent.pointerEnter(screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!);
     const card = document.querySelector('[role="tooltip"]')!;
-    expect(card.textContent).toMatch(/Current local candidate definition\./);
-    expect(card.textContent).toMatch(/Current measurement \(shipped definition v\d\)/);
+    expect(card.textContent).toContain("Current state");
+    expect(card.textContent).toContain("Next action");
+    expect(card).toHaveAttribute("data-state", "known");
+    expect([...card.querySelectorAll("dt")].filter((item) => item.textContent === "Evidence authority")).toHaveLength(1);
+    expect(card.textContent).not.toContain("Candidate definition evidence notes");
+    expect(card.querySelectorAll(".metric-knowledge-card__guidance > p")).toHaveLength(2);
     expect(card.textContent).not.toMatch(/confidence|probability of success/i);
   });
 

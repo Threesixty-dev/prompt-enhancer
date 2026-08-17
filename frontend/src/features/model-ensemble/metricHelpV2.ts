@@ -7,10 +7,9 @@ import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile"
  * Two layers are kept visibly separate:
  * - `entry` explains the CURRENT local candidate definition whose legacy
  *   receipt is rendered by this workspace.
- * - `measurement` is bound to the SHIPPED measurement source: the versioned
- *   coaching definitions whose receipts this UI actually displays today. The
- *   backend V2 publication contract is not integrated in this UI, so nothing
- *   here describes it as implemented.
+ * - `measurement` documents the shipped compatibility measurement. Canonical
+ *   V2 state and evidence authority come from the exact V2 receipt instead;
+ *   this static registry never overrides those receipt facts.
  *
  * Presentation copy only: it never changes a persisted value, never invents
  * transcript-specific evidence, and keeps measured evidence separate from model
@@ -219,6 +218,9 @@ export function metricHelpV2(metricKey: string, locale: MetricHelpLocale = "en")
 
 export type MetricInspectorKind =
   | "pending"
+  | "suppressed"
+  | "withheld"
+  | "unavailable"
   | "not_applicable"
   | "unknown"
   | "abstained"
@@ -231,12 +233,26 @@ export type MetricInspectorKind =
 export interface MetricInspectorInput {
   metricKey: string;
   label: string;
-  state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error" | "pending" | "missing";
+  state:
+    | "known"
+    | "unknown"
+    | "not_applicable"
+    | "abstained"
+    | "execution_error"
+    | "pending"
+    | "missing"
+    | "suppressed"
+    | "withheld"
+    | "unavailable";
   direction: MetricHelpDirection;
   numericValue: number | null;
   numerator: number | null;
   denominator: number | null;
   explanationCode?: string | null;
+  /** Authority declared by this exact receipt; never inferred for V2 data. */
+  evidenceAuthority?: string | null;
+  suppressionReason?: "small_cohort" | "overlap_or_differencing" | "query_identity_mismatch" | null;
+  comparabilityState?: "comparable" | "mixed_definition_versions" | "mixed_windows" | "not_comparable" | null;
   /**
    * Factor keys from a loaded PREDICTIVE factor distribution. They are model
    * judgments, never measured evidence, and are only mentioned when an
@@ -251,12 +267,72 @@ export interface MetricInspectorInput {
 
 export interface MetricInspectorSentences {
   kind: MetricInspectorKind;
+  /** Canonical presentation state (`unknown` legacy pending normalizes to `pending`). */
+  state: MetricInspectorInput["state"];
   /** What this state or exact value means for the analyzed window. */
   meaning: string;
   /** The safest next action plus how to verify it. */
   action: string;
   audience: string;
   basis: string;
+  evidenceAuthority: string | null;
+  explanationCode: string | null;
+  suppressionReason: MetricInspectorInput["suppressionReason"];
+  comparabilityState: MetricInspectorInput["comparabilityState"];
+}
+
+export type MetricExplainerProvenance = "measured" | "experimental" | "not_measured";
+
+export const METRIC_EXPLAINER_PROVENANCE_LABELS: Readonly<Record<MetricExplainerProvenance, string>> = {
+  measured: "Measured · typed evidence",
+  experimental: "Experimental · model estimate",
+  not_measured: "Not measured · state only",
+};
+
+export interface MetricExplainerSentences {
+  explanation: string;
+  improvement: string;
+  provenanceLabel: string;
+  basis: string;
+}
+
+function completeSentence(value: string): string {
+  const trimmed = value.trim();
+  return /[.!?]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+/**
+ * Compatibility projection retained for the V2 explainer API. It deliberately
+ * delegates action semantics to the same guidance registry as the richer
+ * state-aware inspector, so the legacy two-field contract remains equal in
+ * meaning while new surfaces preserve typed state and receipt metadata.
+ */
+export function metricExplainerSentences(
+  metricKey: string,
+  input: { provenance?: MetricExplainerProvenance; numericValue?: number | null } = {},
+): MetricExplainerSentences | null {
+  const help = metricHelpV2(metricKey, "en");
+  if (help === null) return null;
+  const provenance = input.provenance ?? "not_measured";
+  const numericValue = input.numericValue ?? null;
+  const direction = METRIC_HELP_V2_DIRECTIONS[metricKey] ?? "higher_is_better";
+  const guidance = sessionMetricGuidance(metricKey, {
+    state: provenance === "measured" && numericValue !== null ? "known" : "missing",
+    numericValue,
+    direction,
+    factorKeys: [],
+    experimentalOnly: provenance === "experimental",
+  });
+  return {
+    explanation: completeSentence(help.entry.meaning),
+    improvement: completeSentence(guidance.action),
+    provenanceLabel: provenance === "measured"
+      ? "Measured · typed evidence"
+      : provenance === "experimental"
+        ? "Experimental model estimate · not measured"
+        : "Not measured in this scope",
+    basis: guidance.basis,
+  };
 }
 
 function percent(value: number): string {
@@ -274,6 +350,9 @@ function readableFactor(value: string): string {
 function inspectorKind(input: MetricInspectorInput): MetricInspectorKind {
   if (input.state === "pending") return "pending";
   if (input.state !== "known" && input.explanationCode === "episode_horizon_open") return "pending";
+  if (input.state === "suppressed") return "suppressed";
+  if (input.state === "withheld") return "withheld";
+  if (input.state === "unavailable") return "unavailable";
   if (input.state === "not_applicable") return "not_applicable";
   if (input.state === "execution_error") return "execution_error";
   if (input.state === "abstained") return "abstained";
@@ -295,8 +374,11 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
   const unit = help?.observationUnit ?? "observation";
   const objective = metricHelpV2IsObjective(input.metricKey) || (input.explanationCode ?? "").includes("objective_");
   const kind = inspectorKind(input);
+  const sessionState = input.state === "suppressed" || input.state === "withheld" || input.state === "unavailable"
+    ? "unknown"
+    : input.state;
   const guidance = sessionMetricGuidance(input.metricKey, {
-    state: input.state,
+    state: sessionState,
     numericValue: input.numericValue,
     direction: input.direction,
     explanationCode: input.explanationCode ?? null,
@@ -317,8 +399,27 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
     case "pending":
       meaning = `Pending: the newest episode is still open, so ${input.label} cannot be judged yet in the analyzed window; this is open evidence, not a zero and not a measurement.`;
       break;
+    case "suppressed":
+      meaning = input.suppressionReason === "overlap_or_differencing"
+        ? `Suppressed: the contributor publication minimum was met, but this exact ${input.label} release could expose a member through overlap or differencing; no value or contributor count is published.`
+        : input.suppressionReason === "query_identity_mismatch"
+          ? `Suppressed: the immutable query identity for ${input.label} was reused with different inputs, so the release failed closed instead of exposing a value.`
+          : `Suppressed: the contributing cohort for ${input.label} is below the publication minimum, so no value or contributor count is published.`;
+      action = "No member-level action is justified: this is a privacy publication decision, not an individual performance result — verify: review the cohort release policy without attempting to infer hidden contributors.";
+      break;
+    case "withheld":
+      meaning = input.comparabilityState === "mixed_windows"
+        ? `Withheld: ${input.label} mixes analysis windows, so a combined fraction would not describe one comparable population.`
+        : `Withheld: ${input.label} mixes metric definition versions, so a combined fraction would be misleading and remains unpublished.`;
+      action = "Do not compare or combine these observations until one exact definition and window applies — verify: rerun the same reviewed metric contract over a coherent cohort window.";
+      break;
+    case "unavailable":
+      meaning = `Unavailable: this runtime does not expose the capability required to produce ${input.label}; absence of a service is not a zero or a failed measurement.`;
+      action = "Keep the metric unavailable until the required local capability exists — verify: confirm a supported adapter produces a fresh sealed receipt before interpreting a value.";
+      break;
     case "not_applicable":
       meaning = `Not applicable: no eligible ${unit} was observed in this window, so ${input.label} has nothing to score and no value is implied.`;
+      action = `No action for this window: there was no eligible ${unit} to change — verify: reassess only when a later comparable window contains an eligible opportunity.`;
       break;
     case "unknown":
       if ((input.explanationCode ?? "").includes("objective_authority") || input.explanationCode === "typed_objective_absent") {
@@ -373,5 +474,16 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       ? `Nothing to change for this window: every observed ${unit} already met the contract, so keep that practice visible — verify: ${lowerFirst(decision.confirmWith)}`
       : `Safest next step: ${lowerFirst(decision.tryNext).replace(/[.\s]+$/u, "")} — verify: ${lowerFirst(decision.confirmWith)}`;
   }
-  return { kind, meaning, action, audience: guidance.audience, basis: kind === "measured" || kind === "zero" ? "measured" : guidance.basis };
+  return {
+    kind,
+    state: kind === "pending" ? "pending" : input.state,
+    meaning,
+    action,
+    audience: guidance.audience,
+    basis: kind === "measured" || kind === "zero" ? "measured" : guidance.basis,
+    evidenceAuthority: input.evidenceAuthority ?? null,
+    explanationCode: kind === "pending" ? "episode_horizon_open" : input.explanationCode ?? null,
+    suppressionReason: input.suppressionReason ?? null,
+    comparabilityState: input.comparabilityState ?? null,
+  };
 }

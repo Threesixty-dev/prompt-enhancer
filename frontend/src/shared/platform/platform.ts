@@ -3,6 +3,8 @@ export type AppRoute =
   | { name: "local_sources" }
   | { name: "analysis_jobs" }
   | { name: "research" }
+  | { name: "team" }
+  | { name: "task_flow" }
   | { name: "projects" }
   | { name: "project_overview"; projectId: string }
   | { name: "project_sessions"; projectId: string }
@@ -51,6 +53,8 @@ export function parseRoute(pathname: string): AppRoute {
   if (/^\/local-sources\/?$/.test(pathname)) return { name: "local_sources" };
   if (/^\/analysis-jobs\/?$/.test(pathname)) return { name: "analysis_jobs" };
   if (/^\/research\/methods\/?$/.test(pathname)) return { name: "research" };
+  if (/^\/team\/?$/.test(pathname)) return { name: "team" };
+  if (/^\/tasks\/flow\/?$/.test(pathname)) return { name: "task_flow" };
   if (/^\/projects\/?$/.test(pathname)) return { name: "projects" };
 
   const sessionMetricMatch = pathname.match(
@@ -113,6 +117,8 @@ export function routePath(route: AppRoute): string {
   if (route.name === "local_sources") return "/local-sources";
   if (route.name === "analysis_jobs") return "/analysis-jobs";
   if (route.name === "research") return "/research/methods";
+  if (route.name === "team") return "/team";
+  if (route.name === "task_flow") return "/tasks/flow";
   if (route.name === "projects") return "/projects";
   if (route.name === "project_overview") {
     assertPseudonym(route.projectId);

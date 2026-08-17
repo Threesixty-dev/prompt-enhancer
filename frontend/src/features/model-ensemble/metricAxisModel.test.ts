@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ModelEnsembleRun } from "../../shared/api/contracts";
+import {
+  METRIC_V2_CONTRACT_IDENTITIES,
+  parseMetricV2State,
+} from "../../shared/api/metricPublicationV2Contract";
 import * as axisModel from "./metricAxisModel";
 import {
   isModelEnsembleTypedMetric,
@@ -77,30 +81,44 @@ function runWithV2(
 ): ModelEnsembleRun {
   const known = valueState === "known";
   const pending = valueState === "pending";
+  const identity = METRIC_V2_CONTRACT_IDENTITIES[metricKey as keyof typeof METRIC_V2_CONTRACT_IDENTITIES];
+  if (identity === undefined) throw new Error("test V2 identity missing");
+  const state = parseMetricV2State({
+    metric_key: metricKey,
+    registry_version: "all-20-factor-contracts-v2",
+    contract_version: "probabilistic-metric-contract-v2",
+    contract_fingerprint: identity.fingerprint,
+    evidence_authority: identity.authority,
+    value_state: valueState,
+    explanation_code: pending ? "episode_horizon_open" : known ? "exact_fraction" : "opportunity_family_unobservable",
+    numerator: known ? 1 : null,
+    denominator: known ? 2 : null,
+    numeric_value: known ? 0.5 : null,
+    censoring_lower_bound: known ? 0.5 : null,
+    censoring_upper_bound: known ? 0.5 : null,
+    statistics: {
+      metric_key: metricKey,
+      denominator_basis: identity.basis,
+      opportunity_unit_kind: identity.unit,
+      capability_available: true,
+      source_complete: known,
+      eligible_count: known ? 2 : pending ? 1 : 0,
+      met_count: known ? 1 : 0,
+      not_met_count: known ? 1 : 0,
+      pending_count: pending ? 1 : 0,
+      unknown_count: 0,
+      superseded_excluded_count: 0,
+      distinct_owner_count: identity.basis === "semantic_unit_opportunities" ? (known ? 2 : pending ? 1 : 0) : 0,
+    },
+    projection_version: "metric-contract-v2-projection-1",
+    product_metric_eligible: false,
+  }, metricKey);
   return {
     typed_metrics: [typedMetric({ metric_key: metricKey, numeric_value: 1 })],
     metrics: [committeeMetric({ metric_key: metricKey, numeric_value: 1 })],
     chunk_metrics: [],
-    metric_publication_v2: {
-      metrics: [{
-        state: {
-          metric_key: metricKey,
-          value_state: valueState,
-          numerator: known ? 1 : null,
-          denominator: known ? 2 : null,
-          numeric_value: known ? 0.5 : null,
-          explanation_code: pending ? "episode_horizon_open" : known ? "exact_fraction" : "opportunity_family_unobservable",
-          evidence_authority: "conversation_observation",
-          statistics: {
-            eligible_count: known ? 2 : pending ? 1 : 0,
-            met_count: known ? 1 : 0,
-            not_met_count: known ? 1 : 0,
-          },
-        },
-        guidance: { metric_version: 2 },
-        implementation_state: pending ? "pending_horizon" : known ? "live_measured" : "method_only_withheld",
-      }],
-    },
+    metric_publication_v2: null,
+    metric_states_v2: [state],
   } as unknown as ModelEnsembleRun;
 }
 
@@ -161,6 +179,9 @@ describe("metricAxisModel axis tile helpers", () => {
       numerator: 2,
       denominator: 100,
       explanationCode: "typed_requirement_ratio",
+      evidenceAuthority: expect.any(String),
+      suppressionReason: null,
+      comparabilityState: null,
     });
     expect(modelEnsembleAxisEvidence(byKey("collaboration.clarification_yield"))).toEqual({
       state: "unknown",
@@ -168,6 +189,9 @@ describe("metricAxisModel axis tile helpers", () => {
       numerator: null,
       denominator: null,
       explanationCode: "episode_horizon_open",
+      evidenceAuthority: expect.any(String),
+      suppressionReason: null,
+      comparabilityState: null,
     });
     expect(modelEnsembleAxisEvidence(byKey("collaboration.scope_change_discipline"))).toEqual({
       state: "missing",
@@ -175,6 +199,9 @@ describe("metricAxisModel axis tile helpers", () => {
       numerator: null,
       denominator: null,
       explanationCode: null,
+      evidenceAuthority: expect.any(String),
+      suppressionReason: null,
+      comparabilityState: null,
     });
   });
 
@@ -190,6 +217,9 @@ describe("metricAxisModel axis tile helpers", () => {
       numerator: null,
       denominator: null,
       explanationCode: null,
+      evidenceAuthority: expect.any(String),
+      suppressionReason: null,
+      comparabilityState: null,
     });
   });
 
@@ -211,6 +241,11 @@ describe("metricAxisModel axis tile helpers", () => {
     expect(entries.map((entry) => entry.status)).toEqual(axes.map((axis) => modelEnsembleMetricStateLabel(axis.metric)));
     expect(entries.find((entry) => entry.key === rework)?.status).toBe("known");
     expect(entries.find((entry) => entry.key === "collaboration.scope_change_discipline")?.status).toBe("not observed");
+    const stateAware = entries.find((entry) => entry.key === "collaboration.scope_change_discipline")!;
+    expect(stateAware.guidance.state).toBe("missing");
+    expect(stateAware.guidance.evidenceAuthority).toMatch(/candidate|receipt|evidence/i);
+    expect(stateAware.guidance.suppressionReason).toBeNull();
+    expect(stateAware.guidance.comparabilityState).toBeNull();
   });
 });
 
@@ -252,7 +287,11 @@ describe("metricAxisModel receipt resolver", () => {
       numerator: null,
       denominator: null,
       explanationCode: "episode_horizon_open",
+      evidenceAuthority: "conversation",
+      suppressionReason: null,
+      comparabilityState: null,
     });
+    expect(modelEnsembleKnowledgeEntries([axis])[0].guidance.evidenceAuthority).toBe("conversation");
   });
 
   it("keeps authorized-but-unresolved objective history distinct from a missing capability", () => {

@@ -10,6 +10,10 @@ import type {
 } from "../../shared/api/contracts";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
 import {
+  createTeamControlPlanePortForRuntime,
+  teamControlPlanePortForOverlay,
+} from "../../shared/api/teamControlPlaneRuntime";
+import {
   CANCEL_ARMING_DELAY_MS,
   ModelEnsembleOverlay,
   stageCaseCountCopy,
@@ -25,6 +29,33 @@ async function settlePoll() {
 
 afterEach(() => {
   Reflect.deleteProperty(window, "pywebview");
+});
+
+describe("production team-context composition", () => {
+  it("renders the drawer for the registered synthetic port and removes it for null/local-real", async () => {
+    const syntheticPort = createTeamControlPlanePortForRuntime("synthetic_demo");
+    const accepted = teamControlPlanePortForOverlay("synthetic_demo", syntheticPort);
+    const view = render(
+      <ModelEnsembleOverlay transport={createSyntheticTransport()} teamControlPlane={accepted} />,
+    );
+    expect(screen.getByText("Team context")).toBeVisible();
+    expect(document.querySelector(".team-context-drawer")).not.toBeNull();
+    expect(await screen.findByText(/Synthetic platform guild \(fixture cohort\)/)).toBeVisible();
+
+    const localPort = createTeamControlPlanePortForRuntime("local_real");
+    view.rerender(
+      <ModelEnsembleOverlay
+        transport={createSyntheticTransport()}
+        teamControlPlane={teamControlPlanePortForOverlay("local_real", localPort)}
+      />,
+    );
+    expect(screen.queryByText("Team context")).toBeNull();
+    expect(screen.queryByText(/Synthetic platform guild/)).toBeNull();
+    expect(document.querySelector(".team-context-drawer")).toBeNull();
+
+    view.rerender(<ModelEnsembleOverlay transport={createSyntheticTransport()} teamControlPlane={null} />);
+    expect(document.querySelector(".team-context-drawer")).toBeNull();
+  });
 });
 
 const PROJECT_A = "a".repeat(64);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { metricHelpV2 } from "./metricHelpV2";
+import { metricHelpV2, type MetricInspectorSentences } from "./metricHelpV2";
 
 /**
  * One knowledge-card controller per workspace. A target is {surface, metricKey};
@@ -9,7 +9,12 @@ import { metricHelpV2 } from "./metricHelpV2";
  * visible card. The visible card is a viewport-clamped overlay: opening it
  * never changes the radar/workspace layout.
  */
-export type MetricKnowledgeSurface = "strip" | "board";
+export type MetricKnowledgeSurface =
+  | "strip"
+  | "board"
+  | "team-board"
+  | "team-compact"
+  | "team-members";
 export interface MetricKnowledgeTarget { surface: MetricKnowledgeSurface; metricKey: string }
 
 export interface MetricKnowledgeCardController {
@@ -91,7 +96,13 @@ export function metricKnowledgeCardTriggerProps(
   } as const;
 }
 
-export interface MetricKnowledgeEntry { key: string; label: string; status: string }
+export interface MetricKnowledgeEntry {
+  key: string;
+  label: string;
+  status: string;
+  /** Exact receipt state and authority projected by metricAxisModel. */
+  guidance?: MetricInspectorSentences;
+}
 
 /** Always-present hidden one-sentence descriptions referenced by every trigger. */
 export function MetricKnowledgeDescriptions({ controller, entries }: {
@@ -102,7 +113,9 @@ export function MetricKnowledgeDescriptions({ controller, entries }: {
     <div className="metric-knowledge-descriptions" hidden>
       {entries.map((entry) => (
         <span id={metricKnowledgeDescriptionId(controller, entry.key)} key={entry.key}>
-          {entry.label}: {metricHelpV2(entry.key)?.entry.meaning ?? "No knowledge card is registered for this metric key."}
+          {entry.label}: {entry.guidance === undefined
+            ? metricHelpV2(entry.key)?.entry.meaning ?? "No knowledge card is registered for this metric key."
+            : `${entry.guidance.meaning} ${entry.guidance.action}`}
         </span>
       ))}
     </div>
@@ -136,6 +149,9 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
         className={`metric-knowledge-card metric-knowledge-card--viewport${compact ? " metric-knowledge-card--compact" : ""}`}
         data-metric-key={entry.key}
         data-pinned={pinned ? "true" : "false"}
+        data-state={entry.guidance?.state}
+        data-suppression-reason={entry.guidance?.suppressionReason ?? undefined}
+        data-comparability={entry.guidance?.comparabilityState ?? undefined}
         onPointerEnter={() => controller.preview({ surface, metricKey: entry.key })}
         onPointerLeave={() => controller.unpreview({ surface, metricKey: entry.key })}
         role="tooltip"
@@ -144,6 +160,18 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
           <strong>{entry.label}</strong>
           <span>{entry.status}</span>
         </header>
+        {entry.guidance !== undefined && (
+          <section aria-label="Current metric guidance" className="metric-knowledge-card__guidance">
+            <p><b>Current state.</b> {entry.guidance.meaning}</p>
+            <p><b>Next action.</b> {entry.guidance.action}</p>
+            <dl>
+              <div><dt>Evidence authority</dt><dd>{entry.guidance.evidenceAuthority ?? "Not reported by this receipt"}</dd></div>
+              <div><dt>Explanation code</dt><dd>{entry.guidance.explanationCode ?? "None"}</dd></div>
+              <div><dt>Suppression</dt><dd>{entry.guidance.suppressionReason ?? "None"}</dd></div>
+              <div><dt>Comparability</dt><dd>{entry.guidance.comparabilityState ?? "Not exposed"}</dd></div>
+            </dl>
+          </section>
+        )}
         {help === null ? (
           <p>No knowledge card is registered for this metric key.</p>
         ) : (
@@ -155,7 +183,9 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
               <div><dt>Direction</dt><dd>{help.entry.direction}</dd></div>
               <div><dt>Counts</dt><dd>{help.entry.counts}</dd></div>
               <div><dt>Does not count</dt><dd>{help.entry.doesNotCount}</dd></div>
-              <div><dt>Evidence</dt><dd>{help.entry.objectiveEvidence}</dd></div>
+              {entry.guidance === undefined && (
+                <div><dt>Candidate definition evidence notes</dt><dd>{help.entry.objectiveEvidence}</dd></div>
+              )}
             </dl>
             {help.measurement !== null && (
               <p className="metric-knowledge-card__measurement">

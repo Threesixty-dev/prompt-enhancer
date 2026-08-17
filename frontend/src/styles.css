@@ -1416,6 +1416,12 @@
   .model-evaluation-results > header { align-items: flex-start; flex-direction: column; }
 }
 
+@media (max-width: 360px) {
+  .primary-nav button,
+  .primary-nav button > span,
+  .primary-nav button > small { font-size: max(12px, 0.75rem); }
+}
+
 * { box-sizing: border-box; }
 html,
 body,
@@ -5132,4 +5138,10 @@ canvas { max-width: 100%; }
   .metric-knowledge-card[data-pinned="true"] { border-style: double; }
   .model-ensemble__radar-withheld, .model-ensemble__radar-state { stroke: CanvasText; }
   .metric-inspector-sentences p span { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
+}
+
+@media (max-width: 360px) {
+  .primary-nav button,
+  .primary-nav button > span,
+  .primary-nav button > small { font-size: max(12px, 0.75rem); }
 }

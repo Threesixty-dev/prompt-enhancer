@@ -2,6 +2,7 @@ import type { ModelEnsembleRun } from "../../shared/api/contracts";
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 import { QUALITY_LENSES } from "../quality-profile/qualityLenses";
 import { isDeepModelStage } from "./modelStages";
+import { metricHelpV2, metricInspectorSentences, type MetricInspectorSentences } from "./metricHelpV2";
 
 /**
  * Pure presentation model for the metric workspace: typed lens axes, sealed
@@ -535,6 +536,9 @@ export interface ModelEnsembleAxisEvidence {
   denominator: number | null;
   /** Typed explanation code only; committee explanation codes are diagnostics, not guidance input. */
   explanationCode: string | null;
+  evidenceAuthority: string | null;
+  suppressionReason: null;
+  comparabilityState: null;
 }
 
 /**
@@ -550,14 +554,46 @@ export function modelEnsembleAxisEvidence(axis: ModelEnsembleRadarAxis): ModelEn
     numerator: metric?.numerator ?? null,
     denominator: metric?.denominator ?? null,
     explanationCode: metric !== null && isTypedMetric(metric) ? metric.explanation_code : null,
+    evidenceAuthority: metric !== null && isModelEnsembleV2Metric(metric)
+      ? metric.evidence_authority
+      : metricHelpV2(axis.key, "en")?.entry.objectiveEvidence ?? null,
+    suppressionReason: null,
+    comparabilityState: null,
   };
 }
 
-export interface ModelEnsembleKnowledgeEntry { key: string; label: string; status: string }
+export interface ModelEnsembleKnowledgeEntry {
+  key: string;
+  label: string;
+  status: string;
+  guidance: MetricInspectorSentences;
+}
 
 /** Knowledge-card entries (key, label, status label) for one lens's axes. */
 export function modelEnsembleKnowledgeEntries(
   axes: readonly ModelEnsembleRadarAxis[],
 ): ModelEnsembleKnowledgeEntry[] {
-  return axes.map((axis) => ({ key: axis.key, label: axis.label, status: modelEnsembleMetricStateLabel(axis.metric) }));
+  return axes.map((axis) => {
+    const evidence = modelEnsembleAxisEvidence(axis);
+    return {
+      key: axis.key,
+      label: axis.label,
+      status: modelEnsembleMetricStateLabel(axis.metric),
+      guidance: metricInspectorSentences({
+        metricKey: axis.key,
+        label: axis.label,
+        state: evidence.state,
+        direction: axis.direction,
+        numericValue: evidence.numericValue,
+        numerator: evidence.numerator,
+        denominator: evidence.denominator,
+        explanationCode: evidence.explanationCode,
+        evidenceAuthority: evidence.evidenceAuthority,
+        suppressionReason: evidence.suppressionReason,
+        comparabilityState: evidence.comparabilityState,
+        experimentalVisible: axis.predictiveMedian !== null,
+        experimentalMedian: axis.predictiveMedian,
+      }),
+    };
+  });
 }

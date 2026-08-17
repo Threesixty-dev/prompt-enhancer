@@ -2,6 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { createHttpTransport } from "./shared/api/httpTransport";
+import {
+  createTeamControlPlanePortForRuntime,
+  teamControlPlanePortForOverlay,
+} from "./shared/api/teamControlPlaneRuntime";
 import { createBrowserPlatform } from "./shared/platform/browserPlatform";
 import {
   createRuntimeComposition,
@@ -29,6 +33,7 @@ async function mountApp() {
     import.meta.hot.dispose(() => uiRevisionGuard.dispose());
   }
 
+  const teamControlPlane = createTeamControlPlanePortForRuntime(mode);
   const overlay = /^\/overlay\/model-ensemble\/?$/.test(window.location.pathname);
   const Root = overlay
     ? (await import("./features/model-ensemble")).ModelEnsembleOverlay
@@ -36,8 +41,11 @@ async function mountApp() {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       {Root === null
-        ? <App platform={createBrowserPlatform()} runtime={runtime} />
-        : <Root transport={runtime.transport} />}
+        ? <App platform={createBrowserPlatform()} runtime={runtime} teamControlPlane={teamControlPlane} />
+        : <Root
+          teamControlPlane={teamControlPlanePortForOverlay(mode, teamControlPlane)}
+          transport={runtime.transport}
+        />}
     </StrictMode>,
   );
 }

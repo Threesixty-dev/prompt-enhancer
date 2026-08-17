@@ -48,3 +48,27 @@ bounded inline width style, which is why `style-src` permits inline styles.
 WP-03 DTOs. After exporting the backend schema to `../docs/openapi.json`, run
 `npm run generate:api` and review the diff. Runtime API documentation remains
 disabled; generation is a build-time operation.
+
+## Team control-plane port (frontend only)
+
+`src/shared/api/teamControlPlane.ts` is a typed frontend port for a future
+canonical team control plane. No backend implements it. Two honest adapters
+exist:
+
+- `createSyntheticTeamControlPlanePort()` serves a fictional, content-free
+  cohort in the synthetic development preview (every payload is stamped
+  `origin: "synthetic_fixture"`);
+- `createUnavailableTeamControlPlanePort()` reports team, organization, sync,
+  and billing as absent in the local loopback runtime and serves no scope.
+
+`createTeamControlPlanePortForRuntime(mode)` binds each runtime data mode to
+its adapter; a remote adapter must not be added until one exists with an
+approval-bound transport. The port publishes aggregates only: cohort size,
+missingness, comparability, freshness, and uncertainty per metric, with
+measured typed rows and experimental model ranges kept as separate entries.
+Individual member rows exist only behind an explicit visibility grant with
+audit facts, are ordered by pseudonymous identifier, and never carry a total,
+rank, or score. The `/team` route (Me · Team · Organization), the `/tasks/flow`
+board and timeline, and the compact "Team context" drawer in the floating
+overlay consume the port; per-metric two-sentence explainers reuse the
+metric-help-v2 registry and decision guidance in both full and compact modes.
