@@ -57,7 +57,9 @@ from .config import (
     prepare_app_home,
 )
 from .domain import PSEUDONYM_PATTERN, Provider
+from .application.control_plane import ControlPlaneService, PrincipalResolver
 from .interfaces.http import (
+    create_control_plane_router,
     create_session_analysis_command_router,
     create_session_analysis_query_router,
     create_session_quality_aggregation_router,
@@ -310,6 +312,8 @@ def create_app(
     analysis_job_worker: AnalysisJobWorker | None = None,
     automation_grant_service: AutomationGrantService | None = None,
     automation_grant_worker: AutomationGrantWorker | None = None,
+    control_plane_service: ControlPlaneService | None = None,
+    control_plane_principal_resolver: PrincipalResolver | None = None,
     estimator_repository: EstimatorRepository | None = None,
     static_directory: Path | None = None,
     browser_session_manager: BrowserSessionManager | None = None,
@@ -399,6 +403,7 @@ def create_app(
                 "metric-coverage",
                 "/analysis-jobs",
                 "/automation-grants",
+                "/control-plane",
                 "/estimators",
             )
         ):
@@ -686,6 +691,22 @@ def create_app(
             create_automation_grant_router(
                 require_local_token,
                 automation_grant_service,
+            )
+        )
+    # Three independent gates: an operator must opt in through settings, the
+    # composition root must have built a service, and a principal resolver must
+    # exist. Without a resolver there is no way to verify who is calling, so no
+    # route is mounted at all rather than mounting one that trusts a body.
+    if (
+        control_plane_service is not None
+        and control_plane_principal_resolver is not None
+        and resolved_settings.control_plane_development_api
+    ):
+        app.include_router(
+            create_control_plane_router(
+                require_local_token,
+                control_plane_service,
+                control_plane_principal_resolver,
             )
         )
     if session_model_link_experiment_service is not None:

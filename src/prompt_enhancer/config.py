@@ -85,6 +85,14 @@ class AppSettings(BaseModel):
     port: int = Field(default=8765, ge=1024, le=65535)
     cost_mode: CostMode = CostMode.OFFLINE_ONLY
     data_tier: DataTier = DataTier.METADATA
+    control_plane_development_api: bool = Field(
+        default=False,
+        description=(
+            "Expose the in-memory team control-plane development routes on the "
+            "loopback API. Off by default; it stores nothing durably, serves "
+            "synthetic tenants only, and is not a team deployment."
+        ),
+    )
 
     @field_validator("home")
     @classmethod
@@ -99,6 +107,8 @@ class AppSettings(BaseModel):
             raise ValueError("Phase 1 permits only offline_only cost mode")
         if self.data_tier is not DataTier.METADATA:
             raise ValueError("Phase 1 permits only metadata storage")
+        if self.control_plane_development_api and not is_loopback_host(self.host):
+            raise ValueError("the control-plane development API stays on loopback")
         return self
 
     @property
@@ -122,7 +132,17 @@ class AppSettings(BaseModel):
             port = int(raw_port)
         except ValueError as exc:
             raise ConfigurationError("PROMPT_ENHANCER_PORT must be an integer") from exc
-        return cls(home=default_app_home(env), host=host, port=port)
+        # Only the exact opt-in string enables the development control plane, so
+        # a stray value such as "0", "false", or "maybe" leaves it disabled.
+        control_plane = (
+            env.get("PROMPT_ENHANCER_CONTROL_PLANE_DEV_API", "") == "enabled"
+        )
+        return cls(
+            home=default_app_home(env),
+            host=host,
+            port=port,
+            control_plane_development_api=control_plane,
+        )
 
 
 def prepare_app_home(settings: AppSettings) -> None:

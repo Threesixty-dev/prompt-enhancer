@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         AutomationGrantService,
         AutomationGrantWorker,
     )
+    from .infrastructure.control_plane import DevelopmentControlPlane
     from fastapi import FastAPI
 
 
@@ -494,6 +495,22 @@ class LocalApplication:
         )
         return grant_service, AutomationGrantWorker(grant_service), job_worker
 
+    def create_control_plane(self) -> DevelopmentControlPlane:
+        """Compose the in-memory development control plane and its resolver.
+
+        The composed plane starts with no organizations, no credentials, and no
+        entitlement, so enabling the setting exposes routes that authenticate
+        nobody and authorize nothing until a tenant is provisioned deliberately
+        and in process. Nothing here reads the analyzer database, provider
+        sessions, or local files, and nothing it holds survives a restart.
+        """
+
+        from datetime import UTC, datetime
+
+        from .infrastructure.control_plane import create_development_control_plane
+
+        return create_development_control_plane(lambda: datetime.now(UTC))
+
     def create_http_app(self) -> FastAPI:
         """Construct the authenticated HTTP adapter without exposing its token."""
 
@@ -566,6 +583,11 @@ class LocalApplication:
             )
 
         codex_source_service.set_automation_revoker(revoke_local_workers)
+        control_plane = (
+            self.create_control_plane()
+            if self.settings.control_plane_development_api
+            else None
+        )
         return create_app(
             settings=self.settings,
             database=self.database,
@@ -594,6 +616,12 @@ class LocalApplication:
             analysis_job_worker=analysis_job_worker,
             automation_grant_service=automation_grant_service,
             automation_grant_worker=automation_grant_worker,
+            control_plane_service=(
+                None if control_plane is None else control_plane.service
+            ),
+            control_plane_principal_resolver=(
+                None if control_plane is None else control_plane.resolver
+            ),
             estimator_repository=self.database.estimator_repository(),
             static_directory=static_directory,
         )

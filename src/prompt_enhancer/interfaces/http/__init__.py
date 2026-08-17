@@ -18,9 +18,11 @@ from .model_ensemble_routes import create_model_ensemble_router
 from .model_ensemble_watch_routes import create_model_ensemble_watch_router
 from .analysis_job_routes import create_analysis_job_router
 from .automation_grant_routes import create_automation_grant_router
+from .control_plane_routes import create_control_plane_router
 from .estimator_routes import create_estimator_router
 
 __all__ = (
+    "create_control_plane_router",
     "create_session_analysis_command_router",
     "create_session_analysis_query_router",
     "create_session_quality_aggregation_router",

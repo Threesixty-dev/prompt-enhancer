@@ -21,7 +21,7 @@ local runtime artifacts must never be added here.
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
 | P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, reviewed local automation admission controls, crash-safe invalid estimator-automation reconciliation, a restart-durable strict first-claim result-publication cutoff for reviewed automated `session_quality` work, bounded large-thread preparation, and a normalized ten-model local shadow ensemble with chunk-level receipts and a separate radar | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated or product-eligible model ensemble, force-stopping runtime deadline, or product-enabled estimator |
 | P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, repository-issued synthetic comparison-stratum preparation and graph sealing, and bounded repository-sealed synthetic aggregation-validation receipts | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
-| P3 | Deferred | Optional cloud identity, pairing, entitlements, payments, and usage ledger | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required |
+| P3 | Deferred; P3a contracts only | Optional cloud identity, pairing, entitlements, payments, and usage ledger. P3a adds development-only control-plane contracts, default-deny policy, signed content-free snapshot envelopes, cursored deltas, tombstones, audit evidence, and an in-memory adapter behind ports | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required. P3a adds no deployment: no production identity provider, no Ed25519 adapter, no PostgreSQL adapter, no credential issuance, no billing, and no producer pipeline |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
 ## Baseline evidence
@@ -1129,6 +1129,58 @@ adjudicator. The four-case retrieval smoke favored lexical BM25 and the Qwen
 embedding challenger, while the BGE reranker reduced ranking quality; the sample
 is too small for activation. These results prohibit interpreting model count or
 agreement as metric correctness and are not a calibration or promotion report.
+
+## P3a control-plane foundation evidence
+
+This checkpoint adds a development-only team control plane. It is a contract and
+policy foundation, not a product: nothing is deployed, nothing listens off the
+loopback interface, no real identity provider or payment integration exists, and
+the composed plane reports `production_ready = false` with an explicit gap list
+that a configuration value cannot change.
+
+What the slice establishes, with tests:
+
+1. tenancy contracts for organizations, teams, memberships, roles, devices,
+   tenant-scoped API clients and scopes, manager grants, audit events, and
+   entitlement/readiness placeholders, all content-free and pseudonymous;
+2. an exact ten-key numeric publication allowlist with fixed units,
+   server-registered producer/definition versions, bounded quantized numbers,
+   no free-text field, and unknown values that never become zero; key choice,
+   bounded values, and timing remain a residual signalling surface;
+3. default-deny authorization as a pure function over directory-resolved facts,
+   with organization, team, and individual visibility, explicit and audited
+   manager access, cross-tenant rejection before any existence check, and no
+   organization/user/client/device identity fields in request bodies;
+4. device-bound signed envelopes with domain-separated canonical bytes, tamper
+   and key-mismatch rejection, enrolment-time freshness bounds, and a production
+   Ed25519 algorithm that is named but deliberately unregistered so composing it
+   fails closed;
+5. server-issued envelope and snapshot identifiers, one short-lived outstanding
+   epoch-bound reservation per producer (bounding reserve-without-consumption,
+   while push-then-reissue returns a fresh ID), no caller-visible envelope IDs
+   in audit, and owner-bound replay fences that survive deletion; contiguous
+   client/device-local cursors, durable recipient-bound retry projections and
+   recipient-specific tombstones backed by a prior-delivery ledger; explicit
+   manager-grant revocation; and atomic device/client/credential revocation;
+6. canonical fixed buckets and internal no-sub-threshold arithmetic contracts,
+   while every public aggregate request fails closed without counts or values
+   until stable privacy cohorts, overlap rules, and an atomic query budget exist;
+7. narrow storage ports with one shared-lock, thread-safe in-memory development
+   adapter, plus
+   [ADR 0005](adr/0005-team-control-plane-boundary.md) and
+   [the production PostgreSQL and row-level-security design](control-plane-postgres-rls.md).
+
+What it explicitly does not establish: authentication of a person by a real
+identity provider (the opaque development credential only authenticates its
+out-of-band binding), durability, cross-process concurrency, encryption at
+rest, erasure across backups and replicas, a complete credential lifecycle,
+metering, or any evidence that team sharing is safe to enable for real people.
+No safe aggregate-release claim is made. Overlapping teams, longitudinal
+composition, cohort stability, and query-budget enforcement remain production
+blockers, and the public use case is suppressed until they are resolved.
+The local analyzer, its SQLite system of record, and its historical migrations
+are untouched; the control plane imports none of them, and with the setting off
+the application composes no control-plane service and exposes no route.
 
 ## Version inventory
 
