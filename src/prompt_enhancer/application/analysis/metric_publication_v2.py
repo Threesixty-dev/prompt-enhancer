@@ -1,12 +1,13 @@
 """V2 metric publication: a live projection wrapper and a V1 compatibility preview.
 
-This module is **not** the canonical live all-twenty snapshot and it is not wired
-into the model-ensemble watch, head, or UI pipeline.  It publishes two clearly
-labelled things:
+This module publishes the canonical live all-twenty measured projection as well
+as a deliberately separate V1 compatibility preview.  The live projection is
+safe to bind to a model-ensemble snapshot only after its semantic-unit and
+objective-evidence inputs have been validated for that exact source window.
 
 * ``publish_metric_states_v2`` wraps a genuine live V2 projection over persisted
-  semantic-unit heads.  It is the foundation the canonical head would use, not
-  evidence that the head uses it today.
+  semantic-unit heads.  Newly sealed model-ensemble heads use this publication
+  as their canonical measured layer.
 * ``rehydrate_v1_compatibility_states`` reads an already persisted V1 analysis
   run and produces a read-only *compatibility preview*.  At most the reviewed
   compatible rubric rows carry a number; every other behavioural contract is
@@ -412,9 +413,9 @@ class MetricPublicationV2(StrictModel):
         METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION
     ] = METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION
     source: MetricPublicationSource
-    #: This bundle is never the canonical live all-twenty session snapshot, and
-    #: it never consumed a model-ensemble stage.  Both are structural facts.
-    canonical_live_snapshot: Literal[False] = False
+    #: A live producer is canonical for the measured layer of its exact bound
+    #: snapshot.  The V1 compatibility adapter can never claim this flag.
+    canonical_live_snapshot: bool
     model_stage_consumed: Literal[False] = False
     compatibility_preview: bool
     metrics: tuple[PublishedMetricV2, ...] = Field(
@@ -440,6 +441,10 @@ class MetricPublicationV2(StrictModel):
             self.source is MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
         ):
             raise ValueError("compatibility preview flag must match the source")
+        if self.canonical_live_snapshot != (
+            self.source is MetricPublicationSource.LIVE_PROJECTION
+        ):
+            raise ValueError("canonical snapshot flag must match the live producer")
         counts = {
             MetricValueStateV2.KNOWN: self.known_count,
             MetricValueStateV2.PENDING: self.pending_count,
@@ -614,6 +619,9 @@ def publish_metric_states_v2(
     return MetricPublicationV2(
         contract_set_fingerprint=metric_contract_v2_set_fingerprint(),
         source=source,
+        canonical_live_snapshot=(
+            source is MetricPublicationSource.LIVE_PROJECTION
+        ),
         compatibility_preview=(
             source is MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
         ),

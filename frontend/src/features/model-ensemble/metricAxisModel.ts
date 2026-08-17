@@ -21,15 +21,38 @@ import { isDeepModelStage } from "./modelStages";
 export type ModelEnsembleCommitteeMetric = ModelEnsembleRun["metrics"][number];
 export type ModelEnsembleTypedMetric = ModelEnsembleRun["typed_metrics"][number];
 export type ModelEnsemblePredictiveMetric = ModelEnsembleRun["predictive_metrics"][number];
-export type ModelEnsembleMetric = ModelEnsembleCommitteeMetric | ModelEnsembleTypedMetric;
+type PublishedMetricV2 = NonNullable<ModelEnsembleRun["metric_publication_v2"]>["metrics"][number];
+type MetricStateV2 = PublishedMetricV2["state"];
+export interface ModelEnsembleV2Metric {
+  metric_key: string;
+  metric_version: number;
+  value_state: PublishedMetricV2["state"]["value_state"];
+  numerator: number | null;
+  denominator: number | null;
+  numeric_value: number | null;
+  explanation_code: string;
+  observed_message_count: number;
+  eligible_message_count: number;
+  coverage: number;
+  projection_source: "metric_contract_v2_live";
+  source_kind: "metric_v2";
+  implementation_state: PublishedMetricV2["implementation_state"];
+  evidence_authority: PublishedMetricV2["state"]["evidence_authority"];
+  statistics: PublishedMetricV2["state"]["statistics"];
+  guidance: PublishedMetricV2["guidance"] | null;
+}
+export type ModelEnsembleMeasuredMetric = ModelEnsembleTypedMetric | ModelEnsembleV2Metric;
+export type ModelEnsembleMetric = ModelEnsembleCommitteeMetric | ModelEnsembleMeasuredMetric;
 export type ModelEnsembleRadarData = Pick<ModelEnsembleRun, "metrics" | "chunk_metrics"> & {
   typed_metrics: readonly ModelEnsembleTypedMetric[];
+  metric_publication_v2?: ModelEnsembleRun["metric_publication_v2"];
+  metric_states_v2?: readonly MetricStateV2[];
   predictive_metrics?: readonly ModelEnsemblePredictiveMetric[];
   predictive_model_stages?: ModelEnsembleRun["predictive_model_stages"];
 };
 export type ModelEnsembleMetricDirection = "higher_is_better" | "lower_is_better";
 
-type TypedMetric = ModelEnsembleTypedMetric;
+type TypedMetric = ModelEnsembleMeasuredMetric;
 type PredictiveMetric = ModelEnsemblePredictiveMetric;
 type EnsembleMetric = ModelEnsembleMetric;
 type MetricDirection = ModelEnsembleMetricDirection;
@@ -60,6 +83,10 @@ export function isModelEnsembleTypedMetric(metric: EnsembleMetric): metric is Ty
   return "projection_source" in metric;
 }
 
+export function isModelEnsembleV2Metric(metric: EnsembleMetric): metric is ModelEnsembleV2Metric {
+  return "source_kind" in metric && metric.source_kind === "metric_v2";
+}
+
 const isTypedMetric = isModelEnsembleTypedMetric;
 
 /**
@@ -74,6 +101,7 @@ export type ModelEnsembleMetricStatus =
 
 export function modelEnsembleMetricStatus(metric: EnsembleMetric | null): ModelEnsembleMetricStatus {
   if (metric === null) return "missing";
+  if (metric.value_state === "pending") return "pending";
   if (
     isTypedMetric(metric)
     && metric.value_state !== "known"
@@ -96,6 +124,17 @@ export function modelEnsembleMetricStateLabel(metric: EnsembleMetric | null): st
 }
 
 function stateExplanation(metric: EnsembleMetric): string {
+  if (isModelEnsembleV2Metric(metric)) {
+    if (metric.value_state === "pending") {
+      return "Pending: at least one eligible episode is still open at the right edge. It stays outside the denominator until its reviewed horizon closes.";
+    }
+    if (metric.evidence_authority === "objective_receipt" && metric.value_state !== "known") {
+      return "A typed local action, test, artifact, or acceptance receipt is required. Transcript prose and model estimates cannot create a measured outcome.";
+    }
+    if (metric.value_state === "unknown") {
+      return "The V2 contract cannot establish its opportunity family or resolve its sufficient statistics in this exact window. Unknown is not zero.";
+    }
+  }
   if (isTypedMetric(metric)) {
     switch (metric.explanation_code) {
       case "episode_horizon_open":
@@ -166,7 +205,9 @@ export function modelEnsembleMetricPresentation(
   const rawPercent = Math.round(metric.numeric_value * 100);
   const radarPercent = direction === "lower_is_better" ? 100 - rawPercent : rawPercent;
   if (direction === "lower_is_better") {
-    const source = isTypedMetric(metric)
+    const source = isModelEnsembleV2Metric(metric)
+      ? `${metric.numerator}/${metric.denominator} V2 opportunities`
+      : isTypedMetric(metric)
       ? `${metric.numerator}/${metric.denominator} typed opportunities`
       : `${metric.numerator}/${metric.denominator} known eligible observations`;
     return {
@@ -175,6 +216,12 @@ export function modelEnsembleMetricPresentation(
     };
   }
   const signalKind = "positive signal";
+  if (isModelEnsembleV2Metric(metric)) {
+    return {
+      value: `${rawPercent}% measured`,
+      detail: `${metric.numerator}/${metric.denominator} eligible V2 opportunities met the exact versioned contract. The measured layer is independent of model estimates. Radar ${radarPercent}%.`,
+    };
+  }
   if (isTypedMetric(metric)) {
     return {
       value: `${rawPercent}% measured`,
@@ -267,14 +314,61 @@ export function modelEnsembleDensityBinsForDirection(
  * "not observed" even if a committee receipt for it exists.
  */
 export function modelEnsemblePrimaryMetrics(
-  run: Pick<ModelEnsembleRadarData, "metrics" | "typed_metrics">,
+  run: Pick<ModelEnsembleRadarData, "metrics" | "typed_metrics" | "metric_publication_v2" | "metric_states_v2">,
 ): readonly EnsembleMetric[] {
+  const fromState = (
+    state: MetricStateV2,
+    guidance: PublishedMetricV2["guidance"] | null,
+    implementationState: PublishedMetricV2["implementation_state"],
+  ): ModelEnsembleV2Metric => {
+    const statistics = state.statistics;
+    const resolved = statistics.met_count + statistics.not_met_count;
+    return {
+      metric_key: state.metric_key,
+      metric_version: guidance?.metric_version ?? 2,
+      value_state: state.value_state,
+      numerator: state.numerator ?? null,
+      denominator: state.denominator ?? null,
+      numeric_value: state.numeric_value ?? null,
+      explanation_code: state.explanation_code,
+      observed_message_count: resolved,
+      eligible_message_count: statistics.eligible_count,
+      coverage: statistics.eligible_count === 0 ? 0 : resolved / statistics.eligible_count,
+      projection_source: "metric_contract_v2_live",
+      source_kind: "metric_v2",
+      implementation_state: implementationState,
+      evidence_authority: state.evidence_authority,
+      statistics,
+      guidance,
+    };
+  };
+  if (run.metric_publication_v2 !== undefined && run.metric_publication_v2 !== null) {
+    return run.metric_publication_v2.metrics.map((item) => (
+      fromState(item.state, item.guidance, item.implementation_state)
+    ));
+  }
+  if ((run.metric_states_v2?.length ?? 0) > 0) {
+    return run.metric_states_v2!.map((state) => fromState(
+      state,
+      null,
+      state.value_state === "known" ? "live_measured"
+        : state.value_state === "pending" ? "pending"
+          : state.value_state === "not_applicable" ? "no_opportunity"
+            : state.value_state === "abstained" ? "abstained"
+                : state.value_state === "execution_error" ? "error"
+                : state.evidence_authority === "objective_receipt"
+                  ? (state.statistics.capability_available && state.statistics.eligible_count > 0
+                    ? "objective_evidence_unresolved"
+                    : "objective_capability_missing")
+                  : "method_only_withheld",
+    ));
+  }
   return (run.typed_metrics?.length ?? 0) > 0 ? run.typed_metrics : run.metrics;
 }
 
 /** Primary receipts keyed by metric key (a later duplicate key replaces an earlier one, as the radar always did). */
 export function modelEnsembleReceiptsByKey(
-  run: Pick<ModelEnsembleRadarData, "metrics" | "typed_metrics">,
+  run: Pick<ModelEnsembleRadarData, "metrics" | "typed_metrics" | "metric_publication_v2">,
 ): Map<string, EnsembleMetric> {
   return new Map(modelEnsemblePrimaryMetrics(run).map((metric) => [metric.metric_key, metric]));
 }

@@ -23,7 +23,7 @@ export interface SessionMetricGuidance {
 }
 
 export interface SessionMetricGuidanceInput {
-  state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error" | "missing";
+  state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error" | "pending" | "missing";
   numericValue: number | null;
   direction: "higher_is_better" | "lower_is_better";
   explanationCode?: string | null;
@@ -390,7 +390,7 @@ export function sessionMetricGuidance(
       factorKeys,
     };
   }
-  if (input.state !== "known" && input.explanationCode === "episode_horizon_open") {
+  if (input.state === "pending" || (input.state !== "known" && input.explanationCode === "episode_horizon_open")) {
     return {
       audience,
       action: "Nothing to change yet: the newest exchange is still open, so this metric is pending rather than measured or zero.",

@@ -31,6 +31,15 @@ from ...application.analysis.model_ensemble import (
     SessionModelEnsembleTypedMetricReceipt,
     SourceCoverageState,
 )
+from ...application.analysis.metric_contract_v2 import (
+    DenominatorBasis,
+    EvidenceAuthority,
+    MetricValueStateV2,
+)
+from ...application.analysis.metric_projection_v2 import (
+    MetricStateV2,
+    OpportunityStatistics,
+)
 from ...application.analysis.session_model_ensemble import SessionModelEnsembleOutcome
 from ...application.analysis.probabilistic_metrics import (
     PROBABILISTIC_METRIC_PROJECTION_VERSION,
@@ -171,6 +180,84 @@ def _predictive_identity(connection, run_id: str | None) -> tuple[object, ...] |
         int(seal["sample_count"]),
         metrics,
         stages,
+    )
+
+
+def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | None:
+    """Return the measured-contract identity used for trajectory comparability.
+
+    Historical runs legitimately have no V2 seal.  Two such runs remain in the
+    legacy comparison cohort; a legacy run and a canonical V2 run never do.
+    """
+
+    if run_id is None:
+        return None
+    seal = connection.execute(
+        """SELECT publication_key,publication_version,registry_version,
+                  contract_set_fingerprint,projection_version,
+                  guidance_contract_version,guidance_template_catalog_version,
+                  source,canonical_live_snapshot,model_stage_consumed,
+                  compatibility_preview
+           FROM session_model_ensemble_metric_publication_v2_seals
+           WHERE run_id=?""",
+        (run_id,),
+    ).fetchone()
+    if seal is None:
+        return None
+    return (
+        seal["publication_key"],
+        int(seal["publication_version"]),
+        seal["registry_version"],
+        seal["contract_set_fingerprint"],
+        seal["projection_version"],
+        seal["guidance_contract_version"],
+        seal["guidance_template_catalog_version"],
+        seal["source"],
+        int(seal["canonical_live_snapshot"]),
+        int(seal["model_stage_consumed"]),
+        int(seal["compatibility_preview"]),
+    )
+
+
+def _metric_v2_states(connection, run_id: str) -> tuple[MetricStateV2, ...]:
+    if _metric_v2_identity(connection, run_id) is None:
+        return ()
+    return tuple(
+        MetricStateV2(
+            metric_key=item["metric_key"],
+            registry_version=item["registry_version"],
+            contract_version=item["contract_version"],
+            contract_fingerprint=item["contract_fingerprint"],
+            evidence_authority=EvidenceAuthority(item["evidence_authority"]),
+            value_state=MetricValueStateV2(item["value_state"]),
+            explanation_code=item["explanation_code"],
+            numerator=item["numerator"],
+            denominator=item["denominator"],
+            numeric_value=item["numeric_value"],
+            censoring_lower_bound=item["censoring_lower_bound"],
+            censoring_upper_bound=item["censoring_upper_bound"],
+            statistics=OpportunityStatistics(
+                metric_key=item["metric_key"],
+                denominator_basis=DenominatorBasis(item["denominator_basis"]),
+                opportunity_unit_kind=item["opportunity_unit_kind"],
+                capability_available=bool(item["capability_available"]),
+                source_complete=bool(item["source_complete"]),
+                eligible_count=item["eligible_count"],
+                met_count=item["met_count"],
+                not_met_count=item["not_met_count"],
+                pending_count=item["pending_count"],
+                unknown_count=item["unknown_count"],
+                superseded_excluded_count=item["superseded_excluded_count"],
+                distinct_owner_count=item["distinct_owner_count"],
+            ),
+            projection_version=item["projection_version"],
+            product_metric_eligible=bool(item["product_metric_eligible"]),
+        )
+        for item in connection.execute(
+            """SELECT * FROM session_model_ensemble_metric_states_v2
+               WHERE run_id=? ORDER BY metric_ordinal""",
+            (run_id,),
+        ).fetchall()
     )
 
 
@@ -804,6 +891,9 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
             head_predictive_identity = _predictive_identity(
                 connection, watch["latest_run_id"]
             )
+            head_metric_v2_identity = _metric_v2_identity(
+                connection, watch["latest_run_id"]
+            )
             for row in rows:
                 metric_rows = connection.execute(
                     """SELECT * FROM session_model_ensemble_metrics
@@ -900,6 +990,10 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                 point_predictive_identity = _predictive_identity(
                     connection, row["run_id"]
                 )
+                metric_states_v2 = _metric_v2_states(connection, row["run_id"])
+                point_metric_v2_identity = _metric_v2_identity(
+                    connection, row["run_id"]
+                )
                 points.append(
                     ModelEnsembleTrajectoryPoint(
                         generation=int(row["generation"]),
@@ -932,6 +1026,8 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                             == watch["head_predictive_version"]
                             and point_predictive_identity
                             == head_predictive_identity
+                            and point_metric_v2_identity
+                            == head_metric_v2_identity
                         ),
                         metrics=metrics,
                         metric_projection_version=row["projection_version"],
@@ -941,6 +1037,7 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
                             else from_iso(row["projected_at"])
                         ),
                         typed_metrics=typed_metrics,
+                        metric_states_v2=metric_states_v2,
                         predictive_projection_version=row[
                             "predictive_projection_version"
                         ],

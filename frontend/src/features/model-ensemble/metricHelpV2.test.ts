@@ -77,6 +77,7 @@ describe("metricInspectorSentences", () => {
 
   it("produces distinct truthful copy per state without bands or invented factors", () => {
     const pending = metricInspectorSentences({ ...base, state: "unknown", explanationCode: "episode_horizon_open" });
+    const pendingV2 = metricInspectorSentences({ ...base, state: "pending" });
     const na = metricInspectorSentences({ ...base, state: "not_applicable" });
     const unknown = metricInspectorSentences({ ...base, state: "unknown" });
     const abstained = metricInspectorSentences({ ...base, state: "abstained" });
@@ -89,6 +90,7 @@ describe("metricInspectorSentences", () => {
     const all = [pending, na, unknown, abstained, error, missing, experimental, measured, zero];
     expect(new Set(all.map((sentence) => sentence.kind)).size).toBe(9);
     expect(pending.meaning).toMatch(/not a zero/);
+    expect(pendingV2).toEqual(pending);
     expect(na.meaning).toMatch(/nothing to score/);
     expect(unknown.meaning).toMatch(/not a low value/);
     expect(unknown.meaning).not.toMatch(/No objective receipt/);
@@ -116,6 +118,34 @@ describe("metricInspectorSentences", () => {
     expect(withEstimate.action).toMatch(/^Safest next step: /);
     const complete = metricInspectorSentences({ ...base, state: "known", numericValue: 1, numerator: 3, denominator: 3 });
     expect(complete.action).toMatch(/^Nothing to change for this window/);
+  });
+
+  it("names the exact missing authority family for V2 unknown states", () => {
+    const semantic = metricInspectorSentences({
+      metricKey: "collaboration.ambiguity_resolution",
+      label: "Ambiguity resolution",
+      direction: "higher_is_better",
+      state: "unknown",
+      numericValue: null,
+      numerator: null,
+      denominator: null,
+      explanationCode: "opportunity_family_unobservable",
+    });
+    expect(semantic.meaning).toMatch(/cannot yet own the typed opportunity family/i);
+    expect(semantic.meaning).toMatch(/not counted as zero/i);
+
+    const objective = metricInspectorSentences({
+      metricKey: "outcome.verified_requirement_coverage",
+      label: "Verified requirement coverage",
+      direction: "higher_is_better",
+      state: "unknown",
+      numericValue: null,
+      numerator: null,
+      denominator: null,
+      explanationCode: "typed_objective_authority_unavailable",
+    });
+    expect(objective.meaning).toMatch(/provider adapter does not expose/i);
+    expect(objective.meaning).toMatch(/prose and model estimates cannot substitute/i);
   });
 
   it("explains lower-is-better values and the radar-quality center truthfully", () => {

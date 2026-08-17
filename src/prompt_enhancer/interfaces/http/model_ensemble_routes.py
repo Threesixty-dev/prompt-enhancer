@@ -13,6 +13,7 @@ from ...application.analysis.model_ensemble import (
     MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION,
     ModelExpertRole,
 )
+from ...application.analysis.metric_publication_v2 import MetricPublicationV2
 from ...application.analysis.session_model_ensemble import (
     LEGACY_MODEL_ENSEMBLE_CONFIRMATION,
     MODEL_ENSEMBLE_CONFIRMATION,
@@ -268,6 +269,7 @@ class ModelEnsembleRunDto(StrictModel):
     ] | None
     metric_projection_completed_at: datetime | None
     typed_metrics: tuple[ModelEnsembleTypedMetricDto, ...] = Field(max_length=20)
+    metric_publication_v2: MetricPublicationV2 | None
     predictive_projection_version: Literal[
         PROBABILISTIC_METRIC_PROJECTION_VERSION
     ] | None
@@ -355,6 +357,7 @@ class ModelEnsembleRunDto(StrictModel):
                 ModelEnsembleTypedMetricDto.model_validate(item.model_dump())
                 for item in receipt.typed_metrics
             ),
+            metric_publication_v2=receipt.metric_publication_v2,
             predictive_projection_version=(
                 None
                 if receipt.predictive_projection is None

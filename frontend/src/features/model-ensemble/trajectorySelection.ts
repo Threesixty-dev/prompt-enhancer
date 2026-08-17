@@ -23,6 +23,7 @@ export function modelEnsembleTrajectoryRadarData(
   return {
     metrics: point.metrics,
     typed_metrics: point.typed_metrics ?? [],
+    metric_states_v2: point.metric_states_v2 ?? [],
     predictive_metrics: point.predictive_metrics ?? [],
     chunk_metrics: [],
   };

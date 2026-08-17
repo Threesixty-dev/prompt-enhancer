@@ -5,6 +5,7 @@ import {
   parseModelPredictiveMetricSummary,
   parseModelEnsembleTypedMetricReceipt,
 } from "./modelEnsembleContract";
+import { METRIC_V2_KEYS, parseMetricV2State } from "./metricPublicationV2Contract";
 
 export class ModelEnsembleTrajectoryPayloadError extends Error {
   constructor() {
@@ -103,6 +104,7 @@ export function parseModelEnsembleTrajectoryPage(
       "generation", "run_id", "published_at", "completed_at", "max_messages",
       "source_coverage_state", "chunk_count", "comparable_to_head", "metrics",
       "metric_projection_version", "metric_projection_completed_at", "typed_metrics",
+      "metric_states_v2",
       "predictive_projection_version", "predictive_metrics",
     ]);
     const generation = integer(point.generation, 1, 1_000_000_000);
@@ -173,6 +175,22 @@ export function parseModelEnsembleTrajectoryPage(
     }
     if (point.typed_metrics.length > 0 && typedKeys.size !== metricKeys.size) {
       throw new ModelEnsembleTrajectoryPayloadError();
+    }
+    if (!Array.isArray(point.metric_states_v2) || ![0, 20].includes(point.metric_states_v2.length)) {
+      throw new ModelEnsembleTrajectoryPayloadError();
+    }
+    if (point.metric_states_v2.length > 0) {
+      try {
+        point.metric_states_v2.forEach((state, ordinal) => {
+          const parsed = parseMetricV2State(state, METRIC_V2_KEYS[ordinal]);
+          if (!metricKeys.has(parsed.metric_key)) {
+            throw new ModelEnsembleTrajectoryPayloadError();
+          }
+        });
+      } catch (error) {
+        if (error instanceof ModelEnsembleTrajectoryPayloadError) throw error;
+        throw new ModelEnsembleTrajectoryPayloadError();
+      }
     }
     const predictiveVersion = point.predictive_projection_version;
     if (!Array.isArray(point.predictive_metrics) || point.predictive_metrics.length > 20) {

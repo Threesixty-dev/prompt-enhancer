@@ -26,6 +26,7 @@ from .probabilistic_metrics import (
     PROBABILISTIC_METRIC_PROJECTION_VERSION,
     SessionPredictiveMetricProjection,
 )
+from .metric_publication_v2 import MetricPublicationSource, MetricPublicationV2
 from .text_contracts import (
     MAX_ELIGIBLE_MESSAGES,
     P1TextAnalysisInput,
@@ -528,6 +529,7 @@ class SessionModelEnsembleReceipt(StrictModel):
     ] | None = None
     metric_projection_completed_at: datetime | None = None
     typed_metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...] = ()
+    metric_publication_v2: MetricPublicationV2 | None = None
     predictive_projection: SessionPredictiveMetricProjection | None = None
     experts: tuple[ModelExpertReceipt, ...] = Field(
         min_length=MODEL_ENSEMBLE_MODEL_COUNT,
@@ -590,6 +592,27 @@ class SessionModelEnsembleReceipt(StrictModel):
             ):
                 raise ValueError(
                     "typed metric projection must cover the complete committee metric set"
+                )
+        if self.metric_publication_v2 is not None:
+            publication = self.metric_publication_v2
+            if (
+                publication.source is not MetricPublicationSource.LIVE_PROJECTION
+                or publication.compatibility_preview
+                or not publication.canonical_live_snapshot
+                or publication.model_stage_consumed
+            ):
+                raise ValueError(
+                    "canonical V2 metric publication must come from the live measured producer"
+                )
+            publication_keys = tuple(
+                item.state.metric_key for item in publication.metrics
+            )
+            metric_keys = tuple(item.metric_key for item in self.metrics)
+            if len(set(publication_keys)) != len(publication_keys) or set(
+                publication_keys
+            ) != set(metric_keys):
+                raise ValueError(
+                    "canonical V2 metric publication must cover the complete metric set"
                 )
         if self.predictive_projection is not None:
             if (

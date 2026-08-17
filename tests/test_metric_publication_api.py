@@ -294,7 +294,7 @@ def test_publication_is_read_only_and_leaves_stored_receipts_untouched(
     assert before == after
     # A derived projection must be reproducible rather than a second record.
     assert first == second
-    assert SCHEMA_VERSION == 39
+    assert SCHEMA_VERSION == 40
 
 
 def test_publication_adds_no_table_and_cannot_outlive_its_parent_run(
@@ -328,8 +328,13 @@ def test_publication_adds_no_table_and_cannot_outlive_its_parent_run(
             "PRAGMA foreign_key_list(session_analysis_results)"
         ).fetchall()
 
+    # The quality-analysis V1 compatibility preview remains derived.  A
+    # separate canonical model-ensemble V2 sidecar has its own parent lifetime
+    # and must not be mistaken for persistence of this preview.
     assert not any(
-        "metric_publication" in name or "metric_guidance" in name for name in tables
+        name.startswith("session_analysis_")
+        and ("metric_publication" in name or "metric_guidance" in name)
+        for name in tables
     )
     assert "session_analysis_runs(run_id) ON DELETE CASCADE" in results_ddl
     assert any(

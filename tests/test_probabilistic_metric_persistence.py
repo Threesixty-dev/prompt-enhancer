@@ -23,6 +23,13 @@ from prompt_enhancer.application.analysis.model_ensemble_watch import (
     ModelEnsembleStageState,
     ModelEnsembleWatchState,
 )
+from prompt_enhancer.application.analysis.metric_projection_v2 import (
+    project_metric_states_v2,
+)
+from prompt_enhancer.application.analysis.metric_publication_v2 import (
+    MetricPublicationSource,
+    publish_metric_states_v2,
+)
 from prompt_enhancer.application.analysis.probabilistic_metrics import (
     EVIDENCE_LANE_METRIC_KEYS,
     PROBABILISTIC_METRIC_CONTRACTS,
@@ -36,6 +43,9 @@ from prompt_enhancer.application.analysis.probabilistic_metrics import (
 from prompt_enhancer.application.analysis.session_model_ensemble import (
     SessionModelEnsembleOutcome,
     SessionModelEnsembleRunRecord,
+)
+from prompt_enhancer.application.analysis.semantic_units import (
+    SemanticUnitReconciler,
 )
 from prompt_enhancer.application.analysis.text_contracts import (
     ApplicabilityBasis,
@@ -73,6 +83,28 @@ from prompt_enhancer.privacy import Pseudonymizer
 
 NOW = datetime(2042, 4, 5, 12, 0, tzinfo=UTC)
 TOKEN = "example_probabilistic_metric_token_1234567890"
+
+
+class _SyntheticIdFactory:
+    def fingerprint(self, namespace: str, values: tuple[str, ...]) -> str:
+        return hashlib.sha256(
+            "\x1f".join((namespace, *values)).encode("utf-8")
+        ).hexdigest()
+
+    def fingerprint_secret(
+        self,
+        namespace: str,
+        values: tuple[str, ...],
+        secret: SecretStr,
+    ) -> str:
+        return hashlib.sha256(
+            "\x1f".join(
+                (namespace, *values, secret.get_secret_value())
+            ).encode("utf-8")
+        ).hexdigest()
+
+
+IDS = _SyntheticIdFactory()
 
 
 class _ReadOnlyService:
@@ -460,6 +492,232 @@ def test_predictive_projection_round_trips_is_immutable_and_privacy_cascades(
             ).fetchone()[0] == 0
 
 
+def test_metric_v2_publication_round_trips_is_immutable_and_privacy_cascades(
+    tmp_path,
+) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    context = _context(session_id)
+    receipt = LocalProbabilisticMetricRunner(
+        executor=lambda spec, stage, payload, device: _completed_result(payload),
+        clock=lambda: NOW,
+    ).run(
+        build_ensemble_chunks(context),
+        coaching_ensemble_metric_specs(),
+    )
+    reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
+    publication = publish_metric_states_v2(
+        project_metric_states_v2(
+            context=context,
+            reconciliation=reconciliation,
+            id_factory=IDS,
+        )
+    )
+    assert publication.source is MetricPublicationSource.LIVE_PROJECTION
+    assert publication.canonical_live_snapshot is True
+    assert publication.compatibility_preview is False
+    assert publication.model_stage_consumed is False
+    assert len(publication.metrics) == 20
+
+    receipt = receipt.model_copy(
+        update={"metric_publication_v2": publication}
+    )
+    record = SessionModelEnsembleRunRecord(
+        run_id="7" * 64,
+        session_id=session_id,
+        request_fingerprint="8" * 64,
+        input_fingerprint="a" * 64,
+        provider=Provider.CODEX,
+        provider_version="synthetic-provider-v1",
+        adapter_version="synthetic-adapter-v1",
+        source_schema_version="synthetic-source-v1",
+        content_schema_version="synthetic-content-v1",
+        redactor_version="synthetic-redactor-v1",
+        receipt=receipt,
+    )
+    repository = database.model_ensemble_repository()
+    repository.save_completed(record)
+
+    loaded = repository.get(record.run_id)
+    assert loaded is not None
+    assert loaded.receipt.metric_publication_v2 == publication
+    assert {item.metric_key for item in loaded.receipt.metrics} == {
+        item.metric_key for item in record.receipt.metrics
+    }
+
+    # A projection fingerprint seals content; it is not a global run identity.
+    # Two independent runs may legitimately publish the same twenty states.
+    second = record.model_copy(
+        update={
+            "run_id": "6" * 64,
+            "request_fingerprint": "5" * 64,
+            "receipt": record.receipt.model_copy(
+                update={"predictive_projection": None}
+            ),
+        }
+    )
+    repository.save_completed(second)
+    second_loaded = repository.get(second.run_id)
+    assert second_loaded is not None
+    assert second_loaded.receipt.metric_publication_v2 == publication
+    third = second.model_copy(
+        update={
+            "run_id": "0" * 64,
+            "request_fingerprint": "9" * 64,
+        }
+    )
+    repository.save_completed(third)
+
+    legacy = second.model_copy(
+        update={
+            "run_id": "4" * 64,
+            "request_fingerprint": "3" * 64,
+            "receipt": second.receipt.model_copy(
+                update={"metric_publication_v2": None}
+            ),
+        }
+    )
+    repository.save_completed(legacy)
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "2" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        max_messages=100,
+        now=NOW,
+    )
+    claimed = watches.claim_due(
+        owner="1" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=1),
+        next_check_at=NOW + timedelta(seconds=2),
+        outcome=SessionModelEnsembleOutcome(run=legacy, applied=True),
+    )
+    claimed = watches.claim_due(
+        owner="1" * 64,
+        now=NOW + timedelta(seconds=2),
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=3),
+        next_check_at=NOW + timedelta(seconds=4),
+        outcome=SessionModelEnsembleOutcome(run=second, applied=True),
+    )
+    claimed = watches.claim_due(
+        owner="1" * 64,
+        now=NOW + timedelta(seconds=4),
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=5),
+        next_check_at=NOW + timedelta(seconds=60),
+        outcome=SessionModelEnsembleOutcome(run=third, applied=True),
+    )
+    trajectory = watches.list_publications(
+        watch_id,
+        before_generation=None,
+        limit=12,
+    )
+    assert tuple(point.run_id for point in trajectory.points) == (
+        third.run_id,
+        second.run_id,
+        legacy.run_id,
+    )
+    assert trajectory.points[0].comparable_to_head is True
+    assert trajectory.points[1].comparable_to_head is True
+    assert trajectory.points[2].comparable_to_head is False
+    assert trajectory.points[0].metric_states_v2 == tuple(
+        item.state for item in publication.metrics
+    )
+    assert trajectory.points[1].metric_states_v2 == trajectory.points[0].metric_states_v2
+    assert trajectory.points[2].metric_states_v2 == ()
+
+    with sqlite3.connect(database.path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        assert connection.execute(
+            """SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2
+               WHERE run_id=?""",
+            (record.run_id,),
+        ).fetchone()[0] == 20
+        assert connection.execute(
+            """SELECT COUNT(*)
+               FROM session_model_ensemble_metric_publication_v2_seals
+               WHERE run_id=?""",
+            (record.run_id,),
+        ).fetchone()[0] == 1
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                """UPDATE session_model_ensemble_metric_states_v2
+                   SET source_complete=source_complete
+                   WHERE run_id=?""",
+                (record.run_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="sealed"):
+            connection.execute(
+                """INSERT INTO session_model_ensemble_metric_states_v2
+                   SELECT * FROM session_model_ensemble_metric_states_v2
+                   WHERE run_id=? LIMIT 1""",
+                (record.run_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                """UPDATE session_model_ensemble_metric_publication_v2_seals
+                   SET known_count=known_count WHERE run_id=?""",
+                (record.run_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="parent privacy deletion"):
+            connection.execute(
+                """DELETE FROM session_model_ensemble_metric_states_v2
+                   WHERE run_id=?""",
+                (record.run_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="parent privacy deletion"):
+            connection.execute(
+                """DELETE FROM session_model_ensemble_metric_publication_v2_seals
+                   WHERE run_id=?""",
+                (record.run_id,),
+            )
+
+    database_bytes = database.path.read_bytes()
+    assert b"Create a fictional parser" not in database_bytes
+    assert b"fictional implementation" not in database_bytes
+
+    assert repository.delete_for_privacy(record.run_id) is True
+    # Privacy deletion is deliberately session-wide, so the sibling run is
+    # erased by the same operation.
+    assert repository.get(second.run_id) is None
+    with sqlite3.connect(database.path) as connection:
+        assert connection.execute(
+            """SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2
+               WHERE run_id=?""",
+            (record.run_id,),
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            """SELECT COUNT(*)
+               FROM session_model_ensemble_metric_publication_v2_seals
+               WHERE run_id=?""",
+            (record.run_id,),
+        ).fetchone()[0] == 0
+
+
 def test_optional_deep_timeout_publishes_partial_head_and_clears_watch_failure(
     tmp_path,
 ) -> None:
@@ -585,7 +843,7 @@ def test_optional_deep_timeout_publishes_partial_head_and_clears_watch_failure(
 def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
     tmp_path,
 ) -> None:
-    assert SCHEMA_VERSION == 39
+    assert SCHEMA_VERSION == 40
     assert LIVE_PROBABILISTIC_PLAN_VERSION == "small-factor-router-v5"
     assert PROBABILISTIC_MODEL_SET_VERSION == "local-factor-router-v3"
 
@@ -659,6 +917,7 @@ def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
     runs = database.model_ensemble_repository()
     loaded_historical = runs.get(historical_record.run_id)
     assert loaded_historical is not None
+    assert loaded_historical.receipt.metric_publication_v2 is None
     assert loaded_historical.receipt.predictive_projection is not None
     assert (
         loaded_historical.receipt.predictive_projection.model_set_version
@@ -668,6 +927,14 @@ def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
         item.model_set_version == PROBABILISTIC_MODEL_SET_VERSION_V2
         for item in loaded_historical.receipt.predictive_projection.metrics
     )
+    with sqlite3.connect(database.path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            """SELECT COUNT(*)
+               FROM session_model_ensemble_metric_publication_v2_seals"""
+        ).fetchone()[0] == 0
 
     live_record = historical_record.model_copy(
         update={
@@ -715,7 +982,7 @@ def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
     }
     with sqlite3.connect(database.path) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 39
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 40
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute(

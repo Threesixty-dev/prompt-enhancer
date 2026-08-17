@@ -15,6 +15,9 @@ from prompt_enhancer.application.analysis.metric_projection_v2 import (
     classify_feedback_rework,
     project_metric_states_v2,
 )
+from prompt_enhancer.application.analysis.metric_publication_v2 import (
+    publish_metric_states_v2,
+)
 from prompt_enhancer.application.analysis.objective_metric_projection import (
     ObjectiveMetricOverride,
 )
@@ -347,6 +350,39 @@ def test_rubric_statistics_match_the_exact_factor_fraction() -> None:
         state.statistics.not_met_count,
         state.statistics.distinct_owner_count,
     ) == (3, 2, 1, 1)
+
+
+def test_incomplete_legacy_scope_withholds_a_known_rubric_without_crashing() -> None:
+    context = _context(
+        (
+            _message(
+                "incomplete-rubric-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Create the fictional widget report.",
+            ),
+        ),
+        label="incomplete-rubric",
+        complete=False,
+    )
+    result = SimpleNamespace(
+        value_state=MetricValueState.KNOWN,
+        fraction=MetricFraction(numerator=2, denominator=3),
+        explanation_code="synthetic_rubric_result",
+    )
+
+    projection = _project(
+        context,
+        conversational={"prompt.task_definition_coverage": result},
+    )
+    state = _by_key(projection)["prompt.task_definition_coverage"]
+    publication = publish_metric_states_v2(projection)
+
+    assert state.value_state is MetricValueStateV2.UNKNOWN
+    assert state.numeric_value is None
+    assert state.explanation_code == "source_reconciliation_incomplete"
+    assert publication.unknown_count >= 1
 
 
 def test_rubric_denominator_mismatch_is_unknown_not_a_score() -> None:

@@ -231,7 +231,7 @@ export type MetricInspectorKind =
 export interface MetricInspectorInput {
   metricKey: string;
   label: string;
-  state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error" | "missing";
+  state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error" | "pending" | "missing";
   direction: MetricHelpDirection;
   numericValue: number | null;
   numerator: number | null;
@@ -272,6 +272,7 @@ function readableFactor(value: string): string {
 }
 
 function inspectorKind(input: MetricInspectorInput): MetricInspectorKind {
+  if (input.state === "pending") return "pending";
   if (input.state !== "known" && input.explanationCode === "episode_horizon_open") return "pending";
   if (input.state === "not_applicable") return "not_applicable";
   if (input.state === "execution_error") return "execution_error";
@@ -320,9 +321,21 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       meaning = `Not applicable: no eligible ${unit} was observed in this window, so ${input.label} has nothing to score and no value is implied.`;
       break;
     case "unknown":
-      meaning = objective
-        ? `Unknown: no authoritative typed receipt or link is available for ${input.label} in this sealed receipt; prose is not accepted, so this is missing evidence, not a low value.`
-        : `Unknown: this receipt exposes no eligible ${unit} or the event family ${input.label} needs, so no value exists; this is missing evidence, not a low value.`;
+      if ((input.explanationCode ?? "").includes("objective_authority") || input.explanationCode === "typed_objective_absent") {
+        meaning = `Unknown: the active provider adapter does not expose the authoritative opportunity links and typed receipts ${input.label} requires; prose and model estimates cannot substitute, so this is not a low value.`;
+      } else if (input.explanationCode === "opportunity_family_unobservable") {
+        meaning = `Unknown: the active provider adapter cannot yet own the typed opportunity family ${input.label} requires; the missing event family is not counted as zero.`;
+      } else if (input.explanationCode === "source_reconciliation_incomplete" || input.explanationCode === "semantic_units_unavailable") {
+        meaning = `Unknown: semantic-unit reconciliation was not complete for this exact analyzed window, so ${input.label} was withheld instead of scoring a partial source as complete.`;
+      } else if (input.explanationCode === "opportunity_set_undetermined") {
+        meaning = `Unknown: the task profile did not declare the expected ${unit} set, so ${input.label} has no defensible denominator and was not converted to zero.`;
+      } else if (input.explanationCode === "diagnostic_task_not_detected") {
+        meaning = `Unknown: this window did not establish that the request was diagnostic, so ${input.label} cannot assume that problem-evidence opportunities applied.`;
+      } else {
+        meaning = objective
+          ? `Unknown: no authoritative typed receipt or link is available for ${input.label} in this sealed receipt; prose is not accepted, so this is missing evidence, not a low value.`
+          : `Unknown: this receipt exposes no eligible ${unit} or the event family ${input.label} needs, so no value exists; this is missing evidence, not a low value.`;
+      }
       break;
     case "abstained":
       meaning = objective

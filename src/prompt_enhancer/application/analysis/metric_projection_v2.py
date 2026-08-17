@@ -834,22 +834,10 @@ def _rubric_state(
             statistics=statistics,
         )
     assert conversational is not None
-    fraction = conversational.fraction
-    assert fraction is not None
-    ratio = fraction.numerator / fraction.denominator
-    return MetricStateV2(
-        metric_key=contract.metric_key,
-        contract_version=contract.contract_version,
-        contract_fingerprint=contract.fingerprint,
-        evidence_authority=contract.evidence_authority,
-        value_state=MetricValueStateV2.KNOWN,
+    return resolve_metric_state(
+        contract,
+        statistics,
         explanation_code=conversational.explanation_code,
-        numerator=fraction.numerator,
-        denominator=fraction.denominator,
-        numeric_value=ratio,
-        censoring_lower_bound=ratio,
-        censoring_upper_bound=ratio,
-        statistics=statistics,
     )
 
 
@@ -1087,8 +1075,14 @@ def project_metric_states_v2(
         if reconciliation is None
         else _canonical_revision(context, reconciliation, window)
     )
-    source_complete = (
-        False if reconciliation is None else reconciliation.source_complete
+    # A fixed rubric or declared profile belongs to the canonical request in
+    # the explicitly requested bounded scope. It does not require proof that
+    # the provider supplied the whole session. Cross-turn semantic episodes do:
+    # they continue to use the reconciliation's stricter completeness flag.
+    requested_scope_complete = context.requested_scope_complete or (
+        context.analysis_scope is None
+        and context.window_complete
+        and context.text_extraction_complete
     )
     states: list[MetricStateV2] = []
     for contract in METRIC_CONTRACTS_V2:
@@ -1103,7 +1097,7 @@ def project_metric_states_v2(
                     context,
                     revision,
                     window,
-                    source_complete=source_complete,
+                    source_complete=requested_scope_complete,
                 )
             )
         elif contract.denominator_basis is DenominatorBasis.RUBRIC_FACTORS:
@@ -1112,7 +1106,7 @@ def project_metric_states_v2(
                     contract,
                     conversational.get(contract.metric_key),
                     revision,
-                    source_complete=source_complete,
+                    source_complete=requested_scope_complete,
                 )
             )
         elif reconciliation is None:

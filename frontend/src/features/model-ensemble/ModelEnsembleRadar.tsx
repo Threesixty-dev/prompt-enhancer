@@ -12,6 +12,7 @@ import {
   MODEL_ENSEMBLE_LENSES,
   MODEL_ENSEMBLE_WITHHELD_LANE_MAGNITUDE,
   isModelEnsembleTypedMetric,
+  isModelEnsembleV2Metric,
   modelEnsembleAxisCoverage,
   modelEnsembleAxisEvidence,
   modelEnsembleAxisPlottedLabel,
@@ -116,7 +117,9 @@ export function ModelEnsembleRadar({
     : run.chunk_metrics
       .filter((metric) => metric.metric_key === selected.key)
       .sort((left, right) => left.chunk_ordinal - right.chunk_ordinal);
-  const usesTypedProjection = (run.typed_metrics?.length ?? 0) > 0;
+  const usesV2Publication = (run.metric_publication_v2 !== undefined && run.metric_publication_v2 !== null)
+    || (run.metric_states_v2?.length ?? 0) > 0;
+  const usesTypedProjection = usesV2Publication || (run.typed_metrics?.length ?? 0) > 0;
   const selectedCommitteeMetric = selected === undefined
     ? null
     : run.metrics.find((metric) => metric.metric_key === selected.key) ?? null;
@@ -143,7 +146,7 @@ export function ModelEnsembleRadar({
           </span>
         </div>
         <span className="model-ensemble__radar-coverage">
-          {usesTypedProjection ? "Typed local measurement" : "Legacy committee shadow"} · coverage, not confidence
+          {usesV2Publication ? "Canonical V2 measured states" : usesTypedProjection ? "Typed local measurement" : "Legacy committee shadow"} · coverage, not confidence
         </span>
       </header>
       <svg
@@ -344,7 +347,9 @@ export function ModelEnsembleRadar({
               <small>
                 applicability {selected.prediction.applicability_probability == null
                   ? "not estimable"
-                  : `${Math.round(selected.prediction.applicability_probability! * 100)}%`} · disagreement {selected.prediction.model_disagreement == null ? "not estimable" : `${Math.round(selected.prediction.model_disagreement * 100)}%`} · n={selected.prediction.effective_observation_count} · {selected.prediction.calibration_version.replaceAll("-", " ")}
+                  : `${Math.round(selected.prediction.applicability_probability! * 100)}%`} · disagreement {selected.prediction.model_disagreement == null ? "not estimable" : `${Math.round(selected.prediction.model_disagreement * 100)}%`} · {selected.prediction.effective_observation_count <= 1
+                    ? "effective support not established"
+                    : `effective observations ${selected.prediction.effective_observation_count}`} · {selected.prediction.calibration_version.replaceAll("-", " ")}
               </small>
               {predictiveDetailState === "loading" && <small>Loading the content-free factor distribution…</small>}
               {predictiveDetailState === "failed" && <small>Detailed factor distribution is temporarily unavailable.</small>}
@@ -371,7 +376,14 @@ export function ModelEnsembleRadar({
           )}
           {selected.metric !== null && (
             <dl>
-              {isTypedMetric(selected.metric) ? (
+              {isModelEnsembleV2Metric(selected.metric) ? (
+                <>
+                  <div><dt>V2 fraction</dt><dd>{selected.metric.numerator ?? "—"}/{selected.metric.denominator ?? "—"}</dd></div>
+                  <div><dt>Resolved opportunities</dt><dd>{selected.metric.observed_message_count}/{selected.metric.eligible_message_count}</dd></div>
+                  <div><dt>Evidence authority</dt><dd>{selected.metric.evidence_authority.replaceAll("_", " ")}</dd></div>
+                  <div><dt>Model estimate</dt><dd>{selected.prediction?.state.replaceAll("_", " ") ?? "unavailable"}</dd></div>
+                </>
+              ) : isTypedMetric(selected.metric) ? (
                 <>
                   <div><dt>Typed fraction</dt><dd>{selected.metric.numerator ?? "—"}/{selected.metric.denominator ?? "—"}</dd></div>
                   <div><dt>Metric coverage</dt><dd>{selected.metric.observed_message_count}/{selected.metric.eligible_message_count}</dd></div>
@@ -418,8 +430,9 @@ export function ModelEnsembleRadar({
         higher-is-better, a raw rate of 100% for lower-is-better). A model estimate
         appears as an independent diamond with per-axis whiskers only when
         at least two small experts are proven and the 90% span is informative. Rings around known
-        points show source-message coverage for typed measurements (legacy
-        receipts show eligible committee-observation coverage). Structural
+        points show resolved-versus-eligible opportunity coverage for canonical
+        V2 measurements (legacy typed receipts show source-message coverage;
+        legacy committee receipts show eligible-observation coverage). Structural
         ownership cells are not analytic observations. The outline has no area fill because
         these metrics are separate constructs, not one overall quality score.
         {comparisonRun === null ? "" : ` Dashed lines and diamonds show ${comparisonLabel.toLowerCase()}.`}

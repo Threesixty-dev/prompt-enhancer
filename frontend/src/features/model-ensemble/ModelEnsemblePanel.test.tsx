@@ -136,6 +136,7 @@ function runFixture(): ModelEnsembleRun {
     })),
     metric_projection_version: "coaching-typed-projection-v1",
     metric_projection_completed_at: "2040-01-02T10:00:01Z",
+    metric_publication_v2: null,
     typed_metrics: metricKeys.map((metric_key, index) => ({
       metric_key,
       metric_version: 3,
@@ -311,6 +312,7 @@ function trajectoryFixture(): ModelEnsembleTrajectoryPage {
       metric_projection_version: run.metric_projection_version,
       metric_projection_completed_at: run.metric_projection_completed_at,
       typed_metrics: run.typed_metrics,
+      metric_states_v2: [],
       predictive_projection_version: run.predictive_projection_version,
       predictive_metrics: run.predictive_metrics,
     }],
@@ -968,6 +970,8 @@ describe("ModelEnsemblePanel", () => {
     expect(screen.getByText(/Raw modeled lower-is-better rate: median 2%/i)).toBeVisible();
     expect(screen.getByText(/applicability not estimable/i)).toBeVisible();
     expect(screen.queryByText(/applicability 0%/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/effective support not established/i)).toBeVisible();
+    expect(screen.queryByText(/n=1/i)).not.toBeInTheDocument();
     expect(await screen.findByLabelText("Radar-quality predictive density")).toBeVisible();
     expect(screen.getByText(/density uses the same radar-quality direction/i)).toBeVisible();
   });

@@ -3815,8 +3815,6 @@
             "type": "integer"
           },
           "canonical_live_snapshot": {
-            "const": false,
-            "default": false,
             "title": "Canonical Live Snapshot",
             "type": "boolean"
           },
@@ -3922,6 +3920,7 @@
         "required": [
           "contract_set_fingerprint",
           "source",
+          "canonical_live_snapshot",
           "compatibility_preview",
           "metrics",
           "known_count",
@@ -5526,6 +5525,16 @@
             ],
             "title": "Metric Projection Version"
           },
+          "metric_publication_v2": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricPublicationV2"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "metrics": {
             "items": {
               "$ref": "#/components/schemas/ModelEnsembleMetricDto"
@@ -5641,6 +5650,7 @@
           "metric_projection_version",
           "metric_projection_completed_at",
           "typed_metrics",
+          "metric_publication_v2",
           "predictive_projection_version",
           "predictive_projected_at",
           "predictive_metrics",
@@ -5780,6 +5790,15 @@
               }
             ],
             "title": "Metric Projection Version"
+          },
+          "metric_states_v2": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MetricStateV2"
+            },
+            "maxItems": 20,
+            "title": "Metric States V2",
+            "type": "array"
           },
           "metrics": {
             "items": {

@@ -452,6 +452,11 @@ def test_service_seals_ten_compatibility_slots_once_and_stores_no_text() -> None
     assert len(first.run.receipt.experts) == MODEL_ENSEMBLE_MODEL_COUNT
     assert len(first.run.receipt.metrics) == 20
     assert len(first.run.receipt.typed_metrics) == 20
+    assert first.run.receipt.metric_publication_v2 is not None
+    assert first.run.receipt.metric_publication_v2.canonical_live_snapshot is True
+    assert first.run.receipt.metric_publication_v2.compatibility_preview is False
+    assert first.run.receipt.metric_publication_v2.model_stage_consumed is False
+    assert len(first.run.receipt.metric_publication_v2.metrics) == 20
     assert first.run.receipt.metric_projection_version == "coaching-typed-projection-v1"
     assert sum(
         item.value_state.value == "known"
@@ -498,6 +503,17 @@ def test_service_atomically_persists_content_free_semantic_unit_heads() -> None:
     assert reconciliation.heads[0].kind.value == "request_revision"
     serialized = reconciliation.model_dump_json()
     assert "fictional" not in serialized.lower()
+
+    publication = outcome.run.receipt.metric_publication_v2
+    assert publication is not None
+    states = {item.state.metric_key: item.state for item in publication.metrics}
+    assert (publication.known_count, publication.not_applicable_count) == (3, 2)
+    assert states["prompt.task_definition_coverage"].value_state.value == "known"
+    assert states["outcome.verification_strategy_adequacy"].value_state.value == "known"
+    assert states["collaboration.rework_candidate_rate"].value_state.value == "not_applicable"
+    assert states["collaboration.ambiguity_resolution"].value_state.value == "unknown"
+    assert states["collaboration.ambiguity_resolution"].numeric_value is None
+    assert states["collaboration.ambiguity_resolution"].explanation_code == "opportunity_family_unobservable"
 
 
 def test_typed_provider_verification_updates_only_the_measured_evidence_lane() -> None:
@@ -582,6 +598,13 @@ def test_typed_provider_verification_updates_only_the_measured_evidence_lane() -
         for item in outcome.run.receipt.predictive_projection.metrics
         if item.metric_key == "outcome.first_pass_verification"
     )
+    publication = outcome.run.receipt.metric_publication_v2
+    assert publication is not None
+    published = next(
+        item
+        for item in publication.metrics
+        if item.state.metric_key == "outcome.first_pass_verification"
+    )
     assert (measured.value_state.value, measured.numerator, measured.denominator) == (
         "known",
         1,
@@ -593,6 +616,10 @@ def test_typed_provider_verification_updates_only_the_measured_evidence_lane() -
     assert measured.observed_message_count == measured.eligible_message_count == 1
     assert measured.coverage == 1.0
     assert predicted.state.value == "unavailable"
+    assert published.state.value_state.value == "known"
+    assert (published.state.numerator, published.state.denominator) == (1, 1)
+    assert published.state.evidence_authority.value == "objective_receipt"
+    assert publication.objective_measured_count == 1
     assert predicted.mean is None and predicted.density_bins == ()
 
 
@@ -727,6 +754,10 @@ def test_private_api_returns_only_content_free_shadow_receipts(tmp_path) -> None
     payload = response.json()["run"]
     assert payload["model_count"] == 10
     assert len(payload["experts"]) == 10
+    assert payload["metric_publication_v2"]["source"] == "live_projection"
+    assert payload["metric_publication_v2"]["canonical_live_snapshot"] is True
+    assert payload["metric_publication_v2"]["compatibility_preview"] is False
+    assert len(payload["metric_publication_v2"]["metrics"]) == 20
     assert payload["content_persisted"] is False
     assert payload["product_metric_eligible"] is False
     assert "source_window_fingerprint" not in response.text

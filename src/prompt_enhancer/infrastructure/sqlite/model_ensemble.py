@@ -23,6 +23,24 @@ from ...application.analysis.model_ensemble import (
     SessionModelEnsembleTypedMetricReceipt,
     SourceCoverageState,
 )
+from ...application.analysis.metric_contract_v2 import (
+    DenominatorBasis,
+    EvidenceAuthority,
+    METRIC_CONTRACTS_V2,
+    MetricValueStateV2,
+)
+from ...application.analysis.metric_projection_v2 import (
+    MetricStateV2,
+    OpportunityStatistics,
+    _issue_metric_state_projection,
+)
+from ...application.analysis.metric_publication_v2 import (
+    METRIC_PUBLICATION_V2_KEY,
+    METRIC_PUBLICATION_V2_VERSION,
+    MetricPublicationSource,
+    MetricPublicationV2,
+    publish_metric_states_v2,
+)
 from ...application.analysis.session_model_ensemble import (
     SessionModelEnsemblePersistenceAuthority,
     SessionModelEnsembleRepository,
@@ -59,6 +77,7 @@ def _graph_fingerprint(run: SessionModelEnsembleRunRecord) -> str:
     receipt.pop("metric_projection_version", None)
     receipt.pop("metric_projection_completed_at", None)
     receipt.pop("typed_metrics", None)
+    receipt.pop("metric_publication_v2", None)
     receipt.pop("predictive_projection", None)
     receipt["chunk_plan"] = sorted(
         receipt["chunk_plan"], key=lambda item: item["ordinal"]
@@ -135,6 +154,23 @@ def _predictive_projection_fingerprint(
         )
     payload["model_stages"] = sorted(
         payload["model_stages"], key=lambda item: item["model_key"]
+    )
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _metric_publication_v2_fingerprint(
+    publication: MetricPublicationV2,
+) -> str:
+    payload = publication.model_dump(mode="json")
+    payload["metrics"] = sorted(
+        payload["metrics"], key=lambda item: item["state"]["metric_key"]
     )
     return hashlib.sha256(
         json.dumps(
@@ -432,6 +468,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     ),
                 )
                 self._insert_metric_projection(connection, run)
+                self._insert_metric_publication_v2(connection, run)
                 self._insert_predictive_projection(connection, run)
                 self._insert_semantic_unit_reconciliation(
                     connection,
@@ -439,7 +476,12 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     semantic_units,
                 )
                 hydrated = self._hydrate(connection, run.run_id)
-                if hydrated is None or _graph_fingerprint(hydrated) != _graph_fingerprint(run):
+                if (
+                    hydrated is None
+                    or _graph_fingerprint(hydrated) != _graph_fingerprint(run)
+                    or hydrated.receipt.metric_publication_v2
+                    != run.receipt.metric_publication_v2
+                ):
                     raise DatabaseInvariantError(
                         "stored model ensemble graph failed exact rehydration"
                     )
@@ -496,6 +538,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                         "typed metric projection does not match the sealed ensemble run"
                     )
                 self._insert_metric_projection(connection, run)
+                self._insert_metric_publication_v2(connection, run)
                 self._insert_predictive_projection(connection, run)
                 hydrated = self._hydrate(connection, run.run_id)
                 if (
@@ -505,6 +548,8 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     or hydrated.receipt.metric_projection_completed_at
                     != run.receipt.metric_projection_completed_at
                     or hydrated.receipt.typed_metrics != run.receipt.typed_metrics
+                    or hydrated.receipt.metric_publication_v2
+                    != run.receipt.metric_publication_v2
                 ):
                     raise DatabaseInvariantError(
                         "typed metric projection failed exact rehydration"
@@ -718,6 +763,114 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 projection.sample_count,
                 _predictive_projection_fingerprint(projection),
                 to_iso(projection.projected_at),
+            ),
+        )
+
+    @staticmethod
+    def _insert_metric_publication_v2(
+        connection,
+        run: SessionModelEnsembleRunRecord,
+    ) -> None:
+        publication = run.receipt.metric_publication_v2
+        if publication is None:
+            return
+        if (
+            publication.source is not MetricPublicationSource.LIVE_PROJECTION
+            or publication.compatibility_preview
+            or not publication.canonical_live_snapshot
+            or publication.model_stage_consumed
+        ):
+            raise DatabaseInvariantError(
+                "metric V2 sidecar must be a canonical live measured publication"
+            )
+        connection.executemany(
+            """
+            INSERT INTO session_model_ensemble_metric_states_v2(
+                run_id,metric_ordinal,registry_version,projection_version,
+                metric_key,contract_version,contract_fingerprint,
+                evidence_authority,value_state,explanation_code,numerator,
+                denominator,numeric_value,censoring_lower_bound,
+                censoring_upper_bound,denominator_basis,opportunity_unit_kind,
+                capability_available,source_complete,eligible_count,met_count,
+                not_met_count,pending_count,unknown_count,
+                superseded_excluded_count,distinct_owner_count,
+                product_metric_eligible
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+            """,
+            (
+                (
+                    run.run_id,
+                    ordinal,
+                    publication.registry_version,
+                    publication.projection_version,
+                    item.state.metric_key,
+                    item.state.contract_version,
+                    item.state.contract_fingerprint,
+                    item.state.evidence_authority.value,
+                    item.state.value_state.value,
+                    item.state.explanation_code,
+                    item.state.numerator,
+                    item.state.denominator,
+                    item.state.numeric_value,
+                    item.state.censoring_lower_bound,
+                    item.state.censoring_upper_bound,
+                    item.state.statistics.denominator_basis.value,
+                    (
+                        None
+                        if item.state.statistics.opportunity_unit_kind is None
+                        else item.state.statistics.opportunity_unit_kind.value
+                    ),
+                    int(item.state.statistics.capability_available),
+                    int(item.state.statistics.source_complete),
+                    item.state.statistics.eligible_count,
+                    item.state.statistics.met_count,
+                    item.state.statistics.not_met_count,
+                    item.state.statistics.pending_count,
+                    item.state.statistics.unknown_count,
+                    item.state.statistics.superseded_excluded_count,
+                    item.state.statistics.distinct_owner_count,
+                )
+                for ordinal, item in enumerate(publication.metrics)
+            ),
+        )
+        projected_at = (
+            run.receipt.metric_projection_completed_at
+            or run.receipt.completed_at
+        )
+        connection.execute(
+            """
+            INSERT INTO session_model_ensemble_metric_publication_v2_seals(
+                run_id,publication_key,publication_version,registry_version,
+                contract_set_fingerprint,projection_version,
+                guidance_contract_version,guidance_template_catalog_version,
+                source,canonical_live_snapshot,model_stage_consumed,
+                compatibility_preview,metric_count,known_count,pending_count,
+                unknown_count,not_applicable_count,abstained_count,
+                execution_error_count,objective_measured_count,
+                projection_fingerprint,projected_at,local_only,
+                content_persisted,product_metric_eligible
+            ) VALUES(?,?,?,?,?,?,?,?,?,1,0,0,?,?,?,?,?,?,?,?,?,?,1,0,0)
+            """,
+            (
+                run.run_id,
+                publication.publication_key,
+                publication.publication_version,
+                publication.registry_version,
+                publication.contract_set_fingerprint,
+                publication.projection_version,
+                publication.guidance_contract_version,
+                publication.guidance_template_catalog_version,
+                publication.source.value,
+                len(publication.metrics),
+                publication.known_count,
+                publication.pending_count,
+                publication.unknown_count,
+                publication.not_applicable_count,
+                publication.abstained_count,
+                publication.execution_error_count,
+                publication.objective_measured_count,
+                _metric_publication_v2_fingerprint(publication),
+                to_iso(projected_at),
             ),
         )
 
@@ -1230,6 +1383,78 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 ).fetchall()
             )
             projection_completed_at = from_iso(projection_seal["projected_at"])
+        # Current repository code is also used by the v38/v39 upgrade fixtures to
+        # prove that historical graphs remain readable before MIGRATION_40 is
+        # applied.  Missing sidecar tables in those exact legacy schemas mean
+        # "no V2 publication", not database corruption.
+        metric_publication_v2_tables_present = connection.execute(
+            """SELECT COUNT(*) AS table_count FROM sqlite_master
+               WHERE type='table' AND name IN (
+                 'session_model_ensemble_metric_states_v2',
+                 'session_model_ensemble_metric_publication_v2_seals'
+               )"""
+        ).fetchone()["table_count"] == 2
+        metric_publication_v2_seal = (
+            connection.execute(
+                """SELECT * FROM session_model_ensemble_metric_publication_v2_seals
+                   WHERE run_id=?""",
+                (run_id,),
+            ).fetchone()
+            if metric_publication_v2_tables_present
+            else None
+        )
+        metric_publication_v2 = None
+        if metric_publication_v2_seal is not None:
+            states = tuple(
+                MetricStateV2(
+                    metric_key=item["metric_key"],
+                    registry_version=item["registry_version"],
+                    contract_version=item["contract_version"],
+                    contract_fingerprint=item["contract_fingerprint"],
+                    evidence_authority=EvidenceAuthority(
+                        item["evidence_authority"]
+                    ),
+                    value_state=MetricValueStateV2(item["value_state"]),
+                    explanation_code=item["explanation_code"],
+                    numerator=item["numerator"],
+                    denominator=item["denominator"],
+                    numeric_value=item["numeric_value"],
+                    censoring_lower_bound=item["censoring_lower_bound"],
+                    censoring_upper_bound=item["censoring_upper_bound"],
+                    statistics=OpportunityStatistics(
+                        metric_key=item["metric_key"],
+                        denominator_basis=DenominatorBasis(
+                            item["denominator_basis"]
+                        ),
+                        opportunity_unit_kind=item["opportunity_unit_kind"],
+                        capability_available=bool(item["capability_available"]),
+                        source_complete=bool(item["source_complete"]),
+                        eligible_count=item["eligible_count"],
+                        met_count=item["met_count"],
+                        not_met_count=item["not_met_count"],
+                        pending_count=item["pending_count"],
+                        unknown_count=item["unknown_count"],
+                        superseded_excluded_count=item[
+                            "superseded_excluded_count"
+                        ],
+                        distinct_owner_count=item["distinct_owner_count"],
+                    ),
+                    projection_version=item["projection_version"],
+                    product_metric_eligible=bool(
+                        item["product_metric_eligible"]
+                    ),
+                )
+                for item in connection.execute(
+                    """SELECT * FROM session_model_ensemble_metric_states_v2
+                       WHERE run_id=? ORDER BY metric_ordinal""",
+                    (run_id,),
+                ).fetchall()
+            )
+            live_projection = _issue_metric_state_projection(
+                states,
+                compatibility=False,
+            )
+            metric_publication_v2 = publish_metric_states_v2(live_projection)
         predictive_seal = connection.execute(
             """SELECT * FROM session_model_ensemble_predictive_metric_seals
                WHERE run_id=? AND projection_version=?""",
@@ -1369,6 +1594,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             ),
             metric_projection_completed_at=projection_completed_at,
             typed_metrics=typed_metrics,
+            metric_publication_v2=metric_publication_v2,
             predictive_projection=predictive_projection,
             experts=experts,
             evidence_selections=tuple(selections),
@@ -1402,6 +1628,47 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             != _metric_projection_fingerprint(record.receipt)
         ):
             raise DatabaseInvariantError("typed metric projection seal is invalid")
+        if metric_publication_v2_seal is not None and (
+            metric_publication_v2 is None
+            or metric_publication_v2_seal["publication_key"]
+            != METRIC_PUBLICATION_V2_KEY
+            or int(metric_publication_v2_seal["publication_version"])
+            != METRIC_PUBLICATION_V2_VERSION
+            or metric_publication_v2_seal["registry_version"]
+            != metric_publication_v2.registry_version
+            or metric_publication_v2_seal["contract_set_fingerprint"]
+            != metric_publication_v2.contract_set_fingerprint
+            or metric_publication_v2_seal["projection_version"]
+            != metric_publication_v2.projection_version
+            or metric_publication_v2_seal["guidance_contract_version"]
+            != metric_publication_v2.guidance_contract_version
+            or metric_publication_v2_seal["guidance_template_catalog_version"]
+            != metric_publication_v2.guidance_template_catalog_version
+            or metric_publication_v2_seal["source"]
+            != MetricPublicationSource.LIVE_PROJECTION.value
+            or not bool(metric_publication_v2_seal["canonical_live_snapshot"])
+            or bool(metric_publication_v2_seal["compatibility_preview"])
+            or bool(metric_publication_v2_seal["model_stage_consumed"])
+            or int(metric_publication_v2_seal["metric_count"])
+            != len(metric_publication_v2.metrics)
+            or int(metric_publication_v2_seal["known_count"])
+            != metric_publication_v2.known_count
+            or int(metric_publication_v2_seal["pending_count"])
+            != metric_publication_v2.pending_count
+            or int(metric_publication_v2_seal["unknown_count"])
+            != metric_publication_v2.unknown_count
+            or int(metric_publication_v2_seal["not_applicable_count"])
+            != metric_publication_v2.not_applicable_count
+            or int(metric_publication_v2_seal["abstained_count"])
+            != metric_publication_v2.abstained_count
+            or int(metric_publication_v2_seal["execution_error_count"])
+            != metric_publication_v2.execution_error_count
+            or int(metric_publication_v2_seal["objective_measured_count"])
+            != metric_publication_v2.objective_measured_count
+            or metric_publication_v2_seal["projection_fingerprint"]
+            != _metric_publication_v2_fingerprint(metric_publication_v2)
+        ):
+            raise DatabaseInvariantError("metric V2 publication seal is invalid")
         if predictive_seal is not None and (
             predictive_projection is None
             or int(predictive_seal["metric_count"])

@@ -110,6 +110,7 @@ function radarRun(runId: string, value: number, completedAt: string): ModelEnsem
     }],
     metric_projection_version: null,
     metric_projection_completed_at: null,
+    metric_publication_v2: null,
     typed_metrics: [],
     predictive_projection_version: null,
     predictive_projected_at: null,
@@ -143,6 +144,7 @@ function trajectoryPage(head: ModelEnsembleRun, older: ModelEnsembleRun): ModelE
     metric_projection_version: run.metric_projection_version,
     metric_projection_completed_at: run.metric_projection_completed_at,
     typed_metrics: run.typed_metrics,
+    metric_states_v2: [],
     predictive_projection_version: run.predictive_projection_version,
     predictive_metrics: run.predictive_metrics,
   });

@@ -25,6 +25,8 @@ from .model_ensemble import (
     coaching_ensemble_metric_specs,
 )
 from .objective_metric_projection import project_objective_metric_overrides
+from .metric_projection_v2 import project_metric_states_v2
+from .metric_publication_v2 import MetricPublicationV2, publish_metric_states_v2
 from .provider_evidence import bind_semantic_unit_opportunities
 from .semantic_units import (
     SemanticUnitProjection,
@@ -325,6 +327,7 @@ class SessionModelEnsembleService:
             context = self._read_context(provider, session_id, max_messages)
             typed_evidence = self._project_typed_evidence(provider, session_id)
             typed_metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...] | None = None
+            metric_publication_v2: MetricPublicationV2 | None = None
             projection_completed_at: datetime | None = None
             latest: SessionModelEnsembleRunRecord | None = None
             prior_semantic_units: SemanticUnitReconciliation | None = None
@@ -365,8 +368,13 @@ class SessionModelEnsembleService:
                     typed_evidence,
                     semantic_projection,
                 )
-                typed_metrics, projection_completed_at = self._project_metrics(
+                (
+                    typed_metrics,
+                    metric_publication_v2,
+                    projection_completed_at,
+                ) = self._project_metrics(
                     context,
+                    semantic_projection,
                     typed_evidence,
                 )
                 semantic_units_reusable = (
@@ -388,6 +396,8 @@ class SessionModelEnsembleService:
                         latest.receipt.metric_projection_version
                         == MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION
                         and latest.receipt.typed_metrics == typed_metrics
+                        and latest.receipt.metric_publication_v2
+                        == metric_publication_v2
                     ):
                         if progress_callback is not None:
                             progress_callback(10, 10)
@@ -396,6 +406,7 @@ class SessionModelEnsembleService:
                         projected = self._with_metric_projection(
                             latest,
                             typed_metrics,
+                            metric_publication_v2,
                             projection_completed_at,
                         )
                         try:
@@ -414,6 +425,8 @@ class SessionModelEnsembleService:
                                 or race.receipt.metric_projection_version
                                 != MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION
                                 or race.receipt.typed_metrics != typed_metrics
+                                or race.receipt.metric_publication_v2
+                                != metric_publication_v2
                             ):
                                 raise ModelEnsemblePersistenceError(
                                     "typed metric projection could not be stored"
@@ -433,13 +446,22 @@ class SessionModelEnsembleService:
                 semantic_projection, prior_semantic_units = (
                     self._reconcile_semantic_units(context, latest)
                 )
-            if typed_metrics is None or projection_completed_at is None:
+            if (
+                typed_metrics is None
+                or metric_publication_v2 is None
+                or projection_completed_at is None
+            ):
                 typed_evidence = self._bind_objective_opportunities(
                     typed_evidence,
                     semantic_projection,
                 )
-                typed_metrics, projection_completed_at = self._project_metrics(
+                (
+                    typed_metrics,
+                    metric_publication_v2,
+                    projection_completed_at,
+                ) = self._project_metrics(
                     context,
+                    semantic_projection,
                     typed_evidence,
                 )
             plan = build_ensemble_chunks(context)
@@ -459,6 +481,7 @@ class SessionModelEnsembleService:
                         ),
                         "metric_projection_completed_at": projection_completed_at,
                         "typed_metrics": typed_metrics,
+                        "metric_publication_v2": metric_publication_v2,
                     }
                 )
                 record = SessionModelEnsembleRunRecord(
@@ -611,8 +634,13 @@ class SessionModelEnsembleService:
     def _project_metrics(
         self,
         context: P1TextAnalysisInput,
+        semantic_projection: SemanticUnitProjection | None,
         typed_evidence: EphemeralTypedEvidenceProjection | None = None,
-    ) -> tuple[tuple[SessionModelEnsembleTypedMetricReceipt, ...], datetime]:
+    ) -> tuple[
+        tuple[SessionModelEnsembleTypedMetricReceipt, ...],
+        MetricPublicationV2,
+        datetime,
+    ]:
         grant = P1LocalAnalysisGrant(
             provider=context.provider,
             session_id=context.session_id,
@@ -636,6 +664,20 @@ class SessionModelEnsembleService:
                 typed_evidence,
                 self._objective_evidence_descriptor(),
             )
+            live_states = project_metric_states_v2(
+                context=context,
+                reconciliation=(
+                    None
+                    if semantic_projection is None
+                    else semantic_projection.reconciliation
+                ),
+                id_factory=self._identifiers,
+                conversational_results={
+                    item.observation.key: item for item in results
+                },
+                objective_overrides=objective_overrides,
+            )
+            metric_publication_v2 = publish_metric_states_v2(live_states)
             projected_items: list[SessionModelEnsembleTypedMetricReceipt] = []
             for result in results:
                 objective_override = objective_overrides.get(result.observation.key)
@@ -745,7 +787,7 @@ class SessionModelEnsembleService:
             raise ModelEnsembleExecutionError(
                 "typed local metric projection failed"
             ) from None
-        return projected, projected_at
+        return projected, metric_publication_v2, projected_at
 
     def _project_typed_evidence(
         self,
@@ -873,6 +915,7 @@ class SessionModelEnsembleService:
     def _with_metric_projection(
         run: SessionModelEnsembleRunRecord,
         metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...],
+        metric_publication_v2: MetricPublicationV2,
         completed_at: datetime,
     ) -> SessionModelEnsembleRunRecord:
         receipt = SessionModelEnsembleReceipt.model_validate(
@@ -881,6 +924,7 @@ class SessionModelEnsembleService:
                 "metric_projection_version": MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION,
                 "metric_projection_completed_at": completed_at,
                 "typed_metrics": metrics,
+                "metric_publication_v2": metric_publication_v2,
             }
         )
         return SessionModelEnsembleRunRecord.model_validate(

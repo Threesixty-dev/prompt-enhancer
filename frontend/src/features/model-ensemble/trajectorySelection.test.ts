@@ -196,6 +196,46 @@ describe("metricHistoryPlot", () => {
     expect(modelEnsembleHistoryRadarValue(typedOtherKeyOnly, METRIC, "higher_is_better")).toBeCloseTo(0.9);
   });
 
+  it("uses compact canonical V2 history states ahead of both legacy layers", () => {
+    const committeeKnown = [receipt(REWORK, "known", 0.2)];
+    const historyPoint = receiptsPoint([receipt(REWORK, "known", 0.4)], committeeKnown);
+    (historyPoint as any).metric_states_v2 = [{
+      metric_key: REWORK,
+      registry_version: "all-20-factor-contracts-v2",
+      contract_version: "probabilistic-metric-contract-v2",
+      contract_fingerprint: "3cfa3bbf472661329527e86b3248f5255bfe0307931d30042a87ec36cf1100a0",
+      evidence_authority: "conversation",
+      value_state: "unknown",
+      explanation_code: "opportunity_family_unobservable",
+      numerator: null,
+      denominator: null,
+      numeric_value: null,
+      censoring_lower_bound: null,
+      censoring_upper_bound: null,
+      statistics: {
+        metric_key: REWORK,
+        denominator_basis: "semantic_unit_opportunities",
+        opportunity_unit_kind: "feedback",
+        capability_available: false,
+        source_complete: false,
+        eligible_count: 0,
+        met_count: 0,
+        not_met_count: 0,
+        pending_count: 0,
+        unknown_count: 0,
+        superseded_excluded_count: 0,
+        distinct_owner_count: 0,
+      },
+      projection_version: "metric-contract-v2-projection-1",
+      product_metric_eligible: false,
+    }];
+    expect(modelEnsembleHistoryRadarValue(historyPoint, REWORK, "lower_is_better")).toBeNull();
+    const axis = modelEnsembleRadarAxes(modelEnsembleTrajectoryRadarData(historyPoint), "collaboration-flow")
+      .find((candidate) => candidate.key === REWORK)!;
+    expect(axis.metric).toMatchObject({ value_state: "unknown", source_kind: "metric_v2" });
+    expect(axis.plotted).toBeNull();
+  });
+
   it("lets a typed known receipt win over the committee, falls back only for legacy-only points, and orients lower-is-better", () => {
     const typedWins = receiptsPoint([receipt(REWORK, "known", 0.2)], [receipt(REWORK, "known", 0.7)]);
     expect(modelEnsembleHistoryRadarValue(typedWins, REWORK, "lower_is_better")).toBeCloseTo(0.8);

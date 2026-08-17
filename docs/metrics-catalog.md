@@ -501,13 +501,28 @@ If a user later creates a composite, it must be user-named, use visible versione
 
 ## Metric Contract V2 publication and V1 compatibility preview
 
-**Scope honesty.** This surface is not the canonical live all-twenty session
-snapshot and it is not wired into the model-ensemble watch, head, or UI pipeline.
-It is a read-only foundation plus a labelled compatibility preview.
+**Scope honesty.** Newly sealed model-ensemble snapshots carry the canonical live
+all-twenty V2 publication beside the immutable legacy receipts. The dashboard and
+mini-window read that publication first. Historical snapshots without the V2
+sidecar remain readable and use the explicitly labelled legacy presentation.
 
-`publish_metric_states_v2` wraps a genuine live V2 projection over persisted
-semantic-unit heads. It is what a canonical head would consume, not evidence that
-one does today.
+`publish_metric_states_v2` wraps the genuine live V2 projection over the run's
+semantic-unit reconciliation and typed objective overrides. The resulting
+content-free publication is sealed with the canonical model-ensemble run; model
+stages remain a separate experimental diagnostic and cannot change its values.
+
+**A twenty-state publication is not a promise of twenty numeric values.** The
+built-in provider-neutral extractor currently owns only documented request,
+feedback, action, decision, and verification message families. Contracts whose
+denominator needs ambiguity, clarification, hypothesis, scope-change,
+requirement, or open-loop units remain `unknown` with
+`opportunity_family_unobservable` until a provider supplies that typed family.
+The five objective contracts remain `unknown` until an authorized adapter
+supplies linked eligible opportunities and objective receipts. Declared-profile
+slot contracts remain `unknown` when the task profile does not declare the slot
+set. These states are deliberate authority boundaries; adding a larger language
+model cannot turn an absent opportunity registry or receipt link into measured
+evidence.
 
 `publish_v1_compatibility_preview` reads an already persisted V1 run and states
 its own limits in the payload (`preview_limits`):
@@ -589,10 +604,16 @@ Both require the local token and send `Cache-Control: no-store` with
 
 ### Honest remaining limitations
 
-- No live pipeline integration: the canonical head still publishes V1 results.
-- Twelve behavioural contracts cannot yield a number from a V1 receipt at all;
-  closing that needs persisted semantic-unit reconciliation beside a run.
-- No per-factor sufficient statistics exist anywhere yet, so no surface can name a
-  focus factor.
-- Optional neural stages are never consumed here; a Qwen or deep-rubric timeout is
-  a warning elsewhere and cannot alter a published value.
+- V2 is canonical for new snapshots, but a metric becomes numeric only when the
+  provider exposes its reviewed opportunity family and sufficient statistics.
+  Unsupported episode/link families remain truthful `unknown`, `pending`, or
+  `not_applicable`; visibility does not imply numeric availability.
+- The current Codex typed-event envelope does not provide authoritative
+  requirement, hypothesis, completion-claim, or verification-task links. The five
+  evidence-lane metrics therefore remain unknown unless a future documented
+  adapter supplies those links; prose and neural estimates cannot substitute.
+- Per-factor measured sufficient statistics are not yet emitted by every live
+  projection, so guidance names a focus factor only when the receipt actually
+  proves one.
+- Optional neural stages remain separate. A Qwen or deep-rubric timeout is a run
+  warning and cannot alter a V2 measured value.

@@ -2819,12 +2819,8 @@ export interface components {
         MetricPublicationV2: {
             /** Abstained Count */
             abstained_count: number;
-            /**
-             * Canonical Live Snapshot
-             * @default false
-             * @constant
-             */
-            canonical_live_snapshot: false;
+            /** Canonical Live Snapshot */
+            canonical_live_snapshot: boolean;
             /** Compatibility Preview */
             compatibility_preview: boolean;
             /** Contract Set Fingerprint */
@@ -3435,6 +3431,7 @@ export interface components {
             metric_projection_completed_at: string | null;
             /** Metric Projection Version */
             metric_projection_version: "coaching-typed-projection-v1" | null;
+            metric_publication_v2: components["schemas"]["MetricPublicationV2"] | null;
             /** Metrics */
             metrics: components["schemas"]["ModelEnsembleMetricDto"][];
             /**
@@ -3519,6 +3516,11 @@ export interface components {
             metric_projection_completed_at?: string | null;
             /** Metric Projection Version */
             metric_projection_version?: "coaching-typed-projection-v1" | null;
+            /**
+             * Metric States V2
+             * @default []
+             */
+            metric_states_v2: components["schemas"]["MetricStateV2"][];
             /** Metrics */
             metrics: components["schemas"]["SessionModelEnsembleMetricReceipt"][];
             /**

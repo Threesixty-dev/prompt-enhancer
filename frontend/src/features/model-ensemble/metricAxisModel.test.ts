@@ -71,6 +71,39 @@ function runWith(typed: readonly TypedMetric[], metrics: readonly EnsembleMetric
   return { typed_metrics: typed, metrics, chunk_metrics: [] } as unknown as ModelEnsembleRun;
 }
 
+function runWithV2(
+  metricKey: string,
+  valueState: "known" | "pending" | "unknown" = "unknown",
+): ModelEnsembleRun {
+  const known = valueState === "known";
+  const pending = valueState === "pending";
+  return {
+    typed_metrics: [typedMetric({ metric_key: metricKey, numeric_value: 1 })],
+    metrics: [committeeMetric({ metric_key: metricKey, numeric_value: 1 })],
+    chunk_metrics: [],
+    metric_publication_v2: {
+      metrics: [{
+        state: {
+          metric_key: metricKey,
+          value_state: valueState,
+          numerator: known ? 1 : null,
+          denominator: known ? 2 : null,
+          numeric_value: known ? 0.5 : null,
+          explanation_code: pending ? "episode_horizon_open" : known ? "exact_fraction" : "opportunity_family_unobservable",
+          evidence_authority: "conversation_observation",
+          statistics: {
+            eligible_count: known ? 2 : pending ? 1 : 0,
+            met_count: known ? 1 : 0,
+            not_met_count: known ? 1 : 0,
+          },
+        },
+        guidance: { metric_version: 2 },
+        implementation_state: pending ? "pending_horizon" : known ? "live_measured" : "method_only_withheld",
+      }],
+    },
+  } as unknown as ModelEnsembleRun;
+}
+
 describe("metricAxisModel axis tile helpers", () => {
   const rework = "collaboration.rework_candidate_rate";
   const collaborationRun = runWith([
@@ -195,6 +228,63 @@ describe("metricAxisModel receipt resolver", () => {
     expect(modelEnsembleReceiptsByKey(runWith([], [committeeRework])).get(rework)).toBe(committeeRework);
     // A typed projection that omits the key leaves it unobserved rather than borrowing the committee receipt.
     expect(modelEnsembleReceiptsByKey(runWith([typedMetric()], [committeeRework])).get(rework)).toBeUndefined();
+  });
+
+  it("uses the canonical V2 state ahead of both legacy layers and keeps first-class pending unplotted", () => {
+    const metricKey = "collaboration.ambiguity_resolution";
+    const v2Pending = runWithV2(metricKey, "pending");
+    const primary = modelEnsemblePrimaryMetrics(v2Pending);
+    expect(primary).toHaveLength(1);
+    expect(primary[0]).toMatchObject({
+      metric_key: metricKey,
+      value_state: "pending",
+      numeric_value: null,
+      projection_source: "metric_contract_v2_live",
+      source_kind: "metric_v2",
+    });
+    const axis = modelEnsembleRadarAxes(v2Pending, "collaboration-flow")
+      .find((candidate) => candidate.key === metricKey)!;
+    expect(axis.plotted).toBeNull();
+    expect(modelEnsembleAxisPlottedLabel(axis)).toBe("Pending");
+    expect(modelEnsembleAxisEvidence(axis)).toEqual({
+      state: "pending",
+      numericValue: null,
+      numerator: null,
+      denominator: null,
+      explanationCode: "episode_horizon_open",
+    });
+  });
+
+  it("keeps authorized-but-unresolved objective history distinct from a missing capability", () => {
+    const metricKey = "outcome.verified_requirement_coverage";
+    const state = {
+      metric_key: metricKey,
+      value_state: "unknown",
+      numerator: null,
+      denominator: null,
+      numeric_value: null,
+      explanation_code: "typed_objective_evidence_unresolved",
+      evidence_authority: "objective_receipt",
+      statistics: {
+        capability_available: true,
+        eligible_count: 2,
+        met_count: 1,
+        not_met_count: 0,
+        pending_count: 0,
+        unknown_count: 1,
+      },
+    };
+    const run = {
+      typed_metrics: [],
+      metrics: [committeeMetric({ metric_key: metricKey })],
+      chunk_metrics: [],
+      metric_states_v2: [state],
+    } as unknown as ModelEnsembleRun;
+    expect(modelEnsemblePrimaryMetrics(run)[0]).toMatchObject({
+      metric_key: metricKey,
+      implementation_state: "objective_evidence_unresolved",
+      numeric_value: null,
+    });
   });
 
   it("orients only known numeric receipts and keeps every other state null, never zero", () => {

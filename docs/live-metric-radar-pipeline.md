@@ -192,14 +192,19 @@ Schemas v35-v38 add content-free predictive, execution, semantic-unit, and
 retry/quarantine receipts without predictive backfill. Schema v39 transactionally
 rebuilds only the affected predictive sidecar tables so frozen v2 and active v3
 model-set identities can coexist; migrations 1-38 and their checksums remain
-unchanged. New normalized rows are immutable, content-free, and privacy-cascade
+unchanged. Schema v40 adds the normalized, sealed all-twenty V2 metric-state
+publication beside each new model-ensemble run without backfilling or rewriting
+historical receipts. New normalized rows are immutable, content-free, and privacy-cascade
 with secure-delete and WAL verification. Stored data includes
 only pseudonymous digests, typed states, sufficient statistics, distribution
 summaries, version identities, and resource telemetry. It excludes transcript
 text, snippets, prompts, generated explanations, source identifiers, and raw
 logits.
 
-The full run and bounded watch trajectory contain compact predictive summaries.
+The full run contains the sealed V2 publication, and the bounded watch trajectory
+contains its compact V2 metric states plus compact predictive summaries. A
+legacy point and a V2 point are never marked comparable merely because their
+model-plan hashes match.
 The authenticated metric-detail endpoint exposes the fixed density and factor
 contributions for one run/metric. Old/new geometry is comparable only when the
 contract, model set, calibration, quantization, provider and content schemas,
@@ -220,7 +225,16 @@ termination is not yet implemented. Schema v37 adds a content-free semantic-unit
 sidecar keyed by message-content digests. It preserves exact-one ownership and
 append-idempotent lifecycle heads without persisting evidence text. Schema v38
 adds bounded retry/backoff and quarantine state; schema v39 preserves historical
-v2 predictive receipts while requiring new v3 model-set provenance.
+v2 predictive receipts while requiring new v3 model-set provenance. Schema v40
+stores and seals canonical V2 metric states and sufficient statistics.
+Implementation states and guidance identities are deterministically re-derived
+and covered by the seal fingerprint; no wording or source text is stored.
+
+For an immediate request rubric or declared profile slot, `source_complete`
+means the adapter proved the exact requested analysis window was supplied. It
+does not claim the whole session was available. Cross-turn semantic episodes
+retain the stricter reconciliation-completeness rule, so a bounded suffix cannot
+silently close earlier ambiguity, feedback, hypothesis, or open-loop episodes.
 
 ## Provider boundary
 

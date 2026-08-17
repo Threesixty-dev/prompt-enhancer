@@ -20,8 +20,11 @@ import {
   modelEnsembleAxisRawRateLabel,
   modelEnsembleKnowledgeEntries,
   modelEnsembleMetricPresentation,
+  modelEnsemblePrimaryMetrics,
+  modelEnsembleCompletedSmallExperts,
   modelEnsembleMetricStatus,
   modelEnsembleMetricStatusLabel,
+  modelEnsemblePredictiveVisibility,
   modelEnsembleRadarAxes,
   type ModelEnsembleLensId,
   type ModelEnsembleRadarData,
@@ -74,10 +77,14 @@ export function MetricWorkspace({
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
   const boardHelp = useMetricKnowledgeCardController();
   const axes = useMemo(() => modelEnsembleRadarAxes(run, lensId), [lensId, run]);
-  const known = run.typed_metrics.filter((metric) => metric.value_state === "known").length;
-  const pending = run.typed_metrics.filter((metric) => modelEnsembleMetricStatus(metric) === "pending").length;
-  const unavailable = run.typed_metrics.filter((metric) => metric.value_state !== "known").length;
-  const experimental = (run.predictive_metrics ?? []).filter((metric) => metric.state === "experimental").length;
+  const primaryMetrics = useMemo(() => modelEnsemblePrimaryMetrics(run), [run]);
+  const known = primaryMetrics.filter((metric) => metric.value_state === "known").length;
+  const pending = primaryMetrics.filter((metric) => modelEnsembleMetricStatus(metric) === "pending").length;
+  const unavailable = primaryMetrics.filter((metric) => metric.value_state !== "known").length;
+  const completedSmallExperts = modelEnsembleCompletedSmallExperts(run);
+  const visibleExperimental = (run.predictive_metrics ?? []).filter(
+    (metric) => modelEnsemblePredictiveVisibility(metric, completedSmallExperts).visible,
+  ).length;
   const activeMetricKey = axes.some((axis) => axis.key === selectedMetricKey)
     ? selectedMetricKey
     : axes[0]?.key ?? "";
@@ -95,7 +102,7 @@ export function MetricWorkspace({
         <dl>
           <div><dt>Measured</dt><dd>{known}/20</dd></div>
           <div><dt>State-only</dt><dd>{unavailable}</dd></div>
-          <div><dt>Experimental</dt><dd>{experimental}/20</dd></div>
+          <div><dt>Visible estimates</dt><dd>{visibleExperimental}/20</dd></div>
           <div><dt>Window</dt><dd>{scopeLabel}</dd></div>
         </dl>
       </header>

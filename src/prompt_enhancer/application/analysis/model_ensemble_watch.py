@@ -32,6 +32,7 @@ from .probabilistic_metrics import (
     PROBABILISTIC_METRIC_PROJECTION_VERSION,
     SessionPredictiveMetricSummary,
 )
+from .metric_projection_v2 import MetricStateV2
 
 
 MODEL_ENSEMBLE_WATCH_CONTRACT_VERSION = "model-ensemble-watch-v1"
@@ -440,6 +441,10 @@ class ModelEnsembleTrajectoryPoint(StrictModel):
         default=(),
         max_length=20,
     )
+    metric_states_v2: tuple[MetricStateV2, ...] = Field(
+        default=(),
+        max_length=20,
+    )
     predictive_projection_version: Literal[
         PROBABILISTIC_METRIC_PROJECTION_VERSION
     ] | None = None
@@ -481,6 +486,15 @@ class ModelEnsembleTrajectoryPoint(StrictModel):
                 committee_keys
             ):
                 raise ValueError("trajectory typed projection metric set is incomplete")
+        if self.metric_states_v2:
+            v2_keys = tuple(item.metric_key for item in self.metric_states_v2)
+            committee_keys = tuple(item.metric_key for item in self.metrics)
+            if (
+                len(self.metric_states_v2) != 20
+                or len(set(v2_keys)) != len(v2_keys)
+                or set(v2_keys) != set(committee_keys)
+            ):
+                raise ValueError("trajectory V2 metric state set is incomplete")
         if bool(self.predictive_metrics) != (
             self.predictive_projection_version is not None
         ):
