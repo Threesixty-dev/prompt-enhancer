@@ -230,7 +230,7 @@ test.beforeEach(async ({ page }) => {
   await installLocalHttpFixture(page);
 });
 
-test("renders stored evidence through the local HTTP transport", async ({ page }) => {
+test("keeps the canonical metric workspace truthful when the bounded source is unavailable", async ({ page }) => {
   await page.goto(
     `/projects/${SYNTHETIC_QUALITY_PROJECT_ID}/sessions/${SYNTHETIC_QUALITY_SESSION_ID}/metrics/prompt-quality`,
   );
@@ -239,13 +239,16 @@ test("renders stored evidence through the local HTTP transport", async ({ page }
     page.getByLabel("Runtime status: Local loopback service available"),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Prompt & collaboration coaching" }),
+    page.getByRole("heading", {
+      name: "Measure the analyzed window, then estimate every eligible axis locally",
+    }),
   ).toBeVisible();
   await expect(
-    page.getByRole("img", { name: /fixed-scale quality lens radar/i }),
+    page.getByRole("status").filter({
+      hasText: "This installation cannot read the selected session through the bounded adapter.",
+    }),
   ).toBeVisible();
-  await expect(page.getByText("Measured axes only · one shared 0–100% scale")).toBeVisible();
-  await expect(page.getByText("Not available", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("img", { name: /metric radar/i })).toHaveCount(0);
   await expect(page.getByText(SYNTHETIC_CURRENT_SESSION_QUALITY_RUN.run.run_id)).toHaveCount(0);
 });
 
