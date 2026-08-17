@@ -22,6 +22,7 @@ import math
 import random
 import re
 from statistics import median, pstdev
+from time import monotonic
 from typing import Callable, Mapping, Sequence
 
 from ...application.analysis.model_ensemble import (
@@ -70,6 +71,8 @@ from ...application.analysis.evidence_contracts import EphemeralTypedEvidencePro
 from ...application.persistence import MetricValueState
 from .model_ensemble import (
     MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
+    MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
+    MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE,
     EnsembleExpertSpec,
     ModelEnsembleError,
     StageExecutor,
@@ -79,9 +82,15 @@ from .model_ensemble import (
 )
 
 
-LIVE_PROBABILISTIC_PLAN_VERSION = "small-factor-router-v4"
+LIVE_PROBABILISTIC_PLAN_VERSION = "small-factor-router-v5"
 LIVE_PROBABILISTIC_MAX_SELECTED_FRAGMENTS = 4
 LIVE_PROBABILISTIC_MAX_DEEP_CASES = 12
+PROBABILISTIC_DEEP_PUBLICATION_BUDGET_SECONDS = 30.0
+# Reserve three seconds for forced tree termination, pipe closure, bounded
+# result parsing, projection, and publication. The child may never consume the
+# whole live budget by itself.
+PROBABILISTIC_DEEP_TIMEOUT_SECONDS = 27.0
+PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE = "probabilistic_deep_timeout"
 DISABLED_PROBABILISTIC_MODEL_KEYS = frozenset(
     {"deberta_small_long_nli", "modernbert_base_zeroshot"}
 )
@@ -337,6 +346,7 @@ def _stage_receipt(
                 "model_cache_missing_or_invalid",
                 "cuda_unavailable",
                 "quantization_backend_unavailable",
+                PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE,
             }
             else "failed"
         )
@@ -514,17 +524,20 @@ def _parse_deep_rows(
     return parsed
 
 
-def _cuda_deep_lane_available(device: str) -> bool:
+def _cuda_deep_lane_available(
+    device: str,
+    completed_stages: Sequence[PredictiveModelStageReceipt],
+) -> bool:
+    """Decide from bounded receipts; never initialize Torch in the server."""
+
     if device in {"cpu", "mps"}:
         return False
     if device == "cuda":
         return True
-    try:
-        import torch
-
-        return bool(torch.cuda.is_available())
-    except ImportError:
-        return False
+    return any(
+        stage.status == "completed" and stage.device == "cuda"
+        for stage in completed_stages
+    )
 
 
 def _draw_metric_samples(
@@ -788,6 +801,7 @@ class LocalProbabilisticMetricRunner:
             python_executable=self._python_executable,
             heartbeat=self._heartbeat,
             quantization=quantization,
+            timeout_seconds=PROBABILISTIC_DEEP_TIMEOUT_SECONDS,
         )
 
     def plan_fingerprint(
@@ -825,6 +839,10 @@ class LocalProbabilisticMetricRunner:
                 "resource": {
                     "vram_mib": PROBABILISTIC_MAX_VRAM_MIB,
                     "rss_mib": PROBABILISTIC_MAX_RSS_MIB,
+                    "deep_timeout_seconds": PROBABILISTIC_DEEP_TIMEOUT_SECONDS,
+                    "deep_publication_budget_seconds": (
+                        PROBABILISTIC_DEEP_PUBLICATION_BUDGET_SECONDS
+                    ),
                 },
             }
         )
@@ -917,6 +935,12 @@ class LocalProbabilisticMetricRunner:
                     result = self._executor(
                         spec, "scope_nli", stage_payload, "cpu"
                     )
+            except ModelEnsembleError as error:
+                if error.args == (
+                    MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
+                ):
+                    raise
+                result = None
             except Exception:
                 result = None
             try:
@@ -959,25 +983,52 @@ class LocalProbabilisticMetricRunner:
             for factor in contract.factors
             for purpose in ("applicability", "satisfaction")
         }
+        deep_deadline = monotonic() + PROBABILISTIC_DEEP_PUBLICATION_BUDGET_SECONDS
         deep_cases = _deep_cases(cases, rows_by_model, case_identity)
         deep_spec = ensemble_expert_specs()[9]
-        if (
+        deep_eligible = (
             deep_cases
             and self._deep_enabled
             and self._deep_executor is not None
-            and _cuda_deep_lane_available(self._device)
-        ):
+            and _cuda_deep_lane_available(self._device, stage_receipts)
+        )
+        if deep_eligible:
             deep_payload = {**common, "cases": list(deep_cases)}
-            try:
-                deep_result = self._deep_executor(
-                    deep_spec,
-                    "structured_rubric",
-                    deep_payload,
-                    self._device,
-                    "bitsandbytes_nf4",
-                )
-            except Exception:
-                deep_result = None
+            if monotonic() >= deep_deadline:
+                deep_result = {
+                    "status": "unavailable",
+                    "error_code": PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE,
+                }
+            else:
+                try:
+                    deep_result = self._deep_executor(
+                        deep_spec,
+                        "structured_rubric",
+                        deep_payload,
+                        self._device,
+                        "bitsandbytes_nf4",
+                    )
+                except ModelEnsembleError as error:
+                    if error.args == (
+                        MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
+                    ):
+                        raise
+                    deep_result = (
+                        {
+                            "status": "unavailable",
+                            "error_code": PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE,
+                        }
+                        if error.args
+                        == (MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE,)
+                        else None
+                    )
+                except Exception:
+                    deep_result = None
+            if monotonic() >= deep_deadline:
+                deep_result = {
+                    "status": "unavailable",
+                    "error_code": PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE,
+                }
             try:
                 deep_stage = _stage_receipt(
                     deep_spec,
@@ -1003,6 +1054,19 @@ class LocalProbabilisticMetricRunner:
                 else:
                     deep_values: dict[str, tuple[float, float, float]] = {}
                     for case in deep_cases:
+                        if monotonic() >= deep_deadline:
+                            stage_receipts[-1] = _stage_receipt(
+                                deep_spec,
+                                {
+                                    "status": "unavailable",
+                                    "error_code": (
+                                        PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE
+                                    ),
+                                },
+                                quantization="bitsandbytes_nf4",
+                            )
+                            deep_values = {}
+                            break
                         case_id = str(case["case_id"])
                         metric_key, factor_key, _purpose = case_identity[case_id]
                         label = labels[case_id]
@@ -1025,7 +1089,18 @@ class LocalProbabilisticMetricRunner:
                             deep_values[applicability_id] = _robust_probability_pool(
                                 applicability_rows
                             )
-                    rows_by_model[deep_spec.identity.model_key] = deep_values
+                    if monotonic() >= deep_deadline:
+                        stage_receipts[-1] = _stage_receipt(
+                            deep_spec,
+                            {
+                                "status": "unavailable",
+                                "error_code": PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE,
+                            },
+                            quantization="bitsandbytes_nf4",
+                        )
+                        deep_values = {}
+                    if deep_values and stage_receipts[-1].status == "completed":
+                        rows_by_model[deep_spec.identity.model_key] = deep_values
             if progress_callback is not None:
                 progress_callback(MODEL_ENSEMBLE_MODEL_COUNT, MODEL_ENSEMBLE_MODEL_COUNT)
         self._heartbeat = None
@@ -1118,5 +1193,8 @@ class LocalProbabilisticMetricRunner:
 
 __all__ = [
     "LIVE_PROBABILISTIC_PLAN_VERSION",
+    "PROBABILISTIC_DEEP_PUBLICATION_BUDGET_SECONDS",
+    "PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE",
+    "PROBABILISTIC_DEEP_TIMEOUT_SECONDS",
     "LocalProbabilisticMetricRunner",
 ]

@@ -72,7 +72,7 @@ The live estimator is an external mixture-of-specialists router. It is not a
 large native MoE and does not average ten unrelated scores.
 
 The active expert-set receipt is `local-factor-router-v3` and the live
-execution plan is `small-factor-router-v4`. Sealed v2 receipts remain readable,
+execution plan is `small-factor-router-v5`. Sealed v2 receipts remain readable,
 but the changed plan/model identity creates an explicit history break.
 
 1. Deterministic matching and BM25 select bounded candidate evidence first.
@@ -88,6 +88,12 @@ but the changed plan/model identity creates an explicit history break.
 6. Optional-model failure never erases deterministic values or successful small
    estimates. Small-model GPU exhaustion retries once on CPU. Deep-lane failure is
    a typed diagnostic failure.
+7. The long-lived server never imports Torch to decide whether the deep lane can
+   run. `auto` mode relies only on completed small-stage device receipts. The
+   optional deep child has a 27-second inference deadline inside a 30-second lane
+   budget. A timeout publishes the usable small-model result as a partial snapshot
+   with `probabilistic_deep_timeout` only after process-tree termination is
+   positively confirmed. Unconfirmed cleanup is fatal and retains the prior head.
 
 The historical immutable ten-stage committee graph remains readable for old
 receipts, but it is not executed by the live estimator.

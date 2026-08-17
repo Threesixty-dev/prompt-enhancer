@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import builtins
+import os
+import sys
+import time
+
 from pydantic import SecretStr, ValidationError
 import pytest
 
@@ -32,13 +37,27 @@ from prompt_enhancer.application.analysis.coaching_baselines import (
 from prompt_enhancer.application.persistence import MetricValueState
 from prompt_enhancer.domain import Provider
 from prompt_enhancer.infrastructure.text_models.model_ensemble import (
+    MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
+    MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE,
+    MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_SECONDS,
     MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
+    ModelEnsembleError,
     SerialModelEnsembleRunner,
     ensemble_expert_specs,
+    run_ensemble_expert_subprocess,
+)
+from prompt_enhancer.infrastructure.text_models import (
+    model_ensemble as model_ensemble_module,
+)
+from prompt_enhancer.infrastructure.text_models import (
+    probabilistic_metrics as probabilistic_runtime_module,
 )
 from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
     DISABLED_PROBABILISTIC_MODEL_KEYS,
     LocalProbabilisticMetricRunner,
+    PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE,
+    PROBABILISTIC_DEEP_TIMEOUT_SECONDS,
+    _cuda_deep_lane_available,
     _draw_metric_samples,
     _has_sufficient_retained_samples,
 )
@@ -50,6 +69,7 @@ from prompt_enhancer.application.analysis.probabilistic_metrics import (
     PredictiveFactorContribution,
     PredictiveMetricState,
     PredictiveMetricTarget,
+    PredictiveModelStageReceipt,
 )
 
 
@@ -670,6 +690,33 @@ def test_unvalidated_long_context_challengers_are_not_live_experts() -> None:
     }
 
 
+def test_auto_deep_lane_uses_completed_stage_receipts_without_importing_torch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if name == "torch":
+            raise AssertionError("the long-lived server must not initialize Torch")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    spec = ensemble_expert_specs()[6]
+    cpu_stage = PredictiveModelStageReceipt(
+        model_key=spec.identity.model_key,
+        repository_id=spec.identity.repository_id,
+        revision=spec.identity.revision,
+        status="completed",
+        device="cpu",
+    )
+    cuda_stage = cpu_stage.model_copy(update={"device": "cuda"})
+
+    assert _cuda_deep_lane_available("auto", (cpu_stage,)) is False
+    assert _cuda_deep_lane_available("auto", (cpu_stage, cuda_stage)) is True
+    assert _cuda_deep_lane_available("cpu", (cuda_stage,)) is False
+    assert _cuda_deep_lane_available("cuda", ()) is True
+
+
 def test_live_probabilistic_runner_routes_only_uncertain_cases_to_nf4_judge() -> None:
     deep_calls = []
 
@@ -798,6 +845,325 @@ def test_deep_lane_failure_never_blocks_completed_small_model_ranges() -> None:
         item.state is PredictiveMetricState.UNAVAILABLE
         for item in receipt.predictive_projection.metrics
     )
+
+
+def test_deep_result_returning_after_lane_budget_is_typed_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.35,
+                    "neutral": 0.50,
+                    "contradiction": 0.15,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 100.0,
+                "peak_cuda_allocated_mb": 900.0,
+                "process_rss_after_load_and_inference_mb": 1_500.0,
+            },
+        }
+
+    def execute_deep(spec, stage, payload, device, quantization):  # type: ignore[no-untyped-def]
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": [
+                {"case_id": item["case_id"], "label": "present"}
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 31_000.0,
+                "peak_cuda_allocated_mb": 5_800.0,
+                "process_rss_after_load_and_inference_mb": 7_500.0,
+            },
+        }
+
+    observed_times = iter((100.0, 100.0, 131.0))
+    monkeypatch.setattr(
+        probabilistic_runtime_module,
+        "monotonic",
+        lambda: next(observed_times),
+    )
+    receipt = LocalProbabilisticMetricRunner(
+        executor=execute,
+        deep_executor=execute_deep,
+        device="cuda",
+    ).run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+    )
+
+    assert receipt.predictive_projection is not None
+    assert len(receipt.predictive_projection.model_stages) == 4
+    assert receipt.predictive_projection.model_stages[-1].status == "unavailable"
+    assert (
+        receipt.predictive_projection.model_stages[-1].error_code
+        == PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows taskkill contract")
+@pytest.mark.parametrize(
+    ("taskkill_return_code", "expected_confirmation"),
+    ((0, True), (1, False)),
+)
+def test_windows_tree_cleanup_requires_successful_taskkill_and_root_exit(
+    taskkill_return_code: int,
+    expected_confirmation: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Pipe:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class Process:
+        pid = 424_242
+
+        def __init__(self) -> None:
+            self.returncode = None
+            self.kill_called = False
+            self.stdin = Pipe()
+            self.stdout = Pipe()
+
+        def poll(self):  # type: ignore[no-untyped-def]
+            return self.returncode
+
+        def kill(self) -> None:
+            self.kill_called = True
+            self.returncode = -9
+
+        def wait(self, *, timeout):  # type: ignore[no-untyped-def]
+            if self.returncode is None:
+                raise model_ensemble_module.subprocess.TimeoutExpired(
+                    "synthetic-taskkill",
+                    timeout,
+                )
+            return self.returncode
+
+    process = Process()
+
+    def taskkill(*args, **kwargs):  # type: ignore[no-untyped-def]
+        if taskkill_return_code == 0:
+            process.returncode = 0
+        return model_ensemble_module.subprocess.CompletedProcess(
+            args=args[0],
+            returncode=taskkill_return_code,
+        )
+
+    monkeypatch.setattr(model_ensemble_module.subprocess, "run", taskkill)
+
+    confirmed = model_ensemble_module._terminate_ensemble_process_tree(
+        process,  # type: ignore[arg-type]
+        environment={},
+    )
+
+    assert confirmed is expected_confirmation
+    assert process.kill_called is (taskkill_return_code != 0)
+    assert process.stdin.closed is True
+    assert process.stdout.closed is True
+
+
+def test_unconfirmed_subprocess_cleanup_raises_distinct_fatal_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Process:
+        pid = 424_243
+        stdin = None
+        stdout = None
+
+        def communicate(self, *, input, timeout):  # type: ignore[no-untyped-def]
+            raise model_ensemble_module.subprocess.TimeoutExpired(
+                "synthetic-model-child",
+                timeout,
+            )
+
+    observed_times = iter((100.0, 100.0, 102.0))
+    monkeypatch.setattr(
+        model_ensemble_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: Process(),
+    )
+    monkeypatch.setattr(
+        model_ensemble_module,
+        "monotonic",
+        lambda: next(observed_times),
+    )
+    monkeypatch.setattr(
+        model_ensemble_module,
+        "_terminate_ensemble_process_tree",
+        lambda process, environment: False,
+    )
+
+    with pytest.raises(
+        ModelEnsembleError,
+        match=(
+            rf"^{MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE}$"
+        ),
+    ):
+        run_ensemble_expert_subprocess(
+            ensemble_expert_specs()[6],
+            "scope_nli",
+            {"schema_version": MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION},
+            "cpu",
+            timeout_seconds=1.0,
+        )
+
+
+def test_subprocess_deadline_kills_the_synthetic_child_tree(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    marker = tmp_path / "synthetic-grandchild-survived"
+    child = (
+        "import pathlib,time; time.sleep(1.5); "
+        f"pathlib.Path({str(marker)!r}).write_text('unexpected','utf-8')"
+    )
+    script = tmp_path / "scripts" / "run_local_model_ensemble_expert.py"
+    script.parent.mkdir()
+    script.write_text(
+        "import subprocess,sys,time\n"
+        f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+        "time.sleep(5)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(model_ensemble_module, "repository_root", lambda: tmp_path)
+
+    with pytest.raises(
+        ModelEnsembleError,
+        match=rf"^{MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE}$",
+    ):
+        run_ensemble_expert_subprocess(
+            ensemble_expert_specs()[6],
+            "scope_nli",
+            {"schema_version": MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION},
+            "cpu",
+            python_executable=sys.executable,
+            timeout_seconds=0.5,
+        )
+
+    time.sleep(1.7)
+    assert marker.exists() is False
+
+
+def test_default_runner_bounds_only_the_optional_deep_lane_to_thirty_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, float]] = []
+
+    def execute(
+        spec,
+        stage,
+        payload,
+        device,
+        *,
+        python_executable=None,
+        heartbeat=None,
+        quantization="none",
+        timeout_seconds=MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_SECONDS,
+    ):  # type: ignore[no-untyped-def]
+        calls.append((spec.identity.model_key, timeout_seconds))
+        if spec.identity.model_key == "qwen3_4b_rubric":
+            raise ModelEnsembleError(
+                MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE
+            )
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.35,
+                    "neutral": 0.50,
+                    "contradiction": 0.15,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 100.0,
+                "peak_cuda_allocated_mb": 900.0,
+                "process_rss_after_load_and_inference_mb": 1_500.0,
+            },
+        }
+
+    monkeypatch.setattr(
+        probabilistic_runtime_module,
+        "run_ensemble_expert_subprocess",
+        execute,
+    )
+    progress: list[tuple[int, int]] = []
+    receipt = LocalProbabilisticMetricRunner(device="cuda").run(
+        build_ensemble_chunks(_context()),
+        coaching_ensemble_metric_specs(),
+        progress_callback=lambda completed, total: progress.append(
+            (completed, total)
+        ),
+    )
+
+    assert [timeout for key, timeout in calls if key != "qwen3_4b_rubric"] == [
+        MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_SECONDS,
+    ] * 3
+    assert calls[-1] == (
+        "qwen3_4b_rubric",
+        PROBABILISTIC_DEEP_TIMEOUT_SECONDS,
+    )
+    assert receipt.predictive_projection is not None
+    deep_stage = receipt.predictive_projection.model_stages[-1]
+    assert deep_stage.status == "unavailable"
+    assert deep_stage.error_code == PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE
+    assert deep_stage.unloaded_after_stage is True
+    assert progress[-1] == (10, 10)
+
+
+def test_deep_cleanup_unconfirmed_is_fatal_and_cannot_create_a_receipt() -> None:
+    def execute(spec, stage, payload, device):  # type: ignore[no-untyped-def]
+        return {
+            "status": "completed",
+            "device": "cuda",
+            "rows": [
+                {
+                    "case_id": item["case_id"],
+                    "entailment": 0.35,
+                    "neutral": 0.50,
+                    "contradiction": 0.15,
+                }
+                for item in payload["cases"]
+            ],
+            "runtime": {
+                "inference_latency_ms": 100.0,
+                "peak_cuda_allocated_mb": 900.0,
+                "process_rss_after_load_and_inference_mb": 1_500.0,
+            },
+        }
+
+    def execute_deep(spec, stage, payload, device, quantization):  # type: ignore[no-untyped-def]
+        raise ModelEnsembleError(
+            MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE
+        )
+
+    with pytest.raises(
+        ModelEnsembleError,
+        match=(
+            rf"^{MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE}$"
+        ),
+    ):
+        LocalProbabilisticMetricRunner(
+            executor=execute,
+            deep_executor=execute_deep,
+            device="cuda",
+        ).run(
+            build_ensemble_chunks(_context()),
+            coaching_ensemble_metric_specs(),
+        )
 
 
 def test_stage_resource_ceiling_fails_closed_without_publishing_numbers() -> None:

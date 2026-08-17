@@ -1053,7 +1053,7 @@ factor contributions. No transcript text, fragments, prompts, generated
 explanations, or raw logits are persisted or returned.
 
 The live model set is `local-factor-router-v3` under execution plan
-`small-factor-router-v4`. Historical `local-factor-router-v2` receipts remain
+`small-factor-router-v5`. Historical `local-factor-router-v2` receipts remain
 readable but are not comparable to the new constellation. Three pinned
 multilingual NLI encoders form the EN/PL baseline. The separately pinned English
 long-context challengers remain disabled pending three-state factor and resource
@@ -1064,6 +1064,12 @@ with fixed 6,144 MiB VRAM and
 deep-lane failure cannot erase deterministic or small-model results. The old
 ten-stage graph stays immutable and readable but is emitted as unavailable by
 the v35 live path rather than executed.
+The optional deep lane does not initialize Torch in the server process: `auto`
+eligibility is derived from completed child-stage device receipts. Its child is
+limited to 27 seconds within a 30-second lane budget, with process-tree
+termination and a typed partial publication on timeout only when unload is
+positively confirmed. Unconfirmed cleanup aborts publication and retains the
+prior canonical head.
 
 The UI now draws solid measured geometry, a dotted experimental median, dark
 central-50 and light central-90 bands, explicit nonnumeric state markers, and a
@@ -1130,7 +1136,7 @@ agreement as metric correctness and are not a calibration or promotion report.
 |---|---|---|
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
 | Historical ten-model shadow graph | `local-shadow-ensemble-v1`; `append-stable-redacted-v3`; `owned-observation-v1`; `coaching-shadow-prompt-v4`; exact ten-model inventory in code-owned immutable manifests | Immutable/readable compatibility history; not executed by the live v35 estimator |
-| All-20 predictive sidecar | `local-probabilistic-radar-v1`; active `local-factor-router-v3` / `small-factor-router-v4`, historical v2 readable; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
+| All-20 predictive sidecar | `local-probabilistic-radar-v1`; active `local-factor-router-v3` / `small-factor-router-v5`, historical v2 readable; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |

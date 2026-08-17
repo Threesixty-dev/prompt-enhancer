@@ -18,6 +18,11 @@ from prompt_enhancer.application.analysis.model_ensemble import (
     build_ensemble_chunks,
     coaching_ensemble_metric_specs,
 )
+from prompt_enhancer.application.analysis.model_ensemble_watch import (
+    ModelEnsembleAttemptState,
+    ModelEnsembleStageState,
+    ModelEnsembleWatchState,
+)
 from prompt_enhancer.application.analysis.probabilistic_metrics import (
     EVIDENCE_LANE_METRIC_KEYS,
     PROBABILISTIC_METRIC_CONTRACTS,
@@ -56,6 +61,7 @@ from prompt_enhancer.ingestion import IngestionService
 from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
     LIVE_PROBABILISTIC_PLAN_VERSION,
     LocalProbabilisticMetricRunner,
+    PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE,
 )
 from prompt_enhancer.infrastructure.sqlite import migrations
 from prompt_enhancer.infrastructure.sqlite.model_ensemble import (
@@ -234,6 +240,27 @@ def _completed_result(payload):
                 "entailment": 0.98,
                 "neutral": 0.01,
                 "contradiction": 0.01,
+            }
+            for item in payload["cases"]
+        ],
+        "runtime": {
+            "inference_latency_ms": 80.0,
+            "peak_cuda_allocated_mb": 900.0,
+            "process_rss_after_load_and_inference_mb": 1_400.0,
+        },
+    }
+
+
+def _uncertain_result(payload):
+    return {
+        "status": "completed",
+        "device": "cuda",
+        "rows": [
+            {
+                "case_id": item["case_id"],
+                "entailment": 0.35,
+                "neutral": 0.50,
+                "contradiction": 0.15,
             }
             for item in payload["cases"]
         ],
@@ -433,11 +460,133 @@ def test_predictive_projection_round_trips_is_immutable_and_privacy_cascades(
             ).fetchone()[0] == 0
 
 
+def test_optional_deep_timeout_publishes_partial_head_and_clears_watch_failure(
+    tmp_path,
+) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    repository = database.model_ensemble_repository()
+    context = _context(session_id)
+    chunks = build_ensemble_chunks(context)
+    metrics = coaching_ensemble_metric_specs()
+    baseline_receipt = LocalProbabilisticMetricRunner(
+        executor=lambda spec, stage, payload, device: _completed_result(payload),
+        deep_enabled=False,
+        clock=lambda: NOW,
+    ).run(chunks, metrics)
+    baseline = SessionModelEnsembleRunRecord(
+        run_id="b" * 64,
+        session_id=session_id,
+        request_fingerprint="c" * 64,
+        input_fingerprint="a" * 64,
+        provider=Provider.CODEX,
+        provider_version="synthetic-provider-v1",
+        adapter_version="synthetic-adapter-v1",
+        source_schema_version="synthetic-source-v1",
+        content_schema_version="synthetic-content-v1",
+        redactor_version="synthetic-redactor-v1",
+        receipt=baseline_receipt,
+    )
+    repository.save_completed(baseline)
+
+    timeout_receipt = LocalProbabilisticMetricRunner(
+        executor=lambda spec, stage, payload, device: _uncertain_result(payload),
+        deep_executor=lambda spec, stage, payload, device, quantization: {
+            "status": "unavailable",
+            "error_code": PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE,
+        },
+        device="cuda",
+        clock=lambda: NOW + timedelta(seconds=2),
+    ).run(chunks, metrics)
+    timed_out = SessionModelEnsembleRunRecord(
+        run_id="d" * 64,
+        session_id=session_id,
+        request_fingerprint="e" * 64,
+        input_fingerprint="a" * 64,
+        provider=Provider.CODEX,
+        provider_version="synthetic-provider-v1",
+        adapter_version="synthetic-adapter-v1",
+        source_schema_version="synthetic-source-v1",
+        content_schema_version="synthetic-content-v1",
+        redactor_version="synthetic-redactor-v1",
+        receipt=timeout_receipt,
+    )
+    repository.save_completed(timed_out)
+
+    project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
+        "project_id"
+    ]
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "9" * 64
+    owner = "8" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        max_messages=100,
+        now=NOW,
+    )
+    claimed = watches.claim_due(
+        owner=owner,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=1),
+        next_check_at=NOW + timedelta(seconds=2),
+        outcome=SessionModelEnsembleOutcome(run=baseline, applied=True),
+    )
+    assert watches.canonical_head(watch_id).head_run_id == baseline.run_id
+
+    claimed = watches.claim_due(
+        owner=owner,
+        now=NOW + timedelta(seconds=2),
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    in_flight = watches.canonical_head(watch_id)
+    assert in_flight.head_run_id == baseline.run_id
+    assert in_flight.latest_attempt is not None
+    assert in_flight.latest_attempt.state is ModelEnsembleAttemptState.RUNNING
+    assert in_flight.latest_attempt.prior_head_run_id == baseline.run_id
+
+    watch = watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=3),
+        next_check_at=NOW + timedelta(seconds=63),
+        outcome=SessionModelEnsembleOutcome(run=timed_out, applied=True),
+    )
+    assert watch.state is ModelEnsembleWatchState.IDLE
+    assert watch.failure_streak == 0
+    head = watches.canonical_head(watch_id)
+    assert head.head_run_id == timed_out.run_id
+    assert head.latest_attempt is not None
+    assert head.latest_attempt.state is ModelEnsembleAttemptState.PARTIAL
+    assert head.latest_attempt.published_run_id == timed_out.run_id
+    assert head.latest_attempt.stage_count == 4
+    assert head.latest_attempt.warning_count == 1
+    assert len(head.stages) == 4
+    assert head.stages[-1].state is ModelEnsembleStageState.UNAVAILABLE
+    assert head.stages[-1].error_code == PROBABILISTIC_DEEP_TIMEOUT_ERROR_CODE
+    assert tuple(
+        point.run_id
+        for point in watches.list_publications(
+            watch_id,
+            before_generation=None,
+            limit=12,
+        ).points
+    ) == (timed_out.run_id, baseline.run_id)
+
+
 def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
     tmp_path,
 ) -> None:
     assert SCHEMA_VERSION == 39
-    assert LIVE_PROBABILISTIC_PLAN_VERSION == "small-factor-router-v4"
+    assert LIVE_PROBABILISTIC_PLAN_VERSION == "small-factor-router-v5"
     assert PROBABILISTIC_MODEL_SET_VERSION == "local-factor-router-v3"
 
     database, session_id, project_id = _database_and_session_at_v38(tmp_path)

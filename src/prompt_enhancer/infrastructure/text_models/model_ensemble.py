@@ -16,6 +16,7 @@ import json
 import math
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 from time import monotonic
@@ -61,6 +62,14 @@ from ..specialist_screen.manifests import MINILMV2_L12_NLI, MINILMV2_L6_NLI
 MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION = 3
 MAX_ENSEMBLE_SUBPROCESS_INPUT_BYTES = 2 * 1024 * 1024
 MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES = 4 * 1024 * 1024
+MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_SECONDS = 1_200.0
+MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE = (
+    "model_ensemble_subprocess_timeout"
+)
+MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE = (
+    "model_ensemble_subprocess_cleanup_unconfirmed"
+)
+MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS = 0.5
 MAX_SELECTED_RETRIEVAL_FRAGMENTS = 8
 MAX_SELECTED_RERANKED_FRAGMENTS = 2
 CONTRIBUTING_NLI_MODEL_KEYS = frozenset(
@@ -242,6 +251,95 @@ def _child_environment(root: Path, cache_root: Path) -> dict[str, str]:
     return allowed
 
 
+def _process_control_environment() -> dict[str, str]:
+    """Keep Windows process control functional without inheriting credentials."""
+
+    allowlist = frozenset(
+        {
+            "APPDATA",
+            "COMSPEC",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "LOCALAPPDATA",
+            "PATH",
+            "PATHEXT",
+            "SYSTEMDRIVE",
+            "SYSTEMROOT",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+            "WINDIR",
+        }
+    )
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if name.upper() in allowlist and "\x00" not in value
+    }
+
+
+def _terminate_ensemble_process_tree(
+    process: subprocess.Popen[bytes],
+    *,
+    environment: Mapping[str, str],
+) -> bool:
+    """Force one isolated model tree down and report positive confirmation."""
+
+    tree_termination_confirmed = False
+    if process.poll() is None:
+        if os.name == "nt":
+            try:
+                result = subprocess.run(
+                    (
+                        "taskkill.exe",
+                        "/PID",
+                        str(process.pid),
+                        "/T",
+                        "/F",
+                    ),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=dict(environment),
+                    shell=False,
+                    check=False,
+                    timeout=(
+                        MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS
+                        + 1.0
+                    ),
+                )
+                tree_termination_confirmed = result.returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                pass
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+                tree_termination_confirmed = True
+            except (OSError, ProcessLookupError):
+                pass
+        if process.poll() is None:
+            try:
+                process.kill()
+            except OSError:
+                pass
+    root_exited = process.poll() is not None
+    try:
+        process.wait(
+            timeout=MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS
+        )
+        root_exited = process.poll() is not None
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    for pipe in (process.stdin, process.stdout):
+        if pipe is None:
+            continue
+        try:
+            pipe.close()
+        except (OSError, ValueError):
+            pass
+    return tree_termination_confirmed and root_exited
+
+
 def run_ensemble_expert_subprocess(
     spec: EnsembleExpertSpec,
     stage: str,
@@ -251,9 +349,18 @@ def run_ensemble_expert_subprocess(
     python_executable: str | None = None,
     heartbeat: Callable[[], None] | None = None,
     quantization: str = "none",
+    timeout_seconds: float = MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_SECONDS,
 ) -> Mapping[str, object]:
     if quantization not in {"none", "bitsandbytes_nf4"}:
         raise ModelEnsembleError("model_ensemble_quantization_invalid")
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, (int, float))
+        or not math.isfinite(timeout_seconds)
+        or not 0 < timeout_seconds <= MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_SECONDS
+    ):
+        raise ModelEnsembleError("model_ensemble_timeout_invalid")
+    bounded_timeout = float(timeout_seconds)
     root = repository_root()
     script = root / "scripts" / "run_local_model_ensemble_expert.py"
     body = json.dumps(
@@ -276,23 +383,34 @@ def run_ensemble_expert_subprocess(
         "--quantization",
         quantization,
     ]
-    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    child_environment = _child_environment(root, spec.cache_root)
+    creation_flags = 0
+    start_new_session = False
+    if os.name == "nt":
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
+            subprocess,
+            "CREATE_NEW_PROCESS_GROUP",
+            0,
+        )
+    else:
+        start_new_session = True
     try:
         process = subprocess.Popen(
             command,
             cwd=root,
-            env=_child_environment(root, spec.cache_root),
+            env=child_environment,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             creationflags=creation_flags,
+            start_new_session=start_new_session,
         )
         started = monotonic()
         first = True
         while True:
-            remaining = 1_200 - (monotonic() - started)
+            remaining = bounded_timeout - (monotonic() - started)
             if remaining <= 0:
-                raise subprocess.TimeoutExpired(command, 1_200)
+                raise subprocess.TimeoutExpired(command, bounded_timeout)
             try:
                 stdout, _stderr = process.communicate(
                     input=body if first else None,
@@ -303,17 +421,40 @@ def run_ensemble_expert_subprocess(
                 first = False
                 if heartbeat is not None:
                     heartbeat()
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
         local_process = locals().get("process")
-        if local_process is not None and local_process.poll() is None:
-            local_process.kill()
-            local_process.communicate()
+        cleanup_confirmed = local_process is not None and (
+            _terminate_ensemble_process_tree(
+                local_process,
+                environment=_process_control_environment(),
+            )
+        )
+        if not cleanup_confirmed:
+            raise ModelEnsembleError(
+                MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE
+            ) from None
+        raise ModelEnsembleError(
+            MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE
+        ) from None
+    except OSError:
+        local_process = locals().get("process")
+        if local_process is not None and not _terminate_ensemble_process_tree(
+            local_process,
+            environment=_process_control_environment(),
+        ):
+            raise ModelEnsembleError(
+                MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE
+            ) from None
         raise ModelEnsembleError("model_ensemble_subprocess_failed") from None
     except Exception:
         local_process = locals().get("process")
-        if local_process is not None and local_process.poll() is None:
-            local_process.kill()
-            local_process.communicate()
+        if local_process is not None and not _terminate_ensemble_process_tree(
+            local_process,
+            environment=_process_control_environment(),
+        ):
+            raise ModelEnsembleError(
+                MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE
+            ) from None
         raise
     if not stdout or len(stdout) > MAX_ENSEMBLE_SUBPROCESS_OUTPUT_BYTES:
         raise ModelEnsembleError("model_ensemble_output_invalid")
@@ -871,6 +1012,12 @@ class SerialModelEnsembleRunner:
     ) -> Mapping[str, object] | None:
         try:
             result = self._executor(spec, stage, payload, self._device)
+        except ModelEnsembleError as error:
+            if error.args == (
+                MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
+            ):
+                raise
+            return None
         except Exception:
             return None
         if (
@@ -882,6 +1029,12 @@ class SerialModelEnsembleRunner:
             # context and weights cannot overlap the CPU retry.
             try:
                 result = self._executor(spec, stage, payload, "cpu")
+            except ModelEnsembleError as error:
+                if error.args == (
+                    MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE,
+                ):
+                    raise
+                return None
             except Exception:
                 return None
         if (
@@ -1038,6 +1191,10 @@ __all__ = [
     "CONTRIBUTING_NLI_MODEL_KEYS",
     "EnsembleExpertSpec",
     "MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION",
+    "MODEL_ENSEMBLE_SUBPROCESS_CLEANUP_UNCONFIRMED_ERROR_CODE",
+    "MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_ERROR_CODE",
+    "MODEL_ENSEMBLE_SUBPROCESS_TIMEOUT_SECONDS",
+    "MODEL_ENSEMBLE_SUBPROCESS_TERMINATION_GRACE_SECONDS",
     "ModelEnsembleError",
     "SerialModelEnsembleRunner",
     "ensemble_expert_specs",
