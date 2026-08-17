@@ -25,7 +25,11 @@ from ...domain import SAFE_VERSION_PATTERN, StrictModel
 
 PROBABILISTIC_METRIC_PROJECTION_VERSION = "local-probabilistic-radar-v1"
 PROBABILISTIC_CONTRACT_REGISTRY_VERSION = "all-20-factor-contracts-v1"
-PROBABILISTIC_MODEL_SET_VERSION = "local-factor-router-v2"
+# The model-set identity is receipt provenance, not a display label.  V2 is
+# frozen for historical rehydration; new live projections use V3 after the
+# reviewed expert constellation changed.
+PROBABILISTIC_MODEL_SET_VERSION_V2 = "local-factor-router-v2"
+PROBABILISTIC_MODEL_SET_VERSION = "local-factor-router-v3"
 EXPERIMENTAL_CALIBRATION_VERSION = "not-calibrated-v1"
 PROBABILISTIC_DENSITY_BIN_COUNT = 20
 PROBABILISTIC_SAMPLE_COUNT = 1_024
@@ -1059,7 +1063,13 @@ _SUPPORTED_PREDICTIVE_PROJECTION_IDENTITIES = frozenset(
         (
             "local-probabilistic-radar-v1",
             "all-20-factor-contracts-v1",
-            "local-factor-router-v2",
+            PROBABILISTIC_MODEL_SET_VERSION_V2,
+            1_024,
+        ),
+        (
+            "local-probabilistic-radar-v1",
+            "all-20-factor-contracts-v1",
+            PROBABILISTIC_MODEL_SET_VERSION,
             1_024,
         )
     }
@@ -1448,6 +1458,7 @@ __all__ = [
     "PROBABILISTIC_MIN_RETAINED_SAMPLE_RATE",
     "PROBABILISTIC_METRIC_PROJECTION_VERSION",
     "PROBABILISTIC_MODEL_SET_VERSION",
+    "PROBABILISTIC_MODEL_SET_VERSION_V2",
     "PROBABILISTIC_PROMPT_PACKET_VERSION",
     "PROBABILISTIC_SAMPLE_COUNT",
     "PredictiveFactorContribution",

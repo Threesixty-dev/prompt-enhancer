@@ -1052,11 +1052,14 @@ metric-detail endpoint exposes only a fixed twenty-bin density and content-free
 factor contributions. No transcript text, fragments, prompts, generated
 explanations, or raw logits are persisted or returned.
 
-The live model set is `local-factor-router-v2`. Three pinned multilingual NLI
-encoders form the EN/PL baseline; two separately pinned English long-context
-challengers can contribute to eligible English factors. A pinned Qwen3 4B judge
-is invoked only for bounded disagreement/neutral cases and runs in a disposable
-bitsandbytes NF4 child. All children run serially with fixed 6,144 MiB VRAM and
+The live model set is `local-factor-router-v3` under execution plan
+`small-factor-router-v4`. Historical `local-factor-router-v2` receipts remain
+readable but are not comparable to the new constellation. Three pinned
+multilingual NLI encoders form the EN/PL baseline. The separately pinned English
+long-context challengers remain disabled pending three-state factor and resource
+gates. A pinned Qwen3 4B judge is invoked only for bounded disagreement/neutral
+cases and runs in a disposable bitsandbytes NF4 child. All children run serially
+with fixed 6,144 MiB VRAM and
 8,192 MiB RSS ceilings. Small-model resource exhaustion retries once on CPU;
 deep-lane failure cannot erase deterministic or small-model results. The old
 ten-stage graph stays immutable and readable but is emitted as unavailable by
@@ -1109,13 +1112,25 @@ analysis-job execution, immediate child-process-tree cancellation, complete
 failed-stage telemetry, a distinct persisted `AnalysisSnapshotV2`, full provider
 semantic linkage, calibration, and Claude/generic adapters remain unfinished.
 
+The 2026-08-17 synthetic-only local diagnostic re-screen did not promote any
+neural metric expert. MiniLM-L6 reached 44.4% and MiniLM-L12 55.6% typed accuracy on 18
+eligible EN/PL scoped-NLI cases; both remained below the 96-case activation
+gate. ModernBERT reached 5/9 on the English three-state screen and mapped every
+contradiction to neutral, so it joined DeBERTa-small-long on the live-disabled
+list. Qwen3 4B NF4 fit the resource envelope at about 3.84 GiB peak VRAM but
+reached only 15/24 exact rubric labels, so it remains a selective experimental
+adjudicator. The four-case retrieval smoke favored lexical BM25 and the Qwen
+embedding challenger, while the BGE reranker reduced ranking quality; the sample
+is too small for activation. These results prohibit interpreting model count or
+agreement as metric correctness and are not a calibration or promotion report.
+
 ## Version inventory
 
 | Component | Pinned identity | Product status |
 |---|---|---|
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
 | Historical ten-model shadow graph | `local-shadow-ensemble-v1`; `append-stable-redacted-v3`; `owned-observation-v1`; `coaching-shadow-prompt-v4`; exact ten-model inventory in code-owned immutable manifests | Immutable/readable compatibility history; not executed by the live v35 estimator |
-| All-20 predictive sidecar | `local-probabilistic-radar-v1`; `local-factor-router-v2`; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
+| All-20 predictive sidecar | `local-probabilistic-radar-v1`; active `local-factor-router-v3` / `small-factor-router-v4`, historical v2 readable; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |

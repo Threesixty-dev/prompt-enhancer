@@ -27,6 +27,10 @@ import { parseModelPredictiveMetricDetail } from "../../shared/api/modelPredicti
 import { createHttpTransport, TransportError } from "../../shared/api/httpTransport";
 import { MetricWorkspace } from "./MetricWorkspace";
 import { ModelEnsemblePanel } from "./ModelEnsemblePanel";
+import {
+  modelEnsembleCompletedSmallExperts,
+  modelEnsembleRadarAxes,
+} from "./ModelEnsembleRadar";
 
 const SESSION_ID = "a".repeat(64);
 const PROJECT_ID = "b".repeat(64);
@@ -194,6 +198,72 @@ function runFixture(): ModelEnsembleRun {
     calibration_state: "not_assessed",
     product_metric_eligible: false,
   };
+}
+
+const LIVE_TERMINAL_MODEL_SPECS = [
+  {
+    modelKey: "mdeberta_xnli",
+    repositoryId: "example-org/mdeberta-xnli",
+    device: "cpu" as const,
+    quantization: "none",
+  },
+  {
+    modelKey: "multilingual_minilmv2_l6_nli",
+    repositoryId: "example-org/multilingual-minilmv2-l6-nli",
+    device: "cpu" as const,
+    quantization: "none",
+  },
+  {
+    modelKey: "multilingual_minilmv2_l12_nli",
+    repositoryId: "example-org/multilingual-minilmv2-l12-nli",
+    device: "cpu" as const,
+    quantization: "none",
+  },
+  {
+    modelKey: "qwen3_4b_rubric",
+    repositoryId: "example-org/qwen3-4b-rubric",
+    device: "cuda" as const,
+    quantization: "bitsandbytes_nf4",
+  },
+] as const;
+
+function fourStageTerminalRun(): ModelEnsembleRun {
+  const run = structuredClone(runFixture());
+  run.predictive_model_stages = LIVE_TERMINAL_MODEL_SPECS.map((spec, ordinal) => ({
+    model_key: spec.modelKey,
+    repository_id: spec.repositoryId,
+    revision: (ordinal + 5).toString(16).repeat(40),
+    status: "completed" as const,
+    error_code: null,
+    device: spec.device,
+    quantization: spec.quantization,
+    inference_latency_ms: 20 + ordinal,
+    peak_accelerator_memory_mb: spec.device === "cuda" ? 3_840 : 0,
+    process_rss_mb: spec.device === "cuda" ? 4_096 : 768,
+    unloaded_after_stage: true,
+  }));
+  return run;
+}
+
+function fourTerminalAttemptStages(): ModelEnsembleCanonicalHead["stages"] {
+  return LIVE_TERMINAL_MODEL_SPECS.map((spec, ordinal) => ({
+    stage_ordinal: ordinal,
+    stage_key: spec.modelKey,
+    state: "completed" as const,
+    model_key: spec.modelKey,
+    repository_id: spec.repositoryId,
+    revision: (ordinal + 5).toString(16).repeat(40),
+    error_code: null,
+    device: spec.device,
+    quantization: spec.quantization,
+    inference_latency_ms: 20 + ordinal,
+    peak_accelerator_memory_mb: spec.device === "cuda" ? 3_840 : 0,
+    process_rss_mb: spec.device === "cuda" ? 4_096 : 768,
+    evaluated_case_count: 18,
+    contributed_case_count: 12,
+    unloaded_after_stage: true,
+    completed_at: `2040-01-02T10:00:0${ordinal + 2}Z`,
+  }));
 }
 
 function watchFixture(latestRun: ModelEnsembleRun | null = null): ModelEnsembleWatchSnapshot {
@@ -647,6 +717,79 @@ describe("ModelEnsemblePanel", () => {
     expect(screen.getAllByRole("navigation", { name: "Metric workspace view" })).toHaveLength(2);
     expect(screen.getAllByText("History")).toHaveLength(2);
     expect(screen.getAllByText("Scope not exposed")).toHaveLength(2);
+  });
+
+  it("renders the dynamic three-small plus Qwen terminal constellation without counting Qwen as a small expert", () => {
+    const run = fourStageTerminalRun();
+    const attemptStages = fourTerminalAttemptStages();
+    expect(run.predictive_model_stages.map((stage) => stage.model_key)).toEqual(
+      LIVE_TERMINAL_MODEL_SPECS.map((stage) => stage.modelKey),
+    );
+    expect(modelEnsembleCompletedSmallExperts(run)).toBe(3);
+
+    render(
+      <MetricWorkspace
+        attemptStages={attemptStages}
+        lensId="task-framing"
+        mode="compact"
+        onLensChange={vi.fn()}
+        run={run}
+        runId={run.run_id}
+        snapshotLabel="Sealed source window"
+        stageRun={run}
+        transport={createSyntheticTransport()}
+      />,
+    );
+
+    expect(screen.getByText("Models").parentElement).toHaveTextContent(
+      "Latest attempt · 4/4 stages completed",
+    );
+    fireEvent.click(screen.getByText("Models"));
+    const factorGroup = screen.getByText("Factor models").closest("section");
+    const deepGroup = screen.getByText("Deep judge").closest("section");
+    expect(factorGroup).not.toBeNull();
+    expect(deepGroup).not.toBeNull();
+    expect(within(factorGroup!).getAllByRole("button")).toHaveLength(3);
+    expect(within(deepGroup!).getAllByRole("button")).toHaveLength(1);
+    expect(within(deepGroup!).getByText("qwen3-4b-rubric")).toBeVisible();
+    expect(screen.queryByText("Challengers")).not.toBeInTheDocument();
+
+    const belowGate = structuredClone(run);
+    belowGate.predictive_model_stages = belowGate.predictive_model_stages.map((stage, ordinal) => ({
+      ...stage,
+      status: ordinal === 0 || stage.model_key === "qwen3_4b_rubric"
+        ? "completed" as const
+        : "failed" as const,
+      error_code: ordinal === 0 || stage.model_key === "qwen3_4b_rubric"
+        ? null
+        : "example_optional_stage_failure",
+    }));
+    expect(modelEnsembleCompletedSmallExperts(belowGate)).toBe(1);
+    const gatedAxis = modelEnsembleRadarAxes(belowGate, "task-framing")[0];
+    expect(gatedAxis.predictiveMedian).toBeNull();
+    expect(gatedAxis.predictiveWithheldReason).toMatch(/fewer than two small experts/i);
+  });
+
+  it("labels the model drawer as sealed-snapshot provenance when an active attempt has no stage rows", () => {
+    const run = runFixture();
+    render(
+      <MetricWorkspace
+        attemptStages={[]}
+        lensId="task-framing"
+        mode="compact"
+        onLensChange={vi.fn()}
+        run={run}
+        runId={run.run_id}
+        snapshotLabel="Last complete snapshot during active analysis"
+        stageRun={run}
+        transport={createSyntheticTransport()}
+      />,
+    );
+
+    expect(screen.getByText("Models").parentElement).toHaveTextContent(
+      "Sealed snapshot · 3/3 stages completed",
+    );
+    expect(screen.getByText("Models").parentElement).not.toHaveTextContent("Latest attempt");
   });
 
   it("shows the typed radar with separate diagnostics and never describes it as a product score", async () => {

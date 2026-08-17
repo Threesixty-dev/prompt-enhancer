@@ -1,8 +1,10 @@
 """Bounded local factor router for the probabilistic radar sidecar.
 
 Three already-reviewed multilingual NLI encoders form the EN/PL live baseline.
-English-only uncertain cases can also reach two pinned long-context challengers,
-and unresolved disagreement can reach one disposable 4-bit Qwen adjudicator.
+The pinned English long-context challengers remain available for offline research,
+but are excluded from the live router until they pass the three-state factor and
+resource gates. Unresolved disagreement can reach one disposable 4-bit Qwen
+adjudicator.
 Every model runs in a separate child process, one at a time, and only bounded,
 content-free factor and resource receipts return to the parent.  The historical
 ten-stage graph is still emitted as an unavailable compatibility matrix so old
@@ -77,10 +79,12 @@ from .model_ensemble import (
 )
 
 
-LIVE_PROBABILISTIC_PLAN_VERSION = "small-factor-router-v3"
+LIVE_PROBABILISTIC_PLAN_VERSION = "small-factor-router-v4"
 LIVE_PROBABILISTIC_MAX_SELECTED_FRAGMENTS = 4
 LIVE_PROBABILISTIC_MAX_DEEP_CASES = 12
-DISABLED_PROBABILISTIC_MODEL_KEYS = frozenset({"deberta_small_long_nli"})
+DISABLED_PROBABILISTIC_MODEL_KEYS = frozenset(
+    {"deberta_small_long_nli", "modernbert_base_zeroshot"}
+)
 _TOKEN = re.compile(r"[^\W_]{2,}", flags=re.UNICODE)
 
 DeepStageExecutor = Callable[

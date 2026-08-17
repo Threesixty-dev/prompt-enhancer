@@ -37,6 +37,7 @@ from prompt_enhancer.infrastructure.text_models.model_ensemble import (
     ensemble_expert_specs,
 )
 from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
+    DISABLED_PROBABILISTIC_MODEL_KEYS,
     LocalProbabilisticMetricRunner,
     _draw_metric_samples,
     _has_sufficient_retained_samples,
@@ -235,13 +236,13 @@ def test_live_probabilistic_runner_emits_behavioral_ranges_only() -> None:
         coaching_ensemble_metric_specs(),
     )
 
-    assert len(calls) == 4
+    assert len(calls) == 3
     assert {call[1] for call in calls} == {"scope_nli"}
     assert all(call[3] <= 160 for call in calls)
     assert receipt.predictive_projection is not None
     projection = receipt.predictive_projection
     assert len(projection.metrics) == 20
-    assert len(projection.model_stages) == 4
+    assert len(projection.model_stages) == 3
     assert all(
         item.state is PredictiveMetricState.UNAVAILABLE
         for item in projection.metrics
@@ -661,6 +662,14 @@ def test_ten_percent_neutral_per_factor_cannot_hide_outside_the_range() -> None:
     assert len(samples) / 1_024 < PROBABILISTIC_MIN_RETAINED_SAMPLE_RATE
     assert _has_sufficient_retained_samples(samples) is False
 
+
+def test_unvalidated_long_context_challengers_are_not_live_experts() -> None:
+    assert DISABLED_PROBABILISTIC_MODEL_KEYS == {
+        "deberta_small_long_nli",
+        "modernbert_base_zeroshot",
+    }
+
+
 def test_live_probabilistic_runner_routes_only_uncertain_cases_to_nf4_judge() -> None:
     deep_calls = []
 
@@ -733,7 +742,7 @@ def test_live_probabilistic_runner_routes_only_uncertain_cases_to_nf4_judge() ->
     assert quantization == "bitsandbytes_nf4"
     assert 1 <= len(case_ids) <= 12
     assert receipt.predictive_projection is not None
-    assert len(receipt.predictive_projection.model_stages) == 5
+    assert len(receipt.predictive_projection.model_stages) == 4
     deep_stage = receipt.predictive_projection.model_stages[-1]
     assert deep_stage.model_key == "qwen3_4b_rubric"
     assert deep_stage.quantization == "bitsandbytes_nf4"

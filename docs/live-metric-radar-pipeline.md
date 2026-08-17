@@ -71,11 +71,16 @@ metrics remain N/A or pending.
 The live estimator is an external mixture-of-specialists router. It is not a
 large native MoE and does not average ten unrelated scores.
 
+The active expert-set receipt is `local-factor-router-v3` and the live
+execution plan is `small-factor-router-v4`. Sealed v2 receipts remain readable,
+but the changed plan/model identity creates an explicit history break.
+
 1. Deterministic matching and BM25 select bounded candidate evidence first.
 2. Three revision-pinned multilingual NLI encoders provide the EN/PL baseline.
-3. English eligible cases may use the pinned ModernBERT-base zero-shot
-   challenger. DeBERTa-small-long-NLI remains disabled until its separate
-   resource and quality gates pass.
+3. The pinned ModernBERT-base zero-shot and DeBERTa-small-long-NLI challengers
+   remain disabled in the live router. ModernBERT's current binary mapping does
+   not satisfy the three-state factor contract, and both models require separate
+   resource and quality gates before activation.
 4. High disagreement, neutral evidence, or manual deep analysis may invoke the
    pinned Qwen3 4B judge in 4-bit NF4.
 5. Models execute serially in isolated child processes. Only typed probabilities,
@@ -129,7 +134,7 @@ holdout gates pass. A cohort mismatch becomes `Out of distribution` and withhold
 the calibrated claim.
 
 NLI `neutral` is epistemic uncertainty, not proof that a temporal horizon is
-still open. Nine structurally immediate behavioral contracts may publish an
+still open. Eight structurally immediate behavioral contracts may publish an
 experimental range with zero pending mass. The five collaboration contracts
 and open-loop closure withhold their model range until typed semantic lifecycle
 receipts can establish closed versus pending/right-censored state; their measured
@@ -147,9 +152,12 @@ measurement.
 
 ## Persistence, API, and privacy
 
-Schemas v35-v37 are additive. Existing v1-v34 receipt bytes and checksums are unchanged;
-there is no predictive backfill. New normalized rows are immutable, content-free,
-and privacy-cascade with secure-delete and WAL verification. Stored data includes
+Schemas v35-v38 add content-free predictive, execution, semantic-unit, and
+retry/quarantine receipts without predictive backfill. Schema v39 transactionally
+rebuilds only the affected predictive sidecar tables so frozen v2 and active v3
+model-set identities can coexist; migrations 1-38 and their checksums remain
+unchanged. New normalized rows are immutable, content-free, and privacy-cascade
+with secure-delete and WAL verification. Stored data includes
 only pseudonymous digests, typed states, sufficient statistics, distribution
 summaries, version identities, and resource telemetry. It excludes transcript
 text, snippets, prompts, generated explanations, source identifiers, and raw
@@ -174,7 +182,9 @@ failed or cancelled attempt retains the previous head. Cancellation revokes the
 lease and is cooperative at a model-stage boundary; immediate child-process-tree
 termination is not yet implemented. Schema v37 adds a content-free semantic-unit
 sidecar keyed by message-content digests. It preserves exact-one ownership and
-append-idempotent lifecycle heads without persisting evidence text.
+append-idempotent lifecycle heads without persisting evidence text. Schema v38
+adds bounded retry/backoff and quarantine state; schema v39 preserves historical
+v2 predictive receipts while requiring new v3 model-set provenance.
 
 ## Provider boundary
 
@@ -189,7 +199,8 @@ Implemented now:
 
 - all twenty contract identities and predictive receipts;
 - exact measured-versus-predictive separation;
-- EN/PL small-model routing and English long-context challengers;
+- active three-model EN/PL small-model routing plus pinned research-only
+  long-context challenger manifests;
 - selective 4-bit Qwen lane with child resource enforcement;
 - immutable v35 persistence, trajectory and metric-detail API;
 - one full/compact workspace with fixed-axis measured geometry and informative

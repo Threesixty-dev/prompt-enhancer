@@ -21,9 +21,10 @@ online.
 An additional opt-in local pipeline projects all twenty metric contracts into a
 second, explicitly experimental layer. It first builds owned task, collaboration,
 reasoning, and outcome-evidence observations so physical chunks never create extra
-denominators. Three pinned multilingual NLI encoders form the EN/PL live baseline;
-two pinned English long-context challengers are available for eligible cases, and a
-4-bit Qwen 4B judge is loaded only for bounded disagreement or manual deep analysis.
+denominators. Three pinned multilingual NLI encoders form the EN/PL live baseline.
+The pinned English long-context challengers remain research-only until their
+three-state factor and resource gates pass. A 4-bit Qwen 4B judge is loaded only
+for bounded disagreement or manual deep analysis.
 Models run one at a time in isolated child processes under a 6,144 MiB VRAM and
 8,192 MiB RSS ceiling. A failed optional model cannot erase deterministic metrics.
 Only content-free factor summaries, distribution quantiles, provenance, and resource

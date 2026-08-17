@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+import hashlib
 import sqlite3
 
 from fastapi.testclient import TestClient
@@ -21,7 +22,11 @@ from prompt_enhancer.application.analysis.probabilistic_metrics import (
     EVIDENCE_LANE_METRIC_KEYS,
     PROBABILISTIC_METRIC_CONTRACTS,
     PROBABILISTIC_METRIC_PROJECTION_VERSION,
+    PROBABILISTIC_MODEL_SET_VERSION,
+    PROBABILISTIC_MODEL_SET_VERSION_V2,
     PredictiveMetricState,
+    SessionPredictiveMetricProjection,
+    SessionPredictiveMetricReceipt,
 )
 from prompt_enhancer.application.analysis.session_model_ensemble import (
     SessionModelEnsembleOutcome,
@@ -38,13 +43,24 @@ from prompt_enhancer.application.analysis.text_contracts import (
     TextRole,
     TextTaskProfile,
 )
-from prompt_enhancer.database import Database
+from prompt_enhancer.database import (
+    SCHEMA_VERSION,
+    Database,
+    DatabaseError,
+    _MIGRATION_1,
+)
 from prompt_enhancer.api import API_TOKEN_HEADER, create_app
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.domain import Provider
 from prompt_enhancer.ingestion import IngestionService
 from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
+    LIVE_PROBABILISTIC_PLAN_VERSION,
     LocalProbabilisticMetricRunner,
+)
+from prompt_enhancer.infrastructure.sqlite import migrations
+from prompt_enhancer.infrastructure.sqlite.model_ensemble import (
+    SqliteSessionModelEnsembleRepository,
+    _predictive_projection_fingerprint,
 )
 from prompt_enhancer.privacy import Pseudonymizer
 
@@ -134,6 +150,78 @@ def _database_and_session(tmp_path) -> tuple[Database, str]:
         connection.execute("UPDATE sessions SET provider='codex'")
         connection.commit()
     return database, session_id
+
+
+def _database_and_session_at_v38(tmp_path) -> tuple[Database, str, str]:
+    """Create a real v38 database without allowing Database to auto-upgrade."""
+
+    path = tmp_path / "probabilistic-v38.sqlite3"
+    scripts = (_MIGRATION_1,) + tuple(
+        getattr(migrations, f"MIGRATION_{version}")
+        for version in range(2, 39)
+    )
+    applied_at = NOW.isoformat(timespec="microseconds")
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA trusted_schema=ON")
+        for script in scripts:
+            connection.executescript(script)
+        connection.execute(
+            """CREATE TABLE schema_migrations(
+                   version INTEGER PRIMARY KEY,
+                   checksum TEXT NOT NULL,
+                   applied_at TEXT NOT NULL
+               )"""
+        )
+        connection.executemany(
+            "INSERT INTO schema_migrations VALUES(?,?,?)",
+            tuple(
+                (
+                    version,
+                    hashlib.sha256(script.encode("utf-8")).hexdigest(),
+                    applied_at,
+                )
+                for version, script in enumerate(scripts, start=1)
+            ),
+        )
+        installation_id = "4" * 64
+        project_id = "5" * 64
+        session_id = "6" * 64
+        connection.execute(
+            "INSERT INTO installations VALUES(?,?,?)",
+            (installation_id, "codex", applied_at),
+        )
+        connection.execute(
+            """INSERT INTO projects(
+                   project_id,installation_id,provider,created_at
+               ) VALUES(?,?,?,?)""",
+            (project_id, installation_id, "codex", applied_at),
+        )
+        connection.execute(
+            """INSERT INTO sessions(
+                   session_id,installation_id,project_id,provider,
+                   provider_version,adapter_version,source_schema_version,
+                   started_at,ended_at,terminal_state,events_complete,
+                   created_at,updated_at
+               ) VALUES(?,?,?,?,?,?,?,?,?,'completed',1,?,?)""",
+            (
+                session_id,
+                installation_id,
+                project_id,
+                "codex",
+                "synthetic-provider-v1",
+                "synthetic-adapter-v1",
+                "synthetic-source-v1",
+                applied_at,
+                applied_at,
+                applied_at,
+                applied_at,
+            ),
+        )
+        connection.execute("PRAGMA user_version=38")
+        connection.commit()
+
+    return Database(path), session_id, project_id
 
 
 def _completed_result(payload):
@@ -260,7 +348,7 @@ def test_predictive_projection_round_trips_is_immutable_and_privacy_cascades(
         outcome=SessionModelEnsembleOutcome(run=record, applied=True),
     )
     first_attempt = watches.list_attempts(watch_id, limit=1)[0]
-    assert first_attempt.stage_count == 4
+    assert first_attempt.stage_count == 3
 
     claimed = watches.claim_due(
         owner="8" * 64,
@@ -293,7 +381,7 @@ def test_predictive_projection_round_trips_is_immutable_and_privacy_cascades(
         }
         assert counts["session_model_ensemble_predictive_metrics"] == 20
         assert counts["session_model_ensemble_predictive_density_bins"] == 160
-        assert counts["session_model_ensemble_predictive_model_stages"] == 4
+        assert counts["session_model_ensemble_predictive_model_stages"] == 3
         assert counts["session_model_ensemble_predictive_metric_seals"] == 1
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
@@ -343,3 +431,227 @@ def test_predictive_projection_round_trips_is_immutable_and_privacy_cascades(
             assert connection.execute(
                 f"SELECT COUNT(*) FROM {table}"  # noqa: S608 - closed test constants
             ).fetchone()[0] == 0
+
+
+def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
+    tmp_path,
+) -> None:
+    assert SCHEMA_VERSION == 39
+    assert LIVE_PROBABILISTIC_PLAN_VERSION == "small-factor-router-v4"
+    assert PROBABILISTIC_MODEL_SET_VERSION == "local-factor-router-v3"
+
+    database, session_id, project_id = _database_and_session_at_v38(tmp_path)
+    runner = LocalProbabilisticMetricRunner(
+        executor=lambda spec, stage, payload, device: _completed_result(payload),
+        clock=lambda: NOW,
+    )
+    live_receipt = runner.run(
+        build_ensemble_chunks(_context(session_id)),
+        coaching_ensemble_metric_specs(),
+    )
+    live_projection = live_receipt.predictive_projection
+    assert live_projection is not None
+    assert live_projection.model_set_version == PROBABILISTIC_MODEL_SET_VERSION
+
+    historical_metrics = tuple(
+        SessionPredictiveMetricReceipt.model_validate(
+            {
+                **item.model_dump(),
+                "model_set_version": PROBABILISTIC_MODEL_SET_VERSION_V2,
+            }
+        )
+        for item in live_projection.metrics
+    )
+    historical_projection = SessionPredictiveMetricProjection.model_validate(
+        {
+            **live_projection.model_dump(exclude={"metrics"}),
+            "model_set_version": PROBABILISTIC_MODEL_SET_VERSION_V2,
+            "metrics": historical_metrics,
+        }
+    )
+    historical_receipt = live_receipt.model_copy(
+        update={"predictive_projection": historical_projection}
+    )
+    historical_record = SessionModelEnsembleRunRecord(
+        run_id="b" * 64,
+        session_id=session_id,
+        request_fingerprint="c" * 64,
+        input_fingerprint="a" * 64,
+        provider=Provider.CODEX,
+        provider_version="synthetic-provider-v1",
+        adapter_version="synthetic-adapter-v1",
+        source_schema_version="synthetic-source-v1",
+        content_schema_version="synthetic-content-v1",
+        redactor_version="synthetic-redactor-v1",
+        receipt=historical_receipt,
+    )
+    legacy_runs = SqliteSessionModelEnsembleRepository(
+        database._connection,  # noqa: SLF001 - deliberate pre-upgrade fixture
+        lambda: None,
+    )
+    legacy_runs.save_completed(historical_record)
+
+    with sqlite3.connect(database.path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 38
+        assert connection.execute(
+            """SELECT DISTINCT model_set_version
+               FROM session_model_ensemble_predictive_metrics"""
+        ).fetchall() == [(PROBABILISTIC_MODEL_SET_VERSION_V2,)]
+        assert connection.execute(
+            """SELECT projection_fingerprint
+               FROM session_model_ensemble_predictive_metric_seals
+               WHERE run_id=?""",
+            (historical_record.run_id,),
+        ).fetchone()[0] == _predictive_projection_fingerprint(
+            historical_projection
+        )
+
+    database.initialize()
+    runs = database.model_ensemble_repository()
+    loaded_historical = runs.get(historical_record.run_id)
+    assert loaded_historical is not None
+    assert loaded_historical.receipt.predictive_projection is not None
+    assert (
+        loaded_historical.receipt.predictive_projection.model_set_version
+        == PROBABILISTIC_MODEL_SET_VERSION_V2
+    )
+    assert all(
+        item.model_set_version == PROBABILISTIC_MODEL_SET_VERSION_V2
+        for item in loaded_historical.receipt.predictive_projection.metrics
+    )
+
+    live_record = historical_record.model_copy(
+        update={
+            "run_id": "d" * 64,
+            "request_fingerprint": "e" * 64,
+            "receipt": live_receipt,
+        }
+    )
+    runs.save_completed(live_record)
+
+    # Bypass Pydantic deliberately to prove the database seal rejects a graph
+    # whose seal claims v3 while its twenty metric rows still claim v2.
+    mismatched_projection = historical_projection.model_copy(
+        update={"model_set_version": PROBABILISTIC_MODEL_SET_VERSION}
+    )
+    mismatched_record = historical_record.model_copy(
+        update={
+            "run_id": "f" * 64,
+            "request_fingerprint": "0" * 64,
+            "receipt": live_receipt.model_copy(
+                update={"predictive_projection": mismatched_projection}
+            ),
+        }
+    )
+    with pytest.raises(DatabaseError, match="local database operation failed"):
+        runs.save_completed(mismatched_record)
+    assert runs.get(mismatched_record.run_id) is None
+
+    expected_triggers = {
+        "session_model_ensemble_predictive_seal_complete",
+        "session_model_ensemble_predictive_metrics_sealed_insert",
+        "session_model_ensemble_predictive_factors_sealed_insert",
+        "session_model_ensemble_predictive_density_sealed_insert",
+        "session_model_ensemble_predictive_stages_sealed_insert",
+        "session_model_ensemble_predictive_metrics_no_update",
+        "session_model_ensemble_predictive_factors_no_update",
+        "session_model_ensemble_predictive_density_no_update",
+        "session_model_ensemble_predictive_stages_no_update",
+        "session_model_ensemble_predictive_seals_no_update",
+        "session_model_ensemble_predictive_metrics_privacy_delete_only",
+        "session_model_ensemble_predictive_factors_privacy_delete_only",
+        "session_model_ensemble_predictive_density_privacy_delete_only",
+        "session_model_ensemble_predictive_stages_privacy_delete_only",
+        "session_model_ensemble_predictive_seals_privacy_delete_only",
+    }
+    with sqlite3.connect(database.path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 39
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert connection.execute(
+            "SELECT checksum FROM schema_migrations WHERE version=39"
+        ).fetchone()[0] == hashlib.sha256(
+            migrations.MIGRATION_39.encode("utf-8")
+        ).hexdigest()
+        model_sets = connection.execute(
+            """SELECT model_set_version,COUNT(*)
+               FROM session_model_ensemble_predictive_metrics
+               GROUP BY model_set_version ORDER BY model_set_version"""
+        ).fetchall()
+        assert model_sets == [
+            (PROBABILISTIC_MODEL_SET_VERSION_V2, 20),
+            (PROBABILISTIC_MODEL_SET_VERSION, 20),
+        ]
+        trigger_rows = connection.execute(
+            """SELECT name,sql FROM sqlite_master
+               WHERE type='trigger'
+                 AND name LIKE 'session_model_ensemble_predictive_%'"""
+        ).fetchall()
+        assert {row[0] for row in trigger_rows} == expected_triggers
+        assert all("_v39" not in row[1] for row in trigger_rows)
+        assert connection.execute(
+            """SELECT name FROM sqlite_master
+               WHERE sql IS NOT NULL AND sql LIKE '%_v39%'"""
+        ).fetchall() == []
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                """UPDATE session_model_ensemble_predictive_model_stages
+                   SET status=status WHERE run_id=?""",
+                (live_record.run_id,),
+            )
+
+    watches = database.model_ensemble_watch_repository()
+    watch_id = "9" * 64
+    watches.enable(
+        watch_id=watch_id,
+        provider=Provider.CODEX,
+        project_id=project_id,
+        session_id=session_id,
+        max_messages=100,
+        now=NOW,
+    )
+    claimed = watches.claim_due(
+        owner="8" * 64,
+        now=NOW,
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=1),
+        next_check_at=NOW + timedelta(seconds=2),
+        outcome=SessionModelEnsembleOutcome(run=historical_record, applied=True),
+    )
+    claimed = watches.claim_due(
+        owner="8" * 64,
+        now=NOW + timedelta(seconds=2),
+        lease_duration=timedelta(minutes=30),
+    )
+    assert claimed is not None
+    _, lease = claimed
+    watches.complete(
+        lease,
+        now=NOW + timedelta(seconds=3),
+        next_check_at=NOW + timedelta(seconds=60),
+        outcome=SessionModelEnsembleOutcome(run=live_record, applied=True),
+    )
+
+    trajectory = watches.list_publications(
+        watch_id,
+        before_generation=None,
+        limit=12,
+    )
+    assert tuple(point.run_id for point in trajectory.points) == (
+        live_record.run_id,
+        historical_record.run_id,
+    )
+    assert trajectory.points[0].comparable_to_head is True
+    assert trajectory.points[1].comparable_to_head is False
+    assert {
+        item.model_set_version for item in trajectory.points[0].predictive_metrics
+    } == {PROBABILISTIC_MODEL_SET_VERSION}
+    assert {
+        item.model_set_version for item in trajectory.points[1].predictive_metrics
+    } == {PROBABILISTIC_MODEL_SET_VERSION_V2}

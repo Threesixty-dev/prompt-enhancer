@@ -141,7 +141,8 @@ function formatResource(value: number | null): string {
 }
 
 function ModelConstellation({ run, attemptStages, compact }: { run: ModelEnsembleRun | null; attemptStages: readonly ModelEnsembleAttemptStage[]; compact: boolean }) {
-  const stages = attemptStages.length > 0 ? attemptStagesFor(attemptStages) : stagesFor(run);
+  const showingAttemptStages = attemptStages.length > 0;
+  const stages = showingAttemptStages ? attemptStagesFor(attemptStages) : stagesFor(run);
   const [selectedKey, setSelectedKey] = useState(stages[0]?.modelKey ?? "");
   const selected = stages.find((stage) => stage.modelKey === selectedKey) ?? stages[0];
   const groups = ["Factor models", "Challengers", "Deep judge", "Legacy stages"] as const;
@@ -156,7 +157,7 @@ function ModelConstellation({ run, attemptStages, compact }: { run: ModelEnsembl
         <span>Models</span>
         <small>{stages.length === 0
           ? "Stage receipts not exposed"
-          : `${stages.filter((stage) => stage.status === "completed").length}/${stages.length} stages completed`}</small>
+          : `${showingAttemptStages ? "Latest attempt" : "Sealed snapshot"} · ${stages.filter((stage) => stage.status === "completed").length}/${stages.length} stages completed`}</small>
       </summary>
       <div className="model-constellation__body">
         {stages.length === 0 && <p>Model stage details are not exposed for this sealed receipt.</p>}
