@@ -56,44 +56,61 @@ describe("metricInspectorSentences", () => {
     denominator: null,
   };
 
-  it("produces distinct truthful copy per state without inventing factor evidence", () => {
+  it("produces distinct truthful copy per state without bands or invented factors", () => {
     const pending = metricInspectorSentences({ ...base, state: "unknown", explanationCode: "episode_horizon_open" });
     const na = metricInspectorSentences({ ...base, state: "not_applicable" });
     const unknown = metricInspectorSentences({ ...base, state: "unknown" });
+    const abstained = metricInspectorSentences({ ...base, state: "abstained" });
+    const objective = metricInspectorSentences({ ...base, metricKey: "outcome.agent_claim_grounding", label: "Agent claim grounding", state: "abstained" });
     const error = metricInspectorSentences({ ...base, state: "execution_error" });
     const missing = metricInspectorSentences({ ...base, state: "missing" });
     const experimental = metricInspectorSentences({ ...base, state: "unknown", experimentalVisible: true, experimentalMedian: 0.6 });
-    const measured = metricInspectorSentences({ ...base, state: "known", numericValue: 0.5, numerator: 1, denominator: 2 });
-    const strong = metricInspectorSentences({ ...base, state: "known", numericValue: 1, numerator: 3, denominator: 3 });
+    const measured = metricInspectorSentences({ ...base, state: "known", numericValue: 0.5, numerator: 1, denominator: 2, experimentalFactorKeys: ["goal_cue"] });
     const zero = metricInspectorSentences({ ...base, state: "known", numericValue: 0, numerator: 0, denominator: 3 });
-    const kinds = [pending, na, unknown, error, missing, experimental, measured, strong, zero].map((sentence) => sentence.kind);
-    expect(new Set(kinds).size).toBe(9);
-    expect(pending.diagnosis).toMatch(/not a zero/);
-    expect(na.diagnosis).toMatch(/nothing to score/);
-    expect(unknown.diagnosis).toMatch(/not a low value/);
-    expect(error.diagnosis).toMatch(/not a low score/);
-    expect(missing.diagnosis).toMatch(/nothing was measured/);
-    expect(experimental.diagnosis).toMatch(/uncalibrated model range/);
-    expect(zero.diagnosis).toMatch(/radar center/);
-    expect(strong.diagnosis).toMatch(/strong band/);
-    expect(measured.diagnosis).not.toMatch(/factor distribution is weakest/);
-    for (const sentence of [pending, na, unknown, error, missing, experimental, measured, strong, zero]) {
+    const all = [pending, na, unknown, abstained, error, missing, experimental, measured, zero];
+    expect(new Set(all.map((sentence) => sentence.kind)).size).toBe(9);
+    expect(pending.meaning).toMatch(/not a zero/);
+    expect(na.meaning).toMatch(/nothing to score/);
+    expect(unknown.meaning).toMatch(/not a low value/);
+    expect(unknown.meaning).not.toMatch(/No objective receipt/);
+    expect(abstained.meaning).toMatch(/abstained instead of guessing/);
+    expect(objective.meaning).toMatch(/authoritative typed links or receipts are missing/);
+    expect(objective.meaning).not.toMatch(/denominator/);
+    expect(error.meaning).toMatch(/not a low score/);
+    expect(missing.meaning).toMatch(/nothing was measured/);
+    expect(experimental.meaning).toMatch(/uncalibrated model range/);
+    expect(zero.meaning).toMatch(/radar-quality zero/);
+    expect(measured.meaning).toMatch(/exactly 50%/);
+    expect(measured.meaning).not.toMatch(/weakest|measured evidence/);
+    for (const sentence of all) {
+      expect(sentence.meaning).not.toMatch(/strong band|75%/);
       expect(sentence.action).toMatch(/ — verify: /);
     }
   });
 
-  it("grounds a measured diagnosis in receipt-backed factors only when supplied", () => {
-    const grounded = metricInspectorSentences({
+  it("labels predictive factor keys as model judgment only when an estimate is visible", () => {
+    const withEstimate = metricInspectorSentences({
       ...base, state: "known", numericValue: 0.4, numerator: 2, denominator: 5,
-      measuredFactorKeys: ["goal_cue", "target_cue"],
+      experimentalFactorKeys: ["goal_cue", "target_cue"], experimentalVisible: true, experimentalMedian: 0.5,
     });
-    expect(grounded.diagnosis).toMatch(/weakest on goal cue and target cue/);
+    expect(withEstimate.meaning).toMatch(/model factor probabilities are lowest for goal cue and target cue — a model judgment, not measured evidence/);
+    expect(withEstimate.action).toMatch(/^Safest next step: /);
+    const complete = metricInspectorSentences({ ...base, state: "known", numericValue: 1, numerator: 3, denominator: 3 });
+    expect(complete.action).toMatch(/^Nothing to change for this window/);
+  });
+
+  it("explains lower-is-better values and the radar-quality center truthfully", () => {
     const rework = metricInspectorSentences({
       metricKey: "collaboration.rework_candidate_rate", label: "Rework-candidate rate",
       direction: "lower_is_better", state: "known", numericValue: 0.1, numerator: 1, denominator: 10,
     });
-    expect(rework.kind).toBe("strong");
-    expect(rework.diagnosis).toMatch(/raw 10%/);
-    expect(rework.diagnosis).toMatch(/radar quality is 90%/);
+    expect(rework.kind).toBe("measured");
+    expect(rework.meaning).toMatch(/raw rate of 10% \(radar quality 90% because lower is better\)/);
+    const center = metricInspectorSentences({
+      metricKey: "collaboration.rework_candidate_rate", label: "Rework-candidate rate",
+      direction: "lower_is_better", state: "known", numericValue: 1, numerator: 10, denominator: 10,
+    });
+    expect(center.kind).toBe("zero");
+    expect(center.meaning).toMatch(/raw 100%.*radar quality is 0%/);
   });
 });

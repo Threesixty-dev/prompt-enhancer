@@ -1,26 +1,35 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { metricHelpV2, type MetricHelpLocale } from "./metricHelpV2";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { metricHelpV2 } from "./metricHelpV2";
 
 /**
- * Shared open/pin state for the metric knowledge cards of one workspace. Pointer
- * hover previews, keyboard focus previews, click/tap pins, Escape dismisses.
- * Only one card is open at a time; the card content is hoverable and never
- * changes layout because it is absolutely positioned and always rendered
- * (hidden) so `aria-describedby` resolves for every trigger.
+ * One knowledge-card controller per workspace. A target is {surface, metricKey};
+ * at most one card is visible across every trigger surface (axis strip and
+ * exact-value board). Triggers get `aria-describedby` pointing at an always
+ * present hidden one-sentence description, so semantics never depend on the
+ * visible card. The visible card is an in-flow disclosure below its trigger
+ * surface: it never moves the radar and cannot overflow its container.
  */
+export type MetricKnowledgeSurface = "strip" | "board";
+export interface MetricKnowledgeTarget { surface: MetricKnowledgeSurface; metricKey: string }
+
 export interface MetricKnowledgeCardController {
-  openKey: string | null;
+  idPrefix: string;
+  target: MetricKnowledgeTarget | null;
   pinned: boolean;
-  preview: (key: string) => void;
-  unpreview: (key: string) => void;
-  togglePin: (key: string) => void;
+  preview: (target: MetricKnowledgeTarget) => void;
+  unpreview: (target: MetricKnowledgeTarget) => void;
+  togglePin: (target: MetricKnowledgeTarget) => void;
   dismiss: () => void;
 }
 
 export const METRIC_KNOWLEDGE_CARD_LEAVE_DELAY_MS = 150;
 
+const same = (left: MetricKnowledgeTarget | null, right: MetricKnowledgeTarget): boolean =>
+  left !== null && left.surface === right.surface && left.metricKey === right.metricKey;
+
 export function useMetricKnowledgeCardController(): MetricKnowledgeCardController {
-  const [state, setState] = useState<{ openKey: string | null; pinned: boolean }>({ openKey: null, pinned: false });
+  const idPrefix = useId();
+  const [state, setState] = useState<{ target: MetricKnowledgeTarget | null; pinned: boolean }>({ target: null, pinned: false });
   const leaveTimer = useRef<number | null>(null);
   const clearLeave = () => {
     if (leaveTimer.current !== null) {
@@ -28,114 +37,129 @@ export function useMetricKnowledgeCardController(): MetricKnowledgeCardControlle
       leaveTimer.current = null;
     }
   };
-  const preview = useCallback((key: string) => {
+  const preview = useCallback((target: MetricKnowledgeTarget) => {
     clearLeave();
-    setState((current) => current.pinned ? current : { openKey: key, pinned: false });
+    setState((current) => current.pinned ? current : { target, pinned: false });
   }, []);
-  const unpreview = useCallback((key: string) => {
+  const unpreview = useCallback((target: MetricKnowledgeTarget) => {
     clearLeave();
     leaveTimer.current = window.setTimeout(() => {
-      setState((current) => current.pinned || current.openKey !== key ? current : { openKey: null, pinned: false });
+      setState((current) => current.pinned || !same(current.target, target) ? current : { target: null, pinned: false });
     }, METRIC_KNOWLEDGE_CARD_LEAVE_DELAY_MS);
   }, []);
-  const togglePin = useCallback((key: string) => {
+  const togglePin = useCallback((target: MetricKnowledgeTarget) => {
     clearLeave();
-    setState((current) => current.pinned && current.openKey === key
-      ? { openKey: null, pinned: false }
-      : { openKey: key, pinned: true });
+    setState((current) => current.pinned && same(current.target, target)
+      ? { target: null, pinned: false }
+      : { target, pinned: true });
   }, []);
   const dismiss = useCallback(() => {
     clearLeave();
-    setState({ openKey: null, pinned: false });
+    setState({ target: null, pinned: false });
   }, []);
   useEffect(() => {
-    if (state.openKey === null) return undefined;
+    if (state.target === null) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") dismiss();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [dismiss, state.openKey]);
+  }, [dismiss, state.target]);
   useEffect(() => () => clearLeave(), []);
-  return { openKey: state.openKey, pinned: state.pinned, preview, unpreview, togglePin, dismiss };
+  return { idPrefix, target: state.target, pinned: state.pinned, preview, unpreview, togglePin, dismiss };
 }
 
-export function metricKnowledgeCardId(scope: string, metricKey: string): string {
-  return `metric-help-${scope}-${metricKey.replaceAll(".", "-")}`;
+export function metricKnowledgeDescriptionId(controller: Pick<MetricKnowledgeCardController, "idPrefix">, metricKey: string): string {
+  return `${controller.idPrefix}help-${metricKey.replaceAll(".", "-")}`;
 }
 
-/** Trigger props for any element (button, tile, SVG group) that describes a metric. */
+/** Trigger props for the accessible controls (buttons/tiles) that describe a metric. */
 export function metricKnowledgeCardTriggerProps(
   controller: MetricKnowledgeCardController,
-  scope: string,
+  surface: MetricKnowledgeSurface,
   metricKey: string,
 ) {
-  const id = metricKnowledgeCardId(scope, metricKey);
+  const target = { surface, metricKey };
+  const open = same(controller.target, target);
   return {
-    "aria-describedby": id,
-    "data-help-open": controller.openKey === metricKey ? (controller.pinned ? "pinned" : "preview") : undefined,
-    onPointerEnter: () => controller.preview(metricKey),
-    onPointerLeave: () => controller.unpreview(metricKey),
-    onFocus: () => controller.preview(metricKey),
-    onBlur: () => controller.unpreview(metricKey),
-    onClick: () => controller.togglePin(metricKey),
+    "aria-describedby": metricKnowledgeDescriptionId(controller, metricKey),
+    "data-help-open": open ? (controller.pinned ? "pinned" : "preview") : undefined,
+    onPointerEnter: () => controller.preview(target),
+    onPointerLeave: () => controller.unpreview(target),
+    onFocus: () => controller.preview(target),
+    onBlur: () => controller.unpreview(target),
   } as const;
 }
 
-export function MetricKnowledgeCard({
-  controller,
-  scope,
-  metricKey,
-  label,
-  status,
-  locale = "en",
-  compact = false,
-  style,
-}: {
+export interface MetricKnowledgeEntry { key: string; label: string; status: string }
+
+/** Always-present hidden one-sentence descriptions referenced by every trigger. */
+export function MetricKnowledgeDescriptions({ controller, entries }: {
   controller: MetricKnowledgeCardController;
-  scope: string;
-  metricKey: string;
-  label: string;
-  status: string;
-  locale?: MetricHelpLocale;
-  compact?: boolean;
-  style?: React.CSSProperties;
+  entries: readonly MetricKnowledgeEntry[];
 }) {
-  const help = metricHelpV2(metricKey, locale);
-  const open = controller.openKey === metricKey;
-  const pinned = open && controller.pinned;
   return (
-    <div
-      className={`metric-knowledge-card${compact ? " metric-knowledge-card--compact" : ""}`}
-      data-open={open ? "true" : "false"}
-      data-pinned={pinned ? "true" : "false"}
-      hidden={!open}
-      id={metricKnowledgeCardId(scope, metricKey)}
-      onPointerEnter={() => controller.preview(metricKey)}
-      onPointerLeave={() => controller.unpreview(metricKey)}
-      role="tooltip"
-      style={style}
-    >
-      <header>
-        <strong>{label}</strong>
-        <span>{status}{help?.fallback ? " · EN" : ""}</span>
-      </header>
-      {help === null ? (
-        <p>No knowledge card is registered for this metric key.</p>
-      ) : (
-        <>
-          <p>{help.entry.meaning}</p>
-          <dl>
-            <div><dt>{locale === "pl" && !help.fallback ? "Pytanie" : "Question"}</dt><dd>{help.entry.question}</dd></div>
-            <div><dt>{locale === "pl" && !help.fallback ? "Jednostka" : "Unit"}</dt><dd>{help.entry.observationUnit}</dd></div>
-            <div><dt>{locale === "pl" && !help.fallback ? "Kierunek" : "Direction"}</dt><dd>{help.entry.direction}</dd></div>
-            <div><dt>{locale === "pl" && !help.fallback ? "Liczy się" : "Counts"}</dt><dd>{help.entry.counts}</dd></div>
-            <div><dt>{locale === "pl" && !help.fallback ? "Nie liczy się" : "Does not count"}</dt><dd>{help.entry.doesNotCount}</dd></div>
-            <div><dt>{locale === "pl" && !help.fallback ? "Dowody" : "Evidence"}</dt><dd>{help.entry.objectiveEvidence}</dd></div>
-          </dl>
-        </>
-      )}
-      <footer>{pinned ? "Pinned · Esc closes" : "Click or tap to pin · Esc closes"} · {help?.version ?? "unversioned"}</footer>
+    <div className="metric-knowledge-descriptions" hidden>
+      {entries.map((entry) => (
+        <span id={metricKnowledgeDescriptionId(controller, entry.key)} key={entry.key}>
+          {entry.label}: {metricHelpV2(entry.key)?.entry.meaning ?? "No knowledge card is registered for this metric key."}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** In-flow disclosure slot for one surface; renders the single open card, if it targets this surface. */
+export function MetricKnowledgeCardSlot({ controller, surface, entries, compact = false }: {
+  controller: MetricKnowledgeCardController;
+  surface: MetricKnowledgeSurface;
+  entries: readonly MetricKnowledgeEntry[];
+  compact?: boolean;
+}) {
+  const target = controller.target;
+  const entry = target !== null && target.surface === surface
+    ? entries.find((candidate) => candidate.key === target.metricKey) ?? null
+    : null;
+  if (entry === null) return <div className="metric-knowledge-slot" data-surface={surface} />;
+  const help = metricHelpV2(entry.key, "en");
+  const pinned = controller.pinned;
+  return (
+    <div className="metric-knowledge-slot" data-surface={surface}>
+      <div
+        aria-label={`${entry.label} knowledge card`}
+        className={`metric-knowledge-card${compact ? " metric-knowledge-card--compact" : ""}`}
+        data-metric-key={entry.key}
+        data-pinned={pinned ? "true" : "false"}
+        onPointerEnter={() => controller.preview({ surface, metricKey: entry.key })}
+        onPointerLeave={() => controller.unpreview({ surface, metricKey: entry.key })}
+        role="tooltip"
+      >
+        <header>
+          <strong>{entry.label}</strong>
+          <span>{entry.status}</span>
+        </header>
+        {help === null ? (
+          <p>No knowledge card is registered for this metric key.</p>
+        ) : (
+          <>
+            <p><b>Target definition.</b> {help.entry.meaning}</p>
+            <dl>
+              <div><dt>Question</dt><dd>{help.entry.question}</dd></div>
+              <div><dt>Unit</dt><dd>{help.entry.observationUnit}</dd></div>
+              <div><dt>Direction</dt><dd>{help.entry.direction}</dd></div>
+              <div><dt>Counts</dt><dd>{help.entry.counts}</dd></div>
+              <div><dt>Does not count</dt><dd>{help.entry.doesNotCount}</dd></div>
+              <div><dt>Evidence</dt><dd>{help.entry.objectiveEvidence}</dd></div>
+            </dl>
+            {help.measurement !== null && (
+              <p className="metric-knowledge-card__measurement">
+                <b>Current measurement (shipped definition v{help.measurement.definitionVersion}).</b> {help.measurement.method} {help.measurement.limitation}
+              </p>
+            )}
+          </>
+        )}
+        <footer>{pinned ? "Pinned · Esc closes" : "Click or tap the control to pin · Esc closes"} · {help?.version ?? "unversioned"} · target contract shown separately from the shipped measurement</footer>
+      </div>
     </div>
   );
 }

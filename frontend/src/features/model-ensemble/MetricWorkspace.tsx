@@ -7,7 +7,7 @@ import type {
 } from "../../shared/api/contracts";
 import { sessionMetricGuidance } from "../quality-profile/metricGuidance";
 import {
-  MetricKnowledgeCard,
+  MetricKnowledgeCardSlot,
   metricKnowledgeCardTriggerProps,
   useMetricKnowledgeCardController,
 } from "./MetricKnowledgeCard";
@@ -375,6 +375,7 @@ export function MetricWorkspace({
           comparisonRun={comparisonRun}
           detailRunId={runId}
           detailTransport={transport}
+          helpController={boardHelp}
           lensId={lensId}
           onSelectedMetricKeyChange={setSelectedMetricKey}
           run={run}
@@ -397,12 +398,12 @@ export function MetricWorkspace({
                   explanationCode: axis.metric !== null && "projection_source" in axis.metric ? axis.metric.explanation_code : null,
                 });
                 return (
-                  <div className="metric-workspace__tile" key={axis.key}>
                   <button
                     aria-pressed={axis.key === activeMetricKey}
                     data-status={status}
+                    key={axis.key}
                     {...metricKnowledgeCardTriggerProps(boardHelp, "board", axis.key)}
-                    onClick={() => { setSelectedMetricKey(axis.key); boardHelp.togglePin(axis.key); }}
+                    onClick={() => { setSelectedMetricKey(axis.key); boardHelp.togglePin({ surface: "board", metricKey: axis.key }); }}
                     type="button"
                   >
                     <span>
@@ -417,17 +418,14 @@ export function MetricWorkspace({
                     <b>{presentation.value}</b>
                     <p>{guidance.action}</p>
                   </button>
-                  <MetricKnowledgeCard
-                    controller={boardHelp}
-                    label={axis.label}
-                    metricKey={axis.key}
-                    scope="board"
-                    status={modelEnsembleMetricStatusLabel(status)}
-                  />
-                  </div>
                 );
               })}
             </div>
+            <MetricKnowledgeCardSlot
+              controller={boardHelp}
+              entries={axes.map((axis) => ({ key: axis.key, label: axis.label, status: modelEnsembleMetricStatusLabel(modelEnsembleMetricStatus(axis.metric)) }))}
+              surface="board"
+            />
           </section>
         )}
       </div>

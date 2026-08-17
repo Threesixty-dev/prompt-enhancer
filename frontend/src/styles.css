@@ -5097,47 +5097,38 @@ canvas { max-width: 100%; }
   .project-workspace__context-icon { color: LinkText; background: Canvas; }
 }
 
-/* Metric knowledge cards (metric-help-v2): absolute, hoverable, no layout jump. */
-.model-ensemble__radar { position: relative; }
-.model-ensemble__radar-help-lane { position: relative; height: 0; }
-.model-ensemble__radar-help-lane--strip { position: relative; }
-.model-ensemble__radar-axis-trigger { cursor: pointer; outline: none; }
-.model-ensemble__radar-axis-trigger:focus-visible .model-ensemble__radar-label,
-.model-ensemble__radar-axis-trigger[data-help-open] .model-ensemble__radar-label { fill: #176f65; text-decoration: underline; }
+/* Metric knowledge cards (metric-help-v2): in-flow disclosure, one visible card per workspace. */
+.metric-knowledge-descriptions[hidden] { display: none; }
+.metric-knowledge-slot { min-width: 0; }
+.metric-knowledge-slot:empty { display: none; }
 .model-ensemble__radar-withheld { fill: none; stroke: #8a9bac; stroke-dasharray: 2 1; stroke-width: 1.4; }
-.metric-workspace__tile { position: relative; }
-.metric-knowledge-card { position: absolute; z-index: 30; left: 0; top: 100%; width: min(320px, 92vw); max-width: 92vw; margin: 4px 0 0; padding: 9px 11px; border: 1px solid #b9cbc7; border-radius: 9px; color: var(--ink-800); background: #fff; box-shadow: 0 8px 22px rgba(20, 45, 40, 0.16); font-size: 14px; line-height: 1.4; text-align: left; text-transform: none; transition: opacity 120ms ease; }
-.metric-knowledge-card[hidden] { display: none; }
-.metric-knowledge-card--compact { font-size: 12px; width: min(280px, 92vw); }
+.metric-knowledge-card { box-sizing: border-box; width: 100%; max-width: 100%; max-height: 42vh; overflow: auto; overflow-wrap: anywhere; margin: 6px 0 0; padding: 9px 11px; border: 1px solid #b9cbc7; border-radius: 9px; color: var(--ink-800); background: #fff; font-size: 14px; line-height: 1.4; text-align: left; text-transform: none; }
+.metric-knowledge-card--compact { font-size: 12px; max-height: 38vh; padding: 7px 8px; }
 .metric-knowledge-card header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
-.metric-knowledge-card header strong { font-size: inherit; }
-.metric-knowledge-card header span { color: var(--ink-500); font-size: inherit; }
-.metric-knowledge-card p { margin: 0 0 6px; color: var(--ink-800); font-size: inherit; line-height: 1.4; }
-.metric-knowledge-card dl { display: grid; grid-template-columns: 1fr; gap: 3px; margin: 0; }
-.metric-knowledge-card dl div { display: grid; grid-template-columns: 6.5em 1fr; gap: 6px; padding: 0; background: none; text-align: left; }
-.metric-knowledge-card dt { color: var(--ink-500); font-size: inherit; text-transform: none; }
-.metric-knowledge-card dd { margin: 0; color: var(--ink-800); font-size: inherit; font-weight: 500; }
-.metric-knowledge-card footer { margin-top: 6px; color: var(--ink-500); font-size: 12px; }
-.model-ensemble__radar-help-lane .metric-knowledge-card { top: auto; transform: translate(-50%, 0); }
+.metric-knowledge-card header strong, .metric-knowledge-card header span, .metric-knowledge-card p, .metric-knowledge-card dt, .metric-knowledge-card dd { font-size: inherit; text-transform: none; }
+.metric-knowledge-card header span { color: var(--ink-500); }
+.metric-knowledge-card p { margin: 0 0 6px; color: var(--ink-800); line-height: 1.4; }
+.metric-knowledge-card dl { display: grid; grid-template-columns: 1fr; gap: 3px; margin: 0 0 6px; }
+.metric-knowledge-card dl div { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 6px; padding: 0; background: none; text-align: left; }
+.metric-knowledge-card dt { color: var(--ink-500); }
+.metric-knowledge-card dd { margin: 0; color: var(--ink-800); font-weight: 500; }
+.metric-knowledge-card footer { color: var(--ink-500); font-size: 12px; }
 .metric-inspector-sentences { display: grid; gap: 4px; }
-.metric-inspector-sentences p { margin: 0; color: var(--ink-800); font-size: 14px; line-height: 1.45; }
+.metric-inspector-sentences p { margin: 0; color: var(--ink-800); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
 .metric-inspector-sentences p span { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px; background: #e8f5f1; color: #155c52; font-size: 12px; font-weight: 700; text-transform: uppercase; }
 .model-ensemble__radar--compact .metric-inspector-sentences p { font-size: 12px; }
-.model-ensemble__radar--compact .metric-inspector-sentences p span { font-size: 12px; }
 .model-ensemble__axis-strip span, .model-ensemble__axis-strip b, .model-ensemble__axis-strip small,
 .model-ensemble__focused-metric p, .model-ensemble__focused-metric dt, .model-ensemble__focused-metric dd,
 .model-ensemble__focused-metric > header span, .model-ensemble__focused-metric > header strong { font-size: 12px; }
 .model-ensemble__radar:not(.model-ensemble__radar--compact) .model-ensemble__focused-metric p,
 .model-ensemble__radar:not(.model-ensemble__radar--compact) .model-ensemble__focused-metric > header strong { font-size: 14px; }
 @media (max-width: 360px), (max-height: 500px) {
-  .metric-knowledge-card { width: min(260px, 94vw); font-size: 12px; }
+  .metric-knowledge-card { font-size: 12px; max-height: 34vh; }
   .metric-knowledge-card dl div { grid-template-columns: 1fr; gap: 1px; }
 }
-@media (prefers-reduced-motion: reduce) { .metric-knowledge-card { transition: none; } }
 @media (forced-colors: active) {
-  .metric-knowledge-card { border: 2px solid CanvasText; background: Canvas; color: CanvasText; box-shadow: none; }
+  .metric-knowledge-card { border: 2px solid CanvasText; background: Canvas; color: CanvasText; }
   .metric-knowledge-card[data-pinned="true"] { border-style: double; }
-  .model-ensemble__radar-axis-trigger:focus-visible .model-ensemble__radar-label { fill: Highlight; }
   .model-ensemble__radar-withheld, .model-ensemble__radar-state { stroke: CanvasText; }
   .metric-inspector-sentences p span { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
 }
