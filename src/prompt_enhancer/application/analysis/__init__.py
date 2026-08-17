@@ -224,6 +224,18 @@ from .model_ensemble_watch import (
     ModelEnsembleWatchState,
     ModelEnsembleWatchWorker,
 )
+from .metric_contract_v2 import (
+    METRIC_CONTRACTS_V2,
+    METRIC_CONTRACT_REGISTRY_VERSION_V2,
+    MetricContractV2,
+    MetricValueStateV2,
+    metric_contract_v2,
+)
+from .metric_projection_v2 import (
+    MetricStateV2,
+    OpportunityStatistics,
+    project_metric_states_v2,
+)
 
 __all__ = [
     "ActionEvidence",
@@ -277,6 +289,7 @@ __all__ = [
     "MetricCoverageService",
     "MetricCoverageSnapshot",
     "MetricContractError",
+    "MetricContractV2",
     "MetricDefinition",
     "MetricEngine",
     "MetricPack",
@@ -289,8 +302,11 @@ __all__ = [
     "MetricReadinessService",
     "MetricReadinessState",
     "MetricResultStateCounts",
+    "MetricStateV2",
     "MetricStructuralSupportState",
     "METRIC_COVERAGE_CONTRACT_VERSION",
+    "METRIC_CONTRACTS_V2",
+    "METRIC_CONTRACT_REGISTRY_VERSION_V2",
     "METRIC_READINESS_CATALOG_VERSION",
     "MODEL_LINK_CONFIRMATION",
     "MODEL_LINK_EXPERIMENT_KEY",
@@ -351,6 +367,7 @@ __all__ = [
     "ProviderCapabilityReport",
     "ProviderHistoryCompleteness",
     "ProviderSnapshotAuthority",
+    "OpportunityStatistics",
     "RationaleState",
     "SessionQualityAggregationReceipt",
     "StoredMetricCoverage",
@@ -410,6 +427,9 @@ __all__ = [
     "VerificationMethod",
     "VerificationOutcome",
     "compute_task_metrics",
+    "metric_contract_v2",
+    "MetricValueStateV2",
+    "project_metric_states_v2",
     "resolve_text_analysis_preset",
     "validate_projection_descriptor",
 ]

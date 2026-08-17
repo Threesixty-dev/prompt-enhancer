@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import combinations
 import re
+from types import MappingProxyType
 
 from ...domain import DataTier, MetricObservation, MetricSource, SAFE_VERSION_PATTERN
 from ..persistence import MetricValueState
@@ -334,6 +335,12 @@ _DELIVERABLE_PATTERNS = {
         re.IGNORECASE,
     ),
 }
+
+
+#: Public, read-only aliases so a later contract registry can reuse the exact
+#: reviewed slot vocabulary instead of restating it with different coverage.
+CONSTRAINT_SLOT_PATTERNS = MappingProxyType(dict(_CONSTRAINT_PATTERNS))
+DELIVERABLE_SLOT_PATTERNS = MappingProxyType(dict(_DELIVERABLE_PATTERNS))
 
 
 @dataclass(frozen=True, slots=True, repr=False)

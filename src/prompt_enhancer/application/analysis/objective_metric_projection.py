@@ -48,6 +48,10 @@ class ObjectiveMetricOverride:
     denominator: int | None = None
     resolved_opportunity_count: int = 0
     eligible_opportunity_count: int = 0
+    # Opportunities whose objective evidence already establishes the positive
+    # outcome. Reporting it alongside the unresolved remainder lets a caller
+    # bound a right-censored ratio instead of discarding the whole metric.
+    met_opportunity_count: int = 0
 
     def __post_init__(self) -> None:
         known = self.value_state is MetricValueState.KNOWN
@@ -71,6 +75,10 @@ class ObjectiveMetricOverride:
             or self.resolved_opportunity_count != self.eligible_opportunity_count
         ):
             raise ValueError("known objective metrics require complete opportunity coverage")
+        if not 0 <= self.met_opportunity_count <= self.resolved_opportunity_count:
+            raise ValueError("met objective opportunities exceed the resolved set")
+        if known and self.met_opportunity_count != self.numerator:
+            raise ValueError("known objective metrics must agree with their numerator")
         if (
             self.value_state is MetricValueState.NOT_APPLICABLE
             and self.eligible_opportunity_count != 0
@@ -85,12 +93,19 @@ def _not_applicable(code: str) -> ObjectiveMetricOverride:
     )
 
 
-def _unknown(code: str, *, resolved: int, eligible: int) -> ObjectiveMetricOverride:
+def _unknown(
+    code: str,
+    *,
+    resolved: int,
+    eligible: int,
+    met: int = 0,
+) -> ObjectiveMetricOverride:
     return ObjectiveMetricOverride(
         value_state=MetricValueState.UNKNOWN,
         explanation_code=code,
         resolved_opportunity_count=resolved,
         eligible_opportunity_count=eligible,
+        met_opportunity_count=met,
     )
 
 
@@ -102,6 +117,7 @@ def _known(code: str, *, numerator: int, denominator: int) -> ObjectiveMetricOve
         denominator=denominator,
         resolved_opportunity_count=denominator,
         eligible_opportunity_count=denominator,
+        met_opportunity_count=numerator,
     )
 
 
@@ -232,6 +248,7 @@ def project_objective_metric_overrides(
                     "typed_hypothesis_links_unresolved",
                     resolved=len(hypotheses) - unresolved,
                     eligible=len(hypotheses),
+                    met=linked,
                 )
             else:
                 overrides["logic.hypothesis_test_linkage"] = _known(
@@ -275,6 +292,7 @@ def project_objective_metric_overrides(
                     "typed_requirement_action_links_unresolved",
                     resolved=len(requirements - unresolved_actions),
                     eligible=len(requirements),
+                    met=len((requirements & completed) - unresolved_actions),
                 )
             else:
                 overrides["logic.requirement_action_traceability"] = _known(
@@ -307,6 +325,7 @@ def project_objective_metric_overrides(
                     "typed_requirement_verification_links_unresolved",
                     resolved=len(requirements - unresolved_verifications),
                     eligible=len(requirements),
+                    met=len((requirements & passing) - unresolved_verifications),
                 )
             else:
                 overrides["outcome.verified_requirement_coverage"] = _known(
@@ -349,6 +368,7 @@ def project_objective_metric_overrides(
                     "typed_claim_grounding_unresolved",
                     resolved=len(claims) - unresolved,
                     eligible=len(claims),
+                    met=grounded,
                 )
             else:
                 overrides["outcome.agent_claim_grounding"] = _known(
@@ -394,6 +414,7 @@ def project_objective_metric_overrides(
                     "typed_first_verification_unresolved",
                     resolved=resolved,
                     eligible=len(tasks),
+                    met=passed,
                 )
             else:
                 overrides["outcome.first_pass_verification"] = _known(

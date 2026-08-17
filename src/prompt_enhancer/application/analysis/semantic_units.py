@@ -380,6 +380,31 @@ _OPEN_ENDED_KINDS = {
     SemanticUnitKind.OPEN_LOOP,
 }
 
+#: Kinds the conservative built-in extractor can actually own.  A metric whose
+#: opportunity family is absent here must abstain: an empty head set proves
+#: nothing about a kind that is never extracted, so it can never mean zero or
+#: not-applicable.
+EXTRACTABLE_SEMANTIC_UNIT_KINDS = frozenset(_DOCUMENTED_UNIT_KIND.values())
+
+
+def semantic_source_digest(
+    id_factory: SemanticUnitIdFactory,
+    *,
+    provider: Provider,
+    session_id: str,
+    message_id: str,
+) -> str:
+    """Recompute the keyed owner digest for one message.
+
+    Consumers need this to join a persisted head back to the ephemeral message
+    it owns without the receipt ever carrying a reversible reference.
+    """
+
+    return id_factory.fingerprint(
+        "semantic-source-v1",
+        (provider.value, session_id, message_id),
+    )
+
 
 class SemanticUnitReconciler:
     """Extract conservative units and compute an append-idempotent receipt set."""
@@ -729,6 +754,7 @@ class SemanticUnitReconciler:
 
 
 __all__ = [
+    "EXTRACTABLE_SEMANTIC_UNIT_KINDS",
     "EphemeralSemanticUnitEvidencePacket",
     "FeedbackReworkClass",
     "MAX_SEMANTIC_UNIT_RECEIPTS",
@@ -744,4 +770,5 @@ __all__ = [
     "SemanticUnitReceipt",
     "SemanticUnitReconciliation",
     "SemanticUnitReconciler",
+    "semantic_source_digest",
 ]
