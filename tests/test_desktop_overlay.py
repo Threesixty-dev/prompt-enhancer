@@ -80,7 +80,7 @@ def prepare_common(
     )
     monkeypatch.setattr(
         desktop_overlay,
-        "_authenticated_service_probe",
+        "_verify_service_identity",
         lambda _origin, supplied: supplied == TOKEN and trusted,
     )
 
@@ -140,6 +140,50 @@ def test_attaches_to_authenticated_service_without_owning_it(
     assert webview.started == [{"gui": "edgechromium", "debug": False}]
 
 
+def test_localhost_attachment_probes_and_renders_only_an_exact_numeric_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected = AppSettings(home=tmp_path, host="localhost", port=18765)
+    webview = FakeWebview()
+    probed: list[str] = []
+    monkeypatch.setattr(desktop_overlay, "sys_platform_is_windows", lambda: True)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "load_or_create_api_token",
+        lambda _path: TOKEN,
+    )
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_exact_loopback_endpoints",
+        lambda _host, _port: (
+            ("::1", "http://[::1]:18765"),
+            ("127.0.0.1", "http://127.0.0.1:18765"),
+        ),
+    )
+    monkeypatch.setattr(desktop_overlay, "_port_is_open", lambda *_args: True)
+
+    def verify(origin: str, supplied: str) -> bool:
+        probed.append(origin)
+        return supplied == TOKEN and origin == "http://127.0.0.1:18765"
+
+    monkeypatch.setattr(desktop_overlay, "_verify_service_identity", verify)
+    monkeypatch.setattr(desktop_overlay, "_load_webview", lambda: webview)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_start_owned_server",
+        lambda _settings: pytest.fail("the trusted IPv4 listener must be reused"),
+    )
+
+    desktop_overlay.run_desktop_overlay(selected)
+
+    assert probed == ["http://[::1]:18765", "http://127.0.0.1:18765"]
+    assert len(webview.created) == 1
+    assert webview.created[0][1]["url"] == (
+        "http://127.0.0.1:18765/overlay/model-ensemble"
+    )
+
+
 def test_refuses_an_occupied_port_that_fails_authentication(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -169,9 +213,11 @@ def test_starts_and_stops_only_an_owned_server(
     monkeypatch.setattr(
         desktop_overlay,
         "_wait_for_owned_service",
-        lambda _origin, supplied, candidate: (
-            supplied == TOKEN and candidate is owned
-        ) or pytest.fail("owned service readiness binding changed"),
+        lambda endpoints, supplied, candidate: (
+            endpoints[0][1]
+            if supplied == TOKEN and candidate is owned
+            else pytest.fail("owned service readiness binding changed")
+        ),
     )
     monkeypatch.setattr(desktop_overlay, "_load_webview", lambda: webview)
 
@@ -188,7 +234,11 @@ def test_owned_server_stops_when_native_loop_fails(
     prepare_common(monkeypatch, service_open=False, trusted=False)
     owned = FakeOwnedServer()
     monkeypatch.setattr(desktop_overlay, "_start_owned_server", lambda _settings: owned)
-    monkeypatch.setattr(desktop_overlay, "_wait_for_owned_service", lambda *_args: None)
+    monkeypatch.setattr(
+        desktop_overlay,
+        "_wait_for_owned_service",
+        lambda endpoints, *_args: endpoints[0][1],
+    )
     monkeypatch.setattr(
         desktop_overlay,
         "_load_webview",

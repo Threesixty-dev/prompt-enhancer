@@ -139,6 +139,11 @@ Acceptance checks:
 
 - the production dashboard can review and analyze synthetic tasks after restart;
 - the local bearer token is absent from JavaScript, DOM, URL, storage, and logs;
+- the native launcher never sends the persistent token to an unverified loopback
+  listener: it proves service identity through a fresh challenge and an
+  exact numeric socket-origin-bound keyed answer, refusing squatters, replays,
+  cross-port and IPv4/IPv6 relays, and malformed responses before any window is
+  rendered;
 - non-loopback hosts and unexpected origins remain blocked;
 - neither the integrated host nor future desktop wrapper exposes an unrestricted command, file, network, or SQL bridge;
 - package signing and updater behavior are explicitly deferred or threat-modeled

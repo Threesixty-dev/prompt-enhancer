@@ -282,19 +282,56 @@ def _evidence_text(fragment: Mapping[str, object]) -> str:
     )
 
 
+# Accelerator allocation failures are not always raised as the typed
+# ``torch.OutOfMemoryError``.  Older runtimes, driver paths, and cuBLAS
+# workspace allocation surface them as a plain ``RuntimeError`` whose message
+# carries one of these fixed markers.  Matching them here is what lets the
+# parent classify the stage as ``resource_exhausted`` and retry it on the CPU
+# instead of recording an opaque failure.  Only the classification leaves the
+# child; the message text itself never does.
+_ACCELERATOR_OOM_MARKERS = (
+    "cuda out of memory",
+    "cuda error: out of memory",
+    "cublas_status_alloc_failed",
+    "cudaerrormemoryallocation",
+    "cuda_error_out_of_memory",
+    "hip out of memory",
+    "mps backend out of memory",
+    "defaultcpuallocator: can't allocate memory",
+    "defaultcpuallocator: not enough memory",
+)
+
+
+def _is_accelerator_oom(exc: BaseException) -> bool:
+    try:
+        import torch
+
+        if isinstance(exc, torch.OutOfMemoryError):
+            return True
+    except (ImportError, AttributeError):
+        pass
+    if isinstance(exc, MemoryError):
+        return True
+    # Restrict text inspection to RuntimeError emitted by known tensor/runtime
+    # allocation paths.  The text is used only for this in-child classification
+    # and is never copied into the fixed-schema result returned to the parent.
+    if type(exc) is RuntimeError:
+        try:
+            message = str(exc).casefold()
+        except Exception:
+            return False
+        return any(marker in message for marker in _ACCELERATOR_OOM_MARKERS)
+    return False
+
+
 def _safe_error(exc: BaseException) -> str:
     if isinstance(exc, TextModelLoadError):
         return "model_cache_missing_or_invalid"
     if isinstance(exc, LocalBackendError):
         value = str(exc)
         return value if value in _SAFE_ERRORS else "model_stage_failed"
-    try:
-        import torch
-
-        if isinstance(exc, torch.OutOfMemoryError):
-            return "resource_exhausted"
-    except ImportError:
-        pass
+    if _is_accelerator_oom(exc):
+        return "resource_exhausted"
     return "model_stage_failed"
 
 

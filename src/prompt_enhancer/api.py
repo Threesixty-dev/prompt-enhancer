@@ -79,6 +79,14 @@ from .interfaces.http.browser_session import (
     CSRF_HEADER,
     BrowserSessionManager,
 )
+from .interfaces.http.desktop_identity import (
+    DESKTOP_CHALLENGE_HEADER,
+    DESKTOP_IDENTITY_PATH,
+    DESKTOP_IDENTITY_VERSION,
+    desktop_identity_proof,
+    exact_request_loopback_origin,
+    parse_desktop_challenge,
+)
 from .interfaces.http.analysis_routes import (
     TaskAnalysisCommandService,
     create_task_analysis_router,
@@ -474,6 +482,42 @@ def create_app(
         return {
             "csrf_token": grant.csrf_token,
             "expires_in_seconds": grant.expires_in_seconds,
+        }
+
+    @app.get(DESKTOP_IDENTITY_PATH, include_in_schema=False)
+    def desktop_identity(
+        request: Request,
+        challenge: Annotated[
+            str | None, Header(alias=DESKTOP_CHALLENGE_HEADER)
+        ] = None,
+    ) -> dict[str, Any]:
+        """Prove knowledge of the local token to the native launcher.
+
+        The launcher never sends the token here.  It sends a fresh random
+        challenge and checks the keyed, origin-bound answer locally, so a port
+        squatter learns nothing it can reuse and a relay to another loopback
+        instance fails the origin binding.  This endpoint grants no access.
+        """
+
+        fetch_site = request.headers.get("sec-fetch-site")
+        if fetch_site not in {None, "same-origin", "none"}:
+            raise HTTPException(status_code=403, detail="native launcher only")
+        parsed_challenge = parse_desktop_challenge(challenge)
+        if parsed_challenge is None:
+            raise HTTPException(status_code=400, detail="invalid desktop challenge")
+        origin = exact_request_loopback_origin(
+            request.headers.get("host"), request.scope.get("server")
+        )
+        if origin is None:
+            raise HTTPException(
+                status_code=403,
+                detail="exact loopback authority required",
+            )
+        return {
+            "identity_version": DESKTOP_IDENTITY_VERSION,
+            "proof": desktop_identity_proof(
+                request.app.state.api_token, origin, parsed_challenge
+            ),
         }
 
     @app.get(

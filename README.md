@@ -159,9 +159,16 @@ heartbeats keep that lease alive.
 `prompt-enhancer-desktop` is a Windows GUI entry point: it opens only the React
 window and does not create or retain a PowerShell/CMD console. It attaches only
 to the authenticated loopback service on the configured port, or starts and
-owns that service when the port is free. Closing the window stops only a server
-instance that the window started itself. `python -m prompt_enhancer desktop`
-remains available as a terminal-oriented diagnostic command.
+owns that service when the port is free. Before it renders anything it proves
+the listener's identity with a fresh random challenge (`/auth/desktop-identity`):
+only a service that already holds the same local token can return the
+exact-socket-origin-bound keyed answer. The launcher resolves `localhost` to
+separate numeric IPv4/IPv6 candidates before probing, so a port squatter never
+receives the persistent token and cannot replay or relay a captured answer to
+a genuine instance on another loopback address or port. Closing the window
+stops only a server instance that the window started itself. `python -m
+prompt_enhancer desktop` remains available as a terminal-oriented diagnostic
+command.
 
 See [the live metric radar pipeline](docs/live-metric-radar-pipeline.md) for all
 twenty contracts, zero-versus-missing semantics, model routing, distribution and

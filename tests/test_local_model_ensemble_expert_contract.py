@@ -96,3 +96,44 @@ def test_child_contract_rejects_unallowlisted_scope_metadata(
 
     with pytest.raises(ModelEnsembleError):
         module._read_payload()
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "CUDA out of memory. Tried to allocate a synthetic block",
+        "CUDA error: out of memory at a synthetic kernel",
+        "CUBLAS_STATUS_ALLOC_FAILED in a synthetic workspace",
+        "cudaErrorMemoryAllocation",
+        "CUDA_ERROR_OUT_OF_MEMORY",
+        "HIP out of memory",
+        "MPS backend out of memory",
+        "DefaultCPUAllocator: can't allocate memory",
+        "DefaultCPUAllocator: not enough memory",
+    ),
+)
+def test_child_classifies_known_allocation_failures_without_disclosing_text(
+    message: str,
+) -> None:
+    module = _expert_module()
+
+    error = RuntimeError(message)
+
+    assert module._is_accelerator_oom(error) is True
+    assert module._safe_error(error) == "resource_exhausted"
+    assert message not in module._safe_error(error)
+
+
+def test_child_does_not_misclassify_unrelated_or_attacker_controlled_runtime_text() -> None:
+    module = _expert_module()
+    canary = "synthetic_private_canary"
+
+    unrelated = RuntimeError(f"request failed with {canary}")
+    vague = RuntimeError(f"out of memory was mentioned in evidence: {canary}")
+
+    assert module._is_accelerator_oom(unrelated) is False
+    assert module._is_accelerator_oom(vague) is False
+    assert module._safe_error(unrelated) == "model_stage_failed"
+    assert module._safe_error(vague) == "model_stage_failed"
+    assert canary not in module._safe_error(unrelated)
+    assert canary not in module._safe_error(vague)

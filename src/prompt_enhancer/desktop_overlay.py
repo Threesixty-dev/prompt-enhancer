@@ -2,7 +2,8 @@
 
 The host deliberately reuses the authenticated loopback application.  It does
 not put API credentials, provider identifiers, or session identifiers in the
-window URL, command line, logs, or Javascript bridge.
+window URL, command line, logs, or Javascript bridge, and it never sends the
+persistent API token to a listener whose identity has not been proven first.
 """
 
 from __future__ import annotations
@@ -18,12 +19,19 @@ from types import ModuleType
 from typing import Any
 import urllib.request
 
-from .config import AppSettings, is_loopback_host
+from .config import AppSettings
+from .interfaces.http.desktop_identity import (
+    DESKTOP_CHALLENGE_HEADER,
+    DESKTOP_IDENTITY_PATH,
+    DESKTOP_IDENTITY_VERSION,
+    canonical_loopback_origin,
+    new_desktop_challenge,
+    verify_desktop_identity_proof,
+)
 from .privacy import load_or_create_api_token
 
 
 _OVERLAY_PATH = "/overlay/model-ensemble"
-_CAPABILITY_PATH = "/v1/capabilities"
 _PROBE_TIMEOUT_SECONDS = 1.0
 _STARTUP_TIMEOUT_SECONDS = 20.0
 _STARTUP_POLL_SECONDS = 0.1
@@ -43,7 +51,7 @@ class DesktopOverlayServiceError(DesktopOverlayError):
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Keep the local authentication header on exactly one loopback request."""
+    """Never follow a redirect away from the probed loopback origin."""
 
     def redirect_request(
         self,
@@ -103,17 +111,72 @@ class _DesktopWindowApi:
 
 
 def _loopback_origin(host: str, port: int) -> str:
-    if not is_loopback_host(host) or not 1024 <= port <= 65535:
+    try:
+        return canonical_loopback_origin(host, port)
+    except ValueError:
         raise DesktopOverlayServiceError(
             "desktop overlay requires a validated loopback service"
+        ) from None
+
+
+def _exact_loopback_endpoints(host: str, port: int) -> tuple[tuple[str, str], ...]:
+    """Resolve a configured loopback host to exact numeric HTTP origins.
+
+    The WebView and identity probe use the returned numeric origin, never the
+    ``localhost`` alias.  That makes the authority in the HMAC proof identical
+    to the transport endpoint and prevents IPv4/IPv6 relay ambiguity.
+    """
+
+    # Validate the configuration and port before asking the resolver anything.
+    _loopback_origin(host, port)
+    if host.casefold() != "localhost":
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            raise DesktopOverlayServiceError(
+                "desktop overlay requires a validated loopback service"
+            ) from None
+        return (
+            (
+                address.compressed,
+                canonical_loopback_origin(address.compressed, port),
+            ),
         )
-    normalized = host.casefold()
-    if normalized == "localhost":
-        authority = "localhost"
-    else:
-        address = ipaddress.ip_address(host)
-        authority = f"[{address.compressed}]" if address.version == 6 else address.compressed
-    return f"http://{authority}:{port}"
+
+    try:
+        addresses = socket.getaddrinfo(
+            host,
+            port,
+            family=socket.AF_UNSPEC,
+            type=socket.SOCK_STREAM,
+        )
+    except OSError:
+        raise DesktopOverlayServiceError(
+            "desktop loopback authority could not be resolved"
+        ) from None
+    endpoints: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for family, _socktype, _protocol, _canonical_name, sockaddr in addresses:
+        if family not in {socket.AF_INET, socket.AF_INET6} or not sockaddr:
+            continue
+        try:
+            address = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            continue
+        if not address.is_loopback or address.compressed in seen:
+            continue
+        seen.add(address.compressed)
+        endpoints.append(
+            (
+                address.compressed,
+                canonical_loopback_origin(address.compressed, port),
+            )
+        )
+    if not endpoints:
+        raise DesktopOverlayServiceError(
+            "desktop loopback authority could not be resolved"
+        )
+    return tuple(endpoints)
 
 
 def _port_is_open(host: str, port: int) -> bool:
@@ -124,17 +187,20 @@ def _port_is_open(host: str, port: int) -> bool:
         return False
 
 
-def _authenticated_service_probe(origin: str, token: str) -> bool:
-    """Verify that a listener is this authenticated, offline-only application."""
+def _fetch_identity_payload(origin: str, challenge: str) -> Any:
+    """Send exactly one unauthenticated challenge and return the parsed body.
 
-    from .api import API_TOKEN_HEADER
+    The request carries no token, no cookie, and no identifier.  Any transport,
+    status, size, or encoding problem is reported as ``None`` so callers never
+    render provider or exception details.
+    """
 
     request = urllib.request.Request(
-        f"{origin}{_CAPABILITY_PATH}",
+        f"{origin}{DESKTOP_IDENTITY_PATH}",
         method="GET",
         headers={
             "Accept": "application/json",
-            API_TOKEN_HEADER: token,
+            DESKTOP_CHALLENGE_HEADER: challenge,
         },
     )
     opener = urllib.request.build_opener(
@@ -144,28 +210,42 @@ def _authenticated_service_probe(origin: str, token: str) -> bool:
     try:
         with opener.open(request, timeout=_PROBE_TIMEOUT_SECONDS) as response:
             if response.status != 200:
-                return False
+                return None
             content_type = response.headers.get_content_type().casefold()
             if content_type != "application/json":
-                return False
+                return None
             body = response.read(_MAX_PROBE_BYTES + 1)
             if not body or len(body) > _MAX_PROBE_BYTES:
-                return False
-        payload = json.loads(body.decode("utf-8"))
+                return None
+        return json.loads(body.decode("utf-8"))
     except Exception:
-        # Transport exceptions can retain the Request object, including its
-        # authentication header.  Collapse every probe failure to one boolean
-        # so callers and CLI error handling can never render that exception.
+        # Collapse every failure to one value so callers and CLI error handling
+        # can never render an exception that embeds listener-controlled bytes.
+        return None
+
+
+def _verify_service_identity(origin: str, token: str) -> bool:
+    """Prove that a listener is this application without disclosing the token.
+
+    A fresh 256-bit challenge is sent in the clear; only a service that already
+    holds the same local token can return the origin-bound keyed digest.  A port
+    squatter therefore sees a random value and learns nothing reusable, and a
+    squatter relaying to a real instance on another loopback origin fails the
+    origin binding.  Malformed, oversized, or unexpected answers are untrusted.
+    """
+
+    challenge = new_desktop_challenge()
+    payload = _fetch_identity_payload(origin, challenge)
+    if not isinstance(payload, dict):
         return False
-    return (
-        isinstance(payload, dict)
-        and payload.get("cost_mode") == "offline_only"
-        and payload.get("data_tier") == "metadata"
-        and payload.get("network_inference") is False
-        and payload.get("raw_transcripts") is False
-        and payload.get("arbitrary_sql") is False
-        and payload.get("browser_session") is True
-    )
+    if payload.get("identity_version") != DESKTOP_IDENTITY_VERSION:
+        return False
+    try:
+        return verify_desktop_identity_proof(
+            token, origin, bytes.fromhex(challenge), payload.get("proof")
+        )
+    except Exception:
+        return False
 
 
 def _start_owned_server(settings: AppSettings) -> _OwnedServer:
@@ -192,14 +272,15 @@ def _start_owned_server(settings: AppSettings) -> _OwnedServer:
 
 
 def _wait_for_owned_service(
-    origin: str,
+    endpoints: tuple[tuple[str, str], ...],
     token: str,
     owned: _OwnedServer,
-) -> None:
+) -> str:
     deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        if _authenticated_service_probe(origin, token):
-            return
+        for _address, origin in endpoints:
+            if _verify_service_identity(origin, token):
+                return origin
         if not owned.thread.is_alive():
             break
         time.sleep(_STARTUP_POLL_SECONDS)
@@ -244,23 +325,32 @@ def run_desktop_overlay(settings: AppSettings) -> None:
 
     if not sys_platform_is_windows():
         raise DesktopOverlayError("desktop overlay is currently available only on Windows")
-    origin = _loopback_origin(settings.host, settings.port)
+    endpoints = _exact_loopback_endpoints(settings.host, settings.port)
     token = load_or_create_api_token(settings.api_token_path)
     owned: _OwnedServer | None = None
 
-    if _port_is_open(settings.host, settings.port):
-        if not _authenticated_service_probe(origin, token):
-            raise DesktopOverlayServiceError(
-                "configured loopback port is occupied by an untrusted service"
-            )
-    else:
+    origin: str | None = None
+    occupied_untrusted = False
+    for address, candidate_origin in endpoints:
+        if not _port_is_open(address, settings.port):
+            continue
+        if _verify_service_identity(candidate_origin, token):
+            origin = candidate_origin
+            break
+        occupied_untrusted = True
+    if origin is None and occupied_untrusted:
+        raise DesktopOverlayServiceError(
+            "configured loopback port is occupied by an untrusted service"
+        )
+    if origin is None:
         owned = _start_owned_server(settings)
         try:
-            _wait_for_owned_service(origin, token, owned)
+            origin = _wait_for_owned_service(endpoints, token, owned)
         except Exception:
             owned.stop()
             raise
 
+    assert origin is not None
     try:
         _open_overlay_window(_load_webview(), f"{origin}{_OVERLAY_PATH}")
     finally:
