@@ -263,8 +263,8 @@ describe("modelEnsembleMetricPresentation", () => {
   });
 
   it("gives explicit zeros and nonnumeric states distinct marker positions without changing values", () => {
-    expect(modelEnsembleRadarMarkerMagnitude(0)).toBe(0.075);
-    expect(modelEnsembleRadarMarkerMagnitude(null)).toBe(0.1);
+    expect(modelEnsembleRadarMarkerMagnitude(0)).toBe(0);
+    expect(modelEnsembleRadarMarkerMagnitude(null)).toBeGreaterThan(1);
     expect(modelEnsembleRadarMarkerMagnitude(0.67)).toBe(0.67);
   });
 

@@ -7,6 +7,11 @@ import type {
 } from "../../shared/api/contracts";
 import { sessionMetricGuidance } from "../quality-profile/metricGuidance";
 import {
+  MetricKnowledgeCard,
+  metricKnowledgeCardTriggerProps,
+  useMetricKnowledgeCardController,
+} from "./MetricKnowledgeCard";
+import {
   MODEL_ENSEMBLE_LENSES,
   ModelEnsembleRadar,
   modelEnsembleMetricPresentation,
@@ -319,6 +324,7 @@ export function MetricWorkspace({
   attemptStages?: readonly ModelEnsembleAttemptStage[];
 }) {
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
+  const boardHelp = useMetricKnowledgeCardController();
   const axes = useMemo(() => modelEnsembleRadarAxes(run, lensId), [lensId, run]);
   const known = run.typed_metrics.filter((metric) => metric.value_state === "known").length;
   const pending = run.typed_metrics.filter((metric) => modelEnsembleMetricStatus(metric) === "pending").length;
@@ -391,11 +397,12 @@ export function MetricWorkspace({
                   explanationCode: axis.metric !== null && "projection_source" in axis.metric ? axis.metric.explanation_code : null,
                 });
                 return (
+                  <div className="metric-workspace__tile" key={axis.key}>
                   <button
                     aria-pressed={axis.key === activeMetricKey}
                     data-status={status}
-                    key={axis.key}
-                    onClick={() => setSelectedMetricKey(axis.key)}
+                    {...metricKnowledgeCardTriggerProps(boardHelp, "board", axis.key)}
+                    onClick={() => { setSelectedMetricKey(axis.key); boardHelp.togglePin(axis.key); }}
                     type="button"
                   >
                     <span>
@@ -410,6 +417,14 @@ export function MetricWorkspace({
                     <b>{presentation.value}</b>
                     <p>{guidance.action}</p>
                   </button>
+                  <MetricKnowledgeCard
+                    controller={boardHelp}
+                    label={axis.label}
+                    metricKey={axis.key}
+                    scope="board"
+                    status={modelEnsembleMetricStatusLabel(status)}
+                  />
+                  </div>
                 );
               })}
             </div>

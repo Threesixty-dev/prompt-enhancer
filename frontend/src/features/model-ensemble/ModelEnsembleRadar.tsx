@@ -7,6 +7,12 @@ import type {
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 import { QUALITY_LENSES } from "../quality-profile/qualityLenses";
 import { sessionMetricGuidance } from "../quality-profile/metricGuidance";
+import {
+  MetricKnowledgeCard,
+  metricKnowledgeCardTriggerProps,
+  useMetricKnowledgeCardController,
+} from "./MetricKnowledgeCard";
+import { metricInspectorSentences } from "./metricHelpV2";
 
 type CommitteeMetric = ModelEnsembleRun["metrics"][number];
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
@@ -303,10 +309,16 @@ export function modelEnsembleRadarSegments(
   return segments;
 }
 
-/** Keep state markers legible without changing the value geometry. */
+/**
+ * Non-numeric states (N/A, pending, unknown, error, abstained, missing) sit in a
+ * state lane outside the numeric scale (magnitude > 1). Only a proven numeric
+ * zero renders at the center; the value geometry is never shifted.
+ */
+export const MODEL_ENSEMBLE_STATE_LANE_MAGNITUDE = 1.1;
+export const MODEL_ENSEMBLE_WITHHELD_LANE_MAGNITUDE = 1.18;
 export function modelEnsembleRadarMarkerMagnitude(plotted: number | null): number {
-  if (plotted === null) return 0.1;
-  return plotted === 0 ? 0.075 : plotted;
+  if (plotted === null) return MODEL_ENSEMBLE_STATE_LANE_MAGNITUDE;
+  return plotted;
 }
 
 /** Explicit zero is a property of the sealed raw measurement, not radar geometry. */
@@ -453,9 +465,11 @@ export function ModelEnsembleRadar({
       });
     return () => controller.abort();
   }, [detailRunId, detailTransport, selected?.key, selected?.prediction, selected?.predictiveMedian]);
-  const size = compact ? 320 : 356;
+  const size = compact ? 340 : 380;
   const center = size / 2;
   const radius = compact ? 96 : 108;
+  const helpCards = useMetricKnowledgeCardController();
+  const helpScope = compact ? "compact" : "full";
   const point = (index: number, magnitude: number) => {
     const angle = -Math.PI / 2 + (Math.PI * 2 * index) / axes.length;
     return [
@@ -580,10 +594,13 @@ export function ModelEnsembleRadar({
         })}
         {axes.map((axis, index) => {
           const end = point(index, 1);
-          const label = point(index, compact ? 1.24 : 1.28);
+          const label = point(index, compact ? 1.3 : 1.32);
           const value = axis.plotted === null ? null : point(index, axis.plotted);
           const marker = point(index, modelEnsembleRadarMarkerMagnitude(axis.plotted));
+          const withheld = point(index, MODEL_ENSEMBLE_WITHHELD_LANE_MAGNITUDE);
+          const estimateWithheld = axis.prediction !== null && axis.predictiveMedian === null;
           const rawExplicitZero = modelEnsembleIsRawExplicitZero(axis);
+          const axisTrigger = metricKnowledgeCardTriggerProps(helpCards, `${helpScope}-axis`, axis.key);
           const coverage = axis.metric === null
             ? 0
             : isTypedMetric(axis.metric)
@@ -597,9 +614,36 @@ export function ModelEnsembleRadar({
               key={axis.key}
             >
               <line className="model-ensemble__radar-axis" x1={center} x2={end[0]} y1={center} y2={end[1]} />
-              <text className="model-ensemble__radar-label" textAnchor="middle" x={label[0]} y={label[1]}>
-                {axis.shortLabel}
-              </text>
+              <g
+                aria-label={`${axis.label} axis: ${stateLabel(axis.metric)}`}
+                className="model-ensemble__radar-axis-trigger"
+                role="button"
+                tabIndex={0}
+                {...axisTrigger}
+                onClick={() => { setSelectedKey(axis.key); axisTrigger.onClick(); }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedKey(axis.key);
+                    axisTrigger.onClick();
+                  }
+                }}
+              >
+                <text className="model-ensemble__radar-label" textAnchor="middle" x={label[0]} y={label[1]}>
+                  {axis.shortLabel}
+                </text>
+              </g>
+              {estimateWithheld && (
+                <rect
+                  aria-label={`${axis.label}: experimental estimate withheld`}
+                  className="model-ensemble__radar-withheld"
+                  height="6"
+                  transform={`rotate(45 ${withheld[0]} ${withheld[1]})`}
+                  width="6"
+                  x={withheld[0] - 3}
+                  y={withheld[1] - 3}
+                />
+              )}
               {value !== null ? (
                 <>
                   <circle
@@ -636,6 +680,23 @@ export function ModelEnsembleRadar({
           return <line className="model-ensemble__radar-value-segment" key={`${fromIndex}-${toIndex}`} x1={from[0]} x2={to[0]} y1={from[1]} y2={to[1]} />;
         })}
       </svg>
+      <div className="model-ensemble__radar-help-lane">
+        {axes.map((axis, index) => {
+          const anchor = point(index, compact ? 1.3 : 1.32);
+          return (
+            <MetricKnowledgeCard
+              compact={compact}
+              controller={helpCards}
+              key={axis.key}
+              label={axis.label}
+              metricKey={axis.key}
+              scope={`${helpScope}-axis`}
+              status={stateLabel(axis.metric)}
+              style={{ left: `${(anchor[0] / size) * 100}%`, top: `${(anchor[1] / size) * 100}%` }}
+            />
+          );
+        })}
+      </div>
       <nav
         aria-label={`${lens.label} metric axes`}
         className="model-ensemble__axis-strip"
@@ -646,7 +707,8 @@ export function ModelEnsembleRadar({
             aria-pressed={axis.key === selected?.key}
             className={`is-${modelEnsembleMetricStatus(axis.metric)}`}
             key={axis.key}
-            onClick={() => setSelectedKey(axis.key)}
+            {...metricKnowledgeCardTriggerProps(helpCards, `${helpScope}-strip`, axis.key)}
+            onClick={() => { setSelectedKey(axis.key); helpCards.togglePin(axis.key); }}
             type="button"
           >
             <span>{axis.shortLabel}</span>
@@ -666,12 +728,47 @@ export function ModelEnsembleRadar({
           </button>
         ))}
       </nav>
+      <div className="model-ensemble__radar-help-lane model-ensemble__radar-help-lane--strip">
+        {axes.map((axis) => (
+          <MetricKnowledgeCard
+            compact={compact}
+            controller={helpCards}
+            key={axis.key}
+            label={axis.label}
+            metricKey={axis.key}
+            scope={`${helpScope}-strip`}
+            status={stateLabel(axis.metric)}
+          />
+        ))}
+      </div>
       {selected !== undefined && (
         <section aria-live="polite" className="model-ensemble__focused-metric">
           <header>
             <div><strong>{selected.label}</strong><span>{stateLabel(selected.metric)}</span></div>
             <b>{selectedPresentation.value}</b>
           </header>
+          {(() => {
+            const sentences = metricInspectorSentences({
+              metricKey: selected.key,
+              label: selected.label,
+              state: selected.metric?.value_state ?? "missing",
+              direction: selected.direction,
+              numericValue: selected.metric?.value_state === "known" ? selected.metric.numeric_value ?? null : null,
+              numerator: selected.metric?.numerator ?? null,
+              denominator: selected.metric?.denominator ?? null,
+              explanationCode: selected.metric !== null && isTypedMetric(selected.metric) ? selected.metric.explanation_code : null,
+              measuredFactorKeys: weakestFactorKeys,
+              experimentalVisible: selected.predictiveMedian !== null,
+              experimentalWithheld: selected.prediction !== null && selected.predictiveMedian === null,
+              experimentalMedian: selected.predictiveMedian,
+            });
+            return (
+              <div className="metric-inspector-sentences" data-kind={sentences.kind}>
+                <p><span>Diagnosis</span>{sentences.diagnosis}</p>
+                <p><span>Next</span>{sentences.action}</p>
+              </div>
+            );
+          })()}
           <p>{selectedPresentation.detail}</p>
           {guidance !== null && (
             <aside className="model-ensemble__guidance" data-basis={guidance.basis}>
@@ -769,7 +866,9 @@ export function ModelEnsembleRadar({
       )}
       <figcaption>
         Axes and order stay fixed for this versioned lens. Solid segments connect
-        adjacent measured values only; gaps are unknown, not zero. A model estimate
+        adjacent measured values only; gaps are unknown, not zero. N/A, pending,
+        unknown, error, and withheld markers sit in a state lane outside the numeric
+        scale; only a proven numeric zero renders at the center. A model estimate
         appears as an independent diamond with per-axis whiskers only when
         at least two small experts are proven and the 90% span is informative. Rings around known
         points show source-message coverage for typed measurements (legacy
