@@ -2751,6 +2751,85 @@
         "title": "DecisionRevisionRole",
         "type": "string"
       },
+      "DenominatorBasis": {
+        "description": "Where a contract's exact denominator comes from.\n\n``RUBRIC_FACTORS`` scores one canonical opportunity against a fixed factor\nlist.  The other three enumerate opportunities and never invent them.",
+        "enum": [
+          "rubric_factors",
+          "semantic_unit_opportunities",
+          "declared_profile_slots",
+          "objective_opportunities"
+        ],
+        "title": "DenominatorBasis",
+        "type": "string"
+      },
+      "EvidenceAuthority": {
+        "description": "Highest authority allowed to publish a known value.\n\n``OBJECTIVE_RECEIPT`` outranks ``CONVERSATION``.  A conversational\nprojection may never resolve an objective contract, and no volume of\nassistant prose upgrades a conversational observation into a receipt.",
+        "enum": [
+          "conversation",
+          "objective_receipt"
+        ],
+        "title": "EvidenceAuthority",
+        "type": "string"
+      },
+      "GuidanceAudience": {
+        "description": "Who can act on the guidance without inventing evidence.",
+        "enum": [
+          "user",
+          "agent",
+          "workflow",
+          "tooling"
+        ],
+        "title": "GuidanceAudience",
+        "type": "string"
+      },
+      "GuidanceBasis": {
+        "description": "How far the guidance may go, given origin and factor evidence.\n\n``MEASURED`` is a measured local observation, deterministic or objective.\n``EXPERIMENTAL`` is reserved for an uncalibrated neural estimate.\n``METHOD_ONLY`` covers a known value whose factor attribution is unproven\nand any failed stage.  ``READINESS`` covers every non-value state.",
+        "enum": [
+          "measured",
+          "experimental",
+          "readiness",
+          "method-only"
+        ],
+        "title": "GuidanceBasis",
+        "type": "string"
+      },
+      "GuidanceFactorEvidence": {
+        "description": "Whether per-factor sufficient statistics exist for this opportunity.\n\n``AGGREGATE_ONLY`` means a fraction is known but which factors were met is\nnot: a rubric numerator proves a count, never an identity.  Advice must then\nstay method-level rather than naming a factor the evidence cannot support.",
+        "enum": [
+          "not_observed",
+          "aggregate_only",
+          "per_factor_measured"
+        ],
+        "title": "GuidanceFactorEvidence",
+        "type": "string"
+      },
+      "GuidanceRole": {
+        "description": "What kind of signal the metric is; never a judgement about a person.",
+        "enum": [
+          "specification_signal",
+          "collaboration_signal",
+          "traceability_signal",
+          "outcome_evidence",
+          "friction_signal"
+        ],
+        "title": "GuidanceRole",
+        "type": "string"
+      },
+      "GuidanceStateClass": {
+        "description": "Deterministic bridge from a typed metric state to a template family.",
+        "enum": [
+          "known_retain",
+          "known_improve",
+          "pending_closure",
+          "objective_evidence_missing",
+          "evidence_unresolved",
+          "no_opportunity",
+          "evidence_coverage_abstained",
+          "analysis_failed"
+        ],
+        "title": "GuidanceStateClass",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3325,6 +3404,535 @@
         "title": "MetricEvidenceCapability",
         "type": "string"
       },
+      "MetricGuidanceCatalogEntry": {
+        "additionalProperties": false,
+        "description": "Static, session-free guidance identity for one V2 metric contract.",
+        "properties": {
+          "audience": {
+            "$ref": "#/components/schemas/GuidanceAudience"
+          },
+          "contract_factor_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Contract Factor Keys",
+            "type": "array"
+          },
+          "contract_fingerprint": {
+            "title": "Contract Fingerprint",
+            "type": "string"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "denominator_basis": {
+            "$ref": "#/components/schemas/DenominatorBasis"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/MetricDirection"
+          },
+          "evidence_authority": {
+            "$ref": "#/components/schemas/EvidenceAuthority"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_version": {
+            "minimum": 1.0,
+            "title": "Metric Version",
+            "type": "integer"
+          },
+          "registry_version": {
+            "const": "all-20-factor-contracts-v2",
+            "default": "all-20-factor-contracts-v2",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/GuidanceRole"
+          },
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/MetricGuidanceTemplateSet"
+            },
+            "maxItems": 8,
+            "minItems": 8,
+            "title": "Templates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "metric_key",
+          "metric_version",
+          "contract_version",
+          "contract_fingerprint",
+          "denominator_basis",
+          "evidence_authority",
+          "direction",
+          "role",
+          "audience",
+          "contract_factor_keys",
+          "templates"
+        ],
+        "title": "MetricGuidanceCatalogEntry",
+        "type": "object"
+      },
+      "MetricGuidanceCatalogResponse": {
+        "additionalProperties": false,
+        "description": "Static guidance identities; no session, run, or provider data.\n\nThe canonical contract identity travels with the catalog so a presentation\nsurface that must keep prose locally can bind that prose to one exact\nregistry fingerprint instead of drifting away from it silently.",
+        "properties": {
+          "catalog_version": {
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "contract_set_fingerprint": {
+            "title": "Contract Set Fingerprint",
+            "type": "string"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/MetricGuidanceCatalogEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "registry_version": {
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "template_version": {
+            "title": "Template Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "catalog_version",
+          "contract_version",
+          "template_version",
+          "registry_version",
+          "contract_set_fingerprint",
+          "entries"
+        ],
+        "title": "MetricGuidanceCatalogResponse",
+        "type": "object"
+      },
+      "MetricGuidanceReceipt": {
+        "additionalProperties": false,
+        "description": "One content-free guidance decision for one projected metric state.\n\nEvery field is an enum, an integer, a bounded ratio, or a reviewed code.\nThere is no field capable of carrying transcript text, a rendered sentence,\na path, or a provider identifier.",
+        "properties": {
+          "action_template_id": {
+            "title": "Action Template Id",
+            "type": "string"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/GuidanceAudience"
+          },
+          "basis": {
+            "$ref": "#/components/schemas/GuidanceBasis"
+          },
+          "censoring_lower_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Censoring Lower Bound"
+          },
+          "censoring_upper_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Censoring Upper Bound"
+          },
+          "contract_factor_count": {
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Contract Factor Count",
+            "type": "integer"
+          },
+          "contract_version": {
+            "const": "metric-guidance-contract-v1",
+            "default": "metric-guidance-contract-v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "denominator_basis": {
+            "$ref": "#/components/schemas/DenominatorBasis"
+          },
+          "diagnosis_template_id": {
+            "title": "Diagnosis Template Id",
+            "type": "string"
+          },
+          "eligible_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "evidence_authority": {
+            "$ref": "#/components/schemas/EvidenceAuthority"
+          },
+          "factor_evidence": {
+            "$ref": "#/components/schemas/GuidanceFactorEvidence"
+          },
+          "focus_factor_keys": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2,
+            "title": "Focus Factor Keys",
+            "type": "array"
+          },
+          "met_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Met Count",
+            "type": "integer"
+          },
+          "metric_contract_fingerprint": {
+            "title": "Metric Contract Fingerprint",
+            "type": "string"
+          },
+          "metric_contract_version": {
+            "title": "Metric Contract Version",
+            "type": "string"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_version": {
+            "minimum": 1.0,
+            "title": "Metric Version",
+            "type": "integer"
+          },
+          "not_met_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Not Met Count",
+            "type": "integer"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "pending_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "default": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "registry_version": {
+            "const": "all-20-factor-contracts-v2",
+            "default": "all-20-factor-contracts-v2",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/GuidanceRole"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "state_class": {
+            "$ref": "#/components/schemas/GuidanceStateClass"
+          },
+          "template_catalog_version": {
+            "const": "metric-guidance-templates-v1",
+            "default": "metric-guidance-templates-v1",
+            "title": "Template Catalog Version",
+            "type": "string"
+          },
+          "template_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Template Version",
+            "type": "integer"
+          },
+          "unknown_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Unknown Count",
+            "type": "integer"
+          },
+          "value_origin": {
+            "$ref": "#/components/schemas/ValueOrigin"
+          },
+          "value_state": {
+            "$ref": "#/components/schemas/MetricValueStateV2"
+          },
+          "verification_template_id": {
+            "title": "Verification Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_key",
+          "metric_version",
+          "metric_contract_version",
+          "metric_contract_fingerprint",
+          "value_state",
+          "denominator_basis",
+          "evidence_authority",
+          "role",
+          "audience",
+          "basis",
+          "value_origin",
+          "factor_evidence",
+          "state_class",
+          "reason_code",
+          "contract_factor_count",
+          "diagnosis_template_id",
+          "action_template_id",
+          "verification_template_id",
+          "eligible_count",
+          "met_count",
+          "not_met_count",
+          "pending_count",
+          "unknown_count"
+        ],
+        "title": "MetricGuidanceReceipt",
+        "type": "object"
+      },
+      "MetricGuidanceTemplateSet": {
+        "additionalProperties": false,
+        "description": "The three template identities a client renders for one state class.",
+        "properties": {
+          "action_template_id": {
+            "title": "Action Template Id",
+            "type": "string"
+          },
+          "diagnosis_template_id": {
+            "title": "Diagnosis Template Id",
+            "type": "string"
+          },
+          "state_class": {
+            "$ref": "#/components/schemas/GuidanceStateClass"
+          },
+          "verification_template_id": {
+            "title": "Verification Template Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state_class",
+          "diagnosis_template_id",
+          "action_template_id",
+          "verification_template_id"
+        ],
+        "title": "MetricGuidanceTemplateSet",
+        "type": "object"
+      },
+      "MetricImplementationState": {
+        "description": "What a client may claim about one published metric today.\n\nThis is the honesty dimension: it separates a live measurement from a\nread-only compatibility projection and from a value that was withheld.",
+        "enum": [
+          "live_measured",
+          "compatibility_projected",
+          "method_only_withheld",
+          "objective_capability_missing",
+          "pending",
+          "no_opportunity",
+          "abstained",
+          "error"
+        ],
+        "title": "MetricImplementationState",
+        "type": "string"
+      },
+      "MetricPublicationSource": {
+        "description": "Where the published states came from; never mixed within one bundle.",
+        "enum": [
+          "live_projection",
+          "v1_compatibility_preview"
+        ],
+        "title": "MetricPublicationSource",
+        "type": "string"
+      },
+      "MetricPublicationV2": {
+        "additionalProperties": false,
+        "description": "A complete twenty-metric publication with no absent key and no zero fill.",
+        "properties": {
+          "abstained_count": {
+            "minimum": 0.0,
+            "title": "Abstained Count",
+            "type": "integer"
+          },
+          "canonical_live_snapshot": {
+            "const": false,
+            "default": false,
+            "title": "Canonical Live Snapshot",
+            "type": "boolean"
+          },
+          "compatibility_preview": {
+            "title": "Compatibility Preview",
+            "type": "boolean"
+          },
+          "contract_set_fingerprint": {
+            "title": "Contract Set Fingerprint",
+            "type": "string"
+          },
+          "execution_error_count": {
+            "minimum": 0.0,
+            "title": "Execution Error Count",
+            "type": "integer"
+          },
+          "guidance_contract_version": {
+            "const": "metric-guidance-contract-v1",
+            "default": "metric-guidance-contract-v1",
+            "title": "Guidance Contract Version",
+            "type": "string"
+          },
+          "guidance_template_catalog_version": {
+            "const": "metric-guidance-templates-v1",
+            "default": "metric-guidance-templates-v1",
+            "title": "Guidance Template Catalog Version",
+            "type": "string"
+          },
+          "known_count": {
+            "minimum": 0.0,
+            "title": "Known Count",
+            "type": "integer"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PublishedMetricV2"
+            },
+            "maxItems": 20,
+            "minItems": 20,
+            "title": "Metrics",
+            "type": "array"
+          },
+          "model_stage_consumed": {
+            "const": false,
+            "default": false,
+            "title": "Model Stage Consumed",
+            "type": "boolean"
+          },
+          "not_applicable_count": {
+            "minimum": 0.0,
+            "title": "Not Applicable Count",
+            "type": "integer"
+          },
+          "objective_measured_count": {
+            "minimum": 0.0,
+            "title": "Objective Measured Count",
+            "type": "integer"
+          },
+          "pending_count": {
+            "minimum": 0.0,
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "default": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "projection_version": {
+            "const": "metric-contract-v2-projection-1",
+            "default": "metric-contract-v2-projection-1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "publication_key": {
+            "const": "metric.contract-v2.publication",
+            "default": "metric.contract-v2.publication",
+            "title": "Publication Key",
+            "type": "string"
+          },
+          "publication_version": {
+            "default": 2,
+            "minimum": 1.0,
+            "title": "Publication Version",
+            "type": "integer"
+          },
+          "registry_version": {
+            "const": "all-20-factor-contracts-v2",
+            "default": "all-20-factor-contracts-v2",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/MetricPublicationSource"
+          },
+          "unknown_count": {
+            "minimum": 0.0,
+            "title": "Unknown Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contract_set_fingerprint",
+          "source",
+          "compatibility_preview",
+          "metrics",
+          "known_count",
+          "pending_count",
+          "unknown_count",
+          "not_applicable_count",
+          "abstained_count",
+          "execution_error_count",
+          "objective_measured_count"
+        ],
+        "title": "MetricPublicationV2",
+        "type": "object"
+      },
       "MetricRadarPolicy": {
         "description": "Server-owned plotting policy; clients never infer or invert direction.",
         "enum": [
@@ -3622,6 +4230,131 @@
         "title": "MetricSource",
         "type": "string"
       },
+      "MetricStateV2": {
+        "additionalProperties": false,
+        "description": "One projected V2 metric result with censoring bounds.",
+        "properties": {
+          "censoring_lower_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Censoring Lower Bound"
+          },
+          "censoring_upper_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Censoring Upper Bound"
+          },
+          "contract_fingerprint": {
+            "title": "Contract Fingerprint",
+            "type": "string"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "evidence_authority": {
+            "$ref": "#/components/schemas/EvidenceAuthority"
+          },
+          "explanation_code": {
+            "title": "Explanation Code",
+            "type": "string"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "default": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "projection_version": {
+            "const": "metric-contract-v2-projection-1",
+            "default": "metric-contract-v2-projection-1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "registry_version": {
+            "const": "all-20-factor-contracts-v2",
+            "default": "all-20-factor-contracts-v2",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "statistics": {
+            "$ref": "#/components/schemas/OpportunityStatistics"
+          },
+          "value_state": {
+            "$ref": "#/components/schemas/MetricValueStateV2"
+          }
+        },
+        "required": [
+          "metric_key",
+          "contract_version",
+          "contract_fingerprint",
+          "evidence_authority",
+          "value_state",
+          "explanation_code",
+          "statistics"
+        ],
+        "title": "MetricStateV2",
+        "type": "object"
+      },
       "MetricStructuralSupportState": {
         "enum": [
           "attemptable",
@@ -3640,6 +4373,19 @@
           "execution_error"
         ],
         "title": "MetricValueState",
+        "type": "string"
+      },
+      "MetricValueStateV2": {
+        "description": "Persistable value states, including first-class right-censored pending.\n\n``PENDING`` is temporal: an eligible opportunity exists and its outcome is\nstill undetermined at the right edge of the observed window.  It is not a\nsynonym for ``UNKNOWN`` (missing capability or unclassifiable evidence) and\nnever a synonym for ``NOT_APPLICABLE`` (no opportunity at all).",
+        "enum": [
+          "known",
+          "pending",
+          "unknown",
+          "not_applicable",
+          "abstained",
+          "execution_error"
+        ],
+        "title": "MetricValueStateV2",
         "type": "string"
       },
       "ModelBenchmarkDto": {
@@ -6740,6 +7486,94 @@
         "title": "ModelRuntimeInventoryDto",
         "type": "object"
       },
+      "OpportunityStatistics": {
+        "additionalProperties": false,
+        "description": "Content-free sufficient statistics for one metric's opportunity set.\n\nThese are the only numbers a downstream aggregate needs: no text, no\nidentifiers, and no per-opportunity receipt beyond the counts.",
+        "properties": {
+          "capability_available": {
+            "title": "Capability Available",
+            "type": "boolean"
+          },
+          "denominator_basis": {
+            "$ref": "#/components/schemas/DenominatorBasis"
+          },
+          "distinct_owner_count": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Distinct Owner Count",
+            "type": "integer"
+          },
+          "eligible_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "met_count": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Met Count",
+            "type": "integer"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "not_met_count": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Not Met Count",
+            "type": "integer"
+          },
+          "opportunity_unit_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticUnitKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending_count": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "source_complete": {
+            "title": "Source Complete",
+            "type": "boolean"
+          },
+          "superseded_excluded_count": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Superseded Excluded Count",
+            "type": "integer"
+          },
+          "unknown_count": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Unknown Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "metric_key",
+          "denominator_basis",
+          "capability_available",
+          "source_complete",
+          "eligible_count"
+        ],
+        "title": "OpportunityStatistics",
+        "type": "object"
+      },
       "OutputRevisionDto": {
         "additionalProperties": false,
         "properties": {
@@ -7602,6 +8436,28 @@
         "title": "ProviderTextCapabilityStateDto",
         "type": "string"
       },
+      "PublishedMetricV2": {
+        "additionalProperties": false,
+        "description": "One projected state, its guidance, and what may be claimed about it.",
+        "properties": {
+          "guidance": {
+            "$ref": "#/components/schemas/MetricGuidanceReceipt"
+          },
+          "implementation_state": {
+            "$ref": "#/components/schemas/MetricImplementationState"
+          },
+          "state": {
+            "$ref": "#/components/schemas/MetricStateV2"
+          }
+        },
+        "required": [
+          "state",
+          "guidance",
+          "implementation_state"
+        ],
+        "title": "PublishedMetricV2",
+        "type": "object"
+      },
       "RedactionPreviewBinding": {
         "additionalProperties": false,
         "description": "Everything whose change invalidates a user's approval.",
@@ -7859,6 +8715,26 @@
         ],
         "title": "SanitizedRequestValidationFailureResponse",
         "type": "object"
+      },
+      "SemanticUnitKind": {
+        "description": "Versioned semantic opportunities used by the 20 metric contracts.",
+        "enum": [
+          "request_revision",
+          "requirement",
+          "constraint",
+          "deliverable",
+          "ambiguity",
+          "clarification",
+          "scope_change",
+          "feedback",
+          "hypothesis",
+          "decision",
+          "open_loop",
+          "action",
+          "verification"
+        ],
+        "title": "SemanticUnitKind",
+        "type": "string"
       },
       "SessionAnalysisEvidenceDto": {
         "additionalProperties": false,
@@ -8708,6 +9584,72 @@
           "denominator"
         ],
         "title": "SessionMetricFractionDto",
+        "type": "object"
+      },
+      "SessionMetricPublication": {
+        "additionalProperties": false,
+        "description": "Current preview identity plus the complete twenty-metric bundle.",
+        "properties": {
+          "preview_limits": {
+            "default": [
+              "read_only_v1_compatibility_preview",
+              "reviewed_compatible_rubric_rows_only_numeric",
+              "other_behavioral_states_withheld",
+              "objective_values_unknown_without_authorized_override",
+              "not_canonical_live_snapshot",
+              "no_model_stage_output_consumed"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Preview Limits",
+            "type": "array"
+          },
+          "projection_key": {
+            "default": "metric.contract-v2.v1-compatibility-preview",
+            "title": "Projection Key",
+            "type": "string"
+          },
+          "projection_version": {
+            "default": 2,
+            "minimum": 1.0,
+            "title": "Projection Version",
+            "type": "integer"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "publication": {
+            "$ref": "#/components/schemas/MetricPublicationV2"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source_metric_pack_key": {
+            "title": "Source Metric Pack Key",
+            "type": "string"
+          },
+          "source_metric_pack_version": {
+            "minimum": 1.0,
+            "title": "Source Metric Pack Version",
+            "type": "integer"
+          },
+          "source_result_count": {
+            "minimum": 0.0,
+            "title": "Source Result Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "provider",
+          "source_metric_pack_key",
+          "source_metric_pack_version",
+          "source_result_count",
+          "publication"
+        ],
+        "title": "SessionMetricPublication",
         "type": "object"
       },
       "SessionMetricReadinessReport": {
@@ -10678,6 +11620,17 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "ValueOrigin": {
+        "description": "What produced a value, kept separate from its calibration status.\n\nA deterministic local rule and a typed objective receipt are both *measured*\nobservations; they differ in authority, not in whether they were measured.\nOnly a neural estimate is uncalibrated, and it is the sole origin allowed to\nclaim the experimental basis.",
+        "enum": [
+          "none",
+          "deterministic_local",
+          "typed_objective",
+          "neural_uncalibrated"
+        ],
+        "title": "ValueOrigin",
+        "type": "string"
       },
       "VerificationCapability": {
         "additionalProperties": false,
@@ -12894,6 +13847,72 @@
         ]
       }
     },
+    "/v1/metric-contracts/v2/guidance-catalog": {
+      "get": {
+        "description": "Serve the static guidance identities the dashboard and overlay share.",
+        "operationId": "metric_guidance_catalog_route_v1_metric_contracts_v2_guidance_catalog_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricGuidanceCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Metric Guidance Catalog Route",
+        "tags": [
+          "session-quality-analysis"
+        ]
+      }
+    },
     "/v1/metric-coverage": {
       "get": {
         "operationId": "provider_metric_coverage_v1_metric_coverage_get",
@@ -14433,6 +15452,82 @@
           }
         },
         "summary": "Session Coaching Summary",
+        "tags": [
+          "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/quality-analysis/runs/{run_id}/metric-v2-compatibility-preview": {
+      "get": {
+        "description": "Read-only V1 compatibility preview; not the canonical live snapshot.",
+        "operationId": "session_metric_publication_v1_quality_analysis_runs__run_id__metric_v2_compatibility_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionMetricPublication"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Metric Publication",
         "tags": [
           "session-quality-analysis"
         ]

@@ -12,6 +12,7 @@ from prompt_enhancer.adapters.synthetic import SyntheticAdapter
 from prompt_enhancer.api import API_TOKEN_HEADER, create_app
 from prompt_enhancer.application.analysis.coaching_baselines import (
     COACHING_METRIC_ALGORITHM_ID,
+    COACHING_METRIC_RUBRIC_VERSION,
     COACHING_METRIC_ALGORITHM_VERSION,
     COACHING_METRIC_ENGINE_VERSION,
     COACHING_METRIC_PACK_KEY,
@@ -38,6 +39,9 @@ from prompt_enhancer.application.persistence import (
     SessionMetricApplicability,
     SessionMetricDirection,
     SESSION_ANALYSIS_RUN_SCHEMA_VERSION,
+)
+from prompt_enhancer.application.analysis.text_contracts import (
+    TEXT_METRIC_SCHEMA_VERSION,
 )
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.database import SCHEMA_VERSION, Database
@@ -109,14 +113,14 @@ def _rubric_result() -> SessionAnalysisResultRecord:
         direction=SessionMetricDirection.HIGHER_IS_BETTER,
         applicability=SessionMetricApplicability.APPLICABLE,
         aggregation_method=SessionMetricAggregation.RATIO_OF_SUMS,
-        metric_schema_version=1,
+        metric_schema_version=TEXT_METRIC_SCHEMA_VERSION,
         evidence_data_tier=DataTier.REDACTED_CONTENT,
         fraction_numerator=2,
         fraction_denominator=3,
         explanation_code="rubric_factors",
         algorithm_id=COACHING_METRIC_ALGORITHM_ID,
         algorithm_version=COACHING_METRIC_ALGORITHM_VERSION,
-        rubric_version="coaching-observables-rubric-2",
+        rubric_version=COACHING_METRIC_RUBRIC_VERSION,
         computed_at=NOW,
     )
 
@@ -154,6 +158,10 @@ def test_guidance_catalog_route_requires_a_token_and_carries_no_session_data(
     assert unauthorized.status_code == 401
     assert response.status_code == 200, response.text
     body = response.json()
+    assert "no-store" in response.headers["Cache-Control"]
+    assert response.headers["Pragma"] == "no-cache"
+    assert body["contract_set_fingerprint"] == metric_contract_v2_set_fingerprint()
+    assert body["registry_version"] == "all-20-factor-contracts-v2"
     assert body["catalog_version"] == "metric-guidance-templates-v1"
     assert body["contract_version"] == "metric-guidance-contract-v1"
     assert len(body["entries"]) == 20
@@ -170,13 +178,13 @@ def test_authenticated_metric_publication_publishes_all_twenty_states(
     tmp_path,
 ) -> None:
     database, session_id = _completed_run(tmp_path)
-    path = f"/v1/quality-analysis/runs/{RUN_ID}/metric-publication"
+    path = f"/v1/quality-analysis/runs/{RUN_ID}/metric-v2-compatibility-preview"
 
     with TestClient(_app(tmp_path, database), base_url="http://127.0.0.1") as client:
         unauthorized = client.get(path)
         response = client.get(path, headers={API_TOKEN_HEADER: EXAMPLE_TOKEN})
         missing = client.get(
-            f"/v1/quality-analysis/runs/{'9' * 64}/metric-publication",
+            f"/v1/quality-analysis/runs/{'9' * 64}/metric-v2-compatibility-preview",
             headers={API_TOKEN_HEADER: EXAMPLE_TOKEN},
         )
 
@@ -187,8 +195,12 @@ def test_authenticated_metric_publication_publishes_all_twenty_states(
     assert body["projection_key"] == SESSION_METRIC_PUBLICATION_KEY
     assert body["run_id"] == RUN_ID
     assert body["source_result_count"] == 1
+    assert "not_canonical_live_snapshot" in body["preview_limits"]
+    assert "no_model_stage_output_consumed" in body["preview_limits"]
+    assert "no-store" in response.headers["Cache-Control"]
+    assert response.headers["Pragma"] == "no-cache"
     publication = body["publication"]
-    assert publication["source"] == "persisted_run_rehydration"
+    assert publication["source"] == "v1_compatibility_preview"
     assert publication["registry_version"] == "all-20-factor-contracts-v2"
     assert publication["contract_set_fingerprint"] == (
         metric_contract_v2_set_fingerprint()
@@ -197,11 +209,17 @@ def test_authenticated_metric_publication_publishes_all_twenty_states(
     assert publication["known_count"] == 1
     assert publication["objective_measured_count"] == 0
     assert publication["product_metric_eligible"] is False
+    assert publication["canonical_live_snapshot"] is False
+    assert publication["model_stage_consumed"] is False
+    assert publication["compatibility_preview"] is True
+    assert sorted(
+        {item["implementation_state"] for item in publication["metrics"]}
+    ) == ["compatibility_projected", "method_only_withheld", "objective_capability_missing"]
 
     by_key = {item["state"]["metric_key"]: item for item in publication["metrics"]}
     known = by_key["prompt.task_definition_coverage"]
     assert known["state"]["value_state"] == "known"
-    assert known["guidance"]["basis"] == "experimental"
+    assert known["guidance"]["basis"] == "method-only"
     assert known["guidance"]["action_template_id"] == (
         "action.improve.prompt.task_definition_coverage.v1"
     )
@@ -236,7 +254,7 @@ def test_publication_rejects_a_running_or_incompatible_run(tmp_path) -> None:
         service.get(draft.run_id)
     assert running.value.code == "publication_run_not_completed"
 
-    path = f"/v1/quality-analysis/runs/{RUN_ID}/metric-publication"
+    path = f"/v1/quality-analysis/runs/{RUN_ID}/metric-v2-compatibility-preview"
     with TestClient(_app(tmp_path, database), base_url="http://127.0.0.1") as client:
         conflict = client.get(path, headers={API_TOKEN_HEADER: EXAMPLE_TOKEN})
     assert conflict.status_code == 409
@@ -328,8 +346,41 @@ def test_guidance_catalog_matches_the_openapi_documented_response(tmp_path) -> N
 
     assert CATALOG_PATH in schema["paths"]
     publication_path = (
-        "/v1/quality-analysis/runs/{run_id}/metric-publication"
+        "/v1/quality-analysis/runs/{run_id}/metric-v2-compatibility-preview"
     )
     assert publication_path in schema["paths"]
     # The catalog is the client's single source for renderable identities.
     assert len(metric_guidance_catalog()) == 20
+
+
+def test_malformed_and_tampered_publication_requests_are_rejected(tmp_path) -> None:
+    database, _ = _completed_run(tmp_path)
+    headers = {API_TOKEN_HEADER: EXAMPLE_TOKEN}
+
+    with TestClient(_app(tmp_path, database), base_url="http://127.0.0.1") as client:
+        short_id = client.get(
+            "/v1/quality-analysis/runs/abc/metric-v2-compatibility-preview",
+            headers=headers,
+        )
+        non_hex = client.get(
+            f"/v1/quality-analysis/runs/{'z' * 64}/metric-v2-compatibility-preview",
+            headers=headers,
+        )
+        traversal = client.get(
+            "/v1/quality-analysis/runs/../../etc/passwd"
+            "/metric-v2-compatibility-preview",
+            headers=headers,
+        )
+        bad_token = client.get(
+            f"/v1/quality-analysis/runs/{RUN_ID}/metric-v2-compatibility-preview",
+            headers={API_TOKEN_HEADER: "example_wrong_token_000000000000000000"},
+        )
+
+    assert short_id.status_code == 422
+    assert non_hex.status_code == 422
+    assert traversal.status_code in {307, 404}
+    assert bad_token.status_code == 401
+    for response in (short_id, non_hex, bad_token):
+        lowered = response.text.casefold()
+        for prohibited in ("prompt_text", "excerpt", "filesystem_path", "raw_content"):
+            assert prohibited not in lowered

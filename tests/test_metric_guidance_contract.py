@@ -17,13 +17,16 @@ from prompt_enhancer.application.analysis.metric_contract_v2 import (
 )
 from prompt_enhancer.application.analysis.metric_guidance import (
     METRIC_GUIDANCE_CONTRACT_VERSION,
+    MAX_GUIDANCE_FOCUS_FACTOR_KEYS,
     METRIC_GUIDANCE_RETAIN_FLOOR,
     METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION,
     GuidanceAudience,
     GuidanceBasis,
     GuidanceRole,
+    GuidanceFactorEvidence,
     GuidanceStateClass,
     MetricGuidanceReceipt,
+    ValueOrigin,
     build_metric_guidance,
     metric_guidance_catalog,
     metric_guidance_template_set,
@@ -98,7 +101,7 @@ def test_guidance_catalog_covers_every_v2_metric_and_state_class() -> None:
     for entry in catalog:
         contract = metric_contract_v2(entry.metric_key)
         assert entry.contract_fingerprint == contract.fingerprint
-        assert entry.factor_keys == tuple(
+        assert entry.contract_factor_keys == tuple(
             item.factor_key for item in contract.factors
         )
         assert {item.state_class for item in entry.templates} == set(
@@ -139,13 +142,14 @@ def test_catalog_roles_and_audiences_follow_the_contract_not_the_key_prefix() ->
         assert by_key[metric_key].audience is GuidanceAudience.TOOLING
 
 
-def test_known_conversational_guidance_is_experimental_not_measured() -> None:
+def test_deterministic_local_value_is_measured_not_experimental() -> None:
     guidance = build_metric_guidance(
         _known_state("prompt.task_definition_coverage", met=3, eligible=3)
     )
 
     assert guidance.value_state is MetricValueStateV2.KNOWN
-    assert guidance.basis is GuidanceBasis.EXPERIMENTAL
+    assert guidance.basis is GuidanceBasis.MEASURED
+    assert guidance.value_origin is ValueOrigin.DETERMINISTIC_LOCAL
     assert guidance.state_class is GuidanceStateClass.KNOWN_RETAIN
     assert guidance.numerator == 3 and guidance.denominator == 3
     assert guidance.contract_version == METRIC_GUIDANCE_CONTRACT_VERSION
@@ -172,9 +176,9 @@ def test_retain_floor_selects_retain_or_improve_by_oriented_value() -> None:
     assert weak.action_template_id == (
         "action.improve.prompt.context_sufficiency.v1"
     )
-    assert weak.factor_keys == tuple(
-        item.factor_key
-        for item in metric_contract_v2("prompt.context_sufficiency").factors
+    assert weak.focus_factor_keys == ()
+    assert weak.contract_factor_count == len(
+        metric_contract_v2("prompt.context_sufficiency").factors
     )
 
 
@@ -357,9 +361,19 @@ def test_guidance_receipt_rejects_prose_identifiers_and_masked_zeroes() -> None:
             }
         )
 
-    # A conversational contract can never claim the objective measured basis.
+    # Only an uncalibrated neural estimate may claim the experimental basis.
+    with pytest.raises(ValidationError, match="neural estimate"):
+        MetricGuidanceReceipt(**{**valid, "basis": GuidanceBasis.EXPERIMENTAL})
+
+    # A conversational contract can never claim a typed objective origin.
     with pytest.raises(ValidationError, match="evidence authority"):
-        MetricGuidanceReceipt(**{**valid, "basis": GuidanceBasis.MEASURED})
+        MetricGuidanceReceipt(
+            **{**valid, "value_origin": ValueOrigin.TYPED_OBJECTIVE}
+        )
+
+    # Focus factors require measured per-factor statistics.
+    with pytest.raises(ValidationError, match="per-factor statistics"):
+        MetricGuidanceReceipt(**{**valid, "focus_factor_keys": ("action",)})
 
     with pytest.raises(ValidationError, match="partition"):
         MetricGuidanceReceipt(**{**valid, "not_met_count": 4})
@@ -391,3 +405,46 @@ def test_guidance_serialization_carries_no_free_text_field() -> None:
         "description",
     ):
         assert prohibited not in lowered
+
+
+def test_focus_factors_are_bounded_and_require_per_factor_evidence() -> None:
+    contract = metric_contract_v2("prompt.task_definition_coverage")
+    keys = tuple(item.factor_key for item in contract.factors)
+    state = _known_state("prompt.task_definition_coverage", met=1, eligible=3)
+
+    guidance = build_metric_guidance(
+        state,
+        factor_evidence=GuidanceFactorEvidence.PER_FACTOR_MEASURED,
+        focus_factor_keys=keys,
+    )
+
+    assert MAX_GUIDANCE_FOCUS_FACTOR_KEYS == 2
+    assert guidance.focus_factor_keys == keys[:2]
+    assert guidance.basis is GuidanceBasis.MEASURED
+
+    aggregate = build_metric_guidance(
+        state, factor_evidence=GuidanceFactorEvidence.AGGREGATE_ONLY
+    )
+    assert aggregate.focus_factor_keys == ()
+    assert aggregate.basis is GuidanceBasis.METHOD_ONLY
+
+    with pytest.raises(ValueError, match="contract factor list"):
+        build_metric_guidance(
+            state,
+            factor_evidence=GuidanceFactorEvidence.PER_FACTOR_MEASURED,
+            focus_factor_keys=("not_a_contract_factor",),
+        )
+
+
+def test_uncalibrated_neural_estimate_is_the_only_experimental_basis() -> None:
+    state = _known_state("prompt.context_sufficiency", met=3, eligible=3)
+
+    neural = build_metric_guidance(
+        state, value_origin=ValueOrigin.NEURAL_UNCALIBRATED
+    )
+    deterministic = build_metric_guidance(state)
+
+    assert neural.basis is GuidanceBasis.EXPERIMENTAL
+    assert neural.value_origin is ValueOrigin.NEURAL_UNCALIBRATED
+    assert deterministic.basis is GuidanceBasis.MEASURED
+    assert deterministic.value_origin is ValueOrigin.DETERMINISTIC_LOCAL

@@ -16,7 +16,9 @@ from prompt_enhancer.application.analysis.metric_contract_v2 import (
 )
 from prompt_enhancer.application.analysis.metric_guidance import (
     GuidanceBasis,
+    GuidanceFactorEvidence,
     GuidanceStateClass,
+    ValueOrigin,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
     project_metric_states_v2,
@@ -27,11 +29,15 @@ from prompt_enhancer.application.analysis.metric_publication_v2 import (
     REASON_MODEL_ASSISTED_NOT_PUBLISHABLE,
     REASON_RESULT_ABSENT,
     REASON_RESULT_STATE_UNPUBLISHABLE,
+    REASON_PROVENANCE_INCOMPATIBLE,
     REASON_RUBRIC_DENOMINATOR_MISMATCH,
+    MetricImplementationState,
     MetricPublicationSource,
     MetricPublicationV2,
     publish_metric_states_v2,
-    rehydrate_metric_states_v2,
+    publish_v1_compatibility_preview,
+    rehydrate_v1_compatibility_states,
+    v1_provenance_is_compatible,
 )
 from prompt_enhancer.application.analysis.objective_metric_projection import (
     OBJECTIVE_EVIDENCE_METRIC_KEYS,
@@ -40,8 +46,16 @@ from prompt_enhancer.application.analysis.objective_metric_projection import (
 from prompt_enhancer.application.analysis.semantic_units import (
     SemanticUnitReconciler,
 )
+from prompt_enhancer.application.analysis.coaching_baselines import (
+    COACHING_METRIC_ALGORITHM_ID,
+    COACHING_METRIC_ALGORITHM_VERSION,
+    COACHING_METRIC_DEFINITIONS,
+    COACHING_METRIC_RUBRIC_VERSION,
+)
 from prompt_enhancer.application.analysis.text_contracts import (
+    TEXT_METRIC_SCHEMA_VERSION,
     EphemeralRedactedMessage,
+    MetricDirection,
     P1TextAnalysisInput,
     TextLanguage,
     TextMessageKind,
@@ -152,9 +166,30 @@ def _result(
     explanation_code: str = "rubric_factors",
     error_code: str | None = None,
     model_id: str | None = None,
-    version: int = 2,
+    version: int | None = None,
+    unit: str | None = None,
+    source: MetricSource = MetricSource.DETERMINISTIC,
+    direction_override: SessionMetricDirection | None = None,
+    metric_schema_version: int = TEXT_METRIC_SCHEMA_VERSION,
+    algorithm_id: str = COACHING_METRIC_ALGORITHM_ID,
+    algorithm_version: str = COACHING_METRIC_ALGORITHM_VERSION,
+    rubric_version: str | None = COACHING_METRIC_RUBRIC_VERSION,
+    prompt_version: str | None = None,
+    evidence_data_tier: DataTier = DataTier.REDACTED_CONTENT,
 ) -> SessionAnalysisResultRecord:
     known = value_state is MetricValueState.KNOWN
+    definition = next(
+        item for item in COACHING_METRIC_DEFINITIONS if item.key == key
+    )
+    version = definition.version if version is None else version
+    unit = definition.unit if unit is None else unit
+    direction = (
+        SessionMetricDirection.HIGHER_IS_BETTER
+        if definition.direction is MetricDirection.HIGHER_IS_BETTER
+        else SessionMetricDirection.LOWER_IS_BETTER
+    )
+    if direction_override is not None:
+        direction = direction_override
     return SessionAnalysisResultRecord(
         observation=MetricObservation(
             key=key,
@@ -164,28 +199,30 @@ def _result(
                 if not known or numerator is None or denominator is None
                 else numerator / denominator
             ),
-            unit="ratio",
-            source=MetricSource.DETERMINISTIC,
+            unit=unit,
+            source=source,
             observed_count=3,
             eligible_count=3,
             coverage=1.0,
         ),
         value_state=value_state,
-        direction=SessionMetricDirection.HIGHER_IS_BETTER,
+        direction=direction,
         applicability=(
             SessionMetricApplicability.APPLICABLE
             if value_state is not MetricValueState.NOT_APPLICABLE
             else SessionMetricApplicability.NOT_APPLICABLE
         ),
         aggregation_method=SessionMetricAggregation.RATIO_OF_SUMS,
-        metric_schema_version=1,
-        evidence_data_tier=DataTier.REDACTED_CONTENT,
+        metric_schema_version=metric_schema_version,
+        evidence_data_tier=evidence_data_tier,
         fraction_numerator=numerator if known else None,
         fraction_denominator=denominator if known else None,
         explanation_code=explanation_code,
         error_code=error_code,
-        algorithm_id="rules.en-pl.coaching-observables",
-        algorithm_version="2",
+        algorithm_id=algorithm_id,
+        algorithm_version=algorithm_version,
+        rubric_version=rubric_version,
+        prompt_version=prompt_version,
         model_id=model_id,
         model_revision=None if model_id is None else "0" * 40,
         model_license=None if model_id is None else "example-license-1.0",
@@ -199,10 +236,7 @@ def _by_key(publication: MetricPublicationV2) -> dict[str, object]:
 
 
 def _publish(results, **kwargs) -> MetricPublicationV2:
-    return publish_metric_states_v2(
-        rehydrate_metric_states_v2(results, **kwargs),
-        source=MetricPublicationSource.PERSISTED_RUN_REHYDRATION,
-    )
+    return publish_v1_compatibility_preview(results, **kwargs)
 
 
 def test_publication_always_lists_every_metric_in_registry_order() -> None:
@@ -257,6 +291,13 @@ def test_rubric_result_republishes_only_with_the_reviewed_factor_denominator() -
     assert good.state.statistics.met_count == 2
     assert good.state.statistics.not_met_count == 1
     assert good.guidance.state_class is GuidanceStateClass.KNOWN_IMPROVE
+    # An aggregate rubric fraction proves a count, never a factor identity.
+    assert good.guidance.basis is GuidanceBasis.METHOD_ONLY
+    assert good.guidance.factor_evidence is GuidanceFactorEvidence.AGGREGATE_ONLY
+    assert good.guidance.focus_factor_keys == ()
+    assert good.implementation_state is (
+        MetricImplementationState.COMPATIBILITY_PROJECTED
+    )
 
     mismatched = by_key["prompt.context_sufficiency"]
     assert mismatched.state.value_state is MetricValueStateV2.UNKNOWN
@@ -335,6 +376,7 @@ def test_typed_evidence_lane_is_the_only_objective_publisher() -> None:
     covered = by_key["outcome.verified_requirement_coverage"]
     assert covered.state.value_state is MetricValueStateV2.KNOWN
     assert covered.guidance.basis is GuidanceBasis.MEASURED
+    assert covered.guidance.value_origin is ValueOrigin.TYPED_OBJECTIVE
     assert covered.guidance.state_class is GuidanceStateClass.KNOWN_RETAIN
     assert publication.objective_measured_count == 1
 
@@ -363,7 +405,9 @@ def test_model_assisted_result_cannot_publish_a_value() -> None:
     assert published.state.explanation_code == (
         REASON_MODEL_ASSISTED_NOT_PUBLISHABLE
     )
+    assert published.state.explanation_code == REASON_PROVENANCE_INCOMPATIBLE
     assert published.guidance.basis is GuidanceBasis.READINESS
+    assert published.guidance.value_origin is ValueOrigin.NONE
 
 
 def test_optional_neural_failure_preserves_its_code_without_blocking_others() -> None:
@@ -395,10 +439,12 @@ def test_optional_neural_failure_preserves_its_code_without_blocking_others() ->
     )
     by_key = _by_key(publication)
 
+    # A model-assisted row is provenance-incompatible, so the preview never
+    # claims it consumed a model committee outcome for this metric.
     failed = by_key["prompt.problem_evidence_quality"]
-    assert failed.state.value_state is MetricValueStateV2.EXECUTION_ERROR
-    assert failed.state.explanation_code == "model_committee_nli_failed"
-    assert failed.guidance.basis is GuidanceBasis.METHOD_ONLY
+    assert failed.state.value_state is MetricValueStateV2.UNKNOWN
+    assert failed.state.explanation_code == REASON_PROVENANCE_INCOMPATIBLE
+    assert publication.model_stage_consumed is False
 
     # The deterministic and objective results still publish normally.
     assert (
@@ -409,7 +455,7 @@ def test_optional_neural_failure_preserves_its_code_without_blocking_others() ->
         by_key["outcome.agent_claim_grounding"].state.value_state
         is MetricValueStateV2.KNOWN
     )
-    assert publication.execution_error_count == 1
+    assert publication.execution_error_count == 0
     assert publication.known_count == 2
     assert len(publication.metrics) == 20
 
@@ -523,74 +569,15 @@ def test_live_projection_publishes_identical_guidance_for_en_and_pl(
     assert strategy.state.value_state is MetricValueStateV2.KNOWN
     assert strategy.state.numerator == 1 and strategy.state.denominator == 1
     assert strategy.guidance.state_class is GuidanceStateClass.KNOWN_RETAIN
-    assert strategy.guidance.basis is GuidanceBasis.EXPERIMENTAL
+    # A deterministic local rule is a measured observation, not an estimate.
+    assert strategy.guidance.basis is GuidanceBasis.MEASURED
+    assert strategy.guidance.value_origin is ValueOrigin.DETERMINISTIC_LOCAL
+    assert strategy.implementation_state is MetricImplementationState.LIVE_MEASURED
     assert strategy.guidance.action_template_id == (
         "action.retain.outcome.verification_strategy_adequacy.v1"
     )
     # A stated strategy is conversational, so it never becomes objective proof.
     assert publication.objective_measured_count == 0
-
-
-def test_publication_rejects_an_objective_metric_resolved_conversationally() -> None:
-    publication = _publish(())
-    metrics = list(publication.metrics)
-    index = next(
-        position
-        for position, item in enumerate(metrics)
-        if item.state.metric_key == "outcome.first_pass_verification"
-    )
-    laundered = _publish(
-        (),
-    ).metrics[index]
-    forged_state = laundered.state.model_copy(
-        update={
-            "value_state": MetricValueStateV2.KNOWN,
-            "numerator": 1,
-            "denominator": 1,
-            "numeric_value": 1.0,
-            "censoring_lower_bound": 1.0,
-            "censoring_upper_bound": 1.0,
-            "statistics": laundered.state.statistics.model_copy(
-                update={
-                    "denominator_basis": (
-                        metric_contract_v2(
-                            "prompt.task_definition_coverage"
-                        ).denominator_basis
-                    ),
-                    "capability_available": True,
-                    "eligible_count": 1,
-                    "met_count": 1,
-                }
-            ),
-        }
-    )
-    metrics[index] = laundered.model_copy(
-        update={
-            "state": forged_state,
-            "guidance": laundered.guidance.model_copy(
-                update={
-                    "value_state": MetricValueStateV2.KNOWN,
-                    "state_class": GuidanceStateClass.KNOWN_RETAIN,
-                    "basis": GuidanceBasis.MEASURED,
-                    "numerator": 1,
-                    "denominator": 1,
-                    "eligible_count": 1,
-                    "met_count": 1,
-                }
-            ),
-        }
-    )
-
-    with pytest.raises(ValidationError, match="conversational material"):
-        publication.model_copy(update={"metrics": tuple(metrics)}).model_validate(
-            {
-                **publication.model_dump(),
-                "metrics": [item.model_dump() for item in metrics],
-                "known_count": 1,
-                "unknown_count": 19,
-                "objective_measured_count": 1,
-            }
-        )
 
 
 def test_publication_rejects_incomplete_or_reordered_metric_sets() -> None:
@@ -640,3 +627,298 @@ def test_publication_serialization_is_content_free() -> None:
         item.state.product_metric_eligible is False
         for item in _publish(()).metrics
     )
+
+
+def test_every_v1_provenance_field_tamper_withholds_the_value() -> None:
+    compatible = _result(
+        "prompt.task_definition_coverage", numerator=3, denominator=3
+    )
+    assert v1_provenance_is_compatible(compatible)
+    assert (
+        _publish((compatible,))
+        .metrics[0]
+        .state.value_state
+        is MetricValueStateV2.KNOWN
+    )
+
+    tampers = {
+        "version": {"version": 9},
+        "unit": {"unit": "risk_ratio"},
+        "source": {"source": MetricSource.ESTIMATED},
+        "direction": {
+            "direction_override": SessionMetricDirection.LOWER_IS_BETTER
+        },
+        "metric_schema_version": {
+            "metric_schema_version": TEXT_METRIC_SCHEMA_VERSION + 1
+        },
+        "algorithm_id": {"algorithm_id": "rules.en-pl.other-pack"},
+        "algorithm_version": {"algorithm_version": "3"},
+        "rubric_version": {"rubric_version": "coaching-observables-rubric-1"},
+        "rubric_version_absent": {"rubric_version": None},
+        "prompt_version_with_model": {
+            "model_id": "example/local-rubric",
+            "prompt_version": "example-prompt-1",
+        },
+        "model_id": {"model_id": "example/local-rubric"},
+    }
+    for label, override in tampers.items():
+        tampered = _result(
+            "prompt.task_definition_coverage",
+            numerator=3,
+            denominator=3,
+            **override,
+        )
+        assert not v1_provenance_is_compatible(tampered), label
+        published = _by_key(_publish((tampered,)))[
+            "prompt.task_definition_coverage"
+        ]
+        assert published.state.value_state is MetricValueStateV2.UNKNOWN, label
+        assert published.state.explanation_code == (
+            REASON_PROVENANCE_INCOMPATIBLE
+        ), label
+        assert published.state.numeric_value is None, label
+
+
+def test_orphan_metric_key_is_never_promoted() -> None:
+    orphan = _result("prompt.task_definition_coverage", numerator=3, denominator=3)
+    orphan = orphan.model_copy(
+        update={
+            "observation": orphan.observation.model_copy(
+                update={"key": "prompt.unreviewed_candidate"}
+            )
+        }
+    )
+
+    assert not v1_provenance_is_compatible(orphan)
+    publication = _publish((orphan,))
+    assert publication.known_count == 0
+    assert publication.unknown_count == 20
+
+
+def test_publication_rejects_a_forged_state_or_guidance_field() -> None:
+    baseline = _publish(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
+    )
+    payload = baseline.model_dump()
+    metrics = list(payload["metrics"])
+    objective_index = next(
+        position
+        for position, item in enumerate(metrics)
+        if item["state"]["metric_key"] == "outcome.first_pass_verification"
+    )
+
+    def _reject(index: int, mutate, match: str, **counts: int) -> None:
+        forged = [dict(item) for item in metrics]
+        forged[index] = mutate(
+            {
+                "state": dict(forged[index]["state"]),
+                "guidance": dict(forged[index]["guidance"]),
+                "implementation_state": forged[index]["implementation_state"],
+            }
+        )
+        with pytest.raises(ValidationError, match=match):
+            MetricPublicationV2.model_validate(
+                {**payload, "metrics": forged, **counts}
+            )
+
+    def _forge_fingerprint(item):
+        item["state"]["contract_fingerprint"] = "d" * 64
+        return item
+
+    def _forge_authority(item):
+        item["state"]["evidence_authority"] = "conversation"
+        return item
+
+    def _forge_denominator_basis(item):
+        item["state"]["statistics"] = {
+            **item["state"]["statistics"],
+            "denominator_basis": "rubric_factors",
+        }
+        return item
+
+    def _forge_opportunity_kind(item):
+        item["state"]["statistics"] = {
+            **item["state"]["statistics"],
+            "opportunity_unit_kind": "requirement",
+        }
+        return item
+
+    def _forge_guidance_authority(item):
+        item["guidance"]["evidence_authority"] = "conversation"
+        return item
+
+    def _forge_guidance_metric_version(item):
+        item["guidance"]["metric_version"] = 99
+        return item
+
+    def _forge_guidance_factor_count(item):
+        item["guidance"]["contract_factor_count"] = 8
+        return item
+
+    def _forge_contract_version(item):
+        item["state"]["contract_version"] = "probabilistic-metric-contract-v1"
+        return item
+
+    _reject(objective_index, _forge_fingerprint, "fingerprint is forged")
+    _reject(objective_index, _forge_authority, "evidence authority is forged")
+    _reject(objective_index, _forge_denominator_basis, "denominator basis is forged")
+    _reject(objective_index, _forge_opportunity_kind, "opportunity unit kind is forged")
+    _reject(objective_index, _forge_guidance_authority, "evidence authority is forged")
+    _reject(0, _forge_guidance_metric_version, "metric version is forged")
+    _reject(0, _forge_guidance_factor_count, "factor count is forged")
+    _reject(objective_index, _forge_contract_version, "contract version does not match")
+
+
+def test_objective_metric_cannot_be_laundered_from_conversational_material() -> None:
+    payload = _publish(()).model_dump()
+    metrics = [dict(item) for item in payload["metrics"]]
+    index = next(
+        position
+        for position, item in enumerate(metrics)
+        if item["state"]["metric_key"] == "outcome.first_pass_verification"
+    )
+    state = dict(metrics[index]["state"])
+    guidance = dict(metrics[index]["guidance"])
+    state.update(
+        value_state="known",
+        numerator=1,
+        denominator=1,
+        numeric_value=1.0,
+        censoring_lower_bound=1.0,
+        censoring_upper_bound=1.0,
+        statistics={
+            **state["statistics"],
+            "denominator_basis": "rubric_factors",
+            "capability_available": True,
+            "eligible_count": 1,
+            "met_count": 1,
+        },
+    )
+    guidance.update(
+        value_state="known",
+        state_class="known_retain",
+        basis="measured",
+        value_origin="typed_objective",
+        numerator=1,
+        denominator=1,
+        eligible_count=1,
+        met_count=1,
+    )
+    metrics[index] = {
+        "state": state,
+        "guidance": guidance,
+        "implementation_state": "compatibility_projected",
+    }
+
+    with pytest.raises(ValidationError):
+        MetricPublicationV2.model_validate(
+            {
+                **payload,
+                "metrics": metrics,
+                "known_count": 1,
+                "unknown_count": 19,
+                "objective_measured_count": 1,
+            }
+        )
+
+
+def test_probabilistic_deep_timeout_leaves_deterministic_measurements_intact() -> None:
+    """Real-shaped optional deep stage timeout: a separate, model-owned row."""
+
+    deterministic = _result(
+        "prompt.task_definition_coverage", numerator=3, denominator=3
+    )
+    deep_timeout = _result(
+        "prompt.context_sufficiency",
+        value_state=MetricValueState.EXECUTION_ERROR,
+        numerator=None,
+        denominator=None,
+        explanation_code="probabilistic_deep_timeout",
+        error_code="probabilistic_deep_timeout",
+        model_id="example/local-deep-rubric",
+        prompt_version="example-deep-prompt-1",
+    )
+
+    publication = _publish((deterministic, deep_timeout))
+    by_key = _by_key(publication)
+
+    # The deterministic measurement is untouched by the optional stage failure.
+    measured = by_key["prompt.task_definition_coverage"]
+    assert measured.state.value_state is MetricValueStateV2.KNOWN
+    assert measured.state.numerator == 3 and measured.state.denominator == 3
+
+    # The preview does not claim to have consumed the deep stage at all.
+    assert publication.model_stage_consumed is False
+    assert publication.execution_error_count == 0
+    timed_out = by_key["prompt.context_sufficiency"]
+    assert timed_out.state.value_state is MetricValueStateV2.UNKNOWN
+    assert timed_out.state.explanation_code == REASON_PROVENANCE_INCOMPATIBLE
+    assert timed_out.implementation_state is (
+        MetricImplementationState.METHOD_ONLY_WITHHELD
+    )
+    assert len(publication.metrics) == 20
+
+
+def test_implementation_states_partition_the_twenty_metrics() -> None:
+    publication = _publish(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),),
+        objective_overrides={
+            "outcome.agent_claim_grounding": ObjectiveMetricOverride(
+                value_state=MetricValueState.KNOWN,
+                explanation_code="typed_claim_grounding_links",
+                numerator=1,
+                denominator=1,
+                resolved_opportunity_count=1,
+                eligible_opportunity_count=1,
+                met_opportunity_count=1,
+            ),
+        },
+    )
+    counts = publication.implementation_state_counts()
+
+    assert sum(counts.values()) == 20
+    assert counts[MetricImplementationState.COMPATIBILITY_PROJECTED] == 2
+    assert counts[MetricImplementationState.LIVE_MEASURED] == 0
+    assert counts[MetricImplementationState.OBJECTIVE_CAPABILITY_MISSING] == 4
+    assert counts[MetricImplementationState.METHOD_ONLY_WITHHELD] == 14
+    assert publication.compatibility_preview is True
+    assert publication.canonical_live_snapshot is False
+
+
+def test_compatibility_preview_cannot_claim_a_live_measurement() -> None:
+    payload = _publish(
+        (_result("prompt.task_definition_coverage", numerator=3, denominator=3),)
+    ).model_dump()
+    metrics = [dict(item) for item in payload["metrics"]]
+    metrics[0] = {**metrics[0], "implementation_state": "live_measured"}
+
+    with pytest.raises(ValidationError, match="live measurement"):
+        MetricPublicationV2.model_validate({**payload, "metrics": metrics})
+
+
+def test_focus_factors_are_empty_for_aggregate_only_compatibility_rows() -> None:
+    publication = _publish(
+        tuple(
+            _result(
+                metric_key,
+                numerator=len(metric_contract_v2(metric_key).factors),
+                denominator=len(metric_contract_v2(metric_key).factors),
+            )
+            for metric_key in RUBRIC_KEYS
+        )
+    )
+
+    known = [
+        item
+        for item in publication.metrics
+        if item.state.value_state is MetricValueStateV2.KNOWN
+    ]
+    assert len(known) == 3
+    for item in known:
+        assert item.guidance.focus_factor_keys == ()
+        assert item.guidance.factor_evidence is (
+            GuidanceFactorEvidence.AGGREGATE_ONLY
+        )
+        assert item.guidance.basis is GuidanceBasis.METHOD_ONLY
+        # The complete factor catalog stays metadata, not session advice.
+        assert item.guidance.contract_factor_count >= 3

@@ -5,8 +5,20 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Annotated, Protocol, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+)
 
+from ...application.analysis.metric_contract_v2 import (
+    METRIC_CONTRACT_REGISTRY_VERSION_V2,
+    metric_contract_v2_set_fingerprint,
+)
 from ...application.analysis.metric_guidance import (
     METRIC_GUIDANCE_CONTRACT_VERSION,
     METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION,
@@ -35,12 +47,22 @@ from .dto import (
 )
 
 
+_PRIVATE_HEADERS = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
+
+
 class MetricGuidanceCatalogResponse(HttpDto):
-    """Static guidance identities; no session, run, or provider data."""
+    """Static guidance identities; no session, run, or provider data.
+
+    The canonical contract identity travels with the catalog so a presentation
+    surface that must keep prose locally can bind that prose to one exact
+    registry fingerprint instead of drifting away from it silently.
+    """
 
     catalog_version: str
     contract_version: str
     template_version: int
+    registry_version: str
+    contract_set_fingerprint: str
     entries: tuple[MetricGuidanceCatalogEntry, ...]
 
 
@@ -187,26 +209,33 @@ def create_session_analysis_query_router(
         "/metric-contracts/v2/guidance-catalog",
         response_model=MetricGuidanceCatalogResponse,
     )
-    def metric_guidance_catalog_route() -> MetricGuidanceCatalogResponse:
+    def metric_guidance_catalog_route(
+        response: Response,
+    ) -> MetricGuidanceCatalogResponse:
         """Serve the static guidance identities the dashboard and overlay share."""
 
+        response.headers.update(_PRIVATE_HEADERS)
         return MetricGuidanceCatalogResponse(
             catalog_version=METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION,
             contract_version=METRIC_GUIDANCE_CONTRACT_VERSION,
             template_version=METRIC_GUIDANCE_TEMPLATE_VERSION,
+            registry_version=METRIC_CONTRACT_REGISTRY_VERSION_V2,
+            contract_set_fingerprint=metric_contract_v2_set_fingerprint(),
             entries=metric_guidance_catalog(),
         )
 
     @router.get(
-        "/quality-analysis/runs/{run_id}/metric-publication",
+        "/quality-analysis/runs/{run_id}/metric-v2-compatibility-preview",
         response_model=SessionMetricPublication,
     )
     def session_metric_publication(
         request: Request,
+        response: Response,
         run_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
     ) -> SessionMetricPublication:
-        """Republish a stored run against the V2 registry without writing."""
+        """Read-only V1 compatibility preview; not the canonical live snapshot."""
 
+        response.headers.update(_PRIVATE_HEADERS)
         store = _query_store(request)
         service = SessionMetricPublicationService(
             store.session_analysis_run_repository()

@@ -499,60 +499,100 @@ Prompt specification | Requirement traceability | Safety | Workload (private)
 
 If a user later creates a composite, it must be user-named, use visible versioned weights, preserve underlying dimensions, exclude C-tier signals by default, and never be used for employee ranking.
 
-## Metric Contract V2 publication seam
+## Metric Contract V2 publication and V1 compatibility preview
 
-The V2 registry (`all-20-factor-contracts-v2`) is the canonical safe publication
-surface for the twenty metrics. A publication always lists every metric key once
-in registry order with a typed state, so a consumer never has to guess what an
-absent key meant and no surface can render missing capability as zero.
+**Scope honesty.** This surface is not the canonical live all-twenty session
+snapshot and it is not wired into the model-ensemble watch, head, or UI pipeline.
+It is a read-only foundation plus a labelled compatibility preview.
 
-Two producers reach the same contract:
+`publish_metric_states_v2` wraps a genuine live V2 projection over persisted
+semantic-unit heads. It is what a canonical head would consume, not evidence that
+one does today.
 
-| Producer | Input | Objective lane |
-|---|---|---|
-| `publish_metric_states_v2` over a live projection | persisted semantic-unit heads for the same analysis window | typed evidence overrides only |
-| `rehydrate_metric_states_v2` over a stored V1 run | already persisted, immutable analysis results | fail-closed without typed overrides |
+`publish_v1_compatibility_preview` reads an already persisted V1 run and states
+its own limits in the payload (`preview_limits`):
 
-Rehydration is deliberately narrow. A stored V1 denominator was whatever a
-lexical rule matched, which is neither the exactly owned opportunity set nor the
-declared profile slot set a V2 contract requires, so only the three
-rubric-factor contracts republish a value. Everything else stays `unknown` with
-a fixed reason code (`v1_denominator_not_opportunity_owned`,
-`metric_result_absent`, `model_assisted_result_not_publishable`,
-`rubric_denominator_mismatch`, `stored_result_state_unpublishable`).
+- at most the reviewed compatible rubric rows carry a number;
+- every other behavioural contract is withheld with a fixed reason;
+- every objective contract is unknown unless an authorized typed override is
+  supplied, which the read path never fabricates;
+- the bundle is not the canonical live snapshot and consumed no model-stage output
+  (`canonical_live_snapshot` and `model_stage_consumed` are structurally `false`).
 
-The five evidence-lane contracts are resolved only by the typed objective
-projection. A stored conversational ratio never grounds a completion claim, and
-the publication contract re-checks that invariant at its own boundary. A failed
-optional local model stage keeps its own fixed reason code and does not block
-the deterministic or objective metrics in the same run.
+### Fail-closed V1 provenance gate
+
+A stored row becomes a number only when **every** provenance field exactly matches
+the one reviewed source-pack identity: metric version, metric schema version,
+unit, source, direction, aggregation method, evidence tier, algorithm id and
+version, and rubric version `coaching-observables-rubric-2`. Any model, prompt,
+tokenizer, revision, or license provenance is disqualifying, and an orphan metric
+key is never promoted. Any mismatch yields `unknown` with the single fixed reason
+`v1_provenance_not_compatible`.
+
+A V1 denominator was whatever a lexical rule matched, so even a
+provenance-compatible non-rubric row stays `unknown`
+(`v1_denominator_not_opportunity_owned`). Other fixed reasons are
+`metric_result_absent`, `rubric_denominator_mismatch`, and
+`stored_result_state_unpublishable`.
+
+### Adversarial validation at the publication boundary
+
+Every published state and guidance receipt is re-derived against
+`metric_contract_v2(metric_key)` at construction: contract version, contract
+fingerprint, evidence authority, denominator basis, opportunity unit kind, metric
+version, direction, and factor count. A forged field is rejected rather than
+published, and an objective contract can never be resolved from conversational
+material.
+
+### Implementation and readiness state
+
+Each published metric carries an `implementation_state` so a client can tell what
+it may claim: `live_measured`, `compatibility_projected`, `method_only_withheld`,
+`objective_capability_missing`, `pending`, `no_opportunity`, `abstained`, `error`.
+These partition exactly twenty metrics.
 
 ### Guidance contract
 
-`metric-guidance-contract-v1` publishes the decision *identity* rather than its
-wording, so the dashboard and the desktop overlay cannot disagree:
+`metric-guidance-contract-v1` publishes decision *identity*, not wording: closed
+`role`, `audience`, `basis`, `value_origin`, `factor_evidence`, and `state_class`
+enums, the projection's own `reason_code`, and deterministic diagnosis, action, and
+verification template identities.
 
-- closed `role`, `audience`, `basis`, and `state_class` enums;
-- the projection's own content-free `reason_code`;
-- contract factor keys, never factor descriptions;
-- deterministic `diagnosis`, `action`, and `verification` template identities;
-- the safe opportunity counts and the exact fraction, when one exists.
+Measurement authority and calibration status are separate axes:
 
-`basis` follows the evidence hierarchy: `measured` is reserved for a known value
-resolved by an objective receipt, a known conversational observation is
-`experimental`, every non-value state is `readiness`, and a failed stage is
-`method-only`. No field can carry transcript text, a rendered sentence, a path,
-or a provider identifier, and a digest-shaped value is rejected outright.
+| `value_origin` | `basis` | Meaning |
+|---|---|---|
+| `deterministic_local` | `measured` | measured local observation, conversational authority |
+| `typed_objective` | `measured` | measured objective receipt |
+| `neural_uncalibrated` | `experimental` | uncalibrated neural estimate only |
+| any known value with aggregate-only factor evidence | `method-only` | count measured, factor attribution unproven |
+| non-value state | `readiness` / `method-only` | withheld or failed |
 
-Both surfaces are read-only:
+`focus_factor_keys` is bounded at two and permitted only with
+`per_factor_measured` sufficient statistics. Aggregate V1 compatibility rows have
+no such proof, so they publish none and their guidance is `method-only`. The
+contract's complete factor list stays catalog metadata in
+`contract_factor_keys`, never session advice.
+
+### Read-only routes
 
 - `GET /v1/metric-contracts/v2/guidance-catalog` — static identities for all
-  twenty contracts and all eight state classes;
-- `GET /v1/quality-analysis/runs/{run_id}/metric-publication` — one stored run
-  republished against the V2 registry.
+  twenty contracts and all eight state classes, carrying `registry_version` and
+  `contract_set_fingerprint` so a surface that must keep prose locally binds it to
+  one exact registry version instead of drifting silently;
+- `GET /v1/quality-analysis/runs/{run_id}/metric-v2-compatibility-preview` — one
+  stored run projected onto the V2 registry.
 
-The publication is recomputed on demand rather than persisted, so it has no
-lifetime of its own and the run's existing `ON DELETE CASCADE` remains the only
-privacy-deletion path. The next seam is persisting semantic-unit reconciliation
-beside an analysis run, which is what would let the twelve withheld contracts
-publish a truthful denominator instead of an honest unknown.
+Both require the local token and send `Cache-Control: no-store` with
+`Pragma: no-cache`. Nothing is persisted, so the run's existing
+`ON DELETE CASCADE` remains the only privacy-deletion path.
+
+### Honest remaining limitations
+
+- No live pipeline integration: the canonical head still publishes V1 results.
+- Twelve behavioural contracts cannot yield a number from a V1 receipt at all;
+  closing that needs persisted semantic-unit reconciliation beside a run.
+- No per-factor sufficient statistics exist anywhere yet, so no surface can name a
+  focus factor.
+- Optional neural stages are never consumed here; a Qwen or deep-rubric timeout is
+  a warning elsewhere and cannot alter a published value.

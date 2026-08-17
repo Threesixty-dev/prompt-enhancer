@@ -1,15 +1,18 @@
-"""Read-only V2 publication of one persisted, immutable analysis run.
+"""Read-only V1 compatibility preview of one persisted, immutable analysis run.
 
-The persisted V1 run stays the source record and is never rewritten: this
-service opens a read transaction, republishes the run against the V2 registry,
-and returns a current projection.  Nothing here reads provider content, refreshes
-a provider, retains a transcript, or writes a row, so the publication cannot
-drift away from the receipt it was derived from — it is recomputed on demand and
+This service is **not** the canonical live all-twenty session snapshot and it does
+not participate in the model-ensemble watch, head, or UI pipeline.  It opens a
+read transaction over an already persisted V1 run, projects it onto the V2
+registry, and returns a preview whose limits are stated in the payload itself:
+
+* at most the reviewed compatible rubric rows carry a number;
+* every other behavioural contract is withheld with a fixed reason;
+* every objective contract is unknown unless an authorized typed override is
+  supplied, which this read path never fabricates.
+
+Nothing is written, no provider is read, no transcript is retained, and no
+model-stage output is consumed, so the preview is recomputed on demand and
 disappears with the run when a privacy deletion cascades.
-
-The typed objective-evidence lane is not persisted alongside a V1 run, so the
-five evidence-lane contracts publish fail-closed here.  That is deliberate: a
-stored conversational ratio must never become objective proof of task success.
 """
 
 from __future__ import annotations
@@ -26,19 +29,26 @@ from .coaching_baselines import (
     COACHING_METRIC_PACK_VERSION,
 )
 from .metric_publication_v2 import (
-    MetricPublicationSource,
     MetricPublicationV2,
-    publish_metric_states_v2,
-    rehydrate_metric_states_v2,
+    publish_v1_compatibility_preview,
 )
 
 
-SESSION_METRIC_PUBLICATION_KEY = "metric.contract-v2.publication.current"
-SESSION_METRIC_PUBLICATION_VERSION = 1
+SESSION_METRIC_PUBLICATION_KEY = "metric.contract-v2.v1-compatibility-preview"
+SESSION_METRIC_PUBLICATION_VERSION = 2
+#: Stated in the payload so no client can mistake the preview for the head.
+SESSION_METRIC_PUBLICATION_LIMITS = (
+    "read_only_v1_compatibility_preview",
+    "reviewed_compatible_rubric_rows_only_numeric",
+    "other_behavioral_states_withheld",
+    "objective_values_unknown_without_authorized_override",
+    "not_canonical_live_snapshot",
+    "no_model_stage_output_consumed",
+)
 
 
 class SessionMetricPublication(StrictModel):
-    """Current projection identity plus the complete twenty-metric bundle."""
+    """Current preview identity plus the complete twenty-metric bundle."""
 
     projection_key: str = SESSION_METRIC_PUBLICATION_KEY
     projection_version: int = Field(
@@ -49,6 +59,8 @@ class SessionMetricPublication(StrictModel):
     source_metric_pack_key: str
     source_metric_pack_version: int = Field(ge=1)
     source_result_count: int = Field(ge=0)
+    #: Structural honesty tags; a client must surface these beside any value.
+    preview_limits: tuple[str, ...] = SESSION_METRIC_PUBLICATION_LIMITS
     publication: MetricPublicationV2
 
 
@@ -59,7 +71,7 @@ class SessionMetricPublicationError(RuntimeError):
 
 
 class SessionMetricPublicationService:
-    """Project a completed coaching-pack run onto the V2 publication contract."""
+    """Project a completed coaching-pack run onto the V2 compatibility preview."""
 
     def __init__(self, analyses: SessionAnalysisRunRepository) -> None:
         self._analyses = analyses
@@ -83,15 +95,13 @@ class SessionMetricPublicationService:
             source_metric_pack_key=draft.metric_pack_key,
             source_metric_pack_version=draft.metric_pack_version,
             source_result_count=len(results),
-            publication=publish_metric_states_v2(
-                rehydrate_metric_states_v2(results),
-                source=MetricPublicationSource.PERSISTED_RUN_REHYDRATION,
-            ),
+            publication=publish_v1_compatibility_preview(results),
         )
 
 
 __all__ = [
     "SESSION_METRIC_PUBLICATION_KEY",
+    "SESSION_METRIC_PUBLICATION_LIMITS",
     "SESSION_METRIC_PUBLICATION_VERSION",
     "SessionMetricPublication",
     "SessionMetricPublicationError",

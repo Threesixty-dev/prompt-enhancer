@@ -9,16 +9,20 @@ This module publishes the decision *identity* rather than its wording:
 
 * ``role``, ``audience`` and ``basis`` are closed enums;
 * ``reason_code`` is the projection's own content-free explanation code;
-* ``factor_keys`` are contract factor keys, never factor descriptions;
+* the contract's complete factor list is catalog metadata; session advice may
+  name at most two focus factors, and only when per-factor sufficient statistics
+  were measured;
 * diagnosis, action and verification advice is referenced by deterministic
   template identity, so the rendered sentence stays in the presentation layer
   and no session prose is ever produced, transported, or persisted here.
 
-Two rules are enforced by the contract itself rather than by convention.  A
-conversational observation can never claim the ``measured`` basis reserved for
-objective receipts, and only a ``known`` state may carry a fraction.  Missing
-capability, a right-censored opportunity, and an empty opportunity set all keep
-their own state and are never rendered as a zero.
+Measurement authority and calibration status are separate axes.  A deterministic
+local rule and a typed objective receipt are both *measured* observations and
+differ in ``evidence_authority``; only an uncalibrated neural estimate may claim
+the ``experimental`` basis.  A known value whose factor attribution is unproven is
+``method-only``.  Only a ``known`` state carries a fraction, and missing
+capability, a right-censored opportunity, and an empty opportunity set each keep
+their own state rather than being rendered as a zero.
 """
 
 from __future__ import annotations
@@ -55,6 +59,10 @@ METRIC_GUIDANCE_TEMPLATE_VERSION = 1
 #: observed practice rather than to change it.  Deliberately equal to the
 #: reviewed coaching strength floor so the two surfaces cannot drift apart.
 METRIC_GUIDANCE_RETAIN_FLOOR = 0.75
+#: A contract's complete factor list is catalog metadata.  Session advice may
+#: name at most two focus factors, and only when per-factor sufficient
+#: statistics were actually measured for that opportunity.
+MAX_GUIDANCE_FOCUS_FACTOR_KEYS = 2
 MAX_GUIDANCE_FACTOR_KEYS = 8
 
 _SAFE_CODE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,95}$")
@@ -93,12 +101,41 @@ class GuidanceAudience(StrEnum):
     TOOLING = "tooling"
 
 
-class GuidanceBasis(StrEnum):
-    """Authority of the guidance, mirroring the evidence hierarchy.
+class ValueOrigin(StrEnum):
+    """What produced a value, kept separate from its calibration status.
 
-    ``MEASURED`` is reserved for a known value resolved by an objective receipt.
-    A known conversational observation is ``EXPERIMENTAL``: the reviewed rule
-    packs are uncalibrated candidates, not validated measures.
+    A deterministic local rule and a typed objective receipt are both *measured*
+    observations; they differ in authority, not in whether they were measured.
+    Only a neural estimate is uncalibrated, and it is the sole origin allowed to
+    claim the experimental basis.
+    """
+
+    NONE = "none"
+    DETERMINISTIC_LOCAL = "deterministic_local"
+    TYPED_OBJECTIVE = "typed_objective"
+    NEURAL_UNCALIBRATED = "neural_uncalibrated"
+
+
+class GuidanceFactorEvidence(StrEnum):
+    """Whether per-factor sufficient statistics exist for this opportunity.
+
+    ``AGGREGATE_ONLY`` means a fraction is known but which factors were met is
+    not: a rubric numerator proves a count, never an identity.  Advice must then
+    stay method-level rather than naming a factor the evidence cannot support.
+    """
+
+    NOT_OBSERVED = "not_observed"
+    AGGREGATE_ONLY = "aggregate_only"
+    PER_FACTOR_MEASURED = "per_factor_measured"
+
+
+class GuidanceBasis(StrEnum):
+    """How far the guidance may go, given origin and factor evidence.
+
+    ``MEASURED`` is a measured local observation, deterministic or objective.
+    ``EXPERIMENTAL`` is reserved for an uncalibrated neural estimate.
+    ``METHOD_ONLY`` covers a known value whose factor attribution is unproven
+    and any failed stage.  ``READINESS`` covers every non-value state.
     """
 
     MEASURED = "measured"
@@ -234,7 +271,7 @@ class MetricGuidanceCatalogEntry(StrictModel):
     direction: MetricDirection
     role: GuidanceRole
     audience: GuidanceAudience
-    factor_keys: tuple[str, ...] = Field(
+    contract_factor_keys: tuple[str, ...] = Field(
         min_length=1, max_length=MAX_GUIDANCE_FACTOR_KEYS
     )
     templates: tuple[MetricGuidanceTemplateSet, ...] = Field(
@@ -255,7 +292,7 @@ class MetricGuidanceCatalogEntry(StrictModel):
             raise ValueError("contract fingerprint must be lowercase SHA-256")
         return value
 
-    @field_validator("factor_keys")
+    @field_validator("contract_factor_keys")
     @classmethod
     def validate_factor_keys(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if len(set(values)) != len(values):
@@ -303,10 +340,13 @@ class MetricGuidanceReceipt(StrictModel):
     role: GuidanceRole
     audience: GuidanceAudience
     basis: GuidanceBasis
+    value_origin: ValueOrigin
+    factor_evidence: GuidanceFactorEvidence
     state_class: GuidanceStateClass
     reason_code: str
-    factor_keys: tuple[str, ...] = Field(
-        default=(), max_length=MAX_GUIDANCE_FACTOR_KEYS
+    contract_factor_count: int = Field(ge=1, le=MAX_GUIDANCE_FACTOR_KEYS)
+    focus_factor_keys: tuple[str, ...] = Field(
+        default=(), max_length=MAX_GUIDANCE_FOCUS_FACTOR_KEYS
     )
     diagnosis_template_id: str
     action_template_id: str
@@ -338,11 +378,11 @@ class MetricGuidanceReceipt(StrictModel):
             raise ValueError("contract fingerprint must be lowercase SHA-256")
         return value
 
-    @field_validator("factor_keys")
+    @field_validator("focus_factor_keys")
     @classmethod
-    def validate_factor_keys(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+    def validate_focus_factor_keys(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if len(set(values)) != len(values):
-            raise ValueError("guidance factor keys cannot repeat")
+            raise ValueError("guidance focus factor keys cannot repeat")
         return tuple(_safe_code(value) for value in values)
 
     @model_validator(mode="after")
@@ -367,22 +407,41 @@ class MetricGuidanceReceipt(StrictModel):
                 GuidanceStateClass.KNOWN_IMPROVE,
             }:
                 raise ValueError("a known state requires a known state class")
-            expected_basis = (
-                GuidanceBasis.MEASURED
-                if self.evidence_authority is EvidenceAuthority.OBJECTIVE_RECEIPT
-                else GuidanceBasis.EXPERIMENTAL
-            )
-            if self.basis is not expected_basis:
-                raise ValueError("known guidance basis must match evidence authority")
-        elif self.basis in {GuidanceBasis.MEASURED, GuidanceBasis.EXPERIMENTAL}:
-            raise ValueError("only a known state may claim a value-bearing basis")
+            if self.value_origin is ValueOrigin.NONE:
+                raise ValueError("a known state requires a value origin")
+            if (
+                self.value_origin is ValueOrigin.TYPED_OBJECTIVE
+            ) != (
+                self.evidence_authority is EvidenceAuthority.OBJECTIVE_RECEIPT
+            ):
+                raise ValueError("value origin must match the evidence authority")
+        else:
+            if self.basis in {GuidanceBasis.MEASURED, GuidanceBasis.EXPERIMENTAL}:
+                raise ValueError("only a known state may claim a value-bearing basis")
+            if self.value_origin is not ValueOrigin.NONE:
+                raise ValueError("a non-known state cannot claim a value origin")
+            if self.factor_evidence is not GuidanceFactorEvidence.NOT_OBSERVED:
+                raise ValueError("factor evidence requires a known metric state")
+        if self.basis is GuidanceBasis.EXPERIMENTAL and (
+            self.value_origin is not ValueOrigin.NEURAL_UNCALIBRATED
+        ):
+            raise ValueError("only an uncalibrated neural estimate is experimental")
+        if self.basis is GuidanceBasis.MEASURED and self.value_origin not in {
+            ValueOrigin.DETERMINISTIC_LOCAL,
+            ValueOrigin.TYPED_OBJECTIVE,
+        }:
+            raise ValueError("measured guidance requires a measured value origin")
         if (
             self.basis is GuidanceBasis.MEASURED
-            and self.denominator_basis is not DenominatorBasis.OBJECTIVE_OPPORTUNITIES
+            and self.factor_evidence is GuidanceFactorEvidence.AGGREGATE_ONLY
         ):
-            raise ValueError(
-                "measured guidance requires an objective opportunity denominator"
-            )
+            raise ValueError("aggregate-only factor evidence is method-level guidance")
+        if self.focus_factor_keys and (
+            self.factor_evidence is not GuidanceFactorEvidence.PER_FACTOR_MEASURED
+        ):
+            raise ValueError("focus factors require measured per-factor statistics")
+        if len(self.focus_factor_keys) > self.contract_factor_count:
+            raise ValueError("focus factors must belong to the contract factor list")
         if (
             self.value_state is MetricValueStateV2.NOT_APPLICABLE
             and self.eligible_count != 0
@@ -472,22 +531,50 @@ def _state_class(
     )
 
 
-def _basis(state: MetricStateV2, contract: MetricContractV2) -> GuidanceBasis:
+def default_value_origin(
+    contract: MetricContractV2,
+    state: MetricStateV2,
+) -> ValueOrigin:
+    """A projected value is deterministic or objective, never neural."""
+
+    if state.value_state is not MetricValueStateV2.KNOWN:
+        return ValueOrigin.NONE
+    if contract.evidence_authority is EvidenceAuthority.OBJECTIVE_RECEIPT:
+        return ValueOrigin.TYPED_OBJECTIVE
+    return ValueOrigin.DETERMINISTIC_LOCAL
+
+
+def _basis(
+    state: MetricStateV2,
+    origin: ValueOrigin,
+    factor_evidence: GuidanceFactorEvidence,
+) -> GuidanceBasis:
     if state.value_state is MetricValueStateV2.EXECUTION_ERROR:
         return GuidanceBasis.METHOD_ONLY
     if state.value_state is not MetricValueStateV2.KNOWN:
         return GuidanceBasis.READINESS
-    if contract.evidence_authority is EvidenceAuthority.OBJECTIVE_RECEIPT:
-        return GuidanceBasis.MEASURED
-    return GuidanceBasis.EXPERIMENTAL
+    if factor_evidence is GuidanceFactorEvidence.AGGREGATE_ONLY:
+        # The fraction is measured; which factors were met is not.
+        return GuidanceBasis.METHOD_ONLY
+    if origin is ValueOrigin.NEURAL_UNCALIBRATED:
+        return GuidanceBasis.EXPERIMENTAL
+    return GuidanceBasis.MEASURED
 
 
-def build_metric_guidance(state: MetricStateV2) -> MetricGuidanceReceipt:
+def build_metric_guidance(
+    state: MetricStateV2,
+    *,
+    factor_evidence: GuidanceFactorEvidence = GuidanceFactorEvidence.NOT_OBSERVED,
+    focus_factor_keys: tuple[str, ...] = (),
+    value_origin: ValueOrigin | None = None,
+) -> MetricGuidanceReceipt:
     """Derive one guidance receipt from one projected V2 metric state.
 
     The function is total over the twenty V2 contracts and pure: the same state
     always yields the same identities, in any language, on any surface.  It
-    reads no session text and produces no sentence.
+    reads no session text and produces no sentence.  ``factor_evidence`` and
+    ``focus_factor_keys`` must come from the producer that actually held the
+    per-factor statistics; the default publishes none.
     """
 
     contract = metric_contract_v2(state.metric_key)
@@ -496,6 +583,18 @@ def build_metric_guidance(state: MetricStateV2) -> MetricGuidanceReceipt:
     definition = _DEFINITION_BY_KEY.get(state.metric_key)
     if definition is None:
         raise ValueError("metric is outside the guidance catalog")
+    origin = (
+        default_value_origin(contract, state)
+        if value_origin is None
+        else value_origin
+    )
+    if state.value_state is not MetricValueStateV2.KNOWN:
+        origin = ValueOrigin.NONE
+        factor_evidence = GuidanceFactorEvidence.NOT_OBSERVED
+        focus_factor_keys = ()
+    contract_factor_keys = tuple(item.factor_key for item in contract.factors)
+    if any(item not in contract_factor_keys for item in focus_factor_keys):
+        raise ValueError("focus factors must belong to the contract factor list")
     state_class = _state_class(state, contract, definition.direction)
     diagnosis, action, verification = _templates_for(state.metric_key, state_class)
     audience = (
@@ -514,10 +613,13 @@ def build_metric_guidance(state: MetricStateV2) -> MetricGuidanceReceipt:
         evidence_authority=contract.evidence_authority,
         role=metric_guidance_role(state.metric_key),
         audience=audience,
-        basis=_basis(state, contract),
+        basis=_basis(state, origin, factor_evidence),
+        value_origin=origin,
+        factor_evidence=factor_evidence,
         state_class=state_class,
         reason_code=state.explanation_code,
-        factor_keys=tuple(item.factor_key for item in contract.factors),
+        contract_factor_count=len(contract_factor_keys),
+        focus_factor_keys=focus_factor_keys[:MAX_GUIDANCE_FOCUS_FACTOR_KEYS],
         diagnosis_template_id=diagnosis,
         action_template_id=action,
         verification_template_id=verification,
@@ -554,7 +656,7 @@ def metric_guidance_catalog() -> tuple[MetricGuidanceCatalogEntry, ...]:
                 direction=definition.direction,
                 role=metric_guidance_role(contract.metric_key),
                 audience=metric_guidance_audience(contract),
-                factor_keys=tuple(
+                contract_factor_keys=tuple(
                     item.factor_key for item in contract.factors
                 ),
                 templates=tuple(
@@ -572,6 +674,7 @@ if set(_DEFINITION_BY_KEY) != {item.metric_key for item in METRIC_CONTRACTS_V2}:
 
 __all__ = [
     "MAX_GUIDANCE_FACTOR_KEYS",
+    "MAX_GUIDANCE_FOCUS_FACTOR_KEYS",
     "METRIC_GUIDANCE_CONTRACT_VERSION",
     "METRIC_GUIDANCE_RETAIN_FLOOR",
     "METRIC_GUIDANCE_SCHEMA_VERSION",
@@ -579,12 +682,15 @@ __all__ = [
     "METRIC_GUIDANCE_TEMPLATE_VERSION",
     "GuidanceAudience",
     "GuidanceBasis",
+    "GuidanceFactorEvidence",
     "GuidanceRole",
     "GuidanceStateClass",
     "MetricGuidanceCatalogEntry",
     "MetricGuidanceReceipt",
     "MetricGuidanceTemplateSet",
+    "ValueOrigin",
     "build_metric_guidance",
+    "default_value_origin",
     "metric_guidance_audience",
     "metric_guidance_catalog",
     "metric_guidance_role",
