@@ -93,6 +93,14 @@ class AppSettings(BaseModel):
             "synthetic tenants only, and is not a team deployment."
         ),
     )
+    paid_product_development_api: bool = Field(
+        default=False,
+        description=(
+            "Permit an explicitly composed paid-product readiness receipt on "
+            "the loopback API. Off by default; the flag alone mounts nothing "
+            "and activates no identity, billing, or hosted-model provider."
+        ),
+    )
 
     @field_validator("home")
     @classmethod
@@ -109,6 +117,8 @@ class AppSettings(BaseModel):
             raise ValueError("Phase 1 permits only metadata storage")
         if self.control_plane_development_api and not is_loopback_host(self.host):
             raise ValueError("the control-plane development API stays on loopback")
+        if self.paid_product_development_api and not is_loopback_host(self.host):
+            raise ValueError("the paid-product development API stays on loopback")
         return self
 
     @property
@@ -137,11 +147,15 @@ class AppSettings(BaseModel):
         control_plane = (
             env.get("PROMPT_ENHANCER_CONTROL_PLANE_DEV_API", "") == "enabled"
         )
+        paid_product = (
+            env.get("PROMPT_ENHANCER_PAID_PRODUCT_DEV_API", "") == "enabled"
+        )
         return cls(
             home=default_app_home(env),
             host=host,
             port=port,
             control_plane_development_api=control_plane,
+            paid_product_development_api=paid_product,
         )
 
 

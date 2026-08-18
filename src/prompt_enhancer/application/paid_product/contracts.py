@@ -589,7 +589,10 @@ DEVELOPMENT_PRODUCT_READINESS = ProductReadiness(
         sorted(
             {
                 "backup_unverified",
+                "crash_reconciler_unmounted",
                 "durable_store_missing",
+                "erasure_policy_missing",
+                "local_receipt_tamper_seal_missing",
                 "monitoring_missing",
                 "production_billing_missing",
                 "production_identity_missing",

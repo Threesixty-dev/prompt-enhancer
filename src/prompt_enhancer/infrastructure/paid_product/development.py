@@ -16,6 +16,7 @@ from ...application.paid_product.contracts import (
     AccountIdentityBinding,
     DeepAnalysisJob,
     DeepAnalysisRequest,
+    DeepJobState,
     EntitlementFeature,
     EntitlementLedgerEntry,
     MetricJudgment,
@@ -355,6 +356,19 @@ class DevelopmentPaidProductStore:
     def save_job(self, job: DeepAnalysisJob) -> None:
         with self._lock:
             self._jobs[(job.organization_id, job.job_id)] = job
+
+    def queued_jobs(self) -> tuple[DeepAnalysisJob, ...]:
+        with self._lock:
+            return tuple(
+                sorted(
+                    (
+                        job
+                        for job in self._jobs.values()
+                        if job.state is DeepJobState.QUEUED
+                    ),
+                    key=lambda job: (job.organization_id, job.job_id),
+                )
+            )
 
     def append_audit(self, event: PaidAuditEvent) -> None:
         with self._lock:

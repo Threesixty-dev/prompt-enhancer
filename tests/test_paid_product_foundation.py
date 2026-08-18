@@ -658,6 +658,65 @@ def test_deep_analysis_consumes_exact_approval_and_settles() -> None:
     assert replay.value.reason is PaidReasonCode.APPROVAL_REPLAYED
 
 
+def test_entitlement_is_rechecked_inside_job_transaction() -> None:
+    store = DevelopmentPaidProductStore()
+    bill = enable_and_budget(store)
+    approvals = ApprovalService(store=store, transaction=store)
+    approvals.register(approval())
+    ids = DevelopmentPseudonymFactory(KEY)
+    provider = SyntheticHostedAnalysisProvider(
+        completed_at=NOW + timedelta(seconds=1),
+        identifiers=ids,
+        actual_cost_micro=40,
+    )
+    service = DeepAnalysisService(
+        profile=ProductDeploymentProfile.DEVELOPMENT,
+        authorizer=registered_authorizer(),
+        billing=bill,
+        approvals=approvals,
+        jobs=store,
+        audit=store,
+        identifiers=ids,
+        provider=provider,
+        transaction=store,
+        payload_pseudonymizer=DevelopmentPayloadPseudonymizer(KEY),
+    )
+    original_entitlement = bill.entitlement
+    calls = 0
+
+    def revoke_after_first_projection(
+        organization_id: str,
+        feature: EntitlementFeature,
+        *,
+        now: datetime,
+    ):
+        nonlocal calls
+        projection = original_entitlement(
+            organization_id,
+            feature,
+            now=now,
+        )
+        calls += 1
+        if calls == 1:
+            revoke = signed_webhook(
+                kind=EntitlementDeltaKind.REVOKE,
+                event_id=pid("revocation-race-event"),
+            ).model_copy(update={"entry_id": pid("revocation-race-entry")})
+            bill.process_webhook(resign(revoke), now=now)
+        return projection
+
+    bill.entitlement = revoke_after_first_projection  # type: ignore[method-assign]
+    with pytest.raises(PaidAuthorizationError) as caught:
+        service.submit(
+            principal(), request(), SecretStr("synthetic-input"), now=NOW
+        )
+    assert caught.value.reason is PaidReasonCode.ENTITLEMENT_MISSING
+    assert calls == 2
+    assert provider.call_count == 0
+    assert store.spend_holds(ORG) == ()
+    assert store.approval(ORG, APPROVAL).state is ApprovalState.AVAILABLE
+
+
 def test_approval_mismatch_rolls_back_hold_and_never_calls_provider() -> None:
     store = DevelopmentPaidProductStore()
     bill = enable_and_budget(store)

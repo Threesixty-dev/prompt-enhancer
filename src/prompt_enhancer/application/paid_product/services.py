@@ -532,13 +532,14 @@ class DeepAnalysisService:
             principal.organization_id != request.organization_id
             or principal.user_id != request.user_id
         ):
-            self._audit_event(
-                principal,
-                PaidAuditAction.ACCESS_DENIED,
-                allowed=False,
-                now=now,
-                reason=PaidReasonCode.CROSS_TENANT,
-            )
+            with self._transaction:
+                self._audit_event(
+                    principal,
+                    PaidAuditAction.ACCESS_DENIED,
+                    allowed=False,
+                    now=now,
+                    reason=PaidReasonCode.CROSS_TENANT,
+                )
             raise PaidAuthorizationError(PaidReasonCode.DEFAULT_DENY)
         if not self._authorizer.allows(
             principal, PaidScope.JOBS_SUBMIT, now=now
@@ -577,6 +578,17 @@ class DeepAnalysisService:
                 ):
                     return existing
                 raise PaidAuthorizationError(PaidReasonCode.DEFAULT_DENY)
+            # Entitlement may be revoked after the early, inexpensive reject
+            # check.  Re-project it while holding the same write transaction
+            # that creates the spend hold and queued job so a revocation that
+            # won the ledger race cannot authorize new work.
+            current_entitlement = self._billing.entitlement(
+                request.organization_id,
+                EntitlementFeature.HOSTED_DEEP_ANALYSIS,
+                now=now,
+            )
+            if not current_entitlement.enabled:
+                raise PaidAuthorizationError(PaidReasonCode.ENTITLEMENT_MISSING)
             hold = self._billing._reserve_spend_locked(
                 hold_id=request.hold_id,
                 organization_id=request.organization_id,
@@ -686,6 +698,62 @@ class DeepAnalysisService:
                 reason=completed.reason,
             )
             return completed
+
+    def reconcile_after_restart(self, *, now: datetime) -> tuple[DeepAnalysisJob, ...]:
+        """Fail closed any durable job stranded before a provider receipt.
+
+        Provider calls are never replayed automatically: the original one-shot
+        approval was consumed before the call.  A queued receipt discovered at
+        startup therefore becomes ``cost_unknown`` and keeps the full hold
+        counted until an audited operator reconciliation supplies real usage.
+        """
+
+        recovered: list[DeepAnalysisJob] = []
+        for queued in self._jobs.queued_jobs():
+            with self._transaction:
+                current = self._jobs.job(queued.organization_id, queued.job_id)
+                if current is None or current.state is not DeepJobState.QUEUED:
+                    continue
+                matching_holds = tuple(
+                    hold
+                    for hold in self._billing._store.spend_holds(
+                        queued.organization_id
+                    )
+                    if hold.job_id == queued.job_id
+                )
+                if len(matching_holds) != 1 or matching_holds[0].state not in {
+                    SpendHoldState.HELD,
+                    SpendHoldState.COST_UNKNOWN,
+                }:
+                    raise RuntimeError("paid_product_queued_job_graph_invalid")
+                self._billing._settle_spend_locked(
+                    queued.organization_id,
+                    matching_holds[0].hold_id,
+                    actual_cost_micro=None,
+                    now=now,
+                )
+                failed = DeepAnalysisJob.model_validate(
+                    {
+                        **queued.model_dump(),
+                        "state": DeepJobState.COST_UNKNOWN,
+                        "completed_at": now,
+                        "reason": PaidReasonCode.PROVIDER_FAILED,
+                    }
+                )
+                self._jobs.save_job(failed)
+                self._audit.append_audit(
+                    PaidAuditEvent(
+                        event_id=self._identifiers.new("paid-audit"),
+                        organization_id=queued.organization_id,
+                        actor_user_id=queued.user_id,
+                        action=PaidAuditAction.JOB_FAILED,
+                        allowed=False,
+                        reason=PaidReasonCode.PROVIDER_FAILED,
+                        occurred_at=now,
+                    )
+                )
+                recovered.append(failed)
+        return tuple(recovered)
 
     @staticmethod
     def _validate_result(

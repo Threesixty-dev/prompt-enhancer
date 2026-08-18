@@ -12,6 +12,11 @@ from .development import (
     canonical_webhook_digest,
     canonical_webhook_signature,
 )
+from .sqlite import (
+    PAID_PRODUCT_DATABASE_FILENAME,
+    PAID_PRODUCT_SCHEMA_VERSION,
+    PaidProductSqliteStore,
+)
 
 __all__ = [
     "DevelopmentPaidProductStore",
@@ -21,6 +26,9 @@ __all__ = [
     "DevelopmentSubjectPseudonymizer",
     "DevelopmentTenantBindingResolver",
     "DevelopmentWebhookVerifier",
+    "PAID_PRODUCT_DATABASE_FILENAME",
+    "PAID_PRODUCT_SCHEMA_VERSION",
+    "PaidProductSqliteStore",
     "SyntheticHostedAnalysisProvider",
     "canonical_webhook_digest",
     "canonical_webhook_signature",

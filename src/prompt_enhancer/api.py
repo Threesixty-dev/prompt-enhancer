@@ -58,6 +58,7 @@ from .config import (
 )
 from .domain import PSEUDONYM_PATTERN, Provider
 from .application.control_plane import ControlPlaneService, PrincipalResolver
+from .application.paid_product.contracts import ProductReadiness
 from .interfaces.http import (
     create_control_plane_router,
     create_session_analysis_command_router,
@@ -75,6 +76,7 @@ from .interfaces.http import (
     create_automation_grant_router,
     create_estimator_router,
     create_task_query_router,
+    create_paid_product_readiness_router,
 )
 from .interfaces.http.browser_session import (
     BROWSER_SESSION_COOKIE,
@@ -314,6 +316,7 @@ def create_app(
     automation_grant_worker: AutomationGrantWorker | None = None,
     control_plane_service: ControlPlaneService | None = None,
     control_plane_principal_resolver: PrincipalResolver | None = None,
+    paid_product_readiness: ProductReadiness | None = None,
     estimator_repository: EstimatorRepository | None = None,
     static_directory: Path | None = None,
     browser_session_manager: BrowserSessionManager | None = None,
@@ -404,6 +407,7 @@ def create_app(
                 "/analysis-jobs",
                 "/automation-grants",
                 "/control-plane",
+                "/paid-product",
                 "/estimators",
                 "/text-model-compatibility",
                 "/text-model-runtime",
@@ -709,6 +713,19 @@ def create_app(
                 require_local_token,
                 control_plane_service,
                 control_plane_principal_resolver,
+            )
+        )
+    # Readiness is intentionally the only paid-product browser surface. Both
+    # an exact operator opt-in and an explicitly composed receipt are required;
+    # identity, billing, approval, and hosted-analysis commands stay unmounted.
+    if (
+        paid_product_readiness is not None
+        and resolved_settings.paid_product_development_api
+    ):
+        app.include_router(
+            create_paid_product_readiness_router(
+                require_local_token,
+                paid_product_readiness,
             )
         )
     if session_model_link_experiment_service is not None:
