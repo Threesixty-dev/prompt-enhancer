@@ -140,6 +140,17 @@ button.social-list__row[aria-current="true"] { border-color: #bfdfd8; background
 .social-offer-form__recipients input { width: 16px; height: 16px; accent-color: var(--teal-700); }
 .social-offer-form__submit { display: grid; gap: 6px; }
 .social-offer-form__submit span { color: var(--ink-500); font-size: 0.7rem; }
+.social-direct-prototype { display: grid; gap: 10px; padding: 12px; border: 2px dashed var(--blue-300, #8db7d8); border-radius: 12px; background: var(--blue-50); }
+.social-direct-prototype__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.social-direct-prototype__heading h4 { margin: 2px 0 0; font-size: 0.9rem; }
+.social-direct-prototype__heading > strong { padding: 4px 8px; border-radius: 999px; color: var(--blue-700); background: var(--surface); }
+.social-direct-prototype > p { margin: 0; color: var(--ink-650); line-height: 1.5; }
+.social-direct-prototype__acknowledgement { display: flex; align-items: flex-start; gap: 8px; }
+.social-direct-prototype__acknowledgement input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--teal-700); }
+.social-direct-prototype__status { display: grid; gap: 8px; }
+.social-direct-prototype__status progress { width: 100%; height: 12px; accent-color: var(--teal-700); }
+.social-direct-prototype__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.social-direct-prototype__facts { display: grid; gap: 4px; margin: 0; padding-left: 20px; color: var(--ink-650); }
 
 /* Responsive ----------------------------------------------------------- */
 @media (max-width: 1240px) {
@@ -159,7 +170,7 @@ button.social-list__row[aria-current="true"] { border-color: #bfdfd8; background
   .social-hub .button, .social-list__row, .social-reaction { transition: none !important; transform: none !important; }
 }
 @media (forced-colors: active) {
-  .social-rail, .social-conversation, .social-thread, .social-files, .social-message, .social-offer, .social-reaction, .social-list__glyph, .social-offer__glyph { color: CanvasText; background: Canvas; border: 1px solid CanvasText; box-shadow: none; }
+  .social-rail, .social-conversation, .social-thread, .social-files, .social-message, .social-offer, .social-reaction, .social-list__glyph, .social-offer__glyph, .social-direct-prototype { color: CanvasText; background: Canvas; border: 1px solid CanvasText; box-shadow: none; }
   .social-message[data-mine="true"], .social-reaction[aria-pressed="true"], button.social-list__row[aria-current="true"] { border: 2px solid Highlight; }
   .social-unread { color: HighlightText; background: Highlight; }
   .social-message[data-kind="system"], .social-offer[data-state="expired"] { border-style: dashed; }

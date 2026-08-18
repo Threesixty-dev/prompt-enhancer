@@ -31,6 +31,10 @@ import {
   formatBytes,
   shortUtcTime,
 } from "./socialHubCopy";
+import {
+  DirectTransferPrototypePanel,
+  syntheticDirectTransferPrototypeIsAvailable,
+} from "./directTransfer/DirectTransferPrototypePanel";
 
 const OFFER_TONES: Readonly<Record<FileShareOffer["state"], PillTone>> = {
   awaiting_consent: "info",
@@ -358,12 +362,18 @@ export function FileSharePanel({
     .sort((left, right) => right.created_at.localeCompare(left.created_at));
   const canShare = canPerform(snapshot, conversation, "share_files");
   const friendshipActive = directConversationHasLiveFriendship(snapshot, conversation);
+  const prototypeAvailable = syntheticDirectTransferPrototypeIsAvailable({ snapshot });
   return (
     <section aria-label="Direct file sharing" className="social-files">
       <header className="social-files__header">
         <h3>Direct file sharing</h3>
-        <p role="note">{FILE_SHARING_BOUNDARY_COPY}</p>
+        <p role="note">
+          {prototypeAvailable
+            ? "The offer cards remain a metadata-only UI simulation. The separately labelled opt-in lab below can move generated fixture bytes between two in-page peers; it never reads a real file and is unavailable in local-real mode."
+            : FILE_SHARING_BOUNDARY_COPY}
+        </p>
       </header>
+      {prototypeAvailable ? <DirectTransferPrototypePanel snapshot={snapshot} /> : null}
       {offers.length === 0 ? (
         <EmptyState compact icon="file" title="No file offers" description="Zero offers exist in this conversation's local state." />
       ) : (

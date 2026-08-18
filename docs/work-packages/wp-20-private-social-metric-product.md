@@ -1,8 +1,9 @@
 # WP-20: evidence-complete metrics and private social collaboration
 
-Status: **S0 delivered; a bounded S1 local-metadata runtime is implemented.
-Device pairing, encrypted payload delivery, direct file bytes, and S2-S4 remain
-blocked until their preceding security and infrastructure gates pass.**
+Status: **S0 delivered; a bounded S1 local-metadata runtime and an isolated
+synthetic browser data-channel prototype are implemented. Real device pairing,
+authenticated encrypted payload delivery, direct user-file bytes, and S2-S4
+remain blocked until their preceding security and infrastructure gates pass.**
 
 ## Outcome
 
@@ -231,10 +232,12 @@ S0 acceptance requires:
   and exposes mutations only when an application injects both the social
   service and a verified-principal resolver. The analyzer browser session and
   local API token do not establish a social identity.
-- Not implemented: out-of-band device pairing, a real identity provider,
-  reviewed E2EE, plaintext/ciphertext-byte history, same-LAN/direct-address
-  delivery, signaling, STUN, direct file-byte transport, or a usable export
-  workflow.
+- Not implemented for real users: out-of-band device pairing, a real identity
+  provider, reviewed E2EE, plaintext/ciphertext-byte history,
+  same-LAN/direct-address signaling, STUN, direct user-file transport, or a
+  usable export workflow. An exact-opt-in development lab may exercise two
+  in-page browser peers using generated fixture bytes only; it does not close
+  any of these readiness gaps.
 - No public discovery, relay, cloud file bytes, or presence inference.
 
 ### S2 — production control-plane prerequisites
@@ -249,6 +252,15 @@ S0 acceptance requires:
 - Authenticated negotiation, direct reachability check, encrypted chunk stream,
   resumability, integrity, quarantine, revocation race handling, and no-orphan
   process/network tests.
+- Implemented only as a synthetic precursor: browser-standard WebRTC data
+  channels, generated in-memory bytes, ephemeral same-realm signaling,
+  SHA-256/Merkle integrity, bounded frames/ranges, consent, approval,
+  pause/resume, expiry, and revocation fences. The lab is development-only,
+  requires an exact build and user opt-in, and is unavailable to `local_real`.
+- Still required for S3: real identity and device proof, authenticated
+  cross-device signaling, direct-path policy including reviewed STUN use, real
+  file selection/reading, receiver quarantine and storage, and independent
+  network/cryptographic review. No TURN, relay, or cloud-byte fallback is added.
 
 ### S4 — higher-metadata collaboration
 

@@ -15,6 +15,7 @@ weaken the repository's privacy or safety rules.
 | [0006](0006-private-social-and-direct-file-foundation.md) | Accepted S0 foundation; partly superseded by 0008 | Invite-only social metadata and direct-only owner-hosted files; no production identity, cryptography, signaling, relay or payload routes are accepted |
 | [0007](0007-windows-distribution-and-local-data-foundation.md) | Accepted offline foundation | Packaged resource, private-path, inventory, deterministic artifact, backup, diagnostic, update-verification, and egress contracts without a supported installer or release path |
 | [0008](0008-durable-local-social-metadata-runtime.md) | Accepted local development runtime | Separate transactional social metadata persistence and a principal-gated, default-off loopback composition; no production identity, E2EE, signaling, or byte transport |
+| [0009](0009-synthetic-browser-direct-transfer-prototype.md) | Accepted synthetic development prototype | Exact-opt-in, generated-byte WebRTC data-channel exercise with ephemeral in-process signaling; no real file, identity, cross-device signaling, STUN/TURN, relay, or production claim |
 
 Changes that reverse an accepted decision should add a superseding ADR rather
 than silently rewriting the original rationale.
