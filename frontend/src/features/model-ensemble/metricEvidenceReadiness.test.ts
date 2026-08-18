@@ -60,6 +60,36 @@ describe("metric evidence readiness presentation binding", () => {
     expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
   });
 
+  it("binds the r3 open-loop row to explicit plan and supersession evidence", () => {
+    const publication = structuredClone(syntheticMetricPublicationV2({
+      "logic.open_loop_closure": {
+        value_state: "pending",
+        eligible: 2,
+        pending: 1,
+        numerator: 1,
+      },
+    }));
+    publication.projection_version = "metric-contract-v2-projection-3";
+    for (const metric of publication.metrics) {
+      metric.state.projection_version = "metric-contract-v2-projection-3";
+    }
+    const readiness = syntheticMetricEvidenceReadinessV2(publication);
+    const openLoop = readiness.metrics.find((row) => row.metric_key === "logic.open_loop_closure");
+
+    expect(openLoop?.required_contributors).toEqual([
+      "documented_plan_message",
+      "explicit_plan_supersession_link",
+    ]);
+    expect(openLoop?.availability_state).toBe("pending_right_censored");
+    expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
+
+    const stale = structuredClone(readiness);
+    const staleOpenLoop = stale.metrics.find((row) => row.metric_key === "logic.open_loop_closure");
+    if (staleOpenLoop === undefined) throw new Error("synthetic open-loop row missing");
+    staleOpenLoop.required_contributors = ["semantic_unit_heads", "agent_response_text"];
+    expect(metricEvidenceReadinessForPublication(stale, publication)).toBeNull();
+  });
+
   it("treats absence as no additive detail, never as an empty measured projection", () => {
     const publication = syntheticMetricPublicationV2();
     expect(metricEvidenceReadinessForPublication(null, publication)).toBeNull();

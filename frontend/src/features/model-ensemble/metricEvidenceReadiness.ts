@@ -74,6 +74,10 @@ const METRIC_EVIDENCE_CONTRIBUTORS: Readonly<Record<string, readonly MetricEvide
   "outcome.verified_requirement_coverage": ["declared_objective_opportunity_set", "typed_verification_receipt"],
 };
 
+const METRIC_EVIDENCE_CONTRIBUTORS_R3: Readonly<Record<string, readonly MetricEvidenceContributor[]>> = {
+  "logic.open_loop_closure": ["documented_plan_message", "explicit_plan_supersession_link"],
+};
+
 const OBJECTIVE_CAPABILITY_MISSING_REASONS: Readonly<Record<string, MetricEvidenceReadinessV2["reason_code"]>> = {
   "logic.hypothesis_test_linkage": "hypothesis_chain_adapter_capabilities_required",
   "logic.requirement_action_traceability": "requirement_action_adapter_capabilities_required",
@@ -82,13 +86,19 @@ const OBJECTIVE_CAPABILITY_MISSING_REASONS: Readonly<Record<string, MetricEviden
   "outcome.verified_requirement_coverage": "requirement_verification_adapter_capabilities_required",
 };
 
-export function metricEvidenceRequirementFor(metricKey: string): {
+export function metricEvidenceRequirementFor(
+  metricKey: string,
+  projectionVersion: MetricPublicationV2["projection_version"],
+): {
   requiredContributors: readonly MetricEvidenceContributor[];
   requiredAdapterCapabilities: readonly MetricEvidenceAdapterCapability[];
   capabilityMissingReason: MetricEvidenceReadinessV2["reason_code"] | null;
 } {
+  const projectionContributors = projectionVersion === "metric-contract-v2-projection-3"
+    ? METRIC_EVIDENCE_CONTRIBUTORS_R3[metricKey]
+    : undefined;
   return {
-    requiredContributors: METRIC_EVIDENCE_CONTRIBUTORS[metricKey] ?? [],
+    requiredContributors: projectionContributors ?? METRIC_EVIDENCE_CONTRIBUTORS[metricKey] ?? [],
     requiredAdapterCapabilities: OBJECTIVE_ADAPTER_CAPABILITIES[metricKey] ?? [],
     capabilityMissingReason: OBJECTIVE_CAPABILITY_MISSING_REASONS[metricKey] ?? null,
   };
@@ -102,7 +112,8 @@ const SAFE_CODE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const CONTRIBUTORS: readonly MetricEvidenceContributor[] = [
   "focus_owned_request_revision", "canonical_request_text", "declared_task_profile",
   "rubric_factor_calculator", "semantic_unit_heads", "agent_response_text",
-  "feedback_classification", "declared_objective_opportunity_set", "typed_action_evidence",
+  "feedback_classification", "declared_objective_opportunity_set", "documented_plan_message",
+  "explicit_plan_supersession_link", "typed_action_evidence",
   "typed_decision_evidence", "typed_verification_receipt",
 ];
 const AVAILABILITY: readonly MetricEvidenceAvailabilityState[] = [
@@ -159,7 +170,7 @@ export function metricEvidenceReadinessForPublication(
   if (
     candidate.projection_key !== "metric.contract-v2.evidence-readiness"
     || candidate.projection_version !== 1
-    || candidate.catalog_version !== "metric-evidence-readiness-v2-1"
+    || candidate.catalog_version !== "metric-evidence-readiness-v2-2"
     || candidate.registry_version !== METRIC_CONTRACT_V2_REGISTRY_VERSION
     || candidate.registry_version !== publication.registry_version
     || candidate.publication_key !== publication.publication_key
@@ -192,7 +203,10 @@ export function metricEvidenceReadinessForPublication(
     const observed = contributorList(readiness.observed_contributors);
     const missing = contributorList(readiness.missing_contributors);
     const adapterCapabilities = capabilityList(readiness.required_adapter_capabilities);
-    const requirement = metricEvidenceRequirementFor(sealed.metric_key);
+    const requirement = metricEvidenceRequirementFor(
+      sealed.metric_key,
+      publication.projection_version,
+    );
     const expectedAvailability: MetricEvidenceAvailabilityState = sealed.value_state === "known" ? "measured"
       : sealed.value_state === "pending" ? "pending_right_censored"
         : sealed.value_state === "not_applicable" ? "no_opportunity"

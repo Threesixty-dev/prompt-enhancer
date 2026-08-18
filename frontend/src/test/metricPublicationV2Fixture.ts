@@ -242,7 +242,10 @@ export function syntheticMetricEvidenceReadinessV2(
   publication: MetricPublicationV2,
 ): MetricEvidenceReadinessProjectionV2 {
   const metrics = publication.metrics.map(({ state }) => {
-    const requirement = metricEvidenceRequirementFor(state.metric_key);
+    const requirement = metricEvidenceRequirementFor(
+      state.metric_key,
+      publication.projection_version,
+    );
     const availability: MetricEvidenceAvailabilityState = state.value_state === "known" ? "measured"
       : state.value_state === "pending" ? "pending_right_censored"
         : state.value_state === "not_applicable" ? "no_opportunity"
@@ -303,7 +306,7 @@ export function syntheticMetricEvidenceReadinessV2(
   return {
     projection_key: "metric.contract-v2.evidence-readiness",
     projection_version: 1,
-    catalog_version: "metric-evidence-readiness-v2-1",
+    catalog_version: "metric-evidence-readiness-v2-2",
     registry_version: "all-20-factor-contracts-v2",
     publication_key: publication.publication_key,
     publication_version: publication.publication_version,

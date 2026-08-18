@@ -38,6 +38,7 @@ export const MAX_GUIDANCE_FOCUS_FACTOR_KEYS = 2;
 export const METRIC_CONTRACT_V2_PROJECTION_VERSIONS = [
   "metric-contract-v2-projection-1",
   "metric-contract-v2-projection-2",
+  "metric-contract-v2-projection-3",
 ] as const;
 
 export type MetricDefinitionMismatch =
