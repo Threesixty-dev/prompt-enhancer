@@ -1,7 +1,11 @@
 import type { RuntimeDataMode } from "../platform/runtimeMode";
+import type { PromptEnhancerTransport } from "./contracts";
 import type { TeamControlPlanePort } from "./teamControlPlane";
 import { createSyntheticTeamControlPlanePort } from "./teamControlPlaneSynthetic";
-import { createUnavailableTeamControlPlanePort } from "./teamControlPlaneUnavailable";
+import {
+  createLocalLoopbackTeamControlPlanePort,
+  createUnavailableTeamControlPlanePort,
+} from "./teamControlPlaneUnavailable";
 
 interface RegisteredRuntimePort {
   mode: RuntimeDataMode;
@@ -17,10 +21,17 @@ interface RegisteredRuntimePort {
 // or forging a public symbol/property; only adapters composed here are known.
 const registeredRuntimePorts = new WeakMap<TeamControlPlanePort, RegisteredRuntimePort>();
 
-function createRegisteredPort(mode: RuntimeDataMode): TeamControlPlanePort {
+type ReadinessTransport = Pick<PromptEnhancerTransport, "getControlPlaneReadiness">;
+
+function createRegisteredPort(
+  mode: RuntimeDataMode,
+  transport?: ReadinessTransport,
+): TeamControlPlanePort {
   const port = mode === "synthetic_demo"
     ? createSyntheticTeamControlPlanePort()
-    : createUnavailableTeamControlPlanePort();
+    : transport === undefined
+      ? createUnavailableTeamControlPlanePort()
+      : createLocalLoopbackTeamControlPlanePort(transport);
   const frozen = Object.freeze(port);
   registeredRuntimePorts.set(frozen, {
     mode,
@@ -47,13 +58,17 @@ function isRegisteredForRuntime(port: TeamControlPlanePort, mode: RuntimeDataMod
 /**
  * Bind the runtime data mode to the only honest team port for it. The
  * synthetic preview gets the fictional fixture cohort; the local loopback
- * runtime gets an adapter that reports every team, organization, sync, and
- * billing capability as absent, because no such service exists in this build.
+ * runtime gets a readiness-only adapter when the transport is supplied and an
+ * unavailable fallback otherwise. Neither local adapter can read a cohort or
+ * member row.
  * A remote control-plane adapter must not be added here until one exists and
  * carries approval-bound transport.
  */
-export function createTeamControlPlanePortForRuntime(mode: RuntimeDataMode): TeamControlPlanePort {
-  return createRegisteredPort(mode);
+export function createTeamControlPlanePortForRuntime(
+  mode: RuntimeDataMode,
+  transport?: ReadinessTransport,
+): TeamControlPlanePort {
+  return createRegisteredPort(mode, transport);
 }
 
 /**
@@ -73,17 +88,17 @@ export function composeTeamControlPlanePort(
 }
 
 /**
- * The production overlay may expose team context only for the privately
- * registered synthetic-development adapter. Local-real composition and
- * arbitrary injected ports resolve to null, so no drawer or team data mounts.
+ * The overlay may expose team context only for a privately registered runtime
+ * adapter. The local adapter carries readiness only and cannot publish values;
+ * arbitrary injected or relabelled ports still resolve to null.
  */
 export function teamControlPlanePortForOverlay(
   mode: RuntimeDataMode,
   port: TeamControlPlanePort | null,
 ): TeamControlPlanePort | null {
-  return mode === "synthetic_demo"
-    && port !== null
-    && port.origin === "synthetic_fixture"
+  const expectedOrigin = mode === "synthetic_demo" ? "synthetic_fixture" : "local_loopback";
+  return port !== null
+    && port.origin === expectedOrigin
     && isRegisteredForRuntime(port, mode)
     ? port
     : null;

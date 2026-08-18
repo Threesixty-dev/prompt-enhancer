@@ -581,14 +581,36 @@ describe("unavailable team control-plane port", () => {
     expect(port.getRevealAuditEvents()).toEqual([]);
   });
 
-  it("exposes only a privately registered synthetic port to the production overlay", () => {
+  it("exposes only privately registered runtime ports to the overlay", () => {
     const synthetic = createTeamControlPlanePortForRuntime("synthetic_demo");
     const local = createTeamControlPlanePortForRuntime("local_real");
     expect(teamControlPlanePortForOverlay("synthetic_demo", synthetic)).toBe(synthetic);
     expect(teamControlPlanePortForOverlay("synthetic_demo", createSyntheticTeamControlPlanePort())).toBeNull();
-    expect(teamControlPlanePortForOverlay("local_real", local)).toBeNull();
+    expect(teamControlPlanePortForOverlay("local_real", local)).toBe(local);
     expect(teamControlPlanePortForOverlay("local_real", synthetic)).toBeNull();
     expect(teamControlPlanePortForOverlay("synthetic_demo", null)).toBeNull();
+  });
+
+  it("registers the local runtime transport as readiness-only", async () => {
+    const local = createTeamControlPlanePortForRuntime("local_real", {
+      getControlPlaneReadiness: async () => ({
+        contract_version: "control-plane-v2",
+        delivery_guarantee: "at_least_once_with_monotonic_ack",
+        gaps: ["governance_review_pending"],
+        production_ready: false,
+        profile: "development",
+        remote_listening_enabled: false,
+      }),
+    });
+
+    const report = await local.getCapabilities();
+
+    expect(report.control_plane_readiness?.gaps).toEqual(["governance_review_pending"]);
+    expect(teamControlPlanePortForOverlay("local_real", local)).toBe(local);
+    await expect(local.getAggregate(INVALID_AGGREGATE_REQUEST)).rejects.toSatisfy(
+      (error: unknown) => isTeamControlPlaneError(error)
+        && error.code === "scope_not_served_by_this_runtime",
+    );
   });
 
   it("fails closed when a synthetic fixture port is injected into local-real composition", () => {

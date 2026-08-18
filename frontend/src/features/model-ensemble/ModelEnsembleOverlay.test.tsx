@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 describe("production team-context composition", () => {
-  it("renders the drawer for the registered synthetic port and removes it for null/local-real", async () => {
+  it("renders only registered drawers and keeps local-real team values closed", async () => {
     const syntheticPort = createTeamControlPlanePortForRuntime("synthetic_demo");
     const accepted = teamControlPlanePortForOverlay("synthetic_demo", syntheticPort);
     const view = render(
@@ -49,9 +49,10 @@ describe("production team-context composition", () => {
         teamControlPlane={teamControlPlanePortForOverlay("local_real", localPort)}
       />,
     );
-    expect(screen.queryByText("Team context")).toBeNull();
+    expect(screen.getByText("Team context")).toBeVisible();
     expect(screen.queryByText(/Synthetic platform guild/)).toBeNull();
-    expect(document.querySelector(".team-context-drawer")).toBeNull();
+    expect(document.querySelector(".team-context-drawer")).not.toBeNull();
+    expect(await screen.findByText(/No team service in this runtime/)).toBeVisible();
 
     view.rerender(<ModelEnsembleOverlay transport={createSyntheticTransport()} teamControlPlane={null} />);
     expect(document.querySelector(".team-context-drawer")).toBeNull();

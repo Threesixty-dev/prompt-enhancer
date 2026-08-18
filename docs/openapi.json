@@ -2687,6 +2687,52 @@
         "title": "CompatibilityState",
         "type": "string"
       },
+      "ControlPlaneReadiness": {
+        "additionalProperties": false,
+        "description": "An explicit statement that this plane is not a finished product.\n\n``production_ready`` is ``Literal[False]``. Making this plane production\nready is a contract change with a new ADR, not a configuration value.",
+        "properties": {
+          "contract_version": {
+            "default": "control-plane-v2",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "delivery_guarantee": {
+            "const": "at_least_once_with_monotonic_ack",
+            "default": "at_least_once_with_monotonic_ack",
+            "title": "Delivery Guarantee",
+            "type": "string"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/ReadinessGap"
+            },
+            "minItems": 1,
+            "title": "Gaps",
+            "type": "array"
+          },
+          "production_ready": {
+            "const": false,
+            "default": false,
+            "title": "Production Ready",
+            "type": "boolean"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/DeploymentProfile"
+          },
+          "remote_listening_enabled": {
+            "const": false,
+            "default": false,
+            "title": "Remote Listening Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profile",
+          "gaps"
+        ],
+        "title": "ControlPlaneReadiness",
+        "type": "object"
+      },
       "CostEstimateState": {
         "enum": [
           "known",
@@ -2760,6 +2806,15 @@
           "objective_opportunities"
         ],
         "title": "DenominatorBasis",
+        "type": "string"
+      },
+      "DeploymentProfile": {
+        "description": "Which adapter set is composed behind the control-plane ports.",
+        "enum": [
+          "development",
+          "production"
+        ],
+        "title": "DeploymentProfile",
         "type": "string"
       },
       "EvidenceAuthority": {
@@ -9021,6 +9076,25 @@
         "title": "PublishedMetricV2",
         "type": "object"
       },
+      "ReadinessGap": {
+        "description": "Exactly what is missing before this plane could serve a real team.",
+        "enum": [
+          "production_identity_provider_missing",
+          "production_signature_algorithm_missing",
+          "production_database_adapter_missing",
+          "credential_lifecycle_incomplete",
+          "out_of_band_provisioning_only",
+          "remote_transport_not_implemented",
+          "billing_not_implemented",
+          "producer_pipeline_not_connected",
+          "disclosure_control_unreviewed",
+          "durable_recipient_delivery_not_implemented",
+          "backup_and_replica_erasure_not_implemented",
+          "governance_review_pending"
+        ],
+        "title": "ReadinessGap",
+        "type": "string"
+      },
       "RedactionPreviewBinding": {
         "additionalProperties": false,
         "description": "Everything whose change invalidates a user's approval.",
@@ -12146,6 +12220,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
@@ -13663,6 +13744,72 @@
         "summary": "Set Session Label",
         "tags": [
           "display-labels"
+        ]
+      }
+    },
+    "/v1/control-plane/readiness": {
+      "get": {
+        "description": "Report the deployment profile and every unfinished prerequisite.",
+        "operationId": "readiness_v1_control_plane_readiness_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlPlaneReadiness"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Readiness",
+        "tags": [
+          "control-plane"
         ]
       }
     },

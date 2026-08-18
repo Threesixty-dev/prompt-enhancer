@@ -11,6 +11,7 @@ import type {
   ScopeAccessReason,
   TeamDataOrigin,
 } from "../../shared/api/teamControlPlane";
+import type { ControlPlaneReadinessGap } from "../../shared/api/contracts";
 import type { RuntimeDataMode, RuntimeServiceState } from "../../shared/platform/runtimeMode";
 
 /**
@@ -35,6 +36,7 @@ export const SCOPE_REASON_COPY: Readonly<Record<ScopeAccessReason, string>> = {
   granted: "Allowed in this runtime.",
   personal_scope_served_locally: "Your personal analytics are served locally by the project workspace; this page shows readiness only.",
   local_runtime_has_no_team_service: "This runtime has no team control plane, so no cohort exists and nothing is synced.",
+  development_control_plane_incomplete: "The default-off development boundary answered, but its reported gaps keep every cohort and member value closed.",
   team_sync_not_configured: "A team control plane exists but is not configured for this installation.",
   role_insufficient: "The current role (fixture) does not permit this scope.",
   organization_policy_disabled: "Organization analytics are disabled by policy (fixture).",
@@ -51,6 +53,7 @@ export const MEMBER_VISIBILITY_REASON_COPY: Readonly<Record<MemberVisibilityReas
   permission_not_granted: "No permission grants individual member visibility. Aggregates only.",
   member_consent_missing: "Members have not consented to individual visibility. Aggregates only.",
   cohort_below_minimum: "The cohort is below the minimum size for individual visibility.",
+  development_control_plane_incomplete: "The development boundary answered, but it has no approved member-publication path. Aggregates and member rows stay closed.",
   unavailable_in_runtime: "No team control plane exists in this runtime, so there are no members to show.",
 };
 
@@ -86,6 +89,7 @@ export const READINESS_REASON_COPY: Readonly<Record<ReadinessReason, string>> = 
   loopback_service_available: "The loopback service answered its health check. Source consent and indexing stay separate explicit actions in Data source.",
   loopback_service_unavailable: "The loopback service did not answer. Personal analytics stay local and nothing is sent anywhere.",
   no_team_sync_service_in_this_build: "No team sync service exists in this build. Nothing is uploaded, no cohort is joined, and no account is signed in.",
+  development_control_plane_incomplete: "The default-off loopback development boundary answered, but it reports blocking identity, producer, disclosure, durability, and governance gaps. No team value is published.",
   team_sync_not_configured: "A team control plane exists but is not configured for this installation.",
   deep_analysis_not_in_synthetic_preview: "Local model lanes are not part of the synthetic preview; the deep-analysis pipeline runs only in the local loopback build.",
   deep_analysis_not_verified_by_this_view: "Local model lanes are configured in Methods & models and observed in the Job centre; this view does not verify installed models or hardware.",
@@ -101,8 +105,24 @@ export const READINESS_ACTION_LABELS: Readonly<Record<ReadinessActionKind, strin
 
 export const ORIGIN_LABELS: Readonly<Record<TeamDataOrigin, string>> = {
   synthetic_fixture: "Synthetic fixture · fictional cohort",
-  local_loopback: "Local loopback runtime · no team service",
+  local_loopback: "Local loopback runtime",
   team_control_plane: "Team control plane",
+};
+
+/** Exhaustive, user-facing copy for the exact backend gap vocabulary. */
+export const CONTROL_PLANE_GAP_COPY: Readonly<Record<ControlPlaneReadinessGap, string>> = {
+  production_identity_provider_missing: "No production identity provider binds real accounts to tenant roles.",
+  production_signature_algorithm_missing: "The development signature algorithm is not approved for production devices.",
+  production_database_adapter_missing: "No durable multi-tenant database adapter with enforced row isolation exists.",
+  credential_lifecycle_incomplete: "Credential issuance, rotation, expiry, and recovery are incomplete.",
+  out_of_band_provisioning_only: "Organizations, seats, and grants can only be provisioned inside the development process.",
+  remote_transport_not_implemented: "No off-machine transport is implemented; the service remains loopback-only.",
+  billing_not_implemented: "Billing and entitlement verification are not implemented.",
+  producer_pipeline_not_connected: "Local metric receipts are not connected to the signed snapshot producer.",
+  disclosure_control_unreviewed: "Stable cohorts, overlap controls, and an atomic query budget are not approved.",
+  durable_recipient_delivery_not_implemented: "Recipient delivery and acknowledgements are not durable across process restarts.",
+  backup_and_replica_erasure_not_implemented: "Deletion is not yet proven across backups and replicas.",
+  governance_review_pending: "Real-person team sharing still requires governance and owner approval.",
 };
 
 /** The local card is derived from the runtime the shell actually observed, never from a fixture claim. */

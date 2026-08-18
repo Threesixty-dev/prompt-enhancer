@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { PromptEnhancerTransport } from "../../shared/api/contracts";
 import {
   SYNTHETIC_CANDIDATES,
   SYNTHETIC_RUN,
@@ -100,6 +101,8 @@ describe("TaskFlowPage", () => {
     expect(within(columns[2]).getByText("Confirmed task")).toBeInTheDocument();
     expect(within(columns[2]).getByText(/Provenance/)).toBeInTheDocument();
     expect(within(columns[2]).getByText(/Ready · Analysis completed/)).toBeInTheDocument();
+    expect(screen.getByText(/Page ends observed · point-in-time completeness not proven/)).toBeVisible();
+    expect(screen.getByText(/Synthetic fixture indexes loaded/)).toBeVisible();
 
     const timeline = screen.getByRole("region", { name: /Candidates \(proposed/ });
     expect(within(timeline).getAllByRole("button")).toHaveLength(3);
@@ -116,5 +119,78 @@ describe("TaskFlowPage", () => {
     expect(navigate).toHaveBeenCalledWith({ name: "task", taskId: SYNTHETIC_TASKS[0].task_id, revision: 1 });
     fireEvent.click(within(columns[0]).getAllByRole("button", { name: /Open in Discovery/ })[0]);
     expect(navigate).toHaveBeenCalledWith({ name: "discovery" });
+  });
+
+  it("stamps local index receipts without laundering them into synthetic provenance", async () => {
+    const localTransport: Pick<
+      PromptEnhancerTransport,
+      "listCandidates" | "listTaskRevisions" | "listAnalysisRuns"
+    > = {
+      async listCandidates(_status, _signal, page) {
+        return { candidates: [], limit: page?.limit ?? 100, offset: page?.offset ?? 0 };
+      },
+      async listTaskRevisions(_taskId, _signal, page) {
+        return { tasks: [], limit: page?.limit ?? 100, offset: page?.offset ?? 0 };
+      },
+      async listAnalysisRuns(_taskId, _signal, page) {
+        return { runs: [], limit: page?.limit ?? 100, offset: page?.offset ?? 0 };
+      },
+    };
+
+    render(
+      <TaskFlowPage
+        navigate={() => undefined}
+        runtimeMode="local_real"
+        transport={localTransport}
+      />,
+    );
+
+    expect(await screen.findByText(/Local indexes loaded 0 candidates · 0 tasks · 0 runs/)).toBeVisible();
+    expect(screen.queryByText(/Synthetic fixture indexes loaded/)).toBeNull();
+  });
+
+  it("never leaves a retained board mounted after a failed source reload clears its receipts", async () => {
+    const success: Pick<
+      PromptEnhancerTransport,
+      "listCandidates" | "listTaskRevisions" | "listAnalysisRuns"
+    > = {
+      async listCandidates(_status, _signal, page) {
+        return { candidates: [], limit: page?.limit ?? 100, offset: page?.offset ?? 0 };
+      },
+      async listTaskRevisions(_taskId, _signal, page) {
+        return { tasks: [], limit: page?.limit ?? 100, offset: page?.offset ?? 0 };
+      },
+      async listAnalysisRuns(_taskId, _signal, page) {
+        return { runs: [], limit: page?.limit ?? 100, offset: page?.offset ?? 0 };
+      },
+    };
+    const failure = new Error("Synthetic Task Flow reload failure");
+    const failed: typeof success = {
+      listCandidates: async () => { throw failure; },
+      listTaskRevisions: async () => { throw failure; },
+      listAnalysisRuns: async () => { throw failure; },
+    };
+    const view = render(
+      <TaskFlowPage
+        navigate={() => undefined}
+        runtimeMode="local_real"
+        transport={success}
+      />,
+    );
+
+    expect(await screen.findByRole("group", { name: "Task flow board" })).toBeVisible();
+    expect(document.querySelector(".task-flow__completeness")).not.toBeNull();
+
+    view.rerender(
+      <TaskFlowPage
+        navigate={() => undefined}
+        runtimeMode="local_real"
+        transport={failed}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(failure.message);
+    expect(screen.queryByRole("group", { name: "Task flow board" })).toBeNull();
+    expect(document.querySelector(".task-flow__completeness")).toBeNull();
   });
 });

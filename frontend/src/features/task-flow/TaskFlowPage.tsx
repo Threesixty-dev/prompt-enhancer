@@ -9,6 +9,12 @@ import { TaskFlowBoard } from "./TaskFlowBoard";
 import { TaskFlowTimeline } from "./TaskFlowTimeline";
 import { projectTaskFlow } from "./taskFlowAdapter";
 import {
+  TASK_FLOW_RECORD_CAP_PER_SOURCE,
+  loadTaskFlowSources,
+  type TaskFlowLoadProgress,
+  type TaskFlowSourceReceipt,
+} from "./taskFlowLoader";
+import {
   DEFAULT_TASK_FLOW_FILTERS,
   TASK_FLOW_COLUMNS,
   TASK_FLOW_KIND_LABELS,
@@ -39,19 +45,26 @@ export function TaskFlowPage({
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<TaskFlowFilters>(DEFAULT_TASK_FLOW_FILTERS);
   const [reloadToken, setReloadToken] = useState(0);
+  const [sourceReceipts, setSourceReceipts] = useState<readonly TaskFlowSourceReceipt[] | null>(null);
+  const [loadProgress, setLoadProgress] = useState<Partial<Record<TaskFlowLoadProgress["source"], TaskFlowLoadProgress>>>({});
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    Promise.all([
-      transport.listCandidates("all", controller.signal),
-      transport.listTaskRevisions(undefined, controller.signal),
-      transport.listAnalysisRuns(undefined, controller.signal),
-    ])
-      .then(([candidates, tasks, runs]) => {
+    setItems(null);
+    setSourceReceipts(null);
+    setLoadProgress({});
+    loadTaskFlowSources(transport, controller.signal, {
+      onProgress(progress) {
         if (controller.signal.aborted) return;
-        setItems(projectTaskFlow({ candidates: candidates.candidates, tasks: tasks.tasks, runs: runs.runs }));
+        setLoadProgress((current) => ({ ...current, [progress.source]: progress }));
+      },
+    })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setItems(projectTaskFlow(result));
+        setSourceReceipts(result.receipts);
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
@@ -69,6 +82,10 @@ export function TaskFlowPage({
     candidates: visible.filter((item) => item.kind === "candidate").length,
     confirmed: visible.filter((item) => item.kind === "confirmed").length,
   }), [visible]);
+  const incompleteReceipt = sourceReceipts?.find((receipt) => receipt.boundary !== "page_end_observed") ?? null;
+  const progressLabel = (["candidates", "tasks", "runs"] as const)
+    .map((source) => `${loadProgress[source]?.loaded ?? 0} ${source}`)
+    .join(" · ");
 
   const open = useCallback((item: TaskFlowItem) => {
     if (item.route !== null) navigate(item.route);
@@ -92,6 +109,30 @@ export function TaskFlowPage({
           <span className="count-summary"><strong>{counts.candidates}</strong> candidates · <strong>{counts.confirmed}</strong> confirmed</span>
         </div>
       </header>
+
+      {sourceReceipts !== null && (
+        <div
+          className="task-flow__completeness"
+          data-state={incompleteReceipt === null ? "non-atomic" : "incomplete"}
+          role={incompleteReceipt === null ? "status" : "alert"}
+        >
+          <Icon name={incompleteReceipt === null ? "activity" : "x"} />
+          <div>
+            <strong>
+              {incompleteReceipt === null
+                ? "Page ends observed · point-in-time completeness not proven"
+                : incompleteReceipt.boundary === "cap_reached"
+                  ? `Incomplete · ${incompleteReceipt.source} reached the ${incompleteReceipt.record_cap.toLocaleString()}-record cap`
+                  : `Incomplete · ${incompleteReceipt.source} changed across pages`}
+            </strong>
+            <p>
+              {runtimeMode === "synthetic_demo" ? "Synthetic fixture" : "Local"} indexes loaded {sourceReceipts.map((receipt) => `${receipt.loaded.toLocaleString()} ${receipt.source}`).join(" · ")}.
+              Candidate, task, and run pages are separate requests, not one atomic snapshot; refresh after activity to reconcile.
+              Each source is bounded at {TASK_FLOW_RECORD_CAP_PER_SOURCE.toLocaleString()} records.
+            </p>
+          </div>
+        </div>
+      )}
 
       <form aria-label="Task flow filters" className="task-flow__filters" onSubmit={(event) => event.preventDefault()}>
         <label>
@@ -137,7 +178,7 @@ export function TaskFlowPage({
 
       {error !== null && <ErrorState message={error} onRetry={() => setReloadToken((value) => value + 1)} />}
       {loading && items === null ? (
-        <LoadingState label="Loading task records" />
+        <LoadingState label={`Loading bounded task records · ${progressLabel}`} />
       ) : items === null ? null : (
         <>
           <TaskFlowBoard items={visible} onOpen={open} />

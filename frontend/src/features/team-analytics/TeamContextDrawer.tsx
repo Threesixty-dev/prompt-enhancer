@@ -12,6 +12,7 @@ import {
 } from "../../shared/api/teamControlPlane";
 import type { ModelEnsembleLensId } from "../model-ensemble/metricAxisModel";
 import { TeamAggregateBoard } from "./TeamAggregateBoard";
+import { ControlPlaneReadinessNotice } from "./ControlPlaneReadinessNotice";
 import { teamSnapshotSummary } from "./teamAggregatePresentation";
 import { SCOPE_REASON_COPY, shortUtcDate } from "./teamAnalyticsCopy";
 import "./TeamAnalytics.css";
@@ -107,6 +108,8 @@ export function TeamContextDrawer({
         ? "Checking permissions"
         : teamAllowed
           ? `${teamAccess?.cohort_label ?? "Team cohort"}${currentSnapshot === null ? "" : ` · ${summary.measured} measured`}`
+          : currentCapabilities.control_plane_readiness !== null
+            ? `Development boundary · ${currentCapabilities.control_plane_readiness.gaps.length} blockers`
           : teamAccess?.state === "denied" ? "Not permitted for this role" : "No team service in this runtime";
 
   return (
@@ -122,13 +125,19 @@ export function TeamContextDrawer({
       </summary>
       {open && <div className="team-context-drawer__body">
         {port === null || (currentCapabilities !== null && !teamAllowed) ? (
-          <p>
-            {port === null
-              ? "This overlay runs without a team control plane. The live watch stays personal and local; no cohort exists, nothing is synced, and no team value is estimated."
-              : teamAccess === null
-                ? "The port did not describe a team scope."
-                : SCOPE_REASON_COPY[teamAccess.reason]}
-          </p>
+          <>
+            <p>
+              {port === null
+                ? "This overlay runs without a team control plane. The live watch stays personal and local; no cohort exists, nothing is synced, and no team value is estimated."
+                : teamAccess === null
+                  ? "The port did not describe a team scope."
+                  : SCOPE_REASON_COPY[teamAccess.reason]}
+            </p>
+            <ControlPlaneReadinessNotice
+              compact
+              readiness={currentCapabilities?.control_plane_readiness ?? null}
+            />
+          </>
         ) : currentCapabilitiesFailed ? (
           <p role="alert">Team permissions could not be read. Nothing is assumed; the personal watch is unaffected.</p>
         ) : currentCapabilities === null ? (

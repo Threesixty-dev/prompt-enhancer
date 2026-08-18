@@ -2,6 +2,7 @@ import type {
   AnalysisRun,
   CandidateListItem,
   CandidateStatusFilter,
+  ContentFreeListPage,
   ModelCompatibilityCatalog,
   ModelEvaluationJob,
   ModelRuntimeInventory,
@@ -41,6 +42,19 @@ import { SYNTHETIC_MODEL_LAB_INVENTORY } from "./syntheticModelLabFixture";
 
 function copy<T>(value: T): T {
   return structuredClone(value);
+}
+
+function syntheticPage<T>(
+  values: readonly T[],
+  page: ContentFreeListPage | undefined,
+): { values: T[]; limit: number; offset: number } {
+  const limit = page?.limit ?? 100;
+  const offset = page?.offset ?? 0;
+  return {
+    values: copy(values.slice(offset, offset + limit)),
+    limit,
+    offset,
+  };
 }
 
 function safeId(sequence: number): string {
@@ -397,6 +411,12 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
 
   return {
     runtimeKind: "synthetic_fixture",
+    async getControlPlaneReadiness() {
+      throw new TransportError(
+        "The loopback control-plane readiness route is unavailable in synthetic preview",
+        404,
+      );
+    },
     async getTextAnalysisResearch() {
       return copy(SYNTHETIC_TEXT_ANALYSIS_RESEARCH);
     },
@@ -747,16 +767,18 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         501,
       );
     },
-    async listCandidates(status: CandidateStatusFilter = "all") {
+    async listCandidates(status: CandidateStatusFilter = "all", _signal, page) {
       const filtered =
         status === "all"
           ? candidates
           : candidates.filter((item) => item.decision_status === status);
-      return { candidates: copy(filtered), limit: 100, offset: 0 };
+      const result = syntheticPage(filtered, page);
+      return { candidates: result.values, limit: result.limit, offset: result.offset };
     },
-    async listTaskRevisions(taskId?: string) {
+    async listTaskRevisions(taskId?: string, _signal?: AbortSignal, page?: ContentFreeListPage) {
       const filtered = taskId ? tasks.filter((task) => task.task_id === taskId) : tasks;
-      return { tasks: copy(filtered), limit: 100, offset: 0 };
+      const result = syntheticPage(filtered, page);
+      return { tasks: result.values, limit: result.limit, offset: result.offset };
     },
     async getTaskRevision(taskId: string, revision: number) {
       const task = tasks.find(
@@ -765,9 +787,10 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       if (!task) throw new TransportError("Synthetic task revision was not found", 404);
       return { task: copy(task) };
     },
-    async listAnalysisRuns(taskId?: string) {
+    async listAnalysisRuns(taskId?: string, _signal?: AbortSignal, page?: ContentFreeListPage) {
       const filtered = taskId ? runs.filter((run) => run.task_id === taskId) : runs;
-      return { runs: copy(filtered), limit: 100, offset: 0 };
+      const result = syntheticPage(filtered, page);
+      return { runs: result.values, limit: result.limit, offset: result.offset };
     },
     async getAnalysisRun(runId: string) {
       const run = runs.find((item) => item.run_id === runId);

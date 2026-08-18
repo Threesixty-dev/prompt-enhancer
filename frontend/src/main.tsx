@@ -33,7 +33,10 @@ async function mountApp() {
     import.meta.hot.dispose(() => uiRevisionGuard.dispose());
   }
 
-  const teamControlPlane = createTeamControlPlanePortForRuntime(mode);
+  const teamControlPlane = createTeamControlPlanePortForRuntime(
+    mode,
+    mode === "local_real" ? runtime.transport : undefined,
+  );
   const overlay = /^\/overlay\/model-ensemble\/?$/.test(window.location.pathname);
   const Root = overlay
     ? (await import("./features/model-ensemble")).ModelEnsembleOverlay

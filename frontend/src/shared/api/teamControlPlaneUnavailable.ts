@@ -1,3 +1,5 @@
+import type { PromptEnhancerTransport } from "./contracts";
+import { parseControlPlaneReadiness } from "./controlPlaneReadiness";
 import {
   TEAM_CONTROL_PLANE_PORT_VERSION,
   TeamControlPlaneError,
@@ -8,6 +10,18 @@ import {
 } from "./teamControlPlaneSchema";
 
 const LOCAL_RUNTIME_PRINCIPAL_ID = "90".repeat(32);
+
+type ReadinessTransport = Pick<PromptEnhancerTransport, "getControlPlaneReadiness">;
+
+function transportStatus(error: unknown): number | null {
+  return typeof error === "object"
+    && error !== null
+    && "status" in error
+    && typeof error.status === "number"
+    && Number.isInteger(error.status)
+    ? error.status
+    : null;
+}
 
 /**
  * Honest adapter for runtimes without any team control plane. It never
@@ -43,6 +57,7 @@ export function createUnavailableTeamControlPlanePort(
       { id: "deep_analysis", state: "not_configured", reason: "deep_analysis_not_verified_by_this_view", checked_at: now(), action: { kind: "open_job_centre", enabled: true } },
       { id: "billing", state: "unavailable", reason: "no_billing_service_in_this_build", checked_at: now(), action: { kind: "none", enabled: false } },
     ],
+    control_plane_readiness: null,
     checked_at: now(),
   });
   return {
@@ -60,6 +75,49 @@ export function createUnavailableTeamControlPlanePort(
     },
     async getMemberVisibility(_request: TeamMemberVisibilityRequest) {
       throw new TeamControlPlaneError("member_visibility_unavailable", "Member visibility is unavailable in this runtime.");
+    },
+  };
+}
+
+/**
+ * Readiness-aware local adapter. It can observe only the default-off
+ * development boundary; no data credential or team/member read path exists.
+ */
+export function createLocalLoopbackTeamControlPlanePort(
+  transport: ReadinessTransport,
+  now: () => string = () => new Date().toISOString(),
+): TeamControlPlanePort {
+  const unavailable = createUnavailableTeamControlPlanePort(now);
+  return {
+    ...unavailable,
+    async getCapabilities(signal?: AbortSignal) {
+      const base = await unavailable.getCapabilities(signal);
+      try {
+        const backendReadiness = parseControlPlaneReadiness(
+          await transport.getControlPlaneReadiness(signal),
+        );
+        signal?.throwIfAborted();
+        return {
+          ...base,
+          scopes: base.scopes.map((access) => access.scope === "me" ? access : {
+            ...access,
+            reason: "development_control_plane_incomplete" as const,
+          }),
+          member_visibility: {
+            ...base.member_visibility,
+            reason: "development_control_plane_incomplete" as const,
+          },
+          readiness: base.readiness.map((card) => card.id === "team_sync" ? {
+            ...card,
+            reason: "development_control_plane_incomplete" as const,
+          } : card),
+          control_plane_readiness: backendReadiness,
+        };
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (transportStatus(error) === 404 || error instanceof TypeError) return base;
+        throw error;
+      }
     },
   };
 }

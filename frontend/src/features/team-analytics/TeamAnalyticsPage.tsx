@@ -19,6 +19,7 @@ import { Icon } from "../../shared/ui/Icon";
 import { moveRovingFocus } from "../../shared/ui/rovingFocus";
 import { MODEL_ENSEMBLE_LENSES, type ModelEnsembleLensId } from "../model-ensemble/metricAxisModel";
 import { MemberVisibilityPanel } from "./MemberVisibilityPanel";
+import { ControlPlaneReadinessNotice } from "./ControlPlaneReadinessNotice";
 import { ReadinessCards } from "./ReadinessCards";
 import { ScopeSwitcher } from "./ScopeSwitcher";
 import { TeamAggregateBoard } from "./TeamAggregateBoard";
@@ -212,6 +213,9 @@ export function TeamAnalyticsPage({
               const route = readinessRoute(kind);
               if (route !== null) navigate(route);
             }}
+          />
+          <ControlPlaneReadinessNotice
+            readiness={capabilities.control_plane_readiness}
           />
 
           <section aria-labelledby="team-aggregate-title" className="team-analytics__aggregate">

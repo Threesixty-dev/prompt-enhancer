@@ -25,6 +25,7 @@ import {
   memberAuditDestinationForOrigin,
   teamScopeIdentityBindingIsCoherent,
 } from "./teamControlPlaneIdentity";
+import { controlPlaneReadinessIsValid } from "./controlPlaneReadiness";
 
 const METRIC_KEY = /^[a-z][a-z0-9_.-]*$/;
 
@@ -61,6 +62,7 @@ function scopeReasonMatches(scope: AnalyticsScope, state: ScopeAccessState, reas
     case "granted": return state === "allowed";
     case "personal_scope_served_locally": return scope === "me" && state === "allowed";
     case "local_runtime_has_no_team_service": return scope !== "me" && state === "unavailable";
+    case "development_control_plane_incomplete": return scope !== "me" && state === "unavailable";
     case "team_sync_not_configured": return scope !== "me" && state === "unavailable";
     case "role_insufficient": return scope !== "me" && state === "denied";
     case "organization_policy_disabled": return scope === "organization" && (state === "denied" || state === "unavailable");
@@ -82,6 +84,7 @@ function scopeAccessIsValid(value: unknown): value is ScopeAccess {
     || (reason !== "granted"
       && reason !== "personal_scope_served_locally"
       && reason !== "local_runtime_has_no_team_service"
+      && reason !== "development_control_plane_incomplete"
       && reason !== "team_sync_not_configured"
       && reason !== "role_insufficient"
       && reason !== "organization_policy_disabled"
@@ -138,7 +141,8 @@ export function teamMemberVisibilityGrantIsValid(value: unknown): value is Membe
     ? value.reason === "permission_not_granted"
       || value.reason === "member_consent_missing"
       || value.reason === "cohort_below_minimum"
-    : value.reason === "unavailable_in_runtime";
+    : value.reason === "unavailable_in_runtime"
+      || value.reason === "development_control_plane_incomplete";
   return reasonMatches
     && value.grant_id === null
     && value.scope === null
@@ -164,6 +168,7 @@ const READINESS_REASON_CONTRACT: Readonly<Record<ReadinessReason, {
   loopback_service_available: { id: "local", state: "ready", action: "open_local_sources", enabled: true, checked: "required" },
   loopback_service_unavailable: { id: "local", state: "unavailable", action: "open_local_sources", enabled: true, checked: "required" },
   no_team_sync_service_in_this_build: { id: "team_sync", state: "unavailable", action: "none", enabled: false, checked: "required" },
+  development_control_plane_incomplete: { id: "team_sync", state: "unavailable", action: "none", enabled: false, checked: "required" },
   team_sync_not_configured: { id: "team_sync", state: "not_configured", action: "none", enabled: false, checked: "required" },
   deep_analysis_not_in_synthetic_preview: { id: "deep_analysis", state: "unavailable", action: "open_methods_and_models", enabled: true, checked: "required" },
   deep_analysis_not_verified_by_this_view: { id: "deep_analysis", state: "not_configured", action: "open_job_centre", enabled: true, checked: "required" },
@@ -199,6 +204,8 @@ export function teamCapabilityReportIsValid(
     || !Array.isArray(value.readiness)
     || value.readiness.length !== 4
     || !value.readiness.every(readinessCardIsValid)
+    || !(value.control_plane_readiness === null
+      || controlPlaneReadinessIsValid(value.control_plane_readiness))
   ) return false;
   const scopeNames = value.scopes.map((access) => access.scope);
   if (new Set(scopeNames).size !== ANALYTICS_SCOPES.length
@@ -213,6 +220,19 @@ export function teamCapabilityReportIsValid(
   const grant = value.member_visibility;
   if (!value.scopes.every((access) => access.principal_id === value.principal_id)
     || grant.principal_id !== value.principal_id) return false;
+  const backendReadiness = value.control_plane_readiness;
+  if (backendReadiness !== null) {
+    if (value.origin !== "local_loopback") return false;
+    if (!value.scopes
+      .filter((access) => access.scope !== "me")
+      .every((access) => access.state === "unavailable"
+        && access.reason === "development_control_plane_incomplete")) return false;
+    if (grant.state !== "unavailable"
+      || grant.reason !== "development_control_plane_incomplete") return false;
+  } else if (
+    value.scopes.some((access) => access.reason === "development_control_plane_incomplete")
+    || grant.reason === "development_control_plane_incomplete"
+  ) return false;
   if (grant.state !== "allowed") return true;
   const expectedAuditDestination = memberAuditDestinationForOrigin(port.origin);
   if (grant.audit.log_destination !== expectedAuditDestination) return false;

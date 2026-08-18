@@ -22,6 +22,30 @@ describe("synthetic transport vertical slice", () => {
     expect("getRuntimeHealth" in transport).toBe(false);
   });
 
+  it("keeps loopback control-plane readiness outside the synthetic fixture", async () => {
+    const transport = createSyntheticTransport();
+
+    await expect(transport.getControlPlaneReadiness()).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("pages fixture indexes with the same explicit bounds as the local transport", async () => {
+    const transport = createSyntheticTransport();
+
+    const candidates = await transport.listCandidates(
+      "all",
+      undefined,
+      { limit: 1, offset: 1 },
+    );
+
+    expect(candidates).toEqual({
+      candidates: [SYNTHETIC_CANDIDATES[1]],
+      limit: 1,
+      offset: 1,
+    });
+  });
+
   it("exposes content-free readiness consistent with the immutable coaching run", async () => {
     const transport = createSyntheticTransport();
     const capabilities = await transport.getProviderMetricCapabilities("synthetic");

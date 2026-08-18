@@ -62,6 +62,27 @@ function privateJsonResponse(body: unknown, status = 200): Response {
 }
 
 const AUTH_RESPONSE = { csrf_token: "synthetic-csrf-token", expires_in_seconds: 300 };
+const CONTROL_PLANE_READINESS_RESPONSE = {
+  contract_version: "control-plane-v2",
+  delivery_guarantee: "at_least_once_with_monotonic_ack",
+  gaps: [
+    "backup_and_replica_erasure_not_implemented",
+    "billing_not_implemented",
+    "credential_lifecycle_incomplete",
+    "disclosure_control_unreviewed",
+    "durable_recipient_delivery_not_implemented",
+    "governance_review_pending",
+    "out_of_band_provisioning_only",
+    "producer_pipeline_not_connected",
+    "production_database_adapter_missing",
+    "production_identity_provider_missing",
+    "production_signature_algorithm_missing",
+    "remote_transport_not_implemented",
+  ],
+  production_ready: false,
+  profile: "development",
+  remote_listening_enabled: false,
+} as const;
 const CONTENT_FREE_ANALYSIS_REQUEST: SessionQualityAnalysisRequest = {
   confirmation: "analyze_selected_redacted_text",
   preset_id: "coaching_profile_v1",
@@ -798,6 +819,77 @@ describe("same-origin HTTP transport", () => {
         referrerPolicy: "no-referrer",
       }),
     );
+  });
+
+  it("carries exact bounded pagination through each Task Flow index", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === "/auth/session") return jsonResponse(AUTH_RESPONSE);
+      if (String(input).startsWith("/v1/discovery/candidates")) {
+        return jsonResponse({ candidates: [], limit: 100, offset: 100 });
+      }
+      if (String(input).startsWith("/v1/task-revisions")) {
+        return jsonResponse({ tasks: [], limit: 100, offset: 200 });
+      }
+      return jsonResponse({ runs: [], limit: 100, offset: 300 });
+    });
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const taskId = "a".repeat(64);
+
+    await transport.listCandidates("all", undefined, { limit: 100, offset: 100 });
+    await transport.listTaskRevisions(taskId, undefined, { limit: 100, offset: 200 });
+    await transport.listAnalysisRuns(undefined, undefined, { limit: 100, offset: 300 });
+
+    expect(fetchMock.mock.calls.slice(1).map((call) => call[0])).toEqual([
+      "/v1/discovery/candidates?limit=100&offset=100",
+      `/v1/task-revisions?task_id=${taskId}&limit=100&offset=200`,
+      "/v1/analysis/runs?limit=100&offset=300",
+    ]);
+  });
+
+  it("reads private loopback control-plane readiness without a data credential", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) =>
+      input === "/auth/session"
+        ? jsonResponse(AUTH_RESPONSE)
+        : privateJsonResponse(CONTROL_PLANE_READINESS_RESPONSE),
+    );
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getControlPlaneReadiness()).resolves.toEqual(
+      CONTROL_PLANE_READINESS_RESPONSE,
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/v1/control-plane/readiness",
+      expect.objectContaining({
+        cache: "no-store",
+        credentials: "include",
+        method: "GET",
+      }),
+    );
+    const headers = fetchMock.mock.calls[1][1]?.headers as Record<string, string>;
+    expect(headers).not.toHaveProperty("X-Control-Plane-Credential");
+    expect(headers).not.toHaveProperty("X-Prompt-Enhancer-CSRF");
+  });
+
+  it("rejects control-plane readiness without exact private cache headers", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(CONTROL_PLANE_READINESS_RESPONSE));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getControlPlaneReadiness()).rejects.toMatchObject({
+      status: 200,
+    });
   });
 
   it("does not parse an unexpected response type", async () => {

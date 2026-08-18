@@ -229,6 +229,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/control-plane/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readiness
+         * @description Report the deployment profile and every unfinished prerequisite.
+         */
+        get: operations["readiness_v1_control_plane_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/discovery/candidates": {
         parameters: {
             query?: never;
@@ -2235,6 +2255,41 @@ export interface components {
          */
         CompatibilityState: "exact" | "compatible" | "degraded" | "untested" | "incompatible" | "unavailable";
         /**
+         * ControlPlaneReadiness
+         * @description An explicit statement that this plane is not a finished product.
+         *
+         *     ``production_ready`` is ``Literal[False]``. Making this plane production
+         *     ready is a contract change with a new ADR, not a configuration value.
+         */
+        ControlPlaneReadiness: {
+            /**
+             * Contract Version
+             * @default control-plane-v2
+             */
+            contract_version: string;
+            /**
+             * Delivery Guarantee
+             * @default at_least_once_with_monotonic_ack
+             * @constant
+             */
+            delivery_guarantee: "at_least_once_with_monotonic_ack";
+            /** Gaps */
+            gaps: components["schemas"]["ReadinessGap"][];
+            /**
+             * Production Ready
+             * @default false
+             * @constant
+             */
+            production_ready: false;
+            profile: components["schemas"]["DeploymentProfile"];
+            /**
+             * Remote Listening Enabled
+             * @default false
+             * @constant
+             */
+            remote_listening_enabled: false;
+        };
+        /**
          * CostEstimateState
          * @enum {string}
          */
@@ -2271,6 +2326,12 @@ export interface components {
          * @enum {string}
          */
         DenominatorBasis: "rubric_factors" | "semantic_unit_opportunities" | "declared_profile_slots" | "objective_opportunities";
+        /**
+         * DeploymentProfile
+         * @description Which adapter set is composed behind the control-plane ports.
+         * @enum {string}
+         */
+        DeploymentProfile: "development" | "production";
         /**
          * EvidenceAuthority
          * @description Highest authority allowed to publish a known value.
@@ -4778,6 +4839,12 @@ export interface components {
             state: components["schemas"]["MetricStateV2"];
         };
         /**
+         * ReadinessGap
+         * @description Exactly what is missing before this plane could serve a real team.
+         * @enum {string}
+         */
+        ReadinessGap: "production_identity_provider_missing" | "production_signature_algorithm_missing" | "production_database_adapter_missing" | "credential_lifecycle_incomplete" | "out_of_band_provisioning_only" | "remote_transport_not_implemented" | "billing_not_implemented" | "producer_pipeline_not_connected" | "disclosure_control_unreviewed" | "durable_recipient_delivery_not_implemented" | "backup_and_replica_erasure_not_implemented" | "governance_review_pending";
+        /**
          * RedactionPreviewBinding
          * @description Everything whose change invalidates a user's approval.
          */
@@ -5878,6 +5945,10 @@ export interface components {
         TextRole: "user" | "agent";
         /** ValidationError */
         ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
@@ -6582,6 +6653,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ManualDisplayLabelResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readiness_v1_control_plane_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlPlaneReadiness"];
                 };
             };
             /** @description Validation Error */

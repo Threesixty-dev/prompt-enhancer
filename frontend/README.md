@@ -49,17 +49,21 @@ WP-03 DTOs. After exporting the backend schema to `../docs/openapi.json`, run
 `npm run generate:api` and review the diff. Runtime API documentation remains
 disabled; generation is a build-time operation.
 
-## Team control-plane port (frontend only)
+## Team control-plane port
 
 `src/shared/api/teamControlPlane.ts` is a typed frontend port for a future
-canonical team control plane. No backend implements it. Two honest adapters
-exist:
+canonical team data service. The loopback backend implements a default-off,
+development-only readiness route, but it does not implement the aggregate or
+member methods. Honest adapters keep those boundaries separate:
 
 - `createSyntheticTeamControlPlanePort()` serves a fictional, content-free
   cohort in the synthetic development preview (every payload is stamped
   `origin: "synthetic_fixture"`);
-- `createUnavailableTeamControlPlanePort()` reports team, organization, sync,
-  and billing as absent in the local loopback runtime and serves no scope.
+- `createLocalLoopbackTeamControlPlanePort()` may display the exact backend
+  readiness blockers but never carries the privileged control-plane credential
+  and always rejects aggregate/member reads;
+- `createUnavailableTeamControlPlanePort()` is the fallback when the optional
+  route is not mounted and reports team, organization, sync, and billing absent.
 
 `createTeamControlPlanePortForRuntime(mode)` binds each runtime data mode to
 its adapter; a remote adapter must not be added until one exists with an
@@ -72,3 +76,5 @@ rank, or score. The `/team` route (Me · Team · Organization), the `/tasks/flow
 board and timeline, and the compact "Team context" drawer in the floating
 overlay consume the port; per-metric two-sentence explainers reuse the
 metric-help-v2 registry and decision guidance in both full and compact modes.
+Task Flow traverses each content-free index in bounded pages and labels the
+result non-atomic; a cap or duplicate across pages is shown as incomplete.

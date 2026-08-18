@@ -13,6 +13,8 @@ export type AnalysisRun = Schemas["AnalysisRunDto"];
 export type AnalysisResult = Schemas["AnalysisResultDto"];
 export type AnalysisRunListResponse = Schemas["AnalysisRunListResponse"];
 export type AnalysisRunResponse = Schemas["AnalysisRunResponse"];
+export type ControlPlaneReadiness = Schemas["ControlPlaneReadiness"];
+export type ControlPlaneReadinessGap = Schemas["ReadinessGap"];
 export type SessionAnalysisRun = Schemas["SessionAnalysisRunDto"];
 export type SessionAnalysisResult = Schemas["SessionAnalysisResultDto"];
 export type SessionAnalysisEvidence = Schemas["SessionAnalysisEvidenceDto"];
@@ -51,6 +53,11 @@ export type ReviewCommand =
   | { action: "split"; request: Schemas["SplitTaskRequest"] };
 
 export type CandidateStatusFilter = "all" | "undecided" | "decided";
+
+export interface ContentFreeListPage {
+  limit: number;
+  offset: number;
+}
 
 export type VerificationKind = Schemas["VerificationKind"];
 export type VerificationCapability = Schemas["VerificationCapability"];
@@ -392,6 +399,11 @@ export interface ManualDisplayLabelResult {
 export type DisplayLabelEntityKind = "project" | "session";
 
 export interface PromptEnhancerTransport {
+  /**
+   * Read the optional, default-off loopback development control-plane status.
+   * This never carries the separate credential used by privileged data routes.
+   */
+  getControlPlaneReadiness(signal?: AbortSignal): Promise<ControlPlaneReadiness>;
   getTextAnalysisResearch?(
     signal?: AbortSignal,
   ): Promise<TextAnalysisResearchCatalog>;
@@ -639,10 +651,12 @@ export interface PromptEnhancerTransport {
   listCandidates(
     status?: CandidateStatusFilter,
     signal?: AbortSignal,
+    page?: ContentFreeListPage,
   ): Promise<CandidateListResponse>;
   listTaskRevisions(
     taskId?: string,
     signal?: AbortSignal,
+    page?: ContentFreeListPage,
   ): Promise<TaskRevisionListResponse>;
   getTaskRevision(
     taskId: string,
@@ -652,6 +666,7 @@ export interface PromptEnhancerTransport {
   listAnalysisRuns(
     taskId?: string,
     signal?: AbortSignal,
+    page?: ContentFreeListPage,
   ): Promise<AnalysisRunListResponse>;
   getAnalysisRun(runId: string, signal?: AbortSignal): Promise<AnalysisRunResponse>;
   review(

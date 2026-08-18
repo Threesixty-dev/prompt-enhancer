@@ -533,6 +533,7 @@ export function createSyntheticTeamControlPlanePort(
     scopes,
     member_visibility: grant,
     readiness: syntheticReadiness(composedAt),
+    control_plane_readiness: null,
     checked_at: composedAt,
   };
   const disclosurePolicy = new StickyContributionDisclosurePolicy();

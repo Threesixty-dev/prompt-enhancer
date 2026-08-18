@@ -1,12 +1,15 @@
+import type { ControlPlaneReadiness } from "./contracts";
+
 /**
  * Typed frontend port for a FUTURE canonical team control plane.
  *
- * Nothing in the shipped backend implements this port. The dashboard consumes
- * it only through two honest adapters:
+ * Nothing in the shipped backend implements the aggregate/member methods. The
+ * dashboard consumes the contract only through honest runtime adapters:
  *
  * - a synthetic in-memory fixture (development preview, fictional cohort);
- * - an "unavailable" adapter for the local loopback runtime that reports the
- *   absence of any team, organization, sync, or billing service.
+ * - a local adapter that can observe exact development-readiness blockers but
+ *   rejects every aggregate/member read, with an unavailable fallback when
+ *   the optional readiness route is not mounted.
  *
  * Design rules carried by the types themselves:
  * - Team and organization views are aggregates over a cohort. Individual
@@ -32,6 +35,7 @@ export type ScopeAccessReason =
   | "granted"
   | "personal_scope_served_locally"
   | "local_runtime_has_no_team_service"
+  | "development_control_plane_incomplete"
   | "team_sync_not_configured"
   | "role_insufficient"
   | "organization_policy_disabled"
@@ -69,6 +73,7 @@ export type MemberVisibilityReason =
   | "permission_not_granted"
   | "member_consent_missing"
   | "cohort_below_minimum"
+  | "development_control_plane_incomplete"
   | "unavailable_in_runtime";
 
 export interface MemberVisibilityAudit {
@@ -114,6 +119,7 @@ export type ReadinessReason =
   | "loopback_service_available"
   | "loopback_service_unavailable"
   | "no_team_sync_service_in_this_build"
+  | "development_control_plane_incomplete"
   | "team_sync_not_configured"
   | "deep_analysis_not_in_synthetic_preview"
   | "deep_analysis_not_verified_by_this_view"
@@ -141,6 +147,8 @@ export interface TeamCapabilityReport {
   scopes: readonly ScopeAccess[];
   member_visibility: MemberVisibilityGrant;
   readiness: readonly ReadinessCard[];
+  /** Exact default-off backend readiness, or null when that route did not answer. */
+  control_plane_readiness: ControlPlaneReadiness | null;
   checked_at: string;
 }
 

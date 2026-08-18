@@ -88,6 +88,7 @@ import {
   ModelCompatibilityPayloadError,
   parseModelCompatibilityCatalog,
 } from "./modelCompatibilityContract";
+import { parseControlPlaneReadiness } from "./controlPlaneReadiness";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -2123,6 +2124,16 @@ export function createHttpTransport(options: {
 
   return {
     runtimeKind: "local_loopback",
+    async getControlPlaneReadiness(signal) {
+      const value = await request<unknown>(
+        "/v1/control-plane/readiness",
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      return parseControlPlaneReadiness(value);
+    },
     async getRuntimeHealth(signal) {
       signal?.throwIfAborted();
       const target = assertSameOriginRelativePath("/health", origin);
@@ -2935,13 +2946,25 @@ export function createHttpTransport(options: {
         throw error;
       }
     },
-    listCandidates(status = "all", signal) {
-      const query = status === "all" ? "" : `?status=${encodeURIComponent(status)}`;
-      return request<CandidateListResponse>(`/v1/discovery/candidates${query}`, { method: "GET" }, signal);
+    listCandidates(status = "all", signal, page) {
+      const query = new URLSearchParams();
+      if (status !== "all") query.set("status", status);
+      if (page !== undefined) {
+        query.set("limit", String(page.limit));
+        query.set("offset", String(page.offset));
+      }
+      const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+      return request<CandidateListResponse>(`/v1/discovery/candidates${suffix}`, { method: "GET" }, signal);
     },
-    listTaskRevisions(taskId, signal) {
-      const query = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
-      return request<TaskRevisionListResponse>(`/v1/task-revisions${query}`, { method: "GET" }, signal);
+    listTaskRevisions(taskId, signal, page) {
+      const query = new URLSearchParams();
+      if (taskId) query.set("task_id", taskId);
+      if (page !== undefined) {
+        query.set("limit", String(page.limit));
+        query.set("offset", String(page.offset));
+      }
+      const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+      return request<TaskRevisionListResponse>(`/v1/task-revisions${suffix}`, { method: "GET" }, signal);
     },
     getTaskRevision(taskId, revision, signal) {
       return request<TaskRevisionResponse>(
@@ -2950,9 +2973,15 @@ export function createHttpTransport(options: {
         signal,
       );
     },
-    listAnalysisRuns(taskId, signal) {
-      const query = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
-      return request<AnalysisRunListResponse>(`/v1/analysis/runs${query}`, { method: "GET" }, signal);
+    listAnalysisRuns(taskId, signal, page) {
+      const query = new URLSearchParams();
+      if (taskId) query.set("task_id", taskId);
+      if (page !== undefined) {
+        query.set("limit", String(page.limit));
+        query.set("offset", String(page.offset));
+      }
+      const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+      return request<AnalysisRunListResponse>(`/v1/analysis/runs${suffix}`, { method: "GET" }, signal);
     },
     getAnalysisRun(runId, signal) {
       return request<AnalysisRunResponse>(

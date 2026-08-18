@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { TeamControlPlanePort } from "../../shared/api/teamControlPlane";
+import { createLocalLoopbackTeamControlPlanePort } from "../../shared/api/teamControlPlaneUnavailable";
 import { createSyntheticTeamControlPlanePort } from "../../shared/api/teamControlPlaneSynthetic";
 import { TeamContextDrawer } from "./TeamContextDrawer";
 
@@ -54,6 +55,30 @@ describe("TeamContextDrawer", () => {
     expect(await screen.findByText("Not permitted for this role")).toBeInTheDocument();
     toggle();
     expect(screen.getByText(/does not permit this scope/)).toBeInTheDocument();
+  });
+
+  it("shows exact loopback readiness blockers and never requests a team value", async () => {
+    const port = createLocalLoopbackTeamControlPlanePort({
+      getControlPlaneReadiness: async () => ({
+        contract_version: "control-plane-v2",
+        delivery_guarantee: "at_least_once_with_monotonic_ack",
+        gaps: ["disclosure_control_unreviewed", "producer_pipeline_not_connected"],
+        production_ready: false,
+        profile: "development",
+        remote_listening_enabled: false,
+      }),
+    }, () => "2040-03-01T12:00:00Z");
+    const getAggregate = vi.spyOn(port, "getAggregate");
+
+    render(<TeamContextDrawer lensId="task-framing" port={port} />);
+    expect(await screen.findByText("Development boundary · 2 blockers")).toBeVisible();
+    toggle();
+    expect(screen.getByText(/Development boundary reachable/)).toBeVisible();
+    fireEvent.click(screen.getByText("2 exact backend blockers"));
+    expect(screen.getByText("disclosure_control_unreviewed")).toBeVisible();
+    expect(screen.getByText("producer_pipeline_not_connected")).toBeVisible();
+    expect(document.querySelector(".team-aggregate-list")).toBeNull();
+    expect(getAggregate).not.toHaveBeenCalled();
   });
 
   it("clears capability and aggregate state when the port identity changes", async () => {

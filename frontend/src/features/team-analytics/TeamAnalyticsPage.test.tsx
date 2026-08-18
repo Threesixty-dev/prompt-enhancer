@@ -10,6 +10,7 @@ import {
   createSyntheticTeamControlPlanePort,
   createUnavailableTeamControlPlanePort,
 } from "../../shared/api/teamControlPlaneSynthetic";
+import { createLocalLoopbackTeamControlPlanePort } from "../../shared/api/teamControlPlaneUnavailable";
 import type { AppRoute } from "../../shared/platform/platform";
 import { TeamAnalyticsPage } from "./TeamAnalyticsPage";
 
@@ -147,6 +148,27 @@ describe("TeamAnalyticsPage", () => {
     expect(navigate).toHaveBeenCalledWith({ name: "projects" });
     await waitFor(() => expect(screen.queryByRole("table")).toBeNull());
     expect(screen.queryByRole("heading", { name: "Member visibility" })).toBeNull();
+  });
+
+  it("shows backend readiness in full mode without requesting a cohort aggregate", async () => {
+    const port = createLocalLoopbackTeamControlPlanePort({
+      getControlPlaneReadiness: async () => ({
+        contract_version: "control-plane-v2",
+        delivery_guarantee: "at_least_once_with_monotonic_ack",
+        gaps: ["governance_review_pending"],
+        production_ready: false,
+        profile: "development",
+        remote_listening_enabled: false,
+      }),
+    }, () => "2040-03-01T12:00:00Z");
+    const getAggregate = vi.spyOn(port, "getAggregate");
+
+    renderPage({ port, runtimeMode: "local_real", serviceState: "available" });
+
+    expect(await screen.findByText(/Development boundary reachable/)).toBeVisible();
+    expect(screen.getByText(/team data remains closed/)).toBeVisible();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(getAggregate).not.toHaveBeenCalled();
   });
 
   it("never publishes a late ready snapshot into a different active scope", async () => {

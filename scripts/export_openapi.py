@@ -218,6 +218,18 @@ class _SchemaEstimatorRepository:
     pass
 
 
+class _SchemaControlPlaneService:
+    """Non-executing stand-in for the optional development control plane."""
+
+    pass
+
+
+class _SchemaControlPlanePrincipalResolver:
+    """Non-executing stand-in that only enables dependency schema generation."""
+
+    pass
+
+
 class _SchemaCodexSourceService:
     """Non-executing stand-in that exposes only local-source route signatures."""
 
@@ -257,11 +269,70 @@ class _SchemaMetricCoverageService:
         raise RuntimeError("schema-only service cannot query metric coverage")
 
 
-def build_openapi_schema() -> dict[str, Any]:
-    """Build the complete UI contract without creating local state or secrets."""
+_BROWSER_CONTROL_PLANE_PATH = "/v1/control-plane/readiness"
+_COMPONENT_SCHEMA_PREFIX = "#/components/schemas/"
 
-    app = create_app(
-        settings=AppSettings(home=Path("example-state")),
+
+def _collect_schema_references(value: object, references: set[str]) -> None:
+    if isinstance(value, dict):
+        reference = value.get("$ref")
+        if isinstance(reference, str) and reference.startswith(
+            _COMPONENT_SCHEMA_PREFIX
+        ):
+            references.add(reference.removeprefix(_COMPONENT_SCHEMA_PREFIX))
+        for child in value.values():
+            _collect_schema_references(child, references)
+    elif isinstance(value, list):
+        for child in value:
+            _collect_schema_references(child, references)
+
+
+def _add_browser_safe_control_plane_surface(
+    schema: dict[str, Any],
+    composed_schema: dict[str, Any],
+) -> dict[str, Any]:
+    """Export readiness without generating privileged browser clients."""
+
+    paths = schema.get("paths")
+    composed_paths = composed_schema.get("paths")
+    if not isinstance(paths, dict) or not isinstance(composed_paths, dict):
+        raise RuntimeError("OpenAPI paths are unavailable")
+    readiness_path = composed_paths.get(_BROWSER_CONTROL_PLANE_PATH)
+    if readiness_path is None:
+        raise RuntimeError("composed control-plane readiness route is unavailable")
+    paths[_BROWSER_CONTROL_PLANE_PATH] = readiness_path
+
+    components = schema.get("components")
+    composed_components = composed_schema.get("components")
+    if not isinstance(components, dict) or not isinstance(composed_components, dict):
+        raise RuntimeError("OpenAPI components are unavailable")
+    definitions = components.get("schemas")
+    composed_definitions = composed_components.get("schemas")
+    if not isinstance(definitions, dict) or not isinstance(composed_definitions, dict):
+        raise RuntimeError("OpenAPI schema definitions are unavailable")
+
+    references: set[str] = set()
+    _collect_schema_references(readiness_path, references)
+    pending = list(references)
+    while pending:
+        name = pending.pop()
+        definition = definitions.get(name, composed_definitions.get(name))
+        if definition is None:
+            raise RuntimeError(f"OpenAPI schema reference is unavailable: {name}")
+        if name not in definitions:
+            definitions[name] = definition
+        before = set(references)
+        _collect_schema_references(definition, references)
+        pending.extend(references - before)
+    return schema
+
+
+def _build_schema_app(*, include_control_plane: bool):
+    return create_app(
+        settings=AppSettings(
+            home=Path("example-state"),
+            control_plane_development_api=include_control_plane,
+        ),
         database=_SchemaStore(),
         api_token="example_schema_token_do_not_use_123456789",
         task_review_service=_SchemaReviewService(),
@@ -277,11 +348,28 @@ def build_openapi_schema() -> dict[str, Any]:
         analysis_job_service=_SchemaAnalysisJobService(),  # type: ignore[arg-type]
         automation_grant_service=_SchemaAutomationGrantService(),  # type: ignore[arg-type]
         estimator_repository=_SchemaEstimatorRepository(),  # type: ignore[arg-type]
+        control_plane_service=(
+            _SchemaControlPlaneService() if include_control_plane else None
+        ),  # type: ignore[arg-type]
+        control_plane_principal_resolver=(
+            _SchemaControlPlanePrincipalResolver()
+            if include_control_plane
+            else None
+        ),  # type: ignore[arg-type]
         codex_source_service=_SchemaCodexSourceService(),
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),
     )
-    return app.openapi()
+
+
+def build_openapi_schema() -> dict[str, Any]:
+    """Build the complete UI contract without creating local state or secrets."""
+
+    base_schema = _build_schema_app(include_control_plane=False).openapi()
+    # Compose the real default-off router to prove readiness exists under the
+    # opt-in. Stand-ins never provision a tenant, issue a credential, or run.
+    composed_schema = _build_schema_app(include_control_plane=True).openapi()
+    return _add_browser_safe_control_plane_surface(base_schema, composed_schema)
 
 
 def export_openapi(output: Path) -> None:
