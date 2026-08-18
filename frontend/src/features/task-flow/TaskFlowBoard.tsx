@@ -4,8 +4,10 @@ import { FactList } from "../../shared/ui/FactList";
 import { Icon } from "../../shared/ui/Icon";
 import { StatusPill, type PillTone } from "../../shared/ui/StatusPill";
 import { TaskFlowAudit } from "./TaskFlowAudit";
+import { TaskLifecycleControls } from "./TaskLifecycleControls";
 import {
   TASK_FLOW_ANALYSIS_LABELS,
+  TASK_FLOW_COLUMN_GROUPS,
   TASK_FLOW_COLUMNS,
   TASK_FLOW_KIND_LABELS,
   TASK_FLOW_SOURCE_LABELS,
@@ -21,7 +23,10 @@ const ANALYSIS_TONE: Readonly<Record<TaskFlowItem["analysis"]["state"], PillTone
   not_applicable: "neutral",
 };
 
-type DecisionTransport = Pick<PromptEnhancerTransport, "getCandidateDecisions">;
+type TaskFlowCardTransport = Pick<
+  PromptEnhancerTransport,
+  "getCandidateDecisions" | "transitionTaskLifecycle" | "correctTaskLifecycle"
+>;
 
 export function TaskFlowCard({
   item,
@@ -30,13 +35,15 @@ export function TaskFlowCard({
   transport,
   onOpen,
   onDecisionsLoaded,
+  onLifecycleChanged,
 }: {
   item: TaskFlowItem;
   allItems: readonly TaskFlowItem[];
   decisionAudits: ReadonlyMap<string, readonly TaskDecision[]>;
-  transport: DecisionTransport;
+  transport: TaskFlowCardTransport;
   onOpen: (item: TaskFlowItem) => void;
   onDecisionsLoaded: (candidateId: string, values: readonly TaskDecision[]) => void;
+  onLifecycleChanged: (message: string) => void;
 }) {
   const titleId = `task-flow-card-${item.kind}-${shortId(item.sourceId)}-${item.provenance.version.replaceAll(/[^a-z0-9]/giu, "-").slice(0, 18)}`;
   const taskHistory = item.kind === "confirmed"
@@ -82,6 +89,20 @@ export function TaskFlowCard({
                 detail: <>{item.evidence.label}<span className="task-flow-card__detail">{item.evidence.detail}</span></>,
               }
               : {
+                term: "Work state",
+                detail: (
+                  <>
+                    <strong>{item.workLifecycle?.label ?? "State not reconciled"}</strong>
+                    <span className="task-flow-card__detail">
+                      {item.workLifecycle?.authority === "authoritative"
+                        ? `${item.workLifecycle.eventCount ?? 0} immutable lifecycle receipt${item.workLifecycle.eventCount === 1 ? "" : "s"}; only explicit commands mutate this state.`
+                        : "No backlog, in-progress, or done state is fabricated from analysis or revision metadata."}
+                    </span>
+                  </>
+                ),
+              },
+            item.kind === "confirmed"
+              ? {
                 term: "Analysis (not task state)",
                 detail: (
                   <>
@@ -89,11 +110,6 @@ export function TaskFlowCard({
                     <span className="task-flow-card__detail">{item.analysis.detail}</span>
                   </>
                 ),
-              },
-            item.kind === "confirmed"
-              ? {
-                term: "Task timing",
-                detail: <>Start <strong>Unknown</strong> · finish <strong>Unknown</strong><span className="task-flow-card__detail">No authoritative task lifecycle timing events exist in this contract.</span></>,
               }
               : {
                 term: "Decision receipt",
@@ -102,6 +118,19 @@ export function TaskFlowCard({
                   : item.decisionId === null
                     ? <>Decision recorded · receipt identifier not exposed</>
                     : <>Decision receipt <span className="mono">{shortId(item.decisionId)}</span></>,
+              },
+            item.kind === "confirmed"
+              ? {
+                term: "Lifecycle receipt times",
+                detail: <>
+                  In-progress recorded <strong>{item.taskStartedAt === null ? "Unknown" : formatTimestamp(item.taskStartedAt)}</strong>
+                  {" · "}done recorded <strong>{item.taskFinishedAt === null ? "Unknown" : formatTimestamp(item.taskFinishedAt)}</strong>
+                  <span className="task-flow-card__detail">These are exact server receipt times, not inferred real-world start or finish times.</span>
+                </>,
+              }
+              : {
+                term: "Proposal authority",
+                detail: <>A detected grouping remains a proposal until its explicit review receipt is loaded.</>,
               },
           ]}
           label={`${item.title} record facts`}
@@ -114,6 +143,11 @@ export function TaskFlowCard({
           }}
           onDecisionsLoaded={onDecisionsLoaded}
           taskHistory={taskHistory}
+          transport={transport}
+        />
+        <TaskLifecycleControls
+          item={item}
+          onLifecycleChanged={onLifecycleChanged}
           transport={transport}
         />
         <footer>
@@ -140,46 +174,59 @@ export function TaskFlowBoard({
   transport,
   onOpen,
   onDecisionsLoaded,
+  onLifecycleChanged,
 }: {
   items: readonly TaskFlowItem[];
   allItems: readonly TaskFlowItem[];
   decisionAudits: ReadonlyMap<string, readonly TaskDecision[]>;
-  transport: DecisionTransport;
+  transport: TaskFlowCardTransport;
   onOpen: (item: TaskFlowItem) => void;
   onDecisionsLoaded: (candidateId: string, values: readonly TaskDecision[]) => void;
+  onLifecycleChanged: (message: string) => void;
 }) {
   return (
     <div aria-label="Task flow board" className="task-flow-board" role="group">
-      {TASK_FLOW_COLUMNS.map((column) => {
-        const columnItems = items.filter((item) => item.column === column.id);
-        const headingId = `task-flow-column-${column.id}`;
-        return (
-          <section aria-labelledby={headingId} className="task-flow-column" data-column={column.id} data-kind={column.kind} key={column.id}>
-            <header>
-              <div>
-                <h3 id={headingId}>{column.label}</h3>
-                <small>{column.description}</small>
-              </div>
-              <span aria-label={`${columnItems.length} ${columnItems.length === 1 ? "item" : "items"}`} className="task-flow-column__count">{columnItems.length}</span>
-            </header>
-            <ul>
-              {columnItems.length === 0
-                ? <li className="task-flow-column__empty">Nothing in this column for the current filters.</li>
-                : columnItems.map((item) => (
-                  <TaskFlowCard
-                    allItems={allItems}
-                    decisionAudits={decisionAudits}
-                    item={item}
-                    key={item.id}
-                    onDecisionsLoaded={onDecisionsLoaded}
-                    onOpen={onOpen}
-                    transport={transport}
-                  />
-                ))}
-            </ul>
-          </section>
-        );
-      })}
+      {TASK_FLOW_COLUMN_GROUPS.map((group) => (
+        <section aria-labelledby={`task-flow-group-${group.id}`} className="task-flow-board__group" data-group={group.id} key={group.id}>
+          <header className="task-flow-board__group-header">
+            <h2 id={`task-flow-group-${group.id}`}>{group.label}</h2>
+            <p>{group.description}</p>
+          </header>
+          <div className="task-flow-board__grid">
+            {TASK_FLOW_COLUMNS.filter((column) => column.group === group.id).map((column) => {
+              const columnItems = items.filter((item) => item.column === column.id);
+              const headingId = `task-flow-column-${column.id}`;
+              return (
+                <section aria-labelledby={headingId} className="task-flow-column" data-column={column.id} data-kind={column.kind} key={column.id}>
+                  <header>
+                    <div>
+                      <h3 id={headingId}>{column.label}</h3>
+                      <small>{column.description}</small>
+                    </div>
+                    <span aria-label={`${columnItems.length} ${columnItems.length === 1 ? "item" : "items"}`} className="task-flow-column__count">{columnItems.length}</span>
+                  </header>
+                  <ul>
+                    {columnItems.length === 0
+                      ? <li className="task-flow-column__empty">Nothing in this column for the current filters.</li>
+                      : columnItems.map((item) => (
+                        <TaskFlowCard
+                          allItems={allItems}
+                          decisionAudits={decisionAudits}
+                          item={item}
+                          key={item.id}
+                          onDecisionsLoaded={onDecisionsLoaded}
+                          onLifecycleChanged={onLifecycleChanged}
+                          onOpen={onOpen}
+                          transport={transport}
+                        />
+                      ))}
+                  </ul>
+                </section>
+              );
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

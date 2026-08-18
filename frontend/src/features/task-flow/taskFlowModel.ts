@@ -1,58 +1,122 @@
-import type { Provider } from "../../shared/api/contracts";
+import type {
+  Provider,
+  TaskLifecycleEvent,
+  TaskLifecycleState,
+} from "../../shared/api/contracts";
 import type { AppRoute } from "../../shared/platform/platform";
 
 /** Discovery proposals and human-confirmed revisions are never interchangeable. */
 export type TaskFlowKind = "candidate" | "confirmed";
 
-/**
- * These columns describe immutable record kinds, not an inferred work state.
- * In particular, no backlog/in-progress/done column exists because the local
- * task contract has no authoritative events for those states.
- */
 export type TaskFlowColumnId =
   | "proposed"
-  | "confirmed"
   | "reviewed"
   | "rejected"
-  | "decided_unknown";
+  | "decided_unknown"
+  | "work_unknown"
+  | "backlog"
+  | "in_progress"
+  | "done"
+  | "historical"
+  | "unreconciled";
+
+export type TaskFlowColumnGroup = "work" | "review";
 
 export interface TaskFlowColumn {
   id: TaskFlowColumnId;
   label: string;
   kind: TaskFlowKind;
+  group: TaskFlowColumnGroup;
   description: string;
 }
 
 export const TASK_FLOW_COLUMNS: readonly TaskFlowColumn[] = [
   {
+    id: "work_unknown",
+    label: "Work state unknown",
+    kind: "confirmed",
+    group: "work",
+    description: "The current revision has no effective explicit work-state receipt.",
+  },
+  {
+    id: "backlog",
+    label: "Backlog",
+    kind: "confirmed",
+    group: "work",
+    description: "A local user explicitly placed the current revision in backlog.",
+  },
+  {
+    id: "in_progress",
+    label: "In progress",
+    kind: "confirmed",
+    group: "work",
+    description: "A local user explicitly recorded work in progress.",
+  },
+  {
+    id: "done",
+    label: "Done",
+    kind: "confirmed",
+    group: "work",
+    description: "A local user explicitly recorded done. Analysis never sets this state.",
+  },
+  {
+    id: "historical",
+    label: "Historical revisions",
+    kind: "confirmed",
+    group: "work",
+    description: "Superseded immutable revisions; current work state is intentionally not projected here.",
+  },
+  {
+    id: "unreconciled",
+    label: "State not reconciled",
+    kind: "confirmed",
+    group: "work",
+    description: "Separate bounded indexes did not yield a matching lifecycle snapshot.",
+  },
+  {
     id: "proposed",
     label: "Proposed groupings",
     kind: "candidate",
+    group: "review",
     description: "Detected groupings awaiting an explicit human decision. They are not tasks.",
-  },
-  {
-    id: "confirmed",
-    label: "Confirmed revisions",
-    kind: "confirmed",
-    description: "Immutable task revisions created by accept, merge, or split decisions.",
   },
   {
     id: "reviewed",
     label: "Accepted · merged · split",
     kind: "candidate",
+    group: "review",
     description: "Reviewed proposal receipts. Their output revisions appear separately.",
   },
   {
     id: "rejected",
     label: "Rejected proposals",
     kind: "candidate",
+    group: "review",
     description: "Explicitly rejected proposals. No successor task is implied.",
   },
   {
     id: "decided_unknown",
     label: "Decided · action unknown",
     kind: "candidate",
+    group: "review",
     description: "A decision is reported, but its action is not exposed. No outcome is inferred.",
+  },
+];
+
+export const TASK_FLOW_COLUMN_GROUPS: readonly {
+  id: TaskFlowColumnGroup;
+  label: string;
+  description: string;
+}[] = [
+  {
+    id: "work",
+    label: "Confirmed work board",
+    description: "Only explicit local-user lifecycle receipts place a current revision in backlog, in progress, or done.",
+  },
+  {
+    id: "review",
+    label: "Proposal review ledger",
+    description: "Detected groupings and immutable human review outcomes remain separate from confirmed work state.",
   },
 ];
 
@@ -66,6 +130,23 @@ export interface TaskFlowLifecycle {
   /** Raw status token from the source record (never renamed into a work state). */
   status: string;
   label: string;
+}
+
+export type TaskFlowWorkLifecycleAuthority =
+  | "authoritative"
+  | "historical_not_loaded"
+  | "unreconciled";
+
+export interface TaskFlowWorkLifecycle {
+  authority: TaskFlowWorkLifecycleAuthority;
+  currentState: TaskLifecycleState | null;
+  label: string;
+  currentTaskRevision: number | null;
+  headEventId: string | null;
+  eventCount: number | null;
+  priorRevisionEventCount: number | null;
+  events: readonly TaskLifecycleEvent[];
+  eventsComplete: boolean;
 }
 
 export interface TaskFlowProvenance {
@@ -125,14 +206,17 @@ export interface TaskFlowItem {
   provider: Provider | null;
   sessionCount: number;
   lifecycle: TaskFlowLifecycle;
+  /** Explicit work-state receipts, kept separate from raw revision metadata. */
+  workLifecycle: TaskFlowWorkLifecycle | null;
   provenance: TaskFlowProvenance;
   evidence: TaskFlowEvidenceFact;
   analysis: TaskFlowAnalysisFact;
   /** Creation time of this exact immutable record, not task start time. */
   occurredAt: string;
-  /** The current task contract records neither authoritative task time. */
-  taskStartedAt: null;
-  taskFinishedAt: null;
+  /** Receipt time of the latest effective transition to in-progress, if proven. */
+  taskStartedAt: string | null;
+  /** Receipt time of the latest effective transition to done, if proven. */
+  taskFinishedAt: string | null;
   decisionId: string | null;
   decisionAction: "accept" | "reject" | "merge" | "split" | null;
   /** Authoritative CandidateListItem decision_status, not inferred from nullable receipt fields. */

@@ -1691,6 +1691,10 @@
             "title": "Task Analysis",
             "type": "boolean"
           },
+          "task_lifecycle": {
+            "title": "Task Lifecycle",
+            "type": "boolean"
+          },
           "task_review": {
             "title": "Task Review",
             "type": "boolean"
@@ -1708,6 +1712,7 @@
           "arbitrary_sql",
           "write_api",
           "task_review",
+          "task_lifecycle",
           "task_analysis",
           "session_text_analysis",
           "session_model_link_experiment",
@@ -12448,6 +12453,370 @@
         "title": "TaskDecisionDto",
         "type": "object"
       },
+      "TaskLifecycleCorrectionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_head_event_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Head Event Id",
+            "type": "string"
+          },
+          "supersedes_event_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Supersedes Event Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_head_event_id",
+          "supersedes_event_id"
+        ],
+        "title": "TaskLifecycleCorrectionRequest",
+        "type": "object"
+      },
+      "TaskLifecycleEventDto": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_scope": {
+            "const": "local_user",
+            "title": "Actor Scope",
+            "type": "string"
+          },
+          "command_schema_version": {
+            "const": "task-lifecycle-command-v1",
+            "title": "Command Schema Version",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_kind": {
+            "$ref": "#/components/schemas/TaskLifecycleEventKind"
+          },
+          "previous_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Event Id"
+          },
+          "prior_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskLifecycleState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Request Fingerprint",
+            "type": "string"
+          },
+          "resulting_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskLifecycleState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sequence": {
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "source": {
+            "const": "explicit_local_user",
+            "title": "Source",
+            "type": "string"
+          },
+          "supersedes_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Event Id"
+          },
+          "task_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_input_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Task Input Fingerprint",
+            "type": "string"
+          },
+          "task_revision": {
+            "minimum": 1.0,
+            "title": "Task Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id",
+          "task_id",
+          "task_revision",
+          "sequence",
+          "event_kind",
+          "prior_state",
+          "resulting_state",
+          "previous_event_id",
+          "supersedes_event_id",
+          "task_input_fingerprint",
+          "command_schema_version",
+          "source",
+          "actor_scope",
+          "request_fingerprint",
+          "created_at"
+        ],
+        "title": "TaskLifecycleEventDto",
+        "type": "object"
+      },
+      "TaskLifecycleEventKind": {
+        "enum": [
+          "transition",
+          "correction"
+        ],
+        "title": "TaskLifecycleEventKind",
+        "type": "string"
+      },
+      "TaskLifecycleListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "lifecycles": {
+            "items": {
+              "$ref": "#/components/schemas/TaskLifecycleSnapshotDto"
+            },
+            "title": "Lifecycles",
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lifecycles",
+          "limit",
+          "offset"
+        ],
+        "title": "TaskLifecycleListResponse",
+        "type": "object"
+      },
+      "TaskLifecycleMutationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/TaskLifecycleEventDto"
+          },
+          "head_event_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Head Event Id",
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskLifecycleState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "event",
+          "state",
+          "head_event_id"
+        ],
+        "title": "TaskLifecycleMutationResponse",
+        "type": "object"
+      },
+      "TaskLifecycleSnapshotDto": {
+        "additionalProperties": false,
+        "properties": {
+          "current_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskLifecycleState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current_task_revision": {
+            "minimum": 1.0,
+            "title": "Current Task Revision",
+            "type": "integer"
+          },
+          "event_count": {
+            "minimum": 0.0,
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TaskLifecycleEventDto"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "events_complete": {
+            "title": "Events Complete",
+            "type": "boolean"
+          },
+          "events_limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Events Limit",
+            "type": "integer"
+          },
+          "events_offset": {
+            "minimum": 0.0,
+            "title": "Events Offset",
+            "type": "integer"
+          },
+          "head_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Event Id"
+          },
+          "is_current_revision": {
+            "title": "Is Current Revision",
+            "type": "boolean"
+          },
+          "prior_revision_event_count": {
+            "minimum": 0.0,
+            "title": "Prior Revision Event Count",
+            "type": "integer"
+          },
+          "task_id": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_revision": {
+            "minimum": 1.0,
+            "title": "Task Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_id",
+          "task_revision",
+          "current_task_revision",
+          "is_current_revision",
+          "current_state",
+          "head_event_id",
+          "event_count",
+          "prior_revision_event_count",
+          "events",
+          "events_limit",
+          "events_offset",
+          "events_complete"
+        ],
+        "title": "TaskLifecycleSnapshotDto",
+        "type": "object"
+      },
+      "TaskLifecycleState": {
+        "description": "Authoritative states justified by the current local workflow.",
+        "enum": [
+          "backlog",
+          "in_progress",
+          "done"
+        ],
+        "title": "TaskLifecycleState",
+        "type": "string"
+      },
+      "TaskLifecycleTransitionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_head_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Head Event Id"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TaskLifecycleState"
+          }
+        },
+        "required": [
+          "expected_head_event_id",
+          "state"
+        ],
+        "title": "TaskLifecycleTransitionRequest",
+        "type": "object"
+      },
       "TaskReviewResponse": {
         "additionalProperties": false,
         "properties": {
@@ -12724,13 +13093,6 @@
       },
       "ValidationError": {
         "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
           "loc": {
             "items": {
               "anyOf": [
@@ -18786,6 +19148,106 @@
         ]
       }
     },
+    "/v1/task-lifecycles": {
+      "get": {
+        "operationId": "lifecycle_list_v1_task_lifecycles_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event_limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Event Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskLifecycleListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lifecycle List",
+        "tags": [
+          "task-lifecycle"
+        ]
+      }
+    },
     "/v1/task-revisions": {
       "get": {
         "operationId": "task_revision_list_v1_task_revisions_get",
@@ -19070,6 +19532,330 @@
         "summary": "Analyze Task Revision",
         "tags": [
           "task-analysis"
+        ]
+      }
+    },
+    "/v1/tasks/{task_id}/revisions/{task_revision}/lifecycle": {
+      "get": {
+        "operationId": "lifecycle_detail_v1_tasks__task_id__revisions__task_revision__lifecycle_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_revision",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Task Revision",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event_limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Event Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "event_offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Event Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskLifecycleSnapshotDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lifecycle Detail",
+        "tags": [
+          "task-lifecycle"
+        ]
+      }
+    },
+    "/v1/tasks/{task_id}/revisions/{task_revision}/lifecycle/corrections": {
+      "post": {
+        "description": "Append a user correction (201); an exact idempotent replay returns 200.",
+        "operationId": "correct_v1_tasks__task_id__revisions__task_revision__lifecycle_corrections_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_revision",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Task Revision",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskLifecycleCorrectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskLifecycleMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Correct",
+        "tags": [
+          "task-lifecycle"
+        ]
+      }
+    },
+    "/v1/tasks/{task_id}/revisions/{task_revision}/lifecycle/transitions": {
+      "post": {
+        "description": "Append a user transition (201); an exact idempotent replay returns 200.",
+        "operationId": "transition_v1_tasks__task_id__revisions__task_revision__lifecycle_transitions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "task_revision",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Task Revision",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskLifecycleTransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskLifecycleMutationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Transition",
+        "tags": [
+          "task-lifecycle"
         ]
       }
     },

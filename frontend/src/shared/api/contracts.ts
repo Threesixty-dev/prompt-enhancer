@@ -12,6 +12,11 @@ export type DecisionRevisionLink = Schemas["DecisionRevisionLinkDto"];
 export type TaskRevision = Schemas["TaskRevisionDto"];
 export type TaskRevisionResponse = Schemas["TaskRevisionResponse"];
 export type TaskRevisionListResponse = Schemas["TaskRevisionListResponse"];
+export type TaskLifecycleState = Schemas["TaskLifecycleState"];
+export type TaskLifecycleEvent = Schemas["TaskLifecycleEventDto"];
+export type TaskLifecycleSnapshot = Schemas["TaskLifecycleSnapshotDto"];
+export type TaskLifecycleListResponse = Schemas["TaskLifecycleListResponse"];
+export type TaskLifecycleMutationResponse = Schemas["TaskLifecycleMutationResponse"];
 export type AnalysisRun = Schemas["AnalysisRunDto"];
 export type AnalysisResult = Schemas["AnalysisResultDto"];
 export type AnalysisRunListResponse = Schemas["AnalysisRunListResponse"];
@@ -677,6 +682,35 @@ export interface PromptEnhancerTransport {
     revision: number,
     signal?: AbortSignal,
   ): Promise<TaskRevisionResponse>;
+  listTaskLifecycles(
+    signal?: AbortSignal,
+    page?: ContentFreeListPage,
+    eventLimit?: number,
+  ): Promise<TaskLifecycleListResponse>;
+  getTaskLifecycle(
+    taskId: string,
+    revision: number,
+    eventLimit?: number,
+    eventOffset?: number,
+    signal?: AbortSignal,
+  ): Promise<TaskLifecycleSnapshot>;
+  transitionTaskLifecycle(
+    taskId: string,
+    revision: number,
+    expectedHeadEventId: string | null,
+    state: TaskLifecycleState,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<TaskLifecycleMutationResponse>;
+  correctTaskLifecycle(
+    taskId: string,
+    revision: number,
+    expectedHeadEventId: string,
+    expectedPriorState: TaskLifecycleState | null,
+    expectedResultingState: TaskLifecycleState | null,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<TaskLifecycleMutationResponse>;
   listAnalysisRuns(
     taskId?: string,
     signal?: AbortSignal,

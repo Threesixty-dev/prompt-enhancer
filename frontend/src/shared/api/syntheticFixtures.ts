@@ -14,6 +14,7 @@ import type {
   SessionAnalysisRunResponse,
   SessionMetricReadinessReport,
   TaskDecision,
+  TaskLifecycleSnapshot,
   TaskRevision,
 } from "./contracts";
 
@@ -264,6 +265,59 @@ export const SYNTHETIC_TASKS: TaskRevision[] = [
     session_ids: [pseudonym("0"), pseudonym("f")],
     input_fingerprint: pseudonym("3"),
     created_at: "2040-01-01T14:05:00Z",
+  },
+];
+
+/** Content-free explicit-user lifecycle receipts for the fictional task. */
+export const SYNTHETIC_TASK_LIFECYCLES: TaskLifecycleSnapshot[] = [
+  {
+    task_id: pseudonym("d"),
+    task_revision: 1,
+    current_task_revision: 1,
+    is_current_revision: true,
+    current_state: "in_progress",
+    head_event_id: pseudonym("7"),
+    event_count: 2,
+    prior_revision_event_count: 0,
+    events_limit: 100,
+    events_offset: 0,
+    events_complete: true,
+    events: [
+      {
+        event_id: pseudonym("6"),
+        task_id: pseudonym("d"),
+        task_revision: 1,
+        sequence: 1,
+        event_kind: "transition",
+        prior_state: null,
+        resulting_state: "backlog",
+        previous_event_id: null,
+        supersedes_event_id: null,
+        task_input_fingerprint: pseudonym("3"),
+        command_schema_version: "task-lifecycle-command-v1",
+        source: "explicit_local_user",
+        actor_scope: "local_user",
+        request_fingerprint: pseudonym("8"),
+        created_at: "2040-01-01T14:05:10Z",
+      },
+      {
+        event_id: pseudonym("7"),
+        task_id: pseudonym("d"),
+        task_revision: 1,
+        sequence: 2,
+        event_kind: "transition",
+        prior_state: "backlog",
+        resulting_state: "in_progress",
+        previous_event_id: pseudonym("6"),
+        supersedes_event_id: null,
+        task_input_fingerprint: pseudonym("3"),
+        command_schema_version: "task-lifecycle-command-v1",
+        source: "explicit_local_user",
+        actor_scope: "local_user",
+        request_fingerprint: pseudonym("9"),
+        created_at: "2040-01-01T14:05:20Z",
+      },
+    ],
   },
 ];
 

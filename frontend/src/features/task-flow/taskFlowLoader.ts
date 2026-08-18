@@ -3,13 +3,14 @@ import type {
   CandidateListItem,
   ContentFreeListPage,
   PromptEnhancerTransport,
+  TaskLifecycleSnapshot,
   TaskRevision,
 } from "../../shared/api/contracts";
 
 export const TASK_FLOW_PAGE_SIZE = 100;
 export const TASK_FLOW_RECORD_CAP_PER_SOURCE = 5_000;
 
-export type TaskFlowSourceKey = "candidates" | "tasks" | "runs";
+export type TaskFlowSourceKey = "candidates" | "tasks" | "lifecycles" | "runs";
 export type TaskFlowSourceBoundary =
   | "page_end_observed"
   | "cap_reached"
@@ -35,15 +36,16 @@ export interface TaskFlowLoadProgress {
 export interface TaskFlowLoadResult {
   candidates: CandidateListItem[];
   tasks: TaskRevision[];
+  lifecycles: TaskLifecycleSnapshot[];
   runs: AnalysisRun[];
   receipts: readonly TaskFlowSourceReceipt[];
-  /** The three HTTP indexes are never represented as one atomic snapshot. */
+  /** The four HTTP indexes are never represented as one atomic snapshot. */
   consistency: "non_atomic_multi_request";
 }
 
 type TaskFlowListTransport = Pick<
   PromptEnhancerTransport,
-  "listCandidates" | "listTaskRevisions" | "listAnalysisRuns"
+  "listCandidates" | "listTaskRevisions" | "listTaskLifecycles" | "listAnalysisRuns"
 >;
 
 interface PageResponse<T> {
@@ -134,7 +136,7 @@ async function loadSource<T>(
 }
 
 /**
- * Traverse all three bounded content-free indexes. A short page proves only
+ * Traverse all four bounded content-free indexes. A short page proves only
  * that one index ended during its own request sequence, not one shared
  * point-in-time snapshot.
  */
@@ -148,7 +150,7 @@ export async function loadTaskFlowSources(
   validateBounds(pageSize, recordCap);
   const shared = { pageSize, recordCap, onProgress: options.onProgress };
 
-  const [candidates, tasks, runs] = await Promise.all([
+  const [candidates, tasks, lifecycles, runs] = await Promise.all([
     loadSource(
       "candidates",
       async (page) => {
@@ -168,6 +170,15 @@ export async function loadTaskFlowSources(
       shared,
     ),
     loadSource(
+      "lifecycles",
+      async (page) => {
+        const response = await transport.listTaskLifecycles(signal, page, 100);
+        return { values: response.lifecycles, limit: response.limit, offset: response.offset };
+      },
+      (item) => `${item.task_id}:${item.task_revision}`,
+      shared,
+    ),
+    loadSource(
       "runs",
       async (page) => {
         const response = await transport.listAnalysisRuns(undefined, signal, page);
@@ -181,8 +192,9 @@ export async function loadTaskFlowSources(
   return {
     candidates: candidates.values,
     tasks: tasks.values,
+    lifecycles: lifecycles.values,
     runs: runs.values,
-    receipts: [candidates.receipt, tasks.receipt, runs.receipt],
+    receipts: [candidates.receipt, tasks.receipt, lifecycles.receipt, runs.receipt],
     consistency: "non_atomic_multi_request",
   };
 }

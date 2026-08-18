@@ -1110,6 +1110,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/task-lifecycles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lifecycle List */
+        get: operations["lifecycle_list_v1_task_lifecycles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/task-revisions": {
         parameters: {
             query?: never;
@@ -1155,6 +1172,63 @@ export interface paths {
         put?: never;
         /** Analyze Task Revision */
         post: operations["analyze_task_revision_v1_tasks__task_id__revisions__revision__analysis_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/{task_id}/revisions/{task_revision}/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lifecycle Detail */
+        get: operations["lifecycle_detail_v1_tasks__task_id__revisions__task_revision__lifecycle_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/{task_id}/revisions/{task_revision}/lifecycle/corrections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct
+         * @description Append a user correction (201); an exact idempotent replay returns 200.
+         */
+        post: operations["correct_v1_tasks__task_id__revisions__task_revision__lifecycle_corrections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/{task_id}/revisions/{task_revision}/lifecycle/transitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transition
+         * @description Append a user transition (201); an exact idempotent replay returns 200.
+         */
+        post: operations["transition_v1_tasks__task_id__revisions__task_revision__lifecycle_transitions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1906,6 +1980,8 @@ export interface components {
             session_text_content_persistence: false;
             /** Task Analysis */
             task_analysis: boolean;
+            /** Task Lifecycle */
+            task_lifecycle: boolean;
             /** Task Review */
             task_review: boolean;
             /** Write Api */
@@ -6049,6 +6125,114 @@ export interface components {
             /** Revision Links */
             revision_links: components["schemas"]["DecisionRevisionLinkDto"][];
         };
+        /** TaskLifecycleCorrectionRequest */
+        TaskLifecycleCorrectionRequest: {
+            /** Expected Head Event Id */
+            expected_head_event_id: string;
+            /** Supersedes Event Id */
+            supersedes_event_id: string;
+        };
+        /** TaskLifecycleEventDto */
+        TaskLifecycleEventDto: {
+            /**
+             * Actor Scope
+             * @constant
+             */
+            actor_scope: "local_user";
+            /**
+             * Command Schema Version
+             * @constant
+             */
+            command_schema_version: "task-lifecycle-command-v1";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Id */
+            event_id: string;
+            event_kind: components["schemas"]["TaskLifecycleEventKind"];
+            /** Previous Event Id */
+            previous_event_id: string | null;
+            prior_state: components["schemas"]["TaskLifecycleState"] | null;
+            /** Request Fingerprint */
+            request_fingerprint: string;
+            resulting_state: components["schemas"]["TaskLifecycleState"] | null;
+            /** Sequence */
+            sequence: number;
+            /**
+             * Source
+             * @constant
+             */
+            source: "explicit_local_user";
+            /** Supersedes Event Id */
+            supersedes_event_id: string | null;
+            /** Task Id */
+            task_id: string;
+            /** Task Input Fingerprint */
+            task_input_fingerprint: string;
+            /** Task Revision */
+            task_revision: number;
+        };
+        /**
+         * TaskLifecycleEventKind
+         * @enum {string}
+         */
+        TaskLifecycleEventKind: "transition" | "correction";
+        /** TaskLifecycleListResponse */
+        TaskLifecycleListResponse: {
+            /** Lifecycles */
+            lifecycles: components["schemas"]["TaskLifecycleSnapshotDto"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** TaskLifecycleMutationResponse */
+        TaskLifecycleMutationResponse: {
+            event: components["schemas"]["TaskLifecycleEventDto"];
+            /** Head Event Id */
+            head_event_id: string;
+            state: components["schemas"]["TaskLifecycleState"] | null;
+        };
+        /** TaskLifecycleSnapshotDto */
+        TaskLifecycleSnapshotDto: {
+            current_state: components["schemas"]["TaskLifecycleState"] | null;
+            /** Current Task Revision */
+            current_task_revision: number;
+            /** Event Count */
+            event_count: number;
+            /** Events */
+            events: components["schemas"]["TaskLifecycleEventDto"][];
+            /** Events Complete */
+            events_complete: boolean;
+            /** Events Limit */
+            events_limit: number;
+            /** Events Offset */
+            events_offset: number;
+            /** Head Event Id */
+            head_event_id: string | null;
+            /** Is Current Revision */
+            is_current_revision: boolean;
+            /** Prior Revision Event Count */
+            prior_revision_event_count: number;
+            /** Task Id */
+            task_id: string;
+            /** Task Revision */
+            task_revision: number;
+        };
+        /**
+         * TaskLifecycleState
+         * @description Authoritative states justified by the current local workflow.
+         * @enum {string}
+         */
+        TaskLifecycleState: "backlog" | "in_progress" | "done";
+        /** TaskLifecycleTransitionRequest */
+        TaskLifecycleTransitionRequest: {
+            /** Expected Head Event Id */
+            expected_head_event_id: string | null;
+            state: components["schemas"]["TaskLifecycleState"];
+        };
         /** TaskReviewResponse */
         TaskReviewResponse: {
             action: components["schemas"]["DecisionAction"];
@@ -6159,10 +6343,6 @@ export interface components {
         TextRole: "user" | "agent";
         /** ValidationError */
         ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
@@ -9020,6 +9200,42 @@ export interface operations {
             };
         };
     };
+    lifecycle_list_v1_task_lifecycles_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                event_limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLifecycleListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     task_revision_list_v1_task_revisions_get: {
         parameters: {
             query?: {
@@ -9114,6 +9330,124 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskAnalysisResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lifecycle_detail_v1_tasks__task_id__revisions__task_revision__lifecycle_get: {
+        parameters: {
+            query?: {
+                event_limit?: number;
+                event_offset?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                task_id: string;
+                task_revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLifecycleSnapshotDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    correct_v1_tasks__task_id__revisions__task_revision__lifecycle_corrections_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                task_id: string;
+                task_revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskLifecycleCorrectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLifecycleMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transition_v1_tasks__task_id__revisions__task_revision__lifecycle_transitions_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                task_id: string;
+                task_revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskLifecycleTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLifecycleMutationResponse"];
                 };
             };
             /** @description Validation Error */

@@ -29,7 +29,13 @@ import "./TaskFlow.css";
 
 type TaskFlowTransport = Pick<
   PromptEnhancerTransport,
-  "listCandidates" | "listTaskRevisions" | "listAnalysisRuns" | "getCandidateDecisions"
+  | "listCandidates"
+  | "listTaskRevisions"
+  | "listTaskLifecycles"
+  | "listAnalysisRuns"
+  | "getCandidateDecisions"
+  | "transitionTaskLifecycle"
+  | "correctTaskLifecycle"
 >;
 
 function wideBoardDefault(): boolean {
@@ -59,6 +65,7 @@ export function TaskFlowPage({
   const [sourceReceipts, setSourceReceipts] = useState<readonly TaskFlowSourceReceipt[] | null>(null);
   const [loadProgress, setLoadProgress] = useState<Partial<Record<TaskFlowLoadProgress["source"], TaskFlowLoadProgress>>>({});
   const [decisionAudits, setDecisionAudits] = useState<ReadonlyMap<string, readonly TaskDecision[]>>(() => new Map());
+  const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
   const [boardOpen, setBoardOpen] = useState(wideBoardDefault);
 
   useEffect(() => {
@@ -78,8 +85,10 @@ export function TaskFlowPage({
       .then((result) => {
         if (controller.signal.aborted) return;
         const runReceipt = result.receipts.find((receipt) => receipt.source === "runs");
+        const lifecycleReceipt = result.receipts.find((receipt) => receipt.source === "lifecycles");
         setItems(projectTaskFlow(result, {
           analysisIndexEnded: runReceipt?.boundary === "page_end_observed",
+          lifecycleIndexEnded: lifecycleReceipt?.boundary === "page_end_observed",
         }));
         setSourceReceipts(result.receipts);
       })
@@ -100,7 +109,7 @@ export function TaskFlowPage({
     confirmed: visible.filter((item) => item.kind === "confirmed").length,
   }), [visible]);
   const incompleteReceipt = sourceReceipts?.find((receipt) => receipt.boundary !== "page_end_observed") ?? null;
-  const progressLabel = (["candidates", "tasks", "runs"] as const)
+  const progressLabel = (["candidates", "tasks", "lifecycles", "runs"] as const)
     .map((source) => `${loadProgress[source]?.loaded ?? 0} ${source}`)
     .join(" · ");
 
@@ -127,7 +136,7 @@ export function TaskFlowPage({
         <div>
           <p className="eyebrow">Evidence-honest task records</p>
           <h1 id="task-flow-title">Task flow</h1>
-          <p>Detected groupings stay proposals until accept, reject, merge, or split. The board preserves immutable review, revision, analysis, provenance, and timing facts without inventing work state.</p>
+          <p>Detected groupings stay proposals until accept, reject, merge, or split. Only explicit local-user receipts can place a confirmed current revision in backlog, in progress, or done; analysis never changes work state.</p>
         </div>
         <div className="page-header__meta">
           <span className="privacy-chip">
@@ -141,6 +150,10 @@ export function TaskFlowPage({
         <FictionalNotice compact>
           Every proposal, decision, revision, and analysis event on this board is a content-free synthetic fixture; nothing here reflects a real session.
         </FictionalNotice>
+      )}
+
+      {lifecycleNotice !== null && (
+        <p className="task-flow__lifecycle-notice" role="status">{lifecycleNotice}</p>
       )}
 
       {items !== null && (
@@ -164,8 +177,8 @@ export function TaskFlowPage({
             </strong>
             <p>
               {runtimeMode === "synthetic_demo" ? "Synthetic fixture" : "Local"} indexes loaded {sourceReceipts.map((receipt) => `${receipt.loaded.toLocaleString()} ${receipt.source}`).join(" · ")}.
-              Candidate, task, and run pages are separate requests, not one atomic snapshot; refresh after activity to reconcile.
-              Each source is bounded at {TASK_FLOW_RECORD_CAP_PER_SOURCE.toLocaleString()} records. Missing analysis stays unknown when its index end is not proven.
+              Candidate, task, lifecycle, and run pages are separate requests, not one atomic snapshot; refresh after activity to reconcile.
+              Each source is bounded at {TASK_FLOW_RECORD_CAP_PER_SOURCE.toLocaleString()} records. Missing analysis stays unknown and lifecycle mismatches stay unreconciled when an index end is not proven.
             </p>
           </div>
         </div>
@@ -181,7 +194,7 @@ export function TaskFlowPage({
           </select>
         </label>
         <label>
-          <span>Record column</span>
+          <span>Record / work column</span>
           <select onChange={(event) => update({ column: event.target.value as TaskFlowFilters["column"] })} value={filters.column}>
             <option value="all">All record columns</option>
             {TASK_FLOW_COLUMNS.map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}
@@ -225,13 +238,17 @@ export function TaskFlowPage({
           >
             <summary>
               <span>Kanban · immutable record kinds</span>
-              <small>{visible.length} visible · no inferred backlog / in-progress / done states</small>
+              <small>{visible.length} visible · explicit receipts only · no inferred work state</small>
             </summary>
             <TaskFlowBoard
               allItems={items}
               decisionAudits={decisionAudits}
               items={visible}
               onDecisionsLoaded={recordDecisionAudit}
+              onLifecycleChanged={(message) => {
+                setLifecycleNotice(message);
+                setReloadToken((value) => value + 1);
+              }}
               onOpen={open}
               transport={transport}
             />
@@ -239,7 +256,7 @@ export function TaskFlowPage({
           <details className="task-flow__timeline" open>
             <summary>
               <span>Chronological record & event timeline</span>
-              <small>Task start and finish remain unknown</small>
+              <small>Receipt times only; missing start or finish remains Unknown</small>
             </summary>
             <TaskFlowTimeline decisionAudits={decisionAudits} items={visible} onOpen={open} />
           </details>

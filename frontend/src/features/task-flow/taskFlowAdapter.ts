@@ -1,4 +1,10 @@
-import type { AnalysisRun, CandidateListItem, TaskRevision } from "../../shared/api/contracts";
+import type {
+  AnalysisRun,
+  CandidateListItem,
+  TaskLifecycleEvent,
+  TaskLifecycleSnapshot,
+  TaskRevision,
+} from "../../shared/api/contracts";
 import { candidateLabel } from "../../entities/discovery/model";
 import { shortId, titleFromKey } from "../../shared/lib/format";
 import type {
@@ -16,12 +22,15 @@ import type {
 export interface TaskFlowSources {
   candidates: readonly CandidateListItem[];
   tasks: readonly TaskRevision[];
+  lifecycles: readonly TaskLifecycleSnapshot[];
   runs: readonly AnalysisRun[];
 }
 
 export interface TaskFlowProjectionContext {
   /** True only when the run index traversal observed its own final short page. */
   analysisIndexEnded: boolean;
+  /** True only when the lifecycle index traversal observed its own final short page. */
+  lifecycleIndexEnded: boolean;
 }
 
 function candidateEvidence(item: CandidateListItem): TaskFlowEvidenceFact {
@@ -78,6 +87,7 @@ function candidateItem(item: CandidateListItem): TaskFlowItem {
         status: item.decision_status,
         label: "Detected grouping · explicit review required",
       },
+    workLifecycle: null,
     provenance: {
       origin: "Task discovery",
       version: candidate.discovery_version,
@@ -100,6 +110,106 @@ function candidateItem(item: CandidateListItem): TaskFlowItem {
     confidence: candidate.confidence ?? null,
     coverage: candidate.coverage,
     route: { name: "discovery" },
+  };
+}
+
+function lifecycleLabel(state: TaskLifecycleSnapshot["current_state"]): string {
+  if (state === null) return "Unknown · no effective explicit work-state receipt";
+  if (state === "backlog") return "Backlog · explicitly recorded by a local user";
+  if (state === "in_progress") return "In progress · explicitly recorded by a local user";
+  return "Done · explicitly recorded by a local user";
+}
+
+function effectiveReceiptTime(
+  snapshot: TaskLifecycleSnapshot,
+  resultingState: "in_progress" | "done",
+): string | null {
+  if (!snapshot.events_complete) return null;
+  return [...snapshot.events]
+    .reverse()
+    .find((event) => event.resulting_state === resultingState)?.created_at ?? null;
+}
+
+function lifecycleProjection(
+  task: TaskRevision,
+  snapshots: readonly TaskLifecycleSnapshot[],
+  lifecycleIndexEnded: boolean,
+): {
+  column: TaskFlowItem["column"];
+  workLifecycle: NonNullable<TaskFlowItem["workLifecycle"]>;
+  taskStartedAt: string | null;
+  taskFinishedAt: string | null;
+} {
+  const taskSnapshots = snapshots.filter((snapshot) => snapshot.task_id === task.task_id);
+  const exact = taskSnapshots.find((snapshot) => snapshot.task_revision === task.revision);
+  const newer = taskSnapshots.find((snapshot) => snapshot.current_task_revision > task.revision);
+
+  if (exact === undefined) {
+    const historical = newer !== undefined;
+    return {
+      column: historical ? "historical" : "unreconciled",
+      workLifecycle: {
+        authority: historical ? "historical_not_loaded" : "unreconciled",
+        currentState: null,
+        label: historical
+          ? `Historical revision · current revision ${newer.current_task_revision} has the lifecycle projection`
+          : lifecycleIndexEnded
+            ? "State not reconciled · the separate lifecycle index returned no matching current snapshot"
+            : "State not reconciled · the bounded lifecycle index did not prove its end",
+        currentTaskRevision: newer?.current_task_revision ?? null,
+        headEventId: null,
+        eventCount: null,
+        priorRevisionEventCount: null,
+        events: [],
+        eventsComplete: false,
+      },
+      taskStartedAt: null,
+      taskFinishedAt: null,
+    };
+  }
+
+  const fingerprintMatches = exact.events.every((event) =>
+    event.task_id === task.task_id
+    && event.task_revision === task.revision
+    && event.task_input_fingerprint === task.input_fingerprint);
+  if (!exact.is_current_revision || exact.current_task_revision !== task.revision || !fingerprintMatches) {
+    return {
+      column: "unreconciled",
+      workLifecycle: {
+        authority: "unreconciled",
+        currentState: null,
+        label: "State not reconciled · lifecycle identity or input fingerprint did not match this revision",
+        currentTaskRevision: exact.current_task_revision,
+        headEventId: null,
+        eventCount: exact.event_count,
+        priorRevisionEventCount: exact.prior_revision_event_count,
+        events: [],
+        eventsComplete: false,
+      },
+      taskStartedAt: null,
+      taskFinishedAt: null,
+    };
+  }
+
+  return {
+    column: exact.current_state ?? "work_unknown",
+    workLifecycle: {
+      authority: "authoritative",
+      currentState: exact.current_state,
+      label: lifecycleLabel(exact.current_state),
+      currentTaskRevision: exact.current_task_revision,
+      headEventId: exact.head_event_id,
+      eventCount: exact.event_count,
+      priorRevisionEventCount: exact.prior_revision_event_count,
+      events: exact.events as readonly TaskLifecycleEvent[],
+      eventsComplete: exact.events_complete,
+    },
+    taskStartedAt: exact.current_state === "in_progress" || exact.current_state === "done"
+      ? effectiveReceiptTime(exact, "in_progress")
+      : null,
+    taskFinishedAt: exact.current_state === "done"
+      ? effectiveReceiptTime(exact, "done")
+      : null,
   };
 }
 
@@ -163,14 +273,16 @@ function analysisFact(
 
 function taskItem(
   task: TaskRevision,
+  lifecycles: readonly TaskLifecycleSnapshot[],
   runs: readonly AnalysisRun[],
   context: TaskFlowProjectionContext,
 ): TaskFlowItem {
+  const work = lifecycleProjection(task, lifecycles, context.lifecycleIndexEnded);
   return {
     id: `task:${task.task_id}:${task.revision}`,
     sourceId: task.task_id,
     kind: "confirmed",
-    column: "confirmed",
+    column: work.column,
     title: `${titleFromKey(task.task_type)} · revision ${task.revision}`,
     subtitle: `${task.session_ids.length} session${task.session_ids.length === 1 ? "" : "s"} · project ${shortId(task.project_id)}`,
     projectId: task.project_id,
@@ -181,6 +293,7 @@ function taskItem(
       status: task.lifecycle_state,
       label: `Raw revision state · ${titleFromKey(task.lifecycle_state)}`,
     },
+    workLifecycle: work.workLifecycle,
     provenance: {
       origin: "Task revision",
       version: `revision ${task.revision}`,
@@ -194,8 +307,8 @@ function taskItem(
     },
     analysis: analysisFact(task, runs, context.analysisIndexEnded),
     occurredAt: task.created_at,
-    taskStartedAt: null,
-    taskFinishedAt: null,
+    taskStartedAt: work.taskStartedAt,
+    taskFinishedAt: work.taskFinishedAt,
     decisionId: null,
     decisionAction: null,
     reviewDecisionRecorded: false,
@@ -212,7 +325,7 @@ export function projectTaskFlow(
 ): TaskFlowItem[] {
   const items = [
     ...sources.candidates.map(candidateItem),
-    ...sources.tasks.map((task) => taskItem(task, sources.runs, context)),
+    ...sources.tasks.map((task) => taskItem(task, sources.lifecycles, sources.runs, context)),
   ];
   return items.sort((left, right) => {
     const byTime = left.occurredAt.localeCompare(right.occurredAt);

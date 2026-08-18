@@ -57,6 +57,7 @@ import type {
   SessionQualityAggregateRequest,
   TaskRevisionListResponse,
   TaskRevisionResponse,
+  TaskLifecycleState,
   TaskAnalysisResponse,
   TaskReviewResponse,
   TextAnalysisResearchCatalog,
@@ -90,6 +91,12 @@ import {
 } from "./modelCompatibilityContract";
 import { parseControlPlaneReadiness } from "./controlPlaneReadiness";
 import { parseCandidateDecisionsResponse } from "./taskDecisionContract";
+import {
+  TaskLifecyclePayloadError,
+  parseTaskLifecycleListResponse,
+  parseTaskLifecycleMutationResponse,
+  parseTaskLifecycleSnapshot,
+} from "./taskLifecycleContract";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -2981,6 +2988,133 @@ export function createHttpTransport(options: {
         { method: "GET" },
         signal,
       );
+    },
+    async listTaskLifecycles(signal, page, eventLimit = 100) {
+      const limit = page?.limit ?? 100;
+      const offset = page?.offset ?? 0;
+      const query = new URLSearchParams({
+        limit: String(limit),
+        offset: String(offset),
+        event_limit: String(eventLimit),
+      });
+      const value = await request<unknown>(
+        `/v1/task-lifecycles?${query.toString()}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseTaskLifecycleListResponse(value, { limit, offset });
+      } catch (error) {
+        if (error instanceof TaskLifecyclePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async getTaskLifecycle(taskId, revision, eventLimit = 100, eventOffset = 0, signal) {
+      const query = new URLSearchParams({
+        event_limit: String(eventLimit),
+        event_offset: String(eventOffset),
+      });
+      const value = await request<unknown>(
+        `/v1/tasks/${encodeURIComponent(taskId)}/revisions/${revision}/lifecycle?${query.toString()}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseTaskLifecycleSnapshot(value, { taskId, revision });
+      } catch (error) {
+        if (error instanceof TaskLifecyclePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async transitionTaskLifecycle(
+      taskId,
+      revision,
+      expectedHeadEventId,
+      state: TaskLifecycleState,
+      idempotencyKey,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/tasks/${encodeURIComponent(taskId)}/revisions/${revision}/lifecycle/transitions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify({
+            expected_head_event_id: expectedHeadEventId,
+            state,
+          }),
+        },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseTaskLifecycleMutationResponse(value, {
+          taskId,
+          revision,
+          eventKind: "transition",
+          expectedHeadEventId,
+          requestedState: state,
+        });
+      } catch (error) {
+        if (error instanceof TaskLifecyclePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async correctTaskLifecycle(
+      taskId,
+      revision,
+      expectedHeadEventId,
+      expectedPriorState,
+      expectedResultingState,
+      idempotencyKey,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/tasks/${encodeURIComponent(taskId)}/revisions/${revision}/lifecycle/corrections`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify({
+            expected_head_event_id: expectedHeadEventId,
+            supersedes_event_id: expectedHeadEventId,
+          }),
+        },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseTaskLifecycleMutationResponse(value, {
+          taskId,
+          revision,
+          eventKind: "correction",
+          expectedHeadEventId,
+          correctionPriorState: expectedPriorState,
+          correctionResultingState: expectedResultingState,
+        });
+      } catch (error) {
+        if (error instanceof TaskLifecyclePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
     },
     listAnalysisRuns(taskId, signal, page) {
       const query = new URLSearchParams();

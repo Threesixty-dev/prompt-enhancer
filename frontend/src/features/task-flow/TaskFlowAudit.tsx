@@ -151,13 +151,43 @@ export function TaskFlowAudit({
   return (
     <details className="task-flow-audit">
       <summary>
-        <span>Revision & analysis audit</span>
-        <small>{sortedHistory.length} revision{sortedHistory.length === 1 ? "" : "s"}</small>
+        <span>Lifecycle, revision & analysis audit</span>
+        <small>{item.workLifecycle?.eventCount ?? "unknown"} lifecycle receipt{item.workLifecycle?.eventCount === 1 ? "" : "s"}</small>
       </summary>
       <div className="task-flow-audit__body">
         <p>
-          Task start unknown · task finish unknown. The current contract records revision creation and analysis events only.
+          In-progress receipt {item.taskStartedAt === null ? "Unknown" : formatTimestamp(item.taskStartedAt)} · done receipt {item.taskFinishedAt === null ? "Unknown" : formatTimestamp(item.taskFinishedAt)}. Receipt times do not prove real-world duration.
         </p>
+        {item.workLifecycle?.authority !== "authoritative" ? (
+          <p role="note">No authoritative matching lifecycle snapshot is projected for this revision. No state is inferred.</p>
+        ) : item.workLifecycle.events.length === 0 ? (
+          <p>Legacy / no-receipt lifecycle: work state remains Unknown.</p>
+        ) : (
+          <>
+            <ol aria-label="Immutable task lifecycle receipts" className="task-flow-audit__lifecycle">
+              {item.workLifecycle.events.map((event) => (
+                <li key={event.event_id}>
+                  <div>
+                    <strong>
+                      #{event.sequence} · {event.event_kind === "correction" ? "Correction / undo" : "Explicit transition"}
+                    </strong>
+                    <time dateTime={event.created_at}>{formatTimestamp(event.created_at)}</time>
+                  </div>
+                  <p>
+                    {event.prior_state === null ? "Unknown" : titleFromKey(event.prior_state)} → {event.resulting_state === null ? "Unknown" : titleFromKey(event.resulting_state)}
+                    {" · receipt "}<span className="mono">{shortId(event.event_id)}</span>
+                    {event.supersedes_event_id === null ? "" : ` · supersedes ${shortId(event.supersedes_event_id)}`}
+                  </p>
+                  <p>Explicit local user · input fingerprint <span className="mono">{shortId(event.task_input_fingerprint)}</span></p>
+                </li>
+              ))}
+            </ol>
+            {!item.workLifecycle.eventsComplete && (
+              <p role="alert">This lifecycle audit page is bounded and incomplete. Timing and correction controls stay conservative.</p>
+            )}
+          </>
+        )}
+        <h4>Immutable revisions and separate analysis</h4>
         <ol aria-label="Immutable task revision history">
           {sortedHistory.map((revision) => (
             <li key={revision.id}>
@@ -183,7 +213,7 @@ export function TaskFlowAudit({
             </li>
           ))}
         </ol>
-        <p>Corrections are never overwritten: a future immutable revision appears as another entry. No correction command is exposed by this surface.</p>
+        <p>Work-state corrections append a superseding receipt; task revision history remains immutable and analysis never transitions either ledger.</p>
       </div>
     </details>
   );

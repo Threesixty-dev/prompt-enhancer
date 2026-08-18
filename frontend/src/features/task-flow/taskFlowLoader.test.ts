@@ -3,11 +3,13 @@ import type {
   AnalysisRun,
   CandidateListItem,
   ContentFreeListPage,
+  TaskLifecycleSnapshot,
   TaskRevision,
 } from "../../shared/api/contracts";
 import {
   SYNTHETIC_CANDIDATES,
   SYNTHETIC_RUN,
+  SYNTHETIC_TASK_LIFECYCLES,
   SYNTHETIC_TASKS,
 } from "../../shared/api/syntheticFixtures";
 import { projectTaskFlow } from "./taskFlowAdapter";
@@ -24,10 +26,12 @@ function page<T>(values: readonly T[], request: ContentFreeListPage) {
 function transportFor({
   candidates = [],
   tasks = [],
+  lifecycles = [],
   runs = [],
 }: {
   candidates?: readonly CandidateListItem[];
   tasks?: readonly TaskRevision[];
+  lifecycles?: readonly TaskLifecycleSnapshot[];
   runs?: readonly AnalysisRun[];
 }) {
   return {
@@ -38,6 +42,10 @@ function transportFor({
     listTaskRevisions: vi.fn(async (_taskId, _signal, request: ContentFreeListPage) => {
       const result = page(tasks, request);
       return { tasks: result.values, limit: result.limit, offset: result.offset };
+    }),
+    listTaskLifecycles: vi.fn(async (_signal, request: ContentFreeListPage) => {
+      const result = page(lifecycles, request);
+      return { lifecycles: result.values, limit: result.limit, offset: result.offset };
     }),
     listAnalysisRuns: vi.fn(async (_taskId, _signal, request: ContentFreeListPage) => {
       const result = page(runs, request);
@@ -59,6 +67,7 @@ describe("Task Flow bounded pagination", () => {
     };
     const transport = transportFor({
       tasks: SYNTHETIC_TASKS,
+      lifecycles: SYNTHETIC_TASK_LIFECYCLES,
       runs: [...unrelated, matching],
     });
 
@@ -68,9 +77,10 @@ describe("Task Flow bounded pagination", () => {
     );
     const [task] = projectTaskFlow(result, {
       analysisIndexEnded: result.receipts.find((receipt) => receipt.source === "runs")?.boundary === "page_end_observed",
+      lifecycleIndexEnded: result.receipts.find((receipt) => receipt.source === "lifecycles")?.boundary === "page_end_observed",
     }).filter((item) => item.kind === "confirmed");
 
-    expect(task.column).toBe("confirmed");
+    expect(task.column).toBe("in_progress");
     expect(task.analysis.label).toBe("Latest analysis completed");
     expect(transport.listAnalysisRuns.mock.calls.map((call) => call[2]?.offset)).toEqual([0, 100]);
     expect(result.receipts.find((receipt) => receipt.source === "runs")).toMatchObject({

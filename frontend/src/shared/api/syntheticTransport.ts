@@ -10,6 +10,9 @@ import type {
   ReviewCommand,
   SessionQualityAggregate,
   TaskDecision,
+  TaskLifecycleMutationResponse,
+  TaskLifecycleSnapshot,
+  TaskLifecycleState,
   TaskAnalysisResponse,
   TaskRevision,
   TaskReviewResponse,
@@ -25,6 +28,7 @@ import {
   SYNTHETIC_RUN,
   SYNTHETIC_QUALITY_PROJECT_ID,
   SYNTHETIC_TASKS,
+  SYNTHETIC_TASK_LIFECYCLES,
   SYNTHETIC_QUALITY_SESSION_ID,
   SYNTHETIC_PROVIDER_COMPATIBILITY,
   SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
@@ -61,6 +65,21 @@ function syntheticPage<T>(
 
 function safeId(sequence: number): string {
   return sequence.toString(16).padStart(64, "0");
+}
+
+function lifecyclePage(
+  snapshot: TaskLifecycleSnapshot,
+  eventLimit = 100,
+  eventOffset = 0,
+): TaskLifecycleSnapshot {
+  const events = snapshot.events.slice(eventOffset, eventOffset + eventLimit);
+  return copy({
+    ...snapshot,
+    events,
+    events_limit: eventLimit,
+    events_offset: eventOffset,
+    events_complete: eventOffset + events.length >= snapshot.event_count,
+  });
 }
 
 const SYNTHETIC_MODEL_RUNTIME_INVENTORY: ModelRuntimeInventory = {
@@ -338,6 +357,7 @@ function candidateIds(command: ReviewCommand): string[] {
 export function createSyntheticTransport(): SyntheticRuntimeTransport {
   let candidates = copy(SYNTHETIC_CANDIDATES);
   const tasks = copy(SYNTHETIC_TASKS);
+  const lifecycles = copy(SYNTHETIC_TASK_LIFECYCLES);
   const decisions = new Map<string, TaskReviewResponse>();
   const auditDecisions = new Map<string, TaskDecision[]>(
     Object.entries(SYNTHETIC_TASK_DECISIONS).map(([candidateId, values]) => [
@@ -346,6 +366,10 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     ]),
   );
   const analyses = new Map<string, TaskAnalysisResponse>();
+  const lifecycleCommands = new Map<string, {
+    fingerprint: string;
+    response: TaskLifecycleMutationResponse;
+  }>();
   const runs: AnalysisRun[] = [copy(SYNTHETIC_RUN)];
   const resultsByRun = new Map([
     [SYNTHETIC_RUN.run_id, copy(SYNTHETIC_RESULTS)],
@@ -804,6 +828,164 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       if (!task) throw new TransportError("Synthetic task revision was not found", 404);
       return { task: copy(task) };
     },
+    async listTaskLifecycles(_signal, page, eventLimit = 100) {
+      const result = syntheticPage(lifecycles, page);
+      return {
+        lifecycles: result.values.map((item) => lifecyclePage(item, eventLimit, 0)),
+        limit: result.limit,
+        offset: result.offset,
+      };
+    },
+    async getTaskLifecycle(taskId, revision, eventLimit = 100, eventOffset = 0) {
+      const snapshot = lifecycles.find(
+        (item) => item.task_id === taskId && item.task_revision === revision,
+      );
+      if (!snapshot) throw new TransportError("Synthetic lifecycle was not found", 404);
+      return lifecyclePage(snapshot, eventLimit, eventOffset);
+    },
+    async transitionTaskLifecycle(
+      taskId,
+      revision,
+      expectedHeadEventId,
+      state: TaskLifecycleState,
+      idempotencyKey,
+    ) {
+      const fingerprint = [
+        "transition", taskId, String(revision), expectedHeadEventId ?? "none", state,
+      ].join(":");
+      const cached = lifecycleCommands.get(idempotencyKey);
+      if (cached) {
+        if (cached.fingerprint !== fingerprint) {
+          throw new TransportError("Synthetic lifecycle idempotency conflict", 409);
+        }
+        return copy(cached.response);
+      }
+      const snapshotIndex = lifecycles.findIndex(
+        (item) => item.task_id === taskId && item.task_revision === revision,
+      );
+      const snapshot = lifecycles[snapshotIndex];
+      const task = tasks.find((item) => item.task_id === taskId && item.revision === revision);
+      if (!snapshot || !task) throw new TransportError("Synthetic lifecycle was not found", 404);
+      if (snapshot.current_task_revision !== revision || !snapshot.is_current_revision) {
+        throw new TransportError("Synthetic lifecycle revision changed", 409);
+      }
+      if (snapshot.head_event_id !== expectedHeadEventId) {
+        throw new TransportError("Synthetic lifecycle head changed", 409);
+      }
+      const allowed: Readonly<Record<string, TaskLifecycleState>> = {
+        unknown: "backlog",
+        backlog: "in_progress",
+        in_progress: "done",
+      };
+      if (allowed[snapshot.current_state ?? "unknown"] !== state) {
+        throw new TransportError("Synthetic lifecycle transition was invalid", 422);
+      }
+      const eventId = safeId(sequence++);
+      const event = {
+        event_id: eventId,
+        task_id: taskId,
+        task_revision: revision,
+        sequence: snapshot.event_count + 1,
+        event_kind: "transition" as const,
+        prior_state: snapshot.current_state,
+        resulting_state: state,
+        previous_event_id: snapshot.head_event_id,
+        supersedes_event_id: null,
+        task_input_fingerprint: task.input_fingerprint,
+        command_schema_version: "task-lifecycle-command-v1" as const,
+        source: "explicit_local_user" as const,
+        actor_scope: "local_user" as const,
+        request_fingerprint: safeId(sequence++),
+        created_at: new Date(Date.UTC(2040, 0, 2, 12, 0, sequence)).toISOString(),
+      };
+      lifecycles[snapshotIndex] = {
+        ...snapshot,
+        current_state: state,
+        head_event_id: eventId,
+        event_count: snapshot.event_count + 1,
+        events: [...snapshot.events, event],
+        events_complete: true,
+      };
+      const response: TaskLifecycleMutationResponse = {
+        event,
+        state,
+        head_event_id: eventId,
+      };
+      lifecycleCommands.set(idempotencyKey, { fingerprint, response: copy(response) });
+      return copy(response);
+    },
+    async correctTaskLifecycle(
+      taskId,
+      revision,
+      expectedHeadEventId,
+      expectedPriorState,
+      expectedResultingState,
+      idempotencyKey,
+    ) {
+      const fingerprint = [
+        "correction", taskId, String(revision), expectedHeadEventId,
+        expectedPriorState, expectedResultingState ?? "unknown",
+      ].join(":");
+      const cached = lifecycleCommands.get(idempotencyKey);
+      if (cached) {
+        if (cached.fingerprint !== fingerprint) {
+          throw new TransportError("Synthetic lifecycle idempotency conflict", 409);
+        }
+        return copy(cached.response);
+      }
+      const snapshotIndex = lifecycles.findIndex(
+        (item) => item.task_id === taskId && item.task_revision === revision,
+      );
+      const snapshot = lifecycles[snapshotIndex];
+      const task = tasks.find((item) => item.task_id === taskId && item.revision === revision);
+      if (!snapshot || !task) throw new TransportError("Synthetic lifecycle was not found", 404);
+      if (snapshot.current_task_revision !== revision || !snapshot.is_current_revision) {
+        throw new TransportError("Synthetic lifecycle revision changed", 409);
+      }
+      if (snapshot.head_event_id !== expectedHeadEventId) {
+        throw new TransportError("Synthetic lifecycle head changed", 409);
+      }
+      const head = snapshot.events.at(-1);
+      if (!head || head.event_id !== expectedHeadEventId) {
+        throw new TransportError("Synthetic lifecycle audit was incomplete", 409);
+      }
+      if (snapshot.current_state !== expectedPriorState || head.prior_state !== expectedResultingState) {
+        throw new TransportError("Synthetic lifecycle correction context changed", 409);
+      }
+      const eventId = safeId(sequence++);
+      const event = {
+        event_id: eventId,
+        task_id: taskId,
+        task_revision: revision,
+        sequence: snapshot.event_count + 1,
+        event_kind: "correction" as const,
+        prior_state: snapshot.current_state,
+        resulting_state: head.prior_state,
+        previous_event_id: snapshot.head_event_id,
+        supersedes_event_id: snapshot.head_event_id,
+        task_input_fingerprint: task.input_fingerprint,
+        command_schema_version: "task-lifecycle-command-v1" as const,
+        source: "explicit_local_user" as const,
+        actor_scope: "local_user" as const,
+        request_fingerprint: safeId(sequence++),
+        created_at: new Date(Date.UTC(2040, 0, 2, 12, 0, sequence)).toISOString(),
+      };
+      lifecycles[snapshotIndex] = {
+        ...snapshot,
+        current_state: head.prior_state,
+        head_event_id: eventId,
+        event_count: snapshot.event_count + 1,
+        events: [...snapshot.events, event],
+        events_complete: true,
+      };
+      const response: TaskLifecycleMutationResponse = {
+        event,
+        state: head.prior_state,
+        head_event_id: eventId,
+      };
+      lifecycleCommands.set(idempotencyKey, { fingerprint, response: copy(response) });
+      return copy(response);
+    },
     async listAnalysisRuns(taskId?: string, _signal?: AbortSignal, page?: ContentFreeListPage) {
       const filtered = taskId ? runs.filter((run) => run.task_id === taskId) : runs;
       const result = syntheticPage(filtered, page);
@@ -865,6 +1047,20 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       }
 
       tasks.unshift(...createdTasks);
+      lifecycles.unshift(...createdTasks.map((task): TaskLifecycleSnapshot => ({
+        task_id: task.task_id,
+        task_revision: task.revision,
+        current_task_revision: task.revision,
+        is_current_revision: true,
+        current_state: null,
+        head_event_id: null,
+        event_count: 0,
+        prior_revision_event_count: 0,
+        events: [],
+        events_limit: 100,
+        events_offset: 0,
+        events_complete: true,
+      })));
       const reviewedIds = new Set(items.map((item) => item.candidate.candidate_id));
       candidates = candidates.map((item) =>
         reviewedIds.has(item.candidate.candidate_id)

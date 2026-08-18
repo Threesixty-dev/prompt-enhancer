@@ -7,7 +7,8 @@ export type IdempotentAction =
   | "quality-analysis"
   | "quality-preview-approval"
   | "model-link-experiment"
-  | "model-ensemble";
+  | "model-ensemble"
+  | "task-lifecycle";
 
 /** A content-free, collision-resistant key generated only for a local command. */
 export function nextIdempotencyKey(action: IdempotentAction): string {

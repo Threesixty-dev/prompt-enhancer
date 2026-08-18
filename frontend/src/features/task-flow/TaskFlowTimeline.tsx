@@ -4,7 +4,7 @@ import { formatTimestamp, titleFromKey } from "../../shared/lib/format";
 import { taskFlowTimelineScale, timelinePosition } from "./taskFlowAdapter";
 import type { TaskFlowItem } from "./taskFlowModel";
 
-type TimelineLane = "proposal" | "revision" | "analysis";
+type TimelineLane = "proposal" | "revision" | "lifecycle" | "analysis";
 
 interface TaskFlowTimelineEvent {
   id: string;
@@ -18,6 +18,7 @@ interface TaskFlowTimelineEvent {
 const LANES: readonly { lane: TimelineLane; label: string }[] = [
   { lane: "proposal", label: "Proposal & explicit review records" },
   { lane: "revision", label: "Confirmed revision records" },
+  { lane: "lifecycle", label: "Explicit task lifecycle receipts" },
   { lane: "analysis", label: "Analysis events (not task lifecycle)" },
 ];
 
@@ -51,6 +52,16 @@ function timelineEvents(
       detail: `Raw revision state ${titleFromKey(item.lifecycle.status)}`,
       item,
     });
+    for (const receipt of item.workLifecycle?.events ?? []) {
+      events.push({
+        id: `${item.id}:lifecycle:${receipt.event_id}`,
+        lane: "lifecycle",
+        occurredAt: receipt.created_at,
+        title: `${item.title} · ${receipt.event_kind === "correction" ? "work-state correction" : titleFromKey(receipt.resulting_state ?? "unknown")}`,
+        detail: `${receipt.prior_state === null ? "Unknown" : titleFromKey(receipt.prior_state)} → ${receipt.resulting_state === null ? "Unknown" : titleFromKey(receipt.resulting_state)} · explicit local-user server receipt`,
+        item,
+      });
+    }
     for (const run of item.analysis.runs) {
       events.push({
         id: `${item.id}:run:${run.runId}:started`,
@@ -100,7 +111,7 @@ function timelineEvents(
 
 /**
  * Chronology of exact record/event times. It never draws a task-duration bar:
- * task start and task finish are absent from the current contract.
+ * points use server receipt time and are never stretched into inferred duration.
  */
 export function TaskFlowTimeline({
   items,
@@ -152,7 +163,7 @@ export function TaskFlowTimeline({
         );
       })}
       <p className="task-flow-timeline__legend">
-        Points use exact proposal creation, review decision, revision creation, and analysis event times. Task start and finish are unknown because the current contract records neither.{undated > 0 ? ` ${undated} invalid event time${undated === 1 ? " was" : "s were"} omitted.` : ""}
+        Points use exact proposal creation, review decision, revision creation, explicit lifecycle receipt, and analysis event times. Lifecycle points are server receipt times, not inferred real-world start or finish; missing values remain Unknown.{undated > 0 ? ` ${undated} invalid event time${undated === 1 ? " was" : "s were"} omitted.` : ""}
       </p>
     </div>
   );
