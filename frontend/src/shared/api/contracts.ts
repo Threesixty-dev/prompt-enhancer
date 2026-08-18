@@ -105,6 +105,13 @@ export type ModelLinkAnnotation = Schemas["ModelLinkAnnotationDto"];
 export type ModelLinkAnnotationRequest = Schemas["ModelLinkAnnotationRequest"];
 export type ModelEnsembleRequest = Schemas["ModelEnsembleRequest"];
 export type ModelEnsembleRun = Schemas["ModelEnsembleRunDto"];
+export type MetricEvidenceReadinessProjectionV2 =
+  Schemas["MetricEvidenceReadinessProjectionV2"];
+export type MetricEvidenceReadinessV2 = Schemas["MetricEvidenceReadinessV2"];
+export type MetricEvidenceContributor = Schemas["MetricEvidenceContributor"];
+export type MetricEvidenceAvailabilityState =
+  Schemas["MetricEvidenceAvailabilityState"];
+export type CapabilityKey = Schemas["CapabilityKey"];
 export type ModelEnsembleOutcome = Schemas["ModelEnsembleOutcomeDto"];
 export type ModelEnsembleWatchRequest = Schemas["ModelEnsembleWatchRequest"];
 export type ModelEnsembleWatch = Schemas["ModelEnsembleWatchDto"];

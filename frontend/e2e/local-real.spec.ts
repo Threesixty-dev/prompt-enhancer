@@ -269,6 +269,19 @@ test("keeps local job state truthful and responsive", async ({ page }) => {
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
 });
 
+test("fails the social hub closed with exact zero local-real state", async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 820 });
+  await page.goto("/social");
+
+  await expect(page.getByRole("heading", { name: "Social hub" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Social features are not served in this runtime" })).toContainText(
+    "0 friends · 0 relationships · 0 requests · 0 conversations · 0 messages · 0 file offers · presence not shared",
+  );
+  await expect(page.getByRole("note", { name: "Fictional synthetic demo" })).toHaveCount(0);
+  await expect(page.getByRole("form", { name: /Message|Offer a file/ })).toHaveCount(0);
+  await expect(page.locator("input[type='file']")).toHaveCount(0);
+});
+
 test("requires an exact local project grant before background scheduling", async ({ page }) => {
   await page.setViewportSize({ width: 600, height: 900 });
   await page.goto(`/projects/${SYNTHETIC_QUALITY_PROJECT_ID}/automation`);

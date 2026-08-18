@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { PromptEnhancerTransport } from "../../shared/api/contracts";
 import { moveRovingFocus } from "../../shared/ui/rovingFocus";
+import type { MetricScopeContext } from "./metricContextFacts";
 import {
   MetricKnowledgeCardSlot,
   MetricKnowledgeDescriptions,
@@ -14,7 +15,8 @@ import {
   isModelEnsembleTypedMetric,
   isModelEnsembleV2Metric,
   modelEnsembleAxisCoverage,
-  modelEnsembleAxisEvidence,
+  modelEnsembleAxisGuidanceSentences,
+  modelEnsembleAxisPendingBoundsLabel,
   modelEnsembleAxisPlottedLabel,
   modelEnsembleAxisRawRateLabel,
   modelEnsembleDensityBinsForDirection,
@@ -29,7 +31,11 @@ import {
   type ModelEnsembleLensId,
   type ModelEnsembleRadarData,
 } from "./metricAxisModel";
-import { metricInspectorSentences } from "./metricHelpV2";
+import {
+  readableAdapterCapability,
+  readableEvidenceAvailability,
+  readableEvidenceContributor,
+} from "./metricEvidenceReadiness";
 import { usePredictiveMetricDetail } from "./usePredictiveMetricDetail";
 
 /**
@@ -55,6 +61,7 @@ export function ModelEnsembleRadar({
   selectedMetricKey,
   onSelectedMetricKeyChange,
   helpController,
+  scopeContext,
 }: {
   run: ModelEnsembleRadarData;
   lensId: ModelEnsembleLensId;
@@ -67,6 +74,8 @@ export function ModelEnsembleRadar({
   selectedMetricKey?: string;
   onSelectedMetricKeyChange?: (metricKey: string) => void;
   helpController?: MetricKnowledgeCardController;
+  /** Analytics scope shown in every knowledge card; defaults to the personal (Me) scope. */
+  scopeContext?: MetricScopeContext;
 }) {
   const axes = useMemo(() => modelEnsembleRadarAxes(run, lensId), [lensId, run]);
   const comparisonAxes = useMemo(
@@ -96,7 +105,7 @@ export function ModelEnsembleRadar({
   const radius = compact ? 96 : 108;
   const ownHelpController = useMetricKnowledgeCardController();
   const helpCards = helpController ?? ownHelpController;
-  const helpEntries = modelEnsembleKnowledgeEntries(axes);
+  const helpEntries = modelEnsembleKnowledgeEntries(axes, scopeContext);
   const point = (index: number, magnitude: number) => {
     const angle = -Math.PI / 2 + (Math.PI * 2 * index) / axes.length;
     return [
@@ -124,11 +133,6 @@ export function ModelEnsembleRadar({
     ? null
     : run.metrics.find((metric) => metric.metric_key === selected.key) ?? null;
   const predictiveCount = axes.filter((axis) => axis.predictiveMedian !== null).length;
-  const weakestFactorKeys = predictiveDetail?.factors
-    .slice()
-    .sort((left, right) => left.present_probability - right.present_probability)
-    .slice(0, 2)
-    .map((factor) => factor.factor_key) ?? [];
   const displayDensityBins = predictiveDetail === null || selected === undefined
     ? []
     : modelEnsembleDensityBinsForDirection(predictiveDetail.density_bins, selected.direction);
@@ -282,6 +286,7 @@ export function ModelEnsembleRadar({
       >
         {axes.map((axis) => {
           const rawRate = modelEnsembleAxisRawRateLabel(axis);
+          const pendingBounds = modelEnsembleAxisPendingBoundsLabel(axis);
           return (
             <button
               aria-pressed={axis.key === selected?.key}
@@ -294,6 +299,7 @@ export function ModelEnsembleRadar({
               <span>{axis.shortLabel}</span>
               <b>{modelEnsembleAxisPlottedLabel(axis)}</b>
               {rawRate === null ? null : <small>{rawRate}</small>}
+              {pendingBounds === null ? null : <small>{pendingBounds}</small>}
               {axis.predictiveMedian !== null
                 ? <small>◇ {Math.round(axis.predictiveMedian * 100)}% radar-quality estimate</small>
                 : axis.prediction !== null ? <small>Estimate withheld</small> : null}
@@ -303,29 +309,24 @@ export function ModelEnsembleRadar({
       </nav>
       <MetricKnowledgeCardSlot compact={compact} controller={helpCards} entries={helpEntries} surface="strip" />
       {selected !== undefined && (
-        <section aria-live="polite" className="model-ensemble__focused-metric">
+        <section className="model-ensemble__focused-metric">
           <header>
             <div><strong>{selected.label}</strong><span>{stateLabel(selected.metric)}</span></div>
             <b>{selectedPresentation.value}</b>
           </header>
           {(() => {
-            const sentences = metricInspectorSentences({
-              metricKey: selected.key,
-              label: selected.label,
-              direction: selected.direction,
-              ...modelEnsembleAxisEvidence(selected),
-              experimentalFactorKeys: predictiveDetail !== null && selected.predictiveMedian !== null ? weakestFactorKeys : [],
+            const sentences = modelEnsembleAxisGuidanceSentences(selected, {
               experimentalVisible: selected.predictiveMedian !== null,
               experimentalMedian: selected.predictiveMedian,
             });
             return (
-              <div className="metric-inspector-sentences" data-kind={sentences.kind}>
+              <div aria-live="polite" className="metric-inspector-sentences" data-basis={sentences.basis} data-kind={sentences.kind}>
                 <p><span>Meaning</span>{sentences.meaning}</p>
                 <p><span>Next</span>{sentences.action}</p>
               </div>
             );
           })()}
-          <p>{selectedPresentation.detail}</p>
+          {selectedPresentation.detail !== null && <p>{selectedPresentation.detail}</p>}
           {selected.prediction !== null && (
             <aside className="model-ensemble__predictive-detail">
               <strong>{selected.prediction.state === "calibrated" ? "Predictive interval" : "Experimental estimate"}</strong>
@@ -381,6 +382,21 @@ export function ModelEnsembleRadar({
                   <div><dt>V2 fraction</dt><dd>{selected.metric.numerator ?? "—"}/{selected.metric.denominator ?? "—"}</dd></div>
                   <div><dt>Resolved opportunities</dt><dd>{selected.metric.observed_message_count}/{selected.metric.eligible_message_count}</dd></div>
                   <div><dt>Evidence authority</dt><dd>{selected.metric.evidence_authority.replaceAll("_", " ")}</dd></div>
+                  <div><dt>Guidance state class</dt><dd data-state-class={selected.metric.guidance?.state_class ?? "absent"}>{selected.metric.guidance?.state_class.replaceAll("_", " ") ?? "not carried by this history point"}</dd></div>
+                  {selected.metric.readiness !== null && (
+                    <>
+                      <div><dt>Evidence readiness</dt><dd>{readableEvidenceAvailability(selected.metric.readiness.availability_state)} · {selected.metric.readiness.reason_code.replaceAll("_", " ")}</dd></div>
+                      <div><dt>Proof contributors</dt><dd>{selected.metric.readiness.observed_contributors.length}/{selected.metric.readiness.required_contributors.length} observed</dd></div>
+                      <div><dt>Missing proof</dt><dd>{selected.metric.readiness.missing_contributors.length === 0 ? "none" : selected.metric.readiness.missing_contributors.map(readableEvidenceContributor).join(", ")}</dd></div>
+                      {selected.metric.readiness.required_adapter_capabilities.length > 0 && (
+                        <div><dt>Adapter-required proof families</dt><dd>{selected.metric.readiness.required_adapter_capabilities.map(readableAdapterCapability).join(", ")} · supplied by the adapter, not by user wording</dd></div>
+                      )}
+                      <div><dt>Product gate</dt><dd>calibration not assessed · not product-metric eligible</dd></div>
+                    </>
+                  )}
+                  {selected.metric.value_state === "pending" && (
+                    <div><dt>Censoring bounds</dt><dd>{modelEnsembleAxisPendingBoundsLabel(selected)?.replace(/^bounds /u, "") ?? "not published"}</dd></div>
+                  )}
                   <div><dt>Model estimate</dt><dd>{selected.prediction?.state.replaceAll("_", " ") ?? "unavailable"}</dd></div>
                 </>
               ) : isTypedMetric(selected.metric) ? (
@@ -401,9 +417,9 @@ export function ModelEnsembleRadar({
             </dl>
           )}
           {chunkTrace.length === 0 ? (
-            <p className="model-ensemble__chunk-trace-note">
+            <div className="model-ensemble__chunk-trace-note" role="note">
               Aggregate-only history point; select the live head for its per-window trace.
-            </p>
+            </div>
           ) : (
             <div aria-label="Selected metric window trace" className="model-ensemble__chunk-trace">
               <span>{usesTypedProjection ? "Model committee diagnostic" : "Window trace"}</span>

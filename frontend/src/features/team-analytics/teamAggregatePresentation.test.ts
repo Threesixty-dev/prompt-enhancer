@@ -8,6 +8,7 @@ import { createSyntheticTeamControlPlanePort } from "../../shared/api/teamContro
 import {
   memberCellLabel,
   teamLensColumns,
+  teamMetricRowContext,
   teamMetricRowsForLens,
   teamReviewedMetricContractsMatchLenses,
   teamSnapshotSummary,
@@ -147,5 +148,34 @@ describe("teamMetricRowsForLens", () => {
     expect(memberCellLabel({ metric_key: "x", definition_version: 2, value_state: "abstained", numerator: null, denominator: null, numeric_value: null, provenance: "measured_typed", newest_receipt_at: null }, "higher_is_better")).toBe("Needs evidence");
     expect(memberCellLabel({ metric_key: "x", definition_version: 2, value_state: "unknown", numerator: null, denominator: null, numeric_value: null, provenance: "measured_typed", newest_receipt_at: null }, "higher_is_better")).toBe("Unknown");
     expect(memberCellLabel({ metric_key: "x", definition_version: 2, value_state: "not_applicable", numerator: null, denominator: null, numeric_value: null, provenance: "measured_typed", newest_receipt_at: null }, "higher_is_better")).toBe("N/A");
+  });
+});
+
+describe("teamMetricRowContext", () => {
+  it("states scope, cohort contributors, model separation, and evidence authority per row without inventing counts", async () => {
+    const snapshot = await fixtureSnapshot("team");
+    const framing = teamMetricRowsForLens(snapshot, "task-framing");
+    const measured = framing.find((row) => row.status === "known")!;
+    const measuredContext = teamMetricRowContext(snapshot, measured);
+    expect(measuredContext.scope).toBe("team");
+    expect(measuredContext.label).toBe(`Team · ${snapshot.cohort_label}`);
+    expect(measuredContext.description).toMatch(/no member ranking/);
+    expect(measuredContext.contributors).toMatch(/members in cohort/);
+    expect(measuredContext.contributors).toMatch(/minimum \d+ distinct contributors required/);
+    expect(measuredContext.evidence).toMatch(/ratio-of-sums across the cohort/);
+    const suppressed = framing.find((row) => row.status === "suppressed")!;
+    const suppressedContext = teamMetricRowContext(snapshot, suppressed);
+    expect(suppressedContext.evidence).toMatch(/State “suppressed/);
+    expect(suppressedContext.evidence).toMatch(/never drawn as zero/);
+    expect(suppressedContext.evidence).not.toMatch(/\b0%|\b0\/0\b/);
+    const experimental = teamMetricRowsForLens(snapshot, "reasoning-trace").find((row) => row.experimental !== null);
+    if (experimental !== undefined) {
+      expect(teamMetricRowContext(snapshot, experimental).model).toMatch(/never merged with the measured value|nothing is drawn for it/);
+    }
+    const noRecord = { ...measured, measured: null, experimental: null };
+    const noRecordContext = teamMetricRowContext(snapshot, noRecord);
+    expect(noRecordContext.contributors).toBeNull();
+    expect(noRecordContext.model).toBeNull();
+    expect(noRecordContext.evidence).toMatch(/not observed, not zero, not plotted/);
   });
 });

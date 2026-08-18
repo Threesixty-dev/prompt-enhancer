@@ -8,9 +8,11 @@ import type {
   ModelEnsembleWatchSnapshot,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
+import { MetricDefinitionsOutOfDateError, type MetricDefinitionMismatch } from "../../shared/api/metricPublicationV2Contract";
 import type { TeamControlPlanePort } from "../../shared/api/teamControlPlane";
 import { TeamContextDrawer } from "../team-analytics/TeamContextDrawer";
 import type { ModelEnsembleLensId } from "./metricAxisModel";
+import { METRIC_DEFINITIONS_OUT_OF_DATE_TITLE, MetricDefinitionsOutOfDateAlert } from "./MetricDefinitionsAlert";
 import { MetricWorkspace } from "./MetricWorkspace";
 import {
   MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES,
@@ -223,6 +225,18 @@ export function ModelEnsembleOverlay({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [lensId, setLensId] = useState<ModelEnsembleLensId>("task-framing");
   const [disconnected, setDisconnected] = useState(false);
+  /**
+   * Set when the compatibility gate refuses a fresh publication. While set, no
+   * run is retained or rendered (all twenty values and guidance are cleared)
+   * and the status never reads as "reconnecting": it is a client-update state.
+   */
+  const [definitionsOutOfDate, setDefinitionsOutOfDate] = useState<MetricDefinitionMismatch | null>(null);
+  /**
+   * The history page (not the live head) was published under other definitions.
+   * Scoped to the history so a compatible live receipt is neither hidden nor
+   * flashed: the head poll owns `definitionsOutOfDate`, this owns the drawer.
+   */
+  const [trajectoryDefinitionsMismatch, setTrajectoryDefinitionsMismatch] = useState<MetricDefinitionMismatch | null>(null);
   const [sessions, setSessions] = useState<CodexSession[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
@@ -292,6 +306,7 @@ export function ModelEnsembleOverlay({
     if (trajectoryWatchId === null || transport.getModelEnsembleTrajectory === undefined) {
       setTrajectory(null);
       setTrajectoryError(false);
+      setTrajectoryDefinitionsMismatch(null);
       setSelectedRunId(null);
       followingLive.current = true;
       return;
@@ -322,6 +337,7 @@ export function ModelEnsembleOverlay({
           }
           setTrajectory(page);
           setTrajectoryError(false);
+          setTrajectoryDefinitionsMismatch(null);
           setSelectedRunId((current) => {
             if (followingLive.current) return page.head_run_id;
             if (current !== null && page.points.some((point) => point.run_id === current)) {
@@ -331,8 +347,18 @@ export function ModelEnsembleOverlay({
             return page.head_run_id;
           });
         })
-        .catch(() => {
-          if (!controller.signal.aborted) setTrajectoryError(true);
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          if (error instanceof MetricDefinitionsOutOfDateError) {
+            // History published under other definitions: withhold every history
+            // point (no compact values, no comparison) and say why. The live head
+            // stays governed by its own gate, so nothing compatible is hidden.
+            setTrajectoryDefinitionsMismatch(error.mismatch);
+            setTrajectory(null);
+            setSelectedRunId(trajectoryHeadRunId);
+            followingLive.current = true;
+          }
+          setTrajectoryError(true);
         });
     };
     load();
@@ -357,6 +383,21 @@ export function ModelEnsembleOverlay({
       if (failures.recordFailure()) setDisconnected(true);
       coordinator.schedule(delay);
     };
+    /**
+     * The service published metrics this client's definitions are not bound
+     * to. Clear every retained value and guidance receipt, keep the head so
+     * the watch identity stays truthful, and keep polling at the idle cadence
+     * so a fixed client or a service rollback is picked up.
+     */
+    const definitionsMismatch = (
+      head: ModelEnsembleCanonicalHead | null,
+      mismatch: MetricDefinitionMismatch,
+    ) => {
+      setDefinitionsOutOfDate(mismatch);
+      applyCanonical(head, head === null ? null : { watch: head.watch, latest_run: null });
+      healthy();
+      coordinator.schedule(CANONICAL_POLL_IDLE_MS);
+    };
     const coordinator = new PollCoordinator(async (ticket) => {
       const canonicalTransport = transport.getActiveModelEnsembleCanonicalHead !== undefined
         && transport.getModelEnsembleSnapshot !== undefined;
@@ -371,10 +412,18 @@ export function ModelEnsembleOverlay({
       } catch (error) {
         if (!ticket.isCurrent()) return;
         if (statusOf(error) === 404) {
-          // A definitive "no active watch" from the head route is state, not a failure.
+          // A definitive "no active watch" from the head route is state, not a
+          // failure; with no watch there is no publication left to be out of date.
+          setDefinitionsOutOfDate(null);
           applyCanonical(null, null);
           healthy();
           coordinator.schedule(CANONICAL_POLL_IDLE_MS);
+          return;
+        }
+        if (error instanceof MetricDefinitionsOutOfDateError) {
+          // Legacy watch snapshot embeds the run: identity mismatch is a
+          // client-update state, not a transport failure.
+          definitionsMismatch(null, error.mismatch);
           return;
         }
         degraded(CANONICAL_POLL_RETRY_MS);
@@ -398,11 +447,15 @@ export function ModelEnsembleOverlay({
         } else if (existingRun?.run_id !== head.head_run_id) {
           try {
             nextRun = await transport.getModelEnsembleSnapshot!(head.head_run_id, ticket.signal);
-          } catch {
+          } catch (error) {
             // The immutable snapshot route failed (including 404): the head is
             // known but its run is not readable yet. Retain the last complete
             // snapshot rather than showing a head without its run.
             if (!ticket.isCurrent()) return;
+            if (error instanceof MetricDefinitionsOutOfDateError) {
+              definitionsMismatch(head, error.mismatch);
+              return;
+            }
             degraded(CANONICAL_POLL_RETRY_MS);
             return;
           }
@@ -414,6 +467,7 @@ export function ModelEnsembleOverlay({
             return;
           }
         }
+        setDefinitionsOutOfDate(null);
         applyCanonical(head, { watch: head.watch, latest_run: nextRun });
         healthy();
         coordinator.schedule(canonicalHeadPollDelay(head));
@@ -428,6 +482,7 @@ export function ModelEnsembleOverlay({
           coordinator.schedule(watchSnapshotPollDelay(snapshotRef.current!));
           return;
         }
+        setDefinitionsOutOfDate(null);
         applyCanonical(null, legacy);
         healthy();
         coordinator.schedule(watchSnapshotPollDelay(legacy));
@@ -529,6 +584,7 @@ export function ModelEnsembleOverlay({
   const {
     selectedPoint,
     historicalRun,
+    historicalRunRefused,
     selectedRadarRun,
     comparisonRadarRun,
   } = useTrajectorySelection({
@@ -574,6 +630,19 @@ export function ModelEnsembleOverlay({
   }
 
   /**
+   * A command result (watch change, analyze, cancel) that the compatibility
+   * gate refused. The refused publication is the newest truth for this watch,
+   * so the previously displayed run must not stay visible beside a generic
+   * error: clear it and show the update-client state. A later compatible poll
+   * or command clears the state again.
+   */
+  function refuseCommandDefinitions(mismatch: MetricDefinitionMismatch) {
+    setDefinitionsOutOfDate(mismatch);
+    const current = snapshotRef.current;
+    applyCanonical(canonicalHeadRef.current, current === null ? null : { ...current, latest_run: null });
+  }
+
+  /**
    * Resolves the exact sealed run for a command's canonical head. Reuses the
    * displayed run when the head did not move; otherwise fetches the immutable
    * snapshot and refuses any run whose id differs from the head.
@@ -615,13 +684,20 @@ export function ModelEnsembleOverlay({
           max_messages: maxMessages,
           confirmation: "continuously_analyze_selected_redacted_session",
         });
+        // A parsed run supersedes an earlier refusal; a run-less watch leaves the
+        // head poll to decide.
+        if (next.latest_run !== null) setDefinitionsOutOfDate(null);
         applyCanonical(null, next);
         followingLive.current = true;
         setScopeExpanded(false);
         resumeDelay = watchSnapshotPollDelay(next);
       }
-    } catch {
-      setScopeError("The live watch could not be changed. No session content was retained.");
+    } catch (changeError) {
+      if (changeError instanceof MetricDefinitionsOutOfDateError) {
+        refuseCommandDefinitions(changeError.mismatch);
+      } else {
+        setScopeError("The live watch could not be changed. No session content was retained.");
+      }
     } finally {
       setWatchChanging(false);
       coordinator?.endCommand(resumeDelay);
@@ -639,17 +715,23 @@ export function ModelEnsembleOverlay({
         const head = await transport.enqueueModelEnsembleAnalysis(snapshot.watch.watch_id);
         const exactRun = await resolveCommandRun(head);
         if (head.latest_attempt?.state === "running") setDisarmedAttemptId(head.latest_attempt.attempt_id);
+        if (exactRun !== null) setDefinitionsOutOfDate(null);
         applyCanonical(head, { watch: head.watch, latest_run: exactRun });
         resumeDelay = canonicalHeadPollDelay(head);
       } else {
         if (transport.refreshModelEnsembleWatch === undefined) throw new Error("unavailable");
         const next = await transport.refreshModelEnsembleWatch(snapshot.watch.watch_id);
+        if (next.latest_run !== null) setDefinitionsOutOfDate(null);
         applyCanonical(null, next);
         resumeDelay = watchSnapshotPollDelay(next);
       }
       followingLive.current = true;
-    } catch {
-      setScopeError("Analysis could not be queued. The last complete receipt remains visible.");
+    } catch (queueError) {
+      if (queueError instanceof MetricDefinitionsOutOfDateError) {
+        refuseCommandDefinitions(queueError.mismatch);
+      } else {
+        setScopeError("Analysis could not be queued. The last complete receipt remains visible.");
+      }
     } finally {
       endAction();
       coordinator?.endCommand(resumeDelay);
@@ -666,10 +748,15 @@ export function ModelEnsembleOverlay({
       if (transport.cancelModelEnsembleAnalysis === undefined) throw new Error("unavailable");
       const next = await transport.cancelModelEnsembleAnalysis(snapshot.watch.watch_id);
       const exactRun = await resolveCommandRun(next);
+      if (exactRun !== null) setDefinitionsOutOfDate(null);
       applyCanonical(next, { watch: next.watch, latest_run: exactRun });
       resumeDelay = canonicalHeadPollDelay(next);
-    } catch {
-      setScopeError("Cancellation could not be confirmed. The latest sealed snapshot remains visible.");
+    } catch (cancelError) {
+      if (cancelError instanceof MetricDefinitionsOutOfDateError) {
+        refuseCommandDefinitions(cancelError.mismatch);
+      } else {
+        setScopeError("Cancellation could not be confirmed. The latest sealed snapshot remains visible.");
+      }
     } finally {
       endAction();
       coordinator?.endCommand(resumeDelay);
@@ -701,9 +788,11 @@ export function ModelEnsembleOverlay({
     }
   }
 
-  const statusCopy = disconnected
-    ? "Reconnecting · last receipt retained"
-    : snapshot === null ? "No active watch" : canonicalStatus(canonicalHead, snapshot);
+  const statusCopy = definitionsOutOfDate !== null
+    ? METRIC_DEFINITIONS_OUT_OF_DATE_TITLE
+    : disconnected
+      ? "Reconnecting · last receipt retained"
+      : snapshot === null ? "No active watch" : canonicalStatus(canonicalHead, snapshot);
   const progressTotal = canonicalHead?.latest_attempt?.progress_total ?? snapshot?.watch.progress_total ?? 0;
   const progressCompleted = canonicalHead?.latest_attempt?.progress_completed ?? snapshot?.watch.progress_completed ?? 0;
 
@@ -751,7 +840,8 @@ export function ModelEnsembleOverlay({
           <h1 id="model-ensemble-overlay-title">Live metric watch</h1>
         </div>
         <span
-          className={`model-ensemble-overlay__connection${disconnected ? " is-stale" : ""}`}
+          className={`model-ensemble-overlay__connection${disconnected && definitionsOutOfDate === null ? " is-stale" : ""}`}
+          data-definitions={definitionsOutOfDate === null ? undefined : "out_of_date"}
           role="status"
         >
           {statusCopy}
@@ -856,7 +946,9 @@ export function ModelEnsembleOverlay({
           </>
         )}
       </section>
-      {snapshot === null ? (
+      {definitionsOutOfDate !== null ? (
+        <MetricDefinitionsOutOfDateAlert compact mismatch={definitionsOutOfDate} />
+      ) : snapshot === null ? (
         <section className="model-ensemble__empty" role="status">
           No live watch is active. Choose a project, session, and message window above;
           reading starts only after you explicitly enable it.
@@ -897,6 +989,7 @@ export function ModelEnsembleOverlay({
               </button>
               <button
                 aria-busy={pendingAction === "cancel"}
+                aria-describedby={runningAttempt !== null && !cancelArmed ? "model-ensemble-overlay-cancel-hint" : undefined}
                 className="model-ensemble-overlay__watch-button model-ensemble-overlay__watch-button--secondary"
                 disabled={!cancelAvailable}
                 onClick={() => void cancelAnalysis()}
@@ -905,14 +998,24 @@ export function ModelEnsembleOverlay({
               >
                 {pendingAction === "cancel" ? "Cancelling…" : "Cancel analysis"}
               </button>
+              <span className="sr-only" id="model-ensemble-overlay-cancel-hint">Cancel becomes available a moment after the run starts.</span>
             </div>
           </section>
           {snapshot.latest_run === null ? (
             <p className="model-ensemble__empty">The first typed measurement and experimental model range have not completed yet.</p>
           ) : (
             <>
-              {trajectoryError ? (
+              {trajectoryDefinitionsMismatch !== null ? (
+                <p className="model-ensemble-overlay__trajectory-error" data-history-definitions="out_of_date">
+                  Snapshot history was published under other metric definitions and is withheld until this client is updated; the live receipt passed the compatibility gate and remains visible.
+                </p>
+              ) : trajectoryError ? (
                 <p className="model-ensemble-overlay__trajectory-error">Trajectory history is temporarily unavailable; the last live receipt remains visible.</p>
+              ) : null}
+              {historicalRunRefused !== null ? (
+                <p className="model-ensemble-overlay__trajectory-error" data-history-definitions="snapshot_out_of_date">
+                  The exact sealed snapshot for this earlier point was published under other metric definitions, so only its compact state facts are shown and no guidance receipt is read from it; update this client to open that snapshot.
+                </p>
               ) : null}
               {selectedRadarRun !== null ? (
                 <MetricWorkspace

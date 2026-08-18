@@ -1,3 +1,5 @@
+@import "./shared/ui/primitives.css";
+
 :root {
   --ink-950: #101c23;
   --ink-900: #17272f;
@@ -3643,6 +3645,14 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .model-ensemble__error { margin: 0; padding: 10px 12px; border: 1px solid var(--red-100); border-radius: 9px; color: var(--red-700); font-size: 0.74rem; line-height: 1.45; background: var(--red-50); }
 .model-ensemble__empty,
 .model-ensemble__radar-empty { margin: 0; padding: 13px; border: 1px dashed #bdcadc; border-radius: 10px; color: var(--ink-650); font-size: 0.74rem; line-height: 1.5; background: rgba(255, 255, 255, 0.64); }
+/* Distinct definitions-out-of-date state: replaces the workspace, never sits beside values. */
+.metric-definitions-alert { display: grid; gap: 6px; margin: 0; padding: 12px 14px; border: 1px solid var(--amber-100, #f8e8bd); border-left: 4px solid var(--amber-700, #996314); border-radius: 10px; background: var(--amber-50, #fff8e8); }
+.metric-definitions-alert strong { color: var(--amber-700, #996314); font-size: 0.8rem; }
+.metric-definitions-alert p { margin: 0; color: var(--ink-800); font-size: 0.76rem; line-height: 1.5; }
+.metric-definitions-alert small { color: var(--ink-650); font-size: 0.66rem; overflow-wrap: anywhere; }
+.metric-definitions-alert--compact { padding: 10px 12px; }
+.metric-definitions-alert--compact p { font-size: 0.72rem; }
+@media (forced-colors: active) { .metric-definitions-alert { border-color: CanvasText; background: Canvas; } }
 .model-ensemble__facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
 .model-ensemble__facts > div { padding: 10px 11px; border: 1px solid #d4deec; border-radius: 10px; background: rgba(255, 255, 255, 0.85); }
 .model-ensemble__facts dt { color: var(--ink-500); font-size: 0.61rem; font-weight: 780; letter-spacing: 0.055em; text-transform: uppercase; }
@@ -3743,7 +3753,7 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .metric-workspace__snapshot > div { min-width: 0; display: grid; align-content: center; gap: 3px; }
 .metric-workspace__snapshot > div span { color: var(--ink-500); font-size: .75rem; }
 .metric-workspace__snapshot > div strong { overflow: hidden; color: var(--ink-800); font-size: .9rem; text-overflow: ellipsis; white-space: nowrap; }
-.metric-workspace__snapshot dl { min-width: 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; margin: 0; }
+.metric-workspace__snapshot dl { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(78px,1fr)); gap: 6px; margin: 0; }
 .metric-workspace__snapshot dl > div { min-width: 0; display: grid; align-content: center; gap: 2px; padding: 7px 9px; border-radius: 9px; background: #f1f6f4; }
 .metric-workspace__snapshot dt { color: var(--ink-500); font-size: .68rem; }
 .metric-workspace__snapshot dd { margin: 0; overflow: hidden; color: var(--teal-800); font-size: .82rem; font-weight: 820; text-overflow: ellipsis; white-space: nowrap; }
@@ -3765,7 +3775,7 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .metric-workspace__board button strong { color: var(--ink-800); font-size: .76rem; }
 .metric-workspace__board button small { color: var(--ink-500); font-size: .66rem; text-transform: capitalize; }
 .metric-workspace__board button b { color: var(--teal-800); font-size: .78rem; }
-.metric-workspace__board button p { grid-column: 1/-1; margin: 0; color: var(--ink-500); font-size: .7rem; line-height: 1.45; }
+.metric-workspace__board-action { grid-column: 1/-1; margin: 0; color: var(--ink-500); font-size: .7rem; line-height: 1.45; }
 .model-ensemble__guidance { display: grid; gap: 4px; padding: 8px 9px; border-left: 3px solid #2e8a79; border-radius: 7px; background: #eaf6f2; }
 .model-ensemble__guidance > span { color: #39776d; font-size: .64rem; font-weight: 760; text-transform: capitalize; }
 .model-ensemble__guidance > strong { color: var(--ink-800); font-size: .72rem; line-height: 1.45; }

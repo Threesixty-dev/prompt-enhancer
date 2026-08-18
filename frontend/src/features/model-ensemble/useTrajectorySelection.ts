@@ -4,7 +4,19 @@ import type {
   ModelEnsembleTrajectoryPoint,
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
+import { MetricDefinitionsOutOfDateError, type MetricDefinitionMismatch } from "../../shared/api/metricPublicationV2Contract";
 import { resolveTrajectorySelection, type TrajectorySelection } from "./trajectorySelection";
+
+export interface HistoricalRunState {
+  run: ModelEnsembleRun | null;
+  /**
+   * Set when the exact snapshot for the earlier point exists but the
+   * compatibility gate refused it: only the compact state facts of that point
+   * may be shown, and no guidance receipt is read from it. Kept separate from a
+   * transport failure so the surface never calls a refused receipt "absent".
+   */
+  refused: MetricDefinitionMismatch | null;
+}
 
 /**
  * Loads the immutable snapshot for an earlier selected history point. The
@@ -15,23 +27,29 @@ import { resolveTrajectorySelection, type TrajectorySelection } from "./trajecto
 export function useHistoricalRun(
   transport: Pick<PromptEnhancerTransport, "getModelEnsembleSnapshot">,
   historicalRunId: string | null,
-): ModelEnsembleRun | null {
-  const [historicalRun, setHistoricalRun] = useState<ModelEnsembleRun | null>(null);
+): HistoricalRunState {
+  const [historical, setHistorical] = useState<HistoricalRunState>({ run: null, refused: null });
   useEffect(() => {
     if (historicalRunId === null || transport.getModelEnsembleSnapshot === undefined) {
-      setHistoricalRun(null);
+      setHistorical({ run: null, refused: null });
       return;
     }
     const controller = new AbortController();
-    setHistoricalRun(null);
+    setHistorical({ run: null, refused: null });
     transport.getModelEnsembleSnapshot(historicalRunId, controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted && value.run_id === historicalRunId) setHistoricalRun(value);
+        if (!controller.signal.aborted && value.run_id === historicalRunId) setHistorical({ run: value, refused: null });
       })
-      .catch(() => { if (!controller.signal.aborted) setHistoricalRun(null); });
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setHistorical({
+          run: null,
+          refused: error instanceof MetricDefinitionsOutOfDateError ? error.mismatch : null,
+        });
+      });
     return () => controller.abort();
   }, [historicalRunId, transport]);
-  return historicalRun;
+  return historical;
 }
 
 export interface UseTrajectorySelectionInput {
@@ -46,6 +64,8 @@ export interface UseTrajectorySelectionInput {
 export interface UseTrajectorySelectionResult extends TrajectorySelection {
   /** The exact snapshot loaded for the selected earlier point, when it is not the head. */
   historicalRun: ModelEnsembleRun | null;
+  /** Compatibility-gate refusal of that exact snapshot; the compact point is shown alone. */
+  historicalRunRefused: MetricDefinitionMismatch | null;
 }
 
 /**
@@ -64,9 +84,10 @@ export function useTrajectorySelection({
   const historicalRunId = selectedPoint !== null && selectedPoint.run_id !== headRun?.run_id
     ? selectedPoint.run_id
     : null;
-  const historicalRun = useHistoricalRun(transport, historicalRunId);
+  const historical = useHistoricalRun(transport, historicalRunId);
   return {
-    ...resolveTrajectorySelection({ points, selectedRunId, headRun, historicalRun }),
-    historicalRun,
+    ...resolveTrajectorySelection({ points, selectedRunId, headRun, historicalRun: historical.run }),
+    historicalRun: historical.run,
+    historicalRunRefused: historical.refused,
   };
 }

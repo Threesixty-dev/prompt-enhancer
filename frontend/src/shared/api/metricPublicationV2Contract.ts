@@ -7,13 +7,93 @@ export class MetricPublicationV2PayloadError extends Error {
   }
 }
 
+/**
+ * The publication is well-formed for *some* registry, but not for the exact
+ * registry version, contract-set fingerprint, or per-metric contract
+ * fingerprint this client's presentation copy is bound to. Callers must treat
+ * this as "definitions out of date" (update the client) rather than as a
+ * transport failure, and must not keep rendering values or guidance from an
+ * earlier publication beside it.
+ */
+export class MetricDefinitionsOutOfDateError extends MetricPublicationV2PayloadError {
+  readonly code = "definitions_out_of_date" as const;
+  constructor(readonly mismatch: MetricDefinitionMismatch) {
+    super();
+    this.name = "MetricDefinitionsOutOfDateError";
+    this.message = "Canonical metric V2 definitions do not match this client";
+  }
+}
+
 type Row = Record<string, unknown>;
 export type MetricPublicationV2 = NonNullable<ModelEnsembleRun["metric_publication_v2"]>;
 
 const HEX_64 = /^[0-9a-f]{64}$/;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+export const METRIC_CONTRACT_V2_REGISTRY_VERSION = "all-20-factor-contracts-v2";
 export const METRIC_CONTRACT_V2_SET_FINGERPRINT =
   "02eac63391eb48351f5c8c197d62897895234e2334d388a530d6e6812a18aa67";
+export const METRIC_GUIDANCE_CONTRACT_VERSION = "metric-guidance-contract-v1";
+export const METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION = "metric-guidance-templates-v1";
+export const MAX_GUIDANCE_FOCUS_FACTOR_KEYS = 2;
+export const METRIC_CONTRACT_V2_PROJECTION_VERSIONS = [
+  "metric-contract-v2-projection-1",
+  "metric-contract-v2-projection-2",
+] as const;
+
+export type MetricDefinitionMismatch =
+  | "registry_version"
+  | "contract_set_fingerprint"
+  | "metric_contract_fingerprint"
+  | "guidance_contract_version"
+  | "guidance_template_catalog_version"
+  | "guidance_template_identity";
+
+export type MetricDefinitionCompatibility =
+  | { state: "compatible"; registryVersion: typeof METRIC_CONTRACT_V2_REGISTRY_VERSION; contractSetFingerprint: typeof METRIC_CONTRACT_V2_SET_FINGERPRINT }
+  | { state: "definitions_out_of_date"; mismatch: MetricDefinitionMismatch };
+
+/**
+ * Pure, reusable compatibility gate: binds every client-side V2 presentation
+ * (help copy, guidance templates, contract identities) to one exact registry
+ * version and contract-set fingerprint. It reads only identity fields that are
+ * already present on a publication or on a compact trajectory state list, so it
+ * never needs an extra fetch. Any surface that renders V2 values must consult it
+ * and, on mismatch, block all twenty values and their guidance.
+ */
+export function metricDefinitionCompatibility(input: {
+  registry_version?: unknown;
+  contract_set_fingerprint?: unknown;
+  guidance_contract_version?: unknown;
+  guidance_template_catalog_version?: unknown;
+  metric_contract_fingerprints?: ReadonlyArray<{ metric_key: unknown; contract_fingerprint: unknown }>;
+}): MetricDefinitionCompatibility {
+  if (input.registry_version !== undefined && input.registry_version !== METRIC_CONTRACT_V2_REGISTRY_VERSION) {
+    return { state: "definitions_out_of_date", mismatch: "registry_version" };
+  }
+  if (input.contract_set_fingerprint !== undefined && input.contract_set_fingerprint !== METRIC_CONTRACT_V2_SET_FINGERPRINT) {
+    return { state: "definitions_out_of_date", mismatch: "contract_set_fingerprint" };
+  }
+  if (input.guidance_contract_version !== undefined && input.guidance_contract_version !== METRIC_GUIDANCE_CONTRACT_VERSION) {
+    return { state: "definitions_out_of_date", mismatch: "guidance_contract_version" };
+  }
+  if (
+    input.guidance_template_catalog_version !== undefined
+    && input.guidance_template_catalog_version !== METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION
+  ) {
+    return { state: "definitions_out_of_date", mismatch: "guidance_template_catalog_version" };
+  }
+  for (const item of input.metric_contract_fingerprints ?? []) {
+    const identity = METRIC_V2_CONTRACT_IDENTITIES[item.metric_key as MetricKeyV2];
+    if (identity === undefined || item.contract_fingerprint !== identity.fingerprint) {
+      return { state: "definitions_out_of_date", mismatch: "metric_contract_fingerprint" };
+    }
+  }
+  return {
+    state: "compatible",
+    registryVersion: METRIC_CONTRACT_V2_REGISTRY_VERSION,
+    contractSetFingerprint: METRIC_CONTRACT_V2_SET_FINGERPRINT,
+  };
+}
 
 export const METRIC_V2_KEYS = [
   "prompt.task_definition_coverage",
@@ -39,6 +119,46 @@ export const METRIC_V2_KEYS = [
 ] as const;
 
 type MetricKeyV2 = typeof METRIC_V2_KEYS[number];
+export type MetricGuidanceStateClassV2 =
+  | "known_retain"
+  | "known_improve"
+  | "pending_closure"
+  | "objective_evidence_missing"
+  | "objective_evidence_unresolved"
+  | "evidence_unresolved"
+  | "no_opportunity"
+  | "evidence_coverage_abstained"
+  | "analysis_failed";
+
+const GUIDANCE_GENERIC_TEMPLATE_FAMILIES: Readonly<Partial<Record<
+  MetricGuidanceStateClassV2,
+  readonly [action: string, verification: string]
+>>> = {
+  pending_closure: ["action.await_opportunity_closure", "verification.await_opportunity_closure"],
+  objective_evidence_missing: ["action.collect_objective_receipt", "verification.objective_receipt_scope"],
+  objective_evidence_unresolved: ["action.resolve_objective_evidence", "verification.objective_evidence_completeness"],
+  evidence_unresolved: ["action.hold_state_unknown", "verification.review_opportunity_evidence"],
+  no_opportunity: ["action.no_change_required", "verification.reassess_on_new_opportunity"],
+  evidence_coverage_abstained: ["action.review_evidence_coverage", "verification.review_evidence_coverage"],
+  analysis_failed: ["action.repair_local_analysis_stage", "verification.fresh_sealed_receipt"],
+};
+
+/** Exact identities from the catalog bound to this client; no fallback prose is allowed. */
+export function expectedMetricGuidanceTemplateIdentities(
+  metricKey: string,
+  stateClass: MetricGuidanceStateClassV2,
+): { diagnosis: string; action: string; verification: string } {
+  const generic = GUIDANCE_GENERIC_TEMPLATE_FAMILIES[stateClass];
+  const actionFamily = generic?.[0]
+    ?? (stateClass === "known_retain" ? "action.retain" : "action.improve");
+  const verificationFamily = generic?.[1] ?? "verification";
+  return {
+    diagnosis: `diagnosis.${metricKey}.v1`,
+    action: generic === undefined ? `${actionFamily}.${metricKey}.v1` : `${actionFamily}.v1`,
+    verification: generic === undefined ? `${verificationFamily}.${metricKey}.v1` : `${verificationFamily}.v1`,
+  };
+}
+
 type ContractIdentity = {
   fingerprint: string;
   basis: typeof DENOMINATOR_BASES[number];
@@ -175,6 +295,26 @@ function parseStatistics(value: unknown, metricKey: string) {
 
 function parseState(value: unknown, expectedMetricKey: string) {
   const state = record(value);
+  const identity = METRIC_V2_CONTRACT_IDENTITIES[expectedMetricKey as MetricKeyV2];
+  // Registry order is a shape rule; identity comes right after it and before any
+  // other shape check, so a compact row published under another registry
+  // version or contract fingerprint (even one whose shape also moved) reads as
+  // "definitions out of date" rather than as a malformed page.
+  if (identity === undefined || state.metric_key !== expectedMetricKey) {
+    throw new MetricPublicationV2PayloadError();
+  }
+  const fingerprintCandidate = typeof state.contract_fingerprint === "string" && HEX_64.test(state.contract_fingerprint)
+    ? state.contract_fingerprint
+    : null;
+  const compatibility = metricDefinitionCompatibility({
+    registry_version: state.registry_version,
+    metric_contract_fingerprints: fingerprintCandidate === null
+      ? undefined
+      : [{ metric_key: expectedMetricKey, contract_fingerprint: fingerprintCandidate }],
+  });
+  if (compatibility.state === "definitions_out_of_date") {
+    throw new MetricDefinitionsOutOfDateError(compatibility.mismatch);
+  }
   exact(state, [
     "metric_key", "registry_version", "contract_version", "contract_fingerprint",
     "evidence_authority", "value_state", "explanation_code", "numerator",
@@ -182,16 +322,12 @@ function parseState(value: unknown, expectedMetricKey: string) {
     "censoring_upper_bound", "statistics", "projection_version",
     "product_metric_eligible",
   ]);
-  const identity = METRIC_V2_CONTRACT_IDENTITIES[expectedMetricKey as MetricKeyV2];
   if (
-    identity === undefined
-    || state.metric_key !== expectedMetricKey
-    || state.registry_version !== "all-20-factor-contracts-v2"
+    fingerprintCandidate === null
     || state.contract_version !== "probabilistic-metric-contract-v2"
-    || typeof state.contract_fingerprint !== "string"
-    || !HEX_64.test(state.contract_fingerprint)
-    || state.contract_fingerprint !== identity.fingerprint
-    || state.projection_version !== "metric-contract-v2-projection-1"
+    || !METRIC_CONTRACT_V2_PROJECTION_VERSIONS.includes(
+      state.projection_version as typeof METRIC_CONTRACT_V2_PROJECTION_VERSIONS[number],
+    )
     || state.product_metric_eligible !== false
   ) {
     throw new MetricPublicationV2PayloadError();
@@ -212,6 +348,13 @@ function parseState(value: unknown, expectedMetricKey: string) {
     || (lower === null) !== (upper === null)
     || (lower !== null && upper !== null && lower > upper)
     || (valueState === "pending" && parsed.pending === 0)
+    // A right-censored value always travels with its exact bounds: met/eligible
+    // below, (met + pending)/eligible above; an unknown count is never pending.
+    || (valueState === "pending" && (
+      lower === null || upper === null || parsed.unknown !== 0
+      || Math.abs(lower - parsed.met / parsed.eligible) > 1e-9
+      || Math.abs(upper - (parsed.met + parsed.pending) / parsed.eligible) > 1e-9
+    ))
     || (valueState === "not_applicable" && parsed.eligible !== 0)
     || (authority === "objective_receipt" && valueState === "known"
       && parsed.denominatorBasis !== "objective_opportunities")
@@ -246,6 +389,17 @@ export function parseMetricV2State(
 
 function parseGuidance(value: unknown, parsedState: ReturnType<typeof parseState>) {
   const guidance = record(value);
+  // Identity before shape, as for the state row: a receipt for another guidance
+  // contract or template catalog is a client-update condition even when its
+  // field set also changed.
+  const guidanceCompatibility = metricDefinitionCompatibility({
+    registry_version: guidance.registry_version,
+    guidance_contract_version: guidance.contract_version,
+    guidance_template_catalog_version: guidance.template_catalog_version,
+  });
+  if (guidanceCompatibility.state === "definitions_out_of_date") {
+    throw new MetricDefinitionsOutOfDateError(guidanceCompatibility.mismatch);
+  }
   exact(guidance, [
     "schema_version", "contract_version", "template_catalog_version", "template_version",
     "metric_key", "metric_version", "registry_version", "metric_contract_version",
@@ -258,22 +412,22 @@ function parseGuidance(value: unknown, parsedState: ReturnType<typeof parseState
     "product_metric_eligible",
   ]);
   if (
-    guidance.schema_version !== 1 || guidance.contract_version !== "metric-guidance-contract-v1"
-    || guidance.template_catalog_version !== "metric-guidance-templates-v1"
+    guidance.schema_version !== 1
     || integer(guidance.template_version, 1, 1) !== 1
     || guidance.metric_key !== parsedState.state.metric_key
     || integer(guidance.metric_version, 1, 1_000_000) < 1
-    || guidance.registry_version !== "all-20-factor-contracts-v2"
     || guidance.metric_contract_version !== parsedState.state.contract_version
     || guidance.metric_contract_fingerprint !== parsedState.state.contract_fingerprint
     || guidance.evidence_authority !== parsedState.authority
     || guidance.denominator_basis !== parsedState.parsed.denominatorBasis
     || guidance.value_state !== parsedState.valueState
+    // The producer copies the state's explanation code as the guidance reason:
+    // the two surfaces that quote them must never disagree.
+    || guidance.reason_code !== parsedState.state.explanation_code
     || guidance.product_metric_eligible !== false
   ) {
     throw new MetricPublicationV2PayloadError();
   }
-  integer(guidance.contract_factor_count, 1, 8);
   oneOf(guidance.audience, ["user", "agent", "workflow", "tooling"] as const);
   oneOf(guidance.role, [
     "specification_signal", "collaboration_signal", "traceability_signal",
@@ -286,14 +440,38 @@ function parseGuidance(value: unknown, parsedState: ReturnType<typeof parseState
   ] as const);
   const basis = oneOf(guidance.basis, ["measured", "experimental", "readiness", "method-only"] as const);
   const valueOrigin = oneOf(guidance.value_origin, ["none", "deterministic_local", "typed_objective", "neural_uncalibrated"] as const);
-  const factorEvidence = oneOf(guidance.factor_evidence, ["not_observed", "aggregate_only"] as const);
-  if (!Array.isArray(guidance.focus_factor_keys) || guidance.focus_factor_keys.length !== 0) {
+  const factorEvidence = oneOf(guidance.factor_evidence, [
+    "not_observed", "aggregate_only", "per_factor_measured",
+  ] as const);
+  const contractFactorCount = integer(guidance.contract_factor_count, 1, 8);
+  // Focus factors may be named only when per-factor sufficient statistics were
+  // measured, never from an aggregate count or an unobserved factor set, and
+  // never more than two: a rubric numerator proves a count, not an identity.
+  if (
+    !Array.isArray(guidance.focus_factor_keys)
+    || guidance.focus_factor_keys.length > MAX_GUIDANCE_FOCUS_FACTOR_KEYS
+    || guidance.focus_factor_keys.length > contractFactorCount
+    || (guidance.focus_factor_keys.length > 0 && factorEvidence !== "per_factor_measured")
+    || new Set(guidance.focus_factor_keys).size !== guidance.focus_factor_keys.length
+  ) {
     throw new MetricPublicationV2PayloadError();
   }
+  guidance.focus_factor_keys.forEach((key) => safeLabel(key));
   safeLabel(guidance.reason_code);
   safeLabel(guidance.diagnosis_template_id);
   safeLabel(guidance.action_template_id);
   safeLabel(guidance.verification_template_id);
+  const expectedTemplates = expectedMetricGuidanceTemplateIdentities(
+    parsedState.state.metric_key as string,
+    stateClass,
+  );
+  if (
+    guidance.diagnosis_template_id !== expectedTemplates.diagnosis
+    || guidance.action_template_id !== expectedTemplates.action
+    || guidance.verification_template_id !== expectedTemplates.verification
+  ) {
+    throw new MetricDefinitionsOutOfDateError("guidance_template_identity");
+  }
   const optionalInteger = (candidate: unknown, minimum: number, maximum: number) => (
     candidate === null ? null : integer(candidate, minimum, maximum)
   );
@@ -325,15 +503,18 @@ function parseGuidance(value: unknown, parsedState: ReturnType<typeof parseState
                 : "objective_evidence_missing")
               : "evidence_unresolved"
             : null;
+  // A known state keeps the producer's retain/improve decision as published: the
+  // client renders that state class and never re-decides it from the value.
+  // Aggregate-only factor evidence is method-level guidance (no measured basis).
   if (
-    factorEvidence !== "not_observed"
-    || (parsedState.valueState === "known" && (
+    (parsedState.valueState === "known" && (
       !["known_retain", "known_improve"].includes(stateClass)
-      || basis !== "measured"
+      || basis !== (factorEvidence === "aggregate_only" ? "method-only" : "measured")
       || valueOrigin !== (parsedState.authority === "objective_receipt" ? "typed_objective" : "deterministic_local")
     ))
     || (parsedState.valueState !== "known" && (
-      stateClass !== expectedStateClass
+      factorEvidence !== "not_observed"
+      || stateClass !== expectedStateClass
       || valueOrigin !== "none"
       || basis !== (parsedState.valueState === "execution_error" ? "method-only" : "readiness")
     ))
@@ -344,6 +525,17 @@ function parseGuidance(value: unknown, parsedState: ReturnType<typeof parseState
 
 export function parseMetricPublicationV2(value: unknown): MetricPublicationV2 {
   const publication = record(value);
+  // Identity first: a publication for another registry version or contract set
+  // is "definitions out of date" even when its shape also differs.
+  const compatibility = metricDefinitionCompatibility({
+    registry_version: publication.registry_version,
+    contract_set_fingerprint: publication.contract_set_fingerprint,
+    guidance_contract_version: publication.guidance_contract_version,
+    guidance_template_catalog_version: publication.guidance_template_catalog_version,
+  });
+  if (compatibility.state === "definitions_out_of_date") {
+    throw new MetricDefinitionsOutOfDateError(compatibility.mismatch);
+  }
   exact(publication, [
     "publication_key", "publication_version", "registry_version",
     "contract_set_fingerprint", "projection_version", "guidance_contract_version",
@@ -355,11 +547,9 @@ export function parseMetricPublicationV2(value: unknown): MetricPublicationV2 {
   if (
     publication.publication_key !== "metric.contract-v2.publication"
     || publication.publication_version !== 2
-    || publication.registry_version !== "all-20-factor-contracts-v2"
-    || publication.contract_set_fingerprint !== METRIC_CONTRACT_V2_SET_FINGERPRINT
-    || publication.projection_version !== "metric-contract-v2-projection-1"
-    || publication.guidance_contract_version !== "metric-guidance-contract-v1"
-    || publication.guidance_template_catalog_version !== "metric-guidance-templates-v1"
+    || !METRIC_CONTRACT_V2_PROJECTION_VERSIONS.includes(
+      publication.projection_version as typeof METRIC_CONTRACT_V2_PROJECTION_VERSIONS[number],
+    )
     || publication.source !== "live_projection"
     || publication.canonical_live_snapshot !== true
     || publication.model_stage_consumed !== false
@@ -376,6 +566,9 @@ export function parseMetricPublicationV2(value: unknown): MetricPublicationV2 {
     const item = record(candidate);
     exact(item, ["state", "guidance", "implementation_state"]);
     const parsedState = parseState(item.state, METRIC_V2_KEYS[ordinal]);
+    if (parsedState.state.projection_version !== publication.projection_version) {
+      throw new MetricPublicationV2PayloadError();
+    }
     parseGuidance(item.guidance, parsedState);
     const implementation = oneOf(item.implementation_state, IMPLEMENTATION_STATES);
     const expected = parsedState.valueState === "known" ? "live_measured"

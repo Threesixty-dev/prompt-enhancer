@@ -1,4 +1,5 @@
 import { formatTimestamp, shortId } from "../../shared/lib/format";
+import { FactList } from "../../shared/ui/FactList";
 import { Icon } from "../../shared/ui/Icon";
 import { StatusPill, type PillTone } from "../../shared/ui/StatusPill";
 import {
@@ -28,30 +29,41 @@ export function TaskFlowCard({ item, onOpen }: { item: TaskFlowItem; onOpen: (it
         </header>
         <h4 id={`${item.id}-title`}>{item.title}</h4>
         <p className="task-flow-card__subtitle">{item.subtitle}</p>
-        <dl>
-          <div>
-            <dt>Lifecycle</dt>
-            <dd>
-              <span className="task-flow-card__source">{TASK_FLOW_SOURCE_LABELS[item.lifecycle.source]}</span>
-              {" · "}
-              {item.lifecycle.label}
-            </dd>
-          </div>
-          <div>
-            <dt>Provenance</dt>
-            <dd>
-              {item.provenance.origin} · {item.provenance.version} · fingerprint <span className="mono">{shortId(item.provenance.fingerprint)}</span>
-              {item.provenance.dataTier === null ? "" : ` · ${item.provenance.dataTier.replaceAll("_", " ")} tier`}
-            </dd>
-          </div>
-          <div>
-            <dt>Readiness</dt>
-            <dd>
-              <StatusPill tone={READINESS_TONE[item.readiness.state]}>{TASK_FLOW_READINESS_LABELS[item.readiness.state]} · {item.readiness.label}</StatusPill>
-              <span className="task-flow-card__detail">{item.readiness.detail}</span>
-            </dd>
-          </div>
-        </dl>
+        <FactList
+          className="task-flow-card__facts"
+          compact
+          facts={[
+            {
+              term: "Lifecycle",
+              detail: (
+                <>
+                  <span className="task-flow-card__source">{TASK_FLOW_SOURCE_LABELS[item.lifecycle.source]}</span>
+                  {" · "}
+                  {item.lifecycle.label}
+                </>
+              ),
+            },
+            {
+              term: "Provenance",
+              detail: (
+                <>
+                  {item.provenance.origin} · {item.provenance.version} · fingerprint <span className="mono">{shortId(item.provenance.fingerprint)}</span>
+                  {item.provenance.dataTier === null ? "" : ` · ${item.provenance.dataTier.replaceAll("_", " ")} tier`}
+                </>
+              ),
+            },
+            {
+              term: "Readiness",
+              detail: (
+                <>
+                  <StatusPill tone={READINESS_TONE[item.readiness.state]}>{TASK_FLOW_READINESS_LABELS[item.readiness.state]} · {item.readiness.label}</StatusPill>
+                  <span className="task-flow-card__detail">{item.readiness.detail}</span>
+                </>
+              ),
+            },
+          ]}
+          label={`${item.title} record facts`}
+        />
         <footer>
           <span>{item.sessionCount} session{item.sessionCount === 1 ? "" : "s"}{item.provider === null ? "" : ` · ${item.provider}`}</span>
           <button

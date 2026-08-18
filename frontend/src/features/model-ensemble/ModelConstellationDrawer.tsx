@@ -52,6 +52,7 @@ export function ModelConstellationDrawer({ run, attemptStages, compact }: {
               >
                 {groupStages.map((stage) => (
                   <button
+                    aria-label={`${stage.repositoryId} · ${stage.role} · ${stage.status.replaceAll("_", " ")}`}
                     aria-pressed={stage.modelKey === selected?.modelKey}
                     data-status={stage.status}
                     key={stage.modelKey}

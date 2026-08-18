@@ -9,9 +9,11 @@ import type {
   SessionTextAnalysisCapability,
 } from "../../shared/api/contracts";
 import { nextIdempotencyKey } from "../../shared/api/idempotency";
+import { MetricDefinitionsOutOfDateError, type MetricDefinitionMismatch } from "../../shared/api/metricPublicationV2Contract";
 import type { MetricCategory } from "../../shared/platform/platform";
 import { promptTextCompatibilityBlocker } from "../provider-compatibility";
 import type { ModelEnsembleLensId } from "./metricAxisModel";
+import { METRIC_DEFINITIONS_OUT_OF_DATE_TITLE, MetricDefinitionsOutOfDateAlert } from "./MetricDefinitionsAlert";
 import { MetricWorkspace } from "./MetricWorkspace";
 import { MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES } from "./modelEnsembleConstants";
 import { useTrajectorySelection } from "./useTrajectorySelection";
@@ -118,10 +120,18 @@ export function ModelEnsemblePanel({
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  /** Compatibility-gate refusal: clears every retained value; never rendered as a load error. */
+  const [definitionsOutOfDate, setDefinitionsOutOfDate] = useState<MetricDefinitionMismatch | null>(null);
   const [watch, setWatch] = useState<ModelEnsembleWatchSnapshot | null>(null);
   const [canonicalHead, setCanonicalHead] = useState<ModelEnsembleCanonicalHead | null>(null);
   const [trajectory, setTrajectory] = useState<ModelEnsembleTrajectoryPage | null>(null);
   const [trajectoryError, setTrajectoryError] = useState(false);
+  /**
+   * The history page (not the live head) was published under other definitions.
+   * Scoped to the history so a compatible live receipt is neither hidden nor
+   * flashed: the head poll owns `definitionsOutOfDate`, this owns the drawer.
+   */
+  const [trajectoryDefinitionsMismatch, setTrajectoryDefinitionsMismatch] = useState<MetricDefinitionMismatch | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [watchChanging, setWatchChanging] = useState(false);
   const [lensId, setLensId] = useState<ModelEnsembleLensId>(
@@ -142,6 +152,8 @@ export function ModelEnsemblePanel({
     setLoading(true);
     setError("");
     setRun(null);
+    runRef.current = null;
+    setDefinitionsOutOfDate(null);
     if (supportsCanonicalSnapshots) {
       return () => controller.abort();
     }
@@ -153,10 +165,18 @@ export function ModelEnsemblePanel({
           exactHead?.watch.session_id === sessionId
           && exactHead.head_run_id !== value.run_id
         ) return;
+        setDefinitionsOutOfDate(null);
         setRun(value);
       })
       .catch((loadError: unknown) => {
-        if (!controller.signal.aborted && statusOf(loadError) !== 404) {
+        if (controller.signal.aborted) return;
+        if (loadError instanceof MetricDefinitionsOutOfDateError) {
+          setDefinitionsOutOfDate(loadError.mismatch);
+          runRef.current = null;
+          setRun(null);
+          return;
+        }
+        if (statusOf(loadError) !== 404) {
           setError("The stored shadow ensemble could not be validated or loaded.");
         }
       })
@@ -174,6 +194,7 @@ export function ModelEnsemblePanel({
     if (trajectoryWatchId === null || trajectoryHeadRunId === null || transport.getModelEnsembleTrajectory === undefined) {
       setTrajectory(null);
       setTrajectoryError(false);
+      setTrajectoryDefinitionsMismatch(null);
       setSelectedRunId(null);
       followingLive.current = true;
       return;
@@ -202,6 +223,7 @@ export function ModelEnsemblePanel({
           }
           setTrajectory(page);
           setTrajectoryError(false);
+          setTrajectoryDefinitionsMismatch(null);
           setSelectedRunId((current) => {
             if (followingLive.current) return page.head_run_id;
             if (current !== null && page.points.some((point) => point.run_id === current)) return current;
@@ -209,8 +231,18 @@ export function ModelEnsemblePanel({
             return page.head_run_id;
           });
         })
-        .catch(() => {
-          if (!controller.signal.aborted) setTrajectoryError(true);
+        .catch((trajectoryFailure: unknown) => {
+          if (controller.signal.aborted) return;
+          if (trajectoryFailure instanceof MetricDefinitionsOutOfDateError) {
+            // History published under other definitions: withhold every history
+            // point (no compact values, no comparison) and say why. The live head
+            // stays governed by its own gate, so nothing compatible is hidden.
+            setTrajectoryDefinitionsMismatch(trajectoryFailure.mismatch);
+            setTrajectory(null);
+            setSelectedRunId(trajectoryHeadRunId);
+            followingLive.current = true;
+          }
+          setTrajectoryError(true);
         });
     };
     load();
@@ -263,13 +295,23 @@ export function ModelEnsemblePanel({
       } catch (watchError) {
         if (!ticket.isCurrent()) return;
         setLoading(false);
+        if (watchError instanceof MetricDefinitionsOutOfDateError) {
+          // Legacy watch snapshot embeds the run: a definitions mismatch clears
+          // every retained value and is shown as a client-update state.
+          setDefinitionsOutOfDate(watchError.mismatch);
+          applyCanonical(null, null, null);
+          coordinator.schedule(CANONICAL_POLL_IDLE_MS);
+          return;
+        }
         if (statusOf(watchError) === 404) {
           // Definitive: no durable watch or head for this session.
           // A missing *legacy watch* says nothing about the independently
           // stored latest run.  Pass `undefined` so an in-flight initial run
           // load cannot be overwritten through a stale ref.  The canonical
           // v2 route is authoritative for both head and run, so its 404 does
-          // intentionally clear the displayed run.
+          // intentionally clear the displayed run — and with it any refused
+          // publication: there is nothing left to be out of date about.
+          if (supportsCanonicalSnapshots) setDefinitionsOutOfDate(null);
           applyCanonical(null, null, supportsCanonicalSnapshots ? null : undefined);
           coordinator.schedule(CANONICAL_POLL_IDLE_MS);
           return;
@@ -299,11 +341,19 @@ export function ModelEnsemblePanel({
         } else if (latestRun?.run_id !== head.head_run_id) {
           try {
             latestRun = await transport.getModelEnsembleSnapshot!(head.head_run_id, ticket.signal);
-          } catch {
+          } catch (snapshotError) {
             // The immutable snapshot is not readable (including 404): retain the
             // last complete run rather than presenting a head without it.
             if (!ticket.isCurrent()) return;
             setLoading(false);
+            if (snapshotError instanceof MetricDefinitionsOutOfDateError) {
+              // Client definitions are out of date for this exact head: clear
+              // every retained value and guidance; keep polling at idle cadence.
+              setDefinitionsOutOfDate(snapshotError.mismatch);
+              applyCanonical(head, { watch: head.watch, latest_run: null }, null);
+              coordinator.schedule(CANONICAL_POLL_IDLE_MS);
+              return;
+            }
             coordinator.schedule(CANONICAL_POLL_RETRY_MS);
             return;
           }
@@ -315,6 +365,7 @@ export function ModelEnsemblePanel({
             return;
           }
         }
+        setDefinitionsOutOfDate(null);
         applyCanonical(head, { watch: head.watch, latest_run: latestRun }, latestRun);
         setLoading(false);
         coordinator.schedule(canonicalHeadPollDelay(head));
@@ -328,6 +379,7 @@ export function ModelEnsemblePanel({
           coordinator.schedule(watchSnapshotPollDelay(watchRef.current!));
           return;
         }
+        if (legacy.watch.session_id === sessionId) setDefinitionsOutOfDate(null);
         applyCanonical(null, legacy, legacy.watch.session_id === sessionId ? legacy.latest_run : runRef.current);
         setLoading(false);
         coordinator.schedule(watchSnapshotPollDelay(legacy));
@@ -340,6 +392,19 @@ export function ModelEnsemblePanel({
       if (coordinatorRef.current === coordinator) coordinatorRef.current = null;
     };
   }, [sessionId, supportsCanonicalSnapshots, transport]);
+
+  /**
+   * A command result (start, enqueue, cancel, watch change) that the
+   * compatibility gate refused. The refused publication is the newest truth
+   * for this session, so the previously displayed run must not stay visible
+   * beside a generic error: clear it and show the update-client state. A later
+   * compatible poll or command clears the state again.
+   */
+  function refuseCommandDefinitions(mismatch: MetricDefinitionMismatch) {
+    setDefinitionsOutOfDate(mismatch);
+    runRef.current = null;
+    setRun(null);
+  }
 
   /**
    * Resolves the exact sealed run for a command's canonical head, refusing any
@@ -390,6 +455,7 @@ export function ModelEnsemblePanel({
         if (controller.signal.aborted) return;
         const exactRun = await resolveCommandRun(head, controller.signal);
         if (controller.signal.aborted) return;
+        setDefinitionsOutOfDate(null);
         applyCanonical(head, { watch: head.watch, latest_run: exactRun }, exactRun);
         followingLive.current = true;
         resumeDelay = canonicalHeadPollDelay(head);
@@ -401,12 +467,18 @@ export function ModelEnsemblePanel({
           controller.signal,
         );
         if (!controller.signal.aborted) {
+          setDefinitionsOutOfDate(null);
           runRef.current = outcome.run;
           setRun(outcome.run);
         }
       }
     } catch (runError) {
-      if (!controller.signal.aborted) setError(runErrorCopy(runError));
+      if (controller.signal.aborted) return;
+      if (runError instanceof MetricDefinitionsOutOfDateError) {
+        refuseCommandDefinitions(runError.mismatch);
+        return;
+      }
+      setError(runErrorCopy(runError));
     } finally {
       if (!controller.signal.aborted) setRunning(false);
       controllerRef.current = null;
@@ -434,10 +506,15 @@ export function ModelEnsemblePanel({
     try {
       const head = await transport.cancelModelEnsembleAnalysis(canonicalHead.watch.watch_id);
       const exactRun = await resolveCommandRun(head);
+      setDefinitionsOutOfDate(null);
       applyCanonical(head, { watch: head.watch, latest_run: exactRun }, exactRun);
       resumeDelay = canonicalHeadPollDelay(head);
-    } catch {
-      setError("Cancellation could not be confirmed. The latest sealed snapshot remains visible.");
+    } catch (cancelError) {
+      if (cancelError instanceof MetricDefinitionsOutOfDateError) {
+        refuseCommandDefinitions(cancelError.mismatch);
+      } else {
+        setError("Cancellation could not be confirmed. The latest sealed snapshot remains visible.");
+      }
     } finally {
       setRunning(false);
       coordinator?.endCommand(resumeDelay);
@@ -463,13 +540,19 @@ export function ModelEnsemblePanel({
           });
       if (snapshot !== undefined) {
         const disabled = snapshot.watch.state === "disabled";
+        // A parsed run (or no watch at all) supersedes an earlier refusal.
+        if (disabled || snapshot.latest_run !== null) setDefinitionsOutOfDate(null);
         applyCanonical(null, disabled ? null : snapshot, snapshot.latest_run);
         resumeDelay = disabled ? CANONICAL_POLL_IDLE_MS : watchSnapshotPollDelay(snapshot);
       } else {
         setError("Continuous local analysis is available only in the integrated desktop app.");
       }
-    } catch {
-      setError("The continuous local watch could not be changed. No session text was retained.");
+    } catch (watchChangeError) {
+      if (watchChangeError instanceof MetricDefinitionsOutOfDateError) {
+        refuseCommandDefinitions(watchChangeError.mismatch);
+      } else {
+        setError("The continuous local watch could not be changed. No session text was retained.");
+      }
     } finally {
       setWatchChanging(false);
       coordinator?.endCommand(resumeDelay);
@@ -489,6 +572,7 @@ export function ModelEnsemblePanel({
   const {
     selectedPoint,
     historicalRun,
+    historicalRunRefused,
     selectedRadarRun,
     comparisonRadarRun,
   } = useTrajectorySelection({ transport, points: trajectoryPoints, selectedRunId, headRun: run });
@@ -574,6 +658,8 @@ export function ModelEnsemblePanel({
           ? transport.enqueueModelEnsembleAnalysis === undefined
             ? "Running the local factor pipeline one child at a time. Cancelling only stops this browser from waiting."
             : "Queueing a durable local analysis. The last sealed snapshot remains visible."
+          : definitionsOutOfDate !== null
+            ? METRIC_DEFINITIONS_OUT_OF_DATE_TITLE
           : blocked ?? (run
             ? `Stored local analysis completed ${formatTimestamp(run.completed_at)}.`
             : "No measured + predictive analysis is stored for this session yet.")}
@@ -581,6 +667,8 @@ export function ModelEnsemblePanel({
       {error && <p className="model-ensemble__error" role="alert">{error}</p>}
       {loading ? (
         <p className="model-ensemble__empty">Loading stored content-free receipts…</p>
+      ) : definitionsOutOfDate !== null ? (
+        <MetricDefinitionsOutOfDateAlert mismatch={definitionsOutOfDate} />
       ) : selectedRadarRun ? (
         <>
           {selectedPoint === null && run?.source_coverage_state === "incomplete_source" && (
@@ -588,6 +676,20 @@ export function ModelEnsemblePanel({
               The adapter could not prove the selected source window complete.
               This shadow shape reflects retained content only and is not a
               complete-session judgment.
+            </p>
+          )}
+          {trajectoryDefinitionsMismatch !== null && (
+            <p className="model-ensemble__error" data-history-definitions="out_of_date" role="note">
+              Snapshot history was published under other metric definitions and is withheld
+              until this client is updated; no earlier point is shown or compared. The current
+              sealed receipt passed the compatibility gate and remains visible.
+            </p>
+          )}
+          {historicalRunRefused !== null && (
+            <p className="model-ensemble__error" data-history-definitions="snapshot_out_of_date" role="note">
+              The exact sealed snapshot for this earlier point was published under other metric
+              definitions, so only its compact state facts are shown and no guidance receipt is
+              read from it; update this client to open that snapshot.
             </p>
           )}
           <MetricWorkspace

@@ -4,7 +4,9 @@ import {
   METRIC_CONTRACT_V2_SET_FINGERPRINT,
   METRIC_V2_CONTRACT_IDENTITIES,
   METRIC_V2_KEYS,
+  MetricDefinitionsOutOfDateError,
   MetricPublicationV2PayloadError,
+  expectedMetricGuidanceTemplateIdentities,
   parseMetricPublicationV2,
 } from "./metricPublicationV2Contract";
 import {
@@ -47,6 +49,8 @@ function publicationFixture(): Record<string, unknown> {
       projection_version: "metric-contract-v2-projection-1",
       product_metric_eligible: false,
     };
+    const stateClass = objective ? "objective_evidence_missing" : "evidence_unresolved";
+    const templates = expectedMetricGuidanceTemplateIdentities(metricKey, stateClass);
     return {
       state,
       guidance: {
@@ -65,15 +69,15 @@ function publicationFixture(): Record<string, unknown> {
         audience: "user",
         role: objective ? "outcome_evidence" : "specification_signal",
         value_state: "unknown",
-        state_class: objective ? "objective_evidence_missing" : "evidence_unresolved",
+        state_class: stateClass,
         basis: "readiness",
         value_origin: "none",
         factor_evidence: "not_observed",
         focus_factor_keys: [],
         reason_code: objective ? "typed_objective_absent" : "opportunity_family_unobservable",
-        diagnosis_template_id: "metric.unknown.diagnosis",
-        action_template_id: "metric.unknown.action",
-        verification_template_id: "metric.unknown.verify",
+        diagnosis_template_id: templates.diagnosis,
+        action_template_id: templates.action,
+        verification_template_id: templates.verification,
         numerator: null,
         denominator: null,
         censoring_lower_bound: null,
@@ -116,6 +120,34 @@ describe("canonical metric V2 publication contract", () => {
   it("accepts the exact all-twenty live measured envelope", () => {
     const fixture = publicationFixture();
     expect(parseMetricPublicationV2(structuredClone(fixture))).toEqual(fixture);
+  });
+
+  it("accepts both the legacy-read and current-write projection identities", () => {
+    const legacy = publicationFixture();
+    expect(parseMetricPublicationV2(structuredClone(legacy))).toEqual(legacy);
+    const current = structuredClone(legacy) as any;
+    current.projection_version = "metric-contract-v2-projection-2";
+    current.metrics.forEach((item: any) => {
+      item.state.projection_version = "metric-contract-v2-projection-2";
+    });
+    expect(parseMetricPublicationV2(structuredClone(current))).toEqual(current);
+    current.projection_version = "metric-contract-v2-projection-3";
+    expect(() => parseMetricPublicationV2(current)).toThrow(MetricPublicationV2PayloadError);
+  });
+
+  it("rejects a publication that mixes legacy and current row projections", () => {
+    const mixed = publicationFixture() as any;
+    mixed.projection_version = "metric-contract-v2-projection-2";
+    expect(() => parseMetricPublicationV2(mixed)).toThrow(MetricPublicationV2PayloadError);
+  });
+
+  it("refuses a safe-looking template identity outside the exact reviewed catalog", () => {
+    const fixture = publicationFixture() as any;
+    fixture.metrics[0].guidance.verification_template_id = "verification.review_evidence_coverage.v1";
+    let caught: unknown;
+    try { parseMetricPublicationV2(fixture); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(MetricDefinitionsOutOfDateError);
+    expect((caught as MetricDefinitionsOutOfDateError).mismatch).toBe("guidance_template_identity");
   });
 
   it("carries the same strict V2 states in compact trajectory points", () => {

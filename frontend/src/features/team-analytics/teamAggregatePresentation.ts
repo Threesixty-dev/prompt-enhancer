@@ -1,6 +1,7 @@
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 import { MODEL_ENSEMBLE_LENSES, type ModelEnsembleLensId } from "../model-ensemble/metricAxisModel";
 import type { MetricExplainerProvenance } from "../model-ensemble/metricHelpV2";
+import { SCOPE_CONTEXT_LABELS, type MetricContextFacts } from "../model-ensemble/metricContextFacts";
 import type {
   MetricDirection,
   TeamAggregateSnapshot,
@@ -374,4 +375,41 @@ export function memberCellLabel(cell: TeamMemberMetricCell | null, direction: Me
     case "unknown":
     default: return "Unknown";
   }
+}
+
+/**
+ * Scope · contributors · model · evidence context for one aggregate row. Every
+ * sentence is read from the port's typed cohort, missingness, provenance, and
+ * uncertainty facts; suppression and withholding stay visible as states and
+ * cohort counts are never invented when the port publishes null.
+ */
+export function teamMetricRowContext(snapshot: TeamAggregateSnapshot, row: TeamMetricRow): MetricContextFacts {
+  const measured = row.measured;
+  const scopeLabel = `${SCOPE_CONTEXT_LABELS[snapshot.scope]} · ${snapshot.cohort_label}`;
+  const description = snapshot.scope === "organization"
+    ? "Aggregate over several teams; aggregates only, no team or member ranking."
+    : "Aggregate over a consented cohort; aggregates only, no member ranking.";
+  const contributors = measured === null
+    ? null
+    : (() => {
+      const cohort = measured.cohort;
+      const missing = measured.missingness;
+      const size = cohort.member_count === null ? "cohort size not published" : `${cohort.member_count} members in cohort`;
+      const withValue = missing.members_with_value === null || missing.members_in_cohort === null
+        ? "member coverage not published"
+        : `${missing.members_with_value}/${missing.members_in_cohort} contributed a value`;
+      const sessions = cohort.session_count === null ? "" : ` · ${cohort.session_count} sessions`;
+      return `${size} · ${withValue}${sessions} · minimum ${cohort.minimum_contributor_count} distinct contributors required before any value is published.`;
+    })();
+  const model = row.experimental === null
+    ? null
+    : row.experimentalMedian === null
+      ? "Experimental model row exists but publishes no informative range · nothing is drawn for it."
+      : `Experimental model range (median ${Math.round(row.experimentalMedian * 100)}% radar quality) · a model judgment shown separately as hatched band/diamond, never merged with the measured value.`;
+  const evidence = measured === null
+    ? "No measured aggregate record for this metric · not observed, not zero, not plotted."
+    : measured.value_state === "known"
+      ? `${measured.numerator ?? "?"}/${measured.denominator ?? "?"} ratio-of-sums across the cohort · ${measured.uncertainty.method === "wilson_95" ? "95% Wilson sampling interval" : "no interval estimated"} · comparability ${measured.comparability.state.replaceAll("_", " ")}.`
+      : `State “${row.statusLabel}”${measured.suppression_reason === null ? "" : ` (${measured.suppression_reason.replaceAll("_", " ")})`} · kept in the state lane, off the numeric axis, and never drawn as zero.`;
+  return { scope: snapshot.scope, label: scopeLabel, description, contributors, model, evidence };
 }

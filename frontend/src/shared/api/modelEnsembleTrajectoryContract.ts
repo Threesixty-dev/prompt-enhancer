@@ -5,7 +5,7 @@ import {
   parseModelPredictiveMetricSummary,
   parseModelEnsembleTypedMetricReceipt,
 } from "./modelEnsembleContract";
-import { METRIC_V2_KEYS, parseMetricV2State } from "./metricPublicationV2Contract";
+import { METRIC_V2_KEYS, MetricDefinitionsOutOfDateError, parseMetricV2State } from "./metricPublicationV2Contract";
 
 export class ModelEnsembleTrajectoryPayloadError extends Error {
   constructor() {
@@ -181,14 +181,25 @@ export function parseModelEnsembleTrajectoryPage(
     }
     if (point.metric_states_v2.length > 0) {
       try {
+        // All twenty compact rows of one point come from one projection
+        // (r1 or r2), exactly as the rows of a full publication must agree.
+        let pointProjection: string | null = null;
         point.metric_states_v2.forEach((state, ordinal) => {
           const parsed = parseMetricV2State(state, METRIC_V2_KEYS[ordinal]);
           if (!metricKeys.has(parsed.metric_key)) {
             throw new ModelEnsembleTrajectoryPayloadError();
           }
+          if (pointProjection === null) {
+            pointProjection = parsed.projection_version;
+          } else if (parsed.projection_version !== pointProjection) {
+            throw new ModelEnsembleTrajectoryPayloadError();
+          }
         });
       } catch (error) {
         if (error instanceof ModelEnsembleTrajectoryPayloadError) throw error;
+        // Definitions out of date is a distinct client-update condition, not a
+        // malformed page: let the surface show the update alert.
+        if (error instanceof MetricDefinitionsOutOfDateError) throw error;
         throw new ModelEnsembleTrajectoryPayloadError();
       }
     }

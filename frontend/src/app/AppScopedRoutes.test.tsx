@@ -98,3 +98,44 @@ describe("scoped analytics and task flow routes", () => {
     expect(screen.getByText(/exact immutable scope and cohort query identity/)).toBeVisible();
   });
 });
+
+describe("social hub route", () => {
+  it("round-trips /social and opens the fictional social workspace in the synthetic preview", async () => {
+    expect(routePath({ name: "social" })).toBe("/social");
+    expect(parseRoute("/social/")).toEqual({ name: "social" });
+    expect(parseRoute("/social/extra")).toEqual({ name: "discovery" });
+    render(
+      <App
+        platform={createMemoryPlatform()}
+        runtime={createRuntimeComposition("synthetic_demo", createSyntheticTransport())}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Social" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Social hub" }, { timeout: 5_000 })).toBeVisible();
+    expect(screen.getByLabelText("Current location").textContent).toContain("Social workspace");
+    expect(await screen.findByRole("note", { name: "Fictional synthetic demo" })).toBeVisible();
+    expect(await screen.findByRole("group", { name: "Local social state summary" })).toHaveTextContent("3 friends");
+    expect(screen.getByRole("button", { name: "Social" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("fails closed for Social in local-real mode even when a fixture social port is injected", async () => {
+    const loopbackStub: LocalRuntimeTransport = {
+      ...createSyntheticTransport(),
+      runtimeKind: "local_loopback",
+      getRuntimeHealth: async () => ({ status: "ok", costMode: "offline_only", dataTier: "metadata" }),
+    };
+    const { createSyntheticSocialHubPort } = await import("../shared/api/socialHub");
+    render(
+      <App
+        platform={createMemoryPlatform({ name: "social" })}
+        runtime={createRuntimeComposition("local_real", loopbackStub)}
+        socialHub={createSyntheticSocialHubPort()}
+      />,
+    );
+    const closed = await screen.findByText("Social features are not served in this runtime", {}, { timeout: 5_000 });
+    expect(closed).toBeVisible();
+    expect(screen.getByText(/0 friends · 0 relationships · 0 requests · 0 conversations · 0 messages · 0 file offers · presence not shared/)).toBeVisible();
+    expect(screen.queryByRole("note", { name: "Fictional synthetic demo" })).toBeNull();
+    expect(screen.queryByText(/Alex Example/)).toBeNull();
+  });
+});

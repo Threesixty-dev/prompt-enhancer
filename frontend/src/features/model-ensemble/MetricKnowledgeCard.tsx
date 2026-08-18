@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { MetricContextFactList } from "./MetricContextFactList";
+import type { MetricContextFacts } from "./metricContextFacts";
 import { metricHelpV2, type MetricInspectorSentences } from "./metricHelpV2";
 
 /**
@@ -28,6 +30,14 @@ export interface MetricKnowledgeCardController {
 }
 
 export const METRIC_KNOWLEDGE_CARD_LEAVE_DELAY_MS = 150;
+
+/**
+ * Rich, structured, pinnable explainer/knowledge content is a non-modal
+ * `region` (named by `aria-label`), never a `tooltip`: tooltip content is
+ * expected to be plain, transient text and is not navigable by assistive
+ * technology, while these cards carry sections, definition lists and links.
+ */
+export const METRIC_CARD_ROLE = "region" as const;
 
 const same = (left: MetricKnowledgeTarget | null, right: MetricKnowledgeTarget): boolean =>
   left !== null && left.surface === right.surface && left.metricKey === right.metricKey;
@@ -102,6 +112,8 @@ export interface MetricKnowledgeEntry {
   status: string;
   /** Exact receipt state and authority projected by metricAxisModel. */
   guidance?: MetricInspectorSentences;
+  /** Scope · contributors · model · evidence context; rendered in full and compact cards alike. */
+  context?: MetricContextFacts;
 }
 
 /** Always-present hidden one-sentence descriptions referenced by every trigger. */
@@ -116,6 +128,7 @@ export function MetricKnowledgeDescriptions({ controller, entries }: {
           {entry.label}: {entry.guidance === undefined
             ? metricHelpV2(entry.key)?.entry.meaning ?? "No knowledge card is registered for this metric key."
             : `${entry.guidance.meaning} ${entry.guidance.action}`}
+          {entry.context === undefined ? "" : ` Scope: ${entry.context.label}.`}
         </span>
       ))}
     </div>
@@ -154,7 +167,7 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
         data-comparability={entry.guidance?.comparabilityState ?? undefined}
         onPointerEnter={() => controller.preview({ surface, metricKey: entry.key })}
         onPointerLeave={() => controller.unpreview({ surface, metricKey: entry.key })}
-        role="tooltip"
+        role={METRIC_CARD_ROLE}
       >
         <header>
           <strong>{entry.label}</strong>
@@ -165,6 +178,7 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
             <p><b>Current state.</b> {entry.guidance.meaning}</p>
             <p><b>Next action.</b> {entry.guidance.action}</p>
             <dl>
+              <div><dt>Guidance basis</dt><dd>{entry.guidance.basis}</dd></div>
               <div><dt>Evidence authority</dt><dd>{entry.guidance.evidenceAuthority ?? "Not reported by this receipt"}</dd></div>
               <div><dt>Explanation code</dt><dd>{entry.guidance.explanationCode ?? "None"}</dd></div>
               <div><dt>Suppression</dt><dd>{entry.guidance.suppressionReason ?? "None"}</dd></div>
@@ -172,6 +186,7 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
             </dl>
           </section>
         )}
+        {entry.context !== undefined && <MetricContextFactList compact={compact} context={entry.context} />}
         {help === null ? (
           <p>No knowledge card is registered for this metric key.</p>
         ) : (

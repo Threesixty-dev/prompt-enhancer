@@ -17,6 +17,7 @@ import {
 } from "../model-ensemble/metricAxisModel";
 import {
   percent,
+  teamMetricRowContext,
   teamMetricRowsForLens,
   teamSnapshotSummary,
   type TeamMetricRow,
@@ -121,6 +122,7 @@ export function TeamAggregateBoard({
         : "No aggregate evidence authority was published for this row.",
     suppressionReason: row.measured?.suppression_reason ?? null,
     comparabilityState: row.measured?.comparability.state ?? null,
+    context: teamMetricRowContext(snapshot, row),
   }));
   const compact = mode === "compact";
   const boardLabel = `${lens?.label ?? "Metric"} · ${snapshot.cohort_label} · aggregate only`;

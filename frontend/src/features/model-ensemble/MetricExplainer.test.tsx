@@ -78,7 +78,7 @@ function Harness({ compact = false }: { compact?: boolean }) {
 describe("MetricExplainer affordance", () => {
   it("describes every trigger with both sentences even when no card is open", () => {
     render(<Harness />);
-    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(0);
     for (const entry of ENTRIES) {
       const trigger = screen.getByRole("button", { name: entry.label });
       const description = document.getElementById(trigger.getAttribute("aria-describedby")!);
@@ -103,7 +103,7 @@ describe("MetricExplainer affordance", () => {
     render(<Harness compact />);
     const [first, second] = ENTRIES.map((entry) => screen.getByRole("button", { name: entry.label }));
     fireEvent.pointerEnter(first);
-    let cards = document.querySelectorAll('[role="tooltip"]');
+    let cards = document.querySelectorAll('[role="region"][data-metric-key]');
     expect(cards).toHaveLength(1);
     expect(cards[0]).toHaveAttribute("data-metric-key", "prompt.task_definition_coverage");
     expect(cards[0]).toHaveAttribute("data-provenance", "measured");
@@ -115,24 +115,24 @@ describe("MetricExplainer affordance", () => {
 
     fireEvent.pointerLeave(first);
     act(() => { vi.advanceTimersByTime(METRIC_KNOWLEDGE_CARD_LEAVE_DELAY_MS + 1); });
-    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(0);
 
     fireEvent.focus(second);
-    cards = document.querySelectorAll('[role="tooltip"]');
+    cards = document.querySelectorAll('[role="region"][data-metric-key]');
     expect(cards).toHaveLength(1);
     expect(cards[0]).toHaveAttribute("data-provenance", "experimental");
     expect(cards[0].textContent).toContain("Experimental");
 
     fireEvent.click(second);
-    expect(document.querySelector('[role="tooltip"]')).toHaveAttribute("data-pinned", "true");
+    expect(document.querySelector('[role="region"][data-metric-key]')).toHaveAttribute("data-pinned", "true");
     fireEvent.blur(second);
     act(() => { vi.advanceTimersByTime(METRIC_KNOWLEDGE_CARD_LEAVE_DELAY_MS + 1); });
-    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(1);
     fireEvent.pointerEnter(first);
-    expect(document.querySelector('[role="tooltip"]')).toHaveAttribute("data-metric-key", "logic.decision_rationale_coverage");
+    expect(document.querySelector('[role="region"][data-metric-key]')).toHaveAttribute("data-metric-key", "logic.decision_rationale_coverage");
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(0);
   });
 
   it("uses distinct description ids per surface", () => {

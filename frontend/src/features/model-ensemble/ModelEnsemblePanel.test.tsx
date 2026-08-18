@@ -137,6 +137,7 @@ function runFixture(): ModelEnsembleRun {
     metric_projection_version: "coaching-typed-projection-v1",
     metric_projection_completed_at: "2040-01-02T10:00:01Z",
     metric_publication_v2: null,
+    metric_evidence_readiness_v2: null,
     typed_metrics: metricKeys.map((metric_key, index) => ({
       metric_key,
       metric_version: 3,

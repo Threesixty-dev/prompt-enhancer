@@ -19,8 +19,10 @@ ModelEnsemblePanel.tsx / ModelEnsembleOverlay.tsx     surface state machines: po
   └─ MetricWorkspace.tsx                              one workspace: header, lens nav, radar + board, drawers
        ├─ ModelEnsembleRadar.tsx                      radar SVG, axis strip, focused-metric inspector
        │    ├─ usePredictiveMetricDetail.ts           gated factor-density loading (abort-safe, key-checked)
-       │    ├─ MetricKnowledgeCard.tsx                one-card-at-a-time knowledge overlay + hidden descriptions
-       │    └─ metricHelpV2.ts                        versioned knowledge registry + inspector sentences
+       │    ├─ MetricKnowledgeCard.tsx                one-card-at-a-time knowledge overlay (role=region, never tooltip) + hidden descriptions
+       │    ├─ metricGuidanceReceipt.ts               PURE: canonical V2 guidance receipt → exactly two sentences (state class as published, template ids, counts, censoring bounds, ≤2 measured focus factors)
+       │    └─ metricHelpV2.ts                        versioned knowledge registry + legacy state-aware inspector sentences
+       ├─ MetricDefinitionsAlert.tsx                  distinct `definitions_out_of_date` alert (update-client wording; replaces the workspace, never sits beside values)
        ├─ ModelConstellationDrawer.tsx                stage nodes + aria-live inspector
        │    └─ modelStages.ts                         PURE: stage grouping/roles, receipt adapters, summary label
        └─ MetricHistoryDrawer.tsx                     sparkline + snapshot buttons
@@ -46,6 +48,10 @@ pure modules directly.
 | Lower-is-better orientation | `metricAxisModel.modelEnsembleRadarQualityValue` (`plotted = 1 - raw` for a known numeric receipt, otherwise `null`) | Used by `modelEnsembleRadarAxes` and the history value; raw rate remains available through `modelEnsembleAxisRawRateLabel`; the density is reversed with `modelEnsembleDensityBinsForDirection`. |
 | Axis tile captions (strip + board) | `modelEnsembleAxisPlottedLabel`, `modelEnsembleAxisRawRateLabel`, `modelEnsembleKnowledgeEntries` | The board and the strip must never diverge; `metricWorkspaceSurfaces.test.tsx` enforces it. |
 | Guidance/inspector input from an axis | `modelEnsembleAxisEvidence` | A non-known state never carries a numeric value; only typed explanation codes reach guidance. |
+| The two guidance sentences every surface renders | `metricAxisModel.modelEnsembleAxisGuidanceSentences` → `metricGuidanceReceipt.metricGuidanceReceiptSentences` | A canonical V2 receipt is rendered from its sealed guidance receipt (`state_class` as published — a `known_retain` at the floor retains even if not every factor met; template ids; counts; exact censoring bounds; ≤2 focus factors only with `per_factor_measured`). The client never re-decides retain/improve from the value. Board, radar inspector, knowledge card and ARIA descriptions all call it (`metricGuidanceSurfaces.test.tsx` enforces parity). A compact history point without a guidance receipt says so instead of inventing a decision. |
+| Client presentation ↔ registry binding | `metricPublicationV2Contract.metricDefinitionCompatibility` (pure, no fetch) | Bound to `registry_version=all-20-factor-contracts-v2`, `METRIC_CONTRACT_V2_SET_FINGERPRINT`, per-metric contract fingerprints and the guidance template catalog. A mismatch throws `MetricDefinitionsOutOfDateError`; the overlay/panel clear all twenty values and guidance and show `MetricDefinitionsOutOfDateAlert` (never "reconnecting"). |
+| Objective measured count (of 5) | `metricAxisModel.modelEnsembleObjectiveMeasuredCount` | Header cell "Objective measured n/5" from `objective_measured_count` (or counted from compact V2 states). |
+| Additive evidence readiness | `metricEvidenceReadiness.metricEvidenceReadinessForPublication` | Cross-binds all 20 ordered readiness rows to the exact publication, contract fingerprints and r1/r2 projection. The header distinguishes objective measurable from objective measured; cards and inspectors name exact proof contributors, adapter-required capability families, availability reason, calibration and product gate. A mismatch withholds the additive detail. |
 | Predictive visibility gate | `modelEnsemblePredictiveVisibility` | Missing contributor proof (`null`) is distinct from a proven shortage (`< 2`). |
 | Head/history selection + comparison overlay | `trajectorySelection.resolveTrajectorySelection` | Comparison only when both points are comparable and share a message window; the exact snapshot must carry the selected run id. |
 | Stage receipt adapters + drawer summary | `modelStages.modelEnsembleStagesFor` / `modelEnsembleStageSummaryLabel` | Attempt rows outrank sealed stages; null case counts stay `null`. |

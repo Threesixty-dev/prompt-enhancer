@@ -281,4 +281,49 @@ describe("MemberVisibilityPanel authorization", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/returned page did not match/);
     expect(screen.queryByText("Member 01")).toBeNull();
   });
+
+  it("never badges a column as measured while any member cell for it is missing or state-only", async () => {
+    const { access, base, grant, page } = await fixtureGrantAndPage();
+    const original = structuredClone(page.members);
+    // Turn one member's first cell into a state-only unknown (no value) so that column is not fully measured.
+    const droppedKey = original[0].metrics[0].metric_key;
+    const members = [
+      {
+        ...original[0],
+        metrics: [
+          {
+            ...original[0].metrics[0],
+            value_state: "unknown",
+            numeric_value: null,
+            numerator: null,
+            denominator: null,
+            newest_receipt_at: null,
+          } as typeof original[0]["metrics"][number],
+          ...original[0].metrics.slice(1),
+        ],
+      },
+      ...original.slice(1),
+    ];
+    render(panel(grant, portReturning(base, { ...page, members }), access));
+    fireEvent.click(screen.getByRole("button", { name: "Reveal individual members" }));
+    expect(await screen.findByText("Member 01")).toBeVisible();
+    const stateOnlyCell = document.querySelector('td[data-state="unknown"]');
+    expect(stateOnlyCell?.textContent).toBe("Unknown");
+    const headers = screen.getAllByRole("columnheader").slice(1);
+    for (const header of headers) {
+      const trigger = header.querySelector("button")!;
+      fireEvent.pointerEnter(trigger);
+      const card = document.querySelector(".metric-explainer-card")!;
+      const columnKey = card.getAttribute("data-metric-key");
+      const known = members.every((member) => member.metrics.find((cell) => cell.metric_key === columnKey)?.value_state === "known");
+      expect(card.getAttribute("data-provenance"), columnKey ?? "").toBe(known ? "measured" : "not_measured");
+      if (columnKey === droppedKey) {
+        expect(card.textContent).toContain("Not measured · state only");
+        expect(card.textContent).not.toContain("Measured · typed evidence");
+        expect(card.textContent).toMatch(/1 state-only or missing/);
+      }
+      // A later pointer-enter replaces the preview target; no timer needed.
+    }
+    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(0);
+  });
 });

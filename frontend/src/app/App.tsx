@@ -10,6 +10,8 @@ import {
 import type { PromptEnhancerTransport, Provider } from "../shared/api/contracts";
 import type { TeamControlPlanePort } from "../shared/api/teamControlPlane";
 import { composeTeamControlPlanePort } from "../shared/api/teamControlPlaneRuntime";
+import type { SocialHubPort } from "../shared/api/socialHubSchema";
+import { composeSocialHubPort } from "../shared/api/socialHubRuntime";
 import type { AppRoute, PlatformAdapter } from "../shared/platform/platform";
 import { routePath } from "../shared/platform/platform";
 import type {
@@ -65,6 +67,11 @@ const TeamAnalyticsScreen = lazy(() =>
 const TaskFlowScreen = lazy(() =>
   import("../features/task-flow").then((module) => ({
     default: module.TaskFlowPage,
+  })),
+);
+const SocialHubScreen = lazy(() =>
+  import("../features/social").then((module) => ({
+    default: module.SocialHubPage,
   })),
 );
 
@@ -143,13 +150,16 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "projects") return "Projects";
   if (route.name === "research") return "Methods & models";
   if (route.name === "team") return "Team analytics";
+  if (route.name === "social") return "Social hub";
   if (route.name === "task_flow") return "Task flow";
   if (isProjectWorkspaceRoute(route)) return "Project workspace";
   return "Task analysis";
 }
 
 function workspaceTrail(route: AppRoute): string {
-  return route.name === "team" ? "Scoped workspace" : "Personal workspace";
+  if (route.name === "team") return "Scoped workspace";
+  if (route.name === "social") return "Social workspace";
+  return "Personal workspace";
 }
 
 function RouteLoading({ route }: { route: AppRoute }) {
@@ -196,16 +206,23 @@ export function App({
   platform,
   runtime,
   teamControlPlane,
+  socialHub,
 }: {
   platform: PlatformAdapter;
   runtime: RuntimeComposition;
   /** Defaults to the honest port for the runtime: fixture in synthetic demo, unavailable in local real. */
   teamControlPlane?: TeamControlPlanePort;
+  /** Defaults to the honest social port for the runtime; a fixture can never cross into local real. */
+  socialHub?: SocialHubPort;
 }) {
   const transport: PromptEnhancerTransport = runtime.transport;
   const teamPort = useMemo(
     () => composeTeamControlPlanePort(runtime.mode, teamControlPlane),
     [runtime.mode, teamControlPlane],
+  );
+  const socialPort = useMemo(
+    () => composeSocialHubPort(runtime.mode, socialHub),
+    [runtime.mode, socialHub],
   );
   const [route, setRoute] = useState<AppRoute>(() => platform.currentRoute());
   const [navigationNotice, setNavigationNotice] = useState("");
@@ -336,6 +353,15 @@ export function App({
           >
             <Icon name="users" />
             <span>Team analytics</span>
+          </button>
+          <button
+            aria-current={route.name === "social" ? "page" : undefined}
+            className={route.name === "social" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "social" })}
+            type="button"
+          >
+            <Icon name="chat" />
+            <span>Social</span>
           </button>
           {runtime.mode === "local_real" && (
             <button
@@ -474,6 +500,8 @@ export function App({
                   runtimeMode={runtime.mode}
                   serviceState={serviceState}
                 />
+              ) : route.name === "social" ? (
+                <SocialHubScreen port={socialPort} runtimeMode={runtime.mode} />
               ) : route.name === "task_flow" ? (
                 <TaskFlowScreen
                   navigate={navigate}

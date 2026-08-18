@@ -118,8 +118,8 @@
 .task-flow-card header small { color: var(--ink-500, #596b73); font-size: 0.66rem; }
 .task-flow-card h4 { margin: 0; color: var(--ink-900, #17272f); font-size: 0.86rem; line-height: 1.25; }
 .task-flow-card__subtitle { margin: 0; color: var(--ink-650, #4c5f69); font-size: 0.72rem; }
-.task-flow-card dl { display: grid; gap: 5px; margin: 0; }
-.task-flow-card dl > div { display: grid; gap: 2px; }
+.task-flow-card .fact-list { display: grid; gap: 5px; margin: 0; }
+.task-flow-card .fact-list > div { display: grid; grid-template-columns: 1fr; gap: 2px; }
 .task-flow-card dt { color: var(--ink-500, #596b73); font-size: 0.62rem; font-weight: 760; letter-spacing: 0.06em; text-transform: uppercase; }
 .task-flow-card dd { margin: 0; color: var(--ink-650, #4c5f69); font-size: 0.72rem; line-height: 1.45; overflow-wrap: anywhere; }
 .task-flow-card__source { color: var(--ink-800, #25363f); font-weight: 700; }

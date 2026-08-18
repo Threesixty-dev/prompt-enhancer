@@ -4,6 +4,7 @@ import type { AppRoute } from "../../shared/platform/platform";
 import type { RuntimeDataMode } from "../../shared/platform/runtimeMode";
 import { shortId } from "../../shared/lib/format";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
+import { FictionalNotice } from "../../shared/ui/FictionalNotice";
 import { Icon } from "../../shared/ui/Icon";
 import { TaskFlowBoard } from "./TaskFlowBoard";
 import { TaskFlowTimeline } from "./TaskFlowTimeline";
@@ -109,6 +110,12 @@ export function TaskFlowPage({
           <span className="count-summary"><strong>{counts.candidates}</strong> candidates · <strong>{counts.confirmed}</strong> confirmed</span>
         </div>
       </header>
+
+      {runtimeMode === "synthetic_demo" && (
+        <FictionalNotice compact>
+          Every candidate, task revision, and analysis run on this board is a content-free synthetic fixture; nothing here reflects a real session.
+        </FictionalNotice>
+      )}
 
       {sourceReceipts !== null && (
         <div

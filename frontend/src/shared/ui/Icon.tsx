@@ -5,13 +5,19 @@ export type IconName =
   | "arrow"
   | "board"
   | "branch"
+  | "chat"
   | "check"
   | "chevron"
   | "clock"
+  | "file"
+  | "info"
   | "layers"
   | "lock"
   | "merge"
+  | "pause"
+  | "play"
   | "search"
+  | "send"
   | "split"
   | "tasks"
   | "users"
@@ -34,12 +40,30 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M6 7v10M8 7h4a6 6 0 0 1 6 6v-4" />
     </>
   ),
+  chat: (
+    <>
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4h-1A2.5 2.5 0 0 1 4 13.5v-8Z" />
+      <path d="M8 8h8M8 11.5h5" />
+    </>
+  ),
   check: <path d="m5 12 4 4L19 6" />,
   chevron: <path d="m9 18 6-6-6-6" />,
   clock: (
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5l3 2" />
+    </>
+  ),
+  file: (
+    <>
+      <path d="M7 3h7l5 5v13H7V3Z" />
+      <path d="M14 3v5h5M10 13h5M10 17h5" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 8h.01" />
     </>
   ),
   layers: (
@@ -55,12 +79,15 @@ const paths: Record<IconName, ReactNode> = {
     </>
   ),
   merge: <path d="M7 3v5a4 4 0 0 0 4 4h6m0 0-3-3m3 3-3 3M7 21v-5a4 4 0 0 1 4-4" />,
+  pause: <path d="M9 5v14M15 5v14" />,
+  play: <path d="m8 5 10 7-10 7V5Z" />,
   search: (
     <>
       <circle cx="11" cy="11" r="7" />
       <path d="m16 16 5 5" />
     </>
   ),
+  send: <path d="M4 12 20 4l-4 16-4-7-8-1Z" />,
   split: <path d="M7 3v5a4 4 0 0 0 4 4h6m0 0-3-3m3 3-3 3M11 12a4 4 0 0 0-4 4v5" />,
   tasks: (
     <>

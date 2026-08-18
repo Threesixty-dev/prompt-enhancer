@@ -126,12 +126,13 @@ describe("metricInspectorSentences", () => {
     expect(unavailable.explanationCode).toBe("capability_unavailable");
   });
 
-  it("labels predictive factor keys as model judgment only when an estimate is visible", () => {
+  it("never turns predictive factor keys into coaching evidence", () => {
     const withEstimate = metricInspectorSentences({
       ...base, state: "known", numericValue: 0.4, numerator: 2, denominator: 5,
       experimentalFactorKeys: ["goal_cue", "target_cue"], experimentalVisible: true, experimentalMedian: 0.5,
     });
-    expect(withEstimate.meaning).toMatch(/model factor probabilities are lowest for goal cue and target cue — a model judgment, not measured evidence/);
+    expect(withEstimate.meaning).not.toMatch(/goal cue|target cue|lowest for/);
+    expect(withEstimate.meaning).toMatch(/not a validated quality band/);
     expect(withEstimate.action).toMatch(/^Safest next step: /);
     const complete = metricInspectorSentences({ ...base, state: "known", numericValue: 1, numerator: 3, denominator: 3 });
     expect(complete.action).toMatch(/^Nothing to change for this window/);

@@ -6,6 +6,7 @@ import {
   createTeamControlPlanePortForRuntime,
   teamControlPlanePortForOverlay,
 } from "./shared/api/teamControlPlaneRuntime";
+import { createSocialHubPortForRuntime } from "./shared/api/socialHubRuntime";
 import { createBrowserPlatform } from "./shared/platform/browserPlatform";
 import {
   createRuntimeComposition,
@@ -37,6 +38,7 @@ async function mountApp() {
     mode,
     mode === "local_real" ? runtime.transport : undefined,
   );
+  const socialHub = createSocialHubPortForRuntime(mode);
   const overlay = /^\/overlay\/model-ensemble\/?$/.test(window.location.pathname);
   const Root = overlay
     ? (await import("./features/model-ensemble")).ModelEnsembleOverlay
@@ -44,7 +46,7 @@ async function mountApp() {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       {Root === null
-        ? <App platform={createBrowserPlatform()} runtime={runtime} teamControlPlane={teamControlPlane} />
+        ? <App platform={createBrowserPlatform()} runtime={runtime} socialHub={socialHub} teamControlPlane={teamControlPlane} />
         : <Root
           teamControlPlane={teamControlPlanePortForOverlay(mode, teamControlPlane)}
           transport={runtime.transport}

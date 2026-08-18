@@ -90,13 +90,25 @@ export function MemberVisibilityPanel({
     : null;
   const lens = MODEL_ENSEMBLE_LENSES.find((candidate) => candidate.id === lensId);
   const columns = useMemo(() => teamLensColumns(lensId), [lensId]);
-  const entries: MetricExplainerEntry[] = columns.map((column) => ({
-    key: column.key,
-    label: column.label,
-    provenance: "measured",
-    numericValue: null,
-    valueLabel: "Per-member cells",
-  }));
+  // A column is badged "measured" only when every listed member carries a
+  // known cell for it; a column with any missing, unknown, N/A, or abstained
+  // cell is state-only, so a missing member cell never sits under a measured badge.
+  const entries: MetricExplainerEntry[] = columns.map((column) => {
+    const members = page?.members ?? [];
+    const knownCells = members.filter((member) => (
+      member.metrics.find((cell) => cell.metric_key === column.key)?.value_state === "known"
+    )).length;
+    const allKnown = members.length > 0 && knownCells === members.length;
+    return {
+      key: column.key,
+      label: column.label,
+      provenance: allKnown ? "measured" : "not_measured",
+      numericValue: null,
+      valueLabel: members.length === 0
+        ? "Per-member cells"
+        : `Per-member cells · ${knownCells}/${members.length} known, ${members.length - knownCells} state-only or missing`,
+    };
+  });
 
   useEffect(() => {
     setClockNow(Date.now());

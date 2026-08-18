@@ -6,11 +6,14 @@ import {
   type MetricInspectorInput,
   type MetricExplainerProvenance,
 } from "./metricHelpV2";
-import type {
-  MetricKnowledgeCardController,
-  MetricKnowledgeSurface,
-  MetricKnowledgeTarget,
+import {
+  METRIC_CARD_ROLE,
+  type MetricKnowledgeCardController,
+  type MetricKnowledgeSurface,
+  type MetricKnowledgeTarget,
 } from "./MetricKnowledgeCard";
+import { MetricContextFactList } from "./MetricContextFactList";
+import type { MetricContextFacts } from "./metricContextFacts";
 import "./MetricExplainer.css";
 
 /**
@@ -38,6 +41,8 @@ export interface MetricExplainerEntry {
   evidenceAuthority?: string | null;
   suppressionReason?: MetricInspectorInput["suppressionReason"];
   comparabilityState?: MetricInspectorInput["comparabilityState"];
+  /** Scope · contributors · model · evidence context; rendered in full and compact cards alike. */
+  context?: MetricContextFacts;
 }
 
 function guidanceFor(entry: MetricExplainerEntry) {
@@ -98,7 +103,7 @@ export function MetricExplainerDescriptions({ controller, surface, entries }: {
         const sentences = guidanceFor(entry);
         return (
           <span id={metricExplainerDescriptionId(controller, surface, entry.key)} key={entry.key}>
-            {entry.label} ({METRIC_EXPLAINER_PROVENANCE_LABELS[entry.provenance]}): {sentences.meaning} {sentences.action}
+            {entry.label} ({METRIC_EXPLAINER_PROVENANCE_LABELS[entry.provenance]}): {sentences.meaning} {sentences.action}{entry.context === undefined ? "" : ` Scope: ${entry.context.label}.`}
           </span>
         );
       })}
@@ -140,7 +145,7 @@ export function MetricExplainerCardSlot({ controller, surface, entries, compact 
         data-comparability={sentences.comparabilityState ?? undefined}
         onPointerEnter={() => controller.preview({ surface, metricKey: entry.key })}
         onPointerLeave={() => controller.unpreview({ surface, metricKey: entry.key })}
-        role="tooltip"
+        role={METRIC_CARD_ROLE}
       >
         <header>
           <div>
@@ -157,6 +162,7 @@ export function MetricExplainerCardSlot({ controller, surface, entries, compact 
           <div><dt>Suppression</dt><dd>{sentences.suppressionReason ?? "None"}</dd></div>
           <div><dt>Comparability</dt><dd>{sentences.comparabilityState ?? "Not exposed"}</dd></div>
         </dl>
+        {entry.context !== undefined && <MetricContextFactList compact={compact} context={entry.context} />}
         <footer>
           {pinned ? "Pinned · Esc closes" : "Click or tap to pin · Esc closes"}
           {" · "}

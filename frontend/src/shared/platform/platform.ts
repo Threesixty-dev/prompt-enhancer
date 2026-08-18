@@ -4,6 +4,7 @@ export type AppRoute =
   | { name: "analysis_jobs" }
   | { name: "research" }
   | { name: "team" }
+  | { name: "social" }
   | { name: "task_flow" }
   | { name: "projects" }
   | { name: "project_overview"; projectId: string }
@@ -54,6 +55,7 @@ export function parseRoute(pathname: string): AppRoute {
   if (/^\/analysis-jobs\/?$/.test(pathname)) return { name: "analysis_jobs" };
   if (/^\/research\/methods\/?$/.test(pathname)) return { name: "research" };
   if (/^\/team\/?$/.test(pathname)) return { name: "team" };
+  if (/^\/social\/?$/.test(pathname)) return { name: "social" };
   if (/^\/tasks\/flow\/?$/.test(pathname)) return { name: "task_flow" };
   if (/^\/projects\/?$/.test(pathname)) return { name: "projects" };
 
@@ -118,6 +120,7 @@ export function routePath(route: AppRoute): string {
   if (route.name === "analysis_jobs") return "/analysis-jobs";
   if (route.name === "research") return "/research/methods";
   if (route.name === "team") return "/team";
+  if (route.name === "social") return "/social";
   if (route.name === "task_flow") return "/tasks/flow";
   if (route.name === "projects") return "/projects";
   if (route.name === "project_overview") {

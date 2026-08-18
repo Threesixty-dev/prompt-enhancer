@@ -101,12 +101,12 @@ describe("TeamAnalyticsPage", () => {
     const description = document.getElementById(trigger.getAttribute("aria-describedby")!);
     expect(description?.textContent).toContain("Measured · typed evidence");
     fireEvent.focus(trigger);
-    const card = document.querySelector('[role="tooltip"]');
+    const card = document.querySelector('[role="region"][data-metric-key]');
     expect(card).not.toBeNull();
     expect(card!.textContent).toContain("Meaning");
     expect(card!.textContent).toContain("Next action");
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(document.querySelector('[role="region"][data-metric-key]')).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Evidence lane lens/ }));
     expect(within(screen.getByRole("table")).getByRole("row", { name: /First-pass verification|first pass/i })).toBeInTheDocument();
   });
@@ -323,14 +323,14 @@ describe("TeamAnalyticsPage", () => {
     renderPage();
     const table = await screen.findByRole("table");
     fireEvent.focus(within(within(table).getByRole("row", { name: /Problem evidence quality/ })).getByRole("button"));
-    let card = document.querySelector('[role="tooltip"]')!;
+    let card = document.querySelector('[role="region"][data-metric-key]')!;
     expect(card).toHaveAttribute("data-state", "suppressed");
     expect(card).toHaveAttribute("data-suppression-reason", "overlap_or_differencing");
     expect(card.textContent).toMatch(/minimum was met.*overlap or differencing/);
     expect(card.textContent).toContain("Evidence authority");
 
     fireEvent.focus(within(within(table).getByRole("row", { name: /Deliverable contract/ })).getByRole("button"));
-    card = document.querySelector('[role="tooltip"]')!;
+    card = document.querySelector('[role="region"][data-metric-key]')!;
     expect(card).toHaveAttribute("data-state", "withheld");
     expect(card).toHaveAttribute("data-comparability", "mixed_definition_versions");
     expect(card.textContent).toMatch(/Do not compare or combine/);
@@ -338,12 +338,12 @@ describe("TeamAnalyticsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Collaboration flow lens/ }));
     const collaboration = screen.getByRole("table");
     fireEvent.focus(within(within(collaboration).getByRole("row", { name: /Exploration-to-plan conversion/ })).getByRole("button"));
-    card = document.querySelector('[role="tooltip"]')!;
+    card = document.querySelector('[role="region"][data-metric-key]')!;
     expect(card).toHaveAttribute("data-state", "not_applicable");
     expect(card.textContent).toMatch(/No action for this window:/);
 
     fireEvent.focus(within(within(collaboration).getByRole("row", { name: /Scope-change acknowledgement/ })).getByRole("button"));
-    card = document.querySelector('[role="tooltip"]')!;
+    card = document.querySelector('[role="region"][data-metric-key]')!;
     expect(card).toHaveAttribute("data-state", "abstained");
     expect(card.textContent).toMatch(/abstained instead of guessing/);
   });

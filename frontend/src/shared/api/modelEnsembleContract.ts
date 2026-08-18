@@ -2,7 +2,7 @@ import type {
   ModelEnsembleOutcome,
   ModelEnsembleRun,
 } from "./contracts";
-import { parseMetricPublicationV2 } from "./metricPublicationV2Contract";
+import { MetricDefinitionsOutOfDateError, parseMetricPublicationV2 } from "./metricPublicationV2Contract";
 
 export class ModelEnsemblePayloadError extends Error {
   constructor() {
@@ -254,7 +254,8 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
     "run_id", "plan_version", "plan_fingerprint", "source_coverage_state",
     "chunk_count", "model_count", "chunks", "experts", "votes", "chunk_metrics",
     "metrics", "metric_projection_version", "metric_projection_completed_at",
-    "typed_metrics", "metric_publication_v2", "predictive_projection_version", "predictive_projected_at",
+    "typed_metrics", "metric_publication_v2", "metric_evidence_readiness_v2",
+    "predictive_projection_version", "predictive_projected_at",
     "predictive_metrics", "predictive_model_stages", "completed_at", "local_only", "content_persisted",
     "calibration_state", "product_metric_eligible",
   ]);
@@ -367,7 +368,10 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
     let publication: ReturnType<typeof parseMetricPublicationV2>;
     try {
       publication = parseMetricPublicationV2(run.metric_publication_v2);
-    } catch {
+    } catch (error) {
+      // Definitions out of date is a distinct client-update condition, not a
+      // malformed run: surfaces show the update alert instead of "reconnecting".
+      if (error instanceof MetricDefinitionsOutOfDateError) throw error;
       throw new ModelEnsemblePayloadError();
     }
     const publishedKeys = new Set(publication.metrics.map((item) => item.state.metric_key));
@@ -377,6 +381,18 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
     ) {
       throw new ModelEnsemblePayloadError();
     }
+  }
+  if (
+    run.metric_evidence_readiness_v2 !== null
+    && (
+      typeof run.metric_evidence_readiness_v2 !== "object"
+      || Array.isArray(run.metric_evidence_readiness_v2)
+    )
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (run.metric_publication_v2 === null && run.metric_evidence_readiness_v2 !== null) {
+    throw new ModelEnsemblePayloadError();
   }
 
   const predictiveVersion = run.predictive_projection_version;

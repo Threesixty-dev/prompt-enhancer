@@ -83,3 +83,70 @@ overlay consume the port; per-metric two-sentence explainers reuse the
 metric-help-v2 registry and decision guidance in both full and compact modes.
 Task Flow traverses each content-free index in bounded pages and labels the
 result non-atomic; a cap or duplicate across pages is shown as incomplete.
+
+## Social hub port
+
+`src/shared/api/socialHub.ts` is a typed frontend port for a future social
+coordination service (friends, requests, direct messages, group channels,
+presence, role permissions, reactions, threads, read state, and metadata-only
+direct file offers). Nothing in the shipped backend implements it. Honest
+adapters keep the boundary explicit:
+
+- `createSyntheticSocialHubPort()` serves a fictional, content-free fixture in
+  the synthetic development preview (every payload is stamped
+  `origin: "synthetic_fixture"` and `fictional: true`, and the `/social` route
+  shows an unmistakable "Fictional synthetic demo" notice);
+- `createUnavailableSocialHubPort()` is the local loopback adapter: the
+  capability reports `unavailable`, snapshot reads reject, and the page shows
+  exactly zero friends, requests, conversations, messages, and file offers.
+
+`composeSocialHubPort(mode, injected)` mirrors the team control-plane runtime
+composition: a fixture (or a relabelled fixture) can never cross into
+`local_real`. UI actions in the demo mutate only local React state; nothing is
+delivered, stored durably, synced, or encrypted, and no such claim is made. The
+file-sharing panel is a UI simulation with metadata only (display name, size,
+media type, fictional digest): no file picker, path, or bytes exist, recipients
+must consent, transfers pause/resume/expire/revoke, and the copy states that a
+real exchange would move bytes directly between devices without the
+coordination service storing a copy.
+
+Truth boundaries the port and UI carry explicitly (validated by
+`socialSnapshotIsValid`, `socialHub.test.ts`, `socialHubModel.test.ts`,
+`SocialHubPage.test.tsx`, `socialPayloadBoundary.test.ts`, and
+`e2e/social-hub.spec.ts`):
+
+- groups are `access: "invite_only"`, `discoverable: false`, with a finite
+  bounded member list; there is no public directory, join link, or channel
+  browser;
+- presence is an explicit opt-in (`SocialPresenceSignal`: `sharing`,
+  coarse `level`, `source: "self_declared_opt_in"`); "not shared" is its own
+  rendered state, never offline, and presence is labelled as separate from
+  analyzer activity (`presence.derived_from_analyzer_activity: false`);
+- the application never auto-inserts analyzer sessions, prompts, metrics, or
+  explanations into a chat or file-share payload (`payload_policy.analyzer_content:
+  "never_inserted"`; the social feature imports no analyzer module and no
+  analyzer surface has a share-to-chat control). This boundary does not inspect
+  or classify text a person chooses to type;
+- file transfer is direct only (`path: "direct_only"`, `relay: "none"`,
+  `turn: "none"`): a symmetric NAT or CGNAT on either side is the explicit
+  `direct_path_unavailable` offer state; the owner must be online; a
+  sender-offline offer can still be created and waits as `queued_on_sender`
+  on the sender's device with bounded expiry (`queue_location:
+  "sender_device"`), never on a server; revoke stops future bytes but cannot
+  recall bytes already downloaded (`revoke_recalls_downloaded_bytes: false`);
+- end-to-end encryption is `not_implemented`, and even a future encrypted
+  service's coordination plane would observe `relationship`, `timing`,
+  `availability`, and `size_class` metadata (`coordination_plane_observes`);
+  file bytes never traverse or rest on it;
+- no export/delete-my-data controls exist because no server-side data exists
+  (`data_controls`), and `local_real` fails closed with exactly zero
+  relationships, messages, and offers and presence not shared.
+
+Shared UI primitives used across the Social hub, Task Flow, and the metric
+cards live in `src/shared/ui` (`Dialog`, `Disclosure`, `Tabs`, `FactList`,
+`EmptyState`, `FictionalNotice`, `ProgressMeter`, `Avatar`, `LiveRegion`) with
+their forced-colors and reduced-motion rules in `src/shared/ui/primitives.css`.
+Every metric knowledge/explainer card now carries a "Context and evidence"
+section (Scope · Contributors · Model · Evidence) in both full and compact
+modes; the personal workspace labels the Me scope and team surfaces label the
+cohort scope, and absent facts render as "Not reported", never as zero.

@@ -13,6 +13,7 @@ import {
   modelEnsembleAxisRawRateLabel,
   modelEnsembleCompletedSmallExperts,
   modelEnsembleKnowledgeEntries,
+  modelEnsembleMetricPresentation,
   modelEnsembleMetricStateLabel,
   modelEnsembleMetricStateValue,
   modelEnsemblePrimaryMetrics,
@@ -78,6 +79,7 @@ function runWith(typed: readonly TypedMetric[], metrics: readonly EnsembleMetric
 function runWithV2(
   metricKey: string,
   valueState: "known" | "pending" | "unknown" = "unknown",
+  capabilityAvailable = true,
 ): ModelEnsembleRun {
   const known = valueState === "known";
   const pending = valueState === "pending";
@@ -94,13 +96,13 @@ function runWithV2(
     numerator: known ? 1 : null,
     denominator: known ? 2 : null,
     numeric_value: known ? 0.5 : null,
-    censoring_lower_bound: known ? 0.5 : null,
-    censoring_upper_bound: known ? 0.5 : null,
+    censoring_lower_bound: known ? 0.5 : pending ? 0 : null,
+    censoring_upper_bound: known ? 0.5 : pending ? 1 : null,
     statistics: {
       metric_key: metricKey,
       denominator_basis: identity.basis,
       opportunity_unit_kind: identity.unit,
-      capability_available: true,
+      capability_available: capabilityAvailable,
       source_complete: known,
       eligible_count: known ? 2 : pending ? 1 : 0,
       met_count: known ? 1 : 0,
@@ -170,6 +172,21 @@ describe("metricAxisModel axis tile helpers", () => {
     expect(modelEnsembleMetricStateLabel(null)).toBe("not observed");
     expect(modelEnsembleMetricStateLabel(byKey("collaboration.clarification_yield").metric)).toBe("pending · horizon open");
     expect(modelEnsembleMetricStateLabel(byKey("collaboration.exploration_conversion").metric)).toBe("not applicable");
+  });
+
+  it("distinguishes compact objective evidence absence from an adapter capability gap", () => {
+    const key = "logic.requirement_action_traceability";
+    const axisFor = (capabilityAvailable: boolean) => modelEnsembleRadarAxes(
+      runWithV2(key, "unknown", capabilityAvailable),
+      "outcome-evidence",
+    ).find((axis) => axis.key === key)!;
+    const evidenceMissing = modelEnsembleMetricPresentation(axisFor(true).metric!, "higher_is_better");
+    const capabilityMissing = modelEnsembleMetricPresentation(axisFor(false).metric!, "higher_is_better");
+    expect(evidenceMissing.detail).toMatch(/^Objective evidence missing:/u);
+    expect(evidenceMissing.detail).toMatch(/adapter exposes/u);
+    expect(capabilityMissing.detail).toMatch(/^Adapter capability missing:/u);
+    expect(capabilityMissing.detail).toMatch(/no user wording or agent action can fix/u);
+    expect(capabilityMissing.detail).toMatch(/supported structured-evidence adapter.*confirmation workflow/u);
   });
 
   it("derives guidance evidence that never carries a numeric value for a non-known state", () => {
@@ -246,6 +263,39 @@ describe("metricAxisModel axis tile helpers", () => {
     expect(stateAware.guidance.evidenceAuthority).toMatch(/candidate|receipt|evidence/i);
     expect(stateAware.guidance.suppressionReason).toBeNull();
     expect(stateAware.guidance.comparabilityState).toBeNull();
+  });
+
+  it("derives scope, contributor, model, and evidence context facts that never turn absence into zero", () => {
+    const entries = modelEnsembleKnowledgeEntries(axes);
+    const measured = entries.find((entry) => entry.key === rework)!.context;
+    expect(measured.scope).toBe("me");
+    expect(measured.label).toBe("Me · this installation");
+    expect(measured.contributors).toMatch(/One principal \(you\)/);
+    expect(measured.model).toBeNull();
+    expect(measured.evidence).toMatch(/^2\/100 resolved opportunities/);
+    const missing = entries.find((entry) => entry.key === "collaboration.scope_change_discipline")!.context;
+    expect(missing.evidence).toMatch(/not observed, not zero, not plotted/);
+    expect(missing.evidence).not.toMatch(/\b0\/0\b|\b0%/);
+    const notApplicable = entries.find((entry) => entry.key === "collaboration.exploration_conversion")!.context;
+    expect(notApplicable.evidence).toMatch(/State “not applicable”/);
+    expect(notApplicable.evidence).toMatch(/never drawn as zero/);
+    const teamScoped = axisModel.modelEnsembleKnowledgeEntries(axes, {
+      scope: "team",
+      label: "Team · fixture cohort",
+      description: "Aggregate over a consented cohort.",
+    });
+    expect(teamScoped[0].context.scope).toBe("team");
+    expect(teamScoped[0].context.contributors).toBeNull();
+    const withheld = axisModel.modelEnsembleAxisContextFacts({
+      ...byKey(rework),
+      prediction: { state: "experimental" } as unknown as NonNullable<ReturnType<typeof byKey>["prediction"]>,
+      predictiveMedian: null,
+      predictiveWithheldReason: axisModel.PREDICTIVE_WITHHELD_TOO_FEW_EXPERTS,
+    });
+    expect(withheld.model).toBe(`Model estimate withheld · ${axisModel.PREDICTIVE_WITHHELD_TOO_FEW_EXPERTS}`);
+    const visible = axisModel.modelEnsembleAxisContextFacts({ ...byKey(rework), predictiveMedian: 0.42 });
+    expect(visible.model).toMatch(/median 42%/);
+    expect(visible.model).toMatch(/never merged/);
   });
 });
 

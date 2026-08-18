@@ -3,6 +3,15 @@ import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile"
 import { QUALITY_LENSES } from "../quality-profile/qualityLenses";
 import { isDeepModelStage } from "./modelStages";
 import { metricHelpV2, metricInspectorSentences, type MetricInspectorSentences } from "./metricHelpV2";
+import { exactPercent, metricGuidanceReceiptSentences } from "./metricGuidanceReceipt";
+import { ME_SCOPE_CONTEXT, type MetricContextFacts, type MetricScopeContext } from "./metricContextFacts";
+import {
+  metricEvidenceReadinessForPublication,
+  readableAdapterCapability,
+  readableEvidenceAvailability,
+  readableEvidenceContributor,
+  type MetricEvidenceReadinessRowV2,
+} from "./metricEvidenceReadiness";
 
 /**
  * Pure presentation model for the metric workspace: typed lens axes, sealed
@@ -40,7 +49,12 @@ export interface ModelEnsembleV2Metric {
   implementation_state: PublishedMetricV2["implementation_state"];
   evidence_authority: PublishedMetricV2["state"]["evidence_authority"];
   statistics: PublishedMetricV2["state"]["statistics"];
+  /** Exact censoring bounds published by the state receipt (a pending value lies between them); null when unpublished. */
+  censoring_lower_bound: number | null;
+  censoring_upper_bound: number | null;
   guidance: PublishedMetricV2["guidance"] | null;
+  /** Additive evidence-readiness row, only after exact cross-binding to this publication. */
+  readiness: MetricEvidenceReadinessRowV2 | null;
 }
 export type ModelEnsembleMeasuredMetric = ModelEnsembleTypedMetric | ModelEnsembleV2Metric;
 export type ModelEnsembleMetric = ModelEnsembleCommitteeMetric | ModelEnsembleMeasuredMetric;
@@ -48,6 +62,7 @@ export type ModelEnsembleRadarData = Pick<ModelEnsembleRun, "metrics" | "chunk_m
   typed_metrics: readonly ModelEnsembleTypedMetric[];
   metric_publication_v2?: ModelEnsembleRun["metric_publication_v2"];
   metric_states_v2?: readonly MetricStateV2[];
+  metric_evidence_readiness_v2?: unknown;
   predictive_metrics?: readonly ModelEnsemblePredictiveMetric[];
   predictive_model_stages?: ModelEnsembleRun["predictive_model_stages"];
 };
@@ -127,7 +142,13 @@ export function modelEnsembleMetricStateLabel(metric: EnsembleMetric | null): st
 function stateExplanation(metric: EnsembleMetric): string {
   if (isModelEnsembleV2Metric(metric)) {
     if (metric.value_state === "pending") {
-      return "Pending: at least one eligible episode is still open at the right edge. It stays outside the denominator until its reviewed horizon closes.";
+      const bounds = modelEnsembleV2PendingBounds(metric);
+      return `Pending: ${metric.statistics.pending_count} of ${metric.statistics.eligible_count} eligible opportunities are still open at the right edge${bounds === null ? "; this receipt published no censoring bounds" : `, so the value is censored between a lower bound of ${exactPercent(bounds.lower)} and an upper bound of ${exactPercent(bounds.upper)}`}. It stays outside the numeric scale until its reviewed horizon closes.`;
+    }
+    if (metric.implementation_state === "objective_capability_missing") {
+      return metric.statistics.capability_available
+        ? "Objective evidence missing: the adapter exposes this objective contract's evidence family, but the compact receipt has no authoritative opportunity set or typed outcome to classify. Keep it unknown until a fresh sealed receipt proves complete denominator and evidence links."
+        : "Adapter capability missing: the current adapter cannot measure this objective contract, and no user wording or agent action can fix that. When a supported structured-evidence adapter is available, use its confirmation workflow to emit a fresh typed receipt; until then keep this metric unknown and do not substitute prose.";
     }
     if (metric.evidence_authority === "objective_receipt" && metric.value_state !== "known") {
       return "A typed local action, test, artifact, or acceptance receipt is required. Transcript prose and model estimates cannot create a measured outcome.";
@@ -172,6 +193,21 @@ function stateExplanation(metric: EnsembleMetric): string {
   }
 }
 
+/** Exact censoring bounds of a pending canonical V2 receipt, or `null` (not pending, not V2, or unpublished). */
+export function modelEnsembleV2PendingBounds(
+  metric: EnsembleMetric | null,
+): { lower: number; upper: number } | null {
+  if (metric === null || !isModelEnsembleV2Metric(metric) || metric.value_state !== "pending") return null;
+  if (metric.censoring_lower_bound === null || metric.censoring_upper_bound === null) return null;
+  return { lower: metric.censoring_lower_bound, upper: metric.censoring_upper_bound };
+}
+
+/** Compact caption for a pending V2 axis: `bounds 25%–75%`, or `null` when not pending / unpublished. */
+export function modelEnsembleAxisPendingBoundsLabel(axis: Pick<ModelEnsembleRadarAxis, "metric">): string | null {
+  const bounds = modelEnsembleV2PendingBounds(axis.metric);
+  return bounds === null ? null : `bounds ${exactPercent(bounds.lower)}–${exactPercent(bounds.upper)}`;
+}
+
 /** Short value shown for a non-numeric state (`—` for a known metric without a value). */
 export function modelEnsembleMetricStateValue(metric: EnsembleMetric | null): string {
   if (modelEnsembleMetricStatus(metric) === "pending") return "Pending";
@@ -195,13 +231,14 @@ export function modelEnsembleMetricPresentation(
   metric: EnsembleMetric,
   direction: MetricDirection,
 ) {
+  const sealedGuidance = isModelEnsembleV2Metric(metric) && metric.guidance !== null;
   if (
     metric.value_state !== "known"
     || metric.numeric_value == null
     || metric.numerator == null
     || metric.denominator == null
   ) {
-    return { value: stateValue(metric), detail: stateExplanation(metric) };
+    return { value: stateValue(metric), detail: sealedGuidance ? null : stateExplanation(metric) };
   }
   const rawPercent = Math.round(metric.numeric_value * 100);
   const radarPercent = direction === "lower_is_better" ? 100 - rawPercent : rawPercent;
@@ -213,14 +250,18 @@ export function modelEnsembleMetricPresentation(
       : `${metric.numerator}/${metric.denominator} known eligible observations`;
     return {
       value: `${radarPercent}% radar quality`,
-      detail: `Raw lower-is-better rate ${rawPercent}% (${source}). The radar quality is ${radarPercent}%, so a lower observed rate appears farther from the center.`,
+      detail: sealedGuidance
+        ? null
+        : `Raw lower-is-better rate ${rawPercent}% (${source}). The radar quality is ${radarPercent}%, so a lower observed rate appears farther from the center.`,
     };
   }
   const signalKind = "positive signal";
   if (isModelEnsembleV2Metric(metric)) {
     return {
       value: `${rawPercent}% measured`,
-      detail: `${metric.numerator}/${metric.denominator} eligible V2 opportunities met the exact versioned contract. The measured layer is independent of model estimates. Radar ${radarPercent}%.`,
+      detail: sealedGuidance
+        ? null
+        : `${metric.numerator}/${metric.denominator} eligible V2 opportunities met the exact versioned contract. The measured layer is independent of model estimates. Radar ${radarPercent}%.`,
     };
   }
   if (isTypedMetric(metric)) {
@@ -315,12 +356,13 @@ export function modelEnsembleDensityBinsForDirection(
  * "not observed" even if a committee receipt for it exists.
  */
 export function modelEnsemblePrimaryMetrics(
-  run: Pick<ModelEnsembleRadarData, "metrics" | "typed_metrics" | "metric_publication_v2" | "metric_states_v2">,
+  run: Pick<ModelEnsembleRadarData, "metrics" | "typed_metrics" | "metric_publication_v2" | "metric_states_v2" | "metric_evidence_readiness_v2">,
 ): readonly EnsembleMetric[] {
   const fromState = (
     state: MetricStateV2,
     guidance: PublishedMetricV2["guidance"] | null,
     implementationState: PublishedMetricV2["implementation_state"],
+    readiness: MetricEvidenceReadinessRowV2 | null,
   ): ModelEnsembleV2Metric => {
     const statistics = state.statistics;
     const resolved = statistics.met_count + statistics.not_met_count;
@@ -340,12 +382,19 @@ export function modelEnsemblePrimaryMetrics(
       implementation_state: implementationState,
       evidence_authority: state.evidence_authority,
       statistics,
+      censoring_lower_bound: state.censoring_lower_bound ?? null,
+      censoring_upper_bound: state.censoring_upper_bound ?? null,
       guidance,
+      readiness,
     };
   };
   if (run.metric_publication_v2 !== undefined && run.metric_publication_v2 !== null) {
-    return run.metric_publication_v2.metrics.map((item) => (
-      fromState(item.state, item.guidance, item.implementation_state)
+    const readiness = metricEvidenceReadinessForPublication(
+      run.metric_evidence_readiness_v2,
+      run.metric_publication_v2,
+    );
+    return run.metric_publication_v2.metrics.map((item, index) => (
+      fromState(item.state, item.guidance, item.implementation_state, readiness?.metrics[index] ?? null)
     ));
   }
   if ((run.metric_states_v2?.length ?? 0) > 0) {
@@ -362,14 +411,54 @@ export function modelEnsemblePrimaryMetrics(
                     ? "objective_evidence_unresolved"
                     : "objective_capability_missing")
                   : "method_only_withheld",
+      null,
     ));
   }
   return (run.typed_metrics?.length ?? 0) > 0 ? run.typed_metrics : run.metrics;
 }
 
+/** Number of objective-authority contracts (of five) the canonical V2 receipt measured, or `null` without a V2 receipt. */
+export const MODEL_ENSEMBLE_OBJECTIVE_CONTRACT_COUNT = 5;
+export function modelEnsembleObjectiveMeasuredCount(
+  run: Pick<ModelEnsembleRadarData, "metric_publication_v2" | "metric_states_v2">,
+): number | null {
+  if (run.metric_publication_v2 !== undefined && run.metric_publication_v2 !== null) {
+    return run.metric_publication_v2.objective_measured_count;
+  }
+  if ((run.metric_states_v2?.length ?? 0) > 0) {
+    return run.metric_states_v2!.filter(
+      (state) => state.evidence_authority === "objective_receipt" && state.value_state === "known",
+    ).length;
+  }
+  return null;
+}
+
+/**
+ * Number of objective-authority contracts (of five) whose sealed state says the
+ * current adapter can own their evidence family (`capability_available`), or
+ * `null` without a V2 receipt. "Measurable" is derived from the same sealed
+ * states as "measured" and is deliberately a separate count: an adapter that
+ * can measure five contracts may have measured none of them yet, and the two
+ * numbers are never merged. The additive readiness projection, when present,
+ * must restate exactly this value.
+ */
+export function modelEnsembleObjectiveMeasurableCount(
+  run: Pick<ModelEnsembleRadarData, "metric_publication_v2" | "metric_states_v2">,
+): number | null {
+  const states = run.metric_publication_v2 !== undefined && run.metric_publication_v2 !== null
+    ? run.metric_publication_v2.metrics.map((item) => item.state)
+    : (run.metric_states_v2?.length ?? 0) > 0
+      ? run.metric_states_v2!
+      : null;
+  if (states === null) return null;
+  return states.filter(
+    (state) => state.evidence_authority === "objective_receipt" && state.statistics.capability_available === true,
+  ).length;
+}
+
 /** Primary receipts keyed by metric key (a later duplicate key replaces an earlier one, as the radar always did). */
 export function modelEnsembleReceiptsByKey(
-  run: Pick<ModelEnsembleRadarData, "metrics" | "typed_metrics" | "metric_publication_v2">,
+  run: Pick<ModelEnsembleRadarData, "metrics" | "typed_metrics" | "metric_publication_v2" | "metric_states_v2" | "metric_evidence_readiness_v2">,
 ): Map<string, EnsembleMetric> {
   return new Map(modelEnsemblePrimaryMetrics(run).map((metric) => [metric.metric_key, metric]));
 }
@@ -562,38 +651,147 @@ export function modelEnsembleAxisEvidence(axis: ModelEnsembleRadarAxis): ModelEn
   };
 }
 
+export interface ModelEnsembleAxisGuidanceOptions {
+  /** Weakest predictive factor keys of a VISIBLE experimental estimate (model judgment, never measured). */
+  experimentalFactorKeys?: readonly string[];
+  experimentalVisible?: boolean;
+  experimentalMedian?: number | null;
+}
+
+/**
+ * The single two-sentence guidance every surface renders for one axis. A
+ * canonical V2 receipt with a sealed guidance receipt is rendered from that
+ * receipt (state class, template identities, counts, bounds, focus factors) and
+ * is never re-decided from the numeric value; a compact V2 history point that
+ * carries no guidance receipt keeps its state facts but says so instead of
+ * inventing a retain/improve decision; legacy typed and committee receipts use
+ * the state-aware inspector. Board, radar inspector, knowledge card and ARIA
+ * descriptions all call this, so their action sentences cannot drift apart.
+ */
+export function modelEnsembleAxisGuidanceSentences(
+  axis: ModelEnsembleRadarAxis,
+  options: ModelEnsembleAxisGuidanceOptions = {},
+): MetricInspectorSentences {
+  const evidence = modelEnsembleAxisEvidence(axis);
+  const metric = axis.metric;
+  const experimentalVisible = options.experimentalVisible ?? axis.predictiveMedian !== null;
+  const experimentalMedian = options.experimentalMedian ?? axis.predictiveMedian;
+  if (metric !== null && isModelEnsembleV2Metric(metric)) {
+    if (metric.guidance !== null) {
+      return metricGuidanceReceiptSentences({
+        metricKey: axis.key,
+        label: axis.label,
+        direction: axis.direction,
+        guidance: metric.guidance,
+        evidenceAuthority: metric.evidence_authority,
+        explanationCode: metric.explanation_code,
+        capabilityAvailable: metric.statistics.capability_available,
+      });
+    }
+    const facts = metricInspectorSentences({
+      metricKey: axis.key,
+      label: axis.label,
+      state: evidence.state,
+      direction: axis.direction,
+      numericValue: evidence.numericValue,
+      numerator: evidence.numerator,
+      denominator: evidence.denominator,
+      explanationCode: evidence.explanationCode,
+      evidenceAuthority: evidence.evidenceAuthority,
+      suppressionReason: null,
+      comparabilityState: null,
+      experimentalFactorKeys: options.experimentalFactorKeys,
+      experimentalVisible,
+      experimentalMedian,
+    });
+    // A pending compact row still carries its exact censoring bounds; keep them
+    // inside the one meaning sentence so the visible inspector and the hidden
+    // ARIA description say the same thing.
+    const bounds = modelEnsembleV2PendingBounds(metric);
+    const meaning = facts.kind === "pending" && bounds !== null
+      ? `${facts.meaning.replace(/\.$/u, "")}; the value is censored between a lower bound of ${exactPercent(bounds.lower)} and an upper bound of ${exactPercent(bounds.upper)}.`
+      : facts.meaning;
+    return {
+      ...facts,
+      meaning,
+      action: "No sealed guidance receipt travels with this compact history point, so no retain-or-improve decision is shown here — verify: open the sealed snapshot to read the receipt's action for this metric.",
+      basis: facts.kind === "measured" || facts.kind === "zero" ? "method-only" : facts.basis,
+    };
+  }
+  return metricInspectorSentences({
+    metricKey: axis.key,
+    label: axis.label,
+    state: evidence.state,
+    direction: axis.direction,
+    numericValue: evidence.numericValue,
+    numerator: evidence.numerator,
+    denominator: evidence.denominator,
+    explanationCode: evidence.explanationCode,
+    evidenceAuthority: evidence.evidenceAuthority,
+    suppressionReason: evidence.suppressionReason,
+    comparabilityState: evidence.comparabilityState,
+    experimentalFactorKeys: options.experimentalFactorKeys,
+    experimentalVisible,
+    experimentalMedian,
+  });
+}
+
 export interface ModelEnsembleKnowledgeEntry {
   key: string;
   label: string;
   status: string;
   guidance: MetricInspectorSentences;
+  context: MetricContextFacts;
 }
 
-/** Knowledge-card entries (key, label, status label) for one lens's axes. */
+/**
+ * Per-axis contributor / model / evidence facts for the personal (Me) scope.
+ * Every sentence is derived from the sealed receipt: a missing or non-known
+ * state says so, a withheld model estimate carries its exact reason, and no
+ * fact ever converts absence into zero.
+ */
+export function modelEnsembleAxisContextFacts(
+  axis: ModelEnsembleRadarAxis,
+  scope: MetricScopeContext = ME_SCOPE_CONTEXT,
+): MetricContextFacts {
+  const evidence = modelEnsembleAxisEvidence(axis);
+  const metric = axis.metric;
+  const readiness = metric !== null && isModelEnsembleV2Metric(metric) ? metric.readiness : null;
+  const model = axis.predictiveMedian !== null
+    ? `Experimental model range visible (median ${Math.round(axis.predictiveMedian * 100)}%) · a model judgment shown separately from measured evidence and never merged with it.`
+    : axis.prediction === null || axis.prediction.state === "unavailable"
+      ? null
+      : axis.predictiveWithheldReason !== null
+        ? `Model estimate withheld · ${axis.predictiveWithheldReason}`
+        : `Model estimate state “${axis.prediction.state.replaceAll("_", " ")}” · not informative enough to show; nothing is drawn for it.`;
+  const evidenceFact = metric === null
+    ? "No sealed receipt for this metric in this snapshot · not observed, not zero, not plotted."
+    : metric.value_state === "known"
+      ? `${evidence.numerator === null || evidence.denominator === null ? "Measured value" : `${evidence.numerator}/${evidence.denominator} resolved opportunities`} · ${evidence.evidenceAuthority ?? "authority not reported by this receipt"}`
+      : `State “${modelEnsembleMetricStateLabel(metric)}” · kept off the numeric scale and never drawn as zero · ${evidence.evidenceAuthority ?? "authority not reported by this receipt"}`;
+  const readinessFact = readiness === null
+    ? evidenceFact
+    : `${evidenceFact} · readiness ${readableEvidenceAvailability(readiness.availability_state)} · requirement ${readiness.reason_code.replaceAll("_", " ")}${readiness.required_adapter_capabilities.length === 0 ? "" : ` · adapter proof families ${readiness.required_adapter_capabilities.map(readableAdapterCapability).join(", ")} (supplied by the adapter, not by user wording)`} · calibration not assessed · not product-metric eligible.`;
+  return {
+    ...scope,
+    contributors: readiness === null
+      ? scope.scope === "me" ? "One principal (you) · single-installation receipts, no cohort or member rows." : null
+      : `${readiness.observed_contributors.length}/${readiness.required_contributors.length} proof contributors observed (evidence families, not people) · missing: ${readiness.missing_contributors.length === 0 ? "none" : readiness.missing_contributors.map(readableEvidenceContributor).join(", ")}.`,
+    model,
+    evidence: readinessFact,
+  };
+}
+
+/** Knowledge-card entries (key, label, status label, context) for one lens's axes. */
 export function modelEnsembleKnowledgeEntries(
   axes: readonly ModelEnsembleRadarAxis[],
+  scope: MetricScopeContext = ME_SCOPE_CONTEXT,
 ): ModelEnsembleKnowledgeEntry[] {
-  return axes.map((axis) => {
-    const evidence = modelEnsembleAxisEvidence(axis);
-    return {
-      key: axis.key,
-      label: axis.label,
-      status: modelEnsembleMetricStateLabel(axis.metric),
-      guidance: metricInspectorSentences({
-        metricKey: axis.key,
-        label: axis.label,
-        state: evidence.state,
-        direction: axis.direction,
-        numericValue: evidence.numericValue,
-        numerator: evidence.numerator,
-        denominator: evidence.denominator,
-        explanationCode: evidence.explanationCode,
-        evidenceAuthority: evidence.evidenceAuthority,
-        suppressionReason: evidence.suppressionReason,
-        comparabilityState: evidence.comparabilityState,
-        experimentalVisible: axis.predictiveMedian !== null,
-        experimentalMedian: axis.predictiveMedian,
-      }),
-    };
-  });
+  return axes.map((axis) => ({
+    key: axis.key,
+    label: axis.label,
+    status: modelEnsembleMetricStateLabel(axis.metric),
+    context: modelEnsembleAxisContextFacts(axis, scope),
+    guidance: modelEnsembleAxisGuidanceSentences(axis),
+  }));
 }

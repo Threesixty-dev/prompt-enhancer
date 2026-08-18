@@ -43,7 +43,7 @@ describe("TeamContextDrawer", () => {
     expect(explore.querySelector(".team-interval__state")?.textContent).toBe("not applicable");
     const trigger = rework.querySelector("button")!;
     fireEvent.focus(trigger);
-    const card = document.querySelector('[role="tooltip"]')!;
+    const card = document.querySelector('[role="region"][data-metric-key]')!;
     expect(card.className).toContain("metric-explainer-card--compact");
     expect(card.textContent).toContain("Rework-candidate rate");
     expect(card.textContent).toContain("Measured · typed evidence");

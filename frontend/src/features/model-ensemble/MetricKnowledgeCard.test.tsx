@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelEnsembleRun, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { MetricWorkspace } from "./MetricWorkspace";
@@ -69,7 +69,7 @@ describe("personal metric explainers", () => {
   it("shows exactly one visible card across strip and board surfaces with pointer, focus, pin, and Escape", () => {
     vi.useFakeTimers();
     renderWorkspace("full");
-    const cards = () => document.querySelectorAll('[role="tooltip"]');
+    const cards = () => document.querySelectorAll('[role="region"][data-metric-key]');
     expect(cards()).toHaveLength(0);
     const strip = screen.getByRole("navigation", { name: /metric axes/ });
     const stripButtons = strip.querySelectorAll("button");
@@ -103,7 +103,7 @@ describe("personal metric explainers", () => {
   it("shows state and provenance-aware two-sentence guidance", () => {
     renderWorkspace("full");
     fireEvent.pointerEnter(screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!);
-    const card = document.querySelector('[role="tooltip"]')!;
+    const card = document.querySelector('[role="region"][data-metric-key]')!;
     expect(card.textContent).toContain("Current state");
     expect(card.textContent).toContain("Next action");
     expect(card).toHaveAttribute("data-state", "known");
@@ -111,6 +111,26 @@ describe("personal metric explainers", () => {
     expect(card.textContent).not.toContain("Candidate definition evidence notes");
     expect(card.querySelectorAll(".metric-knowledge-card__guidance > p")).toHaveLength(2);
     expect(card.textContent).not.toMatch(/confidence|probability of success/i);
+  });
+
+  it("carries scope, contributor, model, and evidence context in full and compact cards and in the hidden description", () => {
+    for (const mode of ["full", "compact"] as const) {
+      const view = renderWorkspace(mode);
+      const trigger = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
+      expect(document.getElementById(trigger.getAttribute("aria-describedby")!)!.textContent).toMatch(/Scope: Me · this installation\.$/);
+      fireEvent.pointerEnter(trigger);
+      const card = document.querySelector('[role="region"][data-metric-key]')!;
+      const context = within(card as HTMLElement).getByRole("region", { name: "Context and evidence" });
+      expect(context).toHaveAttribute("data-scope", "me");
+      const terms = [...context.querySelectorAll("dt")].map((item) => item.textContent);
+      expect(terms).toEqual(["Scope", "Contributors", "Model", "Evidence"]);
+      expect(context.textContent).toContain("Me · this installation");
+      expect(context.textContent).toContain("One principal (you)");
+      expect(context.textContent).toContain("No model estimate reported");
+      expect(context.querySelector("[data-unknown='true']")).not.toBeNull();
+      expect(context.textContent).not.toMatch(/\b0%|\b0\/0\b/);
+      view.unmount();
+    }
   });
 
   it("renders the same two inspector sentences in full and compact mode for the same selection", () => {
@@ -130,13 +150,13 @@ describe("personal metric explainers", () => {
   it("keeps a standalone radar working without a workspace controller", () => {
     render(<ModelEnsembleRadar lensId="task-framing" run={run} />);
     fireEvent.pointerEnter(screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!);
-    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(1);
   });
 
   it("renders the compact card in a viewport overlay without inserting panel height", () => {
     renderWorkspace("compact");
     fireEvent.pointerEnter(screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!);
-    const card = document.querySelector('[role="tooltip"]')!;
+    const card = document.querySelector('[role="region"][data-metric-key]')!;
     const slot = card.closest(".metric-knowledge-slot");
     expect(slot).not.toBeNull();
     expect(slot?.getAttribute("data-surface")).toBe("strip");
@@ -148,7 +168,7 @@ describe("personal metric explainers", () => {
     const view = renderWorkspace("full");
     const first = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
     fireEvent.click(first);
-    expect(document.querySelector('[role="tooltip"]')?.getAttribute("data-pinned")).toBe("true");
+    expect(document.querySelector('[role="region"][data-metric-key]')?.getAttribute("data-pinned")).toBe("true");
 
     view.rerender(
       <MetricWorkspace
@@ -162,9 +182,9 @@ describe("personal metric explainers", () => {
       />,
     );
 
-    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(0);
     const next = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
     fireEvent.pointerEnter(next);
-    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(1);
   });
 });

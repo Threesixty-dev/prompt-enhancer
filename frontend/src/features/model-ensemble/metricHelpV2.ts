@@ -216,6 +216,25 @@ export function metricHelpV2(metricKey: string, locale: MetricHelpLocale = "en")
   return { version: METRIC_HELP_V2_VERSION, metricKey, requestedLocale: locale, locale, fallback: false, entry, measurement };
 }
 
+/**
+ * Singular noun phrase of an observation unit for "no eligible … was observed"
+ * ("one agent question" → "agent question"); a unit without the leading "one"
+ * is returned unchanged.
+ */
+export function observationUnitSingular(unit: string): string {
+  return unit.replace(/^one /u, "");
+}
+
+/**
+ * Count-friendly phrasing of an observation unit for fractions and counts
+ * ("3/4 …", "2 of 4 …"): "one agent question" → "opportunities (one per agent
+ * question)". Sentences never read "3/4 one agent question".
+ */
+export function observationUnitCounted(unit: string): string {
+  const singular = observationUnitSingular(unit);
+  return singular === unit ? unit : `opportunities (one per ${singular})`;
+}
+
 export type MetricInspectorKind =
   | "pending"
   | "suppressed"
@@ -255,8 +274,8 @@ export interface MetricInspectorInput {
   comparabilityState?: "comparable" | "mixed_definition_versions" | "mixed_windows" | "not_comparable" | null;
   /**
    * Factor keys from a loaded PREDICTIVE factor distribution. They are model
-   * judgments, never measured evidence, and are only mentioned when an
-   * informative experimental estimate is visible.
+   * judgments, never measured evidence. Retained for call compatibility only:
+   * presentation never names them as coaching evidence.
    */
   experimentalFactorKeys?: readonly string[];
   /** True when an informative experimental estimate is visible for this metric. */
@@ -343,10 +362,6 @@ function lowerFirst(value: string): string {
   return value.charAt(0).toLowerCase() + value.slice(1);
 }
 
-function readableFactor(value: string): string {
-  return value.replaceAll("_", " ").replaceAll(".", " ");
-}
-
 function inspectorKind(input: MetricInspectorInput): MetricInspectorKind {
   if (input.state === "pending") return "pending";
   if (input.state !== "known" && input.explanationCode === "episode_horizon_open") return "pending";
@@ -372,6 +387,7 @@ function inspectorKind(input: MetricInspectorInput): MetricInspectorKind {
 export function metricInspectorSentences(input: MetricInspectorInput): MetricInspectorSentences {
   const help = metricHelpV2(input.metricKey, "en")?.entry;
   const unit = help?.observationUnit ?? "observation";
+  const unitSingular = observationUnitSingular(unit);
   const objective = metricHelpV2IsObjective(input.metricKey) || (input.explanationCode ?? "").includes("objective_");
   const kind = inspectorKind(input);
   const sessionState = input.state === "suppressed" || input.state === "withheld" || input.state === "unavailable"
@@ -387,12 +403,8 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
   });
   const decision = metricDecisionGuidance(input.metricKey);
   const fraction = input.numerator !== null && input.denominator !== null
-    ? `${input.numerator}/${input.denominator} ${unit}`
-    : `an unexposed fraction of ${unit}`;
-  const factors = input.experimentalVisible ? (input.experimentalFactorKeys ?? []).slice(0, 2).map(readableFactor) : [];
-  const experimentalNote = factors.length > 0
-    ? ` Separately, the visible experimental estimate's model factor probabilities are lowest for ${factors.join(" and ")} — a model judgment, not measured evidence.`
-    : "";
+    ? `${input.numerator}/${input.denominator} ${observationUnitCounted(unit)}`
+    : `an unexposed fraction of ${observationUnitCounted(unit)}`;
   let meaning: string;
   let action = `${guidance.action.replace(/[.\s]+$/u, "")} — verify: ${lowerFirst(guidance.verification)}`;
   switch (kind) {
@@ -414,12 +426,12 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       action = "Do not compare or combine these observations until one exact definition and window applies — verify: rerun the same reviewed metric contract over a coherent cohort window.";
       break;
     case "unavailable":
-      meaning = `Unavailable: this runtime does not expose the capability required to produce ${input.label}; absence of a service is not a zero or a failed measurement.`;
-      action = "Keep the metric unavailable until the required local capability exists — verify: confirm a supported adapter produces a fresh sealed receipt before interpreting a value.";
+      meaning = `Adapter capability missing: this runtime does not expose the evidence family required to produce ${input.label}; absence of a supported adapter is not a zero or a failed measurement.`;
+      action = "No user wording can supply this metric: keep it unmeasured until a supported local adapter exists — verify: that adapter produces a fresh sealed receipt before any value is interpreted.";
       break;
     case "not_applicable":
-      meaning = `Not applicable: no eligible ${unit} was observed in this window, so ${input.label} has nothing to score and no value is implied.`;
-      action = `No action for this window: there was no eligible ${unit} to change — verify: reassess only when a later comparable window contains an eligible opportunity.`;
+      meaning = `Not applicable: no eligible ${unitSingular} was observed in this window, so ${input.label} has nothing to score and no value is implied.`;
+      action = `No action for this window: there was no eligible ${unitSingular} to change — verify: reassess only when a later comparable window contains an eligible opportunity.`;
       break;
     case "unknown":
       if ((input.explanationCode ?? "").includes("objective_authority") || input.explanationCode === "typed_objective_absent") {
@@ -429,13 +441,13 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       } else if (input.explanationCode === "source_reconciliation_incomplete" || input.explanationCode === "semantic_units_unavailable") {
         meaning = `Unknown: semantic-unit reconciliation was not complete for this exact analyzed window, so ${input.label} was withheld instead of scoring a partial source as complete.`;
       } else if (input.explanationCode === "opportunity_set_undetermined") {
-        meaning = `Unknown: the task profile did not declare the expected ${unit} set, so ${input.label} has no defensible denominator and was not converted to zero.`;
+        meaning = `Unknown: the task profile did not declare the expected ${unitSingular} set, so ${input.label} has no defensible denominator and was not converted to zero.`;
       } else if (input.explanationCode === "diagnostic_task_not_detected") {
         meaning = `Unknown: this window did not establish that the request was diagnostic, so ${input.label} cannot assume that problem-evidence opportunities applied.`;
       } else {
         meaning = objective
           ? `Unknown: no authoritative typed receipt or link is available for ${input.label} in this sealed receipt; prose is not accepted, so this is missing evidence, not a low value.`
-          : `Unknown: this receipt exposes no eligible ${unit} or the event family ${input.label} needs, so no value exists; this is missing evidence, not a low value.`;
+          : `Unknown: this receipt exposes no eligible ${unitSingular} or the event family ${input.label} needs, so no value exists; this is missing evidence, not a low value.`;
       }
       break;
     case "abstained":
@@ -450,19 +462,19 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       meaning = `No record: ${input.label} is not present in this sealed receipt, so nothing was measured or estimated for it.`;
       break;
     case "experimental":
-      meaning = `Experimental only: ${input.label} has no measured value in the analyzed window; the visible ${input.experimentalMedian == null ? "estimate" : `${percent(input.experimentalMedian)} radar-quality estimate`} is an uncalibrated model range, not a measurement.${experimentalNote}`;
+      meaning = `Experimental only: ${input.label} has no measured value in the analyzed window; the visible ${input.experimentalMedian == null ? "estimate" : `${percent(input.experimentalMedian)} radar-quality estimate`} is an uncalibrated model range, not a measurement, and its model-factor probabilities are not coaching evidence.`;
       break;
     case "zero":
       meaning = input.direction === "lower_is_better"
-        ? `Known radar-quality zero: ${fraction} carried the marker (raw ${percent(input.numericValue!)}), so radar quality is 0% and the point sits at the center; a real measured value, not missing data.${experimentalNote}`
-        : `Known radar-quality zero: ${fraction} met the versioned local contract for ${input.label}, so the point sits at the radar center; a real measured value, not missing data.${experimentalNote}`;
+        ? `Known radar-quality zero: ${fraction} carried the marker (raw ${percent(input.numericValue!)}), so radar quality is 0% and the point sits at the center; a real measured value, not missing data.`
+        : `Known radar-quality zero: ${fraction} met the versioned local contract for ${input.label}, so the point sits at the radar center; a real measured value, not missing data.`;
       break;
     case "measured":
     default: {
       const radarQuality = input.direction === "lower_is_better" ? 1 - input.numericValue! : input.numericValue!;
       meaning = input.direction === "lower_is_better"
-        ? `Measured: ${fraction} carried the marker, a raw rate of ${percent(input.numericValue!)} (radar quality ${percent(radarQuality)} because lower is better); this exact versioned candidate value is not a validated quality band.${experimentalNote}`
-        : `Measured: ${fraction} met the versioned local contract for ${input.label}, exactly ${percent(radarQuality)}; this versioned candidate value is not a validated quality band or calibrated score.${experimentalNote}`;
+        ? `Measured: ${fraction} carried the marker, a raw rate of ${percent(input.numericValue!)} (radar quality ${percent(radarQuality)} because lower is better); this exact versioned candidate value is not a validated quality band.`
+        : `Measured: ${fraction} met the versioned local contract for ${input.label}, exactly ${percent(radarQuality)}; this versioned candidate value is not a validated quality band or calibrated score.`;
       break;
     }
   }
@@ -471,7 +483,7 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       ? input.numerator === 0
       : input.numerator !== null && input.numerator === input.denominator;
     action = allMet
-      ? `Nothing to change for this window: every observed ${unit} already met the contract, so keep that practice visible — verify: ${lowerFirst(decision.confirmWith)}`
+      ? `Nothing to change for this window: every observed ${unitSingular} already met the contract, so keep that practice visible — verify: ${lowerFirst(decision.confirmWith)}`
       : `Safest next step: ${lowerFirst(decision.tryNext).replace(/[.\s]+$/u, "")} — verify: ${lowerFirst(decision.confirmWith)}`;
   }
   return {

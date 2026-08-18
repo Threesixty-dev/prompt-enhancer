@@ -82,14 +82,14 @@ test.describe("team analytics scopes", () => {
     const currentTable = page.getByRole("table");
     const trigger = currentTable.getByRole("button", { name: /Task definition coverage/ });
     await trigger.focus();
-    const card = page.getByRole("tooltip");
+    const card = page.locator(".metric-explainer-card, .metric-knowledge-card");
     await expect(card).toBeVisible();
     await expect(card).toContainText("Meaning");
     await expect(card).toContainText("Next action");
     await expect(card).toContainText("Measured · typed evidence");
     expect((await layoutAudit(page, ".metric-explainer-card", 14)).tooSmall).toEqual([]);
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(page.locator(".metric-explainer-card, .metric-knowledge-card")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Reveal individual members" }).click();
     await expect(page.getByText("Member 01")).toBeVisible();
@@ -156,7 +156,7 @@ for (const viewport of [
     await expect(list.getByRole("listitem")).toHaveCount(6);
     await expect(list.locator("li[data-status='suppressed'] .team-interval__point")).toHaveCount(0);
     await list.getByRole("button", { name: /^Task/ }).first().focus();
-    const card = page.getByRole("tooltip");
+    const card = page.locator(".metric-explainer-card, .metric-knowledge-card");
     await expect(card).toBeVisible();
     await expect(card).toHaveClass(/metric-explainer-card--compact/);
     expect((await layoutAudit(page, ".metric-explainer-card", 12)).tooSmall).toEqual([]);

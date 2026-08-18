@@ -5,7 +5,6 @@ import type {
   PromptEnhancerTransport,
 } from "../../shared/api/contracts";
 import { moveRovingFocus } from "../../shared/ui/rovingFocus";
-import { sessionMetricGuidance } from "../quality-profile/metricGuidance";
 import {
   MetricKnowledgeCardSlot,
   metricKnowledgeCardTriggerProps,
@@ -16,10 +15,14 @@ import { ModelConstellationDrawer } from "./ModelConstellationDrawer";
 import { ModelEnsembleRadar } from "./ModelEnsembleRadar";
 import {
   MODEL_ENSEMBLE_LENSES,
-  modelEnsembleAxisEvidence,
+  MODEL_ENSEMBLE_OBJECTIVE_CONTRACT_COUNT,
+  modelEnsembleAxisGuidanceSentences,
+  modelEnsembleAxisPendingBoundsLabel,
   modelEnsembleAxisRawRateLabel,
   modelEnsembleKnowledgeEntries,
   modelEnsembleMetricPresentation,
+  modelEnsembleObjectiveMeasurableCount,
+  modelEnsembleObjectiveMeasuredCount,
   modelEnsemblePrimaryMetrics,
   modelEnsembleCompletedSmallExperts,
   modelEnsembleMetricStatus,
@@ -29,7 +32,9 @@ import {
   type ModelEnsembleLensId,
   type ModelEnsembleRadarData,
 } from "./metricAxisModel";
+import { ME_SCOPE_CONTEXT, type MetricScopeContext } from "./metricContextFacts";
 import { shortIdentity } from "./modelStages";
+import { metricEvidenceReadinessForPublication } from "./metricEvidenceReadiness";
 
 /**
  * The trajectory helpers and the history contract used to live in this file.
@@ -59,6 +64,7 @@ export function MetricWorkspace({
   scopeLabel = "Scope not exposed",
   history,
   attemptStages = [],
+  scopeContext,
 }: {
   mode: "full" | "compact";
   run: ModelEnsembleRadarData;
@@ -73,6 +79,8 @@ export function MetricWorkspace({
   scopeLabel?: string;
   history?: MetricWorkspaceHistory;
   attemptStages?: readonly ModelEnsembleAttemptStage[];
+  /** Analytics scope carried into every knowledge card (strip and board); defaults to Me. */
+  scopeContext?: MetricScopeContext;
 }) {
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
   const boardHelp = useMetricKnowledgeCardController();
@@ -85,6 +93,15 @@ export function MetricWorkspace({
   const visibleExperimental = (run.predictive_metrics ?? []).filter(
     (metric) => modelEnsemblePredictiveVisibility(metric, completedSmallExperts).visible,
   ).length;
+  const objectiveMeasured = modelEnsembleObjectiveMeasuredCount(run);
+  // Derived from the sealed states themselves (capability_available on the five
+  // objective contracts), so the header stays truthful with or without the
+  // additive readiness projection; the projection can only restate this count.
+  const objectiveMeasurable = modelEnsembleObjectiveMeasurableCount(run);
+  const evidenceReadiness = useMemo(
+    () => metricEvidenceReadinessForPublication(run.metric_evidence_readiness_v2, run.metric_publication_v2),
+    [run.metric_evidence_readiness_v2, run.metric_publication_v2],
+  );
   const activeMetricKey = axes.some((axis) => axis.key === selectedMetricKey)
     ? selectedMetricKey
     : axes[0]?.key ?? "";
@@ -98,10 +115,27 @@ export function MetricWorkspace({
       data-workspace-mode={mode}
     >
       <header className="metric-workspace__snapshot">
-        <div><span>{snapshotLabel}{pending > 0 ? ` · ${pending} pending` : ""}</span><strong>Snapshot {shortIdentity(runId)}</strong></div>
+        <div><span>{snapshotLabel}{pending > 0 ? ` · ${pending} pending` : ""}</span><strong>Snapshot {shortIdentity(runId)}</strong><span className="metric-workspace__scope" data-scope={(scopeContext ?? ME_SCOPE_CONTEXT).scope}>Scope · {(scopeContext ?? ME_SCOPE_CONTEXT).label}</span></div>
         <dl>
           <div><dt>Measured</dt><dd>{known}/20</dd></div>
+          {objectiveMeasurable !== null && (
+            <div data-objective-measurable={objectiveMeasurable}>
+              <dt>Objective measurable</dt>
+              <dd>{objectiveMeasurable}/{MODEL_ENSEMBLE_OBJECTIVE_CONTRACT_COUNT}</dd>
+            </div>
+          )}
+          {objectiveMeasured !== null && (
+            <div data-objective-measured={objectiveMeasured}>
+              <dt>Objective measured</dt>
+              <dd>{objectiveMeasured}/{MODEL_ENSEMBLE_OBJECTIVE_CONTRACT_COUNT}</dd>
+            </div>
+          )}
           <div><dt>State-only</dt><dd>{unavailable}</dd></div>
+          {evidenceReadiness !== null && (
+            <div data-capability-gaps={evidenceReadiness.capability_missing_count}>
+              <dt>Capability gaps</dt><dd>{evidenceReadiness.capability_missing_count}/20</dd>
+            </div>
+          )}
           <div><dt>Visible estimates</dt><dd>{visibleExperimental}/20</dd></div>
           <div><dt>Window</dt><dd>{scopeLabel}</dd></div>
         </dl>
@@ -132,6 +166,7 @@ export function MetricWorkspace({
           detailTransport={transport}
           helpController={boardHelp}
           lensId={lensId}
+          scopeContext={scopeContext}
           onSelectedMetricKeyChange={setSelectedMetricKey}
           run={run}
           selectedMetricKey={activeMetricKey}
@@ -147,16 +182,14 @@ export function MetricWorkspace({
                   : modelEnsembleMetricPresentation(axis.metric, axis.direction);
                 const status = modelEnsembleMetricStatus(axis.metric);
                 const rawRate = modelEnsembleAxisRawRateLabel(axis);
-                const evidence = modelEnsembleAxisEvidence(axis);
-                const guidance = sessionMetricGuidance(axis.key, {
-                  state: evidence.state,
-                  numericValue: evidence.numericValue,
-                  direction: axis.direction,
-                  explanationCode: evidence.explanationCode,
-                });
+                const pendingBounds = modelEnsembleAxisPendingBoundsLabel(axis);
+                // The same two sentences the radar inspector and knowledge card
+                // render: the action here can never differ from the inspector's.
+                const guidance = modelEnsembleAxisGuidanceSentences(axis);
                 return (
                   <button
                     aria-pressed={axis.key === activeMetricKey}
+                    data-guidance-kind={guidance.kind}
                     data-status={status}
                     key={axis.key}
                     {...metricKnowledgeCardTriggerProps(boardHelp, "board", axis.key)}
@@ -168,17 +201,18 @@ export function MetricWorkspace({
                       <small>
                         {modelEnsembleMetricStatusLabel(status)}
                         {rawRate === null ? "" : ` · ${rawRate}`}
+                        {pendingBounds === null ? "" : ` · ${pendingBounds}`}
                       </small>
                     </span>
                     <b>{presentation.value}</b>
-                    <p>{guidance.action}</p>
+                    <span aria-hidden="true" className="metric-workspace__board-action">{guidance.action}</span>
                   </button>
                 );
               })}
             </div>
             <MetricKnowledgeCardSlot
               controller={boardHelp}
-              entries={modelEnsembleKnowledgeEntries(axes)}
+              entries={modelEnsembleKnowledgeEntries(axes, scopeContext)}
               surface="board"
             />
           </section>
