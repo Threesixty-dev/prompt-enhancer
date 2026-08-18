@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Protocol
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Response
 from pydantic import Field
 
 from ...application.analysis.metric_lifecycle_evidence import (
@@ -52,6 +52,10 @@ class MetricLifecycleEvidenceCommand(Protocol):
     ) -> tuple[MetricLifecycleProposalView, bool]: ...
 
     def list(self, session_id: str) -> tuple[MetricLifecycleProposalView, ...]: ...
+
+    def list_page(
+        self, session_id: str, *, limit: int, offset: int
+    ) -> tuple[tuple[MetricLifecycleProposalView, ...], int]: ...
 
 
 class MetricLifecycleProposalDto(StrictModel):
@@ -116,6 +120,16 @@ class MetricLifecycleProposalOutcomeDto(StrictModel):
 class MetricLifecycleProposalListDto(StrictModel):
     session_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     proposals: tuple[MetricLifecycleProposalDto, ...] = Field(max_length=1_000)
+
+
+class MetricLifecycleProposalPageDto(StrictModel):
+    session_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    proposals: tuple[MetricLifecycleProposalDto, ...] = Field(max_length=200)
+    limit: int = Field(ge=1, le=200)
+    offset: int = Field(ge=0, le=1_000_000)
+    total: int = Field(ge=0, le=1_000_000)
+    next_offset: int | None = Field(default=None, ge=1, le=1_000_000)
+    complete: bool
 
 
 def _failure(error: Exception) -> HTTPException:
@@ -246,12 +260,48 @@ def create_metric_lifecycle_evidence_router(
             ),
         )
 
+    @router.get(
+        "/sessions/{session_id}/metric-lifecycle-evidence/proposal-page",
+        response_model=MetricLifecycleProposalPageDto,
+    )
+    def list_proposal_page(
+        response: Response,
+        session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
+        limit: Annotated[int, Query(ge=1, le=200)] = 100,
+        offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+    ) -> MetricLifecycleProposalPageDto:
+        response.headers.update(_PRIVATE_HEADERS)
+        try:
+            proposals, total = service.list_page(
+                session_id, limit=limit, offset=offset
+            )
+        except (
+            MetricLifecycleInputError,
+            MetricLifecycleNotFoundError,
+            MetricLifecyclePersistenceError,
+        ) as error:
+            raise _failure(error) from None
+        consumed = offset + len(proposals)
+        complete = consumed >= total
+        return MetricLifecycleProposalPageDto(
+            session_id=session_id,
+            proposals=tuple(
+                MetricLifecycleProposalDto.from_view(item) for item in proposals
+            ),
+            limit=limit,
+            offset=offset,
+            total=total,
+            next_offset=None if complete else consumed,
+            complete=complete,
+        )
+
     return router
 
 
 __all__ = [
     "MetricLifecycleProposalDto",
     "MetricLifecycleProposalListDto",
+    "MetricLifecycleProposalPageDto",
     "MetricLifecycleProposalOutcomeDto",
     "create_metric_lifecycle_evidence_router",
 ]

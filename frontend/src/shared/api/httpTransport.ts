@@ -5,6 +5,8 @@ import type {
   AnalysisJobState,
   AnalysisRunListResponse,
   AnalysisRunResponse,
+  AgentMetricEvidenceImport,
+  AgentMetricEvidencePreview,
   AutomationGrantCreateRequest,
   AutomationGrantRecord,
   AutomationGrantScope,
@@ -40,6 +42,8 @@ import type {
   ProviderCompatibilityProvider,
   ProviderCompatibilityStatus,
   MetricEvidenceCapability,
+  MetricLifecycleDecisionRequest,
+  MetricLifecycleProposal,
   MetricReadiness,
   MetricReadinessAction,
   ReviewCommand,
@@ -97,6 +101,13 @@ import {
   parseTaskLifecycleMutationResponse,
   parseTaskLifecycleSnapshot,
 } from "./taskLifecycleContract";
+import {
+  AgentMetricEvidencePayloadError,
+  parseAgentMetricEvidenceImport,
+  parseAgentMetricEvidencePreview,
+  parseMetricLifecycleProposalPage,
+  parseMetricLifecycleProposalOutcome,
+} from "./agentMetricEvidenceContract";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -2761,6 +2772,116 @@ export function createHttpTransport(options: {
         if (error instanceof ModelPredictiveMetricDetailPayloadError) {
           throw new TransportError(error.message, 200);
         }
+        throw error;
+      }
+    },
+    async previewAgentMetricEvidence(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/agent-metric-evidence/preview`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/vnd.prompt-enhancer.agent-metric-evidence+json",
+          },
+          body: payload,
+        },
+        signal,
+        true,
+        true,
+      );
+      try { return parseAgentMetricEvidencePreview(value); }
+      catch (error) {
+        if (error instanceof AgentMetricEvidencePayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async importAgentMetricEvidence(
+      sessionId,
+      payload,
+      expectedPayloadSha256,
+      confirmation,
+      idempotencyKey,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/agent-metric-evidence/import`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/vnd.prompt-enhancer.agent-metric-evidence+json",
+            "Idempotency-Key": idempotencyKey,
+            "X-Agent-Evidence-Confirmation": confirmation,
+            "X-Agent-Evidence-Payload-SHA256": expectedPayloadSha256,
+          },
+          body: payload,
+        },
+        signal,
+        true,
+        true,
+      );
+      try { return parseAgentMetricEvidenceImport(value); }
+      catch (error) {
+        if (error instanceof AgentMetricEvidencePayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async listMetricLifecycleProposals(sessionId, signal) {
+      const limit = 200;
+      let offset = 0;
+      let total: number | null = null;
+      const proposals: MetricLifecycleProposal[] = [];
+      const identities = new Set<string>();
+      for (let pageIndex = 0; pageIndex < 120; pageIndex += 1) {
+        const value = await request<unknown>(
+          `/v1/sessions/${encodeURIComponent(sessionId)}/metric-lifecycle-evidence/proposal-page?limit=${limit}&offset=${offset}`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const page = parseMetricLifecycleProposalPage(value, sessionId, limit, offset);
+          if (total !== null && page.total !== total) throw new AgentMetricEvidencePayloadError();
+          total = page.total;
+          for (const proposal of page.proposals) {
+            if (identities.has(proposal.proposal_id)) throw new AgentMetricEvidencePayloadError();
+            identities.add(proposal.proposal_id);
+            proposals.push(proposal);
+          }
+          if (page.complete) return { session_id: sessionId, proposals, total, complete: true };
+          if (typeof page.next_offset !== "number") throw new AgentMetricEvidencePayloadError();
+          offset = page.next_offset;
+        } catch (error) {
+          if (error instanceof AgentMetricEvidencePayloadError) throw new TransportError(error.message, 200);
+          throw error;
+        }
+      }
+      throw new TransportError("Metric lifecycle proposal list exceeded the reviewed page budget", 200);
+    },
+    async decideMetricLifecycleProposal(
+      sessionId,
+      proposalId,
+      decisionRequest: MetricLifecycleDecisionRequest,
+      idempotencyKey,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/metric-lifecycle-evidence/proposals/${encodeURIComponent(proposalId)}/decision`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(decisionRequest),
+        },
+        signal,
+        true,
+        true,
+      );
+      try { return parseMetricLifecycleProposalOutcome(value); }
+      catch (error) {
+        if (error instanceof AgentMetricEvidencePayloadError) throw new TransportError(error.message, 200);
         throw error;
       }
     },

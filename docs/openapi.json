@@ -30,6 +30,306 @@
         "title": "AcceptTaskRequest",
         "type": "object"
       },
+      "AgentMetricEvidenceFileContract": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_json_required": {
+            "const": true,
+            "default": true,
+            "title": "Canonical Json Required",
+            "type": "boolean"
+          },
+          "contract_set_fingerprint": {
+            "title": "Contract Set Fingerprint",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "probabilistic-metric-contract-v2",
+            "default": "probabilistic-metric-contract-v2",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "explicit_local_confirmation_required": {
+            "const": true,
+            "default": true,
+            "title": "Explicit Local Confirmation Required",
+            "type": "boolean"
+          },
+          "max_lifetime_seconds": {
+            "const": 86400,
+            "default": 86400,
+            "title": "Max Lifetime Seconds",
+            "type": "integer"
+          },
+          "max_payload_bytes": {
+            "const": 65536,
+            "default": 65536,
+            "title": "Max Payload Bytes",
+            "type": "integer"
+          },
+          "media_type": {
+            "const": "application/vnd.prompt-enhancer.agent-metric-evidence+json",
+            "default": "application/vnd.prompt-enhancer.agent-metric-evidence+json",
+            "title": "Media Type",
+            "type": "string"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/AgentMetricEvidenceMetricContract"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "objective_receipt_claims_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Objective Receipt Claims Allowed",
+            "type": "boolean"
+          },
+          "projection_version": {
+            "const": "metric-contract-v2-projection-4",
+            "default": "metric-contract-v2-projection-4",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "prose_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Prose Allowed",
+            "type": "boolean"
+          },
+          "registry_version": {
+            "const": "all-20-factor-contracts-v2",
+            "default": "all-20-factor-contracts-v2",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "agent-metric-evidence-file-v1",
+            "default": "agent-metric-evidence-file-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scores_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Scores Allowed",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "contract_set_fingerprint",
+          "metrics"
+        ],
+        "title": "AgentMetricEvidenceFileContract",
+        "type": "object"
+      },
+      "AgentMetricEvidenceImportDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "payload_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "producer_claim_persisted": {
+            "title": "Producer Claim Persisted",
+            "type": "boolean"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/MetricLifecycleProposalDto"
+          },
+          "raw_payload_persisted": {
+            "title": "Raw Payload Persisted",
+            "type": "boolean"
+          },
+          "requires_authenticated_local_user_confirmation": {
+            "title": "Requires Authenticated Local User Confirmation",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "payload_sha256",
+          "proposal",
+          "applied",
+          "producer_claim_persisted",
+          "raw_payload_persisted",
+          "requires_authenticated_local_user_confirmation"
+        ],
+        "title": "AgentMetricEvidenceImportDto",
+        "type": "object"
+      },
+      "AgentMetricEvidenceMetricContract": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_fingerprint": {
+            "title": "Contract Fingerprint",
+            "type": "string"
+          },
+          "link_kind": {
+            "$ref": "#/components/schemas/MetricLifecycleLinkKind"
+          },
+          "metric_key": {
+            "$ref": "#/components/schemas/MetricLifecycleFamily"
+          },
+          "opportunity_kind": {
+            "$ref": "#/components/schemas/MetricLifecycleOpportunityKind"
+          },
+          "outcome_kinds": {
+            "items": {
+              "$ref": "#/components/schemas/MetricLifecycleOutcomeKind"
+            },
+            "title": "Outcome Kinds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "metric_key",
+          "contract_fingerprint",
+          "opportunity_kind",
+          "link_kind",
+          "outcome_kinds"
+        ],
+        "title": "AgentMetricEvidenceMetricContract",
+        "type": "object"
+      },
+      "AgentMetricEvidencePreviewDto": {
+        "additionalProperties": false,
+        "properties": {
+          "can_set_numeric_metric": {
+            "title": "Can Set Numeric Metric",
+            "type": "boolean"
+          },
+          "creates_unconfirmed_proposal_only": {
+            "title": "Creates Unconfirmed Proposal Only",
+            "type": "boolean"
+          },
+          "expected_source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "metric_key": {
+            "$ref": "#/components/schemas/MetricLifecycleFamily"
+          },
+          "objective_receipt_claims_accepted": {
+            "title": "Objective Receipt Claims Accepted",
+            "type": "boolean"
+          },
+          "payload_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "producer": {
+            "$ref": "#/components/schemas/AgentMetricEvidenceProducer"
+          },
+          "proposal_kind": {
+            "title": "Proposal Kind",
+            "type": "string"
+          },
+          "raw_payload_persisted": {
+            "title": "Raw Payload Persisted",
+            "type": "boolean"
+          },
+          "requires_authenticated_local_user_confirmation": {
+            "title": "Requires Authenticated Local User Confirmation",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "payload_sha256",
+          "session_id",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "metric_key",
+          "proposal_kind",
+          "expires_at",
+          "producer",
+          "creates_unconfirmed_proposal_only",
+          "requires_authenticated_local_user_confirmation",
+          "can_set_numeric_metric",
+          "objective_receipt_claims_accepted",
+          "raw_payload_persisted"
+        ],
+        "title": "AgentMetricEvidencePreviewDto",
+        "type": "object"
+      },
+      "AgentMetricEvidenceProducer": {
+        "additionalProperties": false,
+        "properties": {
+          "authority": {
+            "const": "untrusted_provenance_claim",
+            "default": "untrusted_provenance_claim",
+            "title": "Authority",
+            "type": "string"
+          },
+          "kind": {
+            "const": "local_coding_agent",
+            "default": "local_coding_agent",
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "producer_id": {
+            "title": "Producer Id",
+            "type": "string"
+          },
+          "producer_version": {
+            "title": "Producer Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "producer_id",
+          "producer_version",
+          "model_id"
+        ],
+        "title": "AgentMetricEvidenceProducer",
+        "type": "object"
+      },
       "AnalysisDestination": {
         "enum": [
           "local",
@@ -3521,6 +3821,9 @@
           "declared_objective_opportunity_set",
           "documented_plan_message",
           "explicit_plan_supersession_link",
+          "confirmed_lifecycle_enumeration",
+          "confirmed_lifecycle_opportunity",
+          "confirmed_lifecycle_outcome_link",
           "typed_action_evidence",
           "typed_decision_evidence",
           "typed_verification_receipt"
@@ -3559,8 +3862,8 @@
             "type": "integer"
           },
           "catalog_version": {
-            "const": "metric-evidence-readiness-v2-2",
-            "default": "metric-evidence-readiness-v2-2",
+            "const": "metric-evidence-readiness-v2-3",
+            "default": "metric-evidence-readiness-v2-3",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -3606,7 +3909,8 @@
             "enum": [
               "metric-contract-v2-projection-1",
               "metric-contract-v2-projection-2",
-              "metric-contract-v2-projection-3"
+              "metric-contract-v2-projection-3",
+              "metric-contract-v2-projection-4"
             ],
             "title": "Metric Projection Version",
             "type": "string"
@@ -3762,6 +4066,8 @@
           "requirement_unit_extraction_required",
           "open_loop_episode_extraction_required",
           "explicit_plan_episode_required",
+          "confirmed_lifecycle_service_required",
+          "confirmed_lifecycle_enumeration_required",
           "hypothesis_chain_adapter_capabilities_required",
           "requirement_action_adapter_capabilities_required",
           "material_claim_verification_adapter_capabilities_required",
@@ -3903,7 +4209,7 @@
             "items": {
               "$ref": "#/components/schemas/MetricEvidenceContributor"
             },
-            "maxItems": 13,
+            "maxItems": 16,
             "minItems": 1,
             "title": "Required Contributors",
             "type": "array"
@@ -4341,6 +4647,429 @@
         "title": "MetricImplementationState",
         "type": "string"
       },
+      "MetricLifecycleDecisionCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/MetricLifecycleDecisionKind"
+          },
+          "expected_proposal_revision": {
+            "default": 1,
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Expected Proposal Revision",
+            "type": "integer"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "decision"
+        ],
+        "title": "MetricLifecycleDecisionCommand",
+        "type": "object"
+      },
+      "MetricLifecycleDecisionKind": {
+        "enum": [
+          "confirm",
+          "reject"
+        ],
+        "title": "MetricLifecycleDecisionKind",
+        "type": "string"
+      },
+      "MetricLifecycleFamily": {
+        "enum": [
+          "collaboration.ambiguity_resolution",
+          "collaboration.clarification_yield",
+          "collaboration.exploration_conversion",
+          "collaboration.scope_change_discipline",
+          "collaboration.rework_candidate_rate"
+        ],
+        "title": "MetricLifecycleFamily",
+        "type": "string"
+      },
+      "MetricLifecycleLinkKind": {
+        "enum": [
+          "ambiguity_resolution",
+          "clarification_answer_incorporation",
+          "exploration_support_decision",
+          "scope_change_impact_disposition",
+          "rework_requirement_assessment"
+        ],
+        "title": "MetricLifecycleLinkKind",
+        "type": "string"
+      },
+      "MetricLifecycleOpportunityKind": {
+        "enum": [
+          "ambiguity",
+          "clarification",
+          "exploration",
+          "scope_change",
+          "rework"
+        ],
+        "title": "MetricLifecycleOpportunityKind",
+        "type": "string"
+      },
+      "MetricLifecycleOutcomeKind": {
+        "enum": [
+          "ambiguity_resolved",
+          "ambiguity_closed_unresolved",
+          "clarification_incorporated",
+          "clarification_not_incorporated",
+          "exploration_converted",
+          "exploration_not_converted",
+          "scope_change_disciplined",
+          "scope_change_undisciplined",
+          "rework_required",
+          "rework_not_required"
+        ],
+        "title": "MetricLifecycleOutcomeKind",
+        "type": "string"
+      },
+      "MetricLifecycleProposalCommand": {
+        "additionalProperties": false,
+        "description": "Closed proposal payload accepted by the authenticated local API.",
+        "properties": {
+          "enumerated_opportunity_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Enumerated Opportunity Ids",
+            "type": "array"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "family": {
+            "$ref": "#/components/schemas/MetricLifecycleFamily"
+          },
+          "link_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricLifecycleLinkKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "opportunity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opportunity Id"
+          },
+          "opportunity_kind": {
+            "$ref": "#/components/schemas/MetricLifecycleOpportunityKind"
+          },
+          "outcome_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricLifecycleOutcomeKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "proposal_kind": {
+            "$ref": "#/components/schemas/MetricLifecycleProposalKind"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "proposal_kind",
+          "family",
+          "opportunity_kind"
+        ],
+        "title": "MetricLifecycleProposalCommand",
+        "type": "object"
+      },
+      "MetricLifecycleProposalDto": {
+        "additionalProperties": false,
+        "properties": {
+          "content_persisted": {
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricLifecycleDecisionKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "enumerated_opportunity_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Enumerated Opportunity Ids",
+            "type": "array"
+          },
+          "family": {
+            "$ref": "#/components/schemas/MetricLifecycleFamily"
+          },
+          "link_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricLifecycleLinkKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "local_only": {
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "opportunity_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opportunity Id"
+          },
+          "opportunity_kind": {
+            "$ref": "#/components/schemas/MetricLifecycleOpportunityKind"
+          },
+          "outcome_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricLifecycleOutcomeKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "proposal_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "proposal_kind": {
+            "$ref": "#/components/schemas/MetricLifecycleProposalKind"
+          },
+          "proposal_revision": {
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Proposal Revision",
+            "type": "integer"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MetricLifecycleProposalStatus"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "session_id",
+          "source_run_id",
+          "proposal_revision",
+          "proposal_kind",
+          "family",
+          "opportunity_kind",
+          "status",
+          "created_at",
+          "schema_version",
+          "policy_version",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "MetricLifecycleProposalDto",
+        "type": "object"
+      },
+      "MetricLifecycleProposalKind": {
+        "enum": [
+          "opportunity",
+          "outcome",
+          "enumeration"
+        ],
+        "title": "MetricLifecycleProposalKind",
+        "type": "string"
+      },
+      "MetricLifecycleProposalListDto": {
+        "additionalProperties": false,
+        "properties": {
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/MetricLifecycleProposalDto"
+            },
+            "maxItems": 1000,
+            "title": "Proposals",
+            "type": "array"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "proposals"
+        ],
+        "title": "MetricLifecycleProposalListDto",
+        "type": "object"
+      },
+      "MetricLifecycleProposalOutcomeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/MetricLifecycleProposalDto"
+          }
+        },
+        "required": [
+          "proposal",
+          "applied"
+        ],
+        "title": "MetricLifecycleProposalOutcomeDto",
+        "type": "object"
+      },
+      "MetricLifecycleProposalPageDto": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "limit": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/MetricLifecycleProposalDto"
+            },
+            "maxItems": 200,
+            "title": "Proposals",
+            "type": "array"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "total": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "proposals",
+          "limit",
+          "offset",
+          "total",
+          "complete"
+        ],
+        "title": "MetricLifecycleProposalPageDto",
+        "type": "object"
+      },
+      "MetricLifecycleProposalStatus": {
+        "enum": [
+          "proposed",
+          "confirmed",
+          "rejected"
+        ],
+        "title": "MetricLifecycleProposalStatus",
+        "type": "string"
+      },
       "MetricPublicationSource": {
         "description": "Where the published states came from; never mixed within one bundle.",
         "enum": [
@@ -4433,7 +5162,8 @@
             "enum": [
               "metric-contract-v2-projection-1",
               "metric-contract-v2-projection-2",
-              "metric-contract-v2-projection-3"
+              "metric-contract-v2-projection-3",
+              "metric-contract-v2-projection-4"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -4878,7 +5608,8 @@
             "enum": [
               "metric-contract-v2-projection-1",
               "metric-contract-v2-projection-2",
-              "metric-contract-v2-projection-3"
+              "metric-contract-v2-projection-3",
+              "metric-contract-v2-projection-4"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -17558,6 +18289,261 @@
         "summary": "Sessions"
       }
     },
+    "/v1/sessions/{session_id}/agent-metric-evidence/contract": {
+      "get": {
+        "operationId": "contract_v1_sessions__session_id__agent_metric_evidence_contract_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMetricEvidenceFileContract"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Contract",
+        "tags": [
+          "agent-metric-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/agent-metric-evidence/import": {
+      "post": {
+        "operationId": "import_file_v1_sessions__session_id__agent_metric_evidence_import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Agent-Evidence-Payload-SHA256",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "X-Agent-Evidence-Payload-Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Agent-Evidence-Confirmation",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "X-Agent-Evidence-Confirmation",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMetricEvidenceImportDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import File",
+        "tags": [
+          "agent-metric-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/agent-metric-evidence/preview": {
+      "post": {
+        "operationId": "preview_v1_sessions__session_id__agent_metric_evidence_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMetricEvidencePreviewDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "agent-metric-evidence"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/analysis-jobs/latest": {
       "get": {
         "operationId": "latest_session_job_v1_sessions__session_id__analysis_jobs_latest_get",
@@ -17633,6 +18619,378 @@
         "summary": "Latest Session Job",
         "tags": [
           "analysis-jobs"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposal-page": {
+      "get": {
+        "operationId": "list_proposal_page_v1_sessions__session_id__metric_lifecycle_evidence_proposal_page_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricLifecycleProposalPageDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Proposal Page",
+        "tags": [
+          "metric-lifecycle-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposals": {
+      "get": {
+        "operationId": "list_proposals_v1_sessions__session_id__metric_lifecycle_evidence_proposals_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricLifecycleProposalListDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Proposals",
+        "tags": [
+          "metric-lifecycle-evidence"
+        ]
+      },
+      "post": {
+        "operationId": "propose_v1_sessions__session_id__metric_lifecycle_evidence_proposals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricLifecycleProposalCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricLifecycleProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Propose",
+        "tags": [
+          "metric-lifecycle-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposals/{proposal_id}/decision": {
+      "post": {
+        "operationId": "decide_v1_sessions__session_id__metric_lifecycle_evidence_proposals__proposal_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetricLifecycleDecisionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricLifecycleProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide",
+        "tags": [
+          "metric-lifecycle-evidence"
         ]
       }
     },

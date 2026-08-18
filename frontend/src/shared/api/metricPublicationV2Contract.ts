@@ -39,6 +39,7 @@ export const METRIC_CONTRACT_V2_PROJECTION_VERSIONS = [
   "metric-contract-v2-projection-1",
   "metric-contract-v2-projection-2",
   "metric-contract-v2-projection-3",
+  "metric-contract-v2-projection-4",
 ] as const;
 
 export type MetricDefinitionMismatch =
@@ -47,7 +48,18 @@ export type MetricDefinitionMismatch =
   | "metric_contract_fingerprint"
   | "guidance_contract_version"
   | "guidance_template_catalog_version"
-  | "guidance_template_identity";
+  | "guidance_template_identity"
+  | "projection_version";
+
+function requireReadableProjectionVersion(value: unknown): asserts value is typeof METRIC_CONTRACT_V2_PROJECTION_VERSIONS[number] {
+  if (METRIC_CONTRACT_V2_PROJECTION_VERSIONS.includes(
+    value as typeof METRIC_CONTRACT_V2_PROJECTION_VERSIONS[number],
+  )) return;
+  if (typeof value === "string" && /^metric-contract-v2-projection-[1-9][0-9]*$/.test(value)) {
+    throw new MetricDefinitionsOutOfDateError("projection_version");
+  }
+  throw new MetricPublicationV2PayloadError();
+}
 
 export type MetricDefinitionCompatibility =
   | { state: "compatible"; registryVersion: typeof METRIC_CONTRACT_V2_REGISTRY_VERSION; contractSetFingerprint: typeof METRIC_CONTRACT_V2_SET_FINGERPRINT }
@@ -323,12 +335,10 @@ function parseState(value: unknown, expectedMetricKey: string) {
     "censoring_upper_bound", "statistics", "projection_version",
     "product_metric_eligible",
   ]);
+  requireReadableProjectionVersion(state.projection_version);
   if (
     fingerprintCandidate === null
     || state.contract_version !== "probabilistic-metric-contract-v2"
-    || !METRIC_CONTRACT_V2_PROJECTION_VERSIONS.includes(
-      state.projection_version as typeof METRIC_CONTRACT_V2_PROJECTION_VERSIONS[number],
-    )
     || state.product_metric_eligible !== false
   ) {
     throw new MetricPublicationV2PayloadError();
@@ -545,12 +555,10 @@ export function parseMetricPublicationV2(value: unknown): MetricPublicationV2 {
     "pending_count", "unknown_count", "not_applicable_count", "abstained_count",
     "execution_error_count", "objective_measured_count", "product_metric_eligible",
   ]);
+  requireReadableProjectionVersion(publication.projection_version);
   if (
     publication.publication_key !== "metric.contract-v2.publication"
     || publication.publication_version !== 2
-    || !METRIC_CONTRACT_V2_PROJECTION_VERSIONS.includes(
-      publication.projection_version as typeof METRIC_CONTRACT_V2_PROJECTION_VERSIONS[number],
-    )
     || publication.source !== "live_projection"
     || publication.canonical_live_snapshot !== true
     || publication.model_stage_consumed !== false

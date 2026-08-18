@@ -261,10 +261,12 @@ export function syntheticMetricEvidenceReadinessV2(
             : availability === "execution_error" ? "execution_error_reported"
               : availability === "source_incomplete" ? "source_reconciliation_incomplete"
                 : availability === "evidence_unresolved" ? "opportunity_classification_unresolved"
-                  : state.evidence_authority === "objective_receipt"
-                    ? requirement.capabilityMissingReason ?? "focus_owned_request_revision_required"
-                    : "focus_owned_request_revision_required";
-    const required = requirement.requiredContributors;
+                  : requirement.capabilityMissingReason ?? "focus_owned_request_revision_required";
+    const required = publication.projection_version === "metric-contract-v2-projection-4"
+      && state.metric_key.startsWith("collaboration.")
+      && state.value_state === "not_applicable"
+      ? ["confirmed_lifecycle_enumeration"] as const
+      : requirement.requiredContributors;
     const observed = !state.statistics.capability_available
       ? []
       : state.statistics.met_count + state.statistics.not_met_count === 0
@@ -306,7 +308,7 @@ export function syntheticMetricEvidenceReadinessV2(
   return {
     projection_key: "metric.contract-v2.evidence-readiness",
     projection_version: 1,
-    catalog_version: "metric-evidence-readiness-v2-2",
+    catalog_version: "metric-evidence-readiness-v2-3",
     registry_version: "all-20-factor-contracts-v2",
     publication_key: publication.publication_key,
     publication_version: publication.publication_version,

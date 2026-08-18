@@ -119,6 +119,19 @@ export type MetricEvidenceReadinessV2 = Schemas["MetricEvidenceReadinessV2"];
 export type MetricEvidenceContributor = Schemas["MetricEvidenceContributor"];
 export type MetricEvidenceAvailabilityState =
   Schemas["MetricEvidenceAvailabilityState"];
+export type AgentMetricEvidencePreview = Schemas["AgentMetricEvidencePreviewDto"];
+export type AgentMetricEvidenceImport = Schemas["AgentMetricEvidenceImportDto"];
+export type MetricLifecycleProposal = Schemas["MetricLifecycleProposalDto"];
+export type MetricLifecycleProposalList = Schemas["MetricLifecycleProposalListDto"];
+export type MetricLifecycleProposalPage = Schemas["MetricLifecycleProposalPageDto"];
+export type MetricLifecycleProposalOutcome = Schemas["MetricLifecycleProposalOutcomeDto"];
+export type MetricLifecycleDecisionRequest = Schemas["MetricLifecycleDecisionCommand"];
+export interface MetricLifecycleProposalCollection {
+  session_id: string;
+  proposals: MetricLifecycleProposal[];
+  total: number;
+  complete: boolean;
+}
 export type CapabilityKey = Schemas["CapabilityKey"];
 export type ModelEnsembleOutcome = Schemas["ModelEnsembleOutcomeDto"];
 export type ModelEnsembleWatchRequest = Schemas["ModelEnsembleWatchRequest"];
@@ -663,6 +676,30 @@ export interface PromptEnhancerTransport {
     metricKey: string,
     signal?: AbortSignal,
   ): Promise<ModelPredictiveMetricDetail>;
+  previewAgentMetricEvidence?(
+    sessionId: string,
+    payload: ArrayBuffer,
+    signal?: AbortSignal,
+  ): Promise<AgentMetricEvidencePreview>;
+  importAgentMetricEvidence?(
+    sessionId: string,
+    payload: ArrayBuffer,
+    expectedPayloadSha256: string,
+    confirmation: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<AgentMetricEvidenceImport>;
+  listMetricLifecycleProposals?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<MetricLifecycleProposalCollection>;
+  decideMetricLifecycleProposal?(
+    sessionId: string,
+    proposalId: string,
+    request: MetricLifecycleDecisionRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<MetricLifecycleProposalOutcome>;
   listCandidates(
     status?: CandidateStatusFilter,
     signal?: AbortSignal,

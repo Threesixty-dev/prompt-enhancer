@@ -143,6 +143,7 @@ def test_openapi_exposes_only_closed_metric_lifecycle_commands(tmp_path) -> None
     assert paths == (
         "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposals",
         "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposals/{proposal_id}/decision",
+        "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposal-page",
     )
     serialized = str(
         {

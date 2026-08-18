@@ -764,3 +764,18 @@ def test_list_fails_closed_when_complete_boundary_is_exceeded(
     )
     with pytest.raises(DatabaseInvariantError, match="proven complete boundary"):
         repository.list_proposals(session_id)
+
+    first, total = repository.list_proposals_page(session_id, limit=1, offset=0)
+    second, repeated_total = repository.list_proposals_page(
+        session_id, limit=1, offset=1
+    )
+    assert total == repeated_total == 2
+    assert len(first) == len(second) == 1
+    assert first[0].proposal.proposal_id != second[0].proposal.proposal_id
+    assert (
+        first[0].proposal.created_at,
+        first[0].proposal.proposal_id,
+    ) < (
+        second[0].proposal.created_at,
+        second[0].proposal.proposal_id,
+    )

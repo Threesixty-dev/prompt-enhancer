@@ -854,6 +854,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/agent-metric-evidence/contract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Contract */
+        get: operations["contract_v1_sessions__session_id__agent_metric_evidence_contract_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/agent-metric-evidence/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import File */
+        post: operations["import_file_v1_sessions__session_id__agent_metric_evidence_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/agent-metric-evidence/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview */
+        post: operations["preview_v1_sessions__session_id__agent_metric_evidence_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/analysis-jobs/latest": {
         parameters: {
             query?: never;
@@ -865,6 +916,58 @@ export interface paths {
         get: operations["latest_session_job_v1_sessions__session_id__analysis_jobs_latest_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposal-page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Proposal Page */
+        get: operations["list_proposal_page_v1_sessions__session_id__metric_lifecycle_evidence_proposal_page_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Proposals */
+        get: operations["list_proposals_v1_sessions__session_id__metric_lifecycle_evidence_proposals_get"];
+        put?: never;
+        /** Propose */
+        post: operations["propose_v1_sessions__session_id__metric_lifecycle_evidence_proposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposals/{proposal_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide */
+        post: operations["decide_v1_sessions__session_id__metric_lifecycle_evidence_proposals__proposal_id__decision_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1383,6 +1486,168 @@ export interface components {
             expected_discovery_version: string;
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
+        };
+        /** AgentMetricEvidenceFileContract */
+        AgentMetricEvidenceFileContract: {
+            /**
+             * Canonical Json Required
+             * @default true
+             * @constant
+             */
+            canonical_json_required: true;
+            /** Contract Set Fingerprint */
+            contract_set_fingerprint: string;
+            /**
+             * Contract Version
+             * @default probabilistic-metric-contract-v2
+             * @constant
+             */
+            contract_version: "probabilistic-metric-contract-v2";
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /**
+             * Explicit Local Confirmation Required
+             * @default true
+             * @constant
+             */
+            explicit_local_confirmation_required: true;
+            /**
+             * Max Lifetime Seconds
+             * @default 86400
+             * @constant
+             */
+            max_lifetime_seconds: 86400;
+            /**
+             * Max Payload Bytes
+             * @default 65536
+             * @constant
+             */
+            max_payload_bytes: 65536;
+            /**
+             * Media Type
+             * @default application/vnd.prompt-enhancer.agent-metric-evidence+json
+             * @constant
+             */
+            media_type: "application/vnd.prompt-enhancer.agent-metric-evidence+json";
+            /** Metrics */
+            metrics: components["schemas"]["AgentMetricEvidenceMetricContract"][];
+            /**
+             * Objective Receipt Claims Allowed
+             * @default false
+             * @constant
+             */
+            objective_receipt_claims_allowed: false;
+            /**
+             * Projection Version
+             * @default metric-contract-v2-projection-4
+             * @constant
+             */
+            projection_version: "metric-contract-v2-projection-4";
+            /**
+             * Prose Allowed
+             * @default false
+             * @constant
+             */
+            prose_allowed: false;
+            /**
+             * Registry Version
+             * @default all-20-factor-contracts-v2
+             * @constant
+             */
+            registry_version: "all-20-factor-contracts-v2";
+            /**
+             * Schema Version
+             * @default agent-metric-evidence-file-v1
+             * @constant
+             */
+            schema_version: "agent-metric-evidence-file-v1";
+            /**
+             * Scores Allowed
+             * @default false
+             * @constant
+             */
+            scores_allowed: false;
+            /** Session Id */
+            session_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /** AgentMetricEvidenceImportDto */
+        AgentMetricEvidenceImportDto: {
+            /** Applied */
+            applied: boolean;
+            /** Payload Sha256 */
+            payload_sha256: string;
+            /** Producer Claim Persisted */
+            producer_claim_persisted: boolean;
+            proposal: components["schemas"]["MetricLifecycleProposalDto"];
+            /** Raw Payload Persisted */
+            raw_payload_persisted: boolean;
+            /** Requires Authenticated Local User Confirmation */
+            requires_authenticated_local_user_confirmation: boolean;
+        };
+        /** AgentMetricEvidenceMetricContract */
+        AgentMetricEvidenceMetricContract: {
+            /** Contract Fingerprint */
+            contract_fingerprint: string;
+            link_kind: components["schemas"]["MetricLifecycleLinkKind"];
+            metric_key: components["schemas"]["MetricLifecycleFamily"];
+            opportunity_kind: components["schemas"]["MetricLifecycleOpportunityKind"];
+            /** Outcome Kinds */
+            outcome_kinds: components["schemas"]["MetricLifecycleOutcomeKind"][];
+        };
+        /** AgentMetricEvidencePreviewDto */
+        AgentMetricEvidencePreviewDto: {
+            /** Can Set Numeric Metric */
+            can_set_numeric_metric: boolean;
+            /** Creates Unconfirmed Proposal Only */
+            creates_unconfirmed_proposal_only: boolean;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            metric_key: components["schemas"]["MetricLifecycleFamily"];
+            /** Objective Receipt Claims Accepted */
+            objective_receipt_claims_accepted: boolean;
+            /** Payload Sha256 */
+            payload_sha256: string;
+            producer: components["schemas"]["AgentMetricEvidenceProducer"];
+            /** Proposal Kind */
+            proposal_kind: string;
+            /** Raw Payload Persisted */
+            raw_payload_persisted: boolean;
+            /** Requires Authenticated Local User Confirmation */
+            requires_authenticated_local_user_confirmation: boolean;
+            /** Schema Version */
+            schema_version: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /** AgentMetricEvidenceProducer */
+        AgentMetricEvidenceProducer: {
+            /**
+             * Authority
+             * @default untrusted_provenance_claim
+             * @constant
+             */
+            authority: "untrusted_provenance_claim";
+            /**
+             * Kind
+             * @default local_coding_agent
+             * @constant
+             */
+            kind: "local_coding_agent";
+            /** Model Id */
+            model_id: string;
+            /** Producer Id */
+            producer_id: string;
+            /** Producer Version */
+            producer_version: string;
         };
         /**
          * AnalysisDestination
@@ -2822,7 +3087,7 @@ export interface components {
          *     A contributor is a *kind of proof*, never a provider, a model, or a person.
          * @enum {string}
          */
-        MetricEvidenceContributor: "focus_owned_request_revision" | "canonical_request_text" | "declared_task_profile" | "rubric_factor_calculator" | "semantic_unit_heads" | "agent_response_text" | "feedback_classification" | "declared_objective_opportunity_set" | "documented_plan_message" | "explicit_plan_supersession_link" | "typed_action_evidence" | "typed_decision_evidence" | "typed_verification_receipt";
+        MetricEvidenceContributor: "focus_owned_request_revision" | "canonical_request_text" | "declared_task_profile" | "rubric_factor_calculator" | "semantic_unit_heads" | "agent_response_text" | "feedback_classification" | "declared_objective_opportunity_set" | "documented_plan_message" | "explicit_plan_supersession_link" | "confirmed_lifecycle_enumeration" | "confirmed_lifecycle_opportunity" | "confirmed_lifecycle_outcome_link" | "typed_action_evidence" | "typed_decision_evidence" | "typed_verification_receipt";
         /**
          * MetricEvidenceReadinessProjectionV2
          * @description The twenty readiness rows plus the identity they were derived from.
@@ -2844,10 +3109,10 @@ export interface components {
             capability_missing_count: number;
             /**
              * Catalog Version
-             * @default metric-evidence-readiness-v2-2
+             * @default metric-evidence-readiness-v2-3
              * @constant
              */
-            catalog_version: "metric-evidence-readiness-v2-2";
+            catalog_version: "metric-evidence-readiness-v2-3";
             /** Compatibility Preview */
             compatibility_preview: boolean;
             /**
@@ -2874,7 +3139,7 @@ export interface components {
              * Metric Projection Version
              * @enum {string}
              */
-            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3";
+            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4";
             /** Metrics */
             metrics: components["schemas"]["MetricEvidenceReadinessV2"][];
             /** No Opportunity Count */
@@ -2939,7 +3204,7 @@ export interface components {
          *     evidence contract that would have to exist first.
          * @enum {string}
          */
-        MetricEvidenceReadinessReason: "measured_from_owned_opportunities" | "opportunity_right_censored" | "no_eligible_opportunity_observed" | "opportunity_set_undetermined" | "opportunity_set_exceeds_receipt_bound" | "declared_profile_slots_absent" | "opportunity_classification_unresolved" | "source_reconciliation_incomplete" | "calculator_abstained" | "execution_error_reported" | "measured_under_superseded_projection_identity" | "focus_owned_request_revision_required" | "owned_canonical_request_text_required" | "request_revision_unit_extraction_required" | "feedback_unit_extraction_required" | "decision_unit_extraction_required" | "ambiguity_episode_extraction_required" | "clarification_episode_extraction_required" | "hypothesis_episode_extraction_required" | "scope_change_episode_extraction_required" | "requirement_unit_extraction_required" | "open_loop_episode_extraction_required" | "explicit_plan_episode_required" | "hypothesis_chain_adapter_capabilities_required" | "requirement_action_adapter_capabilities_required" | "material_claim_verification_adapter_capabilities_required" | "verification_task_outcome_adapter_capabilities_required" | "requirement_verification_adapter_capabilities_required";
+        MetricEvidenceReadinessReason: "measured_from_owned_opportunities" | "opportunity_right_censored" | "no_eligible_opportunity_observed" | "opportunity_set_undetermined" | "opportunity_set_exceeds_receipt_bound" | "declared_profile_slots_absent" | "opportunity_classification_unresolved" | "source_reconciliation_incomplete" | "calculator_abstained" | "execution_error_reported" | "measured_under_superseded_projection_identity" | "focus_owned_request_revision_required" | "owned_canonical_request_text_required" | "request_revision_unit_extraction_required" | "feedback_unit_extraction_required" | "decision_unit_extraction_required" | "ambiguity_episode_extraction_required" | "clarification_episode_extraction_required" | "hypothesis_episode_extraction_required" | "scope_change_episode_extraction_required" | "requirement_unit_extraction_required" | "open_loop_episode_extraction_required" | "explicit_plan_episode_required" | "confirmed_lifecycle_service_required" | "confirmed_lifecycle_enumeration_required" | "hypothesis_chain_adapter_capabilities_required" | "requirement_action_adapter_capabilities_required" | "material_claim_verification_adapter_capabilities_required" | "verification_task_outcome_adapter_capabilities_required" | "requirement_verification_adapter_capabilities_required";
         /**
          * MetricEvidenceReadinessV2
          * @description One metric's readiness, provenance, and sufficient statistics.
@@ -3175,6 +3440,144 @@ export interface components {
          * @enum {string}
          */
         MetricImplementationState: "live_measured" | "compatibility_projected" | "method_only_withheld" | "objective_capability_missing" | "objective_evidence_unresolved" | "pending" | "no_opportunity" | "abstained" | "error";
+        /** MetricLifecycleDecisionCommand */
+        MetricLifecycleDecisionCommand: {
+            decision: components["schemas"]["MetricLifecycleDecisionKind"];
+            /**
+             * Expected Proposal Revision
+             * @default 1
+             */
+            expected_proposal_revision: number;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+        };
+        /**
+         * MetricLifecycleDecisionKind
+         * @enum {string}
+         */
+        MetricLifecycleDecisionKind: "confirm" | "reject";
+        /**
+         * MetricLifecycleFamily
+         * @enum {string}
+         */
+        MetricLifecycleFamily: "collaboration.ambiguity_resolution" | "collaboration.clarification_yield" | "collaboration.exploration_conversion" | "collaboration.scope_change_discipline" | "collaboration.rework_candidate_rate";
+        /**
+         * MetricLifecycleLinkKind
+         * @enum {string}
+         */
+        MetricLifecycleLinkKind: "ambiguity_resolution" | "clarification_answer_incorporation" | "exploration_support_decision" | "scope_change_impact_disposition" | "rework_requirement_assessment";
+        /**
+         * MetricLifecycleOpportunityKind
+         * @enum {string}
+         */
+        MetricLifecycleOpportunityKind: "ambiguity" | "clarification" | "exploration" | "scope_change" | "rework";
+        /**
+         * MetricLifecycleOutcomeKind
+         * @enum {string}
+         */
+        MetricLifecycleOutcomeKind: "ambiguity_resolved" | "ambiguity_closed_unresolved" | "clarification_incorporated" | "clarification_not_incorporated" | "exploration_converted" | "exploration_not_converted" | "scope_change_disciplined" | "scope_change_undisciplined" | "rework_required" | "rework_not_required";
+        /**
+         * MetricLifecycleProposalCommand
+         * @description Closed proposal payload accepted by the authenticated local API.
+         */
+        MetricLifecycleProposalCommand: {
+            /**
+             * Enumerated Opportunity Ids
+             * @default []
+             */
+            enumerated_opportunity_ids: string[];
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            family: components["schemas"]["MetricLifecycleFamily"];
+            link_kind?: components["schemas"]["MetricLifecycleLinkKind"] | null;
+            /** Opportunity Id */
+            opportunity_id?: string | null;
+            opportunity_kind: components["schemas"]["MetricLifecycleOpportunityKind"];
+            outcome_kind?: components["schemas"]["MetricLifecycleOutcomeKind"] | null;
+            proposal_kind: components["schemas"]["MetricLifecycleProposalKind"];
+        };
+        /** MetricLifecycleProposalDto */
+        MetricLifecycleProposalDto: {
+            /** Content Persisted */
+            content_persisted: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at?: string | null;
+            decision?: components["schemas"]["MetricLifecycleDecisionKind"] | null;
+            /** Decision Id */
+            decision_id?: string | null;
+            /**
+             * Enumerated Opportunity Ids
+             * @default []
+             */
+            enumerated_opportunity_ids: string[];
+            family: components["schemas"]["MetricLifecycleFamily"];
+            link_kind?: components["schemas"]["MetricLifecycleLinkKind"] | null;
+            /** Local Only */
+            local_only: boolean;
+            /** Opportunity Id */
+            opportunity_id?: string | null;
+            opportunity_kind: components["schemas"]["MetricLifecycleOpportunityKind"];
+            outcome_kind?: components["schemas"]["MetricLifecycleOutcomeKind"] | null;
+            /** Policy Version */
+            policy_version: string;
+            /** Proposal Id */
+            proposal_id: string;
+            proposal_kind: components["schemas"]["MetricLifecycleProposalKind"];
+            /** Proposal Revision */
+            proposal_revision: number;
+            /** Schema Version */
+            schema_version: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            status: components["schemas"]["MetricLifecycleProposalStatus"];
+        };
+        /**
+         * MetricLifecycleProposalKind
+         * @enum {string}
+         */
+        MetricLifecycleProposalKind: "opportunity" | "outcome" | "enumeration";
+        /** MetricLifecycleProposalListDto */
+        MetricLifecycleProposalListDto: {
+            /** Proposals */
+            proposals: components["schemas"]["MetricLifecycleProposalDto"][];
+            /** Session Id */
+            session_id: string;
+        };
+        /** MetricLifecycleProposalOutcomeDto */
+        MetricLifecycleProposalOutcomeDto: {
+            /** Applied */
+            applied: boolean;
+            proposal: components["schemas"]["MetricLifecycleProposalDto"];
+        };
+        /** MetricLifecycleProposalPageDto */
+        MetricLifecycleProposalPageDto: {
+            /** Complete */
+            complete: boolean;
+            /** Limit */
+            limit: number;
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Proposals */
+            proposals: components["schemas"]["MetricLifecycleProposalDto"][];
+            /** Session Id */
+            session_id: string;
+            /** Total */
+            total: number;
+        };
+        /**
+         * MetricLifecycleProposalStatus
+         * @enum {string}
+         */
+        MetricLifecycleProposalStatus: "proposed" | "confirmed" | "rejected";
         /**
          * MetricPublicationSource
          * @description Where the published states came from; never mixed within one bundle.
@@ -3234,7 +3637,7 @@ export interface components {
              * Projection Version
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4";
             /**
              * Publication Key
              * @default metric.contract-v2.publication
@@ -3393,7 +3796,7 @@ export interface components {
              * Projection Version
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4";
             /**
              * Registry Version
              * @default all-20-factor-contracts-v2
@@ -8413,6 +8816,111 @@ export interface operations {
             };
         };
     };
+    contract_v1_sessions__session_id__agent_metric_evidence_contract_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMetricEvidenceFileContract"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_file_v1_sessions__session_id__agent_metric_evidence_import_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Agent-Evidence-Payload-SHA256": string;
+                "X-Agent-Evidence-Confirmation": string;
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMetricEvidenceImportDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_v1_sessions__session_id__agent_metric_evidence_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMetricEvidencePreviewDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     latest_session_job_v1_sessions__session_id__analysis_jobs_latest_get: {
         parameters: {
             query?: never;
@@ -8442,6 +8950,156 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_proposal_page_v1_sessions__session_id__metric_lifecycle_evidence_proposal_page_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricLifecycleProposalPageDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_proposals_v1_sessions__session_id__metric_lifecycle_evidence_proposals_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricLifecycleProposalListDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    propose_v1_sessions__session_id__metric_lifecycle_evidence_proposals_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetricLifecycleProposalCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricLifecycleProposalOutcomeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_v1_sessions__session_id__metric_lifecycle_evidence_proposals__proposal_id__decision_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetricLifecycleDecisionCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricLifecycleProposalOutcomeDto"];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -313,6 +313,38 @@ class SqliteMetricLifecycleEvidenceRepository(MetricLifecycleEvidenceRepository)
                 raise DatabaseInvariantError("lifecycle proposal graph is incomplete")
             return tuple(view for view in reversed(views) if view is not None)
 
+    def list_proposals_page(
+        self, session_id: str, *, limit: int, offset: int
+    ) -> tuple[tuple[MetricLifecycleProposalView, ...], int]:
+        self._ensure_initialized()
+        require_safe_id(session_id)
+        if not 1 <= limit <= 200 or not 0 <= offset <= 1_000_000:
+            raise ValueError("lifecycle proposal page is outside its bound")
+        with self._connection_scope(readonly=True) as connection:
+            count_row = connection.execute(
+                """SELECT COUNT(*) AS total
+                   FROM metric_lifecycle_evidence_proposals
+                   WHERE session_id=?""",
+                (session_id,),
+            ).fetchone()
+            if count_row is None:
+                raise DatabaseInvariantError("lifecycle proposal count is missing")
+            total = int(count_row["total"])
+            rows = connection.execute(
+                """SELECT proposal_id
+                   FROM metric_lifecycle_evidence_proposals
+                   WHERE session_id=?
+                   ORDER BY created_at ASC,proposal_id ASC
+                   LIMIT ? OFFSET ?""",
+                (session_id, limit, offset),
+            ).fetchall()
+            views = tuple(
+                self._get_view(connection, row["proposal_id"]) for row in rows
+            )
+            if any(view is None for view in views):
+                raise DatabaseInvariantError("lifecycle proposal page is incomplete")
+            return tuple(view for view in views if view is not None), total
+
     def snapshot(
         self, session_id: str, source_window_fingerprint: str
     ) -> MetricLifecycleEvidenceSnapshot:

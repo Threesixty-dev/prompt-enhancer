@@ -36,6 +36,7 @@ from .application.analysis.metric_coverage import MetricCoverageService
 from .application.analysis.metric_lifecycle_evidence import (
     MetricLifecycleEvidenceService,
 )
+from .application.analysis.agent_metric_evidence import AgentMetricEvidenceService
 from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
@@ -67,6 +68,7 @@ from .application.social.ports import SocialPrincipalResolver
 from .application.social.service import SocialService
 from .application.task_lifecycle import TaskLifecycleService
 from .interfaces.http import (
+    create_agent_metric_evidence_router,
     create_control_plane_router,
     create_session_analysis_command_router,
     create_session_analysis_query_router,
@@ -431,6 +433,7 @@ def create_app(
                 "/text-model-runtime",
                 "/task-lifecycles",
                 "/lifecycle",
+                "/agent-metric-evidence",
             )
         ):
             response.headers["Cache-Control"] = "no-store, private"
@@ -674,6 +677,12 @@ def create_app(
             create_metric_lifecycle_evidence_router(
                 require_local_token,
                 metric_lifecycle_evidence_service,
+            )
+        )
+        app.include_router(
+            create_agent_metric_evidence_router(
+                require_local_token,
+                AgentMetricEvidenceService(metric_lifecycle_evidence_service),
             )
         )
     app.include_router(create_session_analysis_query_router(require_local_token))

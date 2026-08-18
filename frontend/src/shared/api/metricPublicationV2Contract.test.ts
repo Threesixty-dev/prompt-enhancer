@@ -122,12 +122,13 @@ describe("canonical metric V2 publication contract", () => {
     expect(parseMetricPublicationV2(structuredClone(fixture))).toEqual(fixture);
   });
 
-  it("accepts every readable projection identity and rejects an unknown future identity", () => {
+  it("accepts every readable projection identity and classifies a future identity as definitions out of date", () => {
     const legacy = publicationFixture();
     expect(parseMetricPublicationV2(structuredClone(legacy))).toEqual(legacy);
     for (const version of [
       "metric-contract-v2-projection-2",
       "metric-contract-v2-projection-3",
+      "metric-contract-v2-projection-4",
     ]) {
       const readable = structuredClone(legacy) as any;
       readable.projection_version = version;
@@ -137,11 +138,14 @@ describe("canonical metric V2 publication contract", () => {
       expect(parseMetricPublicationV2(structuredClone(readable))).toEqual(readable);
     }
     const future = structuredClone(legacy) as any;
-    future.projection_version = "metric-contract-v2-projection-4";
+    future.projection_version = "metric-contract-v2-projection-5";
     future.metrics.forEach((item: any) => {
-      item.state.projection_version = "metric-contract-v2-projection-4";
+      item.state.projection_version = "metric-contract-v2-projection-5";
     });
-    expect(() => parseMetricPublicationV2(future)).toThrow(MetricPublicationV2PayloadError);
+    let caught: unknown;
+    try { parseMetricPublicationV2(future); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(MetricDefinitionsOutOfDateError);
+    expect((caught as MetricDefinitionsOutOfDateError).mismatch).toBe("projection_version");
   });
 
   it("rejects a publication that mixes legacy and current row projections", () => {

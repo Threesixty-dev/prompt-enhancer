@@ -1045,6 +1045,8 @@ export function ModelEnsembleOverlay({
                   attemptStages={selectedPoint === null || selectedPoint.run_id === snapshot.latest_run.run_id
                     ? canonicalHead?.stages ?? []
                     : []}
+                  evidenceEnabled={selectedPoint === null || selectedPoint.run_id === snapshot.latest_run.run_id}
+                  evidenceSessionId={snapshot.watch.session_id}
                   transport={transport}
                 />
               ) : null}

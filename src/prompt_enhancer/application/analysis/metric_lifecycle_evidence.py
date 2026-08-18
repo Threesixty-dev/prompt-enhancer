@@ -504,6 +504,10 @@ class MetricLifecycleEvidenceRepository(Protocol):
         self, session_id: str
     ) -> tuple[MetricLifecycleProposalView, ...]: ...
 
+    def list_proposals_page(
+        self, session_id: str, *, limit: int, offset: int
+    ) -> tuple[tuple[MetricLifecycleProposalView, ...], int]: ...
+
     def snapshot(
         self, session_id: str, source_window_fingerprint: str
     ) -> MetricLifecycleEvidenceSnapshot: ...
@@ -645,6 +649,30 @@ class MetricLifecycleEvidenceService:
                 "lifecycle proposal could not be stored"
             ) from None
 
+    def validate_proposal_command(
+        self,
+        *,
+        session_id: str,
+        command: MetricLifecycleProposalCommand,
+    ) -> tuple[str, str]:
+        """Validate an inert proposal against the current source window.
+
+        This read-only seam is used by the local agent-file preview.  It does
+        not issue an identifier, persist a row, or grant evidence authority.
+        """
+
+        self._validate_session(session_id)
+        latest = self._latest_authority(session_id)
+        if latest.run_id != command.expected_source_run_id:
+            raise MetricLifecycleStaleWindowError("source run changed")
+        return latest.run_id, latest.input_fingerprint
+
+    def current_source_window(self, session_id: str) -> tuple[str, str]:
+        """Return the current content-free run/window binding for file authors."""
+
+        latest = self._latest_authority(session_id)
+        return latest.run_id, latest.input_fingerprint
+
     def decide(
         self,
         *,
@@ -732,6 +760,21 @@ class MetricLifecycleEvidenceService:
         except Exception:
             raise MetricLifecyclePersistenceError(
                 "lifecycle proposals could not be read"
+            ) from None
+
+    def list_page(
+        self, session_id: str, *, limit: int, offset: int
+    ) -> tuple[tuple[MetricLifecycleProposalView, ...], int]:
+        self._validate_session(session_id)
+        if not 1 <= limit <= 200 or not 0 <= offset <= 1_000_000:
+            raise MetricLifecycleInputError("lifecycle proposal page is invalid")
+        try:
+            return self._repository.list_proposals_page(
+                session_id, limit=limit, offset=offset
+            )
+        except Exception:
+            raise MetricLifecyclePersistenceError(
+                "lifecycle proposal page could not be read"
             ) from None
 
     def snapshot_for_window(

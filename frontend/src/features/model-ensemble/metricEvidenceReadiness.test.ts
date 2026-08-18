@@ -90,6 +90,40 @@ describe("metric evidence readiness presentation binding", () => {
     expect(metricEvidenceReadinessForPublication(stale, publication)).toBeNull();
   });
 
+  it("binds r4 lifecycle receipts, preserves the r3 open-loop overlay, and handles an authoritative empty family", () => {
+    const publication = structuredClone(syntheticMetricPublicationV2({
+      "collaboration.ambiguity_resolution": {
+        value_state: "known", numerator: 1, denominator: 2,
+      },
+      "collaboration.clarification_yield": { value_state: "not_applicable", eligible: 0 },
+      "logic.open_loop_closure": {
+        value_state: "pending", eligible: 2, pending: 1, numerator: 1,
+      },
+    }));
+    publication.projection_version = "metric-contract-v2-projection-4";
+    for (const metric of publication.metrics) {
+      metric.state.projection_version = "metric-contract-v2-projection-4";
+    }
+    const readiness = syntheticMetricEvidenceReadinessV2(publication);
+
+    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-3");
+    expect(readiness.metrics.find((row) => row.metric_key === "collaboration.ambiguity_resolution")?.required_contributors)
+      .toEqual([
+        "confirmed_lifecycle_enumeration",
+        "confirmed_lifecycle_opportunity",
+        "confirmed_lifecycle_outcome_link",
+      ]);
+    expect(readiness.metrics.find((row) => row.metric_key === "collaboration.clarification_yield")?.required_contributors)
+      .toEqual(["confirmed_lifecycle_enumeration"]);
+    expect(readiness.metrics.find((row) => row.metric_key === "logic.open_loop_closure")?.required_contributors)
+      .toEqual(["documented_plan_message", "explicit_plan_supersession_link"]);
+    expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
+
+    const historical = structuredClone(readiness) as any;
+    historical.catalog_version = "metric-evidence-readiness-v2-2";
+    expect(metricEvidenceReadinessForPublication(historical, publication)).toBeNull();
+  });
+
   it("treats absence as no additive detail, never as an empty measured projection", () => {
     const publication = syntheticMetricPublicationV2();
     expect(metricEvidenceReadinessForPublication(null, publication)).toBeNull();

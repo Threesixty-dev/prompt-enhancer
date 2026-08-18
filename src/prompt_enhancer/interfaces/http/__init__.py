@@ -15,6 +15,7 @@ from .metric_readiness_routes import create_metric_readiness_router
 from .metric_lifecycle_evidence_routes import (
     create_metric_lifecycle_evidence_router,
 )
+from .agent_metric_evidence_routes import create_agent_metric_evidence_router
 from .metric_coverage_routes import create_metric_coverage_router
 from .research_routes import create_research_router
 from .model_link_experiment_routes import create_model_link_experiment_router
@@ -39,6 +40,7 @@ __all__ = (
     "create_provider_compatibility_router",
     "create_metric_readiness_router",
     "create_metric_lifecycle_evidence_router",
+    "create_agent_metric_evidence_router",
     "create_metric_coverage_router",
     "create_research_router",
     "create_model_link_experiment_router",

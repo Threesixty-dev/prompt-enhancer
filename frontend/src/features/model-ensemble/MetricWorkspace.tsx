@@ -35,6 +35,7 @@ import {
 import { ME_SCOPE_CONTEXT, type MetricScopeContext } from "./metricContextFacts";
 import { shortIdentity } from "./modelStages";
 import { metricEvidenceReadinessForPublication } from "./metricEvidenceReadiness";
+import { MetricEvidenceFilePanel } from "./MetricEvidenceFilePanel";
 
 /**
  * The trajectory helpers and the history contract used to live in this file.
@@ -65,12 +66,20 @@ export function MetricWorkspace({
   history,
   attemptStages = [],
   scopeContext,
+  evidenceSessionId,
+  evidenceEnabled = false,
+  onEvidenceChanged,
 }: {
   mode: "full" | "compact";
   run: ModelEnsembleRadarData;
   runId: string;
   stageRun?: ModelEnsembleRun | null;
-  transport: Pick<PromptEnhancerTransport, "getModelPredictiveMetricDetail">;
+  transport: Pick<PromptEnhancerTransport,
+    | "getModelPredictiveMetricDetail"
+    | "previewAgentMetricEvidence"
+    | "importAgentMetricEvidence"
+    | "listMetricLifecycleProposals"
+    | "decideMetricLifecycleProposal">;
   lensId: ModelEnsembleLensId;
   onLensChange: (lens: ModelEnsembleLensId) => void;
   snapshotLabel: string;
@@ -81,6 +90,9 @@ export function MetricWorkspace({
   attemptStages?: readonly ModelEnsembleAttemptStage[];
   /** Analytics scope carried into every knowledge card (strip and board); defaults to Me. */
   scopeContext?: MetricScopeContext;
+  evidenceSessionId?: string;
+  evidenceEnabled?: boolean;
+  onEvidenceChanged?: () => void;
 }) {
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
   const boardHelp = useMetricKnowledgeCardController();
@@ -218,6 +230,18 @@ export function MetricWorkspace({
           </section>
         )}
       </div>
+      {evidenceEnabled
+        && evidenceSessionId !== undefined
+        && run.metric_publication_v2?.projection_version === "metric-contract-v2-projection-4"
+        && (
+          <MetricEvidenceFilePanel
+            compact={mode === "compact"}
+            onEvidenceChanged={onEvidenceChanged}
+            sessionId={evidenceSessionId}
+            sourceRunId={runId}
+            transport={transport}
+          />
+        )}
       <p aria-hidden={comparisonRun === null} className="metric-workspace__comparison-note">
         {comparisonRun === null ? NON_BREAKING_SPACE : "Dashed geometry is the immediately preceding comparable publication."}
       </p>

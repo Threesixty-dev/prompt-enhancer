@@ -724,6 +724,8 @@ export function ModelEnsemblePanel({
                 ? canonicalHead.stages
                 : []
             }
+            evidenceEnabled={selectedPoint === null || selectedPoint.run_id === run?.run_id}
+            evidenceSessionId={sessionId}
             transport={transport}
           />
         </>
