@@ -45,6 +45,7 @@ test("keeps keyboard focus visible in forced-colors and reduced-motion modes", a
   await page.goto("/overlay/model-ensemble");
 
   const watchButton = page.getByRole("button", { name: "Watch selected session" });
+  await expect(watchButton).toBeEnabled();
   await watchButton.focus();
   await expect(watchButton).toBeFocused();
   const styles = await watchButton.evaluate((element) => {
