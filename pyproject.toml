@@ -20,16 +20,16 @@ dev = [
   "pytest>=8.4.1,<9",
 ]
 models = [
-  "huggingface-hub>=0.35,<1",
-  "safetensors>=0.5,<1",
-  "sentencepiece>=0.2,<1",
-  "torch>=2.8,<3",
-  "transformers>=4.56,<5",
-  "accelerate>=1,<2",
-  "bitsandbytes>=0.45,<1",
+  "huggingface-hub>=0.36.2,<1",
+  "safetensors>=0.8,<1",
+  "sentencepiece>=0.2.2,<1",
+  "torch>=2.8,<2.9",
+  "transformers>=4.57.6,<5",
+  "accelerate>=1.14,<2",
+  "bitsandbytes>=0.50.1,<1",
 ]
 desktop = [
-  "pywebview>=6,<7",
+  "pywebview>=6.2.1,<7",
 ]
 
 [project.scripts]

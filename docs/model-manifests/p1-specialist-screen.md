@@ -109,6 +109,14 @@ SHA-256
 The system environment and repository lockfile were unchanged. Reports record
 package versions, not installation paths.
 
+The distributable dependency policy now caps the optional model extra at the
+reviewed PyTorch `2.8` minor. The universal PyPI lock deliberately does not
+claim to reproduce the CUDA-specific `2.8.0+cu126` evaluation wheel; that wheel
+belongs only to an ignored, explicit evaluation environment. A release must
+not silently promote this evidence to a CUDA-13 or later PyTorch runtime.
+The other locked model libraries may be newer than this historical screen;
+their presence in the release lock is not new quality or calibration evidence.
+
 ## Bounded CUDA observation
 
 The exploratory confidence threshold was `0.70`. Neural metrics cover only the
