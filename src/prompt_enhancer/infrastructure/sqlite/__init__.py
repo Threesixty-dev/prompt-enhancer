@@ -9,6 +9,8 @@ __all__ = (
     "SqliteTemporalComparisonStratumRepository",
     "SqliteTemporalHistoryRepository",
     "SqliteTaskRepository",
+    "SqliteOnlineBackupError",
+    "backup_open_database",
 )
 
 
@@ -51,4 +53,11 @@ def __getattr__(name: str):
         )
 
         return SqliteTemporalSyntheticAggregationValidationRepository
+    if name in {"SqliteOnlineBackupError", "backup_open_database"}:
+        from .online_backup import SqliteOnlineBackupError, backup_open_database
+
+        return {
+            "SqliteOnlineBackupError": SqliteOnlineBackupError,
+            "backup_open_database": backup_open_database,
+        }[name]
     raise AttributeError(name)

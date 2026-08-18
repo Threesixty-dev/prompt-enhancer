@@ -24,6 +24,8 @@ from threading import Condition, Lock, Thread
 from time import monotonic
 from types import MappingProxyType
 
+from ...application.resources import ResourceAvailability, ResourceKind
+from ..resources import default_packaged_resource_resolver
 from .loader import model_eval_cache_root, repository_root
 from .manifests import (
     BGE_M3_LEGACY_BLOCKED,
@@ -968,14 +970,19 @@ def _read_bounded_accelerator_probe(
 def _run_accelerator_probe() -> _AcceleratorProbe:
     """Run Torch discovery only in a sanitized, timeout-bounded child."""
 
-    root = repository_root()
-    script = root / "scripts" / "probe_local_accelerator.py"
-    if not script.is_file():
+    resource = default_packaged_resource_resolver().resolve(
+        ResourceKind.ACCELERATOR_PROBE
+    )
+    if (
+        resource.availability is not ResourceAvailability.AVAILABLE
+        or resource.path is None
+    ):
         return _unknown_accelerator_probe()
+    script = resource.path
     try:
         output = _read_bounded_accelerator_probe(
             [sys.executable, "-I", str(script)],
-            root=root,
+            root=script.parent,
             environment=_accelerator_probe_environment(),
         )
         if output is None:

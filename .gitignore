@@ -83,6 +83,7 @@ test-results/
 playwright-report/
 blob-report/
 *.tsbuildinfo
+/src/prompt_enhancer/_resources/dashboard/
 
 # IDE and OS metadata
 .idea/

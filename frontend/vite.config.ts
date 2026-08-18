@@ -38,6 +38,12 @@ export default defineConfig(({ mode }) => ({
     port: 4173,
     strictPort: true,
   },
+  build: {
+    // Runtime resource discovery is package-owned. This generated directory is
+    // ignored and rebuilt from the committed lockfile before staging.
+    outDir: "../src/prompt_enhancer/_resources/dashboard",
+    emptyOutDir: true,
+  },
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
     environment: "jsdom",

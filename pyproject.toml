@@ -41,6 +41,16 @@ prompt-enhancer-desktop = "prompt_enhancer.desktop_overlay:desktop_main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+prompt_enhancer = [
+  "_resources/probes/*.py",
+  "_resources/public/*.json",
+  "_resources/public/*.txt",
+  "_resources/dashboard/*",
+  "_resources/dashboard/assets/*",
+  "_resources/dashboard/**/*",
+]
+
 [tool.pytest.ini_options]
 addopts = "-ra"
 pythonpath = ["src"]

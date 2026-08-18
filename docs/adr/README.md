@@ -13,6 +13,7 @@ weaken the repository's privacy or safety rules.
 | [0004](0004-full-available-session-scope-boundary.md) | Accepted seam | Full available-session coverage is an explicit completeness claim; durable incremental publication remains follow-up work |
 | [0005](0005-team-control-plane-boundary.md) | Accepted foundation | Content-free team control plane with default-deny authorization and a replaceable storage port; no deployment, identity provider, or billing is accepted |
 | [0006](0006-private-social-and-direct-file-foundation.md) | Accepted development foundation | Invite-only social metadata and direct-only owner-hosted files; no production identity, cryptography, signaling, relay or routes are accepted |
+| [0007](0007-windows-distribution-and-local-data-foundation.md) | Accepted offline foundation | Packaged resource, private-path, inventory, deterministic artifact, backup, diagnostic, update-verification, and egress contracts without a supported installer or release path |
 
 Changes that reverse an accepted decision should add a superseding ADR rather
 than silently rewriting the original rationale.

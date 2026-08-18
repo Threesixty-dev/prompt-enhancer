@@ -7,7 +7,6 @@ independently assemble databases, privacy primitives, and use-case services.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .config import AppSettings, prepare_app_home
@@ -522,11 +521,17 @@ class LocalApplication:
         )
         from .domain import Provider
         from .infrastructure.text_models.jobs import LocalTextModelEvaluationService
+        from .application.resources import ResourceAvailability, ResourceKind
+        from .infrastructure.resources import default_packaged_resource_resolver
 
         token = load_or_create_api_token(self.settings.api_token_path)
-        dashboard_build = Path(__file__).parents[2] / "frontend" / "dist"
+        dashboard_resource = default_packaged_resource_resolver().resolve(
+            ResourceKind.DASHBOARD_STATIC
+        )
         static_directory = (
-            dashboard_build if (dashboard_build / "index.html").is_file() else None
+            dashboard_resource.path
+            if dashboard_resource.availability is ResourceAvailability.AVAILABLE
+            else None
         )
         compatibility_catalog = self.create_provider_compatibility_catalog()
         # This invokes only the documented schema generator in an isolated

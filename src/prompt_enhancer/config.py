@@ -5,7 +5,6 @@ from __future__ import annotations
 import ipaddress
 import os
 from pathlib import Path
-import stat
 import sys
 from typing import Mapping
 
@@ -26,21 +25,14 @@ def lexical_absolute_path(value: Path) -> Path:
 
 
 def path_has_symlink_component(value: Path) -> bool:
-    """Detect symlinks and Windows reparse points in existing components."""
+    """Treat symlink, reparse, and unverifiable components as unsafe."""
 
-    absolute = lexical_absolute_path(value)
-    for candidate in (absolute, *absolute.parents):
-        try:
-            metadata = candidate.lstat()
-        except FileNotFoundError:
-            continue
-        is_symlink = stat.S_ISLNK(metadata.st_mode)
-        is_reparse_point = bool(
-            getattr(metadata, "st_file_attributes", 0) & 0x400
-        )
-        if is_symlink or is_reparse_point:
-            return True
-    return False
+    # Kept as a compatibility boundary for existing adapters.  The platform
+    # implementation returns a typed tri-state result and catches every OS
+    # inspection error so callers neither fail open nor leak raw path errors.
+    from .infrastructure.paths import path_has_symlink_or_reparse_component
+
+    return path_has_symlink_or_reparse_component(value)
 
 
 def default_app_home(environment: Mapping[str, str] | None = None) -> Path:
@@ -163,15 +155,24 @@ def prepare_app_home(settings: AppSettings) -> None:
     """Create private local state without revealing its absolute path."""
 
     try:
-        if path_has_symlink_component(settings.home):
+        from .application.paths import PathInspectionState
+        from .infrastructure.paths import inspect_path_components
+
+        before, _ = inspect_path_components(settings.home)
+        if before.state is PathInspectionState.REPARSE_OR_SYMLINK:
             raise ConfigurationError(
                 "application home cannot contain a symlink or reparse point"
             )
+        if before.state is PathInspectionState.UNVERIFIABLE:
+            raise ConfigurationError("application home components could not be verified")
         settings.home.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if path_has_symlink_component(settings.home):
+        after, _ = inspect_path_components(settings.home)
+        if after.state is PathInspectionState.REPARSE_OR_SYMLINK:
             raise ConfigurationError(
                 "application home cannot contain a symlink or reparse point"
             )
+        if after.state is PathInspectionState.UNVERIFIABLE:
+            raise ConfigurationError("application home components could not be verified")
         settings.home.chmod(0o700)
     except ConfigurationError:
         raise

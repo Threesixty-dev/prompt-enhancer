@@ -27,6 +27,11 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+The production build is emitted into the ignored Python package resource
+directory at `src/prompt_enhancer/_resources/dashboard`. The local `serve`
+command and a staged wheel resolve that directory through the same package
+resource abstraction; runtime code never walks repository parents.
+
 The dev and preview servers bind to `127.0.0.1`. No analytics, CDN, remote font,
 image, or model request is included.
 
