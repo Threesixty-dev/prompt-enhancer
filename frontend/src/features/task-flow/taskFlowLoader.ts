@@ -13,7 +13,8 @@ export type TaskFlowSourceKey = "candidates" | "tasks" | "runs";
 export type TaskFlowSourceBoundary =
   | "page_end_observed"
   | "cap_reached"
-  | "duplicate_observed";
+  | "duplicate_observed"
+  | "duplicate_and_cap_reached";
 
 export interface TaskFlowSourceReceipt {
   source: TaskFlowSourceKey;
@@ -114,11 +115,10 @@ async function loadSource<T>(
     }
   }
 
+  const capReached = !pageEndObserved && offset >= options.recordCap;
   const boundary: TaskFlowSourceBoundary = duplicateCount > 0
-    ? "duplicate_observed"
-    : pageEndObserved
-      ? "page_end_observed"
-      : "cap_reached";
+    ? capReached ? "duplicate_and_cap_reached" : "duplicate_observed"
+    : pageEndObserved ? "page_end_observed" : "cap_reached";
   return {
     values,
     receipt: {

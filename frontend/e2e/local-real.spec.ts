@@ -217,6 +217,44 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
       await json(route, []);
       return;
     }
+    if (path === "/v1/discovery/candidates" && method === "GET") {
+      await json(route, await transport.listCandidates(
+        (url.searchParams.get("status") ?? "all") as "all" | "undecided" | "decided",
+        undefined,
+        {
+          limit: integer(url.searchParams.get("limit"), 100),
+          offset: integer(url.searchParams.get("offset"), 0),
+        },
+      ));
+      return;
+    }
+    if (path === "/v1/task-revisions" && method === "GET") {
+      await json(route, await transport.listTaskRevisions(
+        url.searchParams.get("task_id") ?? undefined,
+        undefined,
+        {
+          limit: integer(url.searchParams.get("limit"), 100),
+          offset: integer(url.searchParams.get("offset"), 0),
+        },
+      ));
+      return;
+    }
+    if (path === "/v1/analysis/runs" && method === "GET") {
+      await json(route, await transport.listAnalysisRuns(
+        url.searchParams.get("task_id") ?? undefined,
+        undefined,
+        {
+          limit: integer(url.searchParams.get("limit"), 100),
+          offset: integer(url.searchParams.get("offset"), 0),
+        },
+      ));
+      return;
+    }
+    const decisions = path.match(/^\/v1\/discovery\/candidates\/([a-f0-9]{64})\/decisions$/);
+    if (decisions && method === "GET") {
+      await json(route, await transport.getCandidateDecisions(decisions[1]));
+      return;
+    }
 
     await json(
       route,
@@ -280,6 +318,19 @@ test("fails the social hub closed with exact zero local-real state", async ({ pa
   await expect(page.getByRole("note", { name: "Fictional synthetic demo" })).toHaveCount(0);
   await expect(page.getByRole("form", { name: /Message|Offer a file/ })).toHaveCount(0);
   await expect(page.locator("input[type='file']")).toHaveCount(0);
+});
+
+test("keeps local task records local-only and work lifecycle unknown", async ({ page }) => {
+  await page.setViewportSize({ width: 620, height: 900 });
+  await page.goto("/tasks/flow");
+
+  await expect(page.getByRole("heading", { name: "Task flow" })).toBeVisible();
+  const summary = page.getByRole("region", { name: "Task flow compact summary" });
+  await expect(summary).toContainText("Backlog unknown · in progress unknown · done unknown");
+  await expect(summary).toContainText("0 team-sourced records · 0 remote-synced records");
+  await expect(page.getByText("Local · this installation only")).toBeVisible();
+  await expect(page.getByRole("note", { name: "Fictional synthetic demo" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Confirmed revisions" })).toContainText("Start Unknown · finish Unknown");
 });
 
 test("requires an exact local project grant before background scheduling", async ({ page }) => {

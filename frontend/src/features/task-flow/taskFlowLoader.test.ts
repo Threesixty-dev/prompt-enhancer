@@ -66,10 +66,12 @@ describe("Task Flow bounded pagination", () => {
       transport,
       new AbortController().signal,
     );
-    const [task] = projectTaskFlow(result).filter((item) => item.kind === "confirmed");
+    const [task] = projectTaskFlow(result, {
+      analysisIndexEnded: result.receipts.find((receipt) => receipt.source === "runs")?.boundary === "page_end_observed",
+    }).filter((item) => item.kind === "confirmed");
 
-    expect(task.column).toBe("analyzed");
-    expect(task.readiness.label).toBe("Analysis completed");
+    expect(task.column).toBe("confirmed");
+    expect(task.analysis.label).toBe("Latest analysis completed");
     expect(transport.listAnalysisRuns.mock.calls.map((call) => call[2]?.offset)).toEqual([0, 100]);
     expect(result.receipts.find((receipt) => receipt.source === "runs")).toMatchObject({
       loaded: 101,
@@ -121,6 +123,26 @@ describe("Task Flow bounded pagination", () => {
       boundary: "duplicate_observed",
       duplicate_count: 1,
       records_seen: 3,
+    });
+  });
+
+  it("preserves both duplicate instability and the hard cap boundary", async () => {
+    const first = SYNTHETIC_CANDIDATES[0];
+    const second: CandidateListItem = {
+      ...first,
+      candidate: { ...first.candidate, candidate_id: "b".repeat(64) },
+    };
+    const result = await loadTaskFlowSources(
+      transportFor({ candidates: [first, second, second] }),
+      new AbortController().signal,
+      { pageSize: 2, recordCap: 3 },
+    );
+
+    expect(result.receipts.find((receipt) => receipt.source === "candidates")).toMatchObject({
+      boundary: "duplicate_and_cap_reached",
+      duplicate_count: 1,
+      records_seen: 3,
+      record_cap: 3,
     });
   });
 });

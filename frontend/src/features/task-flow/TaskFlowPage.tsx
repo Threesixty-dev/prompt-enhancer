@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { PromptEnhancerTransport } from "../../shared/api/contracts";
+import type { PromptEnhancerTransport, TaskDecision } from "../../shared/api/contracts";
 import type { AppRoute } from "../../shared/platform/platform";
 import type { RuntimeDataMode } from "../../shared/platform/runtimeMode";
 import { shortId } from "../../shared/lib/format";
@@ -7,6 +7,7 @@ import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
 import { FictionalNotice } from "../../shared/ui/FictionalNotice";
 import { Icon } from "../../shared/ui/Icon";
 import { TaskFlowBoard } from "./TaskFlowBoard";
+import { TaskFlowSummary } from "./TaskFlowSummary";
 import { TaskFlowTimeline } from "./TaskFlowTimeline";
 import { projectTaskFlow } from "./taskFlowAdapter";
 import {
@@ -17,27 +18,36 @@ import {
 } from "./taskFlowLoader";
 import {
   DEFAULT_TASK_FLOW_FILTERS,
+  TASK_FLOW_ANALYSIS_LABELS,
   TASK_FLOW_COLUMNS,
   TASK_FLOW_KIND_LABELS,
-  TASK_FLOW_READINESS_LABELS,
   applyTaskFlowFilters,
   type TaskFlowFilters,
   type TaskFlowItem,
 } from "./taskFlowModel";
 import "./TaskFlow.css";
 
+type TaskFlowTransport = Pick<
+  PromptEnhancerTransport,
+  "listCandidates" | "listTaskRevisions" | "listAnalysisRuns" | "getCandidateDecisions"
+>;
+
+function wideBoardDefault(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
+  return !window.matchMedia("(max-width: 600px)").matches;
+}
+
 /**
- * Task flow: Kanban plus timeline over the same content-free task records the
- * discovery inbox and reviewed-task screens already expose. Both projections
- * share one filter set, and every card states whether it is a proposed
- * candidate or a confirmed task revision.
+ * Local task-record workspace. Proposal, review, revision, and analysis facts
+ * are presented on separate axes; no text or model inference becomes a task or
+ * a backlog/in-progress/done claim.
  */
 export function TaskFlowPage({
   transport,
   navigate,
   runtimeMode,
 }: {
-  transport: Pick<PromptEnhancerTransport, "listCandidates" | "listTaskRevisions" | "listAnalysisRuns">;
+  transport: TaskFlowTransport;
   navigate: (route: AppRoute) => void;
   runtimeMode: RuntimeDataMode;
 }) {
@@ -48,6 +58,8 @@ export function TaskFlowPage({
   const [reloadToken, setReloadToken] = useState(0);
   const [sourceReceipts, setSourceReceipts] = useState<readonly TaskFlowSourceReceipt[] | null>(null);
   const [loadProgress, setLoadProgress] = useState<Partial<Record<TaskFlowLoadProgress["source"], TaskFlowLoadProgress>>>({});
+  const [decisionAudits, setDecisionAudits] = useState<ReadonlyMap<string, readonly TaskDecision[]>>(() => new Map());
+  const [boardOpen, setBoardOpen] = useState(wideBoardDefault);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -56,6 +68,7 @@ export function TaskFlowPage({
     setItems(null);
     setSourceReceipts(null);
     setLoadProgress({});
+    setDecisionAudits(new Map());
     loadTaskFlowSources(transport, controller.signal, {
       onProgress(progress) {
         if (controller.signal.aborted) return;
@@ -64,7 +77,10 @@ export function TaskFlowPage({
     })
       .then((result) => {
         if (controller.signal.aborted) return;
-        setItems(projectTaskFlow(result));
+        const runReceipt = result.receipts.find((receipt) => receipt.source === "runs");
+        setItems(projectTaskFlow(result, {
+          analysisIndexEnded: runReceipt?.boundary === "page_end_observed",
+        }));
         setSourceReceipts(result.receipts);
       })
       .catch((reason: unknown) => {
@@ -80,7 +96,7 @@ export function TaskFlowPage({
   const projects = useMemo(() => [...new Set((items ?? []).map((item) => item.projectId))], [items]);
   const visible = useMemo(() => applyTaskFlowFilters(items ?? [], filters), [filters, items]);
   const counts = useMemo(() => ({
-    candidates: visible.filter((item) => item.kind === "candidate").length,
+    proposals: visible.filter((item) => item.kind === "candidate").length,
     confirmed: visible.filter((item) => item.kind === "confirmed").length,
   }), [visible]);
   const incompleteReceipt = sourceReceipts?.find((receipt) => receipt.boundary !== "page_end_observed") ?? null;
@@ -92,29 +108,43 @@ export function TaskFlowPage({
     if (item.route !== null) navigate(item.route);
   }, [navigate]);
 
+  const recordDecisionAudit = useCallback((candidateId: string, values: readonly TaskDecision[]) => {
+    setDecisionAudits((current) => {
+      const next = new Map(current);
+      next.set(candidateId, values);
+      return next;
+    });
+  }, []);
+
   const update = (patch: Partial<TaskFlowFilters>) =>
     setFilters((current) => ({ ...current, ...patch }));
+  const filtersAreDefault = Object.entries(DEFAULT_TASK_FLOW_FILTERS)
+    .every(([key, value]) => filters[key as keyof TaskFlowFilters] === value);
 
   return (
     <section aria-labelledby="task-flow-title" className="task-flow">
       <header className="page-header task-flow__header">
         <div>
-          <p className="eyebrow">Task timeline</p>
+          <p className="eyebrow">Evidence-honest task records</p>
           <h1 id="task-flow-title">Task flow</h1>
-          <p>Proposed candidates and confirmed task revisions on one board and one timeline, with lifecycle source, provenance, and readiness on every card.</p>
+          <p>Detected groupings stay proposals until accept, reject, merge, or split. The board preserves immutable review, revision, analysis, provenance, and timing facts without inventing work state.</p>
         </div>
         <div className="page-header__meta">
           <span className="privacy-chip">
             <Icon name="lock" /> {runtimeMode === "synthetic_demo" ? "Local · synthetic records" : "Local · this installation only"}
           </span>
-          <span className="count-summary"><strong>{counts.candidates}</strong> candidates · <strong>{counts.confirmed}</strong> confirmed</span>
+          <span className="count-summary"><strong>{counts.proposals}</strong> proposal records · <strong>{counts.confirmed}</strong> confirmed revisions · current filters</span>
         </div>
       </header>
 
       {runtimeMode === "synthetic_demo" && (
         <FictionalNotice compact>
-          Every candidate, task revision, and analysis run on this board is a content-free synthetic fixture; nothing here reflects a real session.
+          Every proposal, decision, revision, and analysis event on this board is a content-free synthetic fixture; nothing here reflects a real session.
         </FictionalNotice>
+      )}
+
+      {items !== null && (
+        <TaskFlowSummary decisionAudits={decisionAudits} total={items.length} visible={visible} />
       )}
 
       {sourceReceipts !== null && (
@@ -128,14 +158,14 @@ export function TaskFlowPage({
             <strong>
               {incompleteReceipt === null
                 ? "Page ends observed · point-in-time completeness not proven"
-                : incompleteReceipt.boundary === "cap_reached"
+                : incompleteReceipt.boundary === "cap_reached" || incompleteReceipt.boundary === "duplicate_and_cap_reached"
                   ? `Incomplete · ${incompleteReceipt.source} reached the ${incompleteReceipt.record_cap.toLocaleString()}-record cap`
                   : `Incomplete · ${incompleteReceipt.source} changed across pages`}
             </strong>
             <p>
               {runtimeMode === "synthetic_demo" ? "Synthetic fixture" : "Local"} indexes loaded {sourceReceipts.map((receipt) => `${receipt.loaded.toLocaleString()} ${receipt.source}`).join(" · ")}.
               Candidate, task, and run pages are separate requests, not one atomic snapshot; refresh after activity to reconcile.
-              Each source is bounded at {TASK_FLOW_RECORD_CAP_PER_SOURCE.toLocaleString()} records.
+              Each source is bounded at {TASK_FLOW_RECORD_CAP_PER_SOURCE.toLocaleString()} records. Missing analysis stays unknown when its index end is not proven.
             </p>
           </div>
         </div>
@@ -145,24 +175,24 @@ export function TaskFlowPage({
         <label>
           <span>Kind</span>
           <select onChange={(event) => update({ kind: event.target.value as TaskFlowFilters["kind"] })} value={filters.kind}>
-            <option value="all">Candidates and confirmed</option>
+            <option value="all">Proposals and confirmed revisions</option>
             <option value="candidate">{TASK_FLOW_KIND_LABELS.candidate}s only</option>
             <option value="confirmed">{TASK_FLOW_KIND_LABELS.confirmed}s only</option>
           </select>
         </label>
         <label>
-          <span>Column</span>
+          <span>Record column</span>
           <select onChange={(event) => update({ column: event.target.value as TaskFlowFilters["column"] })} value={filters.column}>
-            <option value="all">All columns</option>
+            <option value="all">All record columns</option>
             {TASK_FLOW_COLUMNS.map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}
           </select>
         </label>
         <label>
-          <span>Readiness</span>
-          <select onChange={(event) => update({ readiness: event.target.value as TaskFlowFilters["readiness"] })} value={filters.readiness}>
-            <option value="all">Any readiness</option>
-            {(Object.keys(TASK_FLOW_READINESS_LABELS) as Array<keyof typeof TASK_FLOW_READINESS_LABELS>).map((state) => (
-              <option key={state} value={state}>{TASK_FLOW_READINESS_LABELS[state]}</option>
+          <span>Analysis fact</span>
+          <select onChange={(event) => update({ analysis: event.target.value as TaskFlowFilters["analysis"] })} value={filters.analysis}>
+            <option value="all">Any analysis fact</option>
+            {(Object.keys(TASK_FLOW_ANALYSIS_LABELS) as Array<keyof typeof TASK_FLOW_ANALYSIS_LABELS>).map((state) => (
+              <option key={state} value={state}>{TASK_FLOW_ANALYSIS_LABELS[state]}</option>
             ))}
           </select>
         </label>
@@ -175,7 +205,7 @@ export function TaskFlowPage({
         </label>
         <button
           className="button button--secondary button--compact"
-          disabled={filters === DEFAULT_TASK_FLOW_FILTERS}
+          disabled={filtersAreDefault}
           onClick={() => setFilters(DEFAULT_TASK_FLOW_FILTERS)}
           type="button"
         >
@@ -188,13 +218,30 @@ export function TaskFlowPage({
         <LoadingState label={`Loading bounded task records · ${progressLabel}`} />
       ) : items === null ? null : (
         <>
-          <TaskFlowBoard items={visible} onOpen={open} />
+          <details
+            className="task-flow__board-disclosure"
+            onToggle={(event) => setBoardOpen(event.currentTarget.open)}
+            open={boardOpen}
+          >
+            <summary>
+              <span>Kanban · immutable record kinds</span>
+              <small>{visible.length} visible · no inferred backlog / in-progress / done states</small>
+            </summary>
+            <TaskFlowBoard
+              allItems={items}
+              decisionAudits={decisionAudits}
+              items={visible}
+              onDecisionsLoaded={recordDecisionAudit}
+              onOpen={open}
+              transport={transport}
+            />
+          </details>
           <details className="task-flow__timeline" open>
             <summary>
-              <span>Timeline</span>
-              <small>{visible.length} of {items.length} items placed by record time</small>
+              <span>Chronological record & event timeline</span>
+              <small>Task start and finish remain unknown</small>
             </summary>
-            <TaskFlowTimeline items={visible} onOpen={open} />
+            <TaskFlowTimeline decisionAudits={decisionAudits} items={visible} onOpen={open} />
           </details>
         </>
       )}

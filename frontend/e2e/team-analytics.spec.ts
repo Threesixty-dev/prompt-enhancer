@@ -119,19 +119,53 @@ test.describe("team analytics scopes", () => {
 });
 
 test.describe("task flow", () => {
-  test("shows candidate and confirmed columns plus a two-lane timeline", async ({ page }) => {
+  test("separates proposal, review, revision, and analysis facts", async ({ page }) => {
     await page.goto("/tasks/flow");
     await expect(page.getByRole("heading", { name: "Task flow" })).toBeVisible();
     const board = page.getByRole("group", { name: "Task flow board" });
-    await expect(board.getByRole("region")).toHaveCount(4);
-    await expect(board.getByRole("region", { name: "Proposed candidates" }).getByRole("article")).toHaveCount(2);
-    await expect(board.getByRole("region", { name: "Analyzed tasks" }).getByRole("article")).toHaveCount(1);
-    await expect(page.getByRole("region", { name: /Candidates \(proposed/ }).getByRole("button")).toHaveCount(3);
+    await expect(board.getByRole("region")).toHaveCount(5);
+    await expect(board.getByRole("region", { name: "Proposed groupings" }).getByRole("article")).toHaveCount(2);
+    await expect(board.getByRole("region", { name: "Confirmed revisions" }).getByRole("article")).toHaveCount(1);
+    await expect(board.getByRole("region", { name: "Accepted · merged · split" }).getByRole("article")).toHaveCount(1);
+    await expect(board.getByRole("region", { name: "Rejected proposals" }).getByRole("article")).toHaveCount(0);
+    await expect(board.getByRole("region", { name: "Decided · action unknown" }).getByRole("article")).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Proposal & explicit review records" }).getByRole("button")).toHaveCount(3);
+    await expect(page.getByRole("region", { name: "Confirmed revision records" }).getByRole("button")).toHaveCount(1);
+    await expect(page.getByRole("region", { name: "Analysis events (not task lifecycle)" }).getByRole("button")).toHaveCount(2);
+    await expect(page.getByRole("region", { name: "Task flow compact summary" })).toContainText("Backlog unknown · in progress unknown · done unknown");
+    await expect(page.getByRole("region", { name: "Task flow compact summary" })).toContainText("0 team-sourced records · 0 remote-synced records");
     await page.getByRole("combobox", { name: "Kind" }).selectOption("confirmed");
-    await expect(board.getByRole("region", { name: "Proposed candidates" }).getByRole("article")).toHaveCount(0);
+    await expect(board.getByRole("region", { name: "Proposed groupings" }).getByRole("article")).toHaveCount(0);
     const layout = await layoutAudit(page, ".task-flow", 14);
     expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
     expect(layout.tooSmall).toEqual([]);
+  });
+
+  test("keeps the compact truth summary visible and the large board collapsed at 360px", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 640 });
+    await page.goto("/tasks/flow");
+    const summary = page.getByRole("region", { name: "Task flow compact summary" });
+    await expect(summary).toBeVisible();
+    await expect(summary).toContainText("Work state is not recorded");
+    const boardDisclosure = page.locator("details.task-flow__board-disclosure");
+    await expect(boardDisclosure).not.toHaveAttribute("open", "");
+    const layout = await layoutAudit(page, ".task-flow", 14);
+    expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    expect(layout.tooSmall).toEqual([]);
+  });
+
+  test("keeps task chronology controls focus-visible in forced colors with no motion", async ({ page }) => {
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+    await page.goto("/tasks/flow");
+    const marker = page.getByRole("region", { name: "Confirmed revision records" }).getByRole("button").first();
+    await marker.focus();
+    const styles = await marker.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, transitionDuration: style.transitionDuration };
+    });
+    expect(styles.outlineStyle).not.toBe("none");
+    expect(Number.parseFloat(styles.outlineWidth)).toBeGreaterThanOrEqual(3);
+    expect(styles.transitionDuration).toMatch(/^(0s|0ms)$/);
   });
 });
 

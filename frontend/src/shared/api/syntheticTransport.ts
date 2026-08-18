@@ -9,6 +9,7 @@ import type {
   ProjectSessionQualityAggregate,
   ReviewCommand,
   SessionQualityAggregate,
+  TaskDecision,
   TaskAnalysisResponse,
   TaskRevision,
   TaskReviewResponse,
@@ -28,6 +29,7 @@ import {
   SYNTHETIC_PROVIDER_COMPATIBILITY,
   SYNTHETIC_PROVIDER_METRIC_CAPABILITIES,
   SYNTHETIC_SESSION_METRIC_READINESS,
+  SYNTHETIC_TASK_DECISIONS,
   SYNTHETIC_MODEL_LINK_EXPERIMENT,
   SYNTHETIC_MODEL_LINK_OUTCOME,
   SYNTHETIC_METRIC_COVERAGE,
@@ -337,6 +339,12 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
   let candidates = copy(SYNTHETIC_CANDIDATES);
   const tasks = copy(SYNTHETIC_TASKS);
   const decisions = new Map<string, TaskReviewResponse>();
+  const auditDecisions = new Map<string, TaskDecision[]>(
+    Object.entries(SYNTHETIC_TASK_DECISIONS).map(([candidateId, values]) => [
+      candidateId,
+      copy(values) as TaskDecision[],
+    ]),
+  );
   const analyses = new Map<string, TaskAnalysisResponse>();
   const runs: AnalysisRun[] = [copy(SYNTHETIC_RUN)];
   const resultsByRun = new Map([
@@ -780,6 +788,15 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       const result = syntheticPage(filtered, page);
       return { tasks: result.values, limit: result.limit, offset: result.offset };
     },
+    async getCandidateDecisions(candidateId: string) {
+      if (!candidates.some((item) => item.candidate.candidate_id === candidateId)) {
+        throw new TransportError("Synthetic candidate was not found", 404);
+      }
+      return {
+        candidate_id: candidateId,
+        decisions: copy(auditDecisions.get(candidateId) ?? []),
+      };
+    },
     async getTaskRevision(taskId: string, revision: number) {
       const task = tasks.find(
         (item) => item.task_id === taskId && item.revision === revision,
@@ -822,7 +839,7 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
           revision: 1,
           project_id: items[0].candidate.project_id,
           task_type: command.request.task_category,
-          lifecycle_state: "reviewed",
+          lifecycle_state: "confirmed",
           session_ids: sessions,
           input_fingerprint: safeId(sequence++),
           created_at: "2040-01-02T12:00:00Z",
@@ -838,7 +855,7 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
             revision: 1,
             project_id: items[0].candidate.project_id,
             task_type: command.request.task_categories[index] ?? "unknown",
-            lifecycle_state: "reviewed",
+            lifecycle_state: "confirmed",
             session_ids: [...sessions],
             input_fingerprint: safeId(sequence++),
             created_at: "2040-01-02T12:00:00Z",
@@ -866,6 +883,16 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         output_revisions: outputRevisions,
         applied: true,
       };
+      const audit: TaskDecision = {
+        decision_id: decisionId,
+        action: command.action,
+        candidate_ids: [...reviewedIds],
+        revision_links: outputRevisions.map((link) => ({ ...link, role: "output" })),
+        decision_schema_version: "synthetic.task-review.v1",
+        decision_code: command.action === "reject" ? command.request.reason : null,
+        decided_at: "2040-01-02T12:00:00Z",
+      };
+      reviewedIds.forEach((candidateId) => auditDecisions.set(candidateId, [copy(audit)]));
       decisions.set(idempotencyKey, result);
       return copy(result);
     },

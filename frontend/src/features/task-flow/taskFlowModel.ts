@@ -1,16 +1,20 @@
 import type { Provider } from "../../shared/api/contracts";
 import type { AppRoute } from "../../shared/platform/platform";
 
-/**
- * Presentation model for the task flow board and timeline. Candidates and
- * confirmed tasks are different things: a candidate is a discovery grouping
- * proposed by a versioned heuristic and awaiting a human decision; a confirmed
- * task is an immutable revision created by that decision. The kind is carried
- * on every item and never inferred from position.
- */
+/** Discovery proposals and human-confirmed revisions are never interchangeable. */
 export type TaskFlowKind = "candidate" | "confirmed";
 
-export type TaskFlowColumnId = "proposed" | "confirmed" | "analyzed" | "resolved";
+/**
+ * These columns describe immutable record kinds, not an inferred work state.
+ * In particular, no backlog/in-progress/done column exists because the local
+ * task contract has no authoritative events for those states.
+ */
+export type TaskFlowColumnId =
+  | "proposed"
+  | "confirmed"
+  | "reviewed"
+  | "rejected"
+  | "decided_unknown";
 
 export interface TaskFlowColumn {
   id: TaskFlowColumnId;
@@ -22,41 +26,44 @@ export interface TaskFlowColumn {
 export const TASK_FLOW_COLUMNS: readonly TaskFlowColumn[] = [
   {
     id: "proposed",
-    label: "Proposed candidates",
+    label: "Proposed groupings",
     kind: "candidate",
-    description: "Discovery groupings awaiting a human decision. Not tasks yet.",
+    description: "Detected groupings awaiting an explicit human decision. They are not tasks.",
   },
   {
     id: "confirmed",
-    label: "Confirmed tasks",
+    label: "Confirmed revisions",
     kind: "confirmed",
-    description: "Reviewed task revisions without a completed analysis run.",
+    description: "Immutable task revisions created by accept, merge, or split decisions.",
   },
   {
-    id: "analyzed",
-    label: "Analyzed tasks",
-    kind: "confirmed",
-    description: "Confirmed revisions with a completed immutable analysis run.",
-  },
-  {
-    id: "resolved",
-    label: "Decided candidates",
+    id: "reviewed",
+    label: "Accepted · merged · split",
     kind: "candidate",
-    description: "Candidates with a recorded decision; accepted ones continue as confirmed tasks.",
+    description: "Reviewed proposal receipts. Their output revisions appear separately.",
+  },
+  {
+    id: "rejected",
+    label: "Rejected proposals",
+    kind: "candidate",
+    description: "Explicitly rejected proposals. No successor task is implied.",
+  },
+  {
+    id: "decided_unknown",
+    label: "Decided · action unknown",
+    kind: "candidate",
+    description: "A decision is reported, but its action is not exposed. No outcome is inferred.",
   },
 ];
 
 export type TaskFlowLifecycleSource =
   | "discovery_candidate"
   | "review_decision"
-  | "task_revision"
-  | "analysis_run";
-
-export type TaskFlowReadinessState = "ready" | "partial" | "blocked" | "unknown";
+  | "task_revision";
 
 export interface TaskFlowLifecycle {
   source: TaskFlowLifecycleSource;
-  /** Raw status token from the source record (never renamed). */
+  /** Raw status token from the source record (never renamed into a work state). */
   status: string;
   label: string;
 }
@@ -68,14 +75,47 @@ export interface TaskFlowProvenance {
   dataTier: string | null;
 }
 
-export interface TaskFlowReadiness {
-  state: TaskFlowReadinessState;
+export type TaskFlowEvidenceState =
+  | "observed_complete"
+  | "observed_partial"
+  | "not_observed"
+  | "no_eligible"
+  | "not_applicable";
+
+export interface TaskFlowEvidenceFact {
+  state: TaskFlowEvidenceState;
   label: string;
   detail: string;
 }
 
+export type TaskFlowAnalysisState =
+  | "running"
+  | "completed"
+  | "failed"
+  | "not_observed"
+  | "unknown"
+  | "not_applicable";
+
+export interface TaskFlowAnalysisRunFact {
+  runId: string;
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  failureCode: string | null;
+  provenance: TaskFlowProvenance;
+}
+
+export interface TaskFlowAnalysisFact {
+  state: TaskFlowAnalysisState;
+  label: string;
+  detail: string;
+  runs: readonly TaskFlowAnalysisRunFact[];
+}
+
 export interface TaskFlowItem {
   id: string;
+  /** Pseudonymous candidate or task identity, retained for exact audit joins. */
+  sourceId: string;
   kind: TaskFlowKind;
   column: TaskFlowColumnId;
   title: string;
@@ -86,10 +126,17 @@ export interface TaskFlowItem {
   sessionCount: number;
   lifecycle: TaskFlowLifecycle;
   provenance: TaskFlowProvenance;
-  readiness: TaskFlowReadiness;
-  /** Timeline anchor (ISO). */
+  evidence: TaskFlowEvidenceFact;
+  analysis: TaskFlowAnalysisFact;
+  /** Creation time of this exact immutable record, not task start time. */
   occurredAt: string;
-  endedAt: string | null;
+  /** The current task contract records neither authoritative task time. */
+  taskStartedAt: null;
+  taskFinishedAt: null;
+  decisionId: string | null;
+  decisionAction: "accept" | "reject" | "merge" | "split" | null;
+  /** Authoritative CandidateListItem decision_status, not inferred from nullable receipt fields. */
+  reviewDecisionRecorded: boolean;
   confidence: number | null;
   coverage: number | null;
   route: AppRoute | null;
@@ -98,34 +145,35 @@ export interface TaskFlowItem {
 export interface TaskFlowFilters {
   kind: "all" | TaskFlowKind;
   column: "all" | TaskFlowColumnId;
-  readiness: "all" | TaskFlowReadinessState;
+  analysis: "all" | TaskFlowAnalysisState;
   projectId: "all" | string;
 }
 
 export const DEFAULT_TASK_FLOW_FILTERS: TaskFlowFilters = {
   kind: "all",
   column: "all",
-  readiness: "all",
+  analysis: "all",
   projectId: "all",
 };
 
 export const TASK_FLOW_KIND_LABELS: Readonly<Record<TaskFlowKind, string>> = {
-  candidate: "Candidate",
-  confirmed: "Confirmed task",
+  candidate: "Proposal",
+  confirmed: "Confirmed revision",
 };
 
-export const TASK_FLOW_READINESS_LABELS: Readonly<Record<TaskFlowReadinessState, string>> = {
-  ready: "Ready",
-  partial: "Partial",
-  blocked: "Blocked",
-  unknown: "Unknown",
+export const TASK_FLOW_ANALYSIS_LABELS: Readonly<Record<TaskFlowAnalysisState, string>> = {
+  running: "Analysis running",
+  completed: "Analysis completed",
+  failed: "Analysis failed",
+  not_observed: "No matching analysis observed",
+  unknown: "Analysis history incomplete",
+  not_applicable: "Not applicable to proposals",
 };
 
 export const TASK_FLOW_SOURCE_LABELS: Readonly<Record<TaskFlowLifecycleSource, string>> = {
-  discovery_candidate: "Discovery",
-  review_decision: "Review decision",
+  discovery_candidate: "Discovery proposal",
+  review_decision: "Human review decision",
   task_revision: "Task revision",
-  analysis_run: "Analysis run",
 };
 
 export function applyTaskFlowFilters(
@@ -135,6 +183,6 @@ export function applyTaskFlowFilters(
   return items.filter((item) =>
     (filters.kind === "all" || item.kind === filters.kind)
     && (filters.column === "all" || item.column === filters.column)
-    && (filters.readiness === "all" || item.readiness.state === filters.readiness)
+    && (filters.analysis === "all" || item.analysis.state === filters.analysis)
     && (filters.projectId === "all" || item.projectId === filters.projectId));
 }

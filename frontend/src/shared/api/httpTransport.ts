@@ -89,6 +89,7 @@ import {
   parseModelCompatibilityCatalog,
 } from "./modelCompatibilityContract";
 import { parseControlPlaneReadiness } from "./controlPlaneReadiness";
+import { parseCandidateDecisionsResponse } from "./taskDecisionContract";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -2965,6 +2966,14 @@ export function createHttpTransport(options: {
       }
       const suffix = query.size === 0 ? "" : `?${query.toString()}`;
       return request<TaskRevisionListResponse>(`/v1/task-revisions${suffix}`, { method: "GET" }, signal);
+    },
+    async getCandidateDecisions(candidateId, signal) {
+      const response = await request<unknown>(
+        `/v1/discovery/candidates/${encodeURIComponent(candidateId)}/decisions`,
+        { method: "GET" },
+        signal,
+      );
+      return parseCandidateDecisionsResponse(response, candidateId);
     },
     getTaskRevision(taskId, revision, signal) {
       return request<TaskRevisionResponse>(

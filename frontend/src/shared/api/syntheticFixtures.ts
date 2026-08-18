@@ -13,6 +13,7 @@ import type {
   SessionAnalysisResult,
   SessionAnalysisRunResponse,
   SessionMetricReadinessReport,
+  TaskDecision,
   TaskRevision,
 } from "./contracts";
 
@@ -259,12 +260,29 @@ export const SYNTHETIC_TASKS: TaskRevision[] = [
     revision: 1,
     project_id: pseudonym("2"),
     task_type: "feature_implementation",
-    lifecycle_state: "reviewed",
+    lifecycle_state: "confirmed",
     session_ids: [pseudonym("0"), pseudonym("f")],
     input_fingerprint: pseudonym("3"),
     created_at: "2040-01-01T14:05:00Z",
   },
 ];
+
+/** Immutable fictional review receipt that links the decided candidate to its task revision. */
+export const SYNTHETIC_TASK_DECISIONS: Readonly<Record<string, readonly TaskDecision[]>> = {
+  [pseudonym("c")]: [
+    {
+      decision_id: pseudonym("4"),
+      action: "accept",
+      candidate_ids: [pseudonym("c")],
+      revision_links: [
+        { task_id: pseudonym("d"), revision: 1, role: "output" },
+      ],
+      decision_schema_version: "synthetic.task-review.v1",
+      decision_code: null,
+      decided_at: "2040-01-01T14:05:00Z",
+    },
+  ],
+};
 
 export const SYNTHETIC_RUN: AnalysisRun = {
   run_id: pseudonym("e"),

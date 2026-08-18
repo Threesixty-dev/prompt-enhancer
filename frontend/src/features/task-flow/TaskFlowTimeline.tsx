@@ -1,29 +1,121 @@
 import { useMemo } from "react";
-import { formatTimestamp } from "../../shared/lib/format";
+import type { TaskDecision } from "../../shared/api/contracts";
+import { formatTimestamp, titleFromKey } from "../../shared/lib/format";
 import { taskFlowTimelineScale, timelinePosition } from "./taskFlowAdapter";
-import {
-  TASK_FLOW_KIND_LABELS,
-  TASK_FLOW_READINESS_LABELS,
-  type TaskFlowItem,
-  type TaskFlowKind,
-} from "./taskFlowModel";
+import type { TaskFlowItem } from "./taskFlowModel";
 
-const LANES: readonly { kind: TaskFlowKind; label: string }[] = [
-  { kind: "candidate", label: "Candidates (proposed / decided)" },
-  { kind: "confirmed", label: "Confirmed tasks (revisions / analysis)" },
+type TimelineLane = "proposal" | "revision" | "analysis";
+
+interface TaskFlowTimelineEvent {
+  id: string;
+  lane: TimelineLane;
+  occurredAt: string;
+  title: string;
+  detail: string;
+  item: TaskFlowItem;
+}
+
+const LANES: readonly { lane: TimelineLane; label: string }[] = [
+  { lane: "proposal", label: "Proposal & explicit review records" },
+  { lane: "revision", label: "Confirmed revision records" },
+  { lane: "analysis", label: "Analysis events (not task lifecycle)" },
 ];
 
+function timelineEvents(
+  items: readonly TaskFlowItem[],
+  decisionAudits: ReadonlyMap<string, readonly TaskDecision[]>,
+): TaskFlowTimelineEvent[] {
+  const events: TaskFlowTimelineEvent[] = [];
+  const candidateById = new Map(
+    items.filter((item) => item.kind === "candidate").map((item) => [item.sourceId, item]),
+  );
+  const seenDecisions = new Set<string>();
+
+  for (const item of items) {
+    if (item.kind === "candidate") {
+      events.push({
+        id: `${item.id}:created`,
+        lane: "proposal",
+        occurredAt: item.occurredAt,
+        title: `${item.title} detected`,
+        detail: "Discovery proposal created",
+        item,
+      });
+      continue;
+    }
+    events.push({
+      id: `${item.id}:revision-created`,
+      lane: "revision",
+      occurredAt: item.occurredAt,
+      title: `${item.title} confirmed`,
+      detail: `Raw revision state ${titleFromKey(item.lifecycle.status)}`,
+      item,
+    });
+    for (const run of item.analysis.runs) {
+      events.push({
+        id: `${item.id}:run:${run.runId}:started`,
+        lane: "analysis",
+        occurredAt: run.startedAt,
+        title: `${item.title} · analysis started`,
+        detail: `${run.provenance.origin} · ${run.provenance.version}`,
+        item,
+      });
+      if (run.finishedAt !== null) {
+        events.push({
+          id: `${item.id}:run:${run.runId}:finished`,
+          lane: "analysis",
+          occurredAt: run.finishedAt,
+          title: `${item.title} · analysis ${run.status}`,
+          detail: "Analysis event only; task finish remains unknown",
+          item,
+        });
+      }
+    }
+  }
+
+  for (const decisions of decisionAudits.values()) {
+    for (const decision of decisions) {
+      if (seenDecisions.has(decision.decision_id)) continue;
+      seenDecisions.add(decision.decision_id);
+      const item = decision.candidate_ids
+        .map((candidateId) => candidateById.get(candidateId))
+        .find((value): value is TaskFlowItem => value !== undefined);
+      if (item === undefined) continue;
+      events.push({
+        id: `decision:${decision.decision_id}`,
+        lane: "proposal",
+        occurredAt: decision.decided_at,
+        title: `${item.title} · ${titleFromKey(decision.action)}`,
+        detail: "Immutable human review decision",
+        item,
+      });
+    }
+  }
+
+  return events.sort((left, right) => {
+    const byTime = left.occurredAt.localeCompare(right.occurredAt);
+    return byTime !== 0 ? byTime : left.id.localeCompare(right.id);
+  });
+}
+
 /**
- * Timeline projection of the same items: two lanes keep candidates and
- * confirmed tasks apart, every marker is a real button (keyboard reachable,
- * labelled with title and time), and the underlying list is rendered as an
- * ordered list for assistive technology. Positions come from record timestamps
- * only; a missing timestamp yields no marker rather than a marker at the start.
+ * Chronology of exact record/event times. It never draws a task-duration bar:
+ * task start and task finish are absent from the current contract.
  */
-export function TaskFlowTimeline({ items, onOpen }: { items: readonly TaskFlowItem[]; onOpen: (item: TaskFlowItem) => void }) {
-  const scale = useMemo(() => taskFlowTimelineScale(items), [items]);
+export function TaskFlowTimeline({
+  items,
+  decisionAudits,
+  onOpen,
+}: {
+  items: readonly TaskFlowItem[];
+  decisionAudits: ReadonlyMap<string, readonly TaskDecision[]>;
+  onOpen: (item: TaskFlowItem) => void;
+}) {
+  const events = useMemo(() => timelineEvents(items, decisionAudits), [decisionAudits, items]);
+  const scale = useMemo(() => taskFlowTimelineScale(events), [events]);
+  const undated = events.filter((event) => !Number.isFinite(new Date(event.occurredAt).getTime())).length;
   if (scale === null) {
-    return <p className="task-flow-timeline__empty" role="status">No dated items match the current filters, so there is nothing to place on the timeline.</p>;
+    return <p className="task-flow-timeline__empty" role="status">No valid record or event time matches the current filters, so chronology cannot be plotted.</p>;
   }
   return (
     <div className="task-flow-timeline">
@@ -33,27 +125,24 @@ export function TaskFlowTimeline({ items, onOpen }: { items: readonly TaskFlowIt
         ))}
       </div>
       {LANES.map((lane) => {
-        const laneItems = items.filter((item) => item.kind === lane.kind);
+        const laneEvents = events.filter((event) => event.lane === lane.lane);
         return (
-          <section aria-label={lane.label} className="task-flow-lane" data-kind={lane.kind} key={lane.kind}>
-            <header><strong>{lane.label}</strong><small>{laneItems.length} item{laneItems.length === 1 ? "" : "s"}</small></header>
+          <section aria-label={lane.label} className="task-flow-lane" data-lane={lane.lane} key={lane.lane}>
+            <header><strong>{lane.label}</strong><small>{laneEvents.length} event{laneEvents.length === 1 ? "" : "s"}</small></header>
             <ol className="task-flow-lane__track">
-              {laneItems.map((item) => {
-                const start = timelinePosition(scale, item.occurredAt);
-                if (start === null) return null;
-                const end = item.endedAt === null ? null : timelinePosition(scale, item.endedAt);
-                const width = end === null ? 0 : Math.max(0, end - start);
+              {laneEvents.map((event) => {
+                const position = timelinePosition(scale, event.occurredAt);
+                if (position === null) return null;
                 return (
-                  <li key={item.id} style={{ left: `${start * 100}%`, width: width === 0 ? undefined : `${width * 100}%` }}>
+                  <li key={event.id} style={{ left: `${position * 100}%` }}>
                     <button
-                      aria-label={`${TASK_FLOW_KIND_LABELS[item.kind]} · ${item.title} · ${formatTimestamp(item.occurredAt)} · ${TASK_FLOW_READINESS_LABELS[item.readiness.state]}`}
-                      data-column={item.column}
-                      data-readiness={item.readiness.state}
-                      onClick={() => onOpen(item)}
+                      aria-label={`${event.title} · ${formatTimestamp(event.occurredAt)} · ${event.detail}`}
+                      data-event={event.lane}
+                      onClick={() => onOpen(event.item)}
                       type="button"
                     >
                       <i aria-hidden="true" />
-                      <span>{item.title}</span>
+                      <span>{event.title}</span>
                     </button>
                   </li>
                 );
@@ -63,7 +152,7 @@ export function TaskFlowTimeline({ items, onOpen }: { items: readonly TaskFlowIt
         );
       })}
       <p className="task-flow-timeline__legend">
-        Markers sit at record creation time; a bar extends to the analysis finish time when one exists. Candidates and confirmed tasks never share a lane.
+        Points use exact proposal creation, review decision, revision creation, and analysis event times. Task start and finish are unknown because the current contract records neither.{undated > 0 ? ` ${undated} invalid event time${undated === 1 ? " was" : "s were"} omitted.` : ""}
       </p>
     </div>
   );

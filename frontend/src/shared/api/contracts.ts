@@ -6,6 +6,9 @@ export type CandidateSignal = Schemas["CandidateSignalDto"];
 export type TaskCandidate = Schemas["TaskCandidateDto"];
 export type CandidateListItem = Schemas["CandidateListItemDto"];
 export type CandidateListResponse = Schemas["CandidateListResponse"];
+export type CandidateDecisionsResponse = Schemas["CandidateDecisionsResponse"];
+export type TaskDecision = Schemas["TaskDecisionDto"];
+export type DecisionRevisionLink = Schemas["DecisionRevisionLinkDto"];
 export type TaskRevision = Schemas["TaskRevisionDto"];
 export type TaskRevisionResponse = Schemas["TaskRevisionResponse"];
 export type TaskRevisionListResponse = Schemas["TaskRevisionListResponse"];
@@ -665,6 +668,10 @@ export interface PromptEnhancerTransport {
     signal?: AbortSignal,
     page?: ContentFreeListPage,
   ): Promise<TaskRevisionListResponse>;
+  getCandidateDecisions(
+    candidateId: string,
+    signal?: AbortSignal,
+  ): Promise<CandidateDecisionsResponse>;
   getTaskRevision(
     taskId: string,
     revision: number,

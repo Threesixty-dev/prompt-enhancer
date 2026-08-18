@@ -1,6 +1,7 @@
 export { TaskFlowPage } from "./TaskFlowPage";
 export { TaskFlowBoard, TaskFlowCard } from "./TaskFlowBoard";
 export { TaskFlowTimeline } from "./TaskFlowTimeline";
+export { TaskFlowSummary } from "./TaskFlowSummary";
 export { projectTaskFlow, taskFlowTimelineScale, timelinePosition } from "./taskFlowAdapter";
 export {
   TASK_FLOW_COLUMNS,
@@ -12,5 +13,5 @@ export type {
   TaskFlowFilters,
   TaskFlowItem,
   TaskFlowKind,
-  TaskFlowReadinessState,
+  TaskFlowAnalysisState,
 } from "./taskFlowModel";
