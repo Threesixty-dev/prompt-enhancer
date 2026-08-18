@@ -524,6 +524,27 @@ set. These states are deliberate authority boundaries; adding a larger language
 model cannot turn an absent opportunity registry or receipt link into measured
 evidence.
 
+### Rubric fractions must be focus-owned
+
+The three fixed-factor rubric contracts are scored by the reviewed V1 calculator
+against `focus_message_id`. Projection identity `metric-contract-v2-projection-1`
+anchored that fraction to the *latest active* request revision whenever the focus
+turn was not itself an owned request revision — for example when the window's
+focus is a feedback turn, or when the focus request has since been superseded.
+That published a number computed from one message as if it described another.
+
+Identity `metric-contract-v2-projection-2` publishes a rubric fraction only when
+the canonical active request revision owns exactly the scored focus message.
+Otherwise the metric is `unknown` with the fixed code
+`rubric_opportunity_not_focus_owned` and an empty opportunity set — never `0`,
+because an unowned opportunity is not a failed one.
+
+Because a `-1` row is not reproducible under the corrected rules, this is a new
+persisted projection identity rather than an in-place fix. Schema v41 adds an
+append-only `*_v2_r2` sidecar; MIGRATION_40 stays byte-identical, historical `-1`
+rows keep their own table and their own meaning, readers accept both, and every
+new publication is written as `-2`. A run may carry only one of the two.
+
 `publish_v1_compatibility_preview` reads an already persisted V1 run and states
 its own limits in the payload (`preview_limits`):
 
@@ -559,12 +580,108 @@ version, direction, and factor count. A forged field is rejected rather than
 published, and an objective contract can never be resolved from conversational
 material.
 
+### Descriptor-authorized objective opportunities and links
+
+Observing a verification event is not the authority to enumerate a session's
+eligible verification tasks, and neither implies the authority to say which
+requirement a receipt belongs to. `CapabilityKey` therefore carries three
+separate closed families:
+
+| Authority | Capability keys |
+|---|---|
+| Emit an evidence *kind* | `tool_events`, `decision_events`, `feedback_messages`, `verification_events` |
+| *Enumerate* one denominator family | `requirement_opportunities`, `hypothesis_opportunities`, `material_claim_opportunities`, `verification_task_opportunities` |
+| *Link* a record to a family member | `requirement_evidence_links`, `hypothesis_evidence_links`, `material_claim_evidence_links`, `verification_task_evidence_links` |
+
+`validate_projection_descriptor` requires the exact enumeration and link
+capabilities for every declared opportunity kind, including an observed empty
+link set: without negative-link observability, absence could be mistaken for a
+measured zero. Each objective algorithm then separately requires the action,
+decision, and/or verification outcome kinds it reads. The shipped Codex
+safe-event descriptor declares only `tool_events`, so it can declare none of the
+opportunity families and all five objective contracts stay `unknown`.
+
+An explicit `EventKind.VERIFICATION` may declare and link one
+`verification_task` opportunity, and only when the decoder declares the outcome,
+enumeration, and link capabilities together. Declaring
+`verification_task_opportunities` is an assertion that **one explicit provider
+verification event is exactly one eligible verification task**; a decoder whose
+events do not satisfy that must not declare it. A `TOOL_END` categorised as test
+or build never receives a task identity: its verification meaning is an inference
+about what the tool did, so binding a denominator to it would fabricate one.
+
+Requirement and hypothesis denominators can enter a projection only through
+`bind_semantic_unit_opportunities`, and only when the descriptor authorizes that
+family, the reconciliation is complete, and the reconciler either observed heads
+of that kind or can provably own it. Zero heads of a kind that is never extracted
+proves nothing, so the family stays undeclared rather than reporting a measured
+"no opportunity".
+
+An undeclared `DECISION` or `VERIFICATION` event is now skipped instead of
+raising. One out-of-scope event kind must not destroy the authorized action
+evidence of a whole session. A missing `tool_events` capability still raises,
+because every safe-event kind this decoder reads is an action: there would be no
+authorized evidence left to preserve.
+
 ### Implementation and readiness state
 
 Each published metric carries an `implementation_state` so a client can tell what
 it may claim: `live_measured`, `compatibility_projected`, `method_only_withheld`,
-`objective_capability_missing`, `pending`, `no_opportunity`, `abstained`, `error`.
-These partition exactly twenty metrics.
+`objective_capability_missing`, `objective_evidence_unresolved`, `pending`,
+`no_opportunity`, `abstained`, `error`. These partition exactly twenty metrics.
+
+### Per-metric evidence readiness (`metric.contract-v2.evidence-readiness`)
+
+The full-run API also serves `metric_evidence_readiness_v2`, derived on read from
+the sealed publication plus the run's provider, provider version, adapter
+version, and source schema version. It introduces **no independent datum** and so
+has no schema of its own: it is recomputed from the sealed v40/v41 sidecar rows
+and disappears with the run.
+
+Each row carries closed enums only — evidence authority, denominator basis and
+opportunity unit kind, an `availability_state`, an exact `reason_code`, the
+required and observed evidence contributors, and (for objective metrics) the
+exact required adapter `CapabilityKey` set — plus the eligible / met / not-met /
+pending / unknown / resolved counts, the censoring bounds, the contract and
+contract-set fingerprints, the projection identity, and the same
+`publication_fingerprint` a persistence seal stores, so a reader can tie
+readiness back to the exact sealed bundle. It stores no identifier and no text;
+`calibration_state` is `not_assessed` and `product_metric_eligible` is `false`.
+
+The projection reports `objective_measurable_count` separately from
+`objective_measured_count`. The former counts the objective contracts whose
+sealed state proves the adapter supplied its complete enumeration, negative-link
+observability, and outcome authority; the latter counts those with a numeric
+observation in this snapshot. An authoritatively empty or right-censored set can
+therefore be measurable without being numeric.
+
+`availability_state` distinguishes eight cases that a bare value state conflates:
+`measured`, `pending_right_censored`, `no_opportunity`, `capability_missing`,
+`source_incomplete`, `evidence_unresolved`, `abstained`, `execution_error`.
+
+The reason code is derived structurally from the sealed row — value state,
+capability, completeness, counts, denominator basis — never by parsing a
+producer-authored explanation string, so a future projection identity cannot
+silently change what a readiness reason means.
+
+`capability_missing` reasons are **metric-specific**, replacing the generic
+"family unobservable": a rubric metric reports
+`focus_owned_request_revision_required`, a profile-slot metric reports
+`owned_canonical_request_text_required`, each conversational episode metric names
+the semantic-unit extractor it needs (`ambiguity_episode_extraction_required`,
+`clarification_episode_extraction_required`,
+`hypothesis_episode_extraction_required`,
+`scope_change_episode_extraction_required`,
+`requirement_unit_extraction_required`, `open_loop_episode_extraction_required`).
+Each objective contract has its own adapter reason and exact capability set:
+the relevant opportunity enumeration, the matching evidence-link authority, and
+the action / decision / verification outcome kinds its algorithm reads. Missing
+any member keeps the metric nonnumeric; an adapter that cannot observe links can
+never turn an empty record list into a measured `0/N`.
+
+`observed_contributors` is derived, not asserted: an unavailable family proves
+nothing, an available one proves the contributor that enumerates the denominator,
+and only a resolved opportunity proves the contributors that classify outcomes.
 
 ### Guidance contract
 
@@ -608,10 +725,17 @@ Both require the local token and send `Cache-Control: no-store` with
   provider exposes its reviewed opportunity family and sufficient statistics.
   Unsupported episode/link families remain truthful `unknown`, `pending`, or
   `not_applicable`; visibility does not imply numeric availability.
-- The current Codex typed-event envelope does not provide authoritative
-  requirement, hypothesis, completion-claim, or verification-task links. The five
-  evidence-lane metrics therefore remain unknown unless a future documented
-  adapter supplies those links; prose and neural estimates cannot substitute.
+- The shipped Codex typed-event descriptor declares only `tool_events`, so it
+  authorizes no opportunity enumeration and no evidence link. All five
+  evidence-lane metrics therefore remain unknown in production. The capability
+  keys and the safe-event verification-task path now exist, so a reviewed
+  descriptor that genuinely enumerates those families can make them numeric —
+  but the descriptor is a composition-root and release decision, not a runtime
+  inference, and prose or neural estimates can never substitute.
+- No extractor was added for the six missing semantic families. Their closure
+  ownership is not provable from the current message kinds, so a lexical
+  lifecycle rule would manufacture denominators. They stay `unknown`, and the
+  readiness projection now names the specific extractor each one is waiting on.
 - Per-factor measured sufficient statistics are not yet emitted by every live
   projection, so guidance names a focus factor only when the receipt actually
   proves one.

@@ -182,6 +182,20 @@ def test_retain_floor_selects_retain_or_improve_by_oriented_value() -> None:
     )
 
 
+def test_exact_retain_floor_is_server_owned_and_inclusive() -> None:
+    at_floor = build_metric_guidance(
+        _known_state("prompt.context_sufficiency", met=3, eligible=4)
+    )
+    below_floor = build_metric_guidance(
+        _known_state("prompt.context_sufficiency", met=2, eligible=3)
+    )
+
+    assert METRIC_GUIDANCE_RETAIN_FLOOR == 0.75
+    assert (at_floor.numerator, at_floor.denominator) == (3, 4)
+    assert at_floor.state_class is GuidanceStateClass.KNOWN_RETAIN
+    assert below_floor.state_class is GuidanceStateClass.KNOWN_IMPROVE
+
+
 def test_lower_is_better_metric_orients_before_choosing_a_template() -> None:
     definition = next(
         item

@@ -30,6 +30,7 @@ from .evidence_contracts import (
     validate_projection_descriptor,
 )
 from .semantic_units import (
+    EXTRACTABLE_SEMANTIC_UNIT_KINDS,
     SemanticUnitKind,
     SemanticUnitLifecycle,
     SemanticUnitReconciliation,
@@ -138,6 +139,28 @@ class SafeEventTypedEvidenceProjector:
             )
             if capability in self._descriptor.capabilities
         )
+        # A verification *task* denominator needs three separate authorities:
+        # the outcome capability, the enumeration capability, and the link
+        # capability.  Absent any of them the projector emits verification
+        # outcomes with no task identity, which keeps first-pass unknown
+        # instead of inventing a denominator.  The other three opportunity
+        # families are never declared here: a safe-event stream contains no
+        # requirements, hypotheses, or material claims, so this decoder cannot
+        # enumerate them.  ``bind_semantic_unit_opportunities`` is the only
+        # place a semantic-unit denominator may enter this projection.
+        verification_tasks_authorized = (
+            TypedEvidenceKind.VERIFICATION in declared_kinds
+            and CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES
+            in self._descriptor.capabilities
+            and CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS
+            in self._descriptor.capabilities
+        )
+        declared_opportunity_kinds = (
+            frozenset({TypedEvidenceOpportunityKind.VERIFICATION_TASK})
+            if verification_tasks_authorized
+            else frozenset()
+        )
+        verification_tasks: list[str] = []
 
         for event in events:
             if event.session_id != session_id:
@@ -148,6 +171,9 @@ class SafeEventTypedEvidenceProjector:
                 EventKind.TOOL_END,
                 EventKind.ARTIFACT,
             }:
+                # Every safe-event kind this decoder reads is an action, so a
+                # missing tool capability is a composition-root error, not a
+                # partial authority: there is no other evidence to preserve.
                 if TypedEvidenceKind.ACTION not in declared_kinds:
                     raise ValueError("tool evidence capability is not authorized")
                 records.append(
@@ -162,26 +188,29 @@ class SafeEventTypedEvidenceProjector:
                     )
                 )
             if event.kind is EventKind.DECISION:
-                if TypedEvidenceKind.DECISION not in declared_kinds:
-                    raise ValueError("decision evidence capability is not authorized")
-                records.append(
-                    DecisionEvidence(
-                        evidence_id=self._evidence_id(
-                            session_id, event.event_id, "decision"
-                        ),
-                        sequence=base_sequence + 1,
-                        source_reference_id=event.event_id,
-                        state=(
-                            DecisionState.ACCEPTED
-                            if event.success is True
-                            else DecisionState.REJECTED
-                            if event.success is False
-                            else DecisionState.UNKNOWN
-                        ),
-                        rationale_state=RationaleState.UNKNOWN,
+                # An undeclared decision capability withholds this one record.
+                # Raising here would destroy the authorized action evidence of
+                # the whole session because one event kind was out of scope.
+                if TypedEvidenceKind.DECISION in declared_kinds:
+                    records.append(
+                        DecisionEvidence(
+                            evidence_id=self._evidence_id(
+                                session_id, event.event_id, "decision"
+                            ),
+                            sequence=base_sequence + 1,
+                            source_reference_id=event.event_id,
+                            state=(
+                                DecisionState.ACCEPTED
+                                if event.success is True
+                                else DecisionState.REJECTED
+                                if event.success is False
+                                else DecisionState.UNKNOWN
+                            ),
+                            rationale_state=RationaleState.UNKNOWN,
+                        )
                     )
-                )
-            if event.kind is EventKind.VERIFICATION or (
+            explicit_verification = event.kind is EventKind.VERIFICATION
+            if explicit_verification or (
                 event.kind is EventKind.TOOL_END
                 and event.tool_category in {ToolCategory.TEST, ToolCategory.BUILD}
             ):
@@ -190,6 +219,17 @@ class SafeEventTypedEvidenceProjector:
                 # stronger evidence kind rather than failing the entire local
                 # projection or upgrading the decoder's capability.
                 if TypedEvidenceKind.VERIFICATION in declared_kinds:
+                    # Only an explicit provider verification event carries a
+                    # task identity.  A TOOL_END categorised as test or build
+                    # is an inference about what the tool did, so binding a
+                    # verification task to it would fabricate the denominator.
+                    task_ids: tuple[str, ...] = ()
+                    if explicit_verification and verification_tasks_authorized:
+                        task_id = self._evidence_id(
+                            session_id, event.event_id, "verification-task"
+                        )
+                        verification_tasks.append(task_id)
+                        task_ids = (task_id,)
                     records.append(
                         VerificationEvidence(
                             evidence_id=self._evidence_id(
@@ -200,6 +240,7 @@ class SafeEventTypedEvidenceProjector:
                             method=_verification_method(event.tool_category),
                             outcome=_verification_outcome(event),
                             receipt_reference_ids=(event.event_id,),
+                            verification_task_reference_ids=task_ids,
                         )
                     )
 
@@ -215,6 +256,8 @@ class SafeEventTypedEvidenceProjector:
                 extraction_complete=session.events_complete,
             ),
             declared_kinds=declared_kinds,
+            declared_opportunity_kinds=declared_opportunity_kinds,
+            eligible_verification_task_reference_ids=tuple(verification_tasks),
             records=tuple(sorted(records, key=lambda item: item.sequence)),
         )
         validate_projection_descriptor(projection, self._descriptor)
@@ -232,17 +275,47 @@ class SafeEventTypedEvidenceProjector:
         )
 
 
+def _bound_family(
+    reconciliation: SemanticUnitReconciliation,
+    kind: SemanticUnitKind,
+    *,
+    lifecycles: frozenset[SemanticUnitLifecycle] | None = None,
+    excluded_lifecycles: frozenset[SemanticUnitLifecycle] = frozenset(),
+) -> frozenset[str] | None:
+    """Return the exact unit set for one family, or ``None`` if unprovable.
+
+    An empty set is only returned when the reconciler can actually own this
+    kind.  Otherwise the family stays undeclared: zero heads of a kind that is
+    never extracted proves nothing, and declaring it would turn "we cannot see
+    this" into a measured "there was no opportunity".
+    """
+
+    observed = frozenset(
+        item.unit_id
+        for item in reconciliation.heads
+        if item.kind is kind
+        and item.lifecycle not in excluded_lifecycles
+        and (lifecycles is None or item.lifecycle in lifecycles)
+    )
+    if observed:
+        return observed
+    return frozenset() if kind in EXTRACTABLE_SEMANTIC_UNIT_KINDS else None
+
+
 def bind_semantic_unit_opportunities(
     projection: EphemeralTypedEvidenceProjection | None,
     reconciliation: SemanticUnitReconciliation | None,
+    descriptor: DecoderDescriptor | None = None,
 ) -> EphemeralTypedEvidenceProjection | None:
     """Bind exact semantic-unit denominators without persisting their links.
 
-    Only a complete reconciliation may enlarge a denominator family that the
-    evidence adapter already declared it can link. Active requirement units
-    define that requirement denominator. Hypotheses are included only after
-    closure; an open/right-censored episode must remain pending rather than
-    become a measured failure.
+    Only a complete reconciliation may enlarge a denominator family, and only
+    when ``descriptor`` declares both the enumeration and the link capability
+    for that family: the bound set is carried inside a projection stamped with
+    that decoder's provenance, so the decoder must be authorized to hold it.
+    Active requirement units define the requirement denominator. Hypotheses are
+    included only after closure; an open/right-censored episode must remain
+    pending rather than become a measured failure.
     """
 
     if projection is None or reconciliation is None:
@@ -255,40 +328,53 @@ def bind_semantic_unit_opportunities(
     if not reconciliation.source_complete:
         return projection
 
-    requirements = frozenset(
-        item.unit_id
-        for item in reconciliation.heads
-        if item.kind is SemanticUnitKind.REQUIREMENT
-        and item.lifecycle is not SemanticUnitLifecycle.SUPERSEDED
-    ) if (
-        TypedEvidenceOpportunityKind.REQUIREMENT
-        in projection.declared_opportunity_kinds
-    ) else frozenset()
-    hypotheses = frozenset(
-        item.unit_id
-        for item in reconciliation.heads
-        if item.kind is SemanticUnitKind.HYPOTHESIS
-        and item.lifecycle is SemanticUnitLifecycle.CLOSED
-    ) if (
-        TypedEvidenceOpportunityKind.HYPOTHESIS
-        in projection.declared_opportunity_kinds
-    ) else frozenset()
+    capabilities = frozenset(() if descriptor is None else descriptor.capabilities)
+    declared = set(projection.declared_opportunity_kinds)
+    eligible = {
+        TypedEvidenceOpportunityKind.REQUIREMENT: frozenset(
+            projection.eligible_requirement_reference_ids
+        ),
+        TypedEvidenceOpportunityKind.HYPOTHESIS: frozenset(
+            projection.eligible_hypothesis_reference_ids
+        ),
+    }
+    bindings = (
+        (
+            TypedEvidenceOpportunityKind.REQUIREMENT,
+            CapabilityKey.REQUIREMENT_OPPORTUNITIES,
+            CapabilityKey.REQUIREMENT_EVIDENCE_LINKS,
+            _bound_family(
+                reconciliation,
+                SemanticUnitKind.REQUIREMENT,
+                excluded_lifecycles=frozenset({SemanticUnitLifecycle.SUPERSEDED}),
+            ),
+        ),
+        (
+            TypedEvidenceOpportunityKind.HYPOTHESIS,
+            CapabilityKey.HYPOTHESIS_OPPORTUNITIES,
+            CapabilityKey.HYPOTHESIS_EVIDENCE_LINKS,
+            _bound_family(
+                reconciliation,
+                SemanticUnitKind.HYPOTHESIS,
+                lifecycles=frozenset({SemanticUnitLifecycle.CLOSED}),
+            ),
+        ),
+    )
+    for opportunity_kind, enumeration, links, bound in bindings:
+        if bound is None or not {enumeration, links} <= capabilities:
+            continue
+        declared.add(opportunity_kind)
+        eligible[opportunity_kind] |= bound
 
     payload = projection.model_dump()
     payload.update(
         {
-            "declared_opportunity_kinds": projection.declared_opportunity_kinds,
+            "declared_opportunity_kinds": frozenset(declared),
             "eligible_requirement_reference_ids": tuple(
-                sorted(
-                    requirements
-                    | frozenset(projection.eligible_requirement_reference_ids)
-                )
+                sorted(eligible[TypedEvidenceOpportunityKind.REQUIREMENT])
             ),
             "eligible_hypothesis_reference_ids": tuple(
-                sorted(
-                    hypotheses
-                    | frozenset(projection.eligible_hypothesis_reference_ids)
-                )
+                sorted(eligible[TypedEvidenceOpportunityKind.HYPOTHESIS])
             ),
             "records": projection.records,
         }

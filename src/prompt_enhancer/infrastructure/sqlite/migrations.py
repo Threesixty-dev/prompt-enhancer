@@ -11242,3 +11242,192 @@ BEGIN SELECT RAISE(ABORT,'metric V2 publication seal requires parent privacy del
 
 COMMIT;
 """
+
+
+MIGRATION_41 = r"""
+BEGIN IMMEDIATE;
+
+-- Metric Contract V2 measured states, projection identity r2.  MIGRATION_40
+-- stays byte-identical: its rows were produced by a projector that could
+-- anchor a focus-message rubric fraction to a request revision that did not
+-- own that message, so they are not reproducible under identity r2 and must
+-- keep their own table, checks, and seal.  New writes land here; readers
+-- prefer an r2 seal and fall back to the r1 sidecar.  Still typed states and
+-- sufficient statistics only: no source identifiers and no text.
+CREATE TABLE session_model_ensemble_metric_states_v2_r2 (
+    run_id TEXT NOT NULL,
+    metric_ordinal INTEGER NOT NULL CHECK(metric_ordinal BETWEEN 0 AND 19),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-2'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='probabilistic-metric-contract-v2'),
+    contract_fingerprint TEXT NOT NULL CHECK(length(contract_fingerprint)=64 AND contract_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    evidence_authority TEXT NOT NULL CHECK(evidence_authority IN ('conversation','objective_receipt')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','pending','unknown','not_applicable','abstained','execution_error')),
+    explanation_code TEXT NOT NULL CHECK(length(explanation_code) BETWEEN 1 AND 128 AND explanation_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    numerator INTEGER CHECK(numerator BETWEEN 0 AND 1000000),
+    denominator INTEGER CHECK(denominator BETWEEN 1 AND 1000000),
+    numeric_value REAL CHECK(numeric_value BETWEEN 0.0 AND 1.0),
+    censoring_lower_bound REAL CHECK(censoring_lower_bound BETWEEN 0.0 AND 1.0),
+    censoring_upper_bound REAL CHECK(censoring_upper_bound BETWEEN 0.0 AND 1.0),
+    denominator_basis TEXT NOT NULL CHECK(denominator_basis IN ('rubric_factors','semantic_unit_opportunities','declared_profile_slots','objective_opportunities')),
+    opportunity_unit_kind TEXT CHECK(opportunity_unit_kind IN (
+        'request_revision','requirement','constraint','deliverable','ambiguity',
+        'clarification','scope_change','feedback','hypothesis','decision',
+        'open_loop','action','verification'
+    )),
+    capability_available INTEGER NOT NULL CHECK(capability_available IN (0,1)),
+    source_complete INTEGER NOT NULL CHECK(source_complete IN (0,1)),
+    eligible_count INTEGER NOT NULL CHECK(eligible_count BETWEEN 0 AND 1000000),
+    met_count INTEGER NOT NULL CHECK(met_count BETWEEN 0 AND 1000000),
+    not_met_count INTEGER NOT NULL CHECK(not_met_count BETWEEN 0 AND 1000000),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 1000000),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 1000000),
+    superseded_excluded_count INTEGER NOT NULL CHECK(superseded_excluded_count BETWEEN 0 AND 1000000),
+    distinct_owner_count INTEGER NOT NULL CHECK(distinct_owner_count BETWEEN 0 AND 1000000),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,metric_key),
+    UNIQUE(run_id,metric_ordinal),
+    FOREIGN KEY(run_id,metric_key)
+      REFERENCES session_model_ensemble_metrics(run_id,metric_key) ON DELETE CASCADE,
+    CHECK(met_count+not_met_count+pending_count+unknown_count=eligible_count),
+    CHECK(capability_available=1 OR eligible_count=0),
+    CHECK(denominator_basis NOT IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NOT NULL),
+    CHECK(denominator_basis IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NULL),
+    CHECK((censoring_lower_bound IS NULL)=(censoring_upper_bound IS NULL)),
+    CHECK(censoring_lower_bound IS NULL OR censoring_lower_bound<=censoring_upper_bound),
+    CHECK(
+      (value_state='known' AND numerator IS NOT NULL AND denominator IS NOT NULL
+       AND numeric_value IS NOT NULL AND numerator<=denominator
+       AND abs(numeric_value-(CAST(numerator AS REAL)/denominator))<=0.000000001
+       AND censoring_lower_bound IS NOT NULL
+       AND abs(censoring_lower_bound-numeric_value)<=0.000000001
+       AND abs(censoring_upper_bound-numeric_value)<=0.000000001)
+      OR
+      (value_state<>'known' AND numerator IS NULL AND denominator IS NULL
+       AND numeric_value IS NULL)
+    ),
+    CHECK(value_state<>'pending' OR pending_count>0),
+    CHECK(value_state<>'not_applicable' OR eligible_count=0),
+    CHECK(evidence_authority<>'objective_receipt' OR value_state<>'known'
+          OR denominator_basis='objective_opportunities')
+);
+
+CREATE TABLE session_model_ensemble_metric_publication_v2_seals_r2 (
+    run_id TEXT PRIMARY KEY REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    publication_key TEXT NOT NULL CHECK(publication_key='metric.contract-v2.publication'),
+    publication_version INTEGER NOT NULL CHECK(publication_version=2),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    contract_set_fingerprint TEXT NOT NULL CHECK(length(contract_set_fingerprint)=64 AND contract_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-2'),
+    guidance_contract_version TEXT NOT NULL CHECK(guidance_contract_version='metric-guidance-contract-v1'),
+    guidance_template_catalog_version TEXT NOT NULL CHECK(guidance_template_catalog_version='metric-guidance-templates-v1'),
+    source TEXT NOT NULL CHECK(source='live_projection'),
+    canonical_live_snapshot INTEGER NOT NULL CHECK(canonical_live_snapshot=1),
+    model_stage_consumed INTEGER NOT NULL CHECK(model_stage_consumed=0),
+    compatibility_preview INTEGER NOT NULL CHECK(compatibility_preview=0),
+    metric_count INTEGER NOT NULL CHECK(metric_count=20),
+    known_count INTEGER NOT NULL CHECK(known_count BETWEEN 0 AND 20),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 20),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 20),
+    not_applicable_count INTEGER NOT NULL CHECK(not_applicable_count BETWEEN 0 AND 20),
+    abstained_count INTEGER NOT NULL CHECK(abstained_count BETWEEN 0 AND 20),
+    execution_error_count INTEGER NOT NULL CHECK(execution_error_count BETWEEN 0 AND 20),
+    objective_measured_count INTEGER NOT NULL CHECK(objective_measured_count BETWEEN 0 AND 5),
+    projection_fingerprint TEXT NOT NULL CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projected_at TEXT NOT NULL CHECK(length(projected_at)=32 AND substr(projected_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    CHECK(known_count+pending_count+unknown_count+not_applicable_count+
+          abstained_count+execution_error_count=metric_count)
+);
+
+-- Projection identities are mutually exclusive per run even while their
+-- child rows are still unsealed.  The frozen r1 triggers cannot know about
+-- this append-only sidecar, so migration 41 installs the reciprocal guards
+-- on the legacy tables as well as guarding r2 from any existing r1 row.
+CREATE TRIGGER session_model_ensemble_metric_v2_r1_states_reject_r2
+BEFORE INSERT ON session_model_ensemble_metric_states_v2
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 state
+             WHERE state.run_id=NEW.run_id)
+   OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 seal
+              WHERE seal.run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r1_seals_reject_r2
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 state
+             WHERE state.run_id=NEW.run_id)
+   OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 seal
+              WHERE seal.run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_seal_complete
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r2
+WHEN NOT EXISTS (
+    SELECT 1 FROM session_model_ensemble_runs run
+    JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+    WHERE run.run_id=NEW.run_id AND run.metric_count=NEW.metric_count)
+ OR EXISTS (
+    SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals legacy
+    WHERE legacy.run_id=NEW.run_id)
+ OR EXISTS (
+    SELECT 1 FROM session_model_ensemble_metric_states_v2 legacy
+    WHERE legacy.run_id=NEW.run_id)
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2 state
+     WHERE state.run_id=NEW.run_id)<>NEW.metric_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2 state
+     WHERE state.run_id=NEW.run_id AND state.value_state='known')<>NEW.known_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2 state
+     WHERE state.run_id=NEW.run_id AND state.value_state='pending')<>NEW.pending_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2 state
+     WHERE state.run_id=NEW.run_id AND state.value_state='unknown')<>NEW.unknown_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2 state
+     WHERE state.run_id=NEW.run_id AND state.value_state='not_applicable')<>NEW.not_applicable_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2 state
+     WHERE state.run_id=NEW.run_id AND state.value_state='abstained')<>NEW.abstained_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2 state
+     WHERE state.run_id=NEW.run_id AND state.value_state='execution_error')<>NEW.execution_error_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2 state
+     WHERE state.run_id=NEW.run_id AND state.evidence_authority='objective_receipt'
+       AND state.value_state='known')<>NEW.objective_measured_count
+ OR EXISTS (
+    SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 state
+    WHERE state.run_id=NEW.run_id
+      AND (state.registry_version<>NEW.registry_version
+        OR state.projection_version<>NEW.projection_version))
+BEGIN SELECT RAISE(ABORT,'metric V2 r2 publication is incomplete'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_states_sealed_insert
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r2
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 seal
+             WHERE seal.run_id=NEW.run_id)
+   OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals legacy
+              WHERE legacy.run_id=NEW.run_id)
+   OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2 legacy
+              WHERE legacy.run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r2 publication is sealed'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_states_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_states_v2_r2
+BEGIN SELECT RAISE(ABORT,'metric V2 r2 states are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_seals_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_publication_v2_seals_r2
+BEGIN SELECT RAISE(ABORT,'metric V2 r2 publication seals are immutable'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_states_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_states_v2_r2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs run WHERE run.run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r2 states require parent privacy deletion'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_seals_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_publication_v2_seals_r2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs run WHERE run.run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r2 publication seal requires parent privacy deletion'); END;
+
+COMMIT;
+"""

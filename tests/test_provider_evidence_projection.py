@@ -100,6 +100,17 @@ DESCRIPTOR = _descriptor(
     CapabilityKey.DECISION_EVENTS,
     CapabilityKey.VERIFICATION_EVENTS,
 )
+#: The same decoder, additionally authorized to enumerate and link the two
+#: denominator families a safe-event graph can legitimately carry.
+AUTHORITATIVE_DESCRIPTOR = _descriptor(
+    CapabilityKey.TOOL_EVENTS,
+    CapabilityKey.DECISION_EVENTS,
+    CapabilityKey.VERIFICATION_EVENTS,
+    CapabilityKey.REQUIREMENT_OPPORTUNITIES,
+    CapabilityKey.REQUIREMENT_EVIDENCE_LINKS,
+    CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES,
+    CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
+)
 
 
 def _session(*, complete: bool = True) -> SafeSession:
@@ -275,6 +286,145 @@ def test_tool_only_descriptor_skips_undeclared_verification_evidence() -> None:
     assert projection.records[0].kind is TypedEvidenceKind.ACTION
 
 
+def test_shipped_codex_capability_set_cannot_declare_any_denominator() -> None:
+    """The composition root ships `tool_events` only; all five stay unknown."""
+
+    shipped = _descriptor(CapabilityKey.TOOL_EVENTS)
+    projection = SafeEventTypedEvidenceProjector(
+        _Source(
+            _session(),
+            (
+                _event(1, EventKind.TOOL_START, category=ToolCategory.FILE_WRITE),
+                _event(
+                    2,
+                    EventKind.TOOL_END,
+                    category=ToolCategory.TEST,
+                    success=True,
+                ),
+                _event(3, EventKind.DECISION, success=True),
+                _event(4, EventKind.VERIFICATION, success=True),
+            ),
+        ),
+        _Ids(),
+        shipped,
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+
+    assert projection is not None
+    assert projection.declared_opportunity_kinds == frozenset()
+    assert projection.eligible_verification_task_reference_ids == ()
+    result = project_objective_metric_overrides(projection, shipped)
+    assert len(result) == 5
+    assert all(
+        item.value_state is MetricValueState.UNKNOWN
+        and item.numerator is None
+        and item.denominator is None
+        for item in result.values()
+    )
+    assert all(
+        item.explanation_code == "typed_objective_opportunity_authority_missing"
+        for item in result.values()
+    )
+
+
+def test_undeclared_decision_event_is_skipped_not_fatal() -> None:
+    projection = SafeEventTypedEvidenceProjector(
+        _Source(
+            _session(),
+            (
+                _event(1, EventKind.TOOL_END, category=ToolCategory.FILE_WRITE),
+                _event(2, EventKind.DECISION, success=True),
+            ),
+        ),
+        _Ids(),
+        _descriptor(CapabilityKey.TOOL_EVENTS),
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+
+    assert projection is not None
+    assert projection.declared_kinds == frozenset({TypedEvidenceKind.ACTION})
+    assert tuple(item.kind for item in projection.records) == (
+        TypedEvidenceKind.ACTION,
+    )
+
+
+def test_verification_task_denominator_requires_explicit_capabilities() -> None:
+    events = (
+        _event(1, EventKind.VERIFICATION, success=True),
+        _event(2, EventKind.TOOL_END, category=ToolCategory.TEST, success=False),
+    )
+
+    unauthorized = SafeEventTypedEvidenceProjector(
+        _Source(_session(), events), _Ids(), DESCRIPTOR
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+    authorized = SafeEventTypedEvidenceProjector(
+        _Source(_session(), events), _Ids(), AUTHORITATIVE_DESCRIPTOR
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+
+    assert unauthorized is not None
+    assert unauthorized.declared_opportunity_kinds == frozenset()
+    assert unauthorized.eligible_verification_task_reference_ids == ()
+    assert authorized is not None
+    assert authorized.declared_opportunity_kinds == frozenset(
+        {TypedEvidenceOpportunityKind.VERIFICATION_TASK}
+    )
+    # Exactly one task: the explicit verification event.  The tool end is a
+    # category inference and must never receive a task identity.
+    assert len(authorized.eligible_verification_task_reference_ids) == 1
+    linked = tuple(
+        item
+        for item in authorized.records
+        if item.kind is TypedEvidenceKind.VERIFICATION
+        and item.verification_task_reference_ids
+    )
+    assert len(linked) == 1
+    assert linked[0].source_reference_id == "1" * 64
+
+
+def test_explicit_verification_events_make_first_pass_numeric() -> None:
+    projection = SafeEventTypedEvidenceProjector(
+        _Source(
+            _session(),
+            (
+                _event(1, EventKind.VERIFICATION, success=True),
+                _event(2, EventKind.VERIFICATION, success=False),
+            ),
+        ),
+        _Ids(),
+        AUTHORITATIVE_DESCRIPTOR,
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+
+    assert projection is not None
+    first_pass = project_objective_metric_overrides(
+        projection, AUTHORITATIVE_DESCRIPTOR
+    )["outcome.first_pass_verification"]
+
+    assert first_pass.value_state is MetricValueState.KNOWN
+    assert (first_pass.numerator, first_pass.denominator) == (1, 2)
+
+
+def test_no_explicit_verification_event_is_an_empty_authoritative_task_set() -> None:
+    projection = SafeEventTypedEvidenceProjector(
+        _Source(
+            _session(),
+            (_event(1, EventKind.TOOL_END, category=ToolCategory.TEST, success=True),),
+        ),
+        _Ids(),
+        AUTHORITATIVE_DESCRIPTOR,
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+
+    assert projection is not None
+    result = project_objective_metric_overrides(projection, AUTHORITATIVE_DESCRIPTOR)
+
+    assert (
+        result["outcome.first_pass_verification"].value_state
+        is MetricValueState.NOT_APPLICABLE
+    )
+    # A requirement family the reconciler cannot own stays unknown, never N/A.
+    assert (
+        result["logic.requirement_action_traceability"].value_state
+        is MetricValueState.UNKNOWN
+    )
+
+
 def test_complete_semantic_requirement_set_becomes_authoritative_denominator() -> None:
     projection = SafeEventTypedEvidenceProjector(
         _Source(_session(), ()),
@@ -282,13 +432,6 @@ def test_complete_semantic_requirement_set_becomes_authoritative_denominator() -
         DESCRIPTOR,
     ).project(provider=Provider.CODEX, session_id=SESSION_ID)
     assert projection is not None
-    projection = projection.model_copy(
-        update={
-            "declared_opportunity_kinds": frozenset(
-                {TypedEvidenceOpportunityKind.REQUIREMENT}
-            )
-        }
-    )
     requirement = SemanticUnitReceipt(
         provider=Provider.CODEX,
         session_id=SESSION_ID,
@@ -317,13 +460,19 @@ def test_complete_semantic_requirement_set_becomes_authoritative_denominator() -
         retained_unobserved_unit_count=0,
     )
 
-    bound = bind_semantic_unit_opportunities(projection, reconciliation)
+    bound = bind_semantic_unit_opportunities(
+        projection, reconciliation, AUTHORITATIVE_DESCRIPTOR
+    )
     without_link_authority = bind_semantic_unit_opportunities(
-        projection.model_copy(update={"declared_opportunity_kinds": frozenset()}),
-        reconciliation,
+        projection, reconciliation, DESCRIPTOR
     )
 
     assert bound is not None
     assert bound.eligible_requirement_reference_ids == (requirement.unit_id,)
+    assert (
+        TypedEvidenceOpportunityKind.REQUIREMENT
+        in bound.declared_opportunity_kinds
+    )
     assert without_link_authority is not None
     assert without_link_authority.eligible_requirement_reference_ids == ()
+    assert without_link_authority.declared_opportunity_kinds == frozenset()

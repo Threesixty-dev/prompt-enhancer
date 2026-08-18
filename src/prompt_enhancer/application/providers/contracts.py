@@ -50,7 +50,19 @@ class ProviderSurface(StrEnum):
 
 
 class CapabilityKey(StrEnum):
-    """Provider facts that downstream use cases may depend on explicitly."""
+    """Provider facts that downstream use cases may depend on explicitly.
+
+    The ``*_opportunities`` and ``*_links`` members are deliberately separate
+    from the evidence-record members above them.  Being able to *observe* a
+    verification event is not the same authority as being able to *enumerate*
+    the eligible verification tasks of a session, and neither implies the
+    authority to say which requirement a given receipt belongs to.  An
+    objective metric denominator may only come from a decoder that declares the
+    matching enumeration capability, and an evidence link may only be read from
+    a decoder that declares the matching link capability.  A decoder that
+    declares neither can still contribute evidence records; its objective
+    contracts simply stay unknown instead of borrowing an invented denominator.
+    """
 
     SESSION_LIST = "session_list"
     SESSION_LABELS = "session_labels"
@@ -65,6 +77,14 @@ class CapabilityKey(StrEnum):
     EVENT_TIMING = "event_timing"
     TOKEN_USAGE = "token_usage"
     LIVE_UPDATES = "live_updates"
+    REQUIREMENT_OPPORTUNITIES = "requirement_opportunities"
+    HYPOTHESIS_OPPORTUNITIES = "hypothesis_opportunities"
+    MATERIAL_CLAIM_OPPORTUNITIES = "material_claim_opportunities"
+    VERIFICATION_TASK_OPPORTUNITIES = "verification_task_opportunities"
+    REQUIREMENT_EVIDENCE_LINKS = "requirement_evidence_links"
+    HYPOTHESIS_EVIDENCE_LINKS = "hypothesis_evidence_links"
+    MATERIAL_CLAIM_EVIDENCE_LINKS = "material_claim_evidence_links"
+    VERIFICATION_TASK_EVIDENCE_LINKS = "verification_task_evidence_links"
 
 
 class CapabilityState(StrEnum):

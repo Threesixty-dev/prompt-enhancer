@@ -827,8 +827,8 @@ class SessionModelEnsembleService:
         except Exception:
             return None
 
-    @staticmethod
     def _bind_objective_opportunities(
+        self,
         projection: EphemeralTypedEvidenceProjection | None,
         semantic_projection: SemanticUnitProjection | None,
     ) -> EphemeralTypedEvidenceProjection | None:
@@ -838,6 +838,7 @@ class SessionModelEnsembleService:
                 None
                 if semantic_projection is None
                 else semantic_projection.reconciliation,
+                self._objective_evidence_descriptor(),
             )
         except Exception:
             # A semantic-link binding is optional objective authority. Any

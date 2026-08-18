@@ -531,7 +531,11 @@ def test_typed_provider_verification_updates_only_the_measured_evidence_lane() -
                 artifact_version="1",
                 kind=SchemaArtifactKind.SYNTHETIC,
             ),
-            capabilities=(CapabilityKey.VERIFICATION_EVENTS,),
+            capabilities=(
+                CapabilityKey.VERIFICATION_EVENTS,
+                CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES,
+                CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
+            ),
         )
 
         def project(self, *, provider, session_id):  # type: ignore[no-untyped-def]
@@ -621,6 +625,242 @@ def test_typed_provider_verification_updates_only_the_measured_evidence_lane() -
     assert published.state.evidence_authority.value == "objective_receipt"
     assert publication.objective_measured_count == 1
     assert predicted.mean is None and predicted.density_bins == ()
+
+
+def test_service_withholds_a_rubric_scored_on_an_unowned_focus_turn() -> None:
+    """The live service seam must not publish a borrowed-ownership rubric."""
+
+    base = _context()
+    feedback = EphemeralRedactedMessage(
+        message_id=_id("fictional-feedback"),
+        sequence=2,
+        role=TextRole.USER,
+        kind=TextMessageKind.FEEDBACK,
+        language=TextLanguage.ENGLISH,
+        text=SecretStr("A neutral fictional remark about the dashboard."),
+    )
+    messages = (*base.messages, feedback)
+    focused = base.model_copy(
+        update={
+            "messages": messages,
+            "focus_message_id": feedback.message_id,
+            "available_message_kinds": frozenset(item.kind for item in messages),
+            "observed_message_count": len(messages),
+            "eligible_message_count": len(messages),
+        }
+    )
+
+    class _FeedbackFocusSource(_Source):
+        def read(self, *, selection, grant, task_profile):  # type: ignore[no-untyped-def]
+            super().read(selection=selection, grant=grant, task_profile=task_profile)
+            return focused
+
+    service = SessionModelEnsembleService(
+        _Policy(),
+        _Repository(),
+        lambda provider: _FeedbackFocusSource(),
+        _Compatibility(),
+        _Identifiers(),
+        LocalProbabilisticMetricRunner(
+            executor=_execute,
+            device="cpu",
+            deep_enabled=False,
+        ),
+        semantic_unit_reconciler=SemanticUnitReconciler(_Identifiers()),
+    )
+
+    outcome = service.run(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        confirmation=MODEL_ENSEMBLE_CONFIRMATION,
+        idempotency_key="example-unowned-focus-rubric-01",
+    )
+
+    publication = outcome.run.receipt.metric_publication_v2
+    assert publication is not None
+    states = {item.state.metric_key: item.state for item in publication.metrics}
+    for metric_key in (
+        "prompt.task_definition_coverage",
+        "prompt.problem_evidence_quality",
+        "prompt.context_sufficiency",
+    ):
+        assert states[metric_key].value_state.value == "unknown"
+        assert states[metric_key].numeric_value is None
+        assert states[metric_key].statistics.met_count == 0
+        assert (
+            states[metric_key].explanation_code
+            == "rubric_opportunity_not_focus_owned"
+        )
+
+
+def test_undeclared_opportunity_authority_keeps_the_evidence_lane_unknown() -> None:
+    """The same typed graph, from a decoder that never declared the denominator.
+
+    Losing the objective authority must withhold the value, not fail the run
+    and not fall back to the conversational lane.
+    """
+
+    class _EvidenceProjector:
+        descriptor = DecoderDescriptor(
+            provider=ProviderIdentity(key="codex"),
+            surface=ProviderSurface.OPERATIONAL_EVENTS,
+            adapter_version="example-adapter-v1",
+            decoder_key="example-events",
+            decoder_version="1",
+            wire_schema_family="example-events-v1",
+            canonical_schema_version="example-source-v1",
+            schema_artifact=SchemaArtifactProvenance(
+                artifact_key="example-events",
+                artifact_version="1",
+                kind=SchemaArtifactKind.SYNTHETIC,
+            ),
+            capabilities=(CapabilityKey.VERIFICATION_EVENTS,),
+        )
+
+        def project(self, *, provider, session_id):  # type: ignore[no-untyped-def]
+            task_id = _id("typed-verification-task")
+            return EphemeralTypedEvidenceProjection(
+                session_id=SESSION_ID,
+                provenance=TypedEvidenceProvenance(
+                    provider=Provider.CODEX,
+                    provider_version="example-provider-v1",
+                    adapter_version="example-adapter-v1",
+                    decoder_key="example-events",
+                    decoder_version="1",
+                    source_schema_version="example-source-v1",
+                    extraction_complete=True,
+                ),
+                declared_kinds=frozenset({TypedEvidenceKind.VERIFICATION}),
+                declared_opportunity_kinds=frozenset(
+                    {TypedEvidenceOpportunityKind.VERIFICATION_TASK}
+                ),
+                eligible_verification_task_reference_ids=(task_id,),
+                records=(
+                    VerificationEvidence(
+                        evidence_id=_id("typed-verification"),
+                        sequence=0,
+                        source_reference_id=_id("typed-source"),
+                        method=VerificationMethod.TEST,
+                        outcome=VerificationOutcome.PASSED,
+                        receipt_reference_ids=(_id("typed-receipt"),),
+                        verification_task_reference_ids=(task_id,),
+                    ),
+                ),
+            )
+
+    service = SessionModelEnsembleService(
+        _Policy(),
+        _Repository(),
+        lambda provider: _Source(),
+        _Compatibility(),
+        _Identifiers(),
+        LocalProbabilisticMetricRunner(
+            executor=_execute,
+            device="cpu",
+            deep_enabled=False,
+        ),
+        typed_evidence_projector=_EvidenceProjector(),
+    )
+
+    outcome = service.run(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        confirmation=MODEL_ENSEMBLE_CONFIRMATION,
+        idempotency_key="example-unauthorized-evidence-01",
+    )
+
+    publication = outcome.run.receipt.metric_publication_v2
+    assert publication is not None
+    published = next(
+        item
+        for item in publication.metrics
+        if item.state.metric_key == "outcome.first_pass_verification"
+    )
+    assert published.state.value_state.value == "unknown"
+    assert published.state.numeric_value is None
+    assert publication.objective_measured_count == 0
+
+
+def test_denominator_authority_without_outcome_capability_stays_unknown() -> None:
+    """An adapter unable to observe outcomes must not publish a synthetic 0/N."""
+
+    class _EvidenceProjector:
+        descriptor = DecoderDescriptor(
+            provider=ProviderIdentity(key="codex"),
+            surface=ProviderSurface.OPERATIONAL_EVENTS,
+            adapter_version="example-adapter-v1",
+            decoder_key="example-events",
+            decoder_version="1",
+            wire_schema_family="example-events-v1",
+            canonical_schema_version="example-source-v1",
+            schema_artifact=SchemaArtifactProvenance(
+                artifact_key="example-events",
+                artifact_version="1",
+                kind=SchemaArtifactKind.SYNTHETIC,
+            ),
+            capabilities=(
+                CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES,
+                CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
+            ),
+        )
+
+        def project(self, *, provider, session_id):  # type: ignore[no-untyped-def]
+            assert provider is Provider.CODEX and session_id == SESSION_ID
+            return EphemeralTypedEvidenceProjection(
+                session_id=SESSION_ID,
+                provenance=TypedEvidenceProvenance(
+                    provider=Provider.CODEX,
+                    provider_version="example-provider-v1",
+                    adapter_version="example-adapter-v1",
+                    decoder_key="example-events",
+                    decoder_version="1",
+                    source_schema_version="example-source-v1",
+                    extraction_complete=True,
+                ),
+                declared_kinds=frozenset(),
+                declared_opportunity_kinds=frozenset(
+                    {TypedEvidenceOpportunityKind.VERIFICATION_TASK}
+                ),
+                eligible_verification_task_reference_ids=(
+                    _id("unobservable-verification-task"),
+                ),
+                records=(),
+            )
+
+    service = SessionModelEnsembleService(
+        _Policy(),
+        _Repository(),
+        lambda provider: _Source(),
+        _Compatibility(),
+        _Identifiers(),
+        LocalProbabilisticMetricRunner(
+            executor=_execute,
+            device="cpu",
+            deep_enabled=False,
+        ),
+        typed_evidence_projector=_EvidenceProjector(),
+    )
+
+    outcome = service.run(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        confirmation=MODEL_ENSEMBLE_CONFIRMATION,
+        idempotency_key="example-missing-outcome-capability-01",
+    )
+    publication = outcome.run.receipt.metric_publication_v2
+    assert publication is not None
+    published = next(
+        item
+        for item in publication.metrics
+        if item.state.metric_key == "outcome.first_pass_verification"
+    )
+    assert published.state.value_state.value == "unknown"
+    assert published.state.numeric_value is None
+    assert published.state.statistics.capability_available is False
+    assert published.state.explanation_code == (
+        "typed_verification_outcome_capability_missing"
+    )
+    assert publication.objective_measured_count == 0
 
 
 def test_unchanged_legacy_head_gets_typed_projection_without_a_new_model_run() -> None:

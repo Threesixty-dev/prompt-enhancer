@@ -9,6 +9,7 @@ receipt; an assistant completion claim is not verification evidence.
 from __future__ import annotations
 
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -348,13 +349,75 @@ _CAPABILITY_FOR_KIND = {
     TypedEvidenceKind.FEEDBACK: CapabilityKey.FEEDBACK_MESSAGES,
     TypedEvidenceKind.VERIFICATION: CapabilityKey.VERIFICATION_EVENTS,
 }
+#: Authority to *enumerate* one denominator family.  Observing evidence of a
+#: kind never implies knowing the complete eligible set that kind belongs to.
+ENUMERATION_CAPABILITY_FOR_OPPORTUNITY = MappingProxyType(
+    {
+        TypedEvidenceOpportunityKind.REQUIREMENT: (
+            CapabilityKey.REQUIREMENT_OPPORTUNITIES
+        ),
+        TypedEvidenceOpportunityKind.HYPOTHESIS: (
+            CapabilityKey.HYPOTHESIS_OPPORTUNITIES
+        ),
+        TypedEvidenceOpportunityKind.MATERIAL_CLAIM: (
+            CapabilityKey.MATERIAL_CLAIM_OPPORTUNITIES
+        ),
+        TypedEvidenceOpportunityKind.VERIFICATION_TASK: (
+            CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES
+        ),
+    }
+)
+#: Authority to say which member of a denominator family a record belongs to.
+LINK_CAPABILITY_FOR_OPPORTUNITY = MappingProxyType(
+    {
+        TypedEvidenceOpportunityKind.REQUIREMENT: (
+            CapabilityKey.REQUIREMENT_EVIDENCE_LINKS
+        ),
+        TypedEvidenceOpportunityKind.HYPOTHESIS: (
+            CapabilityKey.HYPOTHESIS_EVIDENCE_LINKS
+        ),
+        TypedEvidenceOpportunityKind.MATERIAL_CLAIM: (
+            CapabilityKey.MATERIAL_CLAIM_EVIDENCE_LINKS
+        ),
+        TypedEvidenceOpportunityKind.VERIFICATION_TASK: (
+            CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS
+        ),
+    }
+)
+
+
+def linked_opportunity_kinds(
+    projection: EphemeralTypedEvidenceProjection,
+) -> frozenset[TypedEvidenceOpportunityKind]:
+    """Opportunity families this projection's records actually reference."""
+
+    linked: set[TypedEvidenceOpportunityKind] = set()
+    for record in projection.records:
+        if isinstance(
+            record, (ActionEvidence, DecisionEvidence, VerificationEvidence)
+        ):
+            if record.requirement_reference_ids:
+                linked.add(TypedEvidenceOpportunityKind.REQUIREMENT)
+            if record.hypothesis_reference_ids:
+                linked.add(TypedEvidenceOpportunityKind.HYPOTHESIS)
+        if isinstance(record, VerificationEvidence):
+            if record.claim_reference_ids:
+                linked.add(TypedEvidenceOpportunityKind.MATERIAL_CLAIM)
+            if record.verification_task_reference_ids:
+                linked.add(TypedEvidenceOpportunityKind.VERIFICATION_TASK)
+    return frozenset(linked)
 
 
 def validate_projection_descriptor(
     projection: EphemeralTypedEvidenceProjection,
     descriptor: DecoderDescriptor,
 ) -> None:
-    """Reject a projection not covered by the exact decoder identity."""
+    """Reject a projection not covered by the exact decoder identity.
+
+    Three separate authorities are checked, never inferred from one another:
+    the evidence *kinds* the decoder may emit, the denominator families it may
+    *enumerate*, and the families whose members it may *link* a record to.
+    """
 
     provenance = projection.provenance
     if (
@@ -371,6 +434,31 @@ def validate_projection_descriptor(
         for kind in projection.declared_kinds
     ):
         raise ValueError("typed evidence kind was not declared by the decoder")
+    if any(
+        ENUMERATION_CAPABILITY_FOR_OPPORTUNITY[kind] not in declared_capabilities
+        for kind in projection.declared_opportunity_kinds
+    ):
+        raise ValueError(
+            "typed evidence opportunity enumeration was not declared by the decoder"
+        )
+    if any(
+        LINK_CAPABILITY_FOR_OPPORTUNITY[kind] not in declared_capabilities
+        for kind in projection.declared_opportunity_kinds
+    ):
+        # An authoritative denominator without authority to observe its links
+        # could otherwise become a measured 0/N simply because the adapter was
+        # unable to emit any relationship.  Declaring a family therefore
+        # requires both enumeration and negative-link observability.
+        raise ValueError(
+            "typed evidence opportunity link authority was not declared by the decoder"
+        )
+    if any(
+        LINK_CAPABILITY_FOR_OPPORTUNITY[kind] not in declared_capabilities
+        for kind in linked_opportunity_kinds(projection)
+    ):
+        raise ValueError(
+            "typed evidence opportunity link was not declared by the decoder"
+        )
 
 
 __all__ = [
@@ -379,8 +467,10 @@ __all__ = [
     "ActionState",
     "DecisionEvidence",
     "DecisionState",
+    "ENUMERATION_CAPABILITY_FOR_OPPORTUNITY",
     "EphemeralTypedEvidenceProjection",
     "FeedbackEvidence",
+    "LINK_CAPABILITY_FOR_OPPORTUNITY",
     "RationaleState",
     "TYPED_EVIDENCE_SCHEMA_VERSION",
     "TypedEvidenceKind",
@@ -390,5 +480,6 @@ __all__ = [
     "VerificationEvidence",
     "VerificationMethod",
     "VerificationOutcome",
+    "linked_opportunity_kinds",
     "validate_projection_descriptor",
 ]

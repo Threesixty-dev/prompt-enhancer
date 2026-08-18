@@ -62,11 +62,33 @@ from .text_contracts import (
 from .text_baselines import CONSTRAINT_SLOT_PATTERNS, DELIVERABLE_SLOT_PATTERNS
 
 
-METRIC_PROJECTION_V2_VERSION = "metric-contract-v2-projection-1"
+#: Projection identity 1 mapped the fixed factor rubric onto whichever request
+#: revision was latest when the focus message was not itself an owned request
+#: revision.  That published a number computed from one message against an
+#: opportunity owned by another, so a ``-1`` row is not reproducible under the
+#: corrected rules.  Identity 2 is therefore a new persisted projection version
+#: rather than an in-place fix: ``-1`` rows stay readable and keep meaning
+#: exactly what the producer that wrote them meant.
+METRIC_PROJECTION_V2_VERSION_1 = "metric-contract-v2-projection-1"
+METRIC_PROJECTION_V2_VERSION_2 = "metric-contract-v2-projection-2"
+METRIC_PROJECTION_V2_VERSION = METRIC_PROJECTION_V2_VERSION_2
+#: Readable identities.  Only ``METRIC_PROJECTION_V2_VERSION`` is ever written.
+SUPPORTED_METRIC_PROJECTION_V2_VERSIONS = (
+    METRIC_PROJECTION_V2_VERSION_1,
+    METRIC_PROJECTION_V2_VERSION_2,
+)
+MetricProjectionV2Version = Literal[
+    "metric-contract-v2-projection-1",
+    "metric-contract-v2-projection-2",
+]
 METRIC_PROJECTION_V2_ALGORITHM_ID = "rules.en-pl.contract-v2-opportunities"
-METRIC_PROJECTION_V2_ALGORITHM_VERSION = "1"
+METRIC_PROJECTION_V2_ALGORITHM_VERSION = "2"
 #: The rework classifier is a versioned local rule set, never a receipt field.
 REWORK_CLASSIFIER_VERSION = "rework-class-en-pl-1"
+#: A fixed factor rubric scores the focus message.  It may only be published
+#: when the canonical active request revision owns exactly that message; any
+#: other pairing is an unknown, never a zero.
+REASON_RUBRIC_NOT_FOCUS_OWNED = "rubric_opportunity_not_focus_owned"
 
 _SUPPORTED_LANGUAGES = frozenset(
     {TextLanguage.ENGLISH, TextLanguage.POLISH, TextLanguage.MIXED}
@@ -212,9 +234,10 @@ class MetricStateV2(StrictModel):
     censoring_lower_bound: float | None = Field(default=None, ge=0, le=1)
     censoring_upper_bound: float | None = Field(default=None, ge=0, le=1)
     statistics: OpportunityStatistics
-    projection_version: Literal[METRIC_PROJECTION_V2_VERSION] = (
-        METRIC_PROJECTION_V2_VERSION
-    )
+    #: Read both identities; write only the current one.  A rehydrated ``-1``
+    #: row keeps its own identity so a historical value is never relabelled as
+    #: something the current rules would have produced.
+    projection_version: MetricProjectionV2Version = METRIC_PROJECTION_V2_VERSION
     product_metric_eligible: Literal[False] = False
 
     @field_validator("metric_key", "contract_version", "explanation_code")
@@ -726,28 +749,43 @@ def _canonical_revision(
     reconciliation: SemanticUnitReconciliation,
     window: _Window,
 ) -> SemanticUnitReceipt | None:
-    """The one active request revision the focus message resolves to."""
+    """The one active request revision the focus message resolves to.
+
+    When the focus message is not itself an active request revision the latest
+    active revision is still the canonical *request* of the window.  That is
+    the correct anchor for a contract that reads the request's own text, and
+    the wrong anchor for a contract that scores the focus message; see
+    ``_focus_owned_revision``.
+    """
 
     active, _ = _active_heads(reconciliation, SemanticUnitKind.REQUEST_REVISION)
     if not active:
         return None
-    focus_digest = next(
-        (
-            digest
-            for digest in (
-                head.owner_source_digest
-                for head in reconciliation.heads
-                if head.kind is SemanticUnitKind.REQUEST_REVISION
-            )
-            if (message := window.message(digest)) is not None
-            and message.message_id == context.focus_message_id
-        ),
-        None,
-    )
-    for head in active:
-        if head.owner_source_digest == focus_digest:
-            return head
+    focus = _focus_owned_revision(context, reconciliation, window)
+    if focus is not None:
+        return focus
     return max(active, key=lambda item: (item.first_sequence, item.unit_id))
+
+
+def _focus_owned_revision(
+    context: P1TextAnalysisInput,
+    reconciliation: SemanticUnitReconciliation,
+    window: _Window,
+) -> SemanticUnitReceipt | None:
+    """The active request revision that owns *exactly* the focus message.
+
+    ``None`` means no active revision owns it: the focus is a feedback turn, a
+    superseded request, or a message this reconciler never owned.  A rubric
+    fraction computed from that message therefore has no exactly-owned
+    opportunity to be published against.
+    """
+
+    active, _ = _active_heads(reconciliation, SemanticUnitKind.REQUEST_REVISION)
+    for head in active:
+        message = window.message(head.owner_source_digest)
+        if message is not None and message.message_id == context.focus_message_id:
+            return head
+    return None
 
 
 def _rubric_state(
@@ -755,15 +793,32 @@ def _rubric_state(
     conversational: TextMetricResult | None,
     revision: SemanticUnitReceipt | None,
     *,
+    focus_unowned: bool,
     source_complete: bool,
 ) -> MetricStateV2:
-    """Score the fixed factor rubric against the one canonical revision.
+    """Score the fixed factor rubric against the focus-owned revision.
 
-    The rubric numerator still comes from the reviewed V1 calculator; V2 only
-    anchors it to an exactly-owned opportunity and replaces the whole-metric
-    unknown rules with the contract's declared no-opportunity outcome.
+    The rubric numerator still comes from the reviewed V1 calculator, which
+    scores ``context.focus_message_id``.  V2 anchors it to an exactly-owned
+    opportunity, so the fraction may only be published when the canonical
+    active request revision owns that same message.  ``focus_unowned`` marks
+    the case where request revisions exist but none of them owns the scored
+    message: borrowing the latest revision's ownership would publish a number
+    about one turn as if it described another, and a zero would be worse still.
     """
 
+    if focus_unowned:
+        return resolve_metric_state(
+            contract,
+            _statistics(
+                contract,
+                (),
+                capability_available=False,
+                source_complete=source_complete,
+            ),
+            explanation_code=REASON_RUBRIC_NOT_FOCUS_OWNED,
+            unavailable_code=REASON_RUBRIC_NOT_FOCUS_OWNED,
+        )
     if revision is None:
         statistics = _statistics(
             contract,
@@ -1075,6 +1130,13 @@ def project_metric_states_v2(
         if reconciliation is None
         else _canonical_revision(context, reconciliation, window)
     )
+    focus_revision = (
+        None
+        if reconciliation is None
+        else _focus_owned_revision(context, reconciliation, window)
+    )
+    # Request revisions exist, but none of them owns the scored focus message.
+    focus_unowned = revision is not None and focus_revision is None
     # A fixed rubric or declared profile belongs to the canonical request in
     # the explicitly requested bounded scope. It does not require proof that
     # the provider supplied the whole session. Cross-turn semantic episodes do:
@@ -1105,7 +1167,8 @@ def project_metric_states_v2(
                 _rubric_state(
                     contract,
                     conversational.get(contract.metric_key),
-                    revision,
+                    focus_revision,
+                    focus_unowned=focus_unowned,
                     source_complete=requested_scope_complete,
                 )
             )
@@ -1135,9 +1198,14 @@ __all__ = [
     "METRIC_PROJECTION_V2_ALGORITHM_ID",
     "METRIC_PROJECTION_V2_ALGORITHM_VERSION",
     "METRIC_PROJECTION_V2_VERSION",
+    "METRIC_PROJECTION_V2_VERSION_1",
+    "METRIC_PROJECTION_V2_VERSION_2",
+    "MetricProjectionV2Version",
     "MetricStateV2",
     "OpportunityStatistics",
+    "REASON_RUBRIC_NOT_FOCUS_OWNED",
     "REWORK_CLASSIFIER_VERSION",
+    "SUPPORTED_METRIC_PROJECTION_V2_VERSIONS",
     "classify_feedback_rework",
     "objective_metric_state",
     "project_metric_states_v2",

@@ -13,6 +13,10 @@ from ...application.analysis.model_ensemble import (
     MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION,
     ModelExpertRole,
 )
+from ...application.analysis.metric_evidence_readiness_v2 import (
+    MetricEvidenceReadinessProjectionV2,
+    project_metric_evidence_readiness_v2,
+)
 from ...application.analysis.metric_publication_v2 import MetricPublicationV2
 from ...application.analysis.session_model_ensemble import (
     LEGACY_MODEL_ENSEMBLE_CONFIRMATION,
@@ -270,6 +274,10 @@ class ModelEnsembleRunDto(StrictModel):
     metric_projection_completed_at: datetime | None
     typed_metrics: tuple[ModelEnsembleTypedMetricDto, ...] = Field(max_length=20)
     metric_publication_v2: MetricPublicationV2 | None
+    #: Derived from the sealed publication above plus this run's provenance.
+    #: It stores nothing of its own, so it is absent exactly when the sealed
+    #: publication is absent.
+    metric_evidence_readiness_v2: MetricEvidenceReadinessProjectionV2 | None
     predictive_projection_version: Literal[
         PROBABILISTIC_METRIC_PROJECTION_VERSION
     ] | None
@@ -358,6 +366,17 @@ class ModelEnsembleRunDto(StrictModel):
                 for item in receipt.typed_metrics
             ),
             metric_publication_v2=receipt.metric_publication_v2,
+            metric_evidence_readiness_v2=(
+                None
+                if receipt.metric_publication_v2 is None
+                else project_metric_evidence_readiness_v2(
+                    receipt.metric_publication_v2,
+                    provider=record.provider,
+                    provider_version=record.provider_version,
+                    adapter_version=record.adapter_version,
+                    source_schema_version=record.source_schema_version,
+                )
+            ),
             predictive_projection_version=(
                 None
                 if receipt.predictive_projection is None

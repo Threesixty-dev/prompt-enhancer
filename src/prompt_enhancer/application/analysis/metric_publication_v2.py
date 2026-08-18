@@ -38,6 +38,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from enum import StrEnum
+import hashlib
+import json
 from types import MappingProxyType
 from typing import Literal
 
@@ -80,6 +82,7 @@ from .metric_guidance import (
 from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION,
     LiveMetricStateProjectionV2,
+    MetricProjectionV2Version,
     MetricStateProjectionV2,
     MetricStateV2,
     OpportunityStatistics,
@@ -403,9 +406,10 @@ class MetricPublicationV2(StrictModel):
         METRIC_CONTRACT_REGISTRY_VERSION_V2
     )
     contract_set_fingerprint: str
-    projection_version: Literal[METRIC_PROJECTION_V2_VERSION] = (
-        METRIC_PROJECTION_V2_VERSION
-    )
+    #: Always the identity of the states themselves, never a caller argument:
+    #: a rehydrated historical bundle must keep the producer identity it was
+    #: sealed with instead of being relabelled as the current one.
+    projection_version: MetricProjectionV2Version = METRIC_PROJECTION_V2_VERSION
     guidance_contract_version: Literal[METRIC_GUIDANCE_CONTRACT_VERSION] = (
         METRIC_GUIDANCE_CONTRACT_VERSION
     )
@@ -437,6 +441,13 @@ class MetricPublicationV2(StrictModel):
             raise ValueError("a publication must list every V2 metric in registry order")
         if self.contract_set_fingerprint != metric_contract_v2_set_fingerprint():
             raise ValueError("publication contract-set fingerprint is stale")
+        if any(
+            item.state.projection_version != self.projection_version
+            for item in self.metrics
+        ):
+            raise ValueError(
+                "a publication must restate the projection identity of its states"
+            )
         if self.compatibility_preview != (
             self.source is MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
         ):
@@ -520,6 +531,29 @@ class MetricPublicationV2(StrictModel):
             )
             for state in MetricImplementationState
         }
+
+
+def metric_publication_v2_fingerprint(publication: MetricPublicationV2) -> str:
+    """Content commitment over one whole publication, in registry-free order.
+
+    This is the exact value a persistence seal stores, so a reader can restate
+    it without recomputing it differently.  Metrics are sorted by key rather
+    than left in registry order so the commitment is over the content, not over
+    an accidental iteration order.
+    """
+
+    payload = publication.model_dump(mode="json")
+    payload["metrics"] = sorted(
+        payload["metrics"], key=lambda item: item["state"]["metric_key"]
+    )
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _derived_factor_evidence(
@@ -616,8 +650,13 @@ def publish_metric_states_v2(
     def _count(value_state: MetricValueStateV2) -> int:
         return sum(item.state.value_state is value_state for item in published)
 
+    projection_versions = {item.state.projection_version for item in published}
+    if len(projection_versions) != 1:
+        raise ValueError("a publication cannot mix producer projection identities")
+
     return MetricPublicationV2(
         contract_set_fingerprint=metric_contract_v2_set_fingerprint(),
+        projection_version=projection_versions.pop(),
         source=source,
         canonical_live_snapshot=(
             source is MetricPublicationSource.LIVE_PROJECTION
@@ -853,6 +892,7 @@ __all__ = [
     "MetricPublicationSource",
     "MetricPublicationV2",
     "PublishedMetricV2",
+    "metric_publication_v2_fingerprint",
     "publish_metric_states_v2",
     "publish_v1_compatibility_preview",
     "rehydrate_v1_compatibility_states",

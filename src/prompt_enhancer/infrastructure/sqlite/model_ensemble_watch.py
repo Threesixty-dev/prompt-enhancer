@@ -50,6 +50,7 @@ from ...application.analysis.probabilistic_metrics import (
 from ...application.persistence import MetricValueState
 from ...domain import Provider
 from ._common import ConnectionScope, from_iso, require_safe_id, require_safe_label, to_iso
+from .model_ensemble import METRIC_V2_SIDECARS
 
 
 def _record(row: object) -> ModelEnsembleWatchRecord:
@@ -183,6 +184,30 @@ def _predictive_identity(connection, run_id: str | None) -> tuple[object, ...] |
     )
 
 
+def _metric_v2_seal(connection, run_id: str) -> tuple[object, str] | None:
+    """Return one run's V2 seal and its states table, newest identity first.
+
+    A run carries at most one sidecar identity, so the first hit is the whole
+    answer.  Two runs sealed under different projection identities have
+    different ``projection_version`` values and are therefore not comparable,
+    which is exactly what ``_metric_v2_identity`` reports.
+    """
+
+    for _version, states_table, seals_table in METRIC_V2_SIDECARS:
+        seal = connection.execute(
+            f"""SELECT publication_key,publication_version,registry_version,
+                       contract_set_fingerprint,projection_version,
+                       guidance_contract_version,guidance_template_catalog_version,
+                       source,canonical_live_snapshot,model_stage_consumed,
+                       compatibility_preview
+                FROM {seals_table} WHERE run_id=?""",
+            (run_id,),
+        ).fetchone()
+        if seal is not None:
+            return seal, states_table
+    return None
+
+
 def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | None:
     """Return the measured-contract identity used for trajectory comparability.
 
@@ -192,18 +217,10 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
 
     if run_id is None:
         return None
-    seal = connection.execute(
-        """SELECT publication_key,publication_version,registry_version,
-                  contract_set_fingerprint,projection_version,
-                  guidance_contract_version,guidance_template_catalog_version,
-                  source,canonical_live_snapshot,model_stage_consumed,
-                  compatibility_preview
-           FROM session_model_ensemble_metric_publication_v2_seals
-           WHERE run_id=?""",
-        (run_id,),
-    ).fetchone()
-    if seal is None:
+    found = _metric_v2_seal(connection, run_id)
+    if found is None:
         return None
+    seal, _states_table = found
     return (
         seal["publication_key"],
         int(seal["publication_version"]),
@@ -220,8 +237,10 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
 
 
 def _metric_v2_states(connection, run_id: str) -> tuple[MetricStateV2, ...]:
-    if _metric_v2_identity(connection, run_id) is None:
+    found = _metric_v2_seal(connection, run_id)
+    if found is None:
         return ()
+    _seal, states_table = found
     return tuple(
         MetricStateV2(
             metric_key=item["metric_key"],
@@ -254,8 +273,8 @@ def _metric_v2_states(connection, run_id: str) -> tuple[MetricStateV2, ...]:
             product_metric_eligible=bool(item["product_metric_eligible"]),
         )
         for item in connection.execute(
-            """SELECT * FROM session_model_ensemble_metric_states_v2
-               WHERE run_id=? ORDER BY metric_ordinal""",
+            f"""SELECT * FROM {states_table}
+                WHERE run_id=? ORDER BY metric_ordinal""",
             (run_id,),
         ).fetchall()
     )

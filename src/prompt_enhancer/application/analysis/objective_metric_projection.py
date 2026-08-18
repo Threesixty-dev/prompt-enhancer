@@ -17,6 +17,7 @@ from .evidence_contracts import (
     DecisionEvidence,
     DecisionState,
     EphemeralTypedEvidenceProjection,
+    TypedEvidenceKind,
     TypedEvidenceOpportunityKind,
     VerificationEvidence,
     VerificationOutcome,
@@ -128,6 +129,21 @@ def _withheld_map(code: str) -> dict[str, ObjectiveMetricOverride]:
     }
 
 
+def _outcome_kinds_available(
+    projection: EphemeralTypedEvidenceProjection,
+    *required: TypedEvidenceKind,
+) -> bool:
+    """Whether the adapter declared every classifier input for a metric.
+
+    Opportunity enumeration and link authority establish the denominator and
+    relationship surface.  They do not establish that action, decision, or
+    verification outcomes were observable.  Treating an undeclared outcome
+    family as an empty one would manufacture a measured zero.
+    """
+
+    return set(required).issubset(projection.declared_kinds)
+
+
 def _latest_verification_by_reference(
     records: tuple[VerificationEvidence, ...],
     reference_field: str,
@@ -191,6 +207,17 @@ def project_objective_metric_overrides(
             )
         elif len(hypotheses) > MAX_OBJECTIVE_RECEIPT_OPPORTUNITIES:
             overrides["logic.hypothesis_test_linkage"] = _receipt_bound_unknown()
+        elif not _outcome_kinds_available(
+            projection,
+            TypedEvidenceKind.ACTION,
+            TypedEvidenceKind.DECISION,
+            TypedEvidenceKind.VERIFICATION,
+        ):
+            overrides["logic.hypothesis_test_linkage"] = _unknown(
+                "typed_hypothesis_chain_capability_missing",
+                resolved=0,
+                eligible=0,
+            )
         else:
             linked = 0
             unresolved = 0
@@ -274,65 +301,87 @@ def project_objective_metric_overrides(
                 _receipt_bound_unknown()
             )
         else:
-            completed = frozenset(
-                reference
-                for record in actions
-                if record.state is ActionState.COMPLETED
-                for reference in record.requirement_reference_ids
-            )
-            unresolved_actions = frozenset(
-                reference
-                for record in actions
-                if record.state in {ActionState.STARTED, ActionState.UNKNOWN}
-                for reference in record.requirement_reference_ids
-                if reference not in completed
-            )
-            if requirements & unresolved_actions:
+            if not _outcome_kinds_available(
+                projection, TypedEvidenceKind.ACTION
+            ):
                 overrides["logic.requirement_action_traceability"] = _unknown(
-                    "typed_requirement_action_links_unresolved",
-                    resolved=len(requirements - unresolved_actions),
-                    eligible=len(requirements),
-                    met=len((requirements & completed) - unresolved_actions),
+                    "typed_requirement_action_capability_missing",
+                    resolved=0,
+                    eligible=0,
                 )
             else:
-                overrides["logic.requirement_action_traceability"] = _known(
-                    "typed_requirement_action_links",
-                    numerator=len(requirements & completed),
-                    denominator=len(requirements),
+                completed = frozenset(
+                    reference
+                    for record in actions
+                    if record.state is ActionState.COMPLETED
+                    for reference in record.requirement_reference_ids
                 )
+                unresolved_actions = frozenset(
+                    reference
+                    for record in actions
+                    if record.state in {ActionState.STARTED, ActionState.UNKNOWN}
+                    for reference in record.requirement_reference_ids
+                    if reference not in completed
+                )
+                if requirements & unresolved_actions:
+                    overrides["logic.requirement_action_traceability"] = _unknown(
+                        "typed_requirement_action_links_unresolved",
+                        resolved=len(requirements - unresolved_actions),
+                        eligible=len(requirements),
+                        met=len((requirements & completed) - unresolved_actions),
+                    )
+                else:
+                    overrides["logic.requirement_action_traceability"] = _known(
+                        "typed_requirement_action_links",
+                        numerator=len(requirements & completed),
+                        denominator=len(requirements),
+                    )
 
-            latest_requirement_verification = _latest_verification_by_reference(
-                verifications,
-                "requirement_reference_ids",
-            )
-            passing = frozenset(
-                reference
-                for reference, record in latest_requirement_verification.items()
-                if record.outcome is VerificationOutcome.PASSED
-            )
-            unresolved_verifications = frozenset(
-                reference
-                for reference, record in latest_requirement_verification.items()
-                if record.outcome
-                in {
-                    VerificationOutcome.INCONCLUSIVE,
-                    VerificationOutcome.UNKNOWN,
-                }
-                if reference not in passing
-            )
-            if requirements & unresolved_verifications:
+            if not _outcome_kinds_available(
+                projection, TypedEvidenceKind.VERIFICATION
+            ):
                 overrides["outcome.verified_requirement_coverage"] = _unknown(
-                    "typed_requirement_verification_links_unresolved",
-                    resolved=len(requirements - unresolved_verifications),
-                    eligible=len(requirements),
-                    met=len((requirements & passing) - unresolved_verifications),
+                    "typed_requirement_verification_capability_missing",
+                    resolved=0,
+                    eligible=0,
                 )
             else:
-                overrides["outcome.verified_requirement_coverage"] = _known(
-                    "typed_requirement_verification_links",
-                    numerator=len(requirements & passing),
-                    denominator=len(requirements),
+                latest_requirement_verification = (
+                    _latest_verification_by_reference(
+                        verifications,
+                        "requirement_reference_ids",
+                    )
                 )
+                passing = frozenset(
+                    reference
+                    for reference, record in latest_requirement_verification.items()
+                    if record.outcome is VerificationOutcome.PASSED
+                )
+                unresolved_verifications = frozenset(
+                    reference
+                    for reference, record in latest_requirement_verification.items()
+                    if record.outcome
+                    in {
+                        VerificationOutcome.INCONCLUSIVE,
+                        VerificationOutcome.UNKNOWN,
+                    }
+                    if reference not in passing
+                )
+                if requirements & unresolved_verifications:
+                    overrides["outcome.verified_requirement_coverage"] = _unknown(
+                        "typed_requirement_verification_links_unresolved",
+                        resolved=len(requirements - unresolved_verifications),
+                        eligible=len(requirements),
+                        met=len(
+                            (requirements & passing) - unresolved_verifications
+                        ),
+                    )
+                else:
+                    overrides["outcome.verified_requirement_coverage"] = _known(
+                        "typed_requirement_verification_links",
+                        numerator=len(requirements & passing),
+                        denominator=len(requirements),
+                    )
 
     if TypedEvidenceOpportunityKind.MATERIAL_CLAIM in declared:
         claims = frozenset(projection.eligible_claim_reference_ids)
@@ -342,6 +391,14 @@ def project_objective_metric_overrides(
             )
         elif len(claims) > MAX_OBJECTIVE_RECEIPT_OPPORTUNITIES:
             overrides["outcome.agent_claim_grounding"] = _receipt_bound_unknown()
+        elif not _outcome_kinds_available(
+            projection, TypedEvidenceKind.VERIFICATION
+        ):
+            overrides["outcome.agent_claim_grounding"] = _unknown(
+                "typed_claim_verification_capability_missing",
+                resolved=0,
+                eligible=0,
+            )
         else:
             latest_claim_verification = _latest_verification_by_reference(
                 verifications,
@@ -385,6 +442,14 @@ def project_objective_metric_overrides(
             )
         elif len(tasks) > MAX_OBJECTIVE_RECEIPT_OPPORTUNITIES:
             overrides["outcome.first_pass_verification"] = _receipt_bound_unknown()
+        elif not _outcome_kinds_available(
+            projection, TypedEvidenceKind.VERIFICATION
+        ):
+            overrides["outcome.first_pass_verification"] = _unknown(
+                "typed_verification_outcome_capability_missing",
+                resolved=0,
+                eligible=0,
+            )
         else:
             passed = 0
             resolved = 0

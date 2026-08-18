@@ -12,6 +12,9 @@ from prompt_enhancer.application.analysis.metric_contract_v2 import (
     MetricValueStateV2,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
+    METRIC_PROJECTION_V2_VERSION,
+    SUPPORTED_METRIC_PROJECTION_V2_VERSIONS,
+    _issue_metric_state_projection,
     classify_feedback_rework,
     project_metric_states_v2,
 )
@@ -383,6 +386,228 @@ def test_incomplete_legacy_scope_withholds_a_known_rubric_without_crashing() -> 
     assert state.numeric_value is None
     assert state.explanation_code == "source_reconciliation_incomplete"
     assert publication.unknown_count >= 1
+
+
+RUBRIC_METRIC_KEYS = (
+    "prompt.task_definition_coverage",
+    "prompt.problem_evidence_quality",
+    "prompt.context_sufficiency",
+)
+
+
+def test_projection_identities_are_readable_but_only_the_newest_is_written() -> None:
+    assert SUPPORTED_METRIC_PROJECTION_V2_VERSIONS == (
+        "metric-contract-v2-projection-1",
+        "metric-contract-v2-projection-2",
+    )
+    assert METRIC_PROJECTION_V2_VERSION == "metric-contract-v2-projection-2"
+    context = _context(
+        (
+            _message(
+                "identity-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Create the fictional widget report.",
+            ),
+        ),
+        label="identity",
+    )
+
+    states = _project(context)
+
+    assert all(
+        state.projection_version == METRIC_PROJECTION_V2_VERSION
+        for state in states
+    )
+    assert publish_metric_states_v2(states).projection_version == (
+        METRIC_PROJECTION_V2_VERSION
+    )
+
+
+def test_a_publication_cannot_mix_producer_projection_identities() -> None:
+    context = _context(
+        (
+            _message(
+                "mixed-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Create the fictional widget report.",
+            ),
+        ),
+        label="mixed-identity",
+    )
+    states = _project(context)
+    mixed = _issue_metric_state_projection(
+        (
+            states[0].model_copy(
+                update={"projection_version": "metric-contract-v2-projection-1"}
+            ),
+            *tuple(states)[1:],
+        ),
+        compatibility=False,
+    )
+
+    with pytest.raises(ValueError, match="mix producer projection identities"):
+        publish_metric_states_v2(mixed)
+
+
+def _feedback_focus_context() -> P1TextAnalysisInput:
+    """A window whose focus turn is feedback, not the request revision."""
+
+    return _context(
+        (
+            _message(
+                "owned-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Create the fictional widget report with exact acceptance rows.",
+            ),
+            _message(
+                "later-feedback",
+                2,
+                TextRole.USER,
+                TextMessageKind.FEEDBACK,
+                "A neutral fictional remark about the widget report.",
+            ),
+        ),
+        label="feedback-focus",
+    )
+
+
+def test_feedback_focus_cannot_borrow_request_revision_ownership() -> None:
+    context = _feedback_focus_context()
+    result = SimpleNamespace(
+        value_state=MetricValueState.KNOWN,
+        fraction=MetricFraction(numerator=3, denominator=3),
+        explanation_code="synthetic_rubric_result",
+    )
+
+    by_key = _by_key(
+        _project(
+            context,
+            conversational={key: result for key in RUBRIC_METRIC_KEYS},
+        )
+    )
+
+    for key in RUBRIC_METRIC_KEYS:
+        state = by_key[key]
+        assert state.value_state is MetricValueStateV2.UNKNOWN
+        assert state.numeric_value is None
+        assert state.numerator is state.denominator is None
+        assert state.explanation_code == "rubric_opportunity_not_focus_owned"
+        # Never a zero: an unowned opportunity is not a failed one.
+        assert state.statistics.eligible_count == 0
+        assert state.statistics.met_count == 0
+        assert state.statistics.not_met_count == 0
+
+
+def test_feedback_focus_withholding_survives_publication_round_trip() -> None:
+    context = _feedback_focus_context()
+    result = SimpleNamespace(
+        value_state=MetricValueState.KNOWN,
+        fraction=MetricFraction(numerator=3, denominator=3),
+        explanation_code="synthetic_rubric_result",
+    )
+
+    projection = _project(
+        context,
+        conversational={key: result for key in RUBRIC_METRIC_KEYS},
+    )
+    publication = publish_metric_states_v2(projection)
+    published = {item.state.metric_key: item for item in publication.metrics}
+
+    for key in RUBRIC_METRIC_KEYS:
+        item = published[key]
+        assert item.state.value_state is MetricValueStateV2.UNKNOWN
+        assert item.guidance.numerator is item.guidance.denominator is None
+        assert item.implementation_state.value == "method_only_withheld"
+    payload = publication.model_dump_json()
+    assert "rubric_opportunity_not_focus_owned" in payload
+
+
+def test_request_focus_still_publishes_the_owned_rubric_fraction() -> None:
+    context = _context(
+        (
+            _message(
+                "focus-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Create the fictional widget report.",
+            ),
+        ),
+        label="request-focus",
+    )
+    result = SimpleNamespace(
+        value_state=MetricValueState.KNOWN,
+        fraction=MetricFraction(numerator=2, denominator=3),
+        explanation_code="synthetic_rubric_result",
+    )
+
+    state = _by_key(
+        _project(
+            context,
+            conversational={"prompt.task_definition_coverage": result},
+        )
+    )["prompt.task_definition_coverage"]
+
+    assert state.value_state is MetricValueStateV2.KNOWN
+    assert (state.numerator, state.denominator) == (2, 3)
+    assert state.statistics.distinct_owner_count == 1
+
+
+def test_superseded_focus_request_is_not_an_owned_rubric_opportunity() -> None:
+    old = _message(
+        "superseded-focus",
+        1,
+        TextRole.USER,
+        TextMessageKind.REQUEST,
+        "Create the old fictional report.",
+    )
+    current = _message(
+        "current-owner",
+        2,
+        TextRole.USER,
+        TextMessageKind.REQUEST,
+        "Create the current fictional report.",
+        supersedes=(old.message_id,),
+    )
+    messages = (old, current)
+    context = P1TextAnalysisInput(
+        provider=Provider.SYNTHETIC,
+        session_id=_id("session"),
+        provider_version="synthetic.1",
+        adapter_version="synthetic-adapter.1",
+        source_schema_version="synthetic-source.1",
+        content_schema_version="synthetic-content.1",
+        redactor_version="synthetic-redactor.1",
+        text_extraction_complete=True,
+        available_message_kinds=frozenset(item.kind for item in messages),
+        analysis_window_fingerprint=_id("window:superseded-focus"),
+        focus_message_id=old.message_id,
+        observed_message_count=len(messages),
+        eligible_message_count=len(messages),
+        messages=messages,
+        task_profile=TextTaskProfile(applicability=()),
+    )
+    result = SimpleNamespace(
+        value_state=MetricValueState.KNOWN,
+        fraction=MetricFraction(numerator=3, denominator=3),
+        explanation_code="synthetic_rubric_result",
+    )
+
+    state = _by_key(
+        _project(
+            context,
+            conversational={"prompt.task_definition_coverage": result},
+        )
+    )["prompt.task_definition_coverage"]
+
+    assert state.value_state is MetricValueStateV2.UNKNOWN
+    assert state.explanation_code == "rubric_opportunity_not_focus_owned"
 
 
 def test_rubric_denominator_mismatch_is_unknown_not_a_score() -> None:

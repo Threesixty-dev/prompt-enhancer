@@ -30,6 +30,7 @@ from ...application.analysis.metric_contract_v2 import (
     MetricValueStateV2,
 )
 from ...application.analysis.metric_projection_v2 import (
+    METRIC_PROJECTION_V2_VERSION_2,
     MetricStateV2,
     OpportunityStatistics,
     _issue_metric_state_projection,
@@ -39,6 +40,7 @@ from ...application.analysis.metric_publication_v2 import (
     METRIC_PUBLICATION_V2_VERSION,
     MetricPublicationSource,
     MetricPublicationV2,
+    metric_publication_v2_fingerprint,
     publish_metric_states_v2,
 )
 from ...application.analysis.session_model_ensemble import (
@@ -165,21 +167,36 @@ def _predictive_projection_fingerprint(
     ).hexdigest()
 
 
+#: Sidecar tables per projection identity.  The r1 pair is frozen at
+#: MIGRATION_40 and never gains a row from current code; the r2 pair added by
+#: MIGRATION_41 receives every new publication.  Both stay readable.
+METRIC_V2_SIDECARS = (
+    (
+        METRIC_PROJECTION_V2_VERSION_2,
+        "session_model_ensemble_metric_states_v2_r2",
+        "session_model_ensemble_metric_publication_v2_seals_r2",
+    ),
+    (
+        "metric-contract-v2-projection-1",
+        "session_model_ensemble_metric_states_v2",
+        "session_model_ensemble_metric_publication_v2_seals",
+    ),
+)
+
+
+def _metric_v2_tables(projection_version: str) -> tuple[str, str]:
+    for version, states_table, seals_table in METRIC_V2_SIDECARS:
+        if projection_version == version:
+            return states_table, seals_table
+    raise DatabaseInvariantError("metric V2 projection identity is unsupported")
+
+
 def _metric_publication_v2_fingerprint(
     publication: MetricPublicationV2,
 ) -> str:
-    payload = publication.model_dump(mode="json")
-    payload["metrics"] = sorted(
-        payload["metrics"], key=lambda item: item["state"]["metric_key"]
-    )
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=True,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
+    """Delegate to the one canonical definition the API projection also reads."""
+
+    return metric_publication_v2_fingerprint(publication)
 
 
 def _semantic_unit_reconciliation_fingerprint(
@@ -783,9 +800,20 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             raise DatabaseInvariantError(
                 "metric V2 sidecar must be a canonical live measured publication"
             )
+        # Historical r1 rows are read-only.  Accepting an r1 model here would
+        # let current code mint a fresh value under a frozen producer identity,
+        # defeating the append-only correction even if the SQL sidecars stayed
+        # separate.  Every current write must therefore use r2.
+        if publication.projection_version != METRIC_PROJECTION_V2_VERSION_2:
+            raise DatabaseInvariantError(
+                "new metric V2 publications require the current projection identity"
+            )
+        states_table, seals_table = _metric_v2_tables(
+            METRIC_PROJECTION_V2_VERSION_2
+        )
         connection.executemany(
-            """
-            INSERT INTO session_model_ensemble_metric_states_v2(
+            f"""
+            INSERT INTO {states_table}(
                 run_id,metric_ordinal,registry_version,projection_version,
                 metric_key,contract_version,contract_fingerprint,
                 evidence_authority,value_state,explanation_code,numerator,
@@ -838,8 +866,8 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             or run.receipt.completed_at
         )
         connection.execute(
-            """
-            INSERT INTO session_model_ensemble_metric_publication_v2_seals(
+            f"""
+            INSERT INTO {seals_table}(
                 run_id,publication_key,publication_version,registry_version,
                 contract_set_fingerprint,projection_version,
                 guidance_contract_version,guidance_template_catalog_version,
@@ -1386,23 +1414,31 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
         # Current repository code is also used by the v38/v39 upgrade fixtures to
         # prove that historical graphs remain readable before MIGRATION_40 is
         # applied.  Missing sidecar tables in those exact legacy schemas mean
-        # "no V2 publication", not database corruption.
-        metric_publication_v2_tables_present = connection.execute(
-            """SELECT COUNT(*) AS table_count FROM sqlite_master
-               WHERE type='table' AND name IN (
-                 'session_model_ensemble_metric_states_v2',
-                 'session_model_ensemble_metric_publication_v2_seals'
-               )"""
-        ).fetchone()["table_count"] == 2
-        metric_publication_v2_seal = (
-            connection.execute(
-                """SELECT * FROM session_model_ensemble_metric_publication_v2_seals
-                   WHERE run_id=?""",
+        # "no V2 publication", not database corruption.  The r2 sidecar is read
+        # first and the r1 sidecar second: a run carries at most one of them,
+        # and each keeps the projection identity it was sealed under.
+        metric_publication_v2_seal = None
+        metric_v2_states_table = None
+        for _version, states_table, seals_table in METRIC_V2_SIDECARS:
+            present = connection.execute(
+                """SELECT COUNT(*) AS table_count FROM sqlite_master
+                   WHERE type='table' AND name IN (?,?)""",
+                (states_table, seals_table),
+            ).fetchone()["table_count"] == 2
+            if not present:
+                continue
+            seal = connection.execute(
+                f"SELECT * FROM {seals_table} WHERE run_id=?",
                 (run_id,),
             ).fetchone()
-            if metric_publication_v2_tables_present
-            else None
-        )
+            if seal is None:
+                continue
+            if metric_publication_v2_seal is not None:
+                raise DatabaseInvariantError(
+                    "a run cannot carry two metric V2 publication identities"
+                )
+            metric_publication_v2_seal = seal
+            metric_v2_states_table = states_table
         metric_publication_v2 = None
         if metric_publication_v2_seal is not None:
             states = tuple(
@@ -1445,8 +1481,8 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     ),
                 )
                 for item in connection.execute(
-                    """SELECT * FROM session_model_ensemble_metric_states_v2
-                       WHERE run_id=? ORDER BY metric_ordinal""",
+                    f"""SELECT * FROM {metric_v2_states_table}
+                        WHERE run_id=? ORDER BY metric_ordinal""",
                     (run_id,),
                 ).fetchall()
             )

@@ -60,7 +60,22 @@ def _descriptor(*capabilities: CapabilityKey) -> DecoderDescriptor:
     )
 
 
+#: A fully authoritative synthetic decoder: it may emit every evidence kind,
+#: enumerate every denominator family, and link records into all four.
 DESCRIPTOR = _descriptor(
+    CapabilityKey.TOOL_EVENTS,
+    CapabilityKey.DECISION_EVENTS,
+    CapabilityKey.VERIFICATION_EVENTS,
+    CapabilityKey.REQUIREMENT_OPPORTUNITIES,
+    CapabilityKey.HYPOTHESIS_OPPORTUNITIES,
+    CapabilityKey.MATERIAL_CLAIM_OPPORTUNITIES,
+    CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES,
+    CapabilityKey.REQUIREMENT_EVIDENCE_LINKS,
+    CapabilityKey.HYPOTHESIS_EVIDENCE_LINKS,
+    CapabilityKey.MATERIAL_CLAIM_EVIDENCE_LINKS,
+    CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
+)
+EVENTS_ONLY_DESCRIPTOR = _descriptor(
     CapabilityKey.TOOL_EVENTS,
     CapabilityKey.DECISION_EVENTS,
     CapabilityKey.VERIFICATION_EVENTS,
@@ -74,6 +89,7 @@ def _projection(
     hypotheses: tuple[str, ...] = (),
     claims: tuple[str, ...] = (),
     tasks: tuple[str, ...] = (),
+    declared_kinds: frozenset[TypedEvidenceKind] | None = None,
     declared_opportunities: frozenset[TypedEvidenceOpportunityKind] | None = None,
 ) -> EphemeralTypedEvidenceProjection:
     if declared_opportunities is None:
@@ -87,6 +103,14 @@ def _projection(
             )
             if values
         )
+    if declared_kinds is None:
+        declared_kinds = frozenset(
+            {
+                TypedEvidenceKind.ACTION,
+                TypedEvidenceKind.DECISION,
+                TypedEvidenceKind.VERIFICATION,
+            }
+        )
     return EphemeralTypedEvidenceProjection(
         session_id=SESSION_ID,
         provenance=TypedEvidenceProvenance(
@@ -98,9 +122,7 @@ def _projection(
             source_schema_version="example-source-v1",
             extraction_complete=complete,
         ),
-        declared_kinds=frozenset(
-            {TypedEvidenceKind.ACTION, TypedEvidenceKind.DECISION, TypedEvidenceKind.VERIFICATION}
-        ),
+        declared_kinds=declared_kinds,
         declared_opportunity_kinds=declared_opportunities,
         eligible_requirement_reference_ids=tuple(sorted(requirements)),
         eligible_hypothesis_reference_ids=tuple(sorted(hypotheses)),
@@ -184,6 +206,10 @@ def test_all_five_evidence_lane_metrics_use_exact_authoritative_sets() -> None:
         "outcome.first_pass_verification",
         "outcome.verified_requirement_coverage",
     }
+    # A fully authoritative graph makes every objective algorithm numeric.
+    assert all(
+        item.value_state is MetricValueState.KNOWN for item in result.values()
+    )
     assert (
         result["logic.hypothesis_test_linkage"].numerator,
         result["logic.hypothesis_test_linkage"].denominator,
@@ -385,6 +411,124 @@ def test_latest_hypothesis_verification_must_be_resolved() -> None:
 
     assert result.value_state is MetricValueState.UNKNOWN
     assert result.explanation_code == "typed_hypothesis_links_unresolved"
+
+
+def test_opportunity_enumeration_requires_an_explicit_decoder_capability() -> None:
+    requirement = _id("undeclared-requirement")
+
+    with pytest.raises(ValueError, match="opportunity enumeration"):
+        project_objective_metric_overrides(
+            _projection(requirements=(requirement,)),
+            EVENTS_ONLY_DESCRIPTOR,
+        )
+
+
+def test_evidence_links_require_an_explicit_decoder_link_capability() -> None:
+    requirement = _id("linked-without-authority")
+    action = ActionEvidence(
+        evidence_id=_id("link-authority-action"),
+        sequence=0,
+        source_reference_id=_id("link-authority-source"),
+        family=ActionFamily.COMMAND,
+        state=ActionState.COMPLETED,
+        requirement_reference_ids=(requirement,),
+    )
+    enumeration_only = _descriptor(
+        CapabilityKey.TOOL_EVENTS,
+        CapabilityKey.DECISION_EVENTS,
+        CapabilityKey.VERIFICATION_EVENTS,
+        CapabilityKey.REQUIREMENT_OPPORTUNITIES,
+    )
+
+    with pytest.raises(ValueError, match="opportunity link"):
+        project_objective_metric_overrides(
+            _projection(action, requirements=(requirement,)),
+            enumeration_only,
+        )
+
+
+def test_declared_denominator_requires_negative_link_observability() -> None:
+    requirement = _id("enumerated-without-link-observability")
+    enumeration_only = _descriptor(CapabilityKey.REQUIREMENT_OPPORTUNITIES)
+
+    with pytest.raises(ValueError, match="link authority"):
+        project_objective_metric_overrides(
+            _projection(
+                requirements=(requirement,),
+                declared_kinds=frozenset(),
+            ),
+            enumeration_only,
+        )
+
+
+def test_denominator_and_link_authority_cannot_replace_outcome_capabilities() -> None:
+    denominator_only = _descriptor(
+        CapabilityKey.REQUIREMENT_OPPORTUNITIES,
+        CapabilityKey.HYPOTHESIS_OPPORTUNITIES,
+        CapabilityKey.MATERIAL_CLAIM_OPPORTUNITIES,
+        CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES,
+        CapabilityKey.REQUIREMENT_EVIDENCE_LINKS,
+        CapabilityKey.HYPOTHESIS_EVIDENCE_LINKS,
+        CapabilityKey.MATERIAL_CLAIM_EVIDENCE_LINKS,
+        CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
+    )
+    result = project_objective_metric_overrides(
+        _projection(
+            requirements=(_id("capability-requirement"),),
+            hypotheses=(_id("capability-hypothesis"),),
+            claims=(_id("capability-claim"),),
+            tasks=(_id("capability-task"),),
+            declared_kinds=frozenset(),
+        ),
+        denominator_only,
+    )
+
+    expected = {
+        "logic.hypothesis_test_linkage": (
+            "typed_hypothesis_chain_capability_missing"
+        ),
+        "logic.requirement_action_traceability": (
+            "typed_requirement_action_capability_missing"
+        ),
+        "outcome.agent_claim_grounding": (
+            "typed_claim_verification_capability_missing"
+        ),
+        "outcome.first_pass_verification": (
+            "typed_verification_outcome_capability_missing"
+        ),
+        "outcome.verified_requirement_coverage": (
+            "typed_requirement_verification_capability_missing"
+        ),
+    }
+    for metric_key, reason in expected.items():
+        item = result[metric_key]
+        assert item.value_state is MetricValueState.UNKNOWN
+        assert item.numerator is item.denominator is None
+        assert item.eligible_opportunity_count == 0
+        assert item.explanation_code == reason
+
+
+def test_unresolved_right_censored_opportunity_reports_bounds_not_zero() -> None:
+    resolved, censored = _id("censored-a"), _id("censored-b")
+
+    result = project_objective_metric_overrides(
+        _projection(
+            _verification(
+                VerificationOutcome.PASSED,
+                sequence=0,
+                task_ids=(resolved,),
+            ),
+            tasks=(resolved, censored),
+        ),
+        DESCRIPTOR,
+    )["outcome.first_pass_verification"]
+
+    assert result.value_state is MetricValueState.UNKNOWN
+    assert (
+        result.met_opportunity_count,
+        result.resolved_opportunity_count,
+        result.eligible_opportunity_count,
+    ) == (1, 1, 2)
 
 
 def test_101_objective_opportunities_fail_closed_at_receipt_bound() -> None:

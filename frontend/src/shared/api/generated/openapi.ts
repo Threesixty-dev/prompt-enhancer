@@ -1912,6 +1912,23 @@ export interface components {
             write_api: boolean;
         };
         /**
+         * CapabilityKey
+         * @description Provider facts that downstream use cases may depend on explicitly.
+         *
+         *     The ``*_opportunities`` and ``*_links`` members are deliberately separate
+         *     from the evidence-record members above them.  Being able to *observe* a
+         *     verification event is not the same authority as being able to *enumerate*
+         *     the eligible verification tasks of a session, and neither implies the
+         *     authority to say which requirement a given receipt belongs to.  An
+         *     objective metric denominator may only come from a decoder that declares the
+         *     matching enumeration capability, and an evidence link may only be read from
+         *     a decoder that declares the matching link capability.  A decoder that
+         *     declares neither can still contribute evidence records; its objective
+         *     contracts simply stay unknown instead of borrowing an invented denominator.
+         * @enum {string}
+         */
+        CapabilityKey: "session_list" | "session_labels" | "operational_events" | "user_messages" | "agent_messages" | "plan_messages" | "tool_events" | "decision_events" | "feedback_messages" | "verification_events" | "event_timing" | "token_usage" | "live_updates" | "requirement_opportunities" | "hypothesis_opportunities" | "material_claim_opportunities" | "verification_task_opportunities" | "requirement_evidence_links" | "hypothesis_evidence_links" | "material_claim_evidence_links" | "verification_task_evidence_links";
+        /**
          * CoachingDecisionBasis
          * @description Common content-free receipt attached to each of the five decisions.
          */
@@ -2711,11 +2728,209 @@ export interface components {
          */
         MetricDirection: "higher_is_better" | "lower_is_better";
         /**
+         * MetricEvidenceAvailabilityState
+         * @description Why this metric does or does not carry a number, as a closed set.
+         * @enum {string}
+         */
+        MetricEvidenceAvailabilityState: "measured" | "pending_right_censored" | "no_opportunity" | "capability_missing" | "source_incomplete" | "evidence_unresolved" | "abstained" | "execution_error";
+        /**
          * MetricEvidenceCapability
          * @description Provider evidence families used by the reviewed coaching pack.
          * @enum {string}
          */
         MetricEvidenceCapability: "request_text" | "response_text" | "plan_text" | "action_evidence" | "decision_evidence" | "feedback_text" | "objective_verification";
+        /**
+         * MetricEvidenceContributor
+         * @description Evidence families one metric contract depends on, as a closed set.
+         *
+         *     A contributor is a *kind of proof*, never a provider, a model, or a person.
+         * @enum {string}
+         */
+        MetricEvidenceContributor: "focus_owned_request_revision" | "canonical_request_text" | "declared_task_profile" | "rubric_factor_calculator" | "semantic_unit_heads" | "agent_response_text" | "feedback_classification" | "declared_objective_opportunity_set" | "typed_action_evidence" | "typed_decision_evidence" | "typed_verification_receipt";
+        /**
+         * MetricEvidenceReadinessProjectionV2
+         * @description The twenty readiness rows plus the identity they were derived from.
+         */
+        MetricEvidenceReadinessProjectionV2: {
+            /** Abstained Count */
+            abstained_count: number;
+            /** Adapter Version */
+            adapter_version: string;
+            /**
+             * Calibration State
+             * @default not_assessed
+             * @constant
+             */
+            calibration_state: "not_assessed";
+            /** Canonical Live Snapshot */
+            canonical_live_snapshot: boolean;
+            /** Capability Missing Count */
+            capability_missing_count: number;
+            /**
+             * Catalog Version
+             * @default metric-evidence-readiness-v2-1
+             * @constant
+             */
+            catalog_version: "metric-evidence-readiness-v2-1";
+            /** Compatibility Preview */
+            compatibility_preview: boolean;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Contract Set Fingerprint */
+            contract_set_fingerprint: string;
+            /** Evidence Unresolved Count */
+            evidence_unresolved_count: number;
+            /** Execution Error Count */
+            execution_error_count: number;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Measured Count */
+            measured_count: number;
+            /**
+             * Metric Projection Version
+             * @enum {string}
+             */
+            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2";
+            /** Metrics */
+            metrics: components["schemas"]["MetricEvidenceReadinessV2"][];
+            /** No Opportunity Count */
+            no_opportunity_count: number;
+            /** Objective Measurable Count */
+            objective_measurable_count: number;
+            /** Objective Measured Count */
+            objective_measured_count: number;
+            /**
+             * Objective Metric Count
+             * @default 5
+             * @constant
+             */
+            objective_metric_count: 5;
+            /** Pending Count */
+            pending_count: number;
+            /**
+             * Product Metric Eligible
+             * @default false
+             * @constant
+             */
+            product_metric_eligible: false;
+            /**
+             * Projection Key
+             * @default metric.contract-v2.evidence-readiness
+             * @constant
+             */
+            projection_key: "metric.contract-v2.evidence-readiness";
+            /**
+             * Projection Version
+             * @default 1
+             * @constant
+             */
+            projection_version: 1;
+            provider: components["schemas"]["Provider"];
+            /** Provider Version */
+            provider_version: string;
+            /** Publication Fingerprint */
+            publication_fingerprint: string;
+            /** Publication Key */
+            publication_key: string;
+            publication_source: components["schemas"]["MetricPublicationSource"];
+            /** Publication Version */
+            publication_version: number;
+            /**
+             * Registry Version
+             * @default all-20-factor-contracts-v2
+             * @constant
+             */
+            registry_version: "all-20-factor-contracts-v2";
+            /** Source Incomplete Count */
+            source_incomplete_count: number;
+            /** Source Schema Version */
+            source_schema_version: string;
+        };
+        /**
+         * MetricEvidenceReadinessReason
+         * @description Exact reason code.  Capability-missing reasons are metric-specific.
+         *
+         *     A generic "this family is unobservable" tells a reader nothing actionable,
+         *     so every metric that can report a missing capability names the concrete
+         *     evidence contract that would have to exist first.
+         * @enum {string}
+         */
+        MetricEvidenceReadinessReason: "measured_from_owned_opportunities" | "opportunity_right_censored" | "no_eligible_opportunity_observed" | "opportunity_set_undetermined" | "declared_profile_slots_absent" | "opportunity_classification_unresolved" | "source_reconciliation_incomplete" | "calculator_abstained" | "execution_error_reported" | "focus_owned_request_revision_required" | "owned_canonical_request_text_required" | "request_revision_unit_extraction_required" | "feedback_unit_extraction_required" | "decision_unit_extraction_required" | "ambiguity_episode_extraction_required" | "clarification_episode_extraction_required" | "hypothesis_episode_extraction_required" | "scope_change_episode_extraction_required" | "requirement_unit_extraction_required" | "open_loop_episode_extraction_required" | "hypothesis_chain_adapter_capabilities_required" | "requirement_action_adapter_capabilities_required" | "material_claim_verification_adapter_capabilities_required" | "verification_task_outcome_adapter_capabilities_required" | "requirement_verification_adapter_capabilities_required";
+        /**
+         * MetricEvidenceReadinessV2
+         * @description One metric's readiness, provenance, and sufficient statistics.
+         */
+        MetricEvidenceReadinessV2: {
+            availability_state: components["schemas"]["MetricEvidenceAvailabilityState"];
+            /**
+             * Calibration State
+             * @default not_assessed
+             * @constant
+             */
+            calibration_state: "not_assessed";
+            /** Capability Available */
+            capability_available: boolean;
+            /** Censoring Lower Bound */
+            censoring_lower_bound?: number | null;
+            /** Censoring Upper Bound */
+            censoring_upper_bound?: number | null;
+            /** Contract Fingerprint */
+            contract_fingerprint: string;
+            /** Contract Version */
+            contract_version: string;
+            denominator_basis: components["schemas"]["DenominatorBasis"];
+            /** Eligible Count */
+            eligible_count: number;
+            evidence_authority: components["schemas"]["EvidenceAuthority"];
+            /** Met Count */
+            met_count: number;
+            /** Metric Key */
+            metric_key: string;
+            /**
+             * Missing Contributors
+             * @default []
+             */
+            missing_contributors: components["schemas"]["MetricEvidenceContributor"][];
+            /** Not Met Count */
+            not_met_count: number;
+            /**
+             * Observed Contributors
+             * @default []
+             */
+            observed_contributors: components["schemas"]["MetricEvidenceContributor"][];
+            opportunity_unit_kind?: components["schemas"]["SemanticUnitKind"] | null;
+            /** Pending Count */
+            pending_count: number;
+            /**
+             * Product Metric Eligible
+             * @default false
+             * @constant
+             */
+            product_metric_eligible: false;
+            reason_code: components["schemas"]["MetricEvidenceReadinessReason"];
+            /**
+             * Required Adapter Capabilities
+             * @default []
+             */
+            required_adapter_capabilities: components["schemas"]["CapabilityKey"][];
+            /** Required Contributors */
+            required_contributors: components["schemas"]["MetricEvidenceContributor"][];
+            /** Resolved Count */
+            resolved_count: number;
+            /** Source Complete */
+            source_complete: boolean;
+            /** Unknown Count */
+            unknown_count: number;
+            value_state: components["schemas"]["MetricValueStateV2"];
+        };
         /**
          * MetricGuidanceCatalogEntry
          * @description Static, session-free guidance identity for one V2 metric contract.
@@ -2941,10 +3156,10 @@ export interface components {
             product_metric_eligible: false;
             /**
              * Projection Version
-             * @default metric-contract-v2-projection-1
-             * @constant
+             * @default metric-contract-v2-projection-2
+             * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2";
             /**
              * Publication Key
              * @default metric.contract-v2.publication
@@ -3101,10 +3316,10 @@ export interface components {
             product_metric_eligible: false;
             /**
              * Projection Version
-             * @default metric-contract-v2-projection-1
-             * @constant
+             * @default metric-contract-v2-projection-2
+             * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2";
             /**
              * Registry Version
              * @default all-20-factor-contracts-v2
@@ -3670,6 +3885,7 @@ export interface components {
              * @constant
              */
             local_only: true;
+            metric_evidence_readiness_v2: components["schemas"]["MetricEvidenceReadinessProjectionV2"] | null;
             /** Metric Projection Completed At */
             metric_projection_completed_at: string | null;
             /** Metric Projection Version */

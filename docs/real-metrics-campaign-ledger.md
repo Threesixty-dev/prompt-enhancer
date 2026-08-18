@@ -1118,6 +1118,44 @@ analysis-job execution, immediate child-process-tree cancellation, complete
 failed-stage telemetry, a distinct persisted `AnalysisSnapshotV2`, full provider
 semantic linkage, calibration, and Claude/generic adapters remain unfinished.
 
+Schema v41 corrects a false-number defect in the measured layer. Projection
+identity `metric-contract-v2-projection-1` could anchor a fixed-factor rubric
+fraction — scored against the focus message — to whichever request revision was
+latest, so a feedback-focused or superseded-focus window published a number about
+one turn as if it described another. Identity `-2` publishes a rubric fraction
+only when the canonical active request revision owns exactly the scored focus
+message and otherwise reports `unknown` with `rubric_opportunity_not_focus_owned`
+and an empty opportunity set, never `0`. Because `-1` rows are not reproducible
+under the corrected rules they keep their own append-only sidecar: MIGRATION_40
+is byte-identical, MIGRATION_41 adds the `_r2` tables with the same immutability
+and privacy-deletion triggers, readers accept both identities, and a run may
+carry only one.
+
+The same checkpoint separates three provider authorities that were previously
+conflated: emitting an evidence kind, enumerating a denominator family, and
+linking a record to a member of that family. Each is now an explicit closed
+`CapabilityKey`, and a projection is rejected unless its decoder declares the
+exact enumeration and link capabilities it uses. An explicit provider
+verification event may declare and link one verification task under that
+authority; a tool end categorised as test or build never may. The shipped Codex
+descriptor declares only `tool_events`, so production behaviour is unchanged and
+all five evidence-lane metrics remain unknown. An undeclared decision or
+verification event is now skipped rather than raising, so one out-of-scope event
+kind no longer destroys a session's authorized action evidence.
+
+The full-run API adds a derived per-metric evidence-readiness projection computed
+from the sealed publication and the run's provider/adapter/source-schema
+provenance. It persists nothing and adds no schema. Its closed reason codes are
+metric-specific: each of the six unextractable semantic families names the
+extractor it is waiting on instead of sharing a generic "unobservable" reason. No
+lexical lifecycle extractor was added, because closure ownership for those
+families is not provable from the current message kinds. Each objective row names
+the exact adapter enumeration, link, and outcome capabilities it requires, and
+the projection separates how many objective contracts the adapter can measure
+from how many produced a numeric observation in this snapshot. A declared
+denominator without negative-link or outcome observability therefore remains
+nonnumeric instead of becoming a false `0/N`.
+
 The 2026-08-17 synthetic-only local diagnostic re-screen did not promote any
 neural metric expert. MiniLM-L6 reached 44.4% and MiniLM-L12 55.6% typed accuracy on 18
 eligible EN/PL scoped-NLI cases; both remained below the 96-case activation
@@ -1189,7 +1227,8 @@ the application composes no control-plane service and exposes no route.
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
 | Historical ten-model shadow graph | `local-shadow-ensemble-v1`; `append-stable-redacted-v3`; `owned-observation-v1`; `coaching-shadow-prompt-v4`; exact ten-model inventory in code-owned immutable manifests | Immutable/readable compatibility history; not executed by the live v35 estimator |
 | All-20 predictive sidecar | `local-probabilistic-radar-v1`; active `local-factor-router-v3` / `small-factor-router-v5`, historical v2 readable; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
-| Canonical all-20 measured publication | `metric.contract-v2.publication` v2; registry `all-20-factor-contracts-v2`; schema v40 sealed sidecar | Canonical for new model-ensemble snapshots; values require reviewed opportunity ownership or typed objective authority, while unsupported families remain nonnumeric |
+| Canonical all-20 measured publication | `metric.contract-v2.publication` v2; registry `all-20-factor-contracts-v2`; projection `metric-contract-v2-projection-2`; schema v41 sealed `_r2` sidecar with v40 `-1` rows still readable | Canonical for new model-ensemble snapshots; values require reviewed opportunity ownership or typed objective authority, while unsupported families remain nonnumeric |
+| Per-metric evidence readiness | `metric.contract-v2.evidence-readiness` v1; catalog `metric-evidence-readiness-v2-1` | Derived on read from the sealed publication; adds no datum, no schema, and no persistence; metric-specific missing-capability reasons only |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |

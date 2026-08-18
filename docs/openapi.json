@@ -1721,6 +1721,34 @@
         "title": "CapabilitiesDto",
         "type": "object"
       },
+      "CapabilityKey": {
+        "description": "Provider facts that downstream use cases may depend on explicitly.\n\nThe ``*_opportunities`` and ``*_links`` members are deliberately separate\nfrom the evidence-record members above them.  Being able to *observe* a\nverification event is not the same authority as being able to *enumerate*\nthe eligible verification tasks of a session, and neither implies the\nauthority to say which requirement a given receipt belongs to.  An\nobjective metric denominator may only come from a decoder that declares the\nmatching enumeration capability, and an evidence link may only be read from\na decoder that declares the matching link capability.  A decoder that\ndeclares neither can still contribute evidence records; its objective\ncontracts simply stay unknown instead of borrowing an invented denominator.",
+        "enum": [
+          "session_list",
+          "session_labels",
+          "operational_events",
+          "user_messages",
+          "agent_messages",
+          "plan_messages",
+          "tool_events",
+          "decision_events",
+          "feedback_messages",
+          "verification_events",
+          "event_timing",
+          "token_usage",
+          "live_updates",
+          "requirement_opportunities",
+          "hypothesis_opportunities",
+          "material_claim_opportunities",
+          "verification_task_opportunities",
+          "requirement_evidence_links",
+          "hypothesis_evidence_links",
+          "material_claim_evidence_links",
+          "verification_task_evidence_links"
+        ],
+        "title": "CapabilityKey",
+        "type": "string"
+      },
       "CoachingDecisionBasis": {
         "additionalProperties": false,
         "description": "Common content-free receipt attached to each of the five decisions.",
@@ -3446,6 +3474,21 @@
         "title": "MetricDirection",
         "type": "string"
       },
+      "MetricEvidenceAvailabilityState": {
+        "description": "Why this metric does or does not carry a number, as a closed set.",
+        "enum": [
+          "measured",
+          "pending_right_censored",
+          "no_opportunity",
+          "capability_missing",
+          "source_incomplete",
+          "evidence_unresolved",
+          "abstained",
+          "execution_error"
+        ],
+        "title": "MetricEvidenceAvailabilityState",
+        "type": "string"
+      },
       "MetricEvidenceCapability": {
         "description": "Provider evidence families used by the reviewed coaching pack.",
         "enum": [
@@ -3459,6 +3502,442 @@
         ],
         "title": "MetricEvidenceCapability",
         "type": "string"
+      },
+      "MetricEvidenceContributor": {
+        "description": "Evidence families one metric contract depends on, as a closed set.\n\nA contributor is a *kind of proof*, never a provider, a model, or a person.",
+        "enum": [
+          "focus_owned_request_revision",
+          "canonical_request_text",
+          "declared_task_profile",
+          "rubric_factor_calculator",
+          "semantic_unit_heads",
+          "agent_response_text",
+          "feedback_classification",
+          "declared_objective_opportunity_set",
+          "typed_action_evidence",
+          "typed_decision_evidence",
+          "typed_verification_receipt"
+        ],
+        "title": "MetricEvidenceContributor",
+        "type": "string"
+      },
+      "MetricEvidenceReadinessProjectionV2": {
+        "additionalProperties": false,
+        "description": "The twenty readiness rows plus the identity they were derived from.",
+        "properties": {
+          "abstained_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Abstained Count",
+            "type": "integer"
+          },
+          "adapter_version": {
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "calibration_state": {
+            "const": "not_assessed",
+            "default": "not_assessed",
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "canonical_live_snapshot": {
+            "title": "Canonical Live Snapshot",
+            "type": "boolean"
+          },
+          "capability_missing_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Capability Missing Count",
+            "type": "integer"
+          },
+          "catalog_version": {
+            "const": "metric-evidence-readiness-v2-1",
+            "default": "metric-evidence-readiness-v2-1",
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "compatibility_preview": {
+            "title": "Compatibility Preview",
+            "type": "boolean"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "contract_set_fingerprint": {
+            "title": "Contract Set Fingerprint",
+            "type": "string"
+          },
+          "evidence_unresolved_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Evidence Unresolved Count",
+            "type": "integer"
+          },
+          "execution_error_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Execution Error Count",
+            "type": "integer"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "measured_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Measured Count",
+            "type": "integer"
+          },
+          "metric_projection_version": {
+            "enum": [
+              "metric-contract-v2-projection-1",
+              "metric-contract-v2-projection-2"
+            ],
+            "title": "Metric Projection Version",
+            "type": "string"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricEvidenceReadinessV2"
+            },
+            "maxItems": 20,
+            "minItems": 20,
+            "title": "Metrics",
+            "type": "array"
+          },
+          "no_opportunity_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "No Opportunity Count",
+            "type": "integer"
+          },
+          "objective_measurable_count": {
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Objective Measurable Count",
+            "type": "integer"
+          },
+          "objective_measured_count": {
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Objective Measured Count",
+            "type": "integer"
+          },
+          "objective_metric_count": {
+            "const": 5,
+            "default": 5,
+            "title": "Objective Metric Count",
+            "type": "integer"
+          },
+          "pending_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "default": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "projection_key": {
+            "const": "metric.contract-v2.evidence-readiness",
+            "default": "metric.contract-v2.evidence-readiness",
+            "title": "Projection Key",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Projection Version",
+            "type": "integer"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "provider_version": {
+            "title": "Provider Version",
+            "type": "string"
+          },
+          "publication_fingerprint": {
+            "title": "Publication Fingerprint",
+            "type": "string"
+          },
+          "publication_key": {
+            "title": "Publication Key",
+            "type": "string"
+          },
+          "publication_source": {
+            "$ref": "#/components/schemas/MetricPublicationSource"
+          },
+          "publication_version": {
+            "minimum": 1.0,
+            "title": "Publication Version",
+            "type": "integer"
+          },
+          "registry_version": {
+            "const": "all-20-factor-contracts-v2",
+            "default": "all-20-factor-contracts-v2",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "source_incomplete_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Source Incomplete Count",
+            "type": "integer"
+          },
+          "source_schema_version": {
+            "title": "Source Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "publication_key",
+          "publication_version",
+          "publication_source",
+          "canonical_live_snapshot",
+          "compatibility_preview",
+          "contract_set_fingerprint",
+          "publication_fingerprint",
+          "metric_projection_version",
+          "provider",
+          "provider_version",
+          "adapter_version",
+          "source_schema_version",
+          "metrics",
+          "measured_count",
+          "pending_count",
+          "no_opportunity_count",
+          "capability_missing_count",
+          "source_incomplete_count",
+          "evidence_unresolved_count",
+          "abstained_count",
+          "execution_error_count",
+          "objective_measurable_count",
+          "objective_measured_count"
+        ],
+        "title": "MetricEvidenceReadinessProjectionV2",
+        "type": "object"
+      },
+      "MetricEvidenceReadinessReason": {
+        "description": "Exact reason code.  Capability-missing reasons are metric-specific.\n\nA generic \"this family is unobservable\" tells a reader nothing actionable,\nso every metric that can report a missing capability names the concrete\nevidence contract that would have to exist first.",
+        "enum": [
+          "measured_from_owned_opportunities",
+          "opportunity_right_censored",
+          "no_eligible_opportunity_observed",
+          "opportunity_set_undetermined",
+          "declared_profile_slots_absent",
+          "opportunity_classification_unresolved",
+          "source_reconciliation_incomplete",
+          "calculator_abstained",
+          "execution_error_reported",
+          "focus_owned_request_revision_required",
+          "owned_canonical_request_text_required",
+          "request_revision_unit_extraction_required",
+          "feedback_unit_extraction_required",
+          "decision_unit_extraction_required",
+          "ambiguity_episode_extraction_required",
+          "clarification_episode_extraction_required",
+          "hypothesis_episode_extraction_required",
+          "scope_change_episode_extraction_required",
+          "requirement_unit_extraction_required",
+          "open_loop_episode_extraction_required",
+          "hypothesis_chain_adapter_capabilities_required",
+          "requirement_action_adapter_capabilities_required",
+          "material_claim_verification_adapter_capabilities_required",
+          "verification_task_outcome_adapter_capabilities_required",
+          "requirement_verification_adapter_capabilities_required"
+        ],
+        "title": "MetricEvidenceReadinessReason",
+        "type": "string"
+      },
+      "MetricEvidenceReadinessV2": {
+        "additionalProperties": false,
+        "description": "One metric's readiness, provenance, and sufficient statistics.",
+        "properties": {
+          "availability_state": {
+            "$ref": "#/components/schemas/MetricEvidenceAvailabilityState"
+          },
+          "calibration_state": {
+            "const": "not_assessed",
+            "default": "not_assessed",
+            "title": "Calibration State",
+            "type": "string"
+          },
+          "capability_available": {
+            "title": "Capability Available",
+            "type": "boolean"
+          },
+          "censoring_lower_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Censoring Lower Bound"
+          },
+          "censoring_upper_bound": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Censoring Upper Bound"
+          },
+          "contract_fingerprint": {
+            "title": "Contract Fingerprint",
+            "type": "string"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "denominator_basis": {
+            "$ref": "#/components/schemas/DenominatorBasis"
+          },
+          "eligible_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Eligible Count",
+            "type": "integer"
+          },
+          "evidence_authority": {
+            "$ref": "#/components/schemas/EvidenceAuthority"
+          },
+          "met_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Met Count",
+            "type": "integer"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "missing_contributors": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MetricEvidenceContributor"
+            },
+            "title": "Missing Contributors",
+            "type": "array"
+          },
+          "not_met_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Not Met Count",
+            "type": "integer"
+          },
+          "observed_contributors": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MetricEvidenceContributor"
+            },
+            "title": "Observed Contributors",
+            "type": "array"
+          },
+          "opportunity_unit_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticUnitKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pending_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "product_metric_eligible": {
+            "const": false,
+            "default": false,
+            "title": "Product Metric Eligible",
+            "type": "boolean"
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/MetricEvidenceReadinessReason"
+          },
+          "required_adapter_capabilities": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CapabilityKey"
+            },
+            "title": "Required Adapter Capabilities",
+            "type": "array"
+          },
+          "required_contributors": {
+            "items": {
+              "$ref": "#/components/schemas/MetricEvidenceContributor"
+            },
+            "maxItems": 11,
+            "minItems": 1,
+            "title": "Required Contributors",
+            "type": "array"
+          },
+          "resolved_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Resolved Count",
+            "type": "integer"
+          },
+          "source_complete": {
+            "title": "Source Complete",
+            "type": "boolean"
+          },
+          "unknown_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Unknown Count",
+            "type": "integer"
+          },
+          "value_state": {
+            "$ref": "#/components/schemas/MetricValueStateV2"
+          }
+        },
+        "required": [
+          "metric_key",
+          "contract_version",
+          "contract_fingerprint",
+          "evidence_authority",
+          "denominator_basis",
+          "value_state",
+          "availability_state",
+          "reason_code",
+          "required_contributors",
+          "capability_available",
+          "source_complete",
+          "eligible_count",
+          "met_count",
+          "not_met_count",
+          "pending_count",
+          "unknown_count",
+          "resolved_count"
+        ],
+        "title": "MetricEvidenceReadinessV2",
+        "type": "object"
       },
       "MetricGuidanceCatalogEntry": {
         "additionalProperties": false,
@@ -3940,8 +4419,11 @@
             "type": "boolean"
           },
           "projection_version": {
-            "const": "metric-contract-v2-projection-1",
-            "default": "metric-contract-v2-projection-1",
+            "default": "metric-contract-v2-projection-2",
+            "enum": [
+              "metric-contract-v2-projection-1",
+              "metric-contract-v2-projection-2"
+            ],
             "title": "Projection Version",
             "type": "string"
           },
@@ -4381,8 +4863,11 @@
             "type": "boolean"
           },
           "projection_version": {
-            "const": "metric-contract-v2-projection-1",
-            "default": "metric-contract-v2-projection-1",
+            "default": "metric-contract-v2-projection-2",
+            "enum": [
+              "metric-contract-v2-projection-1",
+              "metric-contract-v2-projection-2"
+            ],
             "title": "Projection Version",
             "type": "string"
           },
@@ -5908,6 +6393,16 @@
             "title": "Local Only",
             "type": "boolean"
           },
+          "metric_evidence_readiness_v2": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetricEvidenceReadinessProjectionV2"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "metric_projection_completed_at": {
             "anyOf": [
               {
@@ -6058,6 +6553,7 @@
           "metric_projection_completed_at",
           "typed_metrics",
           "metric_publication_v2",
+          "metric_evidence_readiness_v2",
           "predictive_projection_version",
           "predictive_projected_at",
           "predictive_metrics",
