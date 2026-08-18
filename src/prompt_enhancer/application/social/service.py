@@ -687,7 +687,7 @@ class SocialService:
         if len(active_members) < 2:
             if existing is not None:
                 self.stores.conversations.remove_conversation(
-                    organization_id, existing.conversation_id
+                    organization_id, existing.conversation_id, now=now
                 )
             return None
         if existing is None:
@@ -984,6 +984,9 @@ class SocialService:
                 presence_rows_removed=presence_rows,
                 completed_at=now,
             )
+            # The honest receipt is durable evidence: it records what was
+            # erased and what is retained, never a remote recall claim.
+            self.stores.directory.save_deletion_receipt(receipt)
             self._audit(
                 caller,
                 SocialAuditAction.ACCOUNT_METADATA_DELETED,

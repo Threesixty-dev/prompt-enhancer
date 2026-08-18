@@ -1,10 +1,11 @@
-"""Independent SQLite schema boundary for future local social metadata.
+"""Independent SQLite database boundary for local social/file metadata.
 
 This module deliberately does not import the analyzer database, its migrations,
 or its identifiers.  It owns ``social.sqlite3`` and a separate
-``social_schema_migrations`` ledger.  The schema is a persistence foundation,
-not a composed adapter: the current development service remains in memory and
-reports durable sync as unavailable.
+``social_schema_migrations`` ledger.  Version 1 was a placeholder schema that
+no adapter ever populated; version 2 installs the typed control-plane schema
+used by the durable local adapters.  Durable multi-device synchronization,
+backups and production identity remain unavailable.
 """
 
 from __future__ import annotations
@@ -16,10 +17,10 @@ from pathlib import Path
 import sqlite3
 
 from ...config import lexical_absolute_path, path_has_symlink_component
+from .sqlite_schema import SOCIAL_SCHEMA_V2, SOCIAL_SCHEMA_VERSION
 
 
 SOCIAL_DATABASE_FILENAME = "social.sqlite3"
-SOCIAL_SCHEMA_VERSION = 1
 
 _SOCIAL_SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS social_accounts (
@@ -143,6 +144,12 @@ CREATE TABLE IF NOT EXISTS social_file_grant_metadata (
 """
 
 
+_MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
+    (1, tuple(_SOCIAL_SCHEMA_V1.split(";"))),
+    (2, SOCIAL_SCHEMA_V2),
+)
+
+
 @dataclass(frozen=True, slots=True)
 class SocialSqliteDatabase:
     path: Path
@@ -187,13 +194,15 @@ class SocialSqliteDatabase:
             current = int(current_row[0]) if current_row is not None else 0
             if current > SOCIAL_SCHEMA_VERSION:
                 raise RuntimeError("social database schema is newer than this build")
-            if current < 1:
-                for statement in _SOCIAL_SCHEMA_V1.split(";"):
+            for version, statements in _MIGRATIONS:
+                if current >= version:
+                    continue
+                for statement in statements:
                     if statement.strip():
                         connection.execute(statement)
                 connection.execute(
                     "INSERT INTO social_schema_migrations(version, applied_at) VALUES (?, ?)",
-                    (1, datetime.now(UTC).replace(microsecond=0).isoformat()),
+                    (version, datetime.now(UTC).replace(microsecond=0).isoformat()),
                 )
             connection.execute("COMMIT")
         except Exception:
@@ -210,6 +219,20 @@ class SocialSqliteDatabase:
         if path_has_symlink_component(path):
             raise ValueError("social database changed into a link or reparse point")
         return SOCIAL_SCHEMA_VERSION
+
+    def connect(self) -> sqlite3.Connection:
+        """Open the initialized database for the durable local adapters."""
+
+        self.initialize()
+        path = self._validated_path()
+        connection = sqlite3.connect(
+            path, isolation_level=None, check_same_thread=False
+        )
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA trusted_schema = OFF")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA synchronous = FULL")
+        return connection
 
 
 __all__ = [

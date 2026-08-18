@@ -26,6 +26,7 @@ from .contracts import (
     RelationshipPresence,
     SocialAccount,
     SocialAuditEvent,
+    SocialDeletionReceipt,
     SocialDevice,
     SocialOrganizationMembership,
     SocialTeam,
@@ -69,6 +70,14 @@ class SocialDirectoryPort(Protocol):
     def delete_account(
         self, organization_id: str, account_id: str, *, now: datetime
     ) -> SocialAccount: ...
+
+    def save_deletion_receipt(
+        self, receipt: SocialDeletionReceipt
+    ) -> SocialDeletionReceipt: ...
+
+    def deletion_receipt(
+        self, organization_id: str, account_id: str
+    ) -> SocialDeletionReceipt | None: ...
 
 
 class SocialGraphPort(Protocol):
@@ -129,7 +138,11 @@ class ConversationPort(Protocol):
     ) -> Conversation | None: ...
 
     def remove_conversation(
-        self, organization_id: str, conversation_id: str
+        self,
+        organization_id: str,
+        conversation_id: str,
+        *,
+        now: datetime,
     ) -> bool: ...
 
     def conversations_for_account(

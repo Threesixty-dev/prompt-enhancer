@@ -59,6 +59,9 @@ from .config import (
 from .domain import PSEUDONYM_PATTERN, Provider
 from .application.control_plane import ControlPlaneService, PrincipalResolver
 from .application.paid_product.contracts import ProductReadiness
+from .application.social.contracts import SocialReadiness
+from .application.social.ports import SocialPrincipalResolver
+from .application.social.service import SocialService
 from .interfaces.http import (
     create_control_plane_router,
     create_session_analysis_command_router,
@@ -77,6 +80,8 @@ from .interfaces.http import (
     create_estimator_router,
     create_task_query_router,
     create_paid_product_readiness_router,
+    create_social_mutation_router,
+    create_social_readiness_router,
 )
 from .interfaces.http.browser_session import (
     BROWSER_SESSION_COOKIE,
@@ -317,6 +322,9 @@ def create_app(
     control_plane_service: ControlPlaneService | None = None,
     control_plane_principal_resolver: PrincipalResolver | None = None,
     paid_product_readiness: ProductReadiness | None = None,
+    social_readiness: SocialReadiness | None = None,
+    social_service: SocialService | None = None,
+    social_principal_resolver: SocialPrincipalResolver | None = None,
     estimator_repository: EstimatorRepository | None = None,
     static_directory: Path | None = None,
     browser_session_manager: BrowserSessionManager | None = None,
@@ -408,6 +416,7 @@ def create_app(
                 "/automation-grants",
                 "/control-plane",
                 "/paid-product",
+                "/social",
                 "/estimators",
                 "/text-model-compatibility",
                 "/text-model-runtime",
@@ -726,6 +735,27 @@ def create_app(
             create_paid_product_readiness_router(
                 require_local_token,
                 paid_product_readiness,
+            )
+        )
+    # Social routes are default-off and never self-compose. Readiness needs the
+    # exact operator opt-in plus an explicitly supplied receipt; mutations need
+    # the opt-in plus both a service and a principal resolver. Nothing here
+    # opens social.sqlite3, and a browser session or local token alone can
+    # never act as a social principal.
+    if social_readiness is not None and resolved_settings.social_development_api:
+        app.include_router(
+            create_social_readiness_router(require_local_token, social_readiness)
+        )
+    if (
+        social_service is not None
+        and social_principal_resolver is not None
+        and resolved_settings.social_development_api
+    ):
+        app.include_router(
+            create_social_mutation_router(
+                require_local_token,
+                social_service,
+                social_principal_resolver,
             )
         )
     if session_model_link_experiment_service is not None:

@@ -8,6 +8,7 @@ from .development import (
     create_development_file_sharing_foundation,
 )
 from .local_files import QuarantineAccessError, QuarantinedLocalFileReader
+from .sqlite import SqliteFileSharingFoundation, create_sqlite_file_sharing_foundation
 
 __all__ = [
     "DevelopmentFileSharingFoundation",
@@ -16,5 +17,7 @@ __all__ = [
     "RandomFileShareIdentifierFactory",
     "QuarantineAccessError",
     "QuarantinedLocalFileReader",
+    "SqliteFileSharingFoundation",
     "create_development_file_sharing_foundation",
+    "create_sqlite_file_sharing_foundation",
 ]

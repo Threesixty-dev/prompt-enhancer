@@ -9,6 +9,13 @@ from .development import (
     create_development_social_foundation,
 )
 from .sqlite import SOCIAL_DATABASE_FILENAME, SOCIAL_SCHEMA_VERSION, SocialSqliteDatabase
+from .sqlite_file_store import SqliteFileShareStore
+from .sqlite_store import (
+    SqliteSocialConnection,
+    SqliteSocialFoundation,
+    SqliteSocialStore,
+    create_sqlite_social_foundation,
+)
 
 __all__ = [
     "DevelopmentSocialFoundation",
@@ -19,5 +26,10 @@ __all__ = [
     "SOCIAL_DATABASE_FILENAME",
     "SOCIAL_SCHEMA_VERSION",
     "SocialSqliteDatabase",
+    "SqliteFileShareStore",
+    "SqliteSocialConnection",
+    "SqliteSocialFoundation",
+    "SqliteSocialStore",
     "create_development_social_foundation",
+    "create_sqlite_social_foundation",
 ]

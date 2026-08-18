@@ -766,6 +766,34 @@ class SocialDeletionReceipt(StrictModel):
     _completed = field_validator("completed_at")(utc_seconds)
 
 
+DURABLE_LOCAL_SOCIAL_GAPS = tuple(
+    gap
+    for gap in DEVELOPMENT_SOCIAL_GAPS
+    if gap is not SocialReadinessGap.SOCIAL_STORE_NOT_SEPARATED
+)
+
+
+def durable_local_social_readiness(*, enabled: bool) -> SocialReadiness:
+    """Ledger for an explicitly composed, verified separated ``social.sqlite3``.
+
+    The only gap a durable local store closes is ``social_store_not_separated``.
+    Identity, device proof, reviewed E2EE and forward secrecy, signaling and
+    direct connectivity, multi-device sync, backup/recovery, abuse handling and
+    governance gaps stay open, so ``production_ready`` remains ``False`` and no
+    message encryption or direct transfer is claimed.  A disabled ledger is
+    indistinguishable from the in-memory disabled ledger.
+    """
+
+    if not enabled:
+        return development_social_readiness(enabled=False)
+    base = development_social_readiness(enabled=True)
+    return SocialReadiness(
+        enabled=True,
+        capabilities=base.capabilities,
+        gaps=DURABLE_LOCAL_SOCIAL_GAPS,
+    )
+
+
 def development_social_readiness(*, enabled: bool) -> SocialReadiness:
     """Return the exact, production-honest capability ledger."""
 
@@ -792,6 +820,7 @@ def development_social_readiness(*, enabled: bool) -> SocialReadiness:
 
 __all__ = [
     "DEVELOPMENT_SOCIAL_GAPS",
+    "DURABLE_LOCAL_SOCIAL_GAPS",
     "DIGEST_PATTERN",
     "MAX_CIPHERTEXT_BYTES",
     "MAX_FRIEND_REQUEST_LIFETIME",
@@ -847,6 +876,7 @@ __all__ = [
     "VerifiedSocialPrincipal",
     "development_social_readiness",
     "digest",
+    "durable_local_social_readiness",
     "optional_social_id",
     "safe_version",
     "social_id",

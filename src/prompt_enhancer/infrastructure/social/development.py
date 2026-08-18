@@ -34,6 +34,7 @@ from ...application.social.contracts import (
     SocialAccount,
     SocialAccountState,
     SocialAuditEvent,
+    SocialDeletionReceipt,
     SocialDevice,
     SocialMembershipState,
     SocialOrganizationMembership,
@@ -110,6 +111,9 @@ class DevelopmentSocialState:
         default_factory=dict
     )
     audits: list[SocialAuditEvent] = field(default_factory=list)
+    deletion_receipts: dict[tuple[str, str], SocialDeletionReceipt] = field(
+        default_factory=dict
+    )
 
     # Out-of-band development provisioning. No credential or remote endpoint is
     # created, and callers must supply already validated synthetic contracts.
@@ -265,6 +269,22 @@ class DevelopmentSocialState:
                     del self.devices[device_key]
                     self.revoked_device_ids.add(device_key)
             return deleted
+
+    def save_deletion_receipt(
+        self, receipt: SocialDeletionReceipt
+    ) -> SocialDeletionReceipt:
+        with self.lock:
+            key = (receipt.organization_id, receipt.account_id)
+            if key in self.deletion_receipts:
+                raise ValueError("social deletion receipt already recorded")
+            self.deletion_receipts[key] = receipt
+            return receipt
+
+    def deletion_receipt(
+        self, organization_id: str, account_id: str
+    ) -> SocialDeletionReceipt | None:
+        with self.lock:
+            return self.deletion_receipts.get((organization_id, account_id))
 
     # Social graph port --------------------------------------------------
     def friend_request(
@@ -435,7 +455,11 @@ class DevelopmentSocialState:
             return None
 
     def remove_conversation(
-        self, organization_id: str, conversation_id: str
+        self,
+        organization_id: str,
+        conversation_id: str,
+        *,
+        now: datetime,
     ) -> bool:
         with self.lock:
             return self.conversations.pop(

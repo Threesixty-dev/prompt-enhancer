@@ -1,7 +1,8 @@
 # WP-20: evidence-complete metrics and private social collaboration
 
-Status: **S0 implementation active; S1-S4 remain blocked until their preceding
-security and infrastructure gates pass**
+Status: **S0 delivered; a bounded S1 local-metadata runtime is implemented.
+Device pairing, encrypted payload delivery, direct file bytes, and S2-S4 remain
+blocked until their preceding security and infrastructure gates pass.**
 
 ## Outcome
 
@@ -90,9 +91,12 @@ not create an enumeration oracle. Presence is never derived from analyzer
 activity and is never exported to a team metric surface.
 
 S0 exposes closed readiness gaps for missing production identity, separated
-social persistence, forward secrecy, direct reachability, relay absence, abuse
-reporting, retention approval, and control-plane metadata visibility. These are
-visible states, not generic errors or hidden controls.
+social persistence, forward secrecy, direct reachability, abuse reporting,
+retention approval, and control-plane metadata visibility. The direct-file
+contract separately records relay as absent by design. A bounded S1 adapter may
+remove only `social_store_not_separated` after it verifies its own independent
+`social.sqlite3`; every other gap stays visible. These are visible states, not
+generic errors or hidden controls.
 
 ## Direct file-sharing contract
 
@@ -152,7 +156,7 @@ The repository must not invent a ratchet or group-encryption protocol.
 | Device private keys | device | OS credential store adapter | platform keystore and recovery policy |
 | Message plaintext | sender/recipient devices | never in control plane | reviewed E2EE client storage and retention |
 | File bytes | sender/recipient devices | separate quarantine/share root | direct transport; no server byte store |
-| Signalling | optional control plane | default-off loopback adapter | authenticated TLS service with replay and abuse controls |
+| Signalling | optional control plane | fail-closed contract/adapter; no candidate exchange | authenticated TLS service with replay and abuse controls |
 
 The existing analyzer database is not extended with social tables. Development
 social persistence has its own schema version and migration ledger. Production
@@ -212,15 +216,25 @@ S0 acceptance requires:
 - social state machines, fixed readiness gaps, default-deny policy, server-issued
   identifiers, and in-memory synthetic adapters;
 - block-over-friend/team/organization/manager-grant attack tests; and
-- no social HTTP route, key material, message content, or file byte path until a
-  later stage proves its prerequisites.
+- at S0 acceptance, no social HTTP route, key material, message content, or file
+  byte path; a later route must prove and document each prerequisite before it
+  supersedes that boundary.
 
 ### S1 — local private collaboration
 
-- Separate local social database and migrations.
-- Out-of-band device pairing and same-LAN/direct-address delivery.
-- Friendship, blocks, closed conversations, local message history, and explicit
-  deletion/export.
+- Implemented in the bounded metadata runtime: a separate local social database
+  and migration ledger; transactional friendship, block, invite-only
+  conversation, envelope-metadata, reaction, read-state, deletion-receipt,
+  file-offer/grant/transfer-metadata, audit, and revocation persistence.
+- Implemented as an explicitly composed development surface: readiness plus a
+  narrow relationship/account-deletion API. It is default-off, loopback-only,
+  and exposes mutations only when an application injects both the social
+  service and a verified-principal resolver. The analyzer browser session and
+  local API token do not establish a social identity.
+- Not implemented: out-of-band device pairing, a real identity provider,
+  reviewed E2EE, plaintext/ciphertext-byte history, same-LAN/direct-address
+  delivery, signaling, STUN, direct file-byte transport, or a usable export
+  workflow.
 - No public discovery, relay, cloud file bytes, or presence inference.
 
 ### S2 — production control-plane prerequisites
@@ -238,8 +252,10 @@ S0 acceptance requires:
 
 ### S4 — higher-metadata collaboration
 
-- Reactions, threads, per-device read state, and coarse presence only after S1–S3
-  security and retention gates pass.
+- Expose reactions, threads, per-device read state, and coarse presence through
+  usable collaboration only after S1-S3 security and retention gates pass. S1
+  may durably preserve their content-free metadata contracts without exposing
+  payload or presence operations over HTTP.
 
 ## Release gates
 

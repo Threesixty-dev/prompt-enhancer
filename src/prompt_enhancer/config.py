@@ -93,6 +93,15 @@ class AppSettings(BaseModel):
             "and activates no identity, billing, or hosted-model provider."
         ),
     )
+    social_development_api: bool = Field(
+        default=False,
+        description=(
+            "Permit explicitly composed private-social development routes on "
+            "the loopback API. Off by default; the flag alone creates no social "
+            "identity, principal resolver, listener, remote binding, social "
+            "database, or mutation authority."
+        ),
+    )
 
     @field_validator("home")
     @classmethod
@@ -111,6 +120,8 @@ class AppSettings(BaseModel):
             raise ValueError("the control-plane development API stays on loopback")
         if self.paid_product_development_api and not is_loopback_host(self.host):
             raise ValueError("the paid-product development API stays on loopback")
+        if self.social_development_api and not is_loopback_host(self.host):
+            raise ValueError("the social development API stays on loopback")
         return self
 
     @property
@@ -142,12 +153,14 @@ class AppSettings(BaseModel):
         paid_product = (
             env.get("PROMPT_ENHANCER_PAID_PRODUCT_DEV_API", "") == "enabled"
         )
+        social = env.get("PROMPT_ENHANCER_SOCIAL_DEV_API", "") == "enabled"
         return cls(
             home=default_app_home(env),
             host=host,
             port=port,
             control_plane_development_api=control_plane,
             paid_product_development_api=paid_product,
+            social_development_api=social,
         )
 
 

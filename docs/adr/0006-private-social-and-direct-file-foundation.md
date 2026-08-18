@@ -1,6 +1,8 @@
 # ADR 0006: Invite-only social metadata and direct-only owner-hosted files
 
-- Status: Accepted development foundation; production communication is not accepted
+- Status: Accepted S0 foundation; durability and narrow local-route portions are
+  superseded by [ADR 0008](0008-durable-local-social-metadata-runtime.md);
+  production communication is not accepted
 - Date: 2026-08-18
 - Contract versions: `social-foundation-v1`, `direct-file-sharing-v1`
 - Scope: social graph, private conversation metadata, E2EE ports, coarse
@@ -16,8 +18,11 @@ parity, public communities, account discovery, an identity provider,
 cryptography, signaling, ICE candidate exchange, a remote listener, NAT relay,
 cloud file storage or a multi-device sync protocol.
 
-No route or listener is mounted by this slice. The local analyzer is unchanged.
-The default cryptography and signaling adapters fail closed.
+No route or listener was mounted by this S0 slice. The local analyzer was
+unchanged. The default cryptography and signaling adapters fail closed. ADR 0008
+later accepts a default-off, loopback-only development composition for readiness
+and narrow relationship mutations; it does not accept a listener, identity
+provider, payload route, cryptography, or transport.
 
 ## Threat model
 
@@ -39,11 +44,12 @@ metadata. Pseudonymous identifiers are personal data, not anonymity.
 
 Social identifiers use a separate random `soc_` namespace. Analytics HMAC
 pseudonyms cannot be inserted into these contracts and no social module imports
-the analyzer database, metrics, sessions or project identities. The future
+the analyzer database, metrics, sessions or project identities. The planned
 local persistence boundary owns `social.sqlite3` and its independent
 `social_schema_migrations` ledger; it never joins or attaches
-`metrics.sqlite3`. The current runtime remains volatile in-memory, so durable
-multi-device synchronization is explicitly unavailable.
+`metrics.sqlite3`. This S0 slice used a volatile in-memory runtime. ADR 0008
+accepts one-device durable metadata persistence, while durable multi-device
+synchronization remains explicitly unavailable.
 
 A production identity provider must resolve an authenticated account/device
 principal. Callers never gain authority by placing an organization, account or
