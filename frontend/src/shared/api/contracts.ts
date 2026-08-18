@@ -369,7 +369,7 @@ export type ProviderUpdateTarget = "prompt_enhancer" | "provider";
 /** Content-free, closed projection of one provider compatibility check. */
 export interface ProviderCompatibilityStatus {
   provider: ProviderCompatibilityProvider;
-  capability: "session_text_analysis";
+  capability: "session_text_analysis" | "operational_events";
   state: ProviderCompatibilityState;
   capability_state: ProviderTextCapabilityState;
   provider_family: string;

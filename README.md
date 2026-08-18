@@ -83,6 +83,15 @@ python -m prompt_enhancer serve
 
 The application state is created outside the repository by default. The repeatable `demo` command imports only fictional, deterministic metadata and makes no provider or model calls. `serve` binds to loopback and exposes authenticated, allowlisted queries plus narrow idempotent review and analysis commands. The health response, static dashboard files, and same-origin browser-session bootstrap are unauthenticated but contain no private metrics. Every `/v1/*` route requires either the private API token or an ephemeral HttpOnly browser cookie; browser mutations also require strict same-origin and CSRF checks.
 
+To capture your own Claude Code sessions, grant the separate hook-capture consent, then paste the printed hooks fragment into your Claude Code `settings.json` yourself - the application never writes to that file:
+
+```powershell
+python -m prompt_enhancer claude-consent-grant local-history
+python -m prompt_enhancer claude-hooks-config
+```
+
+From then on each Claude Code lifecycle event invokes `python -m prompt_enhancer claude-hook`, which records only content-free metadata (pseudonymous session and project identity, event kind, tool category, timing) and is silent and harmless when consent is off or the store is absent. Sessions that started before the hook was installed are not read. Index captured sessions from the dashboard's Data source page or the `/v1/local-sources/claude-code/index` route.
+
 The dashboard's development profile is synthetic and does not require the local API token:
 
 ```powershell
@@ -194,9 +203,8 @@ Objective evidence such as tests, builds, CI, artifacts, and explicit user accep
 ## Proposed integration model
 
 - Codex: the implemented App Server adapter separates a state-only content-discarding index, selector-gated summary label enrichment, and selector-gated operational history. Summary mode uses `thread/read` with turns omitted, is capped at 25 current-snapshot IDs, and persists only missing minimized labels with provenance. All modes require `local-history` consent. Opt-in OpenTelemetry remains a future live source.
-- Claude Code: use the Agent SDK's local session readers and opt-in OpenTelemetry or hooks. Direct JSONL parsing is a versioned fallback only.
-  Do not register Claude display-label persistence until a schema-v6 migration
-  provides provider-neutral, versioned provenance.
+- Claude Code: implemented through the documented hooks interface only ([ADR 0010](docs/adr/0010-claude-code-hook-capture-boundary.md)). `prompt-enhancer claude-hook` is the receiver Claude Code invokes; it minimizes each payload in-process, keeps no prompt, tool input or output, transcript path, or working directory, and appends only under an active `claude_code` consent grant. Capture is prospective - sessions before the hook was installed are not read - and no transcript, JSONL, or settings file is ever opened. Opt-in OpenTelemetry for token counters is compatible follow-up work. Direct JSONL parsing remains a rejected fallback.
+  Claude display labels arrive with the hook as a bounded basename; persisting them through the migration-5 label tables still requires a provider-neutral migration.
 - Storage: SQLite as the initial source of truth, with a separate optional encrypted content vault. DuckDB/Parquet can be added later for larger analytical workloads.
 - Analysis: deterministic metrics first, then small local Hugging Face models that pass an in-domain benchmark. The local Model Lab screens seven revision-pinned candidates in isolated one-at-a-time subprocesses with CUDA, Apple MPS, or CPU fallback. Current neural candidates remain evaluation-only; none is activated in product metrics. Remote LLM analysis is optional, redacted, previewed, and explicitly approved.
 - Agent access: a read-only, allowlisted local MCP server can let an already-authenticated Codex or Claude session query aggregate metrics. Data returned through MCP enters that model's context and may leave the device.
@@ -267,7 +275,7 @@ The Codex read boundary and metric assumptions are recorded in
 
 Before expanding provider and content support, the maintainers still need to decide:
 
-1. Which documented Claude Code interface and consent UX to implement.
+1. Whether to add opt-in OpenTelemetry token counters beside the hook capture, and which consent UX presents both.
 2. Which two or three task types form the initial evaluation dataset.
 3. Which operating systems form the first supported adapter matrix.
 4. Which public license to use.
@@ -275,5 +283,5 @@ Before expanding provider and content support, the maintainers still need to dec
 ## Repository status
 
 - Default branch: `main`
-- Stage: synthetic vertical slice plus experimental Codex index/selected-history adapter and explicitly confirmed local Prompt Quality / observable-logic profiles; Claude ingestion and calibrated model scoring remain deferred
+- Stage: synthetic vertical slice plus experimental Codex index/selected-history adapter, hook-captured Claude Code sessions, and explicitly confirmed local Prompt Quality / observable-logic profiles; calibrated model scoring remains deferred
 - License: not yet selected. Until a `LICENSE` file is added, no reuse license is granted by this repository.

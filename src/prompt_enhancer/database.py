@@ -110,10 +110,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_42,
     MIGRATION_43,
     MIGRATION_44,
+    MIGRATION_45,
 )
 
 
-SCHEMA_VERSION = 44
+SCHEMA_VERSION = 45
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1637,6 +1638,7 @@ class Database:
                 (42, MIGRATION_42),
                 (43, MIGRATION_43),
                 (44, MIGRATION_44),
+                (45, MIGRATION_45),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1774,6 +1776,16 @@ class Database:
             self._connection,
             self._ensure_initialized,
         )
+
+    def claude_hook_ledger(self):
+        """Return the read side of the Claude Code hook ledger."""
+
+        from .infrastructure.providers.claude_code_hooks.ledger import (
+            SqliteClaudeHookLedger,
+        )
+
+        self._ensure_initialized()
+        return SqliteClaudeHookLedger(self._connection, self._ensure_initialized)
 
     def metric_lifecycle_evidence_repository(self):
         """Return explicit, content-free collaboration evidence persistence."""

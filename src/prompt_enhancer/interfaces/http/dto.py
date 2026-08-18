@@ -89,6 +89,7 @@ class CapabilitiesDto(HttpDto):
     session_text_analysis_data_tier: Literal["redacted_content"] | None
     session_text_content_persistence: Literal[False]
     codex_local_source: bool
+    claude_code_local_source: bool = False
     manual_display_labels: bool
     browser_session: Literal[True]
     demo_provider: Literal["synthetic"]

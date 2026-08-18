@@ -133,9 +133,9 @@ def test_populated_v43_upgrades_to_v44_without_backfill_or_frozen_drift(
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 44
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 44
-        assert tuple(row[0] for row in rows) == tuple(range(1, 45))
+        assert SCHEMA_VERSION == 45
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 45
+        assert tuple(row[0] for row in rows) == tuple(range(1, 46))
         assert rows[42][1] == frozen
         assert rows[43][1] == hashlib.sha256(
             migrations.MIGRATION_44.encode()
@@ -244,7 +244,7 @@ def test_failed_v44_rolls_back_schema_ledger_and_user_version_together(
 def test_database_registry_places_m44_after_byte_frozen_m43() -> None:
     assert database_module.MIGRATION_43 is migrations.MIGRATION_43
     assert database_module.MIGRATION_44 is migrations.MIGRATION_44
-    assert SCHEMA_VERSION == 44
+    assert SCHEMA_VERSION == 45
     assert hashlib.sha256(migrations.MIGRATION_43.encode()).hexdigest() == (
         MIGRATION_43_FROZEN_SHA256
     )

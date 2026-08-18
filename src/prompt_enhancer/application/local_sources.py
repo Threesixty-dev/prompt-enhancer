@@ -184,3 +184,98 @@ class CodexLocalSourceService:
             raise ConsentRequiredError(
                 "explicit source consent is required before provider access"
             )
+
+
+ClaudeHookAdapterFactory = Callable[[], ProviderAdapter]
+HookLedgerSummary = Callable[[], dict[str, int]]
+
+
+class ClaudeCodeLocalSourceStatus(StrictModel):
+    """Content-free state of the hook-based Claude Code source.
+
+    ``captured_*`` counts describe the local hook ledger - events the receiver
+    has recorded under consent but that may not yet be indexed into the main
+    session tables.  ``indexed_*`` counts describe what indexing has admitted.
+    Neither is a claim that every provider event was captured.
+    """
+
+    consent_active: bool
+    captured_sessions: int
+    captured_events: int
+    indexed_sessions: int
+    indexed_projects: int
+    verification_capability: VerificationCapability
+    capture_channel: str = "claude_code_hooks"
+    reads_transcripts: bool = False
+    persists_content: bool = False
+
+
+class ClaudeCodeLocalSourceService:
+    """Application boundary for the hook-captured Claude Code source.
+
+    Hooks are content-free by construction, so there is one capture mode and
+    one consent tier; there is no separate label or operational-history read.
+    Revoking consent stops the receiver from recording anything further; it
+    does not delete what was already recorded, and says so.
+    """
+
+    _TIER = DataTier.REDACTED_CONTENT
+
+    def __init__(
+        self,
+        repository: LocalSourceRepository,
+        ingestion: IngestionRunner,
+        adapter_factory: ClaudeHookAdapterFactory,
+        ledger_summary: HookLedgerSummary,
+        verification_capability: VerificationCapability,
+        automation_revoker: AutomationRevoker | None = None,
+    ) -> None:
+        self._repository = repository
+        self._ingestion = ingestion
+        self._adapter_factory = adapter_factory
+        self._ledger_summary = ledger_summary
+        self._verification_capability = verification_capability
+        self._automation_revoker = automation_revoker
+
+    def set_automation_revoker(self, revoker: AutomationRevoker) -> None:
+        self._automation_revoker = revoker
+
+    def status(self) -> ClaudeCodeLocalSourceStatus:
+        counts = self._repository.provider_catalog_summary(Provider.CLAUDE_CODE)
+        try:
+            captured = self._ledger_summary()
+        except Exception:
+            captured = {"sessions": 0, "events": 0}
+        return ClaudeCodeLocalSourceStatus(
+            consent_active=self._repository.has_active_consent(
+                Provider.CLAUDE_CODE, self._TIER
+            ),
+            captured_sessions=int(captured.get("sessions", 0)),
+            captured_events=int(captured.get("events", 0)),
+            indexed_sessions=counts["sessions"],
+            indexed_projects=counts["projects"],
+            verification_capability=self._verification_capability,
+        )
+
+    def grant_local_history(self) -> ClaudeCodeLocalSourceStatus:
+        self._repository.grant_consent(Provider.CLAUDE_CODE, self._TIER)
+        return self.status()
+
+    def revoke_local_history(self) -> ClaudeCodeLocalSourceStatus:
+        self._repository.revoke_consent(Provider.CLAUDE_CODE, self._TIER)
+        if self._automation_revoker is not None:
+            try:
+                self._automation_revoker(Provider.CLAUDE_CODE)
+            except Exception:
+                pass
+        return self.status()
+
+    def index(self, *, max_sessions: int) -> IngestionReport:
+        if not self._repository.has_active_consent(Provider.CLAUDE_CODE, self._TIER):
+            raise ConsentRequiredError(
+                "explicit source consent is required before provider access"
+            )
+        return self._ingestion.ingest(
+            self._adapter_factory(),
+            selection=IngestionSelection(max_sessions=max_sessions),
+        )

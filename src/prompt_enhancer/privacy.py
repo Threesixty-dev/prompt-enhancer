@@ -81,6 +81,21 @@ def _create_private_file(path: Path, data: bytes) -> None:
     _restrict_private_file(path)
 
 
+def load_pseudonymizer(path: Path) -> Pseudonymizer:
+    """Load an existing local HMAC key; never create one as a side effect.
+
+    Hook receivers and other processes that must not initialize state use
+    this instead of :func:`load_or_create_pseudonymizer`.
+    """
+
+    if path.is_symlink() or not path.is_file():
+        raise PrivacyBoundaryError("local pseudonym key is absent")
+    key = _read_private_file(path)
+    if len(key) != PSEUDONYM_KEY_BYTES:
+        raise PrivacyBoundaryError("local pseudonym key has an unexpected size")
+    return Pseudonymizer(key)
+
+
 def load_or_create_pseudonymizer(path: Path) -> Pseudonymizer:
     """Load or create a local HMAC key without ever logging its value."""
 

@@ -317,6 +317,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-sources/claude-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status */
+        get: operations["status_v1_local_sources_claude_code_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-sources/claude-code/consents/local-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Grant Consent */
+        post: operations["grant_consent_v1_local_sources_claude_code_consents_local_history_post"];
+        /** Revoke Consent */
+        delete: operations["revoke_consent_v1_local_sources_claude_code_consents_local_history_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-sources/claude-code/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Index */
+        post: operations["index_v1_local_sources_claude_code_index_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-sources/codex": {
         parameters: {
             query?: never;
@@ -2203,6 +2255,11 @@ export interface components {
              * @constant
              */
             browser_session: true;
+            /**
+             * Claude Code Local Source
+             * @default false
+             */
+            claude_code_local_source: boolean;
             /** Codex Local Source */
             codex_local_source: boolean;
             /**
@@ -2269,6 +2326,51 @@ export interface components {
          * @enum {string}
          */
         CapabilityKey: "session_list" | "session_labels" | "operational_events" | "user_messages" | "agent_messages" | "plan_messages" | "tool_events" | "decision_events" | "feedback_messages" | "verification_events" | "event_timing" | "token_usage" | "live_updates" | "requirement_opportunities" | "hypothesis_opportunities" | "material_claim_opportunities" | "verification_task_opportunities" | "requirement_evidence_links" | "hypothesis_evidence_links" | "material_claim_evidence_links" | "verification_task_evidence_links";
+        /**
+         * ClaudeCodeLocalSourceStatus
+         * @description Content-free state of the hook-based Claude Code source.
+         *
+         *     ``captured_*`` counts describe the local hook ledger - events the receiver
+         *     has recorded under consent but that may not yet be indexed into the main
+         *     session tables.  ``indexed_*`` counts describe what indexing has admitted.
+         *     Neither is a claim that every provider event was captured.
+         */
+        ClaudeCodeLocalSourceStatus: {
+            /**
+             * Capture Channel
+             * @default claude_code_hooks
+             */
+            capture_channel: string;
+            /** Captured Events */
+            captured_events: number;
+            /** Captured Sessions */
+            captured_sessions: number;
+            /** Consent Active */
+            consent_active: boolean;
+            /** Indexed Projects */
+            indexed_projects: number;
+            /** Indexed Sessions */
+            indexed_sessions: number;
+            /**
+             * Persists Content
+             * @default false
+             */
+            persists_content: boolean;
+            /**
+             * Reads Transcripts
+             * @default false
+             */
+            reads_transcripts: boolean;
+            verification_capability: components["schemas"]["VerificationCapability"];
+        };
+        /** ClaudeIndexRequest */
+        ClaudeIndexRequest: {
+            /**
+             * Max Sessions
+             * @default 500
+             */
+            max_sessions: number;
+        };
         /**
          * CoachingDecisionBasis
          * @description Common content-free receipt attached to each of the five decisions.
@@ -5461,9 +5563,9 @@ export interface components {
             /**
              * Capability
              * @default session_text_analysis
-             * @constant
+             * @enum {string}
              */
-            capability: "session_text_analysis";
+            capability: "session_text_analysis" | "operational_events";
             capability_state: components["schemas"]["ProviderTextCapabilityStateDto"];
             /** Checked At */
             checked_at?: string | null;
@@ -6746,6 +6848,10 @@ export interface components {
         TextRole: "user" | "agent";
         /** ValidationError */
         ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
@@ -7618,6 +7724,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelLabInventoryDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    status_v1_local_sources_claude_code_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaudeCodeLocalSourceStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    grant_consent_v1_local_sources_claude_code_consents_local_history_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaudeCodeLocalSourceStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_consent_v1_local_sources_claude_code_consents_local_history_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaudeCodeLocalSourceStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    index_v1_local_sources_claude_code_index_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaudeIndexRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestionReport"];
                 };
             };
             /** @description Validation Error */

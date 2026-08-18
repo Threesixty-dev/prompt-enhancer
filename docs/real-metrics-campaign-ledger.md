@@ -20,7 +20,7 @@ local runtime artifacts must never be added here.
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
 | P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | No P0 blocker; Codex still truthfully exposes only documented request/response/plan coaching text, so 7 of 20 structures remain unsupported |
 | P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, reviewed local automation admission controls, crash-safe invalid estimator-automation reconciliation, a restart-durable strict first-claim result-publication cutoff for reviewed automated `session_quality` work, bounded large-thread preparation, and a normalized ten-model local shadow ensemble with chunk-level receipts and a separate radar | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated or product-eligible model ensemble, force-stopping runtime deadline, or product-enabled estimator |
-| P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, repository-issued synthetic comparison-stratum preparation and graph sealing, and bounded repository-sealed synthetic aggregation-validation receipts | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no product source boundary exists; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
+| P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, repository-issued synthetic comparison-stratum preparation and graph sealing, and bounded repository-sealed synthetic aggregation-validation receipts | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no Codex product source boundary exists; the new Claude Code hook surface supplies receiver-clock per-item timing (`EVENT_TIMING`) and a keyset-ordered ledger, but it is not yet reviewed as a product source boundary; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred; P3a contracts only | Optional cloud identity, pairing, entitlements, payments, and usage ledger. P3a adds development-only control-plane contracts, default-deny policy, signed content-free snapshot envelopes, cursored deltas, tombstones, audit evidence, and an in-memory adapter behind ports | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required. P3a adds no deployment: no production identity provider, no Ed25519 adapter, no PostgreSQL adapter, no credential issuance, no billing, and no producer pipeline |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
@@ -1189,6 +1189,42 @@ embedding challenger, while the BGE reranker reduced ranking quality; the sample
 is too small for activation. These results prohibit interpreting model count or
 agreement as metric correctness and are not a calibration or promotion report.
 
+## Claude Code hook-capture evidence
+
+The checkpoint at `2b4d506` closed the untrusted agent-evidence import boundary,
+`6c1e9ae` landed the synthetic browser direct-transfer prototype (ADR 0009), and
+this checkpoint adds the second provider as a prospective, content-free capture
+surface ([ADR 0010](adr/0010-claude-code-hook-capture-boundary.md)):
+
+1. a versioned hook contract (`claude-code-hooks.v1`) whose only record shape
+   has no field able to hold text, a path, or a raw identifier, and a receiver
+   that reads eight allowlisted payload keys, never reads `transcript_path`,
+   writes nothing to stdout or stderr, always exits 0, never initializes state,
+   and records nothing without an active `claude_code` consent grant;
+2. migration 45: an append-only ledger whose `CHECK` constraints repeat the
+   contract's closed vocabulary, so the schema itself refuses content;
+3. a read-only `ClaudeCodeHookAdapter` on the existing `ProviderAdapter` port
+   with snapshot-scoped keyset paging, so hook sessions flow through the
+   unchanged ingestion, pseudonymization, and metric pipeline; `events_complete`
+   is never claimed, `terminal_state` maps only `prompt_input_exit` and
+   `logout`, and `PostToolUse` alone asserts tool success;
+4. a `claude_code` decoder descriptor declaring `SESSION_LIST`,
+   `SESSION_LABELS`, `OPERATIONAL_EVENTS`, `TOOL_EVENTS`, and `EVENT_TIMING`,
+   and deliberately no opportunity, link, message, decision, verification, or
+   token capability, so the five evidence-lane metrics stay `unknown` for
+   Claude exactly as for Codex; its compatibility report is `degraded` with
+   unknown completeness because the provider version and hook coverage cannot
+   be attested;
+5. the composition root registers both providers' descriptors, the
+   compatibility route resolves each provider's own surface (Codex text window
+   unchanged; the public DTO gains `capability = operational_events`), and the
+   loopback API adds `/v1/local-sources/claude-code` status, consent, and index
+   with a `claude_code_local_source` capability flag.
+
+Nothing here reads a Claude transcript, JSONL file, or settings file; capture
+is prospective only. This adds no calibration evidence, activates no
+estimator, and makes no metric numeric.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and
@@ -1255,6 +1291,7 @@ the application composes no control-plane service and exposes no route.
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |
 | Qwen embedding challenger | `Qwen/Qwen3-Embedding-0.6B` at `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` | Synthetic exploratory challenger; not product-enabled |
 | BGE reranker challenger | `BAAI/bge-reranker-v2-m3` at `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e` | Synthetic exploratory challenger; not product-enabled |
+| Claude Code hook capture | `claude-code-hooks.v1`; receiver `claude-code-hook-receiver-1`; adapter `claude-code-hooks-adapter-1`; source schema `claude-code-hooks.receipt-clock.v1`; decoder `claude-code.hooks.operational-events` v1; migration 45 | Prospective, content-free, consent-gated operational events with receiver-clock timing; no token usage, no transcript access, no task-outcome inference |
 | Claude Opus review target | Exact requested and served model must be recorded by a reviewed BYOK/API runner | Not implemented; no private-session review is authorized |
 | Claude Fable review target | Exact requested and served model plus retention acknowledgement must be recorded | Not implemented; synthetic architecture review only until the remote approval boundary exists |
 

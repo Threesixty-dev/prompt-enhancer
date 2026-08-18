@@ -423,9 +423,9 @@ const COMPATIBILITY_FAMILIES = {
   },
   claude_code: {
     provider: "claude_code",
-    adapter: "claude_code",
-    source: "claude_session",
-    content: "claude_content_blocks",
+    adapter: "claude_code_hooks",
+    source: "claude_hook_ledger",
+    content: "claude_hook_events",
   },
   synthetic: {
     provider: "synthetic_provider",
@@ -444,7 +444,7 @@ export function parseProviderCompatibilityStatus(
     Object.keys(value).length !== COMPATIBILITY_KEYS.size ||
     Object.keys(value).some((key) => !COMPATIBILITY_KEYS.has(key)) ||
     !["codex", "claude_code", "synthetic"].includes(value.provider as string) ||
-    value.capability !== "session_text_analysis" ||
+    !["session_text_analysis", "operational_events"].includes(value.capability as string) ||
     ![
       "exact",
       "compatible",

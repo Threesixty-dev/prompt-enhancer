@@ -51,6 +51,28 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument("--project-id", action="append", default=[])
     analyze.add_argument("--session-id", action="append", default=[])
     analyze.add_argument("--max-sessions", type=int, default=100)
+
+    claude_grant = subparsers.add_parser(
+        "claude-consent-grant",
+        help="grant the local Claude Code hook-capture scope without reading anything",
+    )
+    claude_grant.add_argument("scope", choices=("local-history",))
+    claude_revoke = subparsers.add_parser(
+        "claude-consent-revoke",
+        help="revoke the local Claude Code hook-capture scope",
+    )
+    claude_revoke.add_argument("scope", choices=("local-history",))
+    subparsers.add_parser(
+        "claude-hook",
+        help=(
+            "receive one Claude Code hook event on stdin; silent, always exits 0, "
+            "writes only a content-free record and only while consent is active"
+        ),
+    )
+    subparsers.add_parser(
+        "claude-hooks-config",
+        help="print the Claude Code settings.json hooks snippet for this receiver",
+    )
     return parser
 
 
@@ -218,6 +240,67 @@ def _run_codex_analysis(settings: AppSettings, args: argparse.Namespace) -> int:
     )
     return 0
 
+def _run_claude_consent(
+    settings: AppSettings,
+    args: argparse.Namespace,
+    *,
+    revoke: bool,
+) -> int:
+    application = _initialize(settings)
+    tier = _codex_tier(str(args.scope))
+    if revoke:
+        application.database.revoke_consent(Provider.CLAUDE_CODE, tier)
+        print(
+            "Revoked the local Claude Code hook-capture scope. The receiver now "
+            "records nothing; already-recorded events remain until deleted."
+        )
+    else:
+        application.database.grant_consent(Provider.CLAUDE_CODE, tier)
+        print(
+            "Granted the local Claude Code hook-capture scope. Add the hooks "
+            "snippet from `claude-hooks-config` to enable capture."
+        )
+    return 0
+
+
+def _run_claude_hook(settings: AppSettings) -> int:
+    from .infrastructure.providers.claude_code_hooks.receiver import main as hook_main
+
+    return hook_main(settings)
+
+
+def _run_claude_hooks_config(settings: AppSettings) -> int:
+    """Print the settings.json fragment; the user pastes it, we write nothing."""
+
+    import json
+
+    command = f"{sys.executable} -m prompt_enhancer claude-hook"
+    events = (
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "Stop",
+        "SubagentStop",
+        "PreCompact",
+    )
+    hooks = {
+        event: [{"hooks": [{"type": "command", "command": command, "timeout": 5}]}]
+        for event in events
+    }
+    print(json.dumps({"hooks": hooks}, indent=2))
+    notes = (
+        "",
+        "# Paste the object above into your Claude Code settings.json (merge the",
+        '# "hooks" key). The receiver records only content-free lifecycle',
+        "# metadata, only while `claude-consent-grant local-history` is active,",
+        "# and never reads transcripts, prompts, or tool output.",
+    )
+    print("\n".join(notes), file=sys.stderr)
+    return 0
+
+
 def _run_serve(settings: AppSettings) -> int:
     import uvicorn
 
@@ -253,6 +336,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_codex_index(settings, args)
         if args.command == "codex-analyze":
             return _run_codex_analysis(settings, args)
+        if args.command == "claude-consent-grant":
+            return _run_claude_consent(settings, args, revoke=False)
+        if args.command == "claude-consent-revoke":
+            return _run_claude_consent(settings, args, revoke=True)
+        if args.command == "claude-hook":
+            return _run_claude_hook(settings)
+        if args.command == "claude-hooks-config":
+            return _run_claude_hooks_config(settings)
         handlers = {
             "init": _run_init,
             "demo": _run_demo,

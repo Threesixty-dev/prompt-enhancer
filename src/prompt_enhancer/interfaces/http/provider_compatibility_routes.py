@@ -32,9 +32,9 @@ _PUBLIC_FAMILIES = {
     ),
     "claude_code": (
         "claude_code",
-        "claude_code",
-        "claude_session",
-        "claude_content_blocks",
+        "claude_code_hooks",
+        "claude_hook_ledger",
+        "claude_hook_events",
     ),
     "synthetic": (
         "synthetic_provider",
@@ -91,7 +91,9 @@ class ProviderCompatibilityStatusDto(StrictModel):
     """Closed projection. It contains no provider payload, path, or identifier."""
 
     provider: Literal["codex", "claude_code", "synthetic"]
-    capability: Literal["session_text_analysis"] = "session_text_analysis"
+    capability: Literal["session_text_analysis", "operational_events"] = (
+        "session_text_analysis"
+    )
     state: ProviderCompatibilityStateDto
     capability_state: ProviderTextCapabilityStateDto
     provider_family: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -169,6 +171,11 @@ def provider_compatibility_status(
     untested = report is None or report.state is CompatibilityState.UNTESTED
     common = dict(
         provider=provider,
+        capability=(
+            "operational_events"
+            if descriptor.surface is ProviderSurface.OPERATIONAL_EVENTS
+            else "session_text_analysis"
+        ),
         provider_family=provider_family,
         provider_version=None if untested else report.provider_version,
         adapter_family=adapter_family,
@@ -216,9 +223,32 @@ def create_provider_compatibility_router(
         dependencies=[Depends(require_local_auth)],
     )
 
-    def descriptor_for(provider: str) -> DecoderDescriptor:
+    def surface_for(provider: str) -> ProviderSurface:
+        """Each provider publishes exactly one primary surface here.
+
+        The Codex catalog registers the text window; a hook-captured provider
+        registers only its operational-event surface.  Preferring the text
+        window keeps the Codex contract unchanged.
+        """
+
         try:
-            return catalog.descriptor(provider, ProviderSurface.TEXT_WINDOW)
+            catalog.descriptor(provider, ProviderSurface.TEXT_WINDOW)
+            return ProviderSurface.TEXT_WINDOW
+        except ProviderCompatibilityCatalogError:
+            pass
+        try:
+            catalog.descriptor(provider, ProviderSurface.OPERATIONAL_EVENTS)
+            return ProviderSurface.OPERATIONAL_EVENTS
+        except ProviderCompatibilityCatalogError:
+            raise HTTPException(
+                status_code=404,
+                detail="provider compatibility surface is unavailable",
+            ) from None
+
+    def descriptor_for(provider: str) -> tuple[DecoderDescriptor, ProviderSurface]:
+        surface = surface_for(provider)
+        try:
+            return catalog.descriptor(provider, surface), surface
         except ProviderCompatibilityCatalogError:
             raise HTTPException(
                 status_code=404,
@@ -232,9 +262,9 @@ def create_provider_compatibility_router(
     def cached_status(
         provider: Annotated[str, Path(pattern=_PROVIDER_KEY_PATTERN)],
     ) -> ProviderCompatibilityStatusDto:
-        descriptor = descriptor_for(provider)
+        descriptor, surface = descriptor_for(provider)
         try:
-            report = catalog.get_cached(provider, ProviderSurface.TEXT_WINDOW)
+            report = catalog.get_cached(provider, surface)
         except Exception:
             report = None
         return provider_compatibility_status(descriptor, report)
@@ -246,9 +276,9 @@ def create_provider_compatibility_router(
     def check_status(
         provider: Annotated[str, Path(pattern=_PROVIDER_KEY_PATTERN)],
     ) -> ProviderCompatibilityStatusDto:
-        descriptor = descriptor_for(provider)
+        descriptor, surface = descriptor_for(provider)
         try:
-            report = catalog.refresh(provider, ProviderSurface.TEXT_WINDOW)
+            report = catalog.refresh(provider, surface)
         except Exception:
             raise HTTPException(
                 status_code=503,

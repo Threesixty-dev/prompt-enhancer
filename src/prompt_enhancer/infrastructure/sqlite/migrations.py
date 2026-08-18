@@ -12432,3 +12432,104 @@ WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
 BEGIN SELECT RAISE(ABORT,'metric V2 r4 publication seal requires parent privacy deletion'); END;
 COMMIT;
 """
+
+MIGRATION_45 = r"""
+BEGIN IMMEDIATE;
+
+-- Claude Code hook ledger.  Claude Code invokes a local receiver once per
+-- lifecycle event; the receiver minimizes the payload in-process and appends
+-- only what these CHECK constraints admit: installation-local pseudonyms,
+-- closed codes, one bounded basename label, and receiver-clock UTC times.
+-- No prompt, tool input or output, transcript path, working directory, tool
+-- name, notification text, or provider identifier can be represented here.
+CREATE TABLE claude_code_hook_sessions (
+    hook_session_id TEXT PRIMARY KEY
+      CHECK(length(hook_session_id)=64 AND hook_session_id NOT GLOB '*[^0-9a-f]*'),
+    hook_project_id TEXT NOT NULL
+      CHECK(length(hook_project_id)=64 AND hook_project_id NOT GLOB '*[^0-9a-f]*'),
+    project_display_label TEXT
+      CHECK(project_display_label IS NULL
+            OR length(project_display_label) BETWEEN 1 AND 120),
+    contract_version TEXT NOT NULL CHECK(contract_version='claude-code-hooks.v1'),
+    receiver_version TEXT NOT NULL
+      CHECK(length(receiver_version) BETWEEN 1 AND 128
+            AND receiver_version GLOB '[A-Za-z0-9]*'
+            AND receiver_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    first_received_at TEXT NOT NULL,
+    last_received_at TEXT NOT NULL,
+    session_start_source TEXT
+      CHECK(session_start_source IS NULL
+            OR session_start_source IN ('startup','resume','clear','compact','unknown')),
+    session_end_reason TEXT
+      CHECK(session_end_reason IS NULL
+            OR session_end_reason IN ('clear','logout','prompt_input_exit','other','unknown')),
+    ended_at TEXT,
+    event_count INTEGER NOT NULL DEFAULT 0 CHECK(event_count >= 0),
+    CHECK(last_received_at >= first_received_at),
+    CHECK((ended_at IS NULL) = (session_end_reason IS NULL))
+);
+CREATE INDEX claude_code_hook_sessions_project_idx
+    ON claude_code_hook_sessions(hook_project_id, first_received_at);
+CREATE INDEX claude_code_hook_sessions_activity_idx
+    ON claude_code_hook_sessions(last_received_at);
+
+CREATE TABLE claude_code_hook_events (
+    hook_event_id TEXT PRIMARY KEY
+      CHECK(length(hook_event_id)=64 AND hook_event_id NOT GLOB '*[^0-9a-f]*'),
+    hook_session_id TEXT NOT NULL
+      REFERENCES claude_code_hook_sessions(hook_session_id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK(sequence >= 0),
+    received_at TEXT NOT NULL,
+    hook_event_name TEXT NOT NULL
+      CHECK(hook_event_name IN ('SessionStart','SessionEnd','UserPromptSubmit',
+                                'PreToolUse','PostToolUse','Stop','SubagentStop',
+                                'PreCompact','unknown')),
+    event_kind TEXT NOT NULL
+      CHECK(event_kind IN ('session_start','session_end','turn_start','tool_start',
+                           'tool_end','turn_end','subagent_end','compaction','unknown')),
+    tool_category TEXT
+      CHECK(tool_category IS NULL
+            OR tool_category IN ('file_read','file_write','command','search','test',
+                                 'build','version_control','network','mcp',
+                                 'subagent','other','unknown')),
+    tool_use_ref TEXT
+      CHECK(tool_use_ref IS NULL
+            OR (length(tool_use_ref)=64 AND tool_use_ref NOT GLOB '*[^0-9a-f]*')),
+    duration_ms INTEGER CHECK(duration_ms IS NULL OR duration_ms >= 0),
+    success INTEGER CHECK(success IS NULL OR success IN (0,1)),
+    session_start_source TEXT
+      CHECK(session_start_source IS NULL
+            OR session_start_source IN ('startup','resume','clear','compact','unknown')),
+    session_end_reason TEXT
+      CHECK(session_end_reason IS NULL
+            OR session_end_reason IN ('clear','logout','prompt_input_exit','other','unknown')),
+    compact_trigger TEXT
+      CHECK(compact_trigger IS NULL OR compact_trigger IN ('manual','auto','unknown')),
+    UNIQUE(hook_session_id, sequence),
+    -- Tool fields only on tool hooks; the pairing reference is what lets a
+    -- PostToolUse close the PreToolUse that opened it.
+    CHECK((hook_event_name IN ('PreToolUse','PostToolUse')) = (tool_category IS NOT NULL)),
+    CHECK(tool_use_ref IS NULL OR hook_event_name IN ('PreToolUse','PostToolUse')),
+    CHECK(duration_ms IS NULL OR hook_event_name='PostToolUse'),
+    CHECK(success IS NULL OR hook_event_name='PostToolUse'),
+    CHECK(session_start_source IS NULL OR hook_event_name='SessionStart'),
+    CHECK(session_end_reason IS NULL OR hook_event_name='SessionEnd'),
+    CHECK(compact_trigger IS NULL OR hook_event_name='PreCompact')
+);
+CREATE INDEX claude_code_hook_events_session_idx
+    ON claude_code_hook_events(hook_session_id, sequence);
+CREATE INDEX claude_code_hook_events_tool_pair_idx
+    ON claude_code_hook_events(hook_session_id, tool_use_ref)
+    WHERE tool_use_ref IS NOT NULL;
+
+-- The ledger is append-only.  A correction is a new event; privacy deletion
+-- of a session cascades from the parent row.
+CREATE TRIGGER claude_code_hook_events_no_update
+BEFORE UPDATE ON claude_code_hook_events
+BEGIN SELECT RAISE(ABORT,'claude code hook events are immutable'); END;
+CREATE TRIGGER claude_code_hook_events_privacy_delete_only
+BEFORE DELETE ON claude_code_hook_events
+WHEN EXISTS(SELECT 1 FROM claude_code_hook_sessions WHERE hook_session_id=OLD.hook_session_id)
+BEGIN SELECT RAISE(ABORT,'claude code hook events require parent privacy deletion'); END;
+COMMIT;
+"""

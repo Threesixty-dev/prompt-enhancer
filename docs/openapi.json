@@ -1929,6 +1929,11 @@
             "title": "Browser Session",
             "type": "boolean"
           },
+          "claude_code_local_source": {
+            "default": false,
+            "title": "Claude Code Local Source",
+            "type": "boolean"
+          },
           "codex_local_source": {
             "title": "Codex Local Source",
             "type": "boolean"
@@ -2053,6 +2058,74 @@
         ],
         "title": "CapabilityKey",
         "type": "string"
+      },
+      "ClaudeCodeLocalSourceStatus": {
+        "additionalProperties": false,
+        "description": "Content-free state of the hook-based Claude Code source.\n\n``captured_*`` counts describe the local hook ledger - events the receiver\nhas recorded under consent but that may not yet be indexed into the main\nsession tables.  ``indexed_*`` counts describe what indexing has admitted.\nNeither is a claim that every provider event was captured.",
+        "properties": {
+          "capture_channel": {
+            "default": "claude_code_hooks",
+            "title": "Capture Channel",
+            "type": "string"
+          },
+          "captured_events": {
+            "title": "Captured Events",
+            "type": "integer"
+          },
+          "captured_sessions": {
+            "title": "Captured Sessions",
+            "type": "integer"
+          },
+          "consent_active": {
+            "title": "Consent Active",
+            "type": "boolean"
+          },
+          "indexed_projects": {
+            "title": "Indexed Projects",
+            "type": "integer"
+          },
+          "indexed_sessions": {
+            "title": "Indexed Sessions",
+            "type": "integer"
+          },
+          "persists_content": {
+            "default": false,
+            "title": "Persists Content",
+            "type": "boolean"
+          },
+          "reads_transcripts": {
+            "default": false,
+            "title": "Reads Transcripts",
+            "type": "boolean"
+          },
+          "verification_capability": {
+            "$ref": "#/components/schemas/VerificationCapability"
+          }
+        },
+        "required": [
+          "consent_active",
+          "captured_sessions",
+          "captured_events",
+          "indexed_sessions",
+          "indexed_projects",
+          "verification_capability"
+        ],
+        "title": "ClaudeCodeLocalSourceStatus",
+        "type": "object"
+      },
+      "ClaudeIndexRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "max_sessions": {
+            "default": 500,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Max Sessions",
+            "type": "integer"
+          }
+        },
+        "title": "ClaudeIndexRequest",
+        "type": "object"
       },
       "CoachingDecisionBasis": {
         "additionalProperties": false,
@@ -10105,8 +10178,11 @@
             "title": "Adapter Version"
           },
           "capability": {
-            "const": "session_text_analysis",
             "default": "session_text_analysis",
+            "enum": [
+              "session_text_analysis",
+              "operational_events"
+            ],
             "title": "Capability",
             "type": "string"
           },
@@ -13824,6 +13900,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
@@ -15726,6 +15809,274 @@
         "summary": "List Estimator Plans",
         "tags": [
           "estimators"
+        ]
+      }
+    },
+    "/v1/local-sources/claude-code": {
+      "get": {
+        "operationId": "status_v1_local_sources_claude_code_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudeCodeLocalSourceStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "local-sources"
+        ]
+      }
+    },
+    "/v1/local-sources/claude-code/consents/local-history": {
+      "delete": {
+        "operationId": "revoke_consent_v1_local_sources_claude_code_consents_local_history_delete",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudeCodeLocalSourceStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Consent",
+        "tags": [
+          "local-sources"
+        ]
+      },
+      "post": {
+        "operationId": "grant_consent_v1_local_sources_claude_code_consents_local_history_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudeCodeLocalSourceStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Grant Consent",
+        "tags": [
+          "local-sources"
+        ]
+      }
+    },
+    "/v1/local-sources/claude-code/index": {
+      "post": {
+        "operationId": "index_v1_local_sources_claude_code_index_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaudeIndexRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Index",
+        "tags": [
+          "local-sources"
         ]
       }
     },

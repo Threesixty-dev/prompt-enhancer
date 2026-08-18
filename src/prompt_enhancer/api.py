@@ -27,7 +27,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.staticfiles import StaticFiles
 
 from .application.display_labels import ManualDisplayLabelService
-from .application.local_sources import CodexLocalSourceService
+from .application.local_sources import (
+    ClaudeCodeLocalSourceService,
+    CodexLocalSourceService,
+)
 from .application.analysis.session_text_service import SessionTextAnalysisService
 from .application.jobs import AnalysisJobService, AnalysisJobWorker
 from .application.automation import AutomationGrantService, AutomationGrantWorker
@@ -113,6 +116,9 @@ from .interfaces.http.review_routes import (
     create_task_review_router,
 )
 from .interfaces.http.local_source_routes import create_local_source_router
+from .interfaces.http.claude_local_source_routes import (
+    create_claude_local_source_router,
+)
 from .interfaces.http.display_label_routes import create_display_label_router
 from .interfaces.http.dto import (
     CapabilitiesDto,
@@ -323,6 +329,7 @@ def create_app(
     metric_readiness_service: MetricReadinessService | None = None,
     metric_coverage_service: MetricCoverageService | None = None,
     codex_source_service: CodexLocalSourceService | None = None,
+    claude_source_service: ClaudeCodeLocalSourceService | None = None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
     analysis_job_service: AnalysisJobService | None = None,
@@ -568,6 +575,7 @@ def create_app(
             or session_model_link_experiment_service is not None
             or provider_compatibility_catalog is not None
             or codex_source_service is not None
+            or claude_source_service is not None
             or display_label_service is not None
             or model_evaluation_service is not None
         )
@@ -591,6 +599,7 @@ def create_app(
             ),
             session_text_content_persistence=False,
             codex_local_source=codex_source_service is not None,
+            claude_code_local_source=claude_source_service is not None,
             manual_display_labels=display_label_service is not None,
             browser_session=True,
             demo_provider="synthetic",
@@ -824,6 +833,12 @@ def create_app(
     if codex_source_service is not None:
         app.include_router(
             create_local_source_router(require_local_token, codex_source_service)
+        )
+    if claude_source_service is not None:
+        app.include_router(
+            create_claude_local_source_router(
+                require_local_token, claude_source_service
+            )
         )
 
     if display_label_service is not None:

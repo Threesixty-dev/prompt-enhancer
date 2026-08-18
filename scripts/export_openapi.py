@@ -29,7 +29,10 @@ from prompt_enhancer.application.analysis.redaction_preview import (
     RedactionPreviewInspection,
 )
 from prompt_enhancer.application.discovery import TaskDecisionCommand, TaskReviewResult
-from prompt_enhancer.application.local_sources import CodexLocalSourceStatus
+from prompt_enhancer.application.local_sources import (
+    ClaudeCodeLocalSourceStatus,
+    CodexLocalSourceStatus,
+)
 from prompt_enhancer.application.persistence import AnalysisRunStatus
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.domain import Provider
@@ -242,6 +245,22 @@ class _SchemaControlPlanePrincipalResolver:
     pass
 
 
+class _SchemaClaudeSourceService:
+    """Non-executing stand-in exposing the hook-captured source route signatures."""
+
+    def status(self) -> ClaudeCodeLocalSourceStatus:
+        raise RuntimeError("schema-only service cannot access local sources")
+
+    def grant_local_history(self) -> ClaudeCodeLocalSourceStatus:
+        raise RuntimeError("schema-only service cannot change consent")
+
+    def revoke_local_history(self) -> ClaudeCodeLocalSourceStatus:
+        raise RuntimeError("schema-only service cannot change consent")
+
+    def index(self, *, max_sessions: int) -> IngestionReport:
+        raise RuntimeError("schema-only service cannot access local sources")
+
+
 class _SchemaCodexSourceService:
     """Non-executing stand-in that exposes only local-source route signatures."""
 
@@ -371,6 +390,7 @@ def _build_schema_app(*, include_control_plane: bool):
             else None
         ),  # type: ignore[arg-type]
         codex_source_service=_SchemaCodexSourceService(),
+        claude_source_service=_SchemaClaudeSourceService(),  # type: ignore[arg-type]
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),
     )

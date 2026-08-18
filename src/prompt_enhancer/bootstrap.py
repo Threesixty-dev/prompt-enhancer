@@ -129,6 +129,29 @@ class LocalApplication:
             mode = CodexReadMode.METADATA_INDEX
         return CodexAppServerAdapter(mode=mode)
 
+    def create_claude_hook_adapter(self):
+        """Read-only adapter over the local Claude Code hook ledger."""
+
+        from .infrastructure.providers.claude_code_hooks.adapter import (
+            ClaudeCodeHookAdapter,
+        )
+
+        return ClaudeCodeHookAdapter(self.database.claude_hook_ledger())
+
+    def create_claude_local_source_service(self):
+        """Consent, status, and index commands for the hook-captured source."""
+
+        from .application.local_sources import ClaudeCodeLocalSourceService
+        from .infrastructure.verification import validation_only_capability
+
+        return ClaudeCodeLocalSourceService(
+            self.database,
+            self.create_ingestion_service(),
+            self.create_claude_hook_adapter,
+            lambda: self.database.claude_hook_ledger().summary(),
+            validation_only_capability(),
+        )
+
     def create_manual_display_label_service(self):
         from .application.display_labels import ManualDisplayLabelService
 
@@ -225,13 +248,24 @@ class LocalApplication:
             CodexTextWindowCompatibilityProbe,
         )
 
-        descriptor = CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR
-        registry = TrustedProviderRegistry((descriptor,))
+        from .infrastructure.providers.claude_code_hooks.adapter import (
+            CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR,
+            ClaudeCodeHooksCompatibilityProbe,
+        )
+
+        descriptors = (
+            CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR,
+            CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR,
+        )
+        registry = TrustedProviderRegistry(descriptors)
         service = ProviderCompatibilityService(
             registry,
-            (CodexTextWindowCompatibilityProbe(),),
+            (
+                CodexTextWindowCompatibilityProbe(),
+                ClaudeCodeHooksCompatibilityProbe(self.database.claude_hook_ledger()),
+            ),
         )
-        return ProviderCompatibilityCatalog(service, (descriptor,))
+        return ProviderCompatibilityCatalog(service, descriptors)
 
     def create_session_text_analysis_service(
         self,
@@ -624,6 +658,8 @@ class LocalApplication:
             )
 
         codex_source_service.set_automation_revoker(revoke_local_workers)
+        claude_source_service = self.create_claude_local_source_service()
+        claude_source_service.set_automation_revoker(revoke_local_workers)
         control_plane = (
             self.create_control_plane()
             if self.settings.control_plane_development_api
@@ -655,6 +691,7 @@ class LocalApplication:
             metric_readiness_service=metric_readiness_service,
             metric_coverage_service=metric_coverage_service,
             codex_source_service=codex_source_service,
+            claude_source_service=claude_source_service,
             display_label_service=self.create_manual_display_label_service(),
             model_evaluation_service=LocalTextModelEvaluationService(),
             analysis_job_service=analysis_job_service,
