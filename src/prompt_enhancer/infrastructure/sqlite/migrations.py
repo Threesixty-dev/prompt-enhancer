@@ -11801,3 +11801,634 @@ BEGIN SELECT RAISE(ABORT,'task lifecycle events require parent privacy deletion'
 
 COMMIT;
 """
+
+
+# M43 is frozen task-lifecycle history.  This append-only lifecycle-evidence
+# schema follows it without altering or rebuilding any prior migration.
+MIGRATION_44 = r"""
+BEGIN IMMEDIATE;
+
+-- Authenticated local-user lifecycle evidence.  Every column is a closed
+-- code, installation-local pseudonym, count, or server-issued UTC time.  No
+-- transcript text, excerpt, label, path, or caller-authored timestamp exists.
+CREATE TABLE metric_lifecycle_evidence_windows (
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+    source_window_fingerprint TEXT NOT NULL
+      CHECK(length(source_window_fingerprint)=64
+            AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    anchor_run_id TEXT NOT NULL UNIQUE
+      REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE
+      CHECK(length(anchor_run_id)=64 AND anchor_run_id NOT GLOB '*[^0-9a-f]*'),
+    PRIMARY KEY(session_id,source_window_fingerprint)
+);
+
+-- The first proposal for a stable input window seals one run as the graph
+-- anchor.  Later deterministic reruns of the same window may extend that
+-- graph, but every persisted node still belongs to the one cascade root.
+CREATE TRIGGER metric_lifecycle_window_authority
+BEFORE INSERT ON metric_lifecycle_evidence_windows
+WHEN NOT EXISTS (
+  SELECT 1 FROM session_model_ensemble_runs run
+  JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+  WHERE run.run_id=NEW.anchor_run_id
+    AND run.session_id=NEW.session_id
+    AND run.input_fingerprint=NEW.source_window_fingerprint
+    AND run.run_id=(
+      SELECT latest.run_id
+      FROM session_model_ensemble_runs latest
+      JOIN session_model_ensemble_seals latest_seal
+        ON latest_seal.run_id=latest.run_id
+      WHERE latest.session_id=NEW.session_id
+      ORDER BY latest.completed_at DESC,latest.run_id DESC
+      LIMIT 1
+    )
+)
+BEGIN SELECT RAISE(ABORT,'metric lifecycle window authority mismatch'); END;
+
+CREATE TABLE metric_lifecycle_evidence_proposals (
+    proposal_id TEXT PRIMARY KEY
+      CHECK(length(proposal_id)=64 AND proposal_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+    source_run_id TEXT NOT NULL
+      REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE
+      CHECK(length(source_run_id)=64 AND source_run_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL
+      CHECK(length(source_window_fingerprint)=64
+            AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    proposal_revision INTEGER NOT NULL CHECK(proposal_revision=1),
+    proposal_kind TEXT NOT NULL
+      CHECK(proposal_kind IN ('opportunity','outcome','enumeration')),
+    family TEXT NOT NULL CHECK(family IN (
+      'collaboration.ambiguity_resolution',
+      'collaboration.clarification_yield',
+      'collaboration.exploration_conversion',
+      'collaboration.scope_change_discipline',
+      'collaboration.rework_candidate_rate'
+    )),
+    opportunity_kind TEXT NOT NULL CHECK(opportunity_kind IN (
+      'ambiguity','clarification','exploration','scope_change','rework'
+    )),
+    opportunity_id TEXT CHECK(
+      opportunity_id IS NULL OR
+      (length(opportunity_id)=64 AND opportunity_id NOT GLOB '*[^0-9a-f]*')
+    ),
+    link_kind TEXT CHECK(link_kind IS NULL OR link_kind IN (
+      'ambiguity_resolution','clarification_answer_incorporation',
+      'exploration_support_decision','scope_change_impact_disposition',
+      'rework_requirement_assessment'
+    )),
+    outcome_kind TEXT CHECK(outcome_kind IS NULL OR outcome_kind IN (
+      'ambiguity_resolved','ambiguity_closed_unresolved',
+      'clarification_incorporated','clarification_not_incorporated',
+      'exploration_converted','exploration_not_converted',
+      'scope_change_disciplined','scope_change_undisciplined',
+      'rework_required','rework_not_required'
+    )),
+    idempotency_key_digest TEXT NOT NULL
+      CHECK(length(idempotency_key_digest)=64
+            AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+    command_fingerprint TEXT NOT NULL
+      CHECK(length(command_fingerprint)=64
+            AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    created_at TEXT NOT NULL
+      CHECK(length(created_at)=32 AND substr(created_at,27)='+00:00'),
+    schema_version TEXT NOT NULL CHECK(schema_version='metric-lifecycle-evidence-v1'),
+    policy_version TEXT NOT NULL CHECK(policy_version='explicit-local-confirmation-v1'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    UNIQUE(session_id,idempotency_key_digest),
+    FOREIGN KEY(session_id,source_window_fingerprint)
+      REFERENCES metric_lifecycle_evidence_windows(
+        session_id,source_window_fingerprint
+      ) ON DELETE CASCADE,
+    CHECK(
+      (family='collaboration.ambiguity_resolution' AND opportunity_kind='ambiguity') OR
+      (family='collaboration.clarification_yield' AND opportunity_kind='clarification') OR
+      (family='collaboration.exploration_conversion' AND opportunity_kind='exploration') OR
+      (family='collaboration.scope_change_discipline' AND opportunity_kind='scope_change') OR
+      (family='collaboration.rework_candidate_rate' AND opportunity_kind='rework')
+    ),
+    CHECK(
+      (proposal_kind='opportunity' AND opportunity_id IS NOT NULL
+       AND link_kind IS NULL AND outcome_kind IS NULL) OR
+      (proposal_kind='enumeration' AND opportunity_id IS NULL
+       AND link_kind IS NULL AND outcome_kind IS NULL) OR
+      (proposal_kind='outcome' AND opportunity_id IS NOT NULL
+       AND (
+         (family='collaboration.ambiguity_resolution'
+          AND link_kind='ambiguity_resolution'
+          AND outcome_kind IN ('ambiguity_resolved','ambiguity_closed_unresolved')) OR
+         (family='collaboration.clarification_yield'
+          AND link_kind='clarification_answer_incorporation'
+          AND outcome_kind IN ('clarification_incorporated','clarification_not_incorporated')) OR
+         (family='collaboration.exploration_conversion'
+          AND link_kind='exploration_support_decision'
+          AND outcome_kind IN ('exploration_converted','exploration_not_converted')) OR
+         (family='collaboration.scope_change_discipline'
+          AND link_kind='scope_change_impact_disposition'
+          AND outcome_kind IN ('scope_change_disciplined','scope_change_undisciplined')) OR
+         (family='collaboration.rework_candidate_rate'
+          AND link_kind='rework_requirement_assessment'
+          AND outcome_kind IN ('rework_required','rework_not_required'))
+       ))
+    )
+);
+CREATE UNIQUE INDEX metric_lifecycle_evidence_opportunity_ids
+  ON metric_lifecycle_evidence_proposals(opportunity_id)
+  WHERE proposal_kind='opportunity';
+CREATE INDEX metric_lifecycle_evidence_session_window
+  ON metric_lifecycle_evidence_proposals(
+    session_id,source_window_fingerprint,family,created_at,proposal_id
+  );
+
+CREATE TABLE metric_lifecycle_evidence_enumeration_members (
+    proposal_id TEXT NOT NULL
+      REFERENCES metric_lifecycle_evidence_proposals(proposal_id) ON DELETE CASCADE,
+    opportunity_id TEXT NOT NULL
+      CHECK(length(opportunity_id)=64
+            AND opportunity_id NOT GLOB '*[^0-9a-f]*'),
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 999),
+    PRIMARY KEY(proposal_id,opportunity_id),
+    UNIQUE(proposal_id,ordinal)
+);
+
+CREATE TABLE metric_lifecycle_evidence_decisions (
+    decision_id TEXT PRIMARY KEY
+      CHECK(length(decision_id)=64 AND decision_id NOT GLOB '*[^0-9a-f]*'),
+    proposal_id TEXT NOT NULL UNIQUE
+      REFERENCES metric_lifecycle_evidence_proposals(proposal_id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+    expected_proposal_revision INTEGER NOT NULL CHECK(expected_proposal_revision=1),
+    decision TEXT NOT NULL CHECK(decision IN ('confirm','reject')),
+    idempotency_key_digest TEXT NOT NULL
+      CHECK(length(idempotency_key_digest)=64
+            AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+    command_fingerprint TEXT NOT NULL
+      CHECK(length(command_fingerprint)=64
+            AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    decided_at TEXT NOT NULL
+      CHECK(length(decided_at)=32 AND substr(decided_at,27)='+00:00'),
+    confirmation_authority TEXT NOT NULL
+      CHECK(confirmation_authority='authenticated_local_user'),
+    schema_version TEXT NOT NULL CHECK(schema_version='metric-lifecycle-evidence-v1'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    UNIQUE(session_id,idempotency_key_digest)
+);
+
+-- A proposal always binds the stable graph anchor.  The adapter separately
+-- proves that each new command arrived against the latest sealed rerun before
+-- normalizing it to this anchor.
+CREATE TRIGGER metric_lifecycle_proposal_window_authority
+BEFORE INSERT ON metric_lifecycle_evidence_proposals
+WHEN NOT EXISTS (
+  SELECT 1 FROM metric_lifecycle_evidence_windows window
+  WHERE window.session_id=NEW.session_id
+    AND window.source_window_fingerprint=NEW.source_window_fingerprint
+    AND window.anchor_run_id=NEW.source_run_id
+)
+BEGIN SELECT RAISE(ABORT,'metric lifecycle source authority mismatch'); END;
+
+-- Outcome references are accepted only for a confirmed opportunity in the
+-- same family and source window.  Caller-shaped digests never mint authority.
+CREATE TRIGGER metric_lifecycle_outcome_target_authority
+BEFORE INSERT ON metric_lifecycle_evidence_proposals
+WHEN NEW.proposal_kind='outcome' AND NOT EXISTS (
+  SELECT 1
+  FROM metric_lifecycle_evidence_proposals opportunity
+  JOIN metric_lifecycle_evidence_decisions decision
+    ON decision.proposal_id=opportunity.proposal_id
+   AND decision.decision='confirm'
+  WHERE opportunity.proposal_kind='opportunity'
+    AND opportunity.opportunity_id=NEW.opportunity_id
+    AND opportunity.session_id=NEW.session_id
+    AND opportunity.source_window_fingerprint=NEW.source_window_fingerprint
+    AND opportunity.family=NEW.family
+    AND opportunity.opportunity_kind=NEW.opportunity_kind
+)
+BEGIN SELECT RAISE(ABORT,'metric lifecycle outcome target is not confirmed'); END;
+
+-- Once a family enumeration is confirmed its denominator is sealed.  Outcome
+-- confirmations may still resolve its open episodes, but new opportunities
+-- cannot silently expand it.
+CREATE TRIGGER metric_lifecycle_opportunity_after_enumeration
+BEFORE INSERT ON metric_lifecycle_evidence_proposals
+WHEN NEW.proposal_kind='opportunity' AND EXISTS (
+  SELECT 1
+  FROM metric_lifecycle_evidence_proposals enumeration
+  JOIN metric_lifecycle_evidence_decisions decision
+    ON decision.proposal_id=enumeration.proposal_id
+   AND decision.decision='confirm'
+  WHERE enumeration.proposal_kind='enumeration'
+    AND enumeration.session_id=NEW.session_id
+    AND enumeration.source_window_fingerprint=NEW.source_window_fingerprint
+    AND enumeration.family=NEW.family
+)
+BEGIN SELECT RAISE(ABORT,'metric lifecycle enumeration is sealed'); END;
+
+CREATE TRIGGER metric_lifecycle_enumeration_member_authority
+BEFORE INSERT ON metric_lifecycle_evidence_enumeration_members
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM metric_lifecycle_evidence_proposals enumeration
+  JOIN metric_lifecycle_evidence_proposals opportunity
+    ON opportunity.opportunity_id=NEW.opportunity_id
+   AND opportunity.proposal_kind='opportunity'
+   AND opportunity.session_id=enumeration.session_id
+   AND opportunity.source_window_fingerprint=enumeration.source_window_fingerprint
+   AND opportunity.family=enumeration.family
+   AND opportunity.opportunity_kind=enumeration.opportunity_kind
+  JOIN metric_lifecycle_evidence_decisions decision
+    ON decision.proposal_id=opportunity.proposal_id
+   AND decision.decision='confirm'
+  WHERE enumeration.proposal_id=NEW.proposal_id
+    AND enumeration.proposal_kind='enumeration'
+)
+BEGIN SELECT RAISE(ABORT,'metric lifecycle enumeration member is not confirmed'); END;
+
+CREATE TRIGGER metric_lifecycle_enumeration_member_order
+BEFORE INSERT ON metric_lifecycle_evidence_enumeration_members
+WHEN NEW.ordinal<>(
+       SELECT COUNT(*) FROM metric_lifecycle_evidence_enumeration_members
+       WHERE proposal_id=NEW.proposal_id
+     )
+  OR EXISTS (
+       SELECT 1 FROM metric_lifecycle_evidence_enumeration_members member
+       WHERE member.proposal_id=NEW.proposal_id
+         AND member.opportunity_id>=NEW.opportunity_id
+     )
+BEGIN SELECT RAISE(ABORT,'metric lifecycle enumeration order is invalid'); END;
+
+-- A decision may survive a deterministic rerun of the identical bounded
+-- window, but it cannot cross into a changed window.  This check executes
+-- under the adapter's write transaction, closing the service-read race.
+CREATE TRIGGER metric_lifecycle_decision_binding
+BEFORE INSERT ON metric_lifecycle_evidence_decisions
+WHEN NOT EXISTS (
+  SELECT 1 FROM metric_lifecycle_evidence_proposals proposal
+  WHERE proposal.proposal_id=NEW.proposal_id
+    AND proposal.session_id=NEW.session_id
+    AND proposal.proposal_revision=NEW.expected_proposal_revision
+    AND proposal.source_window_fingerprint=(
+      SELECT latest.input_fingerprint
+      FROM session_model_ensemble_runs latest
+      JOIN session_model_ensemble_seals seal ON seal.run_id=latest.run_id
+      WHERE latest.session_id=NEW.session_id
+      ORDER BY latest.completed_at DESC,latest.run_id DESC
+      LIMIT 1
+    )
+)
+BEGIN SELECT RAISE(ABORT,'metric lifecycle decision authority mismatch'); END;
+
+-- An opportunity proposed before enumeration confirmation cannot be confirmed
+-- afterward to expand the sealed denominator.  BEGIN IMMEDIATE in the adapter
+-- serializes this guard with enumeration confirmation, while the trigger also
+-- protects direct SQL writers.
+CREATE TRIGGER metric_lifecycle_confirm_opportunity_after_enumeration
+BEFORE INSERT ON metric_lifecycle_evidence_decisions
+WHEN NEW.decision='confirm'
+ AND EXISTS (
+   SELECT 1 FROM metric_lifecycle_evidence_proposals opportunity
+   WHERE opportunity.proposal_id=NEW.proposal_id
+     AND opportunity.proposal_kind='opportunity'
+ )
+ AND EXISTS (
+   SELECT 1
+   FROM metric_lifecycle_evidence_proposals opportunity
+   JOIN metric_lifecycle_evidence_proposals enumeration
+     ON enumeration.session_id=opportunity.session_id
+    AND enumeration.source_window_fingerprint=opportunity.source_window_fingerprint
+    AND enumeration.family=opportunity.family
+    AND enumeration.proposal_kind='enumeration'
+   JOIN metric_lifecycle_evidence_decisions decision
+     ON decision.proposal_id=enumeration.proposal_id
+    AND decision.decision='confirm'
+   WHERE opportunity.proposal_id=NEW.proposal_id
+ )
+BEGIN SELECT RAISE(ABORT,'metric lifecycle enumeration is sealed'); END;
+
+-- Confirming an enumeration is the only operation that proves denominator
+-- completeness.  Its sorted member set must equal every confirmed opportunity
+-- in that family/window, including the legitimate empty=empty case.
+CREATE TRIGGER metric_lifecycle_confirm_enumeration_exact
+BEFORE INSERT ON metric_lifecycle_evidence_decisions
+WHEN NEW.decision='confirm'
+ AND EXISTS (
+   SELECT 1 FROM metric_lifecycle_evidence_proposals proposal
+   WHERE proposal.proposal_id=NEW.proposal_id
+     AND proposal.proposal_kind='enumeration'
+ )
+ AND (
+   EXISTS (
+     SELECT 1
+     FROM metric_lifecycle_evidence_proposals enumeration
+     JOIN metric_lifecycle_evidence_enumeration_members member
+       ON member.proposal_id=enumeration.proposal_id
+     WHERE enumeration.proposal_id=NEW.proposal_id
+       AND NOT EXISTS (
+         SELECT 1
+         FROM metric_lifecycle_evidence_proposals opportunity
+         JOIN metric_lifecycle_evidence_decisions decision
+           ON decision.proposal_id=opportunity.proposal_id
+          AND decision.decision='confirm'
+         WHERE opportunity.proposal_kind='opportunity'
+           AND opportunity.opportunity_id=member.opportunity_id
+           AND opportunity.session_id=enumeration.session_id
+           AND opportunity.source_window_fingerprint=enumeration.source_window_fingerprint
+           AND opportunity.family=enumeration.family
+       )
+   )
+   OR EXISTS (
+     SELECT 1
+     FROM metric_lifecycle_evidence_proposals enumeration
+     JOIN metric_lifecycle_evidence_proposals opportunity
+       ON opportunity.session_id=enumeration.session_id
+      AND opportunity.source_window_fingerprint=enumeration.source_window_fingerprint
+      AND opportunity.family=enumeration.family
+      AND opportunity.proposal_kind='opportunity'
+     JOIN metric_lifecycle_evidence_decisions decision
+       ON decision.proposal_id=opportunity.proposal_id
+      AND decision.decision='confirm'
+     WHERE enumeration.proposal_id=NEW.proposal_id
+       AND NOT EXISTS (
+         SELECT 1 FROM metric_lifecycle_evidence_enumeration_members member
+         WHERE member.proposal_id=enumeration.proposal_id
+           AND member.opportunity_id=opportunity.opportunity_id
+       )
+   )
+ )
+BEGIN SELECT RAISE(ABORT,'metric lifecycle enumeration is incomplete'); END;
+
+CREATE TRIGGER metric_lifecycle_confirm_enumeration_unique
+BEFORE INSERT ON metric_lifecycle_evidence_decisions
+WHEN NEW.decision='confirm'
+ AND EXISTS (
+   SELECT 1 FROM metric_lifecycle_evidence_proposals proposal
+   WHERE proposal.proposal_id=NEW.proposal_id
+     AND proposal.proposal_kind='enumeration'
+ )
+ AND EXISTS (
+   SELECT 1
+   FROM metric_lifecycle_evidence_proposals proposed
+   JOIN metric_lifecycle_evidence_proposals existing
+     ON existing.session_id=proposed.session_id
+    AND existing.source_window_fingerprint=proposed.source_window_fingerprint
+    AND existing.family=proposed.family
+    AND existing.proposal_kind='enumeration'
+    AND existing.proposal_id<>proposed.proposal_id
+   JOIN metric_lifecycle_evidence_decisions decision
+     ON decision.proposal_id=existing.proposal_id
+    AND decision.decision='confirm'
+   WHERE proposed.proposal_id=NEW.proposal_id
+ )
+BEGIN SELECT RAISE(ABORT,'metric lifecycle enumeration already confirmed'); END;
+
+CREATE TRIGGER metric_lifecycle_confirm_outcome_unique
+BEFORE INSERT ON metric_lifecycle_evidence_decisions
+WHEN NEW.decision='confirm'
+ AND EXISTS (
+   SELECT 1 FROM metric_lifecycle_evidence_proposals proposal
+   WHERE proposal.proposal_id=NEW.proposal_id
+     AND proposal.proposal_kind='outcome'
+ )
+ AND EXISTS (
+   SELECT 1
+   FROM metric_lifecycle_evidence_proposals proposed
+   JOIN metric_lifecycle_evidence_proposals existing
+     ON existing.opportunity_id=proposed.opportunity_id
+    AND existing.proposal_kind='outcome'
+    AND existing.proposal_id<>proposed.proposal_id
+   JOIN metric_lifecycle_evidence_decisions decision
+     ON decision.proposal_id=existing.proposal_id
+    AND decision.decision='confirm'
+   WHERE proposed.proposal_id=NEW.proposal_id
+ )
+BEGIN SELECT RAISE(ABORT,'metric lifecycle outcome already confirmed'); END;
+
+CREATE TRIGGER metric_lifecycle_proposals_no_update
+BEFORE UPDATE ON metric_lifecycle_evidence_proposals
+BEGIN SELECT RAISE(ABORT,'metric lifecycle proposals are immutable'); END;
+CREATE TRIGGER metric_lifecycle_members_no_update
+BEFORE UPDATE ON metric_lifecycle_evidence_enumeration_members
+BEGIN SELECT RAISE(ABORT,'metric lifecycle enumeration members are immutable'); END;
+CREATE TRIGGER metric_lifecycle_decisions_no_update
+BEFORE UPDATE ON metric_lifecycle_evidence_decisions
+BEGIN SELECT RAISE(ABORT,'metric lifecycle decisions are immutable'); END;
+CREATE TRIGGER metric_lifecycle_windows_no_update
+BEFORE UPDATE ON metric_lifecycle_evidence_windows
+BEGIN SELECT RAISE(ABORT,'metric lifecycle windows are immutable'); END;
+CREATE TRIGGER metric_lifecycle_windows_privacy_delete_only
+BEFORE DELETE ON metric_lifecycle_evidence_windows
+WHEN EXISTS(SELECT 1 FROM sessions session WHERE session.session_id=OLD.session_id)
+ AND EXISTS(
+   SELECT 1 FROM session_model_ensemble_runs run
+   WHERE run.run_id=OLD.anchor_run_id
+ )
+BEGIN SELECT RAISE(ABORT,'metric lifecycle window requires parent privacy deletion'); END;
+CREATE TRIGGER metric_lifecycle_proposals_privacy_delete_only
+BEFORE DELETE ON metric_lifecycle_evidence_proposals
+WHEN EXISTS(SELECT 1 FROM sessions session WHERE session.session_id=OLD.session_id)
+ AND EXISTS(
+   SELECT 1 FROM session_model_ensemble_runs run
+   WHERE run.run_id=OLD.source_run_id
+ )
+BEGIN SELECT RAISE(ABORT,'metric lifecycle proposal requires parent privacy deletion'); END;
+CREATE TRIGGER metric_lifecycle_members_privacy_delete_only
+BEFORE DELETE ON metric_lifecycle_evidence_enumeration_members
+WHEN EXISTS(
+  SELECT 1 FROM metric_lifecycle_evidence_proposals proposal
+  WHERE proposal.proposal_id=OLD.proposal_id
+)
+BEGIN SELECT RAISE(ABORT,'metric lifecycle member requires parent privacy deletion'); END;
+CREATE TRIGGER metric_lifecycle_decisions_privacy_delete_only
+BEFORE DELETE ON metric_lifecycle_evidence_decisions
+WHEN EXISTS(SELECT 1 FROM sessions session WHERE session.session_id=OLD.session_id)
+ AND EXISTS(
+   SELECT 1 FROM metric_lifecycle_evidence_proposals proposal
+   WHERE proposal.proposal_id=OLD.proposal_id
+ )
+BEGIN SELECT RAISE(ABORT,'metric lifecycle decision requires parent privacy deletion'); END;
+
+-- Metric Contract V2 projection identity r4.  Earlier sidecars remain frozen;
+-- r4 differs because five collaboration rows consume only the confirmed,
+-- explicitly enumerated lifecycle receipts above.
+CREATE TABLE session_model_ensemble_metric_states_v2_r4 (
+    run_id TEXT NOT NULL,
+    metric_ordinal INTEGER NOT NULL CHECK(metric_ordinal BETWEEN 0 AND 19),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-4'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='probabilistic-metric-contract-v2'),
+    contract_fingerprint TEXT NOT NULL CHECK(length(contract_fingerprint)=64 AND contract_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    evidence_authority TEXT NOT NULL CHECK(evidence_authority IN ('conversation','objective_receipt')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','pending','unknown','not_applicable','abstained','execution_error')),
+    explanation_code TEXT NOT NULL CHECK(length(explanation_code) BETWEEN 1 AND 128 AND explanation_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    numerator INTEGER CHECK(numerator BETWEEN 0 AND 1000000),
+    denominator INTEGER CHECK(denominator BETWEEN 1 AND 1000000),
+    numeric_value REAL CHECK(numeric_value BETWEEN 0.0 AND 1.0),
+    censoring_lower_bound REAL CHECK(censoring_lower_bound BETWEEN 0.0 AND 1.0),
+    censoring_upper_bound REAL CHECK(censoring_upper_bound BETWEEN 0.0 AND 1.0),
+    denominator_basis TEXT NOT NULL CHECK(denominator_basis IN ('rubric_factors','semantic_unit_opportunities','declared_profile_slots','objective_opportunities')),
+    opportunity_unit_kind TEXT CHECK(opportunity_unit_kind IN (
+        'request_revision','requirement','constraint','deliverable','ambiguity',
+        'clarification','scope_change','feedback','hypothesis','decision',
+        'open_loop','action','verification'
+    )),
+    capability_available INTEGER NOT NULL CHECK(capability_available IN (0,1)),
+    source_complete INTEGER NOT NULL CHECK(source_complete IN (0,1)),
+    eligible_count INTEGER NOT NULL CHECK(eligible_count BETWEEN 0 AND 1000000),
+    met_count INTEGER NOT NULL CHECK(met_count BETWEEN 0 AND 1000000),
+    not_met_count INTEGER NOT NULL CHECK(not_met_count BETWEEN 0 AND 1000000),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 1000000),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 1000000),
+    superseded_excluded_count INTEGER NOT NULL CHECK(superseded_excluded_count BETWEEN 0 AND 1000000),
+    distinct_owner_count INTEGER NOT NULL CHECK(distinct_owner_count BETWEEN 0 AND 1000000),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,metric_key),
+    UNIQUE(run_id,metric_ordinal),
+    FOREIGN KEY(run_id,metric_key)
+      REFERENCES session_model_ensemble_metrics(run_id,metric_key) ON DELETE CASCADE,
+    CHECK(met_count+not_met_count+pending_count+unknown_count=eligible_count),
+    CHECK(capability_available=1 OR eligible_count=0),
+    CHECK(denominator_basis NOT IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NOT NULL),
+    CHECK(denominator_basis IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NULL),
+    CHECK((censoring_lower_bound IS NULL)=(censoring_upper_bound IS NULL)),
+    CHECK(censoring_lower_bound IS NULL OR censoring_lower_bound<=censoring_upper_bound),
+    CHECK(
+      (value_state='known' AND numerator IS NOT NULL AND denominator IS NOT NULL
+       AND numeric_value IS NOT NULL AND numerator<=denominator
+       AND abs(numeric_value-(CAST(numerator AS REAL)/denominator))<=0.000000001
+       AND censoring_lower_bound IS NOT NULL
+       AND abs(censoring_lower_bound-numeric_value)<=0.000000001
+       AND abs(censoring_upper_bound-numeric_value)<=0.000000001)
+      OR
+      (value_state<>'known' AND numerator IS NULL AND denominator IS NULL
+       AND numeric_value IS NULL)
+    ),
+    CHECK(value_state<>'pending' OR pending_count>0),
+    CHECK(value_state<>'not_applicable' OR eligible_count=0),
+    CHECK(evidence_authority<>'objective_receipt' OR value_state<>'known'
+          OR denominator_basis='objective_opportunities')
+);
+
+CREATE TABLE session_model_ensemble_metric_publication_v2_seals_r4 (
+    run_id TEXT PRIMARY KEY REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    publication_key TEXT NOT NULL CHECK(publication_key='metric.contract-v2.publication'),
+    publication_version INTEGER NOT NULL CHECK(publication_version=2),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    contract_set_fingerprint TEXT NOT NULL CHECK(length(contract_set_fingerprint)=64 AND contract_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-4'),
+    guidance_contract_version TEXT NOT NULL CHECK(guidance_contract_version='metric-guidance-contract-v1'),
+    guidance_template_catalog_version TEXT NOT NULL CHECK(guidance_template_catalog_version='metric-guidance-templates-v1'),
+    source TEXT NOT NULL CHECK(source='live_projection'),
+    canonical_live_snapshot INTEGER NOT NULL CHECK(canonical_live_snapshot=1),
+    model_stage_consumed INTEGER NOT NULL CHECK(model_stage_consumed=0),
+    compatibility_preview INTEGER NOT NULL CHECK(compatibility_preview=0),
+    metric_count INTEGER NOT NULL CHECK(metric_count=20),
+    known_count INTEGER NOT NULL CHECK(known_count BETWEEN 0 AND 20),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 20),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 20),
+    not_applicable_count INTEGER NOT NULL CHECK(not_applicable_count BETWEEN 0 AND 20),
+    abstained_count INTEGER NOT NULL CHECK(abstained_count BETWEEN 0 AND 20),
+    execution_error_count INTEGER NOT NULL CHECK(execution_error_count BETWEEN 0 AND 20),
+    objective_measured_count INTEGER NOT NULL CHECK(objective_measured_count BETWEEN 0 AND 5),
+    projection_fingerprint TEXT NOT NULL CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projected_at TEXT NOT NULL CHECK(length(projected_at)=32 AND substr(projected_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    CHECK(known_count+pending_count+unknown_count+not_applicable_count+
+          abstained_count+execution_error_count=metric_count)
+);
+
+-- Add the missing reciprocal guards to every frozen sidecar.  M40-M42 remain
+-- byte-identical while every ordered pair r1/r2/r3/r4 is still rejected.
+CREATE TRIGGER session_model_ensemble_metric_v2_r1_states_reject_r4
+BEFORE INSERT ON session_model_ensemble_metric_states_v2
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r1_seals_reject_r4
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_states_reject_r4
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r2
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_seals_reject_r4
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r2
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r3_states_reject_r4
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r3
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r3_seals_reject_r4
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r3
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r4_states_reject_legacy
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r4
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r3 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r4_seal_complete
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r4
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_states_v2_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r3 WHERE run_id=NEW.run_id)
+ OR NOT EXISTS (
+    SELECT 1 FROM session_model_ensemble_runs run
+    JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+    WHERE run.run_id=NEW.run_id AND run.metric_count=NEW.metric_count)
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)<>NEW.metric_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id AND value_state='known')<>NEW.known_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id AND value_state='pending')<>NEW.pending_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id AND value_state='unknown')<>NEW.unknown_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id AND value_state='not_applicable')<>NEW.not_applicable_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id AND value_state='abstained')<>NEW.abstained_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id AND value_state='execution_error')<>NEW.execution_error_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id AND evidence_authority='objective_receipt' AND value_state='known')<>NEW.objective_measured_count
+ OR EXISTS (
+    SELECT 1 FROM session_model_ensemble_metric_states_v2_r4
+    WHERE run_id=NEW.run_id
+      AND (registry_version<>NEW.registry_version OR projection_version<>NEW.projection_version))
+BEGIN SELECT RAISE(ABORT,'metric V2 r4 publication is incomplete'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r4_states_sealed_insert
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r4
+WHEN EXISTS (SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r4 publication is sealed'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r4_states_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_states_v2_r4
+BEGIN SELECT RAISE(ABORT,'metric V2 r4 states are immutable'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r4_seals_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_publication_v2_seals_r4
+BEGIN SELECT RAISE(ABORT,'metric V2 r4 publication seals are immutable'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r4_states_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_states_v2_r4
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r4 states require parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r4_seals_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_publication_v2_seals_r4
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r4 publication seal requires parent privacy deletion'); END;
+COMMIT;
+"""

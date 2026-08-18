@@ -32,6 +32,7 @@ from ...application.analysis.metric_contract_v2 import (
 from ...application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_2,
     METRIC_PROJECTION_V2_VERSION_3,
+    METRIC_PROJECTION_V2_VERSION_4,
     MetricStateV2,
     OpportunityStatistics,
     _issue_metric_state_projection,
@@ -169,10 +170,15 @@ def _predictive_projection_fingerprint(
 
 
 #: Sidecar tables per projection identity, newest first.  The r1 pair (frozen
-#: at MIGRATION_40) and the r2 pair (MIGRATION_41) never gain a row from current
-#: code; the r3 pair added by MIGRATION_42 receives every new publication.  All
-#: three stay readable, and a run carries at most one of them.
+#: at MIGRATION_40), r2 (MIGRATION_41), and r3 (MIGRATION_42) never gain a row
+#: from current code; the r4 pair added by MIGRATION_44 receives every new
+#: publication.  All four stay readable, and a run carries at most one pair.
 METRIC_V2_SIDECARS = (
+    (
+        METRIC_PROJECTION_V2_VERSION_4,
+        "session_model_ensemble_metric_states_v2_r4",
+        "session_model_ensemble_metric_publication_v2_seals_r4",
+    ),
     (
         METRIC_PROJECTION_V2_VERSION_3,
         "session_model_ensemble_metric_states_v2_r3",
@@ -810,13 +816,13 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
         # Historical r1 and r2 rows are read-only.  Accepting a superseded
         # model here would let current code mint a fresh value under a frozen
         # producer identity, defeating the append-only correction even if the
-        # SQL sidecars stayed separate.  Every current write must use r3.
-        if publication.projection_version != METRIC_PROJECTION_V2_VERSION_3:
+        # SQL sidecars stayed separate.  Every current write must use r4.
+        if publication.projection_version != METRIC_PROJECTION_V2_VERSION_4:
             raise DatabaseInvariantError(
                 "new metric V2 publications require the current projection identity"
             )
         states_table, seals_table = _metric_v2_tables(
-            METRIC_PROJECTION_V2_VERSION_3
+            METRIC_PROJECTION_V2_VERSION_4
         )
         connection.executemany(
             f"""

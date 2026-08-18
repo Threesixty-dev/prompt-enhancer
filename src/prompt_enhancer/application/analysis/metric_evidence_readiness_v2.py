@@ -5,7 +5,7 @@ persistence record.  Every field is either a closed enum, a count, or a bound
 that already exists in the sealed ``MetricPublicationV2`` rows, plus the run's
 own provider/adapter/source-schema provenance.  Because it introduces no
 independent datum, it needs no schema of its own: it is recomputed from the
-sealed v40/v41/v42 sidecar on read and disappears with the run.
+sealed v40/v41/v42/v44 sidecar on read and disappears with the run.
 
 What it adds over the publication is the *reason a value is missing*, stated as
 a requirement of that exact metric rather than a generic "unobservable":
@@ -43,6 +43,7 @@ from .metric_contract_v2 import (
 from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_1,
     METRIC_PROJECTION_V2_VERSION_3,
+    METRIC_PROJECTION_V2_VERSION_4,
     MetricProjectionV2Version,
     MetricStateV2,
 )
@@ -63,12 +64,16 @@ METRIC_EVIDENCE_READINESS_V2_VERSION = 1
 #: requirement overlay plus the reasons r3 needs.
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1 = "metric-evidence-readiness-v2-1"
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2 = "metric-evidence-readiness-v2-2"
+#: Identity 3 adds the explicit, user-confirmed lifecycle receipt vocabulary
+#: used by projection r4.  Identities 1 and 2 remain readable and unchanged.
+METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3 = "metric-evidence-readiness-v2-3"
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION = (
-    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3
 )
 SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS = (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
 )
 
 
@@ -90,6 +95,12 @@ class MetricEvidenceContributor(StrEnum):
     DOCUMENTED_PLAN_MESSAGE = "documented_plan_message"
     #: A later message naming that exact plan in ``supersedes_message_ids``.
     EXPLICIT_PLAN_SUPERSESSION_LINK = "explicit_plan_supersession_link"
+    #: An authenticated user confirmed the exact family opportunity set.
+    CONFIRMED_LIFECYCLE_ENUMERATION = "confirmed_lifecycle_enumeration"
+    #: An authenticated user confirmed one typed, content-free opportunity.
+    CONFIRMED_LIFECYCLE_OPPORTUNITY = "confirmed_lifecycle_opportunity"
+    #: An authenticated user confirmed a typed terminal outcome link.
+    CONFIRMED_LIFECYCLE_OUTCOME_LINK = "confirmed_lifecycle_outcome_link"
     TYPED_ACTION_EVIDENCE = "typed_action_evidence"
     TYPED_DECISION_EVIDENCE = "typed_decision_evidence"
     TYPED_VERIFICATION_RECEIPT = "typed_verification_receipt"
@@ -154,6 +165,12 @@ class MetricEvidenceReadinessReason(StrEnum):
     OPEN_LOOP_EPISODE_EXTRACTION_REQUIRED = "open_loop_episode_extraction_required"
     #: r3 open-loop: an explicit plan episode, or an explicit link to close it.
     EXPLICIT_PLAN_EPISODE_REQUIRED = "explicit_plan_episode_required"
+    CONFIRMED_LIFECYCLE_SERVICE_REQUIRED = (
+        "confirmed_lifecycle_service_required"
+    )
+    CONFIRMED_LIFECYCLE_ENUMERATION_REQUIRED = (
+        "confirmed_lifecycle_enumeration_required"
+    )
     HYPOTHESIS_CHAIN_ADAPTER_CAPABILITIES_REQUIRED = (
         "hypothesis_chain_adapter_capabilities_required"
     )
@@ -359,12 +376,40 @@ _REQUIREMENTS_V3: dict[str, _EvidenceRequirement] = {
 }
 METRIC_EVIDENCE_REQUIREMENTS_V2_R3 = MappingProxyType(_REQUIREMENTS_V3)
 
+#: R4 changes exactly five collaboration rows.  Their denominator is not
+#: extracted prose: it is a confirmed exact enumeration, and each classified
+#: member is backed by a confirmed typed outcome link.
+_REQUIREMENTS_V4: dict[str, _EvidenceRequirement] = {
+    metric_key: _EvidenceRequirement(
+        denominator_contributor=(
+            MetricEvidenceContributor.CONFIRMED_LIFECYCLE_ENUMERATION
+        ),
+        outcome_contributors=(
+            MetricEvidenceContributor.CONFIRMED_LIFECYCLE_OPPORTUNITY,
+            MetricEvidenceContributor.CONFIRMED_LIFECYCLE_OUTCOME_LINK,
+        ),
+        capability_missing_reason=(
+            MetricEvidenceReadinessReason.CONFIRMED_LIFECYCLE_SERVICE_REQUIRED
+        ),
+    )
+    for metric_key in (
+        "collaboration.ambiguity_resolution",
+        "collaboration.clarification_yield",
+        "collaboration.exploration_conversion",
+        "collaboration.scope_change_discipline",
+        "collaboration.rework_candidate_rate",
+    )
+}
+METRIC_EVIDENCE_REQUIREMENTS_V2_R4 = MappingProxyType(_REQUIREMENTS_V4)
+
 if set(METRIC_EVIDENCE_REQUIREMENTS_V2) != {
     contract.metric_key for contract in METRIC_CONTRACTS_V2
 }:
     raise RuntimeError("metric evidence readiness catalog is incomplete")
 if not set(METRIC_EVIDENCE_REQUIREMENTS_V2_R3) <= set(METRIC_EVIDENCE_REQUIREMENTS_V2):
     raise RuntimeError("the r3 readiness overlay must refine known metrics only")
+if not set(METRIC_EVIDENCE_REQUIREMENTS_V2_R4) <= set(METRIC_EVIDENCE_REQUIREMENTS_V2):
+    raise RuntimeError("the r4 readiness overlay must refine known metrics only")
 
 
 def metric_evidence_requirement(
@@ -373,7 +418,14 @@ def metric_evidence_requirement(
 ) -> _EvidenceRequirement:
     """The evidence one metric needed *under the identity that produced it*."""
 
-    if projection_version == METRIC_PROJECTION_V2_VERSION_3:
+    if projection_version == METRIC_PROJECTION_V2_VERSION_4:
+        overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R4.get(metric_key)
+        if overlay is not None:
+            return overlay
+    if projection_version in (
+        METRIC_PROJECTION_V2_VERSION_3,
+        METRIC_PROJECTION_V2_VERSION_4,
+    ):
         overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R3.get(metric_key)
         if overlay is not None:
             return overlay
@@ -430,13 +482,15 @@ def _availability(
             MetricEvidenceReadinessReason.NO_ELIGIBLE_OPPORTUNITY_OBSERVED,
         )
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_3
+        state.projection_version
+        in {METRIC_PROJECTION_V2_VERSION_3, METRIC_PROJECTION_V2_VERSION_4}
         and statistics.denominator_basis is DenominatorBasis.OBJECTIVE_OPPORTUNITIES
         and statistics.capability_available
         and statistics.source_complete
         and statistics.eligible_count == 0
     ):
-        # Projection r3 is the first producer that preserves this cause.  The
+        # Projection r3 is the first producer that preserves this cause, and
+        # r4 inherits the objective-evidence contract unchanged.  The
         # family is observable and complete, but its authoritative set cannot
         # fit in the bounded receipt.  Calling that a missing adapter capability
         # or an empty set would point the reader at the wrong remediation.  R3
@@ -451,6 +505,16 @@ def _availability(
         return (
             MetricEvidenceAvailabilityState.CAPABILITY_MISSING,
             requirement.capability_missing_reason,
+        )
+    if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_4
+        and state.metric_key in METRIC_EVIDENCE_REQUIREMENTS_V2_R4
+        and not statistics.source_complete
+    ):
+        return (
+            MetricEvidenceAvailabilityState.SOURCE_INCOMPLETE,
+            MetricEvidenceReadinessReason
+            .CONFIRMED_LIFECYCLE_ENUMERATION_REQUIRED,
         )
     if not statistics.source_complete:
         return (
@@ -507,6 +571,24 @@ def _observed_contributors(
     if not statistics.capability_available:
         return ()
     resolved = statistics.met_count + statistics.not_met_count
+    if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_4
+        and state.metric_key in METRIC_EVIDENCE_REQUIREMENTS_V2_R4
+    ):
+        observed: list[MetricEvidenceContributor] = []
+        if statistics.source_complete:
+            observed.append(
+                MetricEvidenceContributor.CONFIRMED_LIFECYCLE_ENUMERATION
+            )
+        if statistics.eligible_count:
+            observed.append(
+                MetricEvidenceContributor.CONFIRMED_LIFECYCLE_OPPORTUNITY
+            )
+        if resolved:
+            observed.append(
+                MetricEvidenceContributor.CONFIRMED_LIFECYCLE_OUTCOME_LINK
+            )
+        return tuple(observed)
     observed = (
         ()
         if resolved == 0 and not statistics.source_complete
@@ -754,6 +836,18 @@ def metric_evidence_readiness_row(
     )
     availability, reason = _availability(state, requirement)
     observed = _observed_contributors(state, requirement)
+    required = requirement.required_contributors
+    if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_4
+        and state.metric_key in METRIC_EVIDENCE_REQUIREMENTS_V2_R4
+        and state.value_state is MetricValueStateV2.NOT_APPLICABLE
+    ):
+        # An authoritative empty enumeration proves there are no episodes for
+        # which opportunity or outcome receipts could exist.  Those
+        # conditional contributors are not "missing" user work in this row.
+        required = (
+            MetricEvidenceContributor.CONFIRMED_LIFECYCLE_ENUMERATION,
+        )
     statistics = state.statistics
     return MetricEvidenceReadinessV2(
         metric_key=state.metric_key,
@@ -765,11 +859,11 @@ def metric_evidence_readiness_row(
         value_state=state.value_state,
         availability_state=availability,
         reason_code=reason,
-        required_contributors=requirement.required_contributors,
+        required_contributors=required,
         observed_contributors=observed,
         missing_contributors=tuple(
             item
-            for item in requirement.required_contributors
+            for item in required
             if item not in observed
         ),
         required_adapter_capabilities=requirement.required_adapter_capabilities,
@@ -858,10 +952,12 @@ __all__ = [
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2",
+    "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3",
     "METRIC_EVIDENCE_READINESS_V2_KEY",
     "METRIC_EVIDENCE_READINESS_V2_VERSION",
     "METRIC_EVIDENCE_REQUIREMENTS_V2",
     "METRIC_EVIDENCE_REQUIREMENTS_V2_R3",
+    "METRIC_EVIDENCE_REQUIREMENTS_V2_R4",
     "SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS",
     "metric_evidence_requirement",
     "MetricEvidenceAvailabilityState",

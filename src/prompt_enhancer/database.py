@@ -109,10 +109,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_41,
     MIGRATION_42,
     MIGRATION_43,
+    MIGRATION_44,
 )
 
 
-SCHEMA_VERSION = 43
+SCHEMA_VERSION = 44
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1635,6 +1636,7 @@ class Database:
                 (41, MIGRATION_41),
                 (42, MIGRATION_42),
                 (43, MIGRATION_43),
+                (44, MIGRATION_44),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1769,6 +1771,19 @@ class Database:
 
         self._ensure_initialized()
         return SqliteTaskLifecycleRepository(
+            self._connection,
+            self._ensure_initialized,
+        )
+
+    def metric_lifecycle_evidence_repository(self):
+        """Return explicit, content-free collaboration evidence persistence."""
+
+        from .infrastructure.sqlite.metric_lifecycle_evidence import (
+            SqliteMetricLifecycleEvidenceRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteMetricLifecycleEvidenceRepository(
             self._connection,
             self._ensure_initialized,
         )

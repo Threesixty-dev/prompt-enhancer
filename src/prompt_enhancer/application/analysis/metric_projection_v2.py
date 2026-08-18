@@ -71,10 +71,11 @@ from .text_baselines import CONSTRAINT_SLOT_PATTERNS, DELIVERABLE_SLOT_PATTERNS
 #: exactly what the producer that wrote them meant.
 METRIC_PROJECTION_V2_VERSION_1 = "metric-contract-v2-projection-1"
 METRIC_PROJECTION_V2_VERSION_2 = "metric-contract-v2-projection-2"
-#: Identity 3 lives in ``metric_projection_v3`` and is the only identity current
-#: code writes.  It is named here because this module owns the readable-identity
-#: vocabulary that persistence and the wire contract validate against.
+#: Later identities live in their own producer modules.  They are named here
+#: because this module owns the append-only readable-identity vocabulary that
+#: persistence and the wire contract validate against.
 METRIC_PROJECTION_V2_VERSION_3 = "metric-contract-v2-projection-3"
+METRIC_PROJECTION_V2_VERSION_4 = "metric-contract-v2-projection-4"
 #: The identity *this* producer stamps.  It stays at ``-2`` forever: rows it
 #: wrote must keep meaning what the producer that wrote them meant.
 METRIC_PROJECTION_V2_VERSION = METRIC_PROJECTION_V2_VERSION_2
@@ -84,11 +85,13 @@ SUPPORTED_METRIC_PROJECTION_V2_VERSIONS = (
     METRIC_PROJECTION_V2_VERSION_1,
     METRIC_PROJECTION_V2_VERSION_2,
     METRIC_PROJECTION_V2_VERSION_3,
+    METRIC_PROJECTION_V2_VERSION_4,
 )
 MetricProjectionV2Version = Literal[
     "metric-contract-v2-projection-1",
     "metric-contract-v2-projection-2",
     "metric-contract-v2-projection-3",
+    "metric-contract-v2-projection-4",
 ]
 METRIC_PROJECTION_V2_ALGORITHM_ID = "rules.en-pl.contract-v2-opportunities"
 METRIC_PROJECTION_V2_ALGORITHM_VERSION = "2"
@@ -1251,6 +1254,7 @@ __all__ = [
     "METRIC_PROJECTION_V2_VERSION_1",
     "METRIC_PROJECTION_V2_VERSION_2",
     "METRIC_PROJECTION_V2_VERSION_3",
+    "METRIC_PROJECTION_V2_VERSION_4",
     "MetricProjectionV2Version",
     "MetricStateV2",
     "OpportunityStatistics",

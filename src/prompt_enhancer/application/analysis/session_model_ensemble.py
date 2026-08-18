@@ -25,7 +25,8 @@ from .model_ensemble import (
     coaching_ensemble_metric_specs,
 )
 from .objective_metric_projection import project_objective_metric_overrides_v3
-from .metric_projection_v3 import project_metric_states_v3
+from .metric_lifecycle_evidence import MetricLifecycleEvidenceSnapshot
+from .metric_projection_v4 import project_metric_states_v4
 from .metric_publication_v2 import MetricPublicationV2, publish_metric_states_v2
 from .provider_evidence import bind_semantic_unit_opportunities
 from .semantic_units import (
@@ -175,6 +176,16 @@ class SessionTypedEvidenceProjector(Protocol):
     ) -> EphemeralTypedEvidenceProjection | None: ...
 
 
+class SessionMetricLifecycleEvidenceReader(Protocol):
+    """Content-free confirmed lifecycle receipts for one exact source window."""
+
+    def snapshot(
+        self,
+        session_id: str,
+        source_window_fingerprint: str,
+    ) -> MetricLifecycleEvidenceSnapshot: ...
+
+
 class SessionModelEnsembleRepository(Protocol):
     def save_completed(
         self,
@@ -257,6 +268,7 @@ class SessionModelEnsembleService:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         typed_evidence_projector: SessionTypedEvidenceProjector | None = None,
         semantic_unit_reconciler: SemanticUnitReconciler | None = None,
+        lifecycle_evidence_reader: SessionMetricLifecycleEvidenceReader | None = None,
     ) -> None:
         self._access_policy = access_policy
         self._repository = repository
@@ -268,6 +280,7 @@ class SessionModelEnsembleService:
         self._clock = clock
         self._typed_evidence_projector = typed_evidence_projector
         self._semantic_unit_reconciler = semantic_unit_reconciler
+        self._lifecycle_evidence_reader = lifecycle_evidence_reader
         self._lock = Lock()
 
     def run(
@@ -631,6 +644,31 @@ class SessionModelEnsembleService:
             )
         return context
 
+    def _read_lifecycle_evidence(
+        self,
+        context: P1TextAnalysisInput,
+    ) -> MetricLifecycleEvidenceSnapshot | None:
+        if self._lifecycle_evidence_reader is None:
+            return None
+        try:
+            snapshot = self._lifecycle_evidence_reader.snapshot(
+                context.session_id,
+                context.analysis_window_fingerprint,
+            )
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "confirmed lifecycle evidence is unavailable"
+            ) from None
+        if (
+            snapshot.session_id != context.session_id
+            or snapshot.source_window_fingerprint
+            != context.analysis_window_fingerprint
+        ):
+            raise ModelEnsemblePersistenceError(
+                "confirmed lifecycle evidence is bound to another window"
+            )
+        return snapshot
+
     def _project_metrics(
         self,
         context: P1TextAnalysisInput,
@@ -660,14 +698,14 @@ class SessionModelEnsembleService:
             projected_at = self._clock()
             if projected_at.tzinfo is None or projected_at.utcoffset() != timedelta(0):
                 raise ValueError("metric projection clock must return UTC")
-            # Current code writes projection identity r3 only.  The frozen r2
-            # producers stay importable for historical rows and for the tests
-            # that prove they still answer exactly as they did.
+            # Current code writes projection identity r4 only.  Frozen earlier
+            # producers remain importable so historical rows retain the exact
+            # meaning of the algorithm that wrote them.
             objective_overrides = project_objective_metric_overrides_v3(
                 typed_evidence,
                 self._objective_evidence_descriptor(),
             )
-            live_states = project_metric_states_v3(
+            live_states = project_metric_states_v4(
                 context=context,
                 reconciliation=(
                     None
@@ -679,6 +717,7 @@ class SessionModelEnsembleService:
                     item.observation.key: item for item in results
                 },
                 objective_overrides=objective_overrides,
+                lifecycle_evidence=self._read_lifecycle_evidence(context),
             )
             metric_publication_v2 = publish_metric_states_v2(live_states)
             projected_items: list[SessionModelEnsembleTypedMetricReceipt] = []

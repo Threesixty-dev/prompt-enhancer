@@ -33,6 +33,9 @@ from .application.jobs import AnalysisJobService, AnalysisJobWorker
 from .application.automation import AutomationGrantService, AutomationGrantWorker
 from .application.analysis.metric_readiness import MetricReadinessService
 from .application.analysis.metric_coverage import MetricCoverageService
+from .application.analysis.metric_lifecycle_evidence import (
+    MetricLifecycleEvidenceService,
+)
 from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
@@ -71,6 +74,7 @@ from .interfaces.http import (
     create_project_quality_aggregation_router,
     create_provider_compatibility_router,
     create_metric_readiness_router,
+    create_metric_lifecycle_evidence_router,
     create_metric_coverage_router,
     create_research_router,
     create_model_link_experiment_router,
@@ -305,6 +309,7 @@ def create_app(
     api_token: str | None = None,
     task_review_service: ReviewCommandService | None = None,
     task_lifecycle_service: TaskLifecycleService | None = None,
+    metric_lifecycle_evidence_service: MetricLifecycleEvidenceService | None = None,
     task_analysis_service: TaskAnalysisCommandService | None = None,
     session_text_analysis_service: SessionTextAnalysisService | None = None,
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
@@ -414,6 +419,7 @@ def create_app(
                 "model-ensemble-attempts",
                 "model-ensemble-head",
                 "model-ensemble-snapshots",
+                "/metric-lifecycle-evidence",
                 "metric-coverage",
                 "/analysis-jobs",
                 "/automation-grants",
@@ -663,6 +669,13 @@ def create_app(
     app.include_router(
         create_task_lifecycle_router(require_local_token, task_lifecycle_service)
     )
+    if metric_lifecycle_evidence_service is not None:
+        app.include_router(
+            create_metric_lifecycle_evidence_router(
+                require_local_token,
+                metric_lifecycle_evidence_service,
+            )
+        )
     app.include_router(create_session_analysis_query_router(require_local_token))
     app.include_router(create_session_quality_aggregation_router(require_local_token))
     if project_quality_aggregation_service is not None:

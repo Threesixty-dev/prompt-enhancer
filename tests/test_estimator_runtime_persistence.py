@@ -1740,7 +1740,7 @@ def test_v18_atomic_launch_and_real_worker_stop_truthfully_partial(tmp_path) -> 
         ).fetchone()[0]
 
     launched = EstimatorRuntimeService(repository, catalog, clock=clock).launch(launch)
-    assert SCHEMA_VERSION == 43
+    assert SCHEMA_VERSION == 44
     assert launched.job.identity.kind is AnalysisJobKind.ESTIMATOR_EXECUTION
     assert launched.authorization_consumed is True
     assert launched.authorization.activation_allowed is False
@@ -2229,7 +2229,7 @@ def test_raw_sql_is_sealed_and_privacy_delete_purges_runtime_not_plan(tmp_path) 
 def test_schema_has_no_runtime_payload_surface_and_queue_kind_is_closed(tmp_path) -> None:
     database, *_ = _setup(tmp_path)
     with database._connection(readonly=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 43
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 44
         queue_sql = connection.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='analysis_jobs'"
         ).fetchone()[0]
@@ -2352,11 +2352,11 @@ def test_v17_to_v18_preserves_existing_queue_and_seals_migration_ledger(
 
     Database(path).initialize()
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 43
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 44
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert [row[0] for row in rows] == list(range(1, 44))
+        assert [row[0] for row in rows] == list(range(1, 45))
         assert rows[17][1] == hashlib.sha256(
             migrations.MIGRATION_18.encode("utf-8")
         ).hexdigest()

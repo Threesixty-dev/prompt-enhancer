@@ -21,6 +21,7 @@ from .privacy import (
 if TYPE_CHECKING:
     from .application.analysis import (
         MetricCoverageService,
+        MetricLifecycleEvidenceService,
         MetricReadinessService,
         ProjectQualityAggregationService,
         SessionModelLinkExperimentService,
@@ -176,6 +177,23 @@ class LocalApplication:
 
         return TaskLifecycleService(
             self.database.task_lifecycle_repository(),
+            LocalArtifactIdFactory(self.pseudonymizer),
+        )
+
+    def create_metric_lifecycle_evidence_service(
+        self,
+    ) -> MetricLifecycleEvidenceService:
+        """Construct explicit confirmation over sealed model-run windows."""
+
+        from .application.analysis.metric_lifecycle_evidence import (
+            MetricLifecycleEvidenceService,
+        )
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+
+        return MetricLifecycleEvidenceService(
+            self.database,
+            self.database.model_ensemble_repository(),
+            self.database.metric_lifecycle_evidence_repository(),
             LocalArtifactIdFactory(self.pseudonymizer),
         )
 
@@ -366,6 +384,9 @@ class LocalApplication:
             ),
             semantic_unit_reconciler=SemanticUnitReconciler(
                 LocalArtifactIdFactory(self.pseudonymizer),
+            ),
+            lifecycle_evidence_reader=(
+                self.database.metric_lifecycle_evidence_repository()
             ),
         )
 
@@ -571,6 +592,9 @@ class LocalApplication:
         session_model_ensemble_service = self.create_session_model_ensemble_service(
             compatibility_policy
         )
+        metric_lifecycle_evidence_service = (
+            self.create_metric_lifecycle_evidence_service()
+        )
         from .application.analysis.model_ensemble_watch import (
             ModelEnsembleWatchService,
             ModelEnsembleWatchWorker,
@@ -611,6 +635,9 @@ class LocalApplication:
             api_token=token,
             task_review_service=self.create_task_review_service(),
             task_lifecycle_service=self.create_task_lifecycle_service(),
+            metric_lifecycle_evidence_service=(
+                metric_lifecycle_evidence_service
+            ),
             task_analysis_service=self.create_task_analysis_service(),
             session_text_analysis_service=session_text_analysis_service,
             session_model_link_experiment_service=(

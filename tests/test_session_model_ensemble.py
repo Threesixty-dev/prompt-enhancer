@@ -507,13 +507,18 @@ def test_service_atomically_persists_content_free_semantic_unit_heads() -> None:
     publication = outcome.run.receipt.metric_publication_v2
     assert publication is not None
     states = {item.state.metric_key: item.state for item in publication.metrics}
-    assert (publication.known_count, publication.not_applicable_count) == (3, 2)
+    assert (publication.known_count, publication.not_applicable_count) == (3, 1)
     assert states["prompt.task_definition_coverage"].value_state.value == "known"
     assert states["outcome.verification_strategy_adequacy"].value_state.value == "known"
-    assert states["collaboration.rework_candidate_rate"].value_state.value == "not_applicable"
+    assert states["collaboration.rework_candidate_rate"].value_state.value == "unknown"
+    assert states["collaboration.rework_candidate_rate"].explanation_code == (
+        "confirmed_lifecycle_service_unavailable"
+    )
     assert states["collaboration.ambiguity_resolution"].value_state.value == "unknown"
     assert states["collaboration.ambiguity_resolution"].numeric_value is None
-    assert states["collaboration.ambiguity_resolution"].explanation_code == "opportunity_family_unobservable"
+    assert states["collaboration.ambiguity_resolution"].explanation_code == (
+        "confirmed_lifecycle_service_unavailable"
+    )
 
 
 def test_typed_provider_verification_updates_only_the_measured_evidence_lane() -> None:
