@@ -238,6 +238,12 @@ from .metric_projection_v2 import (
     objective_metric_state,
     project_metric_states_v2,
 )
+from .metric_projection_v3 import (
+    METRIC_PROJECTION_V3_ALGORITHM_ID,
+    METRIC_PROJECTION_V3_ALGORITHM_VERSION,
+    METRIC_PROJECTION_V3_VERSION,
+    project_metric_states_v3,
+)
 from .metric_guidance import (
     METRIC_GUIDANCE_CONTRACT_VERSION,
     METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION,
@@ -309,6 +315,9 @@ __all__ = [
     "METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION",
     "METRIC_PUBLICATION_V2_KEY",
     "METRIC_PUBLICATION_V2_VERSION",
+    "METRIC_PROJECTION_V3_ALGORITHM_ID",
+    "METRIC_PROJECTION_V3_ALGORITHM_VERSION",
+    "METRIC_PROJECTION_V3_VERSION",
     "SESSION_METRIC_PUBLICATION_KEY",
     "SESSION_METRIC_PUBLICATION_LIMITS",
     "SESSION_METRIC_PUBLICATION_VERSION",
@@ -331,6 +340,7 @@ __all__ = [
     "MetricPublicationV2",
     "PublishedMetricV2",
     "project_metric_evidence_readiness_v2",
+    "project_metric_states_v3",
     "SessionMetricPublication",
     "SessionMetricPublicationError",
     "SessionMetricPublicationService",

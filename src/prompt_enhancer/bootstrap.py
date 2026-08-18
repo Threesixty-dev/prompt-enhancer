@@ -295,8 +295,8 @@ class LocalApplication:
 
         from .application.analysis import SessionModelEnsembleService
         from .application.analysis.provider_evidence import (
+            SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION,
             SAFE_EVENT_EVIDENCE_DECODER_KEY,
-            SAFE_EVENT_EVIDENCE_DECODER_VERSION,
             SafeEventTypedEvidenceProjector,
         )
         from .application.analysis.semantic_units import SemanticUnitReconciler
@@ -329,7 +329,7 @@ class LocalApplication:
             surface=ProviderSurface.OPERATIONAL_EVENTS,
             adapter_version=ADAPTER_VERSION,
             decoder_key=SAFE_EVENT_EVIDENCE_DECODER_KEY,
-            decoder_version=SAFE_EVENT_EVIDENCE_DECODER_VERSION,
+            decoder_version=SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION,
             wire_schema_family="codex.app-server.v2.safe-events",
             canonical_schema_version=SOURCE_SCHEMA_VERSION,
             schema_artifact=SchemaArtifactProvenance(

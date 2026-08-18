@@ -512,17 +512,16 @@ content-free publication is sealed with the canonical model-ensemble run; model
 stages remain a separate experimental diagnostic and cannot change its values.
 
 **A twenty-state publication is not a promise of twenty numeric values.** The
-built-in provider-neutral extractor currently owns only documented request,
-feedback, action, decision, and verification message families. Contracts whose
-denominator needs ambiguity, clarification, hypothesis, scope-change,
-requirement, or open-loop units remain `unknown` with
-`opportunity_family_unobservable` until a provider supplies that typed family.
-The five objective contracts remain `unknown` until an authorized adapter
-supplies linked eligible opportunities and objective receipts. Declared-profile
-slot contracts remain `unknown` when the task profile does not declare the slot
-set. These states are deliberate authority boundaries; adding a larger language
-model cannot turn an absent opportunity registry or receipt link into measured
-evidence.
+built-in provider-neutral extractor owns only documented message structure. In
+projection r3, `logic.open_loop_closure` has one narrow structural path described
+below. Contracts whose denominator needs ambiguity, clarification, hypothesis,
+scope-change, or requirement units remain `unknown` until a provider supplies
+that typed family. The five objective contracts remain `unknown` until an
+authorized adapter supplies linked eligible opportunities and objective
+receipts. Declared-profile slot contracts remain `unknown` when the task profile
+does not declare the slot set. These states are deliberate authority boundaries;
+adding a larger language model cannot turn an absent opportunity registry or
+receipt link into measured evidence.
 
 ### Rubric fractions must be focus-owned
 
@@ -541,9 +540,36 @@ because an unowned opportunity is not a failed one.
 
 Because a `-1` row is not reproducible under the corrected rules, this is a new
 persisted projection identity rather than an in-place fix. Schema v41 adds an
-append-only `*_v2_r2` sidecar; MIGRATION_40 stays byte-identical, historical `-1`
-rows keep their own table and their own meaning, readers accept both, and every
-new publication is written as `-2`. A run may carry only one of the two.
+append-only `*_v2_r2` sidecar; MIGRATION_40 stays byte-identical and historical
+`-1` rows keep their own table and meaning.
+
+### Explicit-plan lifecycle and projection identity r3
+
+Projection `metric-contract-v2-projection-3` makes exactly one additional
+contract structurally measurable: `logic.open_loop_closure`. One documented
+`AGENT` `PLAN` message owns one opportunity. It is closed only by a later
+`AGENT` `ACTION` or `VERIFICATION` message whose `supersedes_message_ids`
+contains that exact plan message identifier. Token overlap, adjacency, topic
+similarity, generic tool completion, and model judgement do not close it.
+
+An explicitly closed plan is `met`; an unclosed plan is `pending` and contributes
+to right-censoring bounds, never `not_met`. A window with no declared plan
+capability or no observed plan stays a named `unknown`, and an incomplete source
+window stays source-incomplete. The extractor is ephemeral and content-free: it
+does not add or reinterpret persisted semantic-unit receipts. The other
+lifecycle families remain nonnumeric until they obtain equally explicit
+ownership and closure contracts.
+
+R3 also preserves three distinctions that r2 could not represent without
+changing historical meaning: objective adapter authority missing versus source
+extraction incomplete versus receipt-bound overflow; outcome authority before an
+empty objective set may be called no-opportunity; and missing rubric ownership
+when no reconciliation exists. Schema v42 therefore adds append-only
+`*_v2_r3` state and seal tables. Migrations 40 and 41 remain frozen; readers
+rehydrate r1, r2, and r3, while every new canonical write is r3. Bidirectional
+database guards reject every mixed-identity pair even before a seal exists, a
+seal requires exactly twenty rows of its own identity, and privacy deletion
+cascades through all three sidecars. A run may carry exactly one identity.
 
 `publish_v1_compatibility_preview` reads an already persisted V1 run and states
 its own limits in the payload (`preview_limits`):
@@ -601,14 +627,15 @@ decision, and/or verification outcome kinds it reads. The shipped Codex
 safe-event descriptor declares only `tool_events`, so it can declare none of the
 opportunity families and all five objective contracts stay `unknown`.
 
-An explicit `EventKind.VERIFICATION` may declare and link one
-`verification_task` opportunity, and only when the decoder declares the outcome,
-enumeration, and link capabilities together. Declaring
-`verification_task_opportunities` is an assertion that **one explicit provider
-verification event is exactly one eligible verification task**; a decoder whose
-events do not satisfy that must not declare it. A `TOOL_END` categorised as test
-or build never receives a task identity: its verification meaning is an inference
-about what the tool did, so binding a denominator to it would fabricate one.
+Historical safe-event decoder v2 could mint one `verification_task` identity
+from one explicit `EventKind.VERIFICATION` when outcome, enumeration, and link
+capabilities were jointly declared. That mapping made an event its own task and
+could make first-pass verification tautological. Current decoder v3 therefore
+emits the same verification receipt but no task identity and declares no
+verification-task denominator. A future adapter may declare that family only
+when the provider supplies a genuine task registry and exact receipt-to-task
+links. A `TOOL_END` categorised as test or build also never receives a task
+identity: it says a check ran, not which eligible task it belonged to.
 
 Requirement and hypothesis denominators can enter a projection only through
 `bind_semantic_unit_opportunities`, and only when the descriptor authorizes that
@@ -635,7 +662,7 @@ it may claim: `live_measured`, `compatibility_projected`, `method_only_withheld`
 The full-run API also serves `metric_evidence_readiness_v2`, derived on read from
 the sealed publication plus the run's provider, provider version, adapter
 version, and source schema version. It introduces **no independent datum** and so
-has no schema of its own: it is recomputed from the sealed v40/v41 sidecar rows
+has no schema of its own: it is recomputed from the sealed v40/v41/v42 sidecar rows
 and disappears with the run.
 
 Each row carries closed enums only — evidence authority, denominator basis and
@@ -664,6 +691,17 @@ capability, completeness, counts, denominator basis — never by parsing a
 producer-authored explanation string, so a future projection identity cannot
 silently change what a readiness reason means.
 
+Catalog `metric-evidence-readiness-v2-2` keeps the original row shape and adds a
+projection-keyed evidence overlay. R3 open-loop rows require
+`documented_plan_message` and `explicit_plan_supersession_link`, and report
+`explicit_plan_episode_required` when that denominator is not available. An r1
+rubric number remains readable but reports
+`measured_under_superseded_projection_identity` and never claims the focus-owned
+request contributor that r1 could not prove. Objective source incompleteness
+reports `source_reconciliation_incomplete`; a complete authoritative set larger
+than the bounded receipt reports `opportunity_set_exceeds_receipt_bound`, not a
+missing capability or an empty set.
+
 `capability_missing` reasons are **metric-specific**, replacing the generic
 "family unobservable": a rubric metric reports
 `focus_owned_request_revision_required`, a profile-slot metric reports
@@ -672,7 +710,9 @@ the semantic-unit extractor it needs (`ambiguity_episode_extraction_required`,
 `clarification_episode_extraction_required`,
 `hypothesis_episode_extraction_required`,
 `scope_change_episode_extraction_required`,
-`requirement_unit_extraction_required`, `open_loop_episode_extraction_required`).
+`requirement_unit_extraction_required`; r1/r2 open-loop rows retain
+`open_loop_episode_extraction_required` because those producers used the frozen
+semantic-unit path).
 Each objective contract has its own adapter reason and exact capability set:
 the relevant opportunity enumeration, the matching evidence-link authority, and
 the action / decision / verification outcome kinds its algorithm reads. Missing
@@ -682,6 +722,10 @@ never turn an empty record list into a measured `0/N`.
 `observed_contributors` is derived, not asserted: an unavailable family proves
 nothing, an available one proves the contributor that enumerates the denominator,
 and only a resolved opportunity proves the contributors that classify outcomes.
+An incomplete objective source with zero resolved opportunities reports no
+observed contributor. Historical rehydration depends on the frozen contract and
+guidance catalogs; changing those identities requires another append-only
+projection, never reinterpretation in place.
 
 ### Guidance contract
 

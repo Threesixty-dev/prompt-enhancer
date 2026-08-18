@@ -3514,6 +3514,8 @@
           "agent_response_text",
           "feedback_classification",
           "declared_objective_opportunity_set",
+          "documented_plan_message",
+          "explicit_plan_supersession_link",
           "typed_action_evidence",
           "typed_decision_evidence",
           "typed_verification_receipt"
@@ -3552,8 +3554,8 @@
             "type": "integer"
           },
           "catalog_version": {
-            "const": "metric-evidence-readiness-v2-1",
-            "default": "metric-evidence-readiness-v2-1",
+            "const": "metric-evidence-readiness-v2-2",
+            "default": "metric-evidence-readiness-v2-2",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -3598,7 +3600,8 @@
           "metric_projection_version": {
             "enum": [
               "metric-contract-v2-projection-1",
-              "metric-contract-v2-projection-2"
+              "metric-contract-v2-projection-2",
+              "metric-contract-v2-projection-3"
             ],
             "title": "Metric Projection Version",
             "type": "string"
@@ -3735,11 +3738,13 @@
           "opportunity_right_censored",
           "no_eligible_opportunity_observed",
           "opportunity_set_undetermined",
+          "opportunity_set_exceeds_receipt_bound",
           "declared_profile_slots_absent",
           "opportunity_classification_unresolved",
           "source_reconciliation_incomplete",
           "calculator_abstained",
           "execution_error_reported",
+          "measured_under_superseded_projection_identity",
           "focus_owned_request_revision_required",
           "owned_canonical_request_text_required",
           "request_revision_unit_extraction_required",
@@ -3751,6 +3756,7 @@
           "scope_change_episode_extraction_required",
           "requirement_unit_extraction_required",
           "open_loop_episode_extraction_required",
+          "explicit_plan_episode_required",
           "hypothesis_chain_adapter_capabilities_required",
           "requirement_action_adapter_capabilities_required",
           "material_claim_verification_adapter_capabilities_required",
@@ -3892,7 +3898,7 @@
             "items": {
               "$ref": "#/components/schemas/MetricEvidenceContributor"
             },
-            "maxItems": 11,
+            "maxItems": 13,
             "minItems": 1,
             "title": "Required Contributors",
             "type": "array"
@@ -4419,10 +4425,10 @@
             "type": "boolean"
           },
           "projection_version": {
-            "default": "metric-contract-v2-projection-2",
             "enum": [
               "metric-contract-v2-projection-1",
-              "metric-contract-v2-projection-2"
+              "metric-contract-v2-projection-2",
+              "metric-contract-v2-projection-3"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -4456,6 +4462,7 @@
         },
         "required": [
           "contract_set_fingerprint",
+          "projection_version",
           "source",
           "canonical_live_snapshot",
           "compatibility_preview",
@@ -4863,10 +4870,10 @@
             "type": "boolean"
           },
           "projection_version": {
-            "default": "metric-contract-v2-projection-2",
             "enum": [
               "metric-contract-v2-projection-1",
-              "metric-contract-v2-projection-2"
+              "metric-contract-v2-projection-2",
+              "metric-contract-v2-projection-3"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -4891,7 +4898,8 @@
           "evidence_authority",
           "value_state",
           "explanation_code",
-          "statistics"
+          "statistics",
+          "projection_version"
         ],
         "title": "MetricStateV2",
         "type": "object"

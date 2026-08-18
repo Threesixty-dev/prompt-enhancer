@@ -32,6 +32,9 @@ from prompt_enhancer.application.analysis.metric_contract_v2 import (
 from prompt_enhancer.application.analysis.metric_evidence_readiness_v2 import (
     project_metric_evidence_readiness_v2,
 )
+from prompt_enhancer.application.analysis.metric_projection_v3 import (
+    project_metric_states_v3,
+)
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
     MetricStateV2,
     OpportunityStatistics,
@@ -41,6 +44,10 @@ from prompt_enhancer.application.analysis.metric_projection_v2 import (
 from prompt_enhancer.application.analysis.metric_publication_v2 import (
     MetricPublicationSource,
     publish_metric_states_v2,
+)
+from prompt_enhancer.application.analysis.objective_metric_projection import (
+    ObjectiveMetricOverride,
+    ObjectiveWithholdingCause,
 )
 from prompt_enhancer.application.analysis.probabilistic_metrics import (
     EVIDENCE_LANE_METRIC_KEYS,
@@ -522,7 +529,7 @@ def test_metric_v2_publication_round_trips_is_immutable_and_privacy_cascades(
     )
     reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
     publication = publish_metric_states_v2(
-        project_metric_states_v2(
+        project_metric_states_v3(
             context=context,
             reconciliation=reconciliation,
             id_factory=IDS,
@@ -667,13 +674,13 @@ def test_metric_v2_publication_round_trips_is_immutable_and_privacy_cascades(
     with sqlite3.connect(database.path) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
         assert connection.execute(
-            """SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2
+            """SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r3
                WHERE run_id=?""",
             (record.run_id,),
         ).fetchone()[0] == 20
         assert connection.execute(
             """SELECT COUNT(*)
-               FROM session_model_ensemble_metric_publication_v2_seals_r2
+               FROM session_model_ensemble_metric_publication_v2_seals_r3
                WHERE run_id=?""",
             (record.run_id,),
         ).fetchone()[0] == 1
@@ -681,33 +688,33 @@ def test_metric_v2_publication_round_trips_is_immutable_and_privacy_cascades(
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             connection.execute(
-                """UPDATE session_model_ensemble_metric_states_v2_r2
+                """UPDATE session_model_ensemble_metric_states_v2_r3
                    SET source_complete=source_complete
                    WHERE run_id=?""",
                 (record.run_id,),
             )
         with pytest.raises(sqlite3.IntegrityError, match="sealed"):
             connection.execute(
-                """INSERT INTO session_model_ensemble_metric_states_v2_r2
-                   SELECT * FROM session_model_ensemble_metric_states_v2_r2
+                """INSERT INTO session_model_ensemble_metric_states_v2_r3
+                   SELECT * FROM session_model_ensemble_metric_states_v2_r3
                    WHERE run_id=? LIMIT 1""",
                 (record.run_id,),
             )
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             connection.execute(
-                """UPDATE session_model_ensemble_metric_publication_v2_seals_r2
+                """UPDATE session_model_ensemble_metric_publication_v2_seals_r3
                    SET known_count=known_count WHERE run_id=?""",
                 (record.run_id,),
             )
         with pytest.raises(sqlite3.IntegrityError, match="parent privacy deletion"):
             connection.execute(
-                """DELETE FROM session_model_ensemble_metric_states_v2_r2
+                """DELETE FROM session_model_ensemble_metric_states_v2_r3
                    WHERE run_id=?""",
                 (record.run_id,),
             )
         with pytest.raises(sqlite3.IntegrityError, match="parent privacy deletion"):
             connection.execute(
-                """DELETE FROM session_model_ensemble_metric_publication_v2_seals_r2
+                """DELETE FROM session_model_ensemble_metric_publication_v2_seals_r3
                    WHERE run_id=?""",
                 (record.run_id,),
             )
@@ -722,13 +729,13 @@ def test_metric_v2_publication_round_trips_is_immutable_and_privacy_cascades(
     assert repository.get(second.run_id) is None
     with sqlite3.connect(database.path) as connection:
         assert connection.execute(
-            """SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2
+            """SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r3
                WHERE run_id=?""",
             (record.run_id,),
         ).fetchone()[0] == 0
         assert connection.execute(
             """SELECT COUNT(*)
-               FROM session_model_ensemble_metric_publication_v2_seals_r2
+               FROM session_model_ensemble_metric_publication_v2_seals_r3
                WHERE run_id=?""",
             (record.run_id,),
         ).fetchone()[0] == 0
@@ -786,7 +793,7 @@ def test_unowned_rubric_focus_stays_withheld_through_storage_and_the_api(
         explanation_code="synthetic_rubric_result",
     )
     publication = publish_metric_states_v2(
-        project_metric_states_v2(
+        project_metric_states_v3(
             context=context,
             reconciliation=reconciliation,
             id_factory=IDS,
@@ -831,13 +838,13 @@ def test_unowned_rubric_focus_stays_withheld_through_storage_and_the_api(
     with sqlite3.connect(database.path) as connection:
         # The stored rows carry the corrected projection identity and no value.
         assert connection.execute(
-            """SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r2
-               WHERE run_id=? AND projection_version='metric-contract-v2-projection-2'""",
+            """SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r3
+               WHERE run_id=? AND projection_version='metric-contract-v2-projection-3'""",
             (record.run_id,),
         ).fetchone()[0] == 20
         stored = connection.execute(
             """SELECT value_state,numeric_value,explanation_code
-               FROM session_model_ensemble_metric_states_v2_r2
+               FROM session_model_ensemble_metric_states_v2_r3
                WHERE run_id=? AND metric_key=?""",
             (record.run_id, "prompt.task_definition_coverage"),
         ).fetchone()
@@ -884,12 +891,136 @@ def test_unowned_rubric_focus_stays_withheld_through_storage_and_the_api(
         assert readiness[key]["observed_contributors"] == []
     assert (
         payload["metric_evidence_readiness_v2"]["metric_projection_version"]
-        == "metric-contract-v2-projection-2"
+        == "metric-contract-v2-projection-3"
     )
     assert payload["metric_evidence_readiness_v2"]["product_metric_eligible"] is False
     assert payload["metric_evidence_readiness_v2"]["calibration_state"] == (
         "not_assessed"
     )
+    assert "fictional" not in response.text.lower()
+    assert session_id not in response.text
+
+
+@pytest.mark.parametrize(
+    (
+        "cause",
+        "explanation_code",
+        "expected_availability",
+        "expected_reason",
+        "expected_source_complete",
+        "expected_observed_contributors",
+    ),
+    (
+        (
+            ObjectiveWithholdingCause.EXTRACTION_INCOMPLETE,
+            "typed_objective_extraction_incomplete",
+            "source_incomplete",
+            "source_reconciliation_incomplete",
+            False,
+            [],
+        ),
+        (
+            ObjectiveWithholdingCause.OPPORTUNITY_BOUND_EXCEEDED,
+            "typed_objective_opportunity_count_exceeds_receipt_bound",
+            "evidence_unresolved",
+            "opportunity_set_exceeds_receipt_bound",
+            True,
+            ["declared_objective_opportunity_set"],
+        ),
+    ),
+)
+def test_r3_objective_withholding_dimension_survives_persistence_and_api(
+    tmp_path,
+    cause: ObjectiveWithholdingCause,
+    explanation_code: str,
+    expected_availability: str,
+    expected_reason: str,
+    expected_source_complete: bool,
+    expected_observed_contributors: list[str],
+) -> None:
+    """The sealed flags, not prose, preserve the exact remediation dimension."""
+
+    database, session_id = _database_and_session(tmp_path)
+    context = _context(session_id)
+    receipt = LocalProbabilisticMetricRunner(
+        executor=lambda spec, stage, payload, device: _completed_result(payload),
+        clock=lambda: NOW,
+    ).run(
+        build_ensemble_chunks(context),
+        coaching_ensemble_metric_specs(),
+    )
+    metric_key = "outcome.agent_claim_grounding"
+    override = ObjectiveMetricOverride(
+        value_state=MetricValueState.UNKNOWN,
+        explanation_code=explanation_code,
+        withholding_cause=cause,
+    )
+    publication = publish_metric_states_v2(
+        project_metric_states_v3(
+            context=context,
+            reconciliation=SemanticUnitReconciler(IDS).reconcile(
+                context
+            ).reconciliation,
+            id_factory=IDS,
+            objective_overrides={metric_key: override},
+        )
+    )
+    record = SessionModelEnsembleRunRecord(
+        run_id=("1" if expected_source_complete else "2") * 64,
+        session_id=session_id,
+        request_fingerprint=("3" if expected_source_complete else "4") * 64,
+        input_fingerprint="a" * 64,
+        provider=Provider.CODEX,
+        provider_version="synthetic-provider-v1",
+        adapter_version="synthetic-adapter-v1",
+        source_schema_version="synthetic-source-v1",
+        content_schema_version="synthetic-content-v1",
+        redactor_version="synthetic-redactor-v1",
+        receipt=receipt.model_copy(update={"metric_publication_v2": publication}),
+    )
+    repository = database.model_ensemble_repository()
+    repository.save_completed(record)
+    loaded = repository.get(record.run_id)
+
+    assert loaded is not None
+    sealed = next(
+        item.state
+        for item in loaded.receipt.metric_publication_v2.metrics
+        if item.state.metric_key == metric_key
+    )
+    assert sealed.statistics.capability_available is True
+    assert sealed.statistics.source_complete is expected_source_complete
+    assert sealed.statistics.eligible_count == 0
+
+    app = create_app(
+        settings=AppSettings(home=tmp_path),
+        database=database,
+        api_token=TOKEN,
+        session_model_ensemble_service=_ReadOnlyService(loaded),  # type: ignore[arg-type]
+    )
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        response = client.get(
+            f"/v1/sessions/{session_id}/model-ensemble-runs/latest",
+            headers={API_TOKEN_HEADER: TOKEN},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    published = next(
+        item
+        for item in body["metric_publication_v2"]["metrics"]
+        if item["state"]["metric_key"] == metric_key
+    )
+    readiness = next(
+        item
+        for item in body["metric_evidence_readiness_v2"]["metrics"]
+        if item["metric_key"] == metric_key
+    )
+    assert published["implementation_state"] == "objective_evidence_unresolved"
+    assert readiness["availability_state"] == expected_availability
+    assert readiness["reason_code"] == expected_reason
+    assert readiness["observed_contributors"] == expected_observed_contributors
+    assert readiness["eligible_count"] == 0
+    assert readiness["product_metric_eligible"] is False
     assert "fictional" not in response.text.lower()
     assert session_id not in response.text
 
@@ -942,13 +1073,31 @@ def _legacy_r1_publication(publication):  # type: ignore[no-untyped-def]
     )
 
 
-def _insert_legacy_r1_sidecar(database, run_id: str, publication) -> None:  # type: ignore[no-untyped-def]
-    """Write one ``-1`` publication straight into the frozen v40 sidecar."""
+def _insert_frozen_metric_sidecar(  # type: ignore[no-untyped-def]
+    database,
+    run_id: str,
+    publication,
+    *,
+    states_table: str,
+    seals_table: str,
+) -> None:
+    """Write one historical publication into its frozen synthetic sidecar."""
+
+    assert (states_table, seals_table) in {
+        (
+            "session_model_ensemble_metric_states_v2",
+            "session_model_ensemble_metric_publication_v2_seals",
+        ),
+        (
+            "session_model_ensemble_metric_states_v2_r2",
+            "session_model_ensemble_metric_publication_v2_seals_r2",
+        ),
+    }
 
     with sqlite3.connect(database.path) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
         connection.executemany(
-            """INSERT INTO session_model_ensemble_metric_states_v2(
+            f"""INSERT INTO {states_table}(
                    run_id,metric_ordinal,registry_version,projection_version,
                    metric_key,contract_version,contract_fingerprint,
                    evidence_authority,value_state,explanation_code,numerator,
@@ -996,7 +1145,7 @@ def _insert_legacy_r1_sidecar(database, run_id: str, publication) -> None:  # ty
             ),
         )
         connection.execute(
-            """INSERT INTO session_model_ensemble_metric_publication_v2_seals(
+            f"""INSERT INTO {seals_table}(
                    run_id,publication_key,publication_version,registry_version,
                    contract_set_fingerprint,projection_version,
                    guidance_contract_version,guidance_template_catalog_version,
@@ -1032,6 +1181,30 @@ def _insert_legacy_r1_sidecar(database, run_id: str, publication) -> None:  # ty
         connection.commit()
 
 
+def _insert_legacy_r1_sidecar(database, run_id: str, publication) -> None:  # type: ignore[no-untyped-def]
+    """Write one ``-1`` publication straight into the frozen v40 sidecar."""
+
+    _insert_frozen_metric_sidecar(
+        database,
+        run_id,
+        publication,
+        states_table="session_model_ensemble_metric_states_v2",
+        seals_table="session_model_ensemble_metric_publication_v2_seals",
+    )
+
+
+def _insert_legacy_r2_sidecar(database, run_id: str, publication) -> None:  # type: ignore[no-untyped-def]
+    """Write one ``-2`` publication straight into the frozen v41 sidecar."""
+
+    _insert_frozen_metric_sidecar(
+        database,
+        run_id,
+        publication,
+        states_table="session_model_ensemble_metric_states_v2_r2",
+        seals_table="session_model_ensemble_metric_publication_v2_seals_r2",
+    )
+
+
 _METRIC_V2_STATE_COLUMNS = (
     "run_id,metric_ordinal,registry_version,projection_version,metric_key,"
     "contract_version,contract_fingerprint,evidence_authority,value_state,"
@@ -1043,7 +1216,46 @@ _METRIC_V2_STATE_COLUMNS = (
 )
 
 
-def _copy_one_r2_state(
+_METRIC_V2_SEAL_COLUMNS = (
+    "run_id,publication_key,publication_version,registry_version,"
+    "contract_set_fingerprint,projection_version,guidance_contract_version,"
+    "guidance_template_catalog_version,source,canonical_live_snapshot,"
+    "model_stage_consumed,compatibility_preview,metric_count,known_count,"
+    "pending_count,unknown_count,not_applicable_count,abstained_count,"
+    "execution_error_count,objective_measured_count,projection_fingerprint,"
+    "projected_at,local_only,content_persisted,product_metric_eligible"
+)
+
+
+def _copy_seal_with_identity(
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    target_table: str,
+    projection_version: str,
+    target_run_id: str | None = None,
+) -> None:
+    """Re-seal the current sidecar under a different projection identity."""
+
+    connection.execute(
+        f"""INSERT INTO {target_table}({_METRIC_V2_SEAL_COLUMNS})
+            SELECT ?,publication_key,publication_version,registry_version,
+                   contract_set_fingerprint,?,guidance_contract_version,
+                   guidance_template_catalog_version,source,
+                   canonical_live_snapshot,model_stage_consumed,
+                   compatibility_preview,metric_count,known_count,
+                   pending_count,unknown_count,not_applicable_count,
+                   abstained_count,execution_error_count,
+                   objective_measured_count,projection_fingerprint,
+                   projected_at,local_only,content_persisted,
+                   product_metric_eligible
+            FROM session_model_ensemble_metric_publication_v2_seals_r3
+            WHERE run_id=?""",
+        (target_run_id or run_id, projection_version, run_id),
+    )
+
+
+def _copy_one_current_state(
     connection: sqlite3.Connection,
     *,
     source_run_id: str,
@@ -1056,6 +1268,7 @@ def _copy_one_r2_state(
     assert target_table in {
         "session_model_ensemble_metric_states_v2",
         "session_model_ensemble_metric_states_v2_r2",
+        "session_model_ensemble_metric_states_v2_r3",
     }
     connection.execute(
         f"""INSERT INTO {target_table}({_METRIC_V2_STATE_COLUMNS})
@@ -1068,7 +1281,7 @@ def _copy_one_r2_state(
                    met_count,not_met_count,pending_count,unknown_count,
                    superseded_excluded_count,distinct_owner_count,
                    product_metric_eligible
-            FROM session_model_ensemble_metric_states_v2_r2
+            FROM session_model_ensemble_metric_states_v2_r3
             WHERE run_id=? ORDER BY metric_ordinal LIMIT 1""",
         (target_run_id, projection_version, source_run_id),
     )
@@ -1090,7 +1303,7 @@ def test_legacy_projection_r1_rows_stay_readable_with_their_own_identity(
     )
     reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
     current = publish_metric_states_v2(
-        project_metric_states_v2(
+        project_metric_states_v3(
             context=context,
             reconciliation=reconciliation,
             id_factory=IDS,
@@ -1184,10 +1397,86 @@ def test_legacy_projection_r1_rows_stay_readable_with_their_own_identity(
             )
 
 
+def test_frozen_projection_r2_rows_stay_readable_after_r3_becomes_current(
+    tmp_path,
+) -> None:
+    """MIGRATION_41 rows rehydrate as r2 while every new write requires r3."""
+
+    database, session_id = _database_and_session(tmp_path)
+    context = _context(session_id)
+    receipt = LocalProbabilisticMetricRunner(
+        executor=lambda spec, stage, payload, device: _completed_result(payload),
+        clock=lambda: NOW,
+    ).run(
+        build_ensemble_chunks(context),
+        coaching_ensemble_metric_specs(),
+    )
+    reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
+    legacy = publish_metric_states_v2(
+        project_metric_states_v2(
+            context=context,
+            reconciliation=reconciliation,
+            id_factory=IDS,
+        )
+    )
+    assert legacy.projection_version == "metric-contract-v2-projection-2"
+    record = SessionModelEnsembleRunRecord(
+        run_id="6" * 64,
+        session_id=session_id,
+        request_fingerprint="5" * 64,
+        input_fingerprint="a" * 64,
+        provider=Provider.CODEX,
+        provider_version="synthetic-provider-v1",
+        adapter_version="synthetic-adapter-v1",
+        source_schema_version="synthetic-source-v1",
+        content_schema_version="synthetic-content-v1",
+        redactor_version="synthetic-redactor-v1",
+        receipt=receipt,
+    )
+    repository = database.model_ensemble_repository()
+    repository.save_completed(record)
+
+    stale_write = record.model_copy(
+        update={
+            "run_id": "3" * 64,
+            "request_fingerprint": "2" * 64,
+            "receipt": receipt.model_copy(
+                update={
+                    "metric_projection_version": None,
+                    "metric_projection_completed_at": None,
+                    "typed_metrics": (),
+                    "metric_publication_v2": legacy,
+                    "predictive_projection": None,
+                }
+            ),
+        }
+    )
+    with pytest.raises(DatabaseError, match="current projection identity"):
+        repository.save_completed(stale_write)
+    assert repository.get(stale_write.run_id) is None
+
+    _insert_legacy_r2_sidecar(database, record.run_id, legacy)
+    loaded = repository.get(record.run_id)
+
+    assert loaded is not None
+    assert loaded.receipt.metric_publication_v2 == legacy
+    assert loaded.receipt.metric_publication_v2.projection_version == (
+        "metric-contract-v2-projection-2"
+    )
+    assert all(
+        item.state.projection_version == "metric-contract-v2-projection-2"
+        for item in loaded.receipt.metric_publication_v2.metrics
+    )
+    with sqlite3.connect(database.path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r3"
+        ).fetchone()[0] == 0
+
+
 def test_projection_identity_rows_are_mutually_exclusive_before_and_after_seal(
     tmp_path,
 ) -> None:
-    """Neither insertion order can create a torn r1/r2 identity mixture."""
+    """No insertion order can create a torn r1/r2/r3 identity mixture."""
 
     database, session_id = _database_and_session(tmp_path)
     context = _context(session_id)
@@ -1199,7 +1488,7 @@ def test_projection_identity_rows_are_mutually_exclusive_before_and_after_seal(
         coaching_ensemble_metric_specs(),
     )
     publication = publish_metric_states_v2(
-        project_metric_states_v2(
+        project_metric_states_v3(
             context=context,
             reconciliation=SemanticUnitReconciler(IDS).reconcile(
                 context
@@ -1231,121 +1520,185 @@ def test_projection_identity_rows_are_mutually_exclusive_before_and_after_seal(
             "predictive_projection": None,
         }
     )
-    r1_first = source.model_copy(
-        update={
-            "run_id": "d" * 64,
-            "request_fingerprint": "e" * 64,
-            "receipt": sidecar_free_receipt,
-        }
+    #: One bare run per identity, used to prove that even a single *unsealed*
+    #: child of one identity blocks the first child of another.
+    IDENTITIES = (
+        ("metric-contract-v2-projection-1", "session_model_ensemble_metric_states_v2"),
+        (
+            "metric-contract-v2-projection-2",
+            "session_model_ensemble_metric_states_v2_r2",
+        ),
+        (
+            "metric-contract-v2-projection-3",
+            "session_model_ensemble_metric_states_v2_r3",
+        ),
     )
-    r2_first = source.model_copy(
-        update={
-            "run_id": "f" * 64,
-            "request_fingerprint": "1" * 64,
-            "receipt": sidecar_free_receipt,
-        }
-    )
+    bare_run_ids = {
+        version: character * 64
+        for (version, _table), character in zip(IDENTITIES, "def", strict=True)
+    }
     repository = database.model_ensemble_repository()
     repository.save_completed(source)
-    repository.save_completed(r1_first)
-    repository.save_completed(r2_first)
+    for index, (version, _table) in enumerate(IDENTITIES):
+        repository.save_completed(
+            source.model_copy(
+                update={
+                    "run_id": bare_run_ids[version],
+                    "request_fingerprint": str(index + 2) * 64,
+                    "receipt": sidecar_free_receipt,
+                }
+            )
+        )
 
     with sqlite3.connect(database.path) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
 
-        # A sealed r2 publication rejects both kinds of legacy child.
-        with pytest.raises(sqlite3.IntegrityError, match="identity conflict"):
-            _copy_one_r2_state(
+        # A sealed r3 publication rejects a child of either legacy identity.
+        for version, table in IDENTITIES:
+            if version == "metric-contract-v2-projection-3":
+                continue
+            with pytest.raises(sqlite3.IntegrityError, match="identity conflict"):
+                _copy_one_current_state(
+                    connection,
+                    source_run_id=source.run_id,
+                    target_run_id=source.run_id,
+                    target_table=table,
+                    projection_version=version,
+                )
+
+        # ...and a legacy *seal* just as much as a legacy state row.
+        for seals_table, version in (
+            (
+                "session_model_ensemble_metric_publication_v2_seals",
+                "metric-contract-v2-projection-1",
+            ),
+            (
+                "session_model_ensemble_metric_publication_v2_seals_r2",
+                "metric-contract-v2-projection-2",
+            ),
+        ):
+            with pytest.raises(sqlite3.IntegrityError, match="identity conflict"):
+                _copy_seal_with_identity(
+                    connection,
+                    run_id=source.run_id,
+                    target_table=seals_table,
+                    projection_version=version,
+                )
+
+        # Every ordered pair of identities is rejected from both sides, and an
+        # unsealed child is enough to establish the identity of a run.
+        for holder_version, holder_table in IDENTITIES:
+            run_id = bare_run_ids[holder_version]
+            _copy_one_current_state(
                 connection,
                 source_run_id=source.run_id,
-                target_run_id=source.run_id,
-                target_table="session_model_ensemble_metric_states_v2",
-                projection_version="metric-contract-v2-projection-1",
+                target_run_id=run_id,
+                target_table=holder_table,
+                projection_version=holder_version,
             )
-        with pytest.raises(sqlite3.IntegrityError, match="identity conflict"):
-            connection.execute(
-                """INSERT INTO session_model_ensemble_metric_publication_v2_seals(
-                       run_id,publication_key,publication_version,
-                       registry_version,contract_set_fingerprint,
-                       projection_version,guidance_contract_version,
-                       guidance_template_catalog_version,source,
-                       canonical_live_snapshot,model_stage_consumed,
-                       compatibility_preview,metric_count,known_count,
-                       pending_count,unknown_count,not_applicable_count,
-                       abstained_count,execution_error_count,
-                       objective_measured_count,projection_fingerprint,
-                       projected_at,local_only,content_persisted,
-                       product_metric_eligible)
-                   SELECT run_id,publication_key,publication_version,
-                          registry_version,contract_set_fingerprint,
-                          'metric-contract-v2-projection-1',
-                          guidance_contract_version,
-                          guidance_template_catalog_version,source,
-                          canonical_live_snapshot,model_stage_consumed,
-                          compatibility_preview,metric_count,known_count,
-                          pending_count,unknown_count,not_applicable_count,
-                          abstained_count,execution_error_count,
-                          objective_measured_count,projection_fingerprint,
-                          projected_at,local_only,content_persisted,
-                          product_metric_eligible
-                   FROM session_model_ensemble_metric_publication_v2_seals_r2
-                   WHERE run_id=?""",
-                (source.run_id,),
-            )
+            for other_version, other_table in IDENTITIES:
+                if other_version == holder_version:
+                    continue
+                with pytest.raises(
+                    sqlite3.IntegrityError, match="identity conflict|sealed"
+                ):
+                    _copy_one_current_state(
+                        connection,
+                        source_run_id=source.run_id,
+                        target_run_id=run_id,
+                        target_table=other_table,
+                        projection_version=other_version,
+                    )
 
-        # Even an unsealed r1 child blocks the first r2 child.
-        _copy_one_r2_state(
-            connection,
-            source_run_id=source.run_id,
-            target_run_id=r1_first.run_id,
-            target_table="session_model_ensemble_metric_states_v2",
-            projection_version="metric-contract-v2-projection-1",
-        )
-        with pytest.raises(sqlite3.IntegrityError, match="sealed"):
-            _copy_one_r2_state(
-                connection,
-                source_run_id=source.run_id,
-                target_run_id=r1_first.run_id,
-                target_table="session_model_ensemble_metric_states_v2_r2",
-                projection_version="metric-contract-v2-projection-2",
-            )
-
-        # And an unsealed r2 child blocks the first r1 child.
-        _copy_one_r2_state(
-            connection,
-            source_run_id=source.run_id,
-            target_run_id=r2_first.run_id,
-            target_table="session_model_ensemble_metric_states_v2_r2",
-            projection_version="metric-contract-v2-projection-2",
-        )
-        with pytest.raises(sqlite3.IntegrityError, match="identity conflict"):
-            _copy_one_r2_state(
-                connection,
-                source_run_id=source.run_id,
-                target_run_id=r2_first.run_id,
-                target_table="session_model_ensemble_metric_states_v2",
-                projection_version="metric-contract-v2-projection-1",
-            )
-
-        assert connection.execute(
-            """SELECT COUNT(*)
-               FROM session_model_ensemble_metric_states_v2
-               WHERE run_id=?""",
-            (r1_first.run_id,),
-        ).fetchone()[0] == 1
-        assert connection.execute(
-            """SELECT COUNT(*)
-               FROM session_model_ensemble_metric_states_v2_r2
-               WHERE run_id=?""",
-            (r2_first.run_id,),
-        ).fetchone()[0] == 1
+        for version, table in IDENTITIES:
+            assert connection.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE run_id=?",  # noqa: S608
+                (bare_run_ids[version],),
+            ).fetchone()[0] == 1
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
     # Unsealed child rows are never rehydrated as a canonical publication.
     # This is the read-side half of the no-torn-head contract.
-    assert repository.get(r1_first.run_id).receipt.metric_publication_v2 is None
-    assert repository.get(r2_first.run_id).receipt.metric_publication_v2 is None
+    for version, _table in IDENTITIES:
+        loaded = repository.get(bare_run_ids[version])
+        assert loaded is not None
+        assert loaded.receipt.metric_publication_v2 is None
 
+
+def test_a_partial_r3_child_set_cannot_be_sealed(tmp_path) -> None:
+    """A seal requires exactly twenty rows of its own identity: no torn head."""
+
+    database, session_id = _database_and_session(tmp_path)
+    context = _context(session_id)
+    receipt = LocalProbabilisticMetricRunner(
+        executor=lambda spec, stage, payload, device: _completed_result(payload),
+        clock=lambda: NOW,
+    ).run(
+        build_ensemble_chunks(context),
+        coaching_ensemble_metric_specs(),
+    )
+    publication = publish_metric_states_v2(
+        project_metric_states_v3(
+            context=context,
+            reconciliation=SemanticUnitReconciler(IDS).reconcile(
+                context
+            ).reconciliation,
+            id_factory=IDS,
+        )
+    )
+    source = SessionModelEnsembleRunRecord(
+        run_id="b" * 64,
+        session_id=session_id,
+        request_fingerprint="c" * 64,
+        input_fingerprint="a" * 64,
+        provider=Provider.CODEX,
+        provider_version="synthetic-provider-v1",
+        adapter_version="synthetic-adapter-v1",
+        source_schema_version="synthetic-source-v1",
+        content_schema_version="synthetic-content-v1",
+        redactor_version="synthetic-redactor-v1",
+        receipt=receipt.model_copy(update={"metric_publication_v2": publication}),
+    )
+    partial = source.model_copy(
+        update={
+            "run_id": "d" * 64,
+            "request_fingerprint": "e" * 64,
+            "receipt": receipt.model_copy(
+                update={
+                    "metric_projection_version": None,
+                    "metric_projection_completed_at": None,
+                    "typed_metrics": (),
+                    "metric_publication_v2": None,
+                    "predictive_projection": None,
+                }
+            ),
+        }
+    )
+    repository = database.model_ensemble_repository()
+    repository.save_completed(source)
+    repository.save_completed(partial)
+
+    with sqlite3.connect(database.path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        _copy_one_current_state(
+            connection,
+            source_run_id=source.run_id,
+            target_run_id=partial.run_id,
+            target_table="session_model_ensemble_metric_states_v2_r3",
+            projection_version="metric-contract-v2-projection-3",
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="incomplete"):
+            _copy_seal_with_identity(
+                connection,
+                run_id=source.run_id,
+                target_table=(
+                    "session_model_ensemble_metric_publication_v2_seals_r3"
+                ),
+                projection_version="metric-contract-v2-projection-3",
+                target_run_id=partial.run_id,
+            )
+
+    assert repository.get(partial.run_id).receipt.metric_publication_v2 is None
 
 def test_optional_deep_timeout_publishes_partial_head_and_clears_watch_failure(
     tmp_path,
@@ -1472,7 +1825,7 @@ def test_optional_deep_timeout_publishes_partial_head_and_clears_watch_failure(
 def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
     tmp_path,
 ) -> None:
-    assert SCHEMA_VERSION == 41
+    assert SCHEMA_VERSION == 42
     assert LIVE_PROBABILISTIC_PLAN_VERSION == "small-factor-router-v5"
     assert PROBABILISTIC_MODEL_SET_VERSION == "local-factor-router-v3"
 
@@ -1611,7 +1964,7 @@ def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
     }
     with sqlite3.connect(database.path) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 41
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 42
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute(

@@ -71,15 +71,24 @@ from .text_baselines import CONSTRAINT_SLOT_PATTERNS, DELIVERABLE_SLOT_PATTERNS
 #: exactly what the producer that wrote them meant.
 METRIC_PROJECTION_V2_VERSION_1 = "metric-contract-v2-projection-1"
 METRIC_PROJECTION_V2_VERSION_2 = "metric-contract-v2-projection-2"
+#: Identity 3 lives in ``metric_projection_v3`` and is the only identity current
+#: code writes.  It is named here because this module owns the readable-identity
+#: vocabulary that persistence and the wire contract validate against.
+METRIC_PROJECTION_V2_VERSION_3 = "metric-contract-v2-projection-3"
+#: The identity *this* producer stamps.  It stays at ``-2`` forever: rows it
+#: wrote must keep meaning what the producer that wrote them meant.
 METRIC_PROJECTION_V2_VERSION = METRIC_PROJECTION_V2_VERSION_2
-#: Readable identities.  Only ``METRIC_PROJECTION_V2_VERSION`` is ever written.
+#: Readable identities in append-only historical order. Persistence owns its
+#: separate newest-first sidecar preference.
 SUPPORTED_METRIC_PROJECTION_V2_VERSIONS = (
     METRIC_PROJECTION_V2_VERSION_1,
     METRIC_PROJECTION_V2_VERSION_2,
+    METRIC_PROJECTION_V2_VERSION_3,
 )
 MetricProjectionV2Version = Literal[
     "metric-contract-v2-projection-1",
     "metric-contract-v2-projection-2",
+    "metric-contract-v2-projection-3",
 ]
 METRIC_PROJECTION_V2_ALGORITHM_ID = "rules.en-pl.contract-v2-opportunities"
 METRIC_PROJECTION_V2_ALGORITHM_VERSION = "2"
@@ -234,10 +243,11 @@ class MetricStateV2(StrictModel):
     censoring_lower_bound: float | None = Field(default=None, ge=0, le=1)
     censoring_upper_bound: float | None = Field(default=None, ge=0, le=1)
     statistics: OpportunityStatistics
-    #: Read both identities; write only the current one.  A rehydrated ``-1``
-    #: row keeps its own identity so a historical value is never relabelled as
-    #: something the current rules would have produced.
-    projection_version: MetricProjectionV2Version = METRIC_PROJECTION_V2_VERSION
+    #: Read every frozen identity, but require every producer and persistence
+    #: reader to state which one it is using.  A historical row can therefore
+    #: never acquire an identity through a model default whose rules did not
+    #: produce it.
+    projection_version: MetricProjectionV2Version
     product_metric_eligible: Literal[False] = False
 
     @field_validator("metric_key", "contract_version", "explanation_code")
@@ -478,6 +488,7 @@ def resolve_metric_state(
     *,
     explanation_code: str,
     unavailable_code: str = "opportunity_family_unobservable",
+    projection_version: str | None = None,
 ) -> MetricStateV2:
     """Turn sufficient statistics into one typed value state.
 
@@ -485,7 +496,17 @@ def resolve_metric_state(
     unobservable family proves nothing about whether an opportunity existed.
     Epistemic ``unknown`` outranks temporal ``pending`` for the same reason: an
     unclassifiable opportunity is not merely waiting.
+
+    ``projection_version`` is how a later producer stamps its own identity onto
+    a state resolved by these shared rules.  Left unset it keeps this module's
+    identity, so the r2 producer is unaffected by the existence of r3.
     """
+
+    stamped_projection_version = (
+        METRIC_PROJECTION_V2_VERSION
+        if projection_version is None
+        else projection_version
+    )
 
     def _state(
         value_state: MetricValueStateV2,
@@ -512,6 +533,7 @@ def resolve_metric_state(
             censoring_lower_bound=None if bounds is None else bounds[0],
             censoring_upper_bound=None if bounds is None else bounds[1],
             statistics=statistics,
+            projection_version=stamped_projection_version,
         )
 
     if not statistics.capability_available:
@@ -795,6 +817,7 @@ def _rubric_state(
     *,
     focus_unowned: bool,
     source_complete: bool,
+    projection_version: str | None = None,
 ) -> MetricStateV2:
     """Score the fixed factor rubric against the focus-owned revision.
 
@@ -818,6 +841,7 @@ def _rubric_state(
             ),
             explanation_code=REASON_RUBRIC_NOT_FOCUS_OWNED,
             unavailable_code=REASON_RUBRIC_NOT_FOCUS_OWNED,
+            projection_version=projection_version,
         )
     if revision is None:
         statistics = _statistics(
@@ -827,7 +851,10 @@ def _rubric_state(
             source_complete=source_complete,
         )
         return resolve_metric_state(
-            contract, statistics, explanation_code="rubric_factors"
+            contract,
+            statistics,
+            explanation_code="rubric_factors",
+            projection_version=projection_version,
         )
     known = (
         conversational is not None
@@ -887,12 +914,18 @@ def _rubric_state(
             value_state=value_state,
             explanation_code=code,
             statistics=statistics,
+            projection_version=(
+                METRIC_PROJECTION_V2_VERSION
+                if projection_version is None
+                else projection_version
+            ),
         )
     assert conversational is not None
     return resolve_metric_state(
         contract,
         statistics,
         explanation_code=conversational.explanation_code,
+        projection_version=projection_version,
     )
 
 
@@ -903,6 +936,7 @@ def _profile_slot_state(
     window: _Window,
     *,
     source_complete: bool,
+    projection_version: str | None = None,
 ) -> MetricStateV2:
     if revision is None:
         statistics = _statistics(
@@ -915,6 +949,7 @@ def _profile_slot_state(
             contract,
             statistics,
             explanation_code="declared_profile_slots",
+            projection_version=projection_version,
         )
     owner = window.message(revision.owner_source_digest)
     if owner is None or owner.language not in _SUPPORTED_LANGUAGES:
@@ -929,6 +964,7 @@ def _profile_slot_state(
             statistics,
             explanation_code="canonical_request_unavailable",
             unavailable_code="canonical_request_unavailable",
+            projection_version=projection_version,
         )
     profile = context.task_profile
     # Profile slots belong to the one active request revision.  Looking across
@@ -968,13 +1004,18 @@ def _profile_slot_state(
         source_complete=source_complete,
     )
     return resolve_metric_state(
-        contract, statistics, explanation_code="declared_profile_slots"
+        contract,
+        statistics,
+        explanation_code="declared_profile_slots",
+        projection_version=projection_version,
     )
 
 
 def _objective_state(
     contract: MetricContractV2,
     override: ObjectiveMetricOverride | None,
+    *,
+    projection_version: str | None = None,
 ) -> MetricStateV2:
     """Objective precedence: only the typed lane may resolve these contracts."""
 
@@ -990,6 +1031,7 @@ def _objective_state(
             statistics,
             explanation_code="typed_objective_absent",
             unavailable_code="typed_objective_absent",
+            projection_version=projection_version,
         )
     eligible = override.eligible_opportunity_count
     resolved = override.resolved_opportunity_count
@@ -1013,6 +1055,7 @@ def _objective_state(
             statistics,
             explanation_code=override.explanation_code,
             unavailable_code=override.explanation_code,
+            projection_version=projection_version,
         )
     else:
         censored = (
@@ -1044,6 +1087,7 @@ def _objective_state(
         contract,
         statistics,
         explanation_code=override.explanation_code,
+        projection_version=projection_version,
     )
 
 
@@ -1067,6 +1111,8 @@ def _unit_state(
     context: P1TextAnalysisInput,
     reconciliation: SemanticUnitReconciliation,
     window: _Window,
+    *,
+    projection_version: str | None = None,
 ) -> MetricStateV2:
     kind = contract.opportunity_unit_kind
     assert kind is not None
@@ -1079,7 +1125,10 @@ def _unit_state(
             source_complete=source_complete,
         )
         return resolve_metric_state(
-            contract, statistics, explanation_code="opportunity_family_unobservable"
+            contract,
+            statistics,
+            explanation_code="opportunity_family_unobservable",
+            projection_version=projection_version,
         )
     if contract.opportunity_selector is OpportunitySelector.CANONICAL_ACTIVE_REVISION:
         raise ValueError("canonical revision contracts use the rubric projection")
@@ -1097,6 +1146,7 @@ def _unit_state(
         contract,
         statistics,
         explanation_code=_UNIT_EXPLANATIONS[contract.metric_key],
+        projection_version=projection_version,
     )
 
 
@@ -1200,6 +1250,7 @@ __all__ = [
     "METRIC_PROJECTION_V2_VERSION",
     "METRIC_PROJECTION_V2_VERSION_1",
     "METRIC_PROJECTION_V2_VERSION_2",
+    "METRIC_PROJECTION_V2_VERSION_3",
     "MetricProjectionV2Version",
     "MetricStateV2",
     "OpportunityStatistics",

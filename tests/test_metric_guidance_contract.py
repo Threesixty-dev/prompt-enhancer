@@ -88,6 +88,7 @@ def _known_state(metric_key: str, *, met: int, eligible: int) -> MetricStateV2:
             met_count=met,
             not_met_count=eligible - met,
         ),
+        projection_version="metric-contract-v2-projection-2",
     )
 
 
@@ -305,6 +306,7 @@ def test_execution_error_guidance_is_tooling_only_with_no_value_basis() -> None:
             source_complete=False,
             eligible_count=0,
         ),
+        projection_version="metric-contract-v2-projection-2",
     )
 
     guidance = build_metric_guidance(state)

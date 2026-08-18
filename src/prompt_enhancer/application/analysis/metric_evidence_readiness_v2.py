@@ -5,7 +5,7 @@ persistence record.  Every field is either a closed enum, a count, or a bound
 that already exists in the sealed ``MetricPublicationV2`` rows, plus the run's
 own provider/adapter/source-schema provenance.  Because it introduces no
 independent datum, it needs no schema of its own: it is recomputed from the
-sealed v40/v41 sidecar on read and disappears with the run.
+sealed v40/v41/v42 sidecar on read and disappears with the run.
 
 What it adds over the publication is the *reason a value is missing*, stated as
 a requirement of that exact metric rather than a generic "unobservable":
@@ -40,7 +40,12 @@ from .metric_contract_v2 import (
     METRIC_CONTRACT_REGISTRY_VERSION_V2,
     MetricValueStateV2,
 )
-from .metric_projection_v2 import MetricProjectionV2Version, MetricStateV2
+from .metric_projection_v2 import (
+    METRIC_PROJECTION_V2_VERSION_1,
+    METRIC_PROJECTION_V2_VERSION_3,
+    MetricProjectionV2Version,
+    MetricStateV2,
+)
 from .metric_publication_v2 import (
     MetricPublicationSource,
     MetricPublicationV2,
@@ -51,7 +56,20 @@ from .semantic_units import SemanticUnitKind
 
 METRIC_EVIDENCE_READINESS_V2_KEY = "metric.contract-v2.evidence-readiness"
 METRIC_EVIDENCE_READINESS_V2_VERSION = 1
-METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION = "metric-evidence-readiness-v2-1"
+#: Catalog identity 1 named one requirement per metric and had no way to say
+#: that a *sealed row* was produced under a superseded projection identity.
+#: Identity 2 is additive: the projection shape, the enum members, and every
+#: identity-1 reason keep their meaning, and the catalog gains a per-projection
+#: requirement overlay plus the reasons r3 needs.
+METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1 = "metric-evidence-readiness-v2-1"
+METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2 = "metric-evidence-readiness-v2-2"
+METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION = (
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2
+)
+SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS = (
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2,
+)
 
 
 class MetricEvidenceContributor(StrEnum):
@@ -68,6 +86,10 @@ class MetricEvidenceContributor(StrEnum):
     AGENT_RESPONSE_TEXT = "agent_response_text"
     FEEDBACK_CLASSIFICATION = "feedback_classification"
     DECLARED_OBJECTIVE_OPPORTUNITY_SET = "declared_objective_opportunity_set"
+    #: A documented ``AGENT`` ``PLAN`` message: the r3 open-loop denominator.
+    DOCUMENTED_PLAN_MESSAGE = "documented_plan_message"
+    #: A later message naming that exact plan in ``supersedes_message_ids``.
+    EXPLICIT_PLAN_SUPERSESSION_LINK = "explicit_plan_supersession_link"
     TYPED_ACTION_EVIDENCE = "typed_action_evidence"
     TYPED_DECISION_EVIDENCE = "typed_decision_evidence"
     TYPED_VERIFICATION_RECEIPT = "typed_verification_receipt"
@@ -98,11 +120,20 @@ class MetricEvidenceReadinessReason(StrEnum):
     OPPORTUNITY_RIGHT_CENSORED = "opportunity_right_censored"
     NO_ELIGIBLE_OPPORTUNITY_OBSERVED = "no_eligible_opportunity_observed"
     OPPORTUNITY_SET_UNDETERMINED = "opportunity_set_undetermined"
+    OPPORTUNITY_SET_EXCEEDS_RECEIPT_BOUND = (
+        "opportunity_set_exceeds_receipt_bound"
+    )
     DECLARED_PROFILE_SLOTS_ABSENT = "declared_profile_slots_absent"
     OPPORTUNITY_CLASSIFICATION_UNRESOLVED = "opportunity_classification_unresolved"
     SOURCE_RECONCILIATION_INCOMPLETE = "source_reconciliation_incomplete"
     CALCULATOR_ABSTAINED = "calculator_abstained"
     EXECUTION_ERROR_REPORTED = "execution_error_reported"
+    #: The row carries a number, but the producer that computed it is no longer
+    #: the one current code runs.  The value stays measured and readable; what
+    #: it may *not* do is claim the corrected producer's evidence.
+    MEASURED_UNDER_SUPERSEDED_PROJECTION_IDENTITY = (
+        "measured_under_superseded_projection_identity"
+    )
     # Metric-specific readiness requirements.
     FOCUS_OWNED_REQUEST_REVISION_REQUIRED = "focus_owned_request_revision_required"
     OWNED_CANONICAL_REQUEST_TEXT_REQUIRED = "owned_canonical_request_text_required"
@@ -121,6 +152,8 @@ class MetricEvidenceReadinessReason(StrEnum):
     )
     REQUIREMENT_UNIT_EXTRACTION_REQUIRED = "requirement_unit_extraction_required"
     OPEN_LOOP_EPISODE_EXTRACTION_REQUIRED = "open_loop_episode_extraction_required"
+    #: r3 open-loop: an explicit plan episode, or an explicit link to close it.
+    EXPLICIT_PLAN_EPISODE_REQUIRED = "explicit_plan_episode_required"
     HYPOTHESIS_CHAIN_ADAPTER_CAPABILITIES_REQUIRED = (
         "hypothesis_chain_adapter_capabilities_required"
     )
@@ -307,10 +340,44 @@ _REQUIREMENTS: dict[str, _EvidenceRequirement] = {
 
 METRIC_EVIDENCE_REQUIREMENTS_V2 = MappingProxyType(_REQUIREMENTS)
 
+#: r3 moved one metric onto different evidence.  ``logic.open_loop_closure`` no
+#: longer waits for an ``open_loop`` semantic-unit extractor that does not
+#: exist: its denominator is the documented plan message and its outcome is the
+#: explicit supersession link that closes it.  The overlay is keyed by
+#: projection identity so a sealed r1/r2 row keeps being described by the
+#: evidence its own producer actually used.
+_REQUIREMENTS_V3: dict[str, _EvidenceRequirement] = {
+    "logic.open_loop_closure": _EvidenceRequirement(
+        denominator_contributor=MetricEvidenceContributor.DOCUMENTED_PLAN_MESSAGE,
+        outcome_contributors=(
+            MetricEvidenceContributor.EXPLICIT_PLAN_SUPERSESSION_LINK,
+        ),
+        capability_missing_reason=(
+            MetricEvidenceReadinessReason.EXPLICIT_PLAN_EPISODE_REQUIRED
+        ),
+    ),
+}
+METRIC_EVIDENCE_REQUIREMENTS_V2_R3 = MappingProxyType(_REQUIREMENTS_V3)
+
 if set(METRIC_EVIDENCE_REQUIREMENTS_V2) != {
     contract.metric_key for contract in METRIC_CONTRACTS_V2
 }:
     raise RuntimeError("metric evidence readiness catalog is incomplete")
+if not set(METRIC_EVIDENCE_REQUIREMENTS_V2_R3) <= set(METRIC_EVIDENCE_REQUIREMENTS_V2):
+    raise RuntimeError("the r3 readiness overlay must refine known metrics only")
+
+
+def metric_evidence_requirement(
+    metric_key: str,
+    projection_version: str,
+) -> _EvidenceRequirement:
+    """The evidence one metric needed *under the identity that produced it*."""
+
+    if projection_version == METRIC_PROJECTION_V2_VERSION_3:
+        overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R3.get(metric_key)
+        if overlay is not None:
+            return overlay
+    return METRIC_EVIDENCE_REQUIREMENTS_V2[metric_key]
 
 
 def _availability(
@@ -337,6 +404,17 @@ def _availability(
             MetricEvidenceReadinessReason.CALCULATOR_ABSTAINED,
         )
     if state.value_state is MetricValueStateV2.KNOWN:
+        if _superseded_rubric_identity(state):
+            # The number stays measured and readable: refusing to report a
+            # stored value would be its own dishonesty.  What it may not do is
+            # borrow the corrected producer's reason, because identity 1 could
+            # anchor this fraction to a revision that did not own the scored
+            # message.
+            return (
+                MetricEvidenceAvailabilityState.MEASURED,
+                MetricEvidenceReadinessReason
+                .MEASURED_UNDER_SUPERSEDED_PROJECTION_IDENTITY,
+            )
         return (
             MetricEvidenceAvailabilityState.MEASURED,
             MetricEvidenceReadinessReason.MEASURED_FROM_OWNED_OPPORTUNITIES,
@@ -350,6 +428,24 @@ def _availability(
         return (
             MetricEvidenceAvailabilityState.NO_OPPORTUNITY,
             MetricEvidenceReadinessReason.NO_ELIGIBLE_OPPORTUNITY_OBSERVED,
+        )
+    if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_3
+        and statistics.denominator_basis is DenominatorBasis.OBJECTIVE_OPPORTUNITIES
+        and statistics.capability_available
+        and statistics.source_complete
+        and statistics.eligible_count == 0
+    ):
+        # Projection r3 is the first producer that preserves this cause.  The
+        # family is observable and complete, but its authoritative set cannot
+        # fit in the bounded receipt.  Calling that a missing adapter capability
+        # or an empty set would point the reader at the wrong remediation.  R3
+        # proves an authoritative empty set as NOT_APPLICABLE, so this UNKNOWN
+        # structural combination uniquely represents the bounded overflow; no
+        # producer-authored explanation string is parsed.
+        return (
+            MetricEvidenceAvailabilityState.EVIDENCE_UNRESOLVED,
+            MetricEvidenceReadinessReason.OPPORTUNITY_SET_EXCEEDS_RECEIPT_BOUND,
         )
     if not statistics.capability_available:
         return (
@@ -375,6 +471,21 @@ def _availability(
     )
 
 
+def _superseded_rubric_identity(state: MetricStateV2) -> bool:
+    """Whether this row is a rubric fraction from projection identity 1.
+
+    Identity 1 scored the focus message against whichever request revision was
+    latest, so its rubric rows never proved focus ownership.  Identity 2 fixed
+    that and identity 3 inherits the fix, so only ``-1`` rubric rows carry the
+    caveat.  Nothing else about the row changes.
+    """
+
+    return (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_1
+        and state.statistics.denominator_basis is DenominatorBasis.RUBRIC_FACTORS
+    )
+
+
 def _observed_contributors(
     state: MetricStateV2,
     requirement: _EvidenceRequirement,
@@ -385,15 +496,31 @@ def _observed_contributors(
     proves nothing at all; an available one proves the denominator contributor;
     and a resolved opportunity is the only proof that the outcome contributors
     were readable.
+
+    One exception, and it only ever removes a claim: a rubric row sealed under
+    projection identity 1 does not prove a focus-owned request revision, so
+    that contributor is reported as still missing however many factors the row
+    resolved.
     """
 
     statistics = state.statistics
     if not statistics.capability_available:
         return ()
     resolved = statistics.met_count + statistics.not_met_count
-    if resolved == 0:
-        return (requirement.denominator_contributor,)
-    return requirement.required_contributors
+    observed = (
+        ()
+        if resolved == 0 and not statistics.source_complete
+        else (requirement.denominator_contributor,)
+        if resolved == 0
+        else requirement.required_contributors
+    )
+    if _superseded_rubric_identity(state):
+        observed = tuple(
+            item
+            for item in observed
+            if item is not MetricEvidenceContributor.FOCUS_OWNED_REQUEST_REVISION
+        )
+    return observed
 
 
 class MetricEvidenceReadinessV2(StrictModel):
@@ -622,7 +749,9 @@ def metric_evidence_readiness_row(
 ) -> MetricEvidenceReadinessV2:
     """Derive one readiness row from one sealed metric state."""
 
-    requirement = METRIC_EVIDENCE_REQUIREMENTS_V2[state.metric_key]
+    requirement = metric_evidence_requirement(
+        state.metric_key, state.projection_version
+    )
     availability, reason = _availability(state, requirement)
     observed = _observed_contributors(state, requirement)
     statistics = state.statistics
@@ -727,9 +856,14 @@ def project_metric_evidence_readiness_v2(
 
 __all__ = [
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION",
+    "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1",
+    "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2",
     "METRIC_EVIDENCE_READINESS_V2_KEY",
     "METRIC_EVIDENCE_READINESS_V2_VERSION",
     "METRIC_EVIDENCE_REQUIREMENTS_V2",
+    "METRIC_EVIDENCE_REQUIREMENTS_V2_R3",
+    "SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS",
+    "metric_evidence_requirement",
     "MetricEvidenceAvailabilityState",
     "MetricEvidenceContributor",
     "MetricEvidenceReadinessProjectionV2",

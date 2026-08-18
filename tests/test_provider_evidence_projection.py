@@ -18,6 +18,7 @@ from prompt_enhancer.application.analysis.evidence_contracts import (
 from prompt_enhancer.application.analysis.provider_evidence import (
     SAFE_EVENT_EVIDENCE_DECODER_KEY,
     SAFE_EVENT_EVIDENCE_DECODER_VERSION,
+    SAFE_EVENT_EVIDENCE_DECODER_VERSION_3,
     SafeEventTypedEvidenceProjector,
     bind_semantic_unit_opportunities,
 )
@@ -77,13 +78,16 @@ class _Ids:
         return hashlib.sha256("|".join(values).encode("utf-8")).hexdigest()
 
 
-def _descriptor(*capabilities: CapabilityKey) -> DecoderDescriptor:
+def _descriptor(
+    *capabilities: CapabilityKey,
+    decoder_version: str = SAFE_EVENT_EVIDENCE_DECODER_VERSION,
+) -> DecoderDescriptor:
     return DecoderDescriptor(
         provider=ProviderIdentity(key="codex"),
         surface=ProviderSurface.OPERATIONAL_EVENTS,
         adapter_version="synthetic-adapter-v1",
         decoder_key=SAFE_EVENT_EVIDENCE_DECODER_KEY,
-        decoder_version=SAFE_EVENT_EVIDENCE_DECODER_VERSION,
+        decoder_version=decoder_version,
         wire_schema_family="synthetic-safe-events",
         canonical_schema_version="synthetic-schema-v1",
         schema_artifact=SchemaArtifactProvenance(
@@ -377,6 +381,39 @@ def test_verification_task_denominator_requires_explicit_capabilities() -> None:
     )
     assert len(linked) == 1
     assert linked[0].source_reference_id == "1" * 64
+
+
+def test_decoder_v3_never_turns_event_identity_into_task_identity() -> None:
+    descriptor = _descriptor(
+        CapabilityKey.TOOL_EVENTS,
+        CapabilityKey.VERIFICATION_EVENTS,
+        CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES,
+        CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
+        decoder_version=SAFE_EVENT_EVIDENCE_DECODER_VERSION_3,
+    )
+    projection = SafeEventTypedEvidenceProjector(
+        _Source(
+            _session(),
+            (
+                _event(1, EventKind.VERIFICATION, success=True),
+                _event(2, EventKind.VERIFICATION, success=False),
+            ),
+        ),
+        _Ids(),
+        descriptor,
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+
+    assert projection is not None
+    assert projection.provenance.decoder_version == "3"
+    assert projection.declared_opportunity_kinds == frozenset()
+    assert projection.eligible_verification_task_reference_ids == ()
+    receipts = tuple(
+        item
+        for item in projection.records
+        if item.kind is TypedEvidenceKind.VERIFICATION
+    )
+    assert len(receipts) == 2
+    assert all(item.verification_task_reference_ids == () for item in receipts)
 
 
 def test_explicit_verification_events_make_first_pass_numeric() -> None:

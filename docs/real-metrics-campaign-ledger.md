@@ -1131,28 +1131,49 @@ is byte-identical, MIGRATION_41 adds the `_r2` tables with the same immutability
 and privacy-deletion triggers, readers accept both identities, and a run may
 carry only one.
 
+Schema v42 adds projection `metric-contract-v2-projection-3` without mutating
+either historical sidecar. R3 gives `logic.open_loop_closure` one exact
+structural denominator: an `AGENT` `PLAN` message, closed only by a later agent
+`ACTION` or `VERIFICATION` that explicitly supersedes that plan identifier.
+Unclosed plans are pending/right-censored, absent plans are actionable unknown,
+and incomplete windows are source-incomplete. No lexical or model inference is
+used, and the other lifecycle families remain nonnumeric. R3 also separates
+objective authority-missing, source-incomplete, and receipt-bound-overflow
+causes; requires outcome authority before an empty objective family becomes
+no-opportunity; and withholds rubric rows when reconciliation cannot prove an
+owner. The `_r3` sidecar is new-write-only; r1/r2/r3 are readable, every ordered
+mixed-identity insertion is rejected before or after sealing, the seal binds
+exactly twenty r3 rows, and session privacy deletion cascades through the new
+tables.
+
 The same checkpoint separates three provider authorities that were previously
 conflated: emitting an evidence kind, enumerating a denominator family, and
 linking a record to a member of that family. Each is now an explicit closed
 `CapabilityKey`, and a projection is rejected unless its decoder declares the
-exact enumeration and link capabilities it uses. An explicit provider
-verification event may declare and link one verification task under that
-authority; a tool end categorised as test or build never may. The shipped Codex
-descriptor declares only `tool_events`, so production behaviour is unchanged and
-all five evidence-lane metrics remain unknown. An undeclared decision or
+exact enumeration and link capabilities it uses. Historical safe-event decoder
+v2 could mint one verification-task identity from one explicit event under that
+authority. Current decoder v3 still emits the verification receipt but does not
+turn an event identifier into a task denominator; a tool end categorised as test
+or build never may either. The shipped Codex descriptor declares only
+`tool_events`, so all five evidence-lane metrics remain unknown. An undeclared decision or
 verification event is now skipped rather than raising, so one out-of-scope event
 kind no longer destroys a session's authorized action evidence.
 
 The full-run API adds a derived per-metric evidence-readiness projection computed
 from the sealed publication and the run's provider/adapter/source-schema
 provenance. It persists nothing and adds no schema. Its closed reason codes are
-metric-specific: each of the six unextractable semantic families names the
-extractor it is waiting on instead of sharing a generic "unobservable" reason. No
-lexical lifecycle extractor was added, because closure ownership for those
-families is not provable from the current message kinds. Each objective row names
+metric-specific: each unavailable semantic family names the extractor or
+explicit structure it is waiting on instead of sharing a generic "unobservable"
+reason. R3 adds only the explicit-plan open-loop extractor; no lexical lifecycle
+extractor was added. Each objective row names
 the exact adapter enumeration, link, and outcome capabilities it requires, and
 the projection separates how many objective contracts the adapter can measure
-from how many produced a numeric observation in this snapshot. A declared
+from how many produced a numeric observation in this snapshot. Catalog identity
+`metric-evidence-readiness-v2-2` adds projection-aware contributors for the
+explicit-plan lifecycle, labels r1 rubric values as measured under a superseded
+identity without borrowing focus ownership, and distinguishes source-incomplete
+objective evidence from a complete opportunity set that exceeds the receipt
+bound. A declared
 denominator without negative-link or outcome observability therefore remains
 nonnumeric instead of becoming a false `0/N`.
 
@@ -1227,8 +1248,8 @@ the application composes no control-plane service and exposes no route.
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
 | Historical ten-model shadow graph | `local-shadow-ensemble-v1`; `append-stable-redacted-v3`; `owned-observation-v1`; `coaching-shadow-prompt-v4`; exact ten-model inventory in code-owned immutable manifests | Immutable/readable compatibility history; not executed by the live v35 estimator |
 | All-20 predictive sidecar | `local-probabilistic-radar-v1`; active `local-factor-router-v3` / `small-factor-router-v5`, historical v2 readable; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
-| Canonical all-20 measured publication | `metric.contract-v2.publication` v2; registry `all-20-factor-contracts-v2`; projection `metric-contract-v2-projection-2`; schema v41 sealed `_r2` sidecar with v40 `-1` rows still readable | Canonical for new model-ensemble snapshots; values require reviewed opportunity ownership or typed objective authority, while unsupported families remain nonnumeric |
-| Per-metric evidence readiness | `metric.contract-v2.evidence-readiness` v1; catalog `metric-evidence-readiness-v2-1` | Derived on read from the sealed publication; adds no datum, no schema, and no persistence; metric-specific missing-capability reasons only |
+| Canonical all-20 measured publication | `metric.contract-v2.publication` v2; registry `all-20-factor-contracts-v2`; current projection `metric-contract-v2-projection-3`; schema v42 sealed `_r3` sidecar with v40 r1 and v41 r2 rows still readable | Canonical for new model-ensemble snapshots; explicit plan links make only open-loop closure newly measurable/pending, values require reviewed opportunity ownership or typed objective authority, and unsupported families remain nonnumeric |
+| Per-metric evidence readiness | `metric.contract-v2.evidence-readiness` v1; catalog `metric-evidence-readiness-v2-2` | Derived on read from the exact sealed publication; adds no datum, no schema, and no persistence; projection-aware contributors, source/capability/receipt-bound reasons, and explicit censoring bounds |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |

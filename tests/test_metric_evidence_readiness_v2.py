@@ -20,7 +20,11 @@ from prompt_enhancer.application.analysis.metric_evidence_readiness_v2 import (
     project_metric_evidence_readiness_v2,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
+    _issue_metric_state_projection,
     project_metric_states_v2,
+)
+from prompt_enhancer.application.analysis.metric_projection_v3 import (
+    project_metric_states_v3,
 )
 from prompt_enhancer.application.analysis.metric_publication_v2 import (
     metric_publication_v2_fingerprint,
@@ -28,6 +32,7 @@ from prompt_enhancer.application.analysis.metric_publication_v2 import (
 )
 from prompt_enhancer.application.analysis.objective_metric_projection import (
     ObjectiveMetricOverride,
+    ObjectiveWithholdingCause,
 )
 from prompt_enhancer.application.analysis.semantic_units import (
     SemanticUnitReconciler,
@@ -80,6 +85,8 @@ def _message(
     role: TextRole,
     kind: TextMessageKind,
     text: str,
+    *,
+    supersedes: tuple[str, ...] = (),
 ) -> EphemeralRedactedMessage:
     return EphemeralRedactedMessage(
         message_id=_id(label),
@@ -88,6 +95,7 @@ def _message(
         kind=kind,
         language=TextLanguage.ENGLISH,
         text=SecretStr(text),
+        supersedes_message_ids=supersedes,
     )
 
 
@@ -135,6 +143,23 @@ def _readiness(
             reconciliation=reconciliation,
             id_factory=IDS,
             conversational_results=conversational,
+            objective_overrides=objective,
+        )
+    )
+    return project_metric_evidence_readiness_v2(publication, **PROVENANCE)
+
+
+def _readiness_v3(
+    context: P1TextAnalysisInput,
+    *,
+    objective: dict[str, ObjectiveMetricOverride] | None = None,
+) -> MetricEvidenceReadinessProjectionV2:
+    reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
+    publication = publish_metric_states_v2(
+        project_metric_states_v3(
+            context=context,
+            reconciliation=reconciliation,
+            id_factory=IDS,
             objective_overrides=objective,
         )
     )
@@ -601,3 +626,179 @@ def test_forged_availability_counts_are_rejected() -> None:
 
     with pytest.raises(ValidationError, match="counts are inconsistent"):
         MetricEvidenceReadinessProjectionV2.model_validate(payload)
+
+
+def test_r3_open_loop_readiness_names_the_exact_structural_evidence() -> None:
+    plan = _message(
+        "r3-plan",
+        2,
+        TextRole.AGENT,
+        TextMessageKind.PLAN,
+        "Plan the fictional export.",
+    )
+    context = _context(
+        (
+            _message(
+                "r3-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Create the fictional export.",
+            ),
+            plan,
+            _message(
+                "r3-action",
+                3,
+                TextRole.AGENT,
+                TextMessageKind.ACTION,
+                "Completed the fictional export.",
+                supersedes=(plan.message_id,),
+            ),
+        ),
+        label="r3-open-loop-readiness",
+    )
+
+    projection = _readiness_v3(context)
+    item = _by_key(projection)["logic.open_loop_closure"]
+
+    assert projection.metric_projection_version == "metric-contract-v2-projection-3"
+    assert item.availability_state is MetricEvidenceAvailabilityState.MEASURED
+    assert item.reason_code is (
+        MetricEvidenceReadinessReason.MEASURED_FROM_OWNED_OPPORTUNITIES
+    )
+    assert item.required_contributors == (
+        MetricEvidenceContributor.DOCUMENTED_PLAN_MESSAGE,
+        MetricEvidenceContributor.EXPLICIT_PLAN_SUPERSESSION_LINK,
+    )
+    assert item.observed_contributors == item.required_contributors
+    assert (item.met_count, item.eligible_count) == (1, 1)
+
+
+def test_r3_unlinked_plan_readiness_preserves_pending_bounds() -> None:
+    context = _context(
+        (
+            _message(
+                "pending-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Create the fictional export.",
+            ),
+            _message(
+                "pending-plan",
+                2,
+                TextRole.AGENT,
+                TextMessageKind.PLAN,
+                "Plan the fictional export.",
+            ),
+        ),
+        label="r3-pending-readiness",
+    )
+
+    item = _by_key(_readiness_v3(context))["logic.open_loop_closure"]
+
+    assert item.availability_state is (
+        MetricEvidenceAvailabilityState.PENDING_RIGHT_CENSORED
+    )
+    assert item.pending_count == 1
+    assert (item.censoring_lower_bound, item.censoring_upper_bound) == (0.0, 1.0)
+
+
+def test_r3_no_plan_is_actionable_unknown_not_no_opportunity() -> None:
+    item = _by_key(_readiness_v3(_single_request_context()))[
+        "logic.open_loop_closure"
+    ]
+
+    assert item.availability_state is MetricEvidenceAvailabilityState.CAPABILITY_MISSING
+    assert item.reason_code is (
+        MetricEvidenceReadinessReason.EXPLICIT_PLAN_EPISODE_REQUIRED
+    )
+    assert item.value_state is MetricValueStateV2.UNKNOWN
+    assert item.eligible_count == 0
+
+
+def test_r3_objective_withholding_causes_remain_distinct_in_readiness() -> None:
+    context = _single_request_context()
+    extraction_incomplete = ObjectiveMetricOverride(
+        value_state=MetricValueState.UNKNOWN,
+        explanation_code="typed_objective_extraction_incomplete",
+        withholding_cause=ObjectiveWithholdingCause.EXTRACTION_INCOMPLETE,
+    )
+    receipt_bound = ObjectiveMetricOverride(
+        value_state=MetricValueState.UNKNOWN,
+        explanation_code="typed_objective_opportunity_count_exceeds_receipt_bound",
+        withholding_cause=ObjectiveWithholdingCause.OPPORTUNITY_BOUND_EXCEEDED,
+    )
+
+    incomplete_item = _by_key(
+        _readiness_v3(
+            context,
+            objective={"outcome.agent_claim_grounding": extraction_incomplete},
+        )
+    )["outcome.agent_claim_grounding"]
+    bound_item = _by_key(
+        _readiness_v3(
+            context,
+            objective={"outcome.agent_claim_grounding": receipt_bound},
+        )
+    )["outcome.agent_claim_grounding"]
+
+    assert incomplete_item.availability_state is (
+        MetricEvidenceAvailabilityState.SOURCE_INCOMPLETE
+    )
+    assert incomplete_item.reason_code is (
+        MetricEvidenceReadinessReason.SOURCE_RECONCILIATION_INCOMPLETE
+    )
+    assert incomplete_item.capability_available is True
+    assert incomplete_item.source_complete is False
+    assert incomplete_item.observed_contributors == ()
+    assert bound_item.availability_state is (
+        MetricEvidenceAvailabilityState.EVIDENCE_UNRESOLVED
+    )
+    assert bound_item.reason_code is (
+        MetricEvidenceReadinessReason.OPPORTUNITY_SET_EXCEEDS_RECEIPT_BOUND
+    )
+    assert bound_item.capability_available is True
+    assert bound_item.source_complete is True
+
+
+def test_r1_known_rubric_readiness_does_not_claim_focus_ownership() -> None:
+    context = _single_request_context()
+    reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
+    result = SimpleNamespace(
+        value_state=MetricValueState.KNOWN,
+        fraction=MetricFraction(numerator=3, denominator=3),
+        explanation_code="synthetic-rubric-known",
+    )
+    r2_states = project_metric_states_v2(
+        context=context,
+        reconciliation=reconciliation,
+        id_factory=IDS,
+        conversational_results={"prompt.task_definition_coverage": result},
+    )
+    r1_states = tuple(
+        state.model_copy(
+            update={"projection_version": "metric-contract-v2-projection-1"}
+        )
+        for state in r2_states
+    )
+    publication = publish_metric_states_v2(
+        _issue_metric_state_projection(r1_states, compatibility=False)
+    )
+
+    item = _by_key(
+        project_metric_evidence_readiness_v2(publication, **PROVENANCE)
+    )["prompt.task_definition_coverage"]
+
+    assert item.availability_state is MetricEvidenceAvailabilityState.MEASURED
+    assert item.reason_code is (
+        MetricEvidenceReadinessReason.MEASURED_UNDER_SUPERSEDED_PROJECTION_IDENTITY
+    )
+    assert (
+        MetricEvidenceContributor.FOCUS_OWNED_REQUEST_REVISION
+        not in item.observed_contributors
+    )
+    assert (
+        MetricEvidenceContributor.FOCUS_OWNED_REQUEST_REVISION
+        in item.missing_contributors
+    )

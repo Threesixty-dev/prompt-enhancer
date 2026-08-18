@@ -706,9 +706,9 @@ def test_v19_to_v20_migration_is_checksum_tracked_and_has_no_backfill(
     _create_v19_database(path)
     database = Database(path)
     database.initialize()
-    assert SCHEMA_VERSION == 41
+    assert SCHEMA_VERSION == 42
     with database._connection(readonly=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 41
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 42
         assert connection.execute(
             "SELECT checksum FROM schema_migrations WHERE version=20"
         ).fetchone()[0] == hashlib.sha256(migrations.MIGRATION_20.encode()).hexdigest()

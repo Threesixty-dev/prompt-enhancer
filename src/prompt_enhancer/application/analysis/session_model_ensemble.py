@@ -24,8 +24,8 @@ from .model_ensemble import (
     build_ensemble_chunks,
     coaching_ensemble_metric_specs,
 )
-from .objective_metric_projection import project_objective_metric_overrides
-from .metric_projection_v2 import project_metric_states_v2
+from .objective_metric_projection import project_objective_metric_overrides_v3
+from .metric_projection_v3 import project_metric_states_v3
 from .metric_publication_v2 import MetricPublicationV2, publish_metric_states_v2
 from .provider_evidence import bind_semantic_unit_opportunities
 from .semantic_units import (
@@ -660,11 +660,14 @@ class SessionModelEnsembleService:
             projected_at = self._clock()
             if projected_at.tzinfo is None or projected_at.utcoffset() != timedelta(0):
                 raise ValueError("metric projection clock must return UTC")
-            objective_overrides = project_objective_metric_overrides(
+            # Current code writes projection identity r3 only.  The frozen r2
+            # producers stay importable for historical rows and for the tests
+            # that prove they still answer exactly as they did.
+            objective_overrides = project_objective_metric_overrides_v3(
                 typed_evidence,
                 self._objective_evidence_descriptor(),
             )
-            live_states = project_metric_states_v2(
+            live_states = project_metric_states_v3(
                 context=context,
                 reconciliation=(
                     None

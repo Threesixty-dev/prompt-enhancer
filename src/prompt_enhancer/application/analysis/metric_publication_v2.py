@@ -409,7 +409,7 @@ class MetricPublicationV2(StrictModel):
     #: Always the identity of the states themselves, never a caller argument:
     #: a rehydrated historical bundle must keep the producer identity it was
     #: sealed with instead of being relabelled as the current one.
-    projection_version: MetricProjectionV2Version = METRIC_PROJECTION_V2_VERSION
+    projection_version: MetricProjectionV2Version
     guidance_contract_version: Literal[METRIC_GUIDANCE_CONTRACT_VERSION] = (
         METRIC_GUIDANCE_CONTRACT_VERSION
     )
@@ -611,8 +611,11 @@ def _implementation_state(
     if state.value_state is MetricValueStateV2.EXECUTION_ERROR:
         return MetricImplementationState.ERROR
     if state.evidence_authority is EvidenceAuthority.OBJECTIVE_RECEIPT:
-        if state.statistics.capability_available and state.statistics.eligible_count:
-            # Authorized evidence exists but does not close the opportunity set.
+        if state.statistics.capability_available:
+            # Authorized evidence exists but does not close the opportunity
+            # set.  Projection r3 may deliberately withhold the cardinality
+            # when the authoritative set exceeds the bounded receipt, so an
+            # eligible count of zero is not itself a capability failure.
             return MetricImplementationState.OBJECTIVE_EVIDENCE_UNRESOLVED
         return MetricImplementationState.OBJECTIVE_CAPABILITY_MISSING
     return MetricImplementationState.METHOD_ONLY_WITHHELD
@@ -772,6 +775,7 @@ def _compatibility_rubric_state(
         censoring_lower_bound=ratio,
         censoring_upper_bound=ratio,
         statistics=_rubric_statistics(contract, met=numerator),
+        projection_version=METRIC_PROJECTION_V2_VERSION,
     )
 
 
@@ -798,6 +802,7 @@ def _compatibility_state(
                 capability_available=False,
                 source_complete=False,
             ),
+            projection_version=METRIC_PROJECTION_V2_VERSION,
         )
     if contract.denominator_basis is not DenominatorBasis.RUBRIC_FACTORS:
         return _withheld(contract, REASON_DENOMINATOR_NOT_OPPORTUNITY_OWNED)
@@ -816,6 +821,7 @@ def _compatibility_state(
                 capability_available=True,
                 source_complete=True,
             ),
+            projection_version=METRIC_PROJECTION_V2_VERSION,
         )
     if (
         result.value_state is MetricValueState.NOT_APPLICABLE

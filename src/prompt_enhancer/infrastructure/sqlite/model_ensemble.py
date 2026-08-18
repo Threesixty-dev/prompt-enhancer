@@ -31,6 +31,7 @@ from ...application.analysis.metric_contract_v2 import (
 )
 from ...application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_2,
+    METRIC_PROJECTION_V2_VERSION_3,
     MetricStateV2,
     OpportunityStatistics,
     _issue_metric_state_projection,
@@ -167,10 +168,16 @@ def _predictive_projection_fingerprint(
     ).hexdigest()
 
 
-#: Sidecar tables per projection identity.  The r1 pair is frozen at
-#: MIGRATION_40 and never gains a row from current code; the r2 pair added by
-#: MIGRATION_41 receives every new publication.  Both stay readable.
+#: Sidecar tables per projection identity, newest first.  The r1 pair (frozen
+#: at MIGRATION_40) and the r2 pair (MIGRATION_41) never gain a row from current
+#: code; the r3 pair added by MIGRATION_42 receives every new publication.  All
+#: three stay readable, and a run carries at most one of them.
 METRIC_V2_SIDECARS = (
+    (
+        METRIC_PROJECTION_V2_VERSION_3,
+        "session_model_ensemble_metric_states_v2_r3",
+        "session_model_ensemble_metric_publication_v2_seals_r3",
+    ),
     (
         METRIC_PROJECTION_V2_VERSION_2,
         "session_model_ensemble_metric_states_v2_r2",
@@ -800,16 +807,16 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             raise DatabaseInvariantError(
                 "metric V2 sidecar must be a canonical live measured publication"
             )
-        # Historical r1 rows are read-only.  Accepting an r1 model here would
-        # let current code mint a fresh value under a frozen producer identity,
-        # defeating the append-only correction even if the SQL sidecars stayed
-        # separate.  Every current write must therefore use r2.
-        if publication.projection_version != METRIC_PROJECTION_V2_VERSION_2:
+        # Historical r1 and r2 rows are read-only.  Accepting a superseded
+        # model here would let current code mint a fresh value under a frozen
+        # producer identity, defeating the append-only correction even if the
+        # SQL sidecars stayed separate.  Every current write must use r3.
+        if publication.projection_version != METRIC_PROJECTION_V2_VERSION_3:
             raise DatabaseInvariantError(
                 "new metric V2 publications require the current projection identity"
             )
         states_table, seals_table = _metric_v2_tables(
-            METRIC_PROJECTION_V2_VERSION_2
+            METRIC_PROJECTION_V2_VERSION_3
         )
         connection.executemany(
             f"""
@@ -1005,23 +1012,47 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
         )
 
     def get(self, run_id: str) -> SessionModelEnsembleRunRecord | None:
+        # Hydrating one run reads the seal, the metrics, the typed and
+        # predictive sidecars, the semantic-unit sidecar, and whichever V2
+        # projection sidecar the run carries.  Outside a transaction those are
+        # separate read snapshots, so a privacy deletion committing between
+        # them could return a head whose children were already erased.  A
+        # deferred read transaction pins all of them to one snapshot;
+        # ``query_only`` is on for this scope, so no writer lock is taken and a
+        # concurrent writer is never blocked.
         self._ensure_initialized()
         require_safe_id(run_id)
         with self._connection_scope(readonly=True) as connection:
-            return self._hydrate(connection, run_id)
+            try:
+                connection.execute("BEGIN")
+                record = self._hydrate(connection, run_id)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return record
 
     def get_latest(self, session_id: str) -> SessionModelEnsembleRunRecord | None:
         self._ensure_initialized()
         require_safe_id(session_id)
         with self._connection_scope(readonly=True) as connection:
-            row = connection.execute(
-                """SELECT r.run_id FROM session_model_ensemble_runs r
-                   JOIN session_model_ensemble_seals s ON s.run_id=r.run_id
-                   WHERE r.session_id=?
-                   ORDER BY r.completed_at DESC,r.run_id DESC LIMIT 1""",
-                (session_id,),
-            ).fetchone()
-            return None if row is None else self._hydrate(connection, row["run_id"])
+            try:
+                connection.execute("BEGIN")
+                row = connection.execute(
+                    """SELECT r.run_id FROM session_model_ensemble_runs r
+                       JOIN session_model_ensemble_seals s ON s.run_id=r.run_id
+                       WHERE r.session_id=?
+                       ORDER BY r.completed_at DESC,r.run_id DESC LIMIT 1""",
+                    (session_id,),
+                ).fetchone()
+                record = (
+                    None if row is None else self._hydrate(connection, row["run_id"])
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return record
 
     def get_semantic_unit_reconciliation(
         self,
@@ -1032,7 +1063,14 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
         self._ensure_initialized()
         require_safe_id(run_id)
         with self._connection_scope(readonly=True) as connection:
-            return self._hydrate_semantic_units(connection, run_id)
+            try:
+                connection.execute("BEGIN")
+                reconciliation = self._hydrate_semantic_units(connection, run_id)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return reconciliation
 
     def delete_for_privacy(self, run_id: str) -> bool:
         self._ensure_initialized()

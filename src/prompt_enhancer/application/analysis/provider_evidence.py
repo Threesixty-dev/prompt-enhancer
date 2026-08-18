@@ -38,7 +38,22 @@ from .semantic_units import (
 
 
 SAFE_EVENT_EVIDENCE_DECODER_KEY = "safe-event-evidence"
-SAFE_EVENT_EVIDENCE_DECODER_VERSION = "2"
+#: Decoder 2 is frozen.  It minted a verification-*task* identity from a
+#: generic ``SafeEvent`` identifier, which made every explicit verification
+#: event its own single-outcome task and turned ``outcome.first_pass_verification``
+#: into a tautology: one task, one outcome, therefore always resolved.  A safe
+#: event stream carries no provider task identity, so decoder 3 emits the same
+#: verification *receipts* and declares no task denominator at all.
+SAFE_EVENT_EVIDENCE_DECODER_VERSION_2 = "2"
+SAFE_EVENT_EVIDENCE_DECODER_VERSION_3 = "3"
+#: Frozen alias for readers of the r2 composition root.
+SAFE_EVENT_EVIDENCE_DECODER_VERSION = SAFE_EVENT_EVIDENCE_DECODER_VERSION_2
+#: What current code composes.
+SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION = SAFE_EVENT_EVIDENCE_DECODER_VERSION_3
+SUPPORTED_SAFE_EVENT_EVIDENCE_DECODER_VERSIONS = (
+    SAFE_EVENT_EVIDENCE_DECODER_VERSION_2,
+    SAFE_EVENT_EVIDENCE_DECODER_VERSION_3,
+)
 
 
 class SafeEventEvidenceSource(Protocol):
@@ -94,7 +109,13 @@ def _verification_outcome(event: SafeEvent) -> VerificationOutcome:
 
 
 class SafeEventTypedEvidenceProjector:
-    """Create one bounded, content-free evidence projection for a local run."""
+    """Create one bounded, content-free evidence projection for a local run.
+
+    The decoder version comes from the descriptor the composition root selected,
+    and it is the only thing that separates the two behaviours.  Decoder 2 is
+    reproduced exactly so an r2 projection stays byte-comparable; decoder 3 is
+    what current code composes.
+    """
 
     def __init__(
         self,
@@ -106,7 +127,30 @@ class SafeEventTypedEvidenceProjector:
         self._identifiers = identifiers
         if not isinstance(descriptor, DecoderDescriptor):
             raise ValueError("typed evidence requires a trusted decoder descriptor")
+        if descriptor.decoder_key != SAFE_EVENT_EVIDENCE_DECODER_KEY:
+            raise ValueError("typed evidence descriptor names another decoder")
+        if (
+            descriptor.decoder_version
+            not in SUPPORTED_SAFE_EVENT_EVIDENCE_DECODER_VERSIONS
+        ):
+            raise ValueError("typed evidence decoder version is unsupported")
         self._descriptor = descriptor
+
+    @property
+    def _emits_verification_task_identity(self) -> bool:
+        """Whether this decoder may turn an event identity into a task identity.
+
+        Only decoder 2 may, and only because its rows already exist.  A generic
+        operational event says a check *ran*; it does not say which verification
+        task it belonged to, so decoder 3 refuses to enumerate a denominator it
+        cannot observe and ``outcome.first_pass_verification`` stays an
+        actionable unknown instead of a manufactured 1/1.
+        """
+
+        return (
+            self._descriptor.decoder_version
+            == SAFE_EVENT_EVIDENCE_DECODER_VERSION_2
+        )
 
     @property
     def descriptor(self) -> DecoderDescriptor:
@@ -149,7 +193,8 @@ class SafeEventTypedEvidenceProjector:
         # enumerate them.  ``bind_semantic_unit_opportunities`` is the only
         # place a semantic-unit denominator may enter this projection.
         verification_tasks_authorized = (
-            TypedEvidenceKind.VERIFICATION in declared_kinds
+            self._emits_verification_task_identity
+            and TypedEvidenceKind.VERIFICATION in declared_kinds
             and CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES
             in self._descriptor.capabilities
             and CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS
@@ -219,10 +264,11 @@ class SafeEventTypedEvidenceProjector:
                 # stronger evidence kind rather than failing the entire local
                 # projection or upgrading the decoder's capability.
                 if TypedEvidenceKind.VERIFICATION in declared_kinds:
-                    # Only an explicit provider verification event carries a
-                    # task identity.  A TOOL_END categorised as test or build
-                    # is an inference about what the tool did, so binding a
-                    # verification task to it would fabricate the denominator.
+                    # Decoder 2 historically minted a task identity only for
+                    # an explicit provider verification event.  Decoder 3
+                    # mints none: even an explicit event identifies a receipt,
+                    # not the provider-owned verification task denominator.
+                    # A TOOL_END categorised as test or build is weaker still.
                     task_ids: tuple[str, ...] = ()
                     if explicit_verification and verification_tasks_authorized:
                         task_id = self._evidence_id(
@@ -251,7 +297,7 @@ class SafeEventTypedEvidenceProjector:
                 provider_version=session.provider_version,
                 adapter_version=session.adapter_version,
                 decoder_key=SAFE_EVENT_EVIDENCE_DECODER_KEY,
-                decoder_version=SAFE_EVENT_EVIDENCE_DECODER_VERSION,
+                decoder_version=self._descriptor.decoder_version,
                 source_schema_version=session.source_schema_version,
                 extraction_complete=session.events_complete,
             ),
@@ -269,6 +315,9 @@ class SafeEventTypedEvidenceProjector:
         event_id: str,
         kind: str,
     ) -> str:
+        # The namespace is frozen at v2 on purpose: the evidence identity of a
+        # given event must not change because the decoder learned to withhold a
+        # denominator.  Only the *set* of emitted records differs.
         return self._identifiers.fingerprint(
             "typed-safe-event-evidence-v2",
             (session_id, event_id, kind),
@@ -383,8 +432,12 @@ def bind_semantic_unit_opportunities(
 
 
 __all__ = [
+    "SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION",
     "SAFE_EVENT_EVIDENCE_DECODER_KEY",
     "SAFE_EVENT_EVIDENCE_DECODER_VERSION",
+    "SAFE_EVENT_EVIDENCE_DECODER_VERSION_2",
+    "SAFE_EVENT_EVIDENCE_DECODER_VERSION_3",
+    "SUPPORTED_SAFE_EVENT_EVIDENCE_DECODER_VERSIONS",
     "SafeEventEvidenceIdFactory",
     "SafeEventEvidenceSource",
     "SafeEventTypedEvidenceProjector",

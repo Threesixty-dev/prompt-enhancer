@@ -2746,7 +2746,7 @@ export interface components {
          *     A contributor is a *kind of proof*, never a provider, a model, or a person.
          * @enum {string}
          */
-        MetricEvidenceContributor: "focus_owned_request_revision" | "canonical_request_text" | "declared_task_profile" | "rubric_factor_calculator" | "semantic_unit_heads" | "agent_response_text" | "feedback_classification" | "declared_objective_opportunity_set" | "typed_action_evidence" | "typed_decision_evidence" | "typed_verification_receipt";
+        MetricEvidenceContributor: "focus_owned_request_revision" | "canonical_request_text" | "declared_task_profile" | "rubric_factor_calculator" | "semantic_unit_heads" | "agent_response_text" | "feedback_classification" | "declared_objective_opportunity_set" | "documented_plan_message" | "explicit_plan_supersession_link" | "typed_action_evidence" | "typed_decision_evidence" | "typed_verification_receipt";
         /**
          * MetricEvidenceReadinessProjectionV2
          * @description The twenty readiness rows plus the identity they were derived from.
@@ -2768,10 +2768,10 @@ export interface components {
             capability_missing_count: number;
             /**
              * Catalog Version
-             * @default metric-evidence-readiness-v2-1
+             * @default metric-evidence-readiness-v2-2
              * @constant
              */
-            catalog_version: "metric-evidence-readiness-v2-1";
+            catalog_version: "metric-evidence-readiness-v2-2";
             /** Compatibility Preview */
             compatibility_preview: boolean;
             /**
@@ -2798,7 +2798,7 @@ export interface components {
              * Metric Projection Version
              * @enum {string}
              */
-            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2";
+            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3";
             /** Metrics */
             metrics: components["schemas"]["MetricEvidenceReadinessV2"][];
             /** No Opportunity Count */
@@ -2863,7 +2863,7 @@ export interface components {
          *     evidence contract that would have to exist first.
          * @enum {string}
          */
-        MetricEvidenceReadinessReason: "measured_from_owned_opportunities" | "opportunity_right_censored" | "no_eligible_opportunity_observed" | "opportunity_set_undetermined" | "declared_profile_slots_absent" | "opportunity_classification_unresolved" | "source_reconciliation_incomplete" | "calculator_abstained" | "execution_error_reported" | "focus_owned_request_revision_required" | "owned_canonical_request_text_required" | "request_revision_unit_extraction_required" | "feedback_unit_extraction_required" | "decision_unit_extraction_required" | "ambiguity_episode_extraction_required" | "clarification_episode_extraction_required" | "hypothesis_episode_extraction_required" | "scope_change_episode_extraction_required" | "requirement_unit_extraction_required" | "open_loop_episode_extraction_required" | "hypothesis_chain_adapter_capabilities_required" | "requirement_action_adapter_capabilities_required" | "material_claim_verification_adapter_capabilities_required" | "verification_task_outcome_adapter_capabilities_required" | "requirement_verification_adapter_capabilities_required";
+        MetricEvidenceReadinessReason: "measured_from_owned_opportunities" | "opportunity_right_censored" | "no_eligible_opportunity_observed" | "opportunity_set_undetermined" | "opportunity_set_exceeds_receipt_bound" | "declared_profile_slots_absent" | "opportunity_classification_unresolved" | "source_reconciliation_incomplete" | "calculator_abstained" | "execution_error_reported" | "measured_under_superseded_projection_identity" | "focus_owned_request_revision_required" | "owned_canonical_request_text_required" | "request_revision_unit_extraction_required" | "feedback_unit_extraction_required" | "decision_unit_extraction_required" | "ambiguity_episode_extraction_required" | "clarification_episode_extraction_required" | "hypothesis_episode_extraction_required" | "scope_change_episode_extraction_required" | "requirement_unit_extraction_required" | "open_loop_episode_extraction_required" | "explicit_plan_episode_required" | "hypothesis_chain_adapter_capabilities_required" | "requirement_action_adapter_capabilities_required" | "material_claim_verification_adapter_capabilities_required" | "verification_task_outcome_adapter_capabilities_required" | "requirement_verification_adapter_capabilities_required";
         /**
          * MetricEvidenceReadinessV2
          * @description One metric's readiness, provenance, and sufficient statistics.
@@ -3156,10 +3156,9 @@ export interface components {
             product_metric_eligible: false;
             /**
              * Projection Version
-             * @default metric-contract-v2-projection-2
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3";
             /**
              * Publication Key
              * @default metric.contract-v2.publication
@@ -3316,10 +3315,9 @@ export interface components {
             product_metric_eligible: false;
             /**
              * Projection Version
-             * @default metric-contract-v2-projection-2
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3";
             /**
              * Registry Version
              * @default all-20-factor-contracts-v2
