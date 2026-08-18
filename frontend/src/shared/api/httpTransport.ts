@@ -66,6 +66,8 @@ import type {
   TaskReviewResponse,
   TextAnalysisResearchCatalog,
   TextAnalysisPresetId,
+  ClaudeCodeLocalSourceStatus,
+  IngestionReport,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2319,6 +2321,38 @@ export function createHttpTransport(options: {
       return request<CodexLocalSourceStatus>(
         "/v1/local-sources/codex/consents/local-history",
         { method: "DELETE" },
+        signal,
+      );
+    },
+    getClaudeLocalSourceStatus(signal) {
+      return request<ClaudeCodeLocalSourceStatus>(
+        "/v1/local-sources/claude-code",
+        { method: "GET" },
+        signal,
+      );
+    },
+    grantClaudeLocalHistoryConsent(signal) {
+      return request<ClaudeCodeLocalSourceStatus>(
+        "/v1/local-sources/claude-code/consents/local-history",
+        { method: "POST" },
+        signal,
+      );
+    },
+    revokeClaudeLocalHistoryConsent(signal) {
+      return request<ClaudeCodeLocalSourceStatus>(
+        "/v1/local-sources/claude-code/consents/local-history",
+        { method: "DELETE" },
+        signal,
+      );
+    },
+    indexClaudeLocalSessions(maxSessions, signal) {
+      return request<IngestionReport>(
+        "/v1/local-sources/claude-code/index",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ max_sessions: maxSessions }),
+        },
         signal,
       );
     },

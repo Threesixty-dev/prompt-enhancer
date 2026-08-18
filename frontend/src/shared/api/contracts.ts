@@ -70,6 +70,8 @@ export interface ContentFreeListPage {
 export type VerificationKind = Schemas["VerificationKind"];
 export type VerificationCapability = Schemas["VerificationCapability"];
 export type CodexLocalSourceStatus = Schemas["CodexLocalSourceStatus"];
+export type ClaudeCodeLocalSourceStatus = Schemas["ClaudeCodeLocalSourceStatus"];
+export type IngestionReport = Schemas["IngestionReport"];
 export type Provider = Schemas["Provider"];
 export type ProviderCapabilityReport = Schemas["ProviderCapabilityReport"];
 export type ProviderMetricCapability = Schemas["ProviderMetricCapability"];
@@ -92,6 +94,30 @@ export type SessionMetricReadinessReport =
 export type TextAnalysisPresetId = Schemas["TextAnalysisPresetId"];
 
 export type CodexSession = Schemas["SessionCatalogItemDto"];
+/** Provider-neutral name for the same catalog row; `CodexSession` is the legacy alias. */
+export type SessionCatalogItem = Schemas["SessionCatalogItemDto"];
+
+/** Every provider whose sessions can appear in the local catalog. */
+export const LOCAL_PROVIDERS = ["codex", "claude_code", "synthetic"] as const;
+export type LocalProvider = (typeof LOCAL_PROVIDERS)[number];
+
+export function isLocalProvider(value: unknown): value is LocalProvider {
+  return typeof value === "string" && (LOCAL_PROVIDERS as readonly string[]).includes(value);
+}
+
+/** Human label for a provider; never derived from session content. */
+export function providerLabel(provider: unknown): string {
+  switch (provider) {
+    case "codex":
+      return "Codex";
+    case "claude_code":
+      return "Claude Code";
+    case "synthetic":
+      return "Synthetic";
+    default:
+      return "Unknown source";
+  }
+}
 export type CodexSessionListResponse = Schemas["SessionCatalogListResponse"];
 export type ProjectSessionListResponse =
   Schemas["ProjectSessionCatalogResponse"];
@@ -480,6 +506,13 @@ export interface PromptEnhancerTransport {
   getCodexLocalSourceStatus(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
   grantCodexLocalHistoryConsent(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
   revokeCodexLocalHistoryConsent(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
+  getClaudeLocalSourceStatus(signal?: AbortSignal): Promise<ClaudeCodeLocalSourceStatus>;
+  grantClaudeLocalHistoryConsent(signal?: AbortSignal): Promise<ClaudeCodeLocalSourceStatus>;
+  revokeClaudeLocalHistoryConsent(signal?: AbortSignal): Promise<ClaudeCodeLocalSourceStatus>;
+  indexClaudeLocalSessions(
+    maxSessions: number,
+    signal?: AbortSignal,
+  ): Promise<IngestionReport>;
   indexCodexLocalSessions(
     maxSessions: number,
     signal?: AbortSignal,

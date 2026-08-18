@@ -1,3 +1,5 @@
+import { isLocalProvider } from "../../shared/api/contracts";
+import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import {
   useEffect,
   useLayoutEffect,
@@ -93,7 +95,7 @@ function isProjectSession(
     typeof value.installation_id === "string" &&
     SAFE_ID.test(value.installation_id) &&
     value.project_id === expectedProjectId &&
-    (value.provider === "codex" || value.provider === "synthetic") &&
+    isLocalProvider(value.provider) &&
     isNullableString(value.project_display_name) &&
     isNullableString(value.session_display_name) &&
     ["provider", "manual", "unknown"].includes(
@@ -1223,6 +1225,7 @@ export function ProjectWorkspace({
                   <strong>
                     {visibleLabel(currentSession.session_display_name, "Unnamed session")}
                   </strong>
+                  <ProviderBadge compact provider={currentSession.provider} />
                 </span>
                 <span>Change</span>
                 <Icon name="arrow" />
@@ -1306,6 +1309,7 @@ export function ProjectWorkspace({
                     <strong>{visibleLabel(session.session_display_name, "Unnamed session")}</strong>
                     <small>{safeTimestamp(session.started_at)}</small>
                   </span>
+                  <ProviderBadge compact provider={session.provider} />
                   <span className={`status-pill${session.events_complete ? " status-pill--info" : ""}`}>
                     {session.events_complete ? "Complete" : "Partial"}
                   </span>

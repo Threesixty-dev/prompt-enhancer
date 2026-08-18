@@ -544,6 +544,36 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         },
       };
     },
+    async getClaudeLocalSourceStatus() {
+      return {
+        consent_active: false,
+        captured_sessions: 0,
+        captured_events: 0,
+        indexed_sessions: 0,
+        indexed_projects: 0,
+        verification_capability: {
+          state: "validation_only" as const,
+          live_classification_enabled: false,
+          supported_kinds: ["test" as const, "build" as const, "type_check" as const],
+          reason_code: "synthetic_validation_only",
+          candidate_schema_version: "synthetic-verification-1",
+          classifier_version: "synthetic-classifier-1",
+          normalizer_version: "synthetic-normalizer-1",
+        },
+        capture_channel: "claude_code_hooks",
+        reads_transcripts: false,
+        persists_content: false,
+      };
+    },
+    async grantClaudeLocalHistoryConsent() {
+      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+    },
+    async revokeClaudeLocalHistoryConsent() {
+      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+    },
+    async indexClaudeLocalSessions() {
+      throw new TransportError("Local sources are unavailable in synthetic preview", 404);
+    },
     async grantCodexLocalHistoryConsent() {
       throw new TransportError("Local sources are unavailable in synthetic preview", 404);
     },

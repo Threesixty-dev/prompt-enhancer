@@ -99,6 +99,10 @@ function isUtcTimestamp(value: unknown): value is string {
 function isProjectSession(value: unknown, projectId: string): value is CodexSession {
   if (!isRecord(value) || !hasExactKeys(value, SESSION_KEYS)) return false;
   const origins = new Set(["provider", "manual", "unknown"]);
+  // Automation grants enqueue Codex text-analysis jobs; the local runtime has no
+  // reviewed text surface for any other provider yet, so only Codex sessions
+  // are eligible here. Hook-captured Claude Code sessions remain visible in the
+  // project workspace and catalog with their provider badge.
   return value.provider === "codex" &&
     value.project_id === projectId &&
     typeof value.session_id === "string" && isPseudonym(value.session_id) &&

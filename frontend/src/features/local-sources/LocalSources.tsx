@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ClaudeSourceCard } from "./ClaudeSourceCard";
 import type {
   CodexIngestionReport,
   CodexLabelEnrichmentReport,
@@ -396,7 +397,7 @@ export function LocalSources({
         <div>
           <p className="eyebrow">Private local workflow</p>
           <h1>Local sources</h1>
-          <p>Choose exactly which Codex projects or sessions receive local indexing and operational-event analysis.</p>
+          <p>Choose exactly which Codex projects or sessions receive local indexing and operational-event analysis, and whether Claude Code sessions are captured through hooks.</p>
         </div>
         <div className="page-header__meta">
           <span className="privacy-chip"><Icon name="lock" /> Loopback only</span>
@@ -505,6 +506,10 @@ export function LocalSources({
           </button>
           {!status.consent_active && <small>Grant access before reading the provider source.</small>}
         </aside>
+      </div>
+
+      <div className="source-overview source-overview--secondary">
+        <ClaudeSourceCard transport={transport} />
       </div>
 
       <section

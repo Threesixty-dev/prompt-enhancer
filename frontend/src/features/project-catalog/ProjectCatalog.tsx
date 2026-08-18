@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isLocalProvider } from "../../shared/api/contracts";
+import { ProviderBadge, providersOf } from "../../shared/ui/ProviderBadge";
 import type {
   CodexSession,
   PromptEnhancerTransport,
@@ -24,6 +26,8 @@ interface ProjectCatalogItem {
   sessions: CodexSession[];
   latestStartedAt: string | null;
   completeSessionCount: number;
+  /** Distinct providers that contributed sessions, in stable display order. */
+  providers: string[];
 }
 
 const CATALOG_SESSION_KEYS = [
@@ -131,7 +135,7 @@ function safeCatalogSession(value: unknown): value is CodexSession {
   if (!isRecord(value) || !hasExactKeys(value, CATALOG_SESSION_KEYS)) return false;
   const origins = new Set(["provider", "manual", "unknown"]);
   return (
-    (value.provider === "codex" || value.provider === "synthetic") &&
+    isLocalProvider(value.provider) &&
     isPseudonym(value.installation_id as string) &&
     isPseudonym(value.project_id as string) &&
     isPseudonym(value.session_id as string) &&
@@ -229,6 +233,7 @@ function buildCatalog(sessions: readonly CodexSession[]): ProjectCatalogItem[] {
       latestStartedAt,
       completeSessionCount: projectSessions.filter((session) => session.events_complete)
         .length,
+      providers: providersOf(projectSessions),
     };
   });
 }
@@ -534,6 +539,11 @@ export function ProjectCatalog({
                 <span className="project-catalog-card__copy">
                   <strong>{project.displayName}</strong>
                   <small>Open its sessions and signal views</small>
+                  <span aria-label="Session sources" className="provider-badge-row">
+                    {project.providers.map((provider) => (
+                      <ProviderBadge compact key={provider} provider={provider} />
+                    ))}
+                  </span>
                 </span>
                 <Icon name="arrow" />
               </button>
@@ -549,7 +559,8 @@ export function ProjectCatalog({
       {sessions !== null && (
         <p className="project-catalog__boundary" role="note">
           This view reads at most 100 sessions from Prompt Enhancer's stored index. It
-          does not read or mutate the Codex provider cache.
+          does not read or mutate any provider's cache; each project shows the sources
+          its sessions were captured from.
         </p>
       )}
     </section>

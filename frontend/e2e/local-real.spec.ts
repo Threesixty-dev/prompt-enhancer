@@ -125,6 +125,10 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
       await json(route, await transport.getSessionTextAnalysisCapability());
       return;
     }
+    if (path === "/v1/local-sources/claude-code" && method === "GET") {
+      await json(route, await transport.getClaudeLocalSourceStatus());
+      return;
+    }
     if (path === "/v1/local-sources/codex" && method === "GET") {
       await json(route, await transport.getCodexLocalSourceStatus());
       return;
