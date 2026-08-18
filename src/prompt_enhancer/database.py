@@ -108,10 +108,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_40,
     MIGRATION_41,
     MIGRATION_42,
+    MIGRATION_43,
 )
 
 
-SCHEMA_VERSION = 42
+SCHEMA_VERSION = 43
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1633,6 +1634,7 @@ class Database:
                 (40, MIGRATION_40),
                 (41, MIGRATION_41),
                 (42, MIGRATION_42),
+                (43, MIGRATION_43),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1756,6 +1758,19 @@ class Database:
             end_synthetic_aggregation_delete_authorization=(
                 self._end_synthetic_aggregation_delete_authorization
             ),
+        )
+
+    def task_lifecycle_repository(self):
+        """Return the append-only explicit task lifecycle adapter."""
+
+        from .infrastructure.sqlite.task_lifecycle import (
+            SqliteTaskLifecycleRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteTaskLifecycleRepository(
+            self._connection,
+            self._ensure_initialized,
         )
 
     def analysis_run_repository(self):

@@ -1,6 +1,7 @@
 """Narrow HTTP query interface for the local dashboard."""
 
 from .task_routes import create_task_query_router
+from .task_lifecycle_routes import create_task_lifecycle_router
 from .session_analysis_command_routes import create_session_analysis_command_router
 from .session_analysis_routes import create_session_analysis_query_router
 from .session_quality_aggregation_routes import (
@@ -46,4 +47,5 @@ __all__ = (
     "create_social_mutation_router",
     "create_social_readiness_router",
     "create_task_query_router",
+    "create_task_lifecycle_router",
 )

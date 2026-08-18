@@ -74,6 +74,7 @@ def test_health_is_minimal_and_only_v1_routes_require_authentication(tmp_path) -
         "arbitrary_sql": False,
         "write_api": False,
         "task_review": False,
+        "task_lifecycle": False,
         "task_analysis": False,
         "session_text_analysis": False,
         "session_model_link_experiment": False,

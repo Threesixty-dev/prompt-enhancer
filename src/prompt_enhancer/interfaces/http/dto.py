@@ -82,6 +82,7 @@ class CapabilitiesDto(HttpDto):
     arbitrary_sql: Literal[False]
     write_api: bool
     task_review: bool
+    task_lifecycle: bool
     task_analysis: bool
     session_text_analysis: bool
     session_model_link_experiment: bool
@@ -103,6 +104,8 @@ class CapabilitiesDto(HttpDto):
             raise ValueError("text analysis requires the explicit command surface")
         if self.session_model_link_experiment and not self.write_api:
             raise ValueError("model-link experiments require a command surface")
+        if self.task_lifecycle and not self.write_api:
+            raise ValueError("task lifecycle requires the explicit command surface")
         return self
 
 

@@ -62,6 +62,7 @@ from .application.paid_product.contracts import ProductReadiness
 from .application.social.contracts import SocialReadiness
 from .application.social.ports import SocialPrincipalResolver
 from .application.social.service import SocialService
+from .application.task_lifecycle import TaskLifecycleService
 from .interfaces.http import (
     create_control_plane_router,
     create_session_analysis_command_router,
@@ -79,6 +80,7 @@ from .interfaces.http import (
     create_automation_grant_router,
     create_estimator_router,
     create_task_query_router,
+    create_task_lifecycle_router,
     create_paid_product_readiness_router,
     create_social_mutation_router,
     create_social_readiness_router,
@@ -302,6 +304,7 @@ def create_app(
     database: ReadStore | None = None,
     api_token: str | None = None,
     task_review_service: ReviewCommandService | None = None,
+    task_lifecycle_service: TaskLifecycleService | None = None,
     task_analysis_service: TaskAnalysisCommandService | None = None,
     session_text_analysis_service: SessionTextAnalysisService | None = None,
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
@@ -420,6 +423,8 @@ def create_app(
                 "/estimators",
                 "/text-model-compatibility",
                 "/text-model-runtime",
+                "/task-lifecycles",
+                "/lifecycle",
             )
         ):
             response.headers["Cache-Control"] = "no-store, private"
@@ -548,6 +553,7 @@ def create_app(
     def capabilities() -> CapabilitiesDto:
         write_api = (
             task_review_service is not None
+            or task_lifecycle_service is not None
             or task_analysis_service is not None
             or session_text_analysis_service is not None
             or session_model_link_experiment_service is not None
@@ -565,6 +571,7 @@ def create_app(
             arbitrary_sql=False,
             write_api=write_api,
             task_review=task_review_service is not None,
+            task_lifecycle=task_lifecycle_service is not None,
             task_analysis=task_analysis_service is not None,
             session_text_analysis=session_text_analysis,
             session_model_link_experiment=(
@@ -653,6 +660,9 @@ def create_app(
         return {"session_id": session_id, "metrics": _json_records(records)}
 
     app.include_router(create_task_query_router(require_local_token))
+    app.include_router(
+        create_task_lifecycle_router(require_local_token, task_lifecycle_service)
+    )
     app.include_router(create_session_analysis_query_router(require_local_token))
     app.include_router(create_session_quality_aggregation_router(require_local_token))
     if project_quality_aggregation_service is not None:

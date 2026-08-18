@@ -69,6 +69,12 @@ class _SchemaReviewService:
         raise RuntimeError("schema-only service cannot execute commands")
 
 
+class _SchemaTaskLifecycleService:
+    """Non-executing stand-in that enables explicit lifecycle route schemas."""
+
+    pass
+
+
 class _SchemaAnalysisService:
     def run(
         self,
@@ -336,6 +342,7 @@ def _build_schema_app(*, include_control_plane: bool):
         database=_SchemaStore(),
         api_token="example_schema_token_do_not_use_123456789",
         task_review_service=_SchemaReviewService(),
+        task_lifecycle_service=_SchemaTaskLifecycleService(),  # type: ignore[arg-type]
         task_analysis_service=_SchemaAnalysisService(),
         session_text_analysis_service=_SchemaSessionTextAnalysisService(),
         session_model_link_experiment_service=_SchemaModelLinkExperimentService(),  # type: ignore[arg-type]

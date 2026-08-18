@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         TaskReviewService,
     )
     from .application.local_sources import CodexLocalSourceService
+    from .application.task_lifecycle import TaskLifecycleService
     from .application.jobs import AnalysisJobService, AnalysisJobWorker
     from .application.automation import (
         AutomationGrantService,
@@ -164,6 +165,17 @@ class LocalApplication:
 
         return TaskReviewService(
             self.database.task_repository(),
+            LocalArtifactIdFactory(self.pseudonymizer),
+        )
+
+    def create_task_lifecycle_service(self) -> TaskLifecycleService:
+        """Construct explicit local-user work-state commands."""
+
+        from .application.task_lifecycle import TaskLifecycleService
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+
+        return TaskLifecycleService(
+            self.database.task_lifecycle_repository(),
             LocalArtifactIdFactory(self.pseudonymizer),
         )
 
@@ -598,6 +610,7 @@ class LocalApplication:
             database=self.database,
             api_token=token,
             task_review_service=self.create_task_review_service(),
+            task_lifecycle_service=self.create_task_lifecycle_service(),
             task_analysis_service=self.create_task_analysis_service(),
             session_text_analysis_service=session_text_analysis_service,
             session_model_link_experiment_service=(

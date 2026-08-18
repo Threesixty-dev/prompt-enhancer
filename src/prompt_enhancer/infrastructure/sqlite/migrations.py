@@ -11651,3 +11651,153 @@ BEGIN SELECT RAISE(ABORT,'metric V2 r3 publication seal requires parent privacy 
 
 COMMIT;
 """
+
+
+MIGRATION_43 = r"""
+BEGIN IMMEDIATE;
+
+-- Explicit local-user task work-state receipts.  This ledger deliberately has
+-- no inference/model/analysis foreign key or writer surface.  A task revision
+-- with no rows remains unknown rather than being backfilled into backlog.
+CREATE TABLE task_lifecycle_events (
+    event_id TEXT PRIMARY KEY
+        CHECK(length(event_id)=64 AND event_id NOT GLOB '*[^0-9a-f]*'),
+    task_id TEXT NOT NULL,
+    task_revision INTEGER NOT NULL CHECK(task_revision>=1),
+    sequence INTEGER NOT NULL CHECK(sequence>=1),
+    event_kind TEXT NOT NULL CHECK(event_kind IN ('transition','correction')),
+    prior_state TEXT CHECK(prior_state IS NULL OR prior_state IN ('backlog','in_progress','done')),
+    resulting_state TEXT CHECK(resulting_state IS NULL OR resulting_state IN ('backlog','in_progress','done')),
+    previous_event_id TEXT
+        CHECK(previous_event_id IS NULL OR (length(previous_event_id)=64 AND previous_event_id NOT GLOB '*[^0-9a-f]*')),
+    supersedes_event_id TEXT
+        CHECK(supersedes_event_id IS NULL OR (length(supersedes_event_id)=64 AND supersedes_event_id NOT GLOB '*[^0-9a-f]*')),
+    task_input_fingerprint TEXT NOT NULL
+        CHECK(length(task_input_fingerprint)=64 AND task_input_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    command_schema_version TEXT NOT NULL
+        CHECK(command_schema_version='task-lifecycle-command-v1'),
+    source TEXT NOT NULL CHECK(source='explicit_local_user'),
+    actor_scope TEXT NOT NULL CHECK(actor_scope='local_user'),
+    request_fingerprint TEXT NOT NULL UNIQUE
+        CHECK(length(request_fingerprint)=64 AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    idempotency_key_hash TEXT NOT NULL UNIQUE
+        CHECK(length(idempotency_key_hash)=64 AND idempotency_key_hash NOT GLOB '*[^0-9a-f]*'),
+    created_at TEXT NOT NULL
+        CHECK(length(created_at)=32 AND substr(created_at,27)='+00:00'),
+    UNIQUE(task_id,task_revision,sequence),
+    FOREIGN KEY(task_id,task_revision)
+        REFERENCES task_revisions(task_id,revision) ON DELETE CASCADE,
+    FOREIGN KEY(previous_event_id) REFERENCES task_lifecycle_events(event_id),
+    FOREIGN KEY(supersedes_event_id) REFERENCES task_lifecycle_events(event_id),
+    CHECK(
+      (event_kind='transition' AND resulting_state IS NOT NULL AND supersedes_event_id IS NULL)
+      OR
+      (event_kind='correction' AND supersedes_event_id IS NOT NULL
+       AND supersedes_event_id IS previous_event_id)
+    ),
+    CHECK((sequence=1 AND previous_event_id IS NULL) OR
+          (sequence>1 AND previous_event_id IS NOT NULL))
+);
+
+CREATE INDEX task_lifecycle_events_revision_idx
+    ON task_lifecycle_events(task_id,task_revision,sequence);
+CREATE UNIQUE INDEX task_lifecycle_events_linear_head
+    ON task_lifecycle_events(previous_event_id) WHERE previous_event_id IS NOT NULL;
+CREATE UNIQUE INDEX task_lifecycle_events_one_correction
+    ON task_lifecycle_events(supersedes_event_id) WHERE supersedes_event_id IS NOT NULL;
+
+-- A lifecycle command may target only the latest immutable task revision.  A
+-- later revision therefore starts unknown and earlier receipts remain audit.
+CREATE TRIGGER task_lifecycle_events_current_revision_only
+BEFORE INSERT ON task_lifecycle_events
+WHEN NEW.task_revision IS NOT (
+    SELECT MAX(revision) FROM task_revisions WHERE task_id=NEW.task_id
+)
+BEGIN SELECT RAISE(ABORT,'task lifecycle revision is stale'); END;
+
+CREATE TRIGGER task_lifecycle_events_parent_fingerprint
+BEFORE INSERT ON task_lifecycle_events
+WHEN NEW.task_input_fingerprint IS NOT (
+    SELECT input_fingerprint FROM task_revisions
+    WHERE task_id=NEW.task_id AND revision=NEW.task_revision
+)
+BEGIN SELECT RAISE(ABORT,'task lifecycle parent fingerprint mismatch'); END;
+
+CREATE TRIGGER task_lifecycle_events_confirmed_parent_only
+BEFORE INSERT ON task_lifecycle_events
+WHEN NOT EXISTS (
+    SELECT 1 FROM task_revisions
+    WHERE task_id=NEW.task_id AND revision=NEW.task_revision
+      AND lifecycle_state='confirmed'
+)
+BEGIN SELECT RAISE(ABORT,'task lifecycle parent is not confirmed'); END;
+
+-- Enforce one exact linear head even for callers that bypass the repository.
+CREATE TRIGGER task_lifecycle_events_linear_insert
+BEFORE INSERT ON task_lifecycle_events
+WHEN NEW.sequence IS NOT (
+       SELECT COALESCE(MAX(sequence),0)+1 FROM task_lifecycle_events
+       WHERE task_id=NEW.task_id AND task_revision=NEW.task_revision
+     )
+  OR NEW.previous_event_id IS NOT (
+       SELECT event_id FROM task_lifecycle_events
+       WHERE task_id=NEW.task_id AND task_revision=NEW.task_revision
+       ORDER BY sequence DESC LIMIT 1
+     )
+  OR NEW.prior_state IS NOT (
+       SELECT resulting_state FROM task_lifecycle_events
+       WHERE task_id=NEW.task_id AND task_revision=NEW.task_revision
+       ORDER BY sequence DESC LIMIT 1
+     )
+BEGIN SELECT RAISE(ABORT,'task lifecycle head is stale'); END;
+
+CREATE TRIGGER task_lifecycle_events_transition_matrix
+BEFORE INSERT ON task_lifecycle_events
+WHEN NEW.event_kind='transition' AND NOT (
+       (NEW.prior_state IS NULL AND NEW.resulting_state='backlog')
+    OR (NEW.prior_state='backlog' AND NEW.resulting_state='in_progress')
+    OR (NEW.prior_state='in_progress' AND NEW.resulting_state='done')
+)
+BEGIN SELECT RAISE(ABORT,'task lifecycle transition is invalid'); END;
+
+-- A correction is an explicit undo of the current head.  It restores the
+-- target receipt's prior state (including unknown for an initial backlog
+-- receipt), preserving both receipts and allowing a later normal transition.
+CREATE TRIGGER task_lifecycle_events_correction_shape
+BEFORE INSERT ON task_lifecycle_events
+WHEN NEW.event_kind='correction' AND (
+       NEW.supersedes_event_id IS NOT NEW.previous_event_id
+    OR NOT EXISTS (
+         SELECT 1 FROM task_lifecycle_events target
+         WHERE target.event_id=NEW.supersedes_event_id
+           AND target.task_id=NEW.task_id
+           AND target.task_revision=NEW.task_revision
+       )
+    OR NEW.prior_state IS NOT (
+         SELECT target.resulting_state FROM task_lifecycle_events target
+         WHERE target.event_id=NEW.supersedes_event_id
+       )
+    OR NEW.resulting_state IS NOT (
+         SELECT target.prior_state FROM task_lifecycle_events target
+         WHERE target.event_id=NEW.supersedes_event_id
+       )
+)
+BEGIN SELECT RAISE(ABORT,'task lifecycle correction is invalid'); END;
+
+CREATE TRIGGER task_lifecycle_events_no_update
+BEFORE UPDATE ON task_lifecycle_events
+BEGIN SELECT RAISE(ABORT,'task lifecycle events are immutable'); END;
+
+-- Direct child deletion is forbidden while its exact parent still exists.
+-- Parent privacy deletion removes task revisions first and cascades this
+-- content-free ledger with the rest of the connected task graph.
+CREATE TRIGGER task_lifecycle_events_parent_delete_only
+BEFORE DELETE ON task_lifecycle_events
+WHEN EXISTS(
+    SELECT 1 FROM task_revisions revision
+    WHERE revision.task_id=OLD.task_id AND revision.revision=OLD.task_revision
+)
+BEGIN SELECT RAISE(ABORT,'task lifecycle events require parent privacy deletion'); END;
+
+COMMIT;
+"""
