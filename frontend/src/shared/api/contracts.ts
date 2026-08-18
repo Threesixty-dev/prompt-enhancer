@@ -83,6 +83,9 @@ export type ProjectSessionListResponse =
 export type TextAnalysisResearchCatalog =
   Schemas["TextAnalysisResearchCatalogDto"];
 export type ModelRuntimeInventory = Schemas["ModelRuntimeInventoryDto"];
+export type ModelCompatibilityCatalog =
+  Schemas["ModelCompatibilityCatalogDto"];
+export type ModelCompatibilityEntry = Schemas["ModelCompatibilityEntryDto"];
 export type ModelEvaluationRequest = Schemas["ModelEvaluationRequestDto"];
 export type ModelEvaluationJob = Schemas["ModelEvaluationJobDto"];
 export type ModelLabInventory = Schemas["ModelLabInventoryDto"];
@@ -393,6 +396,9 @@ export interface PromptEnhancerTransport {
     signal?: AbortSignal,
   ): Promise<TextAnalysisResearchCatalog>;
   getTextModelRuntime?(signal?: AbortSignal): Promise<ModelRuntimeInventory>;
+  getTextModelCompatibility?(
+    signal?: AbortSignal,
+  ): Promise<ModelCompatibilityCatalog>;
   getModelLabInventory?(signal?: AbortSignal): Promise<ModelLabInventory>;
   startTextModelEvaluation?(
     request: ModelEvaluationRequest,

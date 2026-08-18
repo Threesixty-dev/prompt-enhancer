@@ -2,7 +2,9 @@ import type {
   AnalysisRun,
   CandidateListItem,
   CandidateStatusFilter,
+  ModelCompatibilityCatalog,
   ModelEvaluationJob,
+  ModelRuntimeInventory,
   ProjectSessionQualityAggregate,
   ReviewCommand,
   SessionQualityAggregate,
@@ -30,6 +32,10 @@ import {
   SYNTHETIC_METRIC_COVERAGE,
 } from "./syntheticFixtures";
 import { TransportError } from "./httpTransport";
+import {
+  deriveModelCompatibilityDisposition,
+  FROZEN_MODEL_COMPATIBILITY_CONFIGURATIONS,
+} from "./modelCompatibilityContract";
 import { SYNTHETIC_TEXT_ANALYSIS_RESEARCH } from "./syntheticResearchFixture";
 import { SYNTHETIC_MODEL_LAB_INVENTORY } from "./syntheticModelLabFixture";
 
@@ -40,6 +46,55 @@ function copy<T>(value: T): T {
 function safeId(sequence: number): string {
   return sequence.toString(16).padStart(64, "0");
 }
+
+const SYNTHETIC_MODEL_RUNTIME_INVENTORY: ModelRuntimeInventory = {
+  preferred_device: "cuda",
+  cuda_state: "available",
+  cuda_available: true,
+  mps_available: false,
+  cpu_available: true,
+  cpu_architecture_bucket: "x86_64",
+  logical_core_bucket: "9_to_16",
+  system_ram_bucket: "16_gib_class",
+  cuda_vram_bucket: "16_gib_class",
+  cuda_capability_bucket: "8_x",
+  model_cache_free_disk_bucket: "10240_to_51199_mib",
+  discovery_reason_codes: [],
+  inventory_version: "bucketed-sensitive-hardware-inventory-v3",
+  one_model_at_a_time: true,
+  subprocess_isolation: true,
+  raw_session_data_accepted: false,
+  model_child_gpu_allocation_ceiling_mib: 6_144,
+  model_child_rss_ceiling_mib: 8_192,
+  model_downloads_started: false,
+  model_activation_allowed: false,
+  sensitivity: "sensitive_derived",
+  local_only: true,
+  persisted: false,
+  synced: false,
+};
+
+const SYNTHETIC_MODEL_COMPATIBILITY: ModelCompatibilityCatalog = {
+  catalog_version: "reviewed-model-resource-fit-v3",
+  measurement_version: "reviewed-runtime-configurations-2026-08-v3",
+  catalog_policy: "exploratory_resource_fit_only",
+  content_free: true,
+  session_data_read: false,
+  cache_contents_read: false,
+  downloads_started: false,
+  activation_allowed: false,
+  local_only: true,
+  persisted: false,
+  synced: false,
+  inventory: SYNTHETIC_MODEL_RUNTIME_INVENTORY,
+  models: FROZEN_MODEL_COMPATIBILITY_CONFIGURATIONS.map((configuration) => ({
+    ...configuration,
+    ...deriveModelCompatibilityDisposition(
+      SYNTHETIC_MODEL_RUNTIME_INVENTORY,
+      configuration,
+    ),
+  })),
+};
 
 function syntheticCoachingProjectAggregate(
   selectedSessionCount: number,
@@ -346,16 +401,10 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
       return copy(SYNTHETIC_TEXT_ANALYSIS_RESEARCH);
     },
     async getTextModelRuntime() {
-      return {
-        preferred_device: "cuda" as const,
-        cuda_available: true,
-        mps_available: false,
-        cpu_available: true as const,
-        cuda_memory_mb: 16384,
-        one_model_at_a_time: true as const,
-        subprocess_isolation: true as const,
-        raw_session_data_accepted: false as const,
-      };
+      return copy(SYNTHETIC_MODEL_RUNTIME_INVENTORY);
+    },
+    async getTextModelCompatibility() {
+      return copy(SYNTHETIC_MODEL_COMPATIBILITY);
     },
     async getModelLabInventory() {
       return copy(SYNTHETIC_MODEL_LAB_INVENTORY);

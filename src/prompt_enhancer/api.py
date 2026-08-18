@@ -405,6 +405,8 @@ def create_app(
                 "/automation-grants",
                 "/control-plane",
                 "/estimators",
+                "/text-model-compatibility",
+                "/text-model-runtime",
             )
         ):
             response.headers["Cache-Control"] = "no-store, private"

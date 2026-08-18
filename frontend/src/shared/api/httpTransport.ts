@@ -84,6 +84,10 @@ import {
   ModelPredictiveMetricDetailPayloadError,
   parseModelPredictiveMetricDetail,
 } from "./modelPredictiveMetricDetailContract";
+import {
+  ModelCompatibilityPayloadError,
+  parseModelCompatibilityCatalog,
+} from "./modelCompatibilityContract";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -2157,6 +2161,23 @@ export function createHttpTransport(options: {
         { method: "GET" },
         signal,
       );
+    },
+    async getTextModelCompatibility(signal) {
+      const value = await request<unknown>(
+        "/v1/research/text-model-compatibility",
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseModelCompatibilityCatalog(value);
+      } catch (error) {
+        if (error instanceof ModelCompatibilityPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
     },
     async getModelLabInventory(signal) {
       const value = await request<unknown>(

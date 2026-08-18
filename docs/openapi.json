@@ -4594,6 +4594,358 @@
         "title": "ModelCandidateDto",
         "type": "object"
       },
+      "ModelCompatibilityCatalogDto": {
+        "additionalProperties": false,
+        "properties": {
+          "activation_allowed": {
+            "const": false,
+            "title": "Activation Allowed",
+            "type": "boolean"
+          },
+          "cache_contents_read": {
+            "const": false,
+            "title": "Cache Contents Read",
+            "type": "boolean"
+          },
+          "catalog_policy": {
+            "const": "exploratory_resource_fit_only",
+            "title": "Catalog Policy",
+            "type": "string"
+          },
+          "catalog_version": {
+            "const": "reviewed-model-resource-fit-v3",
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "content_free": {
+            "const": true,
+            "title": "Content Free",
+            "type": "boolean"
+          },
+          "downloads_started": {
+            "const": false,
+            "title": "Downloads Started",
+            "type": "boolean"
+          },
+          "inventory": {
+            "$ref": "#/components/schemas/ModelRuntimeInventoryDto"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "measurement_version": {
+            "const": "reviewed-runtime-configurations-2026-08-v3",
+            "title": "Measurement Version",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelCompatibilityEntryDto"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Models",
+            "type": "array"
+          },
+          "persisted": {
+            "const": false,
+            "title": "Persisted",
+            "type": "boolean"
+          },
+          "session_data_read": {
+            "const": false,
+            "title": "Session Data Read",
+            "type": "boolean"
+          },
+          "synced": {
+            "const": false,
+            "title": "Synced",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "catalog_version",
+          "measurement_version",
+          "catalog_policy",
+          "content_free",
+          "session_data_read",
+          "cache_contents_read",
+          "downloads_started",
+          "activation_allowed",
+          "local_only",
+          "persisted",
+          "synced",
+          "inventory",
+          "models"
+        ],
+        "title": "ModelCompatibilityCatalogDto",
+        "type": "object"
+      },
+      "ModelCompatibilityEntryDto": {
+        "additionalProperties": false,
+        "properties": {
+          "activation_allowed": {
+            "const": false,
+            "title": "Activation Allowed",
+            "type": "boolean"
+          },
+          "benchmark_key": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Key"
+          },
+          "configuration_key": {
+            "pattern": "^[a-z][a-z0-9_]{0,95}$",
+            "title": "Configuration Key",
+            "type": "string"
+          },
+          "download_allowed": {
+            "const": false,
+            "title": "Download Allowed",
+            "type": "boolean"
+          },
+          "dtype": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Dtype",
+            "type": "string"
+          },
+          "language_scope": {
+            "const": "english_polish",
+            "title": "Language Scope",
+            "type": "string"
+          },
+          "license_spdx": {
+            "enum": [
+              "MIT",
+              "Apache-2.0"
+            ],
+            "title": "License Spdx",
+            "type": "string"
+          },
+          "measurement_method": {
+            "enum": [
+              "torch_cuda_max_memory_allocated",
+              "documented_approximate_gpu_peak_only",
+              "not_measured"
+            ],
+            "title": "Measurement Method",
+            "type": "string"
+          },
+          "measurement_precision": {
+            "enum": [
+              "observed_to_0_001_mib",
+              "documented_approximate_0_01_gib",
+              "not_measured"
+            ],
+            "title": "Measurement Precision",
+            "type": "string"
+          },
+          "measurement_source": {
+            "pattern": "^[a-z][a-z0-9_]{0,95}$",
+            "title": "Measurement Source",
+            "type": "string"
+          },
+          "model_key": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "title": "Model Key",
+            "type": "string"
+          },
+          "observed_peak_child_rss_mib": {
+            "anyOf": [
+              {
+                "maximum": 1048576.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Peak Child Rss Mib"
+          },
+          "observed_peak_gpu_allocation_mib": {
+            "anyOf": [
+              {
+                "maximum": 1048576.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Peak Gpu Allocation Mib"
+          },
+          "product_enabled": {
+            "const": false,
+            "title": "Product Enabled",
+            "type": "boolean"
+          },
+          "quantization": {
+            "enum": [
+              "none",
+              "bitsandbytes_nf4"
+            ],
+            "title": "Quantization",
+            "type": "string"
+          },
+          "reason_codes": {
+            "items": {
+              "enum": [
+                "exploratory_resource_fit",
+                "resource_measurement_missing",
+                "hardware_inventory_unknown",
+                "insufficient_system_ram",
+                "cuda_unavailable",
+                "cuda_inventory_unknown",
+                "insufficient_cuda_vram",
+                "child_gpu_allocation_ceiling_exceeded",
+                "child_rss_ceiling_exceeded",
+                "unsafe_pickle_only"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "repository_id": {
+            "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+            "title": "Repository Id",
+            "type": "string"
+          },
+          "resource_measurement_state": {
+            "enum": [
+              "complete",
+              "partial",
+              "missing"
+            ],
+            "title": "Resource Measurement State",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{40}$",
+            "title": "Revision",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "retrieval",
+              "reranking",
+              "scoped_nli",
+              "binary_nli",
+              "structured_rubric"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "runtime": {
+            "pattern": "^[a-z][a-z0-9_]{0,95}$",
+            "title": "Runtime",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "research_only",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "synthetic_case_count": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Synthetic Case Count"
+          },
+          "task": {
+            "enum": [
+              "requirement_action_retrieval",
+              "scoped_nli",
+              "binary_nli",
+              "pair_reranking",
+              "structured_rubric"
+            ],
+            "title": "Task",
+            "type": "string"
+          },
+          "trust_remote_code": {
+            "const": false,
+            "title": "Trust Remote Code",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configuration_key",
+          "model_key",
+          "repository_id",
+          "revision",
+          "task",
+          "role",
+          "language_scope",
+          "license_spdx",
+          "status",
+          "reason_codes",
+          "quantization",
+          "dtype",
+          "runtime",
+          "measurement_method",
+          "measurement_precision",
+          "measurement_source",
+          "resource_measurement_state",
+          "trust_remote_code",
+          "product_enabled",
+          "activation_allowed",
+          "download_allowed"
+        ],
+        "title": "ModelCompatibilityEntryDto",
+        "type": "object"
+      },
+      "ModelCompatibilityUnavailableDetailDto": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "model_compatibility_catalog_unavailable",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "ModelCompatibilityUnavailableDetailDto",
+        "type": "object"
+      },
+      "ModelCompatibilityUnavailableResponseDto": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ModelCompatibilityUnavailableDetailDto"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ModelCompatibilityUnavailableResponseDto",
+        "type": "object"
+      },
       "ModelEnsembleAttemptDto": {
         "additionalProperties": false,
         "properties": {
@@ -7449,27 +7801,163 @@
       "ModelRuntimeInventoryDto": {
         "additionalProperties": false,
         "properties": {
+          "cpu_architecture_bucket": {
+            "anyOf": [
+              {
+                "enum": [
+                  "x86_64",
+                  "arm64",
+                  "x86",
+                  "arm32"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Architecture Bucket"
+          },
           "cpu_available": {
             "const": true,
             "title": "Cpu Available",
             "type": "boolean"
           },
           "cuda_available": {
-            "title": "Cuda Available",
-            "type": "boolean"
-          },
-          "cuda_memory_mb": {
             "anyOf": [
               {
-                "maximum": 1048576.0,
-                "minimum": 1.0,
-                "type": "integer"
+                "type": "boolean"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Cuda Memory Mb"
+            "title": "Cuda Available"
+          },
+          "cuda_capability_bucket": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pre_7",
+                  "7_x",
+                  "8_x",
+                  "9_plus"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuda Capability Bucket"
+          },
+          "cuda_state": {
+            "enum": [
+              "available",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Cuda State",
+            "type": "string"
+          },
+          "cuda_vram_bucket": {
+            "anyOf": [
+              {
+                "enum": [
+                  "below_8_gib_class",
+                  "8_gib_class",
+                  "12_gib_class",
+                  "16_gib_class",
+                  "24_gib_plus_class"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuda Vram Bucket"
+          },
+          "discovery_reason_codes": {
+            "items": {
+              "enum": [
+                "cpu_architecture_unknown",
+                "logical_core_bucket_unknown",
+                "system_ram_bucket_unknown",
+                "cuda_inventory_unknown",
+                "model_cache_free_disk_bucket_unknown"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Discovery Reason Codes",
+            "type": "array"
+          },
+          "inventory_version": {
+            "const": "bucketed-sensitive-hardware-inventory-v3",
+            "title": "Inventory Version",
+            "type": "string"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "logical_core_bucket": {
+            "anyOf": [
+              {
+                "enum": [
+                  "1_to_4",
+                  "5_to_8",
+                  "9_to_16",
+                  "17_to_32",
+                  "33_to_64",
+                  "65_plus"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logical Core Bucket"
+          },
+          "model_activation_allowed": {
+            "const": false,
+            "title": "Model Activation Allowed",
+            "type": "boolean"
+          },
+          "model_cache_free_disk_bucket": {
+            "anyOf": [
+              {
+                "enum": [
+                  "under_10240_mib",
+                  "10240_to_51199_mib",
+                  "51200_to_102399_mib",
+                  "102400_plus_mib"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Cache Free Disk Bucket"
+          },
+          "model_child_gpu_allocation_ceiling_mib": {
+            "const": 6144,
+            "title": "Model Child Gpu Allocation Ceiling Mib",
+            "type": "integer"
+          },
+          "model_child_rss_ceiling_mib": {
+            "const": 8192,
+            "title": "Model Child Rss Ceiling Mib",
+            "type": "integer"
+          },
+          "model_downloads_started": {
+            "const": false,
+            "title": "Model Downloads Started",
+            "type": "boolean"
           },
           "mps_available": {
             "title": "Mps Available",
@@ -7478,6 +7966,11 @@
           "one_model_at_a_time": {
             "const": true,
             "title": "One Model At A Time",
+            "type": "boolean"
+          },
+          "persisted": {
+            "const": false,
+            "title": "Persisted",
             "type": "boolean"
           },
           "preferred_device": {
@@ -7494,20 +7987,64 @@
             "title": "Raw Session Data Accepted",
             "type": "boolean"
           },
+          "sensitivity": {
+            "const": "sensitive_derived",
+            "title": "Sensitivity",
+            "type": "string"
+          },
           "subprocess_isolation": {
             "const": true,
             "title": "Subprocess Isolation",
             "type": "boolean"
+          },
+          "synced": {
+            "const": false,
+            "title": "Synced",
+            "type": "boolean"
+          },
+          "system_ram_bucket": {
+            "anyOf": [
+              {
+                "enum": [
+                  "below_16_gib_class",
+                  "16_gib_class",
+                  "32_gib_class",
+                  "64_gib_plus_class"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "System Ram Bucket"
           }
         },
         "required": [
           "preferred_device",
+          "cuda_state",
           "cuda_available",
           "mps_available",
           "cpu_available",
+          "cpu_architecture_bucket",
+          "logical_core_bucket",
+          "system_ram_bucket",
+          "cuda_vram_bucket",
+          "cuda_capability_bucket",
+          "model_cache_free_disk_bucket",
+          "discovery_reason_codes",
+          "inventory_version",
           "one_model_at_a_time",
           "subprocess_isolation",
-          "raw_session_data_accepted"
+          "raw_session_data_accepted",
+          "model_child_gpu_allocation_ceiling_mib",
+          "model_child_rss_ceiling_mib",
+          "model_downloads_started",
+          "model_activation_allowed",
+          "sensitivity",
+          "local_only",
+          "persisted",
+          "synced"
         ],
         "title": "ModelRuntimeInventoryDto",
         "type": "object"
@@ -11609,13 +12146,6 @@
       },
       "ValidationError": {
         "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
           "loc": {
             "items": {
               "anyOf": [
@@ -15619,6 +16149,81 @@
           }
         },
         "summary": "Get Text Analysis Methods",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/v1/research/text-model-compatibility": {
+      "get": {
+        "operationId": "get_text_model_compatibility_v1_research_text_model_compatibility_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCompatibilityCatalogDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCompatibilityUnavailableResponseDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Get Text Model Compatibility",
         "tags": [
           "research"
         ]

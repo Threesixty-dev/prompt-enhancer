@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from pydantic import Field
 
 from ...application.analysis.method_research import (
@@ -32,6 +32,10 @@ from ...infrastructure.text_models.jobs import (
     ModelEvaluationNotFoundError,
     ModelEvaluationRequest,
     ModelRuntimeInventory,
+)
+from ...infrastructure.text_models.compatibility import (
+    ModelCompatibilityCatalog,
+    ModelCompatibilityEntry,
 )
 
 
@@ -143,13 +147,150 @@ class TextAnalysisResearchCatalogDto(HttpDto):
 
 class ModelRuntimeInventoryDto(HttpDto):
     preferred_device: Literal["cpu", "cuda", "mps"]
-    cuda_available: bool
+    cuda_state: Literal["available", "unavailable", "unknown"]
+    cuda_available: bool | None
     mps_available: bool
     cpu_available: Literal[True]
-    cuda_memory_mb: int | None = Field(default=None, ge=1, le=1_048_576)
+    cpu_architecture_bucket: Literal["x86_64", "arm64", "x86", "arm32"] | None
+    logical_core_bucket: Literal[
+        "1_to_4", "5_to_8", "9_to_16", "17_to_32", "33_to_64", "65_plus"
+    ] | None
+    system_ram_bucket: Literal[
+        "below_16_gib_class",
+        "16_gib_class",
+        "32_gib_class",
+        "64_gib_plus_class",
+    ] | None
+    cuda_vram_bucket: Literal[
+        "below_8_gib_class",
+        "8_gib_class",
+        "12_gib_class",
+        "16_gib_class",
+        "24_gib_plus_class",
+    ] | None
+    cuda_capability_bucket: Literal["pre_7", "7_x", "8_x", "9_plus"] | None
+    model_cache_free_disk_bucket: Literal[
+        "under_10240_mib",
+        "10240_to_51199_mib",
+        "51200_to_102399_mib",
+        "102400_plus_mib",
+    ] | None
+    discovery_reason_codes: tuple[
+        Literal[
+            "cpu_architecture_unknown",
+            "logical_core_bucket_unknown",
+            "system_ram_bucket_unknown",
+            "cuda_inventory_unknown",
+            "model_cache_free_disk_bucket_unknown",
+        ],
+        ...,
+    ] = Field(max_length=5)
+    inventory_version: Literal["bucketed-sensitive-hardware-inventory-v3"]
     one_model_at_a_time: Literal[True]
     subprocess_isolation: Literal[True]
     raw_session_data_accepted: Literal[False]
+    model_child_gpu_allocation_ceiling_mib: Literal[6144]
+    model_child_rss_ceiling_mib: Literal[8192]
+    model_downloads_started: Literal[False]
+    model_activation_allowed: Literal[False]
+    sensitivity: Literal["sensitive_derived"]
+    local_only: Literal[True]
+    persisted: Literal[False]
+    synced: Literal[False]
+
+
+class ModelCompatibilityEntryDto(HttpDto):
+    configuration_key: str = Field(pattern=r"^[a-z][a-z0-9_]{0,95}$")
+    model_key: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    repository_id: str = Field(pattern=r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+    revision: str = Field(pattern=r"^[a-f0-9]{40}$")
+    task: Literal[
+        "requirement_action_retrieval",
+        "scoped_nli",
+        "binary_nli",
+        "pair_reranking",
+        "structured_rubric",
+    ]
+    role: Literal[
+        "retrieval",
+        "reranking",
+        "scoped_nli",
+        "binary_nli",
+        "structured_rubric",
+    ]
+    language_scope: Literal["english_polish"]
+    license_spdx: Literal["MIT", "Apache-2.0"]
+    status: Literal["research_only", "unavailable"]
+    reason_codes: tuple[
+        Literal[
+            "exploratory_resource_fit",
+            "resource_measurement_missing",
+            "hardware_inventory_unknown",
+            "insufficient_system_ram",
+            "cuda_unavailable",
+            "cuda_inventory_unknown",
+            "insufficient_cuda_vram",
+            "child_gpu_allocation_ceiling_exceeded",
+            "child_rss_ceiling_exceeded",
+            "unsafe_pickle_only",
+        ],
+        ...,
+    ] = Field(min_length=1, max_length=2)
+    quantization: Literal["none", "bitsandbytes_nf4"]
+    dtype: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    runtime: str = Field(pattern=r"^[a-z][a-z0-9_]{0,95}$")
+    measurement_method: Literal[
+        "torch_cuda_max_memory_allocated",
+        "documented_approximate_gpu_peak_only",
+        "not_measured",
+    ]
+    measurement_precision: Literal[
+        "observed_to_0_001_mib",
+        "documented_approximate_0_01_gib",
+        "not_measured",
+    ]
+    measurement_source: str = Field(pattern=r"^[a-z][a-z0-9_]{0,95}$")
+    resource_measurement_state: Literal["complete", "partial", "missing"]
+    observed_peak_gpu_allocation_mib: float | None = Field(
+        default=None, ge=0, le=1_048_576, allow_inf_nan=False
+    )
+    observed_peak_child_rss_mib: float | None = Field(
+        default=None, ge=0, le=1_048_576, allow_inf_nan=False
+    )
+    benchmark_key: str | None = Field(
+        default=None, pattern=r"^[a-z][a-z0-9_-]{0,63}$"
+    )
+    synthetic_case_count: int | None = Field(default=None, ge=1, le=100_000)
+    trust_remote_code: Literal[False]
+    product_enabled: Literal[False]
+    activation_allowed: Literal[False]
+    download_allowed: Literal[False]
+
+
+class ModelCompatibilityCatalogDto(HttpDto):
+    catalog_version: Literal["reviewed-model-resource-fit-v3"]
+    measurement_version: Literal["reviewed-runtime-configurations-2026-08-v3"]
+    catalog_policy: Literal["exploratory_resource_fit_only"]
+    content_free: Literal[True]
+    session_data_read: Literal[False]
+    cache_contents_read: Literal[False]
+    downloads_started: Literal[False]
+    activation_allowed: Literal[False]
+    local_only: Literal[True]
+    persisted: Literal[False]
+    synced: Literal[False]
+    inventory: ModelRuntimeInventoryDto
+    models: tuple[ModelCompatibilityEntryDto, ...] = Field(
+        min_length=1, max_length=32
+    )
+
+
+class ModelCompatibilityUnavailableDetailDto(HttpDto):
+    code: Literal["model_compatibility_catalog_unavailable"]
+
+
+class ModelCompatibilityUnavailableResponseDto(HttpDto):
+    detail: ModelCompatibilityUnavailableDetailDto
 
 
 class ModelEvaluationRequestDto(HttpDto):
@@ -311,13 +452,85 @@ def text_analysis_research_catalog() -> TextAnalysisResearchCatalogDto:
 def _runtime_dto(value: ModelRuntimeInventory) -> ModelRuntimeInventoryDto:
     return ModelRuntimeInventoryDto(
         preferred_device=value.preferred_device,
+        cuda_state=value.cuda_state.value,
         cuda_available=value.cuda_available,
         mps_available=value.mps_available,
         cpu_available=value.cpu_available,
-        cuda_memory_mb=value.cuda_memory_mb,
+        cpu_architecture_bucket=value.cpu_architecture_bucket,
+        logical_core_bucket=value.logical_core_bucket,
+        system_ram_bucket=value.system_ram_bucket,
+        cuda_vram_bucket=value.cuda_vram_bucket,
+        cuda_capability_bucket=value.cuda_capability_bucket,
+        model_cache_free_disk_bucket=value.model_cache_free_disk_bucket,
+        discovery_reason_codes=tuple(
+            reason.value for reason in value.discovery_reason_codes
+        ),
+        inventory_version=value.inventory_version,
         one_model_at_a_time=value.one_model_at_a_time,
         subprocess_isolation=value.subprocess_isolation,
         raw_session_data_accepted=value.raw_session_data_accepted,
+        model_child_gpu_allocation_ceiling_mib=(
+            value.model_child_gpu_allocation_ceiling_mib
+        ),
+        model_child_rss_ceiling_mib=value.model_child_rss_ceiling_mib,
+        model_downloads_started=value.model_downloads_started,
+        model_activation_allowed=value.model_activation_allowed,
+        sensitivity=value.sensitivity,
+        local_only=value.local_only,
+        persisted=value.persisted,
+        synced=value.synced,
+    )
+
+
+def _compatibility_entry_dto(
+    value: ModelCompatibilityEntry,
+) -> ModelCompatibilityEntryDto:
+    return ModelCompatibilityEntryDto(
+        configuration_key=value.configuration_key,
+        model_key=value.model_key,
+        repository_id=value.repository_id,
+        revision=value.revision,
+        task=value.task,
+        role=value.role,
+        language_scope=value.language_scope,
+        license_spdx=value.license_spdx,
+        status=value.status.value,
+        reason_codes=tuple(reason.value for reason in value.reason_codes),
+        quantization=value.quantization,
+        dtype=value.dtype,
+        runtime=value.runtime,
+        measurement_method=value.measurement_method,
+        measurement_precision=value.measurement_precision,
+        measurement_source=value.measurement_source,
+        resource_measurement_state=value.resource_measurement_state.value,
+        observed_peak_gpu_allocation_mib=value.observed_peak_gpu_allocation_mib,
+        observed_peak_child_rss_mib=value.observed_peak_child_rss_mib,
+        benchmark_key=value.benchmark_key,
+        synthetic_case_count=value.synthetic_case_count,
+        trust_remote_code=value.trust_remote_code,
+        product_enabled=value.product_enabled,
+        activation_allowed=value.activation_allowed,
+        download_allowed=value.download_allowed,
+    )
+
+
+def _compatibility_catalog_dto(
+    value: ModelCompatibilityCatalog,
+) -> ModelCompatibilityCatalogDto:
+    return ModelCompatibilityCatalogDto(
+        catalog_version=value.catalog_version,
+        measurement_version=value.measurement_version,
+        catalog_policy=value.catalog_policy,
+        content_free=value.content_free,
+        session_data_read=value.session_data_read,
+        cache_contents_read=value.cache_contents_read,
+        downloads_started=value.downloads_started,
+        activation_allowed=value.activation_allowed,
+        local_only=value.local_only,
+        persisted=value.persisted,
+        synced=value.synced,
+        inventory=_runtime_dto(value.inventory),
+        models=tuple(_compatibility_entry_dto(item) for item in value.models),
     )
 
 
@@ -382,6 +595,34 @@ def create_research_router(
         )
         def get_text_model_runtime() -> ModelRuntimeInventoryDto:
             return _runtime_dto(model_evaluation_service.inventory())
+
+        @router.get(
+            "/text-model-compatibility",
+            response_model=ModelCompatibilityCatalogDto,
+            responses={
+                503: {"model": ModelCompatibilityUnavailableResponseDto}
+            },
+        )
+        def get_text_model_compatibility(
+            response: Response,
+        ) -> ModelCompatibilityCatalogDto:
+            response.headers["Cache-Control"] = "no-store, private"
+            response.headers["Pragma"] = "no-cache"
+            try:
+                return _compatibility_catalog_dto(
+                    model_evaluation_service.compatibility_catalog()
+                )
+            except Exception:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "model_compatibility_catalog_unavailable"
+                    },
+                    headers={
+                        "Cache-Control": "no-store, private",
+                        "Pragma": "no-cache",
+                    },
+                ) from None
 
         @router.post(
             "/text-model-evaluations",

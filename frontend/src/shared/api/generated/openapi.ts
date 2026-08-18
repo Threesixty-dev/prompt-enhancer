@@ -749,6 +749,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/research/text-model-compatibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Text Model Compatibility */
+        get: operations["get_text_model_compatibility_v1_research_text_model_compatibility_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/research/text-model-evaluations": {
         parameters: {
             query?: never;
@@ -3118,6 +3135,171 @@ export interface components {
              */
             trust_remote_code: false;
         };
+        /** ModelCompatibilityCatalogDto */
+        ModelCompatibilityCatalogDto: {
+            /**
+             * Activation Allowed
+             * @constant
+             */
+            activation_allowed: false;
+            /**
+             * Cache Contents Read
+             * @constant
+             */
+            cache_contents_read: false;
+            /**
+             * Catalog Policy
+             * @constant
+             */
+            catalog_policy: "exploratory_resource_fit_only";
+            /**
+             * Catalog Version
+             * @constant
+             */
+            catalog_version: "reviewed-model-resource-fit-v3";
+            /**
+             * Content Free
+             * @constant
+             */
+            content_free: true;
+            /**
+             * Downloads Started
+             * @constant
+             */
+            downloads_started: false;
+            inventory: components["schemas"]["ModelRuntimeInventoryDto"];
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Measurement Version
+             * @constant
+             */
+            measurement_version: "reviewed-runtime-configurations-2026-08-v3";
+            /** Models */
+            models: components["schemas"]["ModelCompatibilityEntryDto"][];
+            /**
+             * Persisted
+             * @constant
+             */
+            persisted: false;
+            /**
+             * Session Data Read
+             * @constant
+             */
+            session_data_read: false;
+            /**
+             * Synced
+             * @constant
+             */
+            synced: false;
+        };
+        /** ModelCompatibilityEntryDto */
+        ModelCompatibilityEntryDto: {
+            /**
+             * Activation Allowed
+             * @constant
+             */
+            activation_allowed: false;
+            /** Benchmark Key */
+            benchmark_key?: string | null;
+            /** Configuration Key */
+            configuration_key: string;
+            /**
+             * Download Allowed
+             * @constant
+             */
+            download_allowed: false;
+            /** Dtype */
+            dtype: string;
+            /**
+             * Language Scope
+             * @constant
+             */
+            language_scope: "english_polish";
+            /**
+             * License Spdx
+             * @enum {string}
+             */
+            license_spdx: "MIT" | "Apache-2.0";
+            /**
+             * Measurement Method
+             * @enum {string}
+             */
+            measurement_method: "torch_cuda_max_memory_allocated" | "documented_approximate_gpu_peak_only" | "not_measured";
+            /**
+             * Measurement Precision
+             * @enum {string}
+             */
+            measurement_precision: "observed_to_0_001_mib" | "documented_approximate_0_01_gib" | "not_measured";
+            /** Measurement Source */
+            measurement_source: string;
+            /** Model Key */
+            model_key: string;
+            /** Observed Peak Child Rss Mib */
+            observed_peak_child_rss_mib?: number | null;
+            /** Observed Peak Gpu Allocation Mib */
+            observed_peak_gpu_allocation_mib?: number | null;
+            /**
+             * Product Enabled
+             * @constant
+             */
+            product_enabled: false;
+            /**
+             * Quantization
+             * @enum {string}
+             */
+            quantization: "none" | "bitsandbytes_nf4";
+            /** Reason Codes */
+            reason_codes: ("exploratory_resource_fit" | "resource_measurement_missing" | "hardware_inventory_unknown" | "insufficient_system_ram" | "cuda_unavailable" | "cuda_inventory_unknown" | "insufficient_cuda_vram" | "child_gpu_allocation_ceiling_exceeded" | "child_rss_ceiling_exceeded" | "unsafe_pickle_only")[];
+            /** Repository Id */
+            repository_id: string;
+            /**
+             * Resource Measurement State
+             * @enum {string}
+             */
+            resource_measurement_state: "complete" | "partial" | "missing";
+            /** Revision */
+            revision: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "retrieval" | "reranking" | "scoped_nli" | "binary_nli" | "structured_rubric";
+            /** Runtime */
+            runtime: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "research_only" | "unavailable";
+            /** Synthetic Case Count */
+            synthetic_case_count?: number | null;
+            /**
+             * Task
+             * @enum {string}
+             */
+            task: "requirement_action_retrieval" | "scoped_nli" | "binary_nli" | "pair_reranking" | "structured_rubric";
+            /**
+             * Trust Remote Code
+             * @constant
+             */
+            trust_remote_code: false;
+        };
+        /** ModelCompatibilityUnavailableDetailDto */
+        ModelCompatibilityUnavailableDetailDto: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "model_compatibility_catalog_unavailable";
+        };
+        /** ModelCompatibilityUnavailableResponseDto */
+        ModelCompatibilityUnavailableResponseDto: {
+            detail: components["schemas"]["ModelCompatibilityUnavailableDetailDto"];
+        };
         /** ModelEnsembleAttemptDto */
         ModelEnsembleAttemptDto: {
             /** Attempt Id */
@@ -4146,15 +4328,60 @@ export interface components {
         };
         /** ModelRuntimeInventoryDto */
         ModelRuntimeInventoryDto: {
+            /** Cpu Architecture Bucket */
+            cpu_architecture_bucket: ("x86_64" | "arm64" | "x86" | "arm32") | null;
             /**
              * Cpu Available
              * @constant
              */
             cpu_available: true;
             /** Cuda Available */
-            cuda_available: boolean;
-            /** Cuda Memory Mb */
-            cuda_memory_mb?: number | null;
+            cuda_available: boolean | null;
+            /** Cuda Capability Bucket */
+            cuda_capability_bucket: ("pre_7" | "7_x" | "8_x" | "9_plus") | null;
+            /**
+             * Cuda State
+             * @enum {string}
+             */
+            cuda_state: "available" | "unavailable" | "unknown";
+            /** Cuda Vram Bucket */
+            cuda_vram_bucket: ("below_8_gib_class" | "8_gib_class" | "12_gib_class" | "16_gib_class" | "24_gib_plus_class") | null;
+            /** Discovery Reason Codes */
+            discovery_reason_codes: ("cpu_architecture_unknown" | "logical_core_bucket_unknown" | "system_ram_bucket_unknown" | "cuda_inventory_unknown" | "model_cache_free_disk_bucket_unknown")[];
+            /**
+             * Inventory Version
+             * @constant
+             */
+            inventory_version: "bucketed-sensitive-hardware-inventory-v3";
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            /** Logical Core Bucket */
+            logical_core_bucket: ("1_to_4" | "5_to_8" | "9_to_16" | "17_to_32" | "33_to_64" | "65_plus") | null;
+            /**
+             * Model Activation Allowed
+             * @constant
+             */
+            model_activation_allowed: false;
+            /** Model Cache Free Disk Bucket */
+            model_cache_free_disk_bucket: ("under_10240_mib" | "10240_to_51199_mib" | "51200_to_102399_mib" | "102400_plus_mib") | null;
+            /**
+             * Model Child Gpu Allocation Ceiling Mib
+             * @constant
+             */
+            model_child_gpu_allocation_ceiling_mib: 6144;
+            /**
+             * Model Child Rss Ceiling Mib
+             * @constant
+             */
+            model_child_rss_ceiling_mib: 8192;
+            /**
+             * Model Downloads Started
+             * @constant
+             */
+            model_downloads_started: false;
             /** Mps Available */
             mps_available: boolean;
             /**
@@ -4162,6 +4389,11 @@ export interface components {
              * @constant
              */
             one_model_at_a_time: true;
+            /**
+             * Persisted
+             * @constant
+             */
+            persisted: false;
             /**
              * Preferred Device
              * @enum {string}
@@ -4173,10 +4405,22 @@ export interface components {
              */
             raw_session_data_accepted: false;
             /**
+             * Sensitivity
+             * @constant
+             */
+            sensitivity: "sensitive_derived";
+            /**
              * Subprocess Isolation
              * @constant
              */
             subprocess_isolation: true;
+            /**
+             * Synced
+             * @constant
+             */
+            synced: false;
+            /** System Ram Bucket */
+            system_ram_bucket: ("below_16_gib_class" | "16_gib_class" | "32_gib_class" | "64_gib_plus_class") | null;
         };
         /**
          * OpportunityStatistics
@@ -5634,10 +5878,6 @@ export interface components {
         TextRole: "user" | "agent";
         /** ValidationError */
         ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
             /** Location */
             loc: (string | number)[];
             /** Message */
@@ -7493,6 +7733,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_text_model_compatibility_v1_research_text_model_compatibility_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCompatibilityCatalogDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCompatibilityUnavailableResponseDto"];
                 };
             };
         };

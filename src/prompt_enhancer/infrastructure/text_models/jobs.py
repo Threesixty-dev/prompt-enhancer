@@ -16,8 +16,13 @@ from threading import RLock, Thread
 from types import MappingProxyType
 from typing import Callable, Mapping
 
+from .compatibility import (
+    ModelCompatibilityCatalog,
+    ModelRuntimeInventory,
+    build_model_compatibility_catalog,
+    cached_runtime_inventory,
+)
 from .loader import repository_root
-from .transformers_backends import LocalBackendError, resolve_device
 
 
 _JOB_ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -106,18 +111,6 @@ class ModelEvaluationRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class ModelRuntimeInventory:
-    preferred_device: str
-    cuda_available: bool
-    mps_available: bool
-    cpu_available: bool
-    cuda_memory_mb: int | None
-    one_model_at_a_time: bool = True
-    subprocess_isolation: bool = True
-    raw_session_data_accepted: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class CandidateEvaluationSummary:
     key: str
     status: str
@@ -148,32 +141,8 @@ class ModelEvaluationJob:
 Runner = Callable[[ModelEvaluationRequest], Mapping[str, object]]
 
 
-def runtime_inventory() -> ModelRuntimeInventory:
-    try:
-        import torch
-
-        cuda = bool(torch.cuda.is_available())
-        mps = bool(getattr(torch.backends, "mps", None)) and bool(
-            torch.backends.mps.is_available()
-        )
-        memory = (
-            int(torch.cuda.get_device_properties(0).total_memory / (1024 * 1024))
-            if cuda
-            else None
-        )
-        preferred = resolve_device("auto")
-    except (ImportError, LocalBackendError, RuntimeError):
-        cuda = False
-        mps = False
-        memory = None
-        preferred = "cpu"
-    return ModelRuntimeInventory(
-        preferred_device=preferred,
-        cuda_available=cuda,
-        mps_available=mps,
-        cpu_available=True,
-        cuda_memory_mb=memory,
-    )
+def runtime_inventory(*, force_refresh: bool = False) -> ModelRuntimeInventory:
+    return cached_runtime_inventory(force_refresh=force_refresh)
 
 
 def _child_environment(root: Path) -> dict[str, str]:
@@ -375,8 +344,11 @@ class LocalTextModelEvaluationService:
         self._jobs: dict[str, ModelEvaluationJob] = {}
         self._active_job_id: str | None = None
 
-    def inventory(self) -> ModelRuntimeInventory:
-        return runtime_inventory()
+    def inventory(self, *, force_refresh: bool = False) -> ModelRuntimeInventory:
+        return runtime_inventory(force_refresh=force_refresh)
+
+    def compatibility_catalog(self) -> ModelCompatibilityCatalog:
+        return build_model_compatibility_catalog(self.inventory())
 
     def start(self, request: ModelEvaluationRequest) -> ModelEvaluationJob:
         with self._lock:

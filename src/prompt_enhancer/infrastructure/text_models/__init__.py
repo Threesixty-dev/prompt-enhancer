@@ -22,6 +22,24 @@ from .manifests import (
     TextModelTask,
 )
 from .session_links import SubprocessSessionModelLinkRunner
+from .compatibility import (
+    CudaInventoryState,
+    HardwareDiscoveryReason,
+    MIN_CUDA_VRAM_MIB,
+    MIN_SYSTEM_RAM_MIB,
+    MODEL_CHILD_GPU_ALLOCATION_CEILING_MIB,
+    MODEL_CHILD_RSS_CEILING_MIB,
+    ModelCompatibilityCatalog,
+    ModelCompatibilityCatalogUnavailableError,
+    ModelCompatibilityEntry,
+    ModelCompatibilityReason,
+    ModelCompatibilityStatus,
+    ModelRuntimeInventory,
+    ResourceMeasurementState,
+    build_model_compatibility_catalog,
+    cached_runtime_inventory,
+    discover_runtime_inventory,
+)
 
 __all__ = [
     "BGE_M3",
@@ -40,4 +58,20 @@ __all__ = [
     "ModelManifest",
     "TextModelTask",
     "SubprocessSessionModelLinkRunner",
+    "CudaInventoryState",
+    "HardwareDiscoveryReason",
+    "MIN_CUDA_VRAM_MIB",
+    "MIN_SYSTEM_RAM_MIB",
+    "MODEL_CHILD_GPU_ALLOCATION_CEILING_MIB",
+    "MODEL_CHILD_RSS_CEILING_MIB",
+    "ModelCompatibilityCatalog",
+    "ModelCompatibilityCatalogUnavailableError",
+    "ModelCompatibilityEntry",
+    "ModelCompatibilityReason",
+    "ModelCompatibilityStatus",
+    "ModelRuntimeInventory",
+    "ResourceMeasurementState",
+    "build_model_compatibility_catalog",
+    "cached_runtime_inventory",
+    "discover_runtime_inventory",
 ]

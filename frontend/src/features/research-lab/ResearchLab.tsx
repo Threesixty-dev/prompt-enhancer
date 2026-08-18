@@ -6,6 +6,7 @@ import type {
   TextAnalysisResearchCatalog,
 } from "../../shared/api/contracts";
 import { ModelLabInventoryPanel } from "./ModelLabInventoryPanel";
+import { ModelCompatibilityPanel } from "./ModelCompatibilityPanel";
 
 type LabView = "metrics" | "methods" | "models";
 type Metric = TextAnalysisResearchCatalog["metric_roadmap"][number];
@@ -27,6 +28,25 @@ const PROFILE_ORDER: Metric["profile"][] = [
   "agent_answer",
   "outcome",
 ];
+
+type CudaVramBucket = NonNullable<ModelRuntimeInventory["cuda_vram_bucket"]>;
+
+const CUDA_VRAM_LABELS: Record<CudaVramBucket, string> = {
+  below_8_gib_class: "Below the reviewed 8 GiB class",
+  "8_gib_class": "8 GiB class",
+  "12_gib_class": "12 GiB class",
+  "16_gib_class": "16 GiB class",
+  "24_gib_plus_class": "24 GiB+ class",
+};
+
+function cudaMemoryLabel(runtime: ModelRuntimeInventory | null): string {
+  if (runtime === null) return "Checking…";
+  if (runtime.cuda_state === "unknown") return "CUDA status unknown";
+  if (runtime.cuda_state === "unavailable") return "CUDA unavailable";
+  return runtime.cuda_vram_bucket
+    ? CUDA_VRAM_LABELS[runtime.cuda_vram_bucket]
+    : "CUDA status unknown";
+}
 
 const DIRECTION_LABELS: Record<Metric["direction"], string> = {
   higher_is_better: "Higher is better",
@@ -251,7 +271,7 @@ function ModelEvaluationPanel({ transport }: { transport: PromptEnhancerTranspor
         </div>
         <dl>
           <div><dt>Preferred device</dt><dd>{runtime?.preferred_device.toUpperCase() ?? "Checking…"}</dd></div>
-          <div><dt>CUDA memory</dt><dd>{runtime?.cuda_memory_mb ? `${Math.round(runtime.cuda_memory_mb / 1024)} GB` : "Not detected"}</dd></div>
+          <div><dt>CUDA memory</dt><dd>{cudaMemoryLabel(runtime)}</dd></div>
           <div><dt>Product activation</dt><dd>Off until calibrated</dd></div>
         </dl>
       </div>
@@ -342,6 +362,7 @@ function ModelsView({ catalog, transport }: { catalog: TextAnalysisResearchCatal
   return (
     <>
       <ModelLabInventoryPanel transport={transport} />
+      <ModelCompatibilityPanel transport={transport} />
       <ModelEvaluationPanel transport={transport} />
       <div className="research-model-list">
         {catalog.model_candidates.map((candidate) => {

@@ -3,6 +3,8 @@ import type {
   AnalysisJobState,
   AutomationGrantRecord,
   AutomationGrantScope,
+  ModelCompatibilityCatalog,
+  ModelRuntimeInventory,
   SessionQualityAnalysisPreview,
   SessionQualityAnalysisRequest,
 } from "./contracts";
@@ -33,6 +35,13 @@ import {
   SYNTHETIC_SESSION_QUALITY_RUN,
 } from "./syntheticFixtures";
 import { SYNTHETIC_TEXT_ANALYSIS_RESEARCH } from "./syntheticResearchFixture";
+import { createSyntheticTransport } from "./syntheticTransport";
+import {
+  deriveModelCompatibilityDisposition,
+  FROZEN_MODEL_COMPATIBILITY_CONFIGURATIONS,
+  ModelCompatibilityPayloadError,
+  parseModelCompatibilityCatalog,
+} from "./modelCompatibilityContract";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -469,16 +478,244 @@ describe("same-origin HTTP transport", () => {
     );
   });
 
+  it("validates and reads the private model compatibility catalog with GET", async () => {
+    const payload = await createSyntheticTransport().getTextModelCompatibility!();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(payload));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getTextModelCompatibility?.()).resolves.toEqual(payload);
+    expect(payload.models.map((entry) => entry.configuration_key)).toEqual(
+      FROZEN_MODEL_COMPATIBILITY_CONFIGURATIONS.map(
+        (entry) => entry.configuration_key,
+      ),
+    );
+    expect(Object.isFrozen(FROZEN_MODEL_COMPATIBILITY_CONFIGURATIONS)).toBe(true);
+    expect(
+      FROZEN_MODEL_COMPATIBILITY_CONFIGURATIONS.every(Object.isFrozen),
+    ).toBe(true);
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/research/text-model-compatibility");
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({ method: "GET" }));
+    expect(fetchMock.mock.calls[1][1]?.headers).not.toEqual(
+      expect.objectContaining({ "X-Prompt-Enhancer-CSRF": expect.anything() }),
+    );
+  });
+
+  it("fails closed on extra fields and contradictory compatibility inventory", async () => {
+    const payload = await createSyntheticTransport().getTextModelCompatibility!();
+    const extraField = {
+      ...payload,
+      inventory: {
+        ...payload.inventory,
+        hostname: "SYNTHETIC_PRIVATE_CANARY",
+      },
+    };
+    const contradictory = {
+      ...payload,
+      inventory: {
+        ...payload.inventory,
+        preferred_device: "cpu",
+        cuda_state: "unknown",
+        cuda_available: false,
+        cuda_vram_bucket: null,
+        cuda_capability_bucket: null,
+        discovery_reason_codes: ["cuda_inventory_unknown"],
+      },
+    };
+    const falsifiedNf4Provenance = {
+      ...payload,
+      models: payload.models.map((entry) =>
+        entry.quantization === "bitsandbytes_nf4"
+          ? {
+              ...entry,
+              measurement_method: "not_measured",
+              measurement_precision: "not_measured",
+              observed_peak_gpu_allocation_mib: null,
+              resource_measurement_state: "missing",
+            }
+          : entry,
+      ),
+    };
+
+    for (const invalidPayload of [extraField, contradictory, falsifiedNf4Provenance]) {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+        .mockResolvedValueOnce(privateJsonResponse(invalidPayload));
+      const transport = createHttpTransport({
+        fetch: fetchMock as unknown as typeof fetch,
+        origin: "http://127.0.0.1:4173",
+      });
+      const error = await transport.getTextModelCompatibility?.().catch((value: unknown) => value);
+
+      expect(error).toBeInstanceOf(TransportError);
+      expect(error).toMatchObject({ status: 200 });
+      expect(String(error)).toBe("TransportError: Model compatibility response was invalid");
+      expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+    }
+  });
+
+  it("rejects every omission, swap, and immutable compatibility provenance change", async () => {
+    const payload = await createSyntheticTransport().getTextModelCompatibility!();
+    const fullPrecisionKey = "qwen3_4b_rubric_full_precision_cuda_screen_v1";
+    const measuredSmallKey = "mdeberta_xnli_unquantized_cuda_screen_v1";
+
+    const patchEntry = (
+      key: string,
+      patch: Record<string, unknown>,
+    ): ModelCompatibilityCatalog => {
+      const changed = structuredClone(payload);
+      const index = changed.models.findIndex(
+        (entry) => entry.configuration_key === key,
+      );
+      expect(index).toBeGreaterThanOrEqual(0);
+      changed.models[index] = {
+        ...changed.models[index],
+        ...patch,
+      } as typeof changed.models[number];
+      return changed;
+    };
+
+    const omitted = structuredClone(payload);
+    omitted.models.splice(3, 1);
+    const duplicated = structuredClone(payload);
+    duplicated.models[3] = structuredClone(duplicated.models[2]);
+    const swapped = structuredClone(payload);
+    [swapped.models[2], swapped.models[3]] = [
+      swapped.models[3],
+      swapped.models[2],
+    ];
+
+    const attacks: Array<[string, unknown]> = [
+      ["omitted configuration", omitted],
+      ["duplicate configuration", duplicated],
+      ["reordered configurations", swapped],
+      ["configuration identity", patchEntry(fullPrecisionKey, { configuration_key: "forged_configuration_v1" })],
+      ["private extra field", patchEntry(fullPrecisionKey, { raw_model_path: "SYNTHETIC_PRIVATE_CANARY" })],
+      ["model identity", patchEntry(fullPrecisionKey, { model_key: "forged_model" })],
+      ["repository identity", patchEntry(fullPrecisionKey, { repository_id: "ExampleOrg/forged-model" })],
+      ["revision", patchEntry(fullPrecisionKey, { revision: "b".repeat(40) })],
+      ["task", patchEntry(fullPrecisionKey, { task: "requirement_action_retrieval" })],
+      ["role", patchEntry(fullPrecisionKey, { role: "retrieval" })],
+      ["language scope", patchEntry(fullPrecisionKey, { language_scope: "english" })],
+      ["license", patchEntry(fullPrecisionKey, { license_spdx: "MIT" })],
+      ["quantization", patchEntry(fullPrecisionKey, { quantization: "bitsandbytes_nf4" })],
+      ["dtype", patchEntry(fullPrecisionKey, { dtype: "float32" })],
+      ["runtime", patchEntry(fullPrecisionKey, { runtime: "forged_runtime" })],
+      ["measurement source", patchEntry(fullPrecisionKey, { measurement_source: "forged_source" })],
+      ["GPU measurement", patchEntry(measuredSmallKey, { observed_peak_gpu_allocation_mib: 1_121.561 })],
+      ["benchmark identity", patchEntry(measuredSmallKey, { benchmark_key: "forged_benchmark" })],
+      ["case count", patchEntry(measuredSmallKey, { synthetic_case_count: 19 })],
+      ["trust boundary", patchEntry(fullPrecisionKey, { trust_remote_code: true })],
+      ["product activation", patchEntry(fullPrecisionKey, { product_enabled: true })],
+      ["activation permission", patchEntry(fullPrecisionKey, { activation_allowed: true })],
+      ["download permission", patchEntry(fullPrecisionKey, { download_allowed: true })],
+      ["status", patchEntry(measuredSmallKey, { status: "unavailable" })],
+      ["reason", patchEntry(measuredSmallKey, { reason_codes: ["cuda_unavailable"] })],
+      [
+        "coherent but forged missing measurement",
+        patchEntry(measuredSmallKey, {
+          measurement_method: "not_measured",
+          measurement_precision: "not_measured",
+          resource_measurement_state: "missing",
+          observed_peak_gpu_allocation_mib: null,
+          benchmark_key: null,
+          synthetic_case_count: null,
+        }),
+      ],
+      [
+        "coherent but forged complete measurement",
+        patchEntry(measuredSmallKey, {
+          resource_measurement_state: "complete",
+          observed_peak_child_rss_mib: 512,
+          status: "research_only",
+          reason_codes: ["exploratory_resource_fit"],
+        }),
+      ],
+    ];
+
+    for (const [name, attack] of attacks) {
+      expect(
+        () => parseModelCompatibilityCatalog(attack),
+        name,
+      ).toThrow(ModelCompatibilityPayloadError);
+    }
+  });
+
+  it("accepts status changes only when they are exactly derived from coherent inventory", async () => {
+    const base = await createSyntheticTransport().getTextModelCompatibility!();
+    const inventoryCases: Array<Partial<ModelRuntimeInventory>> = [
+      {
+        preferred_device: "cpu",
+        cuda_state: "unknown",
+        cuda_available: null,
+        mps_available: false,
+        cuda_vram_bucket: null,
+        cuda_capability_bucket: null,
+        discovery_reason_codes: ["cuda_inventory_unknown"],
+      },
+      {
+        preferred_device: "cpu",
+        cuda_state: "unavailable",
+        cuda_available: false,
+        mps_available: false,
+        cuda_vram_bucket: null,
+        cuda_capability_bucket: null,
+        discovery_reason_codes: [],
+      },
+      { system_ram_bucket: "below_16_gib_class" },
+      { cuda_vram_bucket: "below_8_gib_class" },
+    ];
+
+    for (const patch of inventoryCases) {
+      const inventory = {
+        ...base.inventory,
+        ...patch,
+      } satisfies ModelRuntimeInventory;
+      const payload = {
+        ...base,
+        inventory,
+        models: FROZEN_MODEL_COMPATIBILITY_CONFIGURATIONS.map(
+          (configuration) => ({
+            ...configuration,
+            ...deriveModelCompatibilityDisposition(inventory, configuration),
+          }),
+        ),
+      } satisfies ModelCompatibilityCatalog;
+
+      expect(parseModelCompatibilityCatalog(payload)).toEqual(payload);
+    }
+  });
+
   it("starts only an explicit local synthetic model job with CSRF", async () => {
     const runtime = {
       preferred_device: "cuda",
+      cuda_state: "available",
       cuda_available: true,
       mps_available: false,
       cpu_available: true,
-      cuda_memory_mb: 16384,
+      cpu_architecture_bucket: "x86_64",
+      logical_core_bucket: "9_to_16",
+      system_ram_bucket: "16_gib_class",
+      cuda_vram_bucket: "16_gib_class",
+      cuda_capability_bucket: "8_x",
+      model_cache_free_disk_bucket: "10240_to_51199_mib",
+      discovery_reason_codes: [],
+      inventory_version: "bucketed-sensitive-hardware-inventory-v3",
       one_model_at_a_time: true,
       subprocess_isolation: true,
       raw_session_data_accepted: false,
+      model_child_gpu_allocation_ceiling_mib: 6144,
+      model_child_rss_ceiling_mib: 8192,
+      model_downloads_started: false,
+      model_activation_allowed: false,
+      sensitivity: "sensitive_derived",
+      local_only: true,
+      persisted: false,
+      synced: false,
     } as const;
     const job = {
       job_id: "a".repeat(32),
