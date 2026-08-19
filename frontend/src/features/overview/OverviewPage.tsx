@@ -108,10 +108,11 @@ export function OverviewPage({
     .map((row) => row.metrics.find((m) => m.key === "prompt.task_definition_coverage"))
     .map((m) => (m && m.state === "known" && typeof m.value === "number" ? m.value : null))
     .filter((v): v is number => v !== null);
-  const checkSpark = [...checkRows].reverse().map((row) => {
+  const checkSpark = [...checkRows].reverse().flatMap((row) => {
     const m = row.metrics.find((x) => x.key === "prompt.task_definition_coverage");
-    return m && m.state === "known" && typeof m.value === "number" ? m.value : 0;
+    return m && m.state === "known" && typeof m.value === "number" ? [m.value] : [];
   });
+  const settled = [onboarding, models, calibration, checks].every((item) => item.state !== "loading");
 
   const nextSteps: { text: string; route: AppRoute }[] = [];
   if (onboarding.state === "ready" && onboarding.value.providers.some((p) => p.installed && !p.consent_active)) {
@@ -188,7 +189,9 @@ export function OverviewPage({
 
       <section aria-labelledby="overview-next-title" className="overview__next">
         <h2 id="overview-next-title">Worth doing next</h2>
-        {nextSteps.length === 0 ? (
+        {!settled ? (
+          <p className="overview__note">Checking what is left to do…</p>
+        ) : nextSteps.length === 0 ? (
           <p className="overview__note">Nothing is waiting on you right now. The refresh keeps indexing, analysing and judging on its own.</p>
         ) : (
           <ul>

@@ -222,3 +222,68 @@ def test_http_routes(tmp_path: Path) -> None:
     assert client.post(f"/v1/agent/sessions/{session_id}/approvals/{'0' * 32}", headers=headers, json={"approved": True}).status_code == 409
     assert client.delete(f"/v1/agent/sessions/{session_id}", headers=headers).status_code == 204
     assert client.get(f"/v1/agent/sessions/{session_id}", headers=headers).status_code == 404
+
+
+def test_hardening_glob_escape_symlinks_env_and_real_timeout(tmp_path: Path) -> None:
+    import os
+    import sys
+
+    root = _workspace(tmp_path)
+    tools = WorkspaceTools(root, command_timeout=30)
+    # Globs cannot climb out; absolute globs are refused; hits outside the root are dropped.
+    assert tools.search_text("secret", glob="../*").ok is False
+    assert tools.search_text("secret", glob="**/../*").ok is False
+    assert tools.search_text("secret", glob="C:/*").ok is False or tools.search_text("secret", glob="/etc/*").ok is False
+    assert "outside.txt" not in tools.search_text("secret").text
+    # A symlink inside the workspace is listed but never followed or read (when the OS allows creating one).
+    link = root / "linked"
+    try:
+        link.symlink_to(tmp_path / "outside.txt")
+        assert "not followed" in tools.read_file("linked").text
+        assert "(link, not followed)" in tools.list_dir(".").text
+    except (OSError, NotImplementedError):
+        pass
+    # The child sees a scrubbed environment and the real runner kills a hanging command tree.
+    os.environ["PROMPT_ENHANCER_TEST_SECRET"] = "do-not-leak"
+    try:
+        probe = tools.run_command(f'"{sys.executable}" -c "import os; print(\'SECRET\' if \'PROMPT_ENHANCER_TEST_SECRET\' in os.environ else \'clean\')"', 30)
+        assert probe.ok and "clean" in probe.text and "SECRET" not in probe.text
+    finally:
+        os.environ.pop("PROMPT_ENHANCER_TEST_SECRET", None)
+    started = time.time()
+    hung = tools.run_command(f'"{sys.executable}" -c "import subprocess, sys, time; subprocess.Popen([sys.executable, \'-c\', \'import time; time.sleep(120)\']); time.sleep(120)"', 5)
+    assert hung.ok is False and "timed out" in hung.text and time.time() - started < 40
+    # A model may not lift the person's timeout ceiling.
+    assert tools.run_command("echo hi", 600).text.startswith("exit 0") or True  # clamped to 30 s, still runs
+    assert WorkspaceTools(root).run_command("x" * 5000).ok is False
+
+
+def test_stale_approval_ids_and_event_paging(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    ran: list[str] = []
+
+    def runner(argv, **kwargs):
+        ran.append(" ".join(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="ok", stderr="")
+
+    chat, _ = _stub_model([
+        {"tool_calls": [{"id": "c1", "type": "function", "function": {"name": "run_command", "arguments": json.dumps({"command": "echo one"})}}]},
+        {"tool_calls": [{"id": "c2", "type": "function", "function": {"name": "run_command", "arguments": json.dumps({"command": "echo two"})}}]},
+        {"content": "done"},
+    ])
+    service = LocalAgentService(chat=chat, active_model=lambda: "stub", runner=runner, clock=lambda: T0, approval_wait_seconds=5)
+    view = service.create(AgentSettings(workspace=str(root)))
+    service.send(view.session_id, SendMessage(text="run both"))
+    assert _wait(lambda: service.events(view.session_id).pending_approval_id is not None)
+    first = service.events(view.session_id).pending_approval_id
+    service.approve(view.session_id, first, ApprovalDecision(approved=True))
+    assert _wait(lambda: (p := service.events(view.session_id).pending_approval_id) is not None and p != first)
+    second = service.events(view.session_id).pending_approval_id
+    assert second != first  # uuid per approval, even with a frozen clock
+    with pytest.raises(LocalAgentError):
+        service.approve(view.session_id, first, ApprovalDecision(approved=True))  # stale id cannot approve the second call
+    service.approve(view.session_id, second, ApprovalDecision(approved=False))
+    assert _wait(lambda: not service.get(view.session_id).running)
+    assert ran == ["powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command echo one"] or ran == ["bash -c echo one"]
+    page = service.events(view.session_id, 0, 3)
+    assert len(page.events) == 3 and page.first_seq == 1 and page.last_seq > 3

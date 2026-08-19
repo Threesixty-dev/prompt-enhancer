@@ -93,21 +93,23 @@ export function LocalModelsPage({
     return () => { controller.abort(); window.clearInterval(handle); };
   }, [load]);
 
-  async function run(label: string, action: () => Promise<unknown>, okMessage: string) {
+  async function run(label: string, action: () => Promise<unknown>, okMessage: string | null) {
     setBusy(label);
     setMessage("");
     try {
       await action();
-      setMessage(okMessage);
+      if (okMessage) setMessage(okMessage);
       await load();
     } catch (caught) {
-      const code = caught instanceof TransportError ? caught.message : "";
-      setMessage(code.includes("runtime_unavailable")
-        ? "llama-server is not installed or not on PATH; see the runtime card."
-        : code.includes("runtime_not_healthy")
+      const status = caught instanceof TransportError ? caught.status : null;
+      setMessage(status === 409 && label !== "download"
+        ? "llama-server is not installed or not on PATH (or that alias already exists); see the runtime card."
+        : status === 502
           ? "The runtime started but never became healthy - try fewer GPU layers or CPU."
-          : code.includes("gated") ? "Hugging Face refused the download: accept the model's terms on its page while logged in, then retry."
-            : "That did not work. Nothing was changed.");
+          : status === 422
+            ? "That is not a usable GGUF file or folder."
+            : status === 409 ? "Hugging Face refused the download: accept the model's terms on its page while logged in, then retry."
+              : "That did not work. Nothing was changed.");
     } finally {
       setBusy("");
     }
@@ -223,7 +225,7 @@ export function LocalModelsPage({
                 <div className="local-models__actions">
                   <button
                     className="button button--primary"
-                    disabled={busy !== "" || !overview.runtime_available}
+                    disabled={busy === item.record.alias || !overview.runtime_available}
                     onClick={() => {
                       const raw = (layers[item.record.alias] ?? "").trim();
                       const parsed = raw === "" ? null : Number.parseInt(raw, 10);
@@ -234,7 +236,7 @@ export function LocalModelsPage({
                   >
                     {busy === item.record.alias ? "Starting…" : running ? "Restart" : "Activate"}
                   </button>
-                  <button className="button button--ghost" disabled={busy !== "" || !running} onClick={() => void run(item.record.alias, () => transport.deactivateLocalModel(item.record.alias), `${item.record.display_name} stopped.`)} type="button">
+                  <button className="button button--ghost" disabled={busy === item.record.alias || !running} onClick={() => void run(item.record.alias, () => transport.deactivateLocalModel(item.record.alias), `${item.record.display_name} stopped.`)} type="button">
                     Deactivate
                   </button>
                   <button className="button button--ghost" disabled={busy !== ""} onClick={() => { if (window.confirm(`Remove ${item.record.display_name} from the registry? The weights stay on disk.`)) void run(item.record.alias, () => transport.removeLocalModel(item.record.alias, false), "Removed."); }} type="button">
@@ -324,7 +326,7 @@ export function LocalModelsPage({
               <span>…or point at a folder: every GGUF in it (one level deep) gets registered, nothing is moved</span>
               <span className="local-models__inline">
                 <input aria-label="Model folder" onChange={(e) => setFolderPath(e.currentTarget.value)} placeholder="for example D:\\models" type="text" value={folderPath} />
-                <button className="button button--ghost" disabled={!folderPath.trim() || busy !== ""} onClick={() => void run("scan", async () => { const result = await transport.scanLocalModelFolder!(folderPath.trim()); setMessage(`${result.registered.length} registered, ${result.skipped_existing} already known, ${result.skipped_invalid} skipped.`); }, "Folder scanned.")} type="button">Scan folder</button>
+                <button className="button button--ghost" disabled={!folderPath.trim() || busy !== ""} onClick={() => void run("scan", async () => { const result = await transport.scanLocalModelFolder!(folderPath.trim()); setMessage(`${result.registered.length} registered, ${result.skipped_existing} already known, ${result.skipped_invalid} skipped.`); }, null)} type="button">Scan folder</button>
               </span>
             </label>
           )}
@@ -347,7 +349,7 @@ export function LocalModelsPage({
           </ul>
         )}
       </section>
-      {message && <p className="local-models__message" aria-live="polite">{message}</p>}
+      <p className="local-models__message" aria-live="polite" role="status">{message}</p>
     </section>
   );
 }

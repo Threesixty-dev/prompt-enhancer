@@ -23,7 +23,7 @@ export function PromptMetricRadar({ readings }: { readings: RadarReading[] }) {
   const polygon = points.map((p) => (p.value === null ? polar(cx, cy, 0, 0, 1) : p.point)).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   return (
     <figure className="prompt-plot prompt-plot--radar">
-      <svg aria-label="Prompt metric radar" role="img" viewBox={`0 0 ${size} ${size}`}>
+      <svg aria-label="Prompt metric radar" role="img" viewBox={`-110 -8 ${size + 220} ${size + 16}`}>
         <title>Prompt metrics - {known.length} of {readings.length} measurable</title>
         {rings.map((ring) => (
           <polygon

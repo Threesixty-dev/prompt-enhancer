@@ -96,6 +96,7 @@ export function PromptCheckPage({
 
   useEffect(() => {
     if (!checkId) { setStored(null); return; }
+    setResult(null);
     const controller = new AbortController();
     transport.getPromptCheck(checkId, controller.signal).then((record) => { if (!controller.signal.aborted) setStored(record); }).catch(() => { if (!controller.signal.aborted) setStored(null); });
     return () => controller.abort();
@@ -275,7 +276,7 @@ export function PromptCheckPage({
         </section>
       )}
 
-      {stored && !result && (
+      {stored && (
         <section className="prompt-check__result" aria-label="Stored check">
           <h2>Stored check</h2>
           <p className="prompt-check__note">

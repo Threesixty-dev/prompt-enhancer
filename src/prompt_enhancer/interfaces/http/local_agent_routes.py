@@ -72,9 +72,13 @@ def create_local_agent_router(require_local_auth: Callable[..., None], service: 
             raise _failure(error) from None
 
     @router.get("/sessions/{session_id}/events", response_model=AgentEvents)
-    def events(session_id: Annotated[str, Path(pattern=_SESSION_ID)], after: Annotated[int, Query(ge=0)] = 0) -> AgentEvents:
+    def events(
+        session_id: Annotated[str, Path(pattern=_SESSION_ID)],
+        after: Annotated[int, Query(ge=0)] = 0,
+        limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    ) -> AgentEvents:
         try:
-            return service.events(session_id, after)
+            return service.events(session_id, after, limit)
         except LocalAgentError as error:
             raise _failure(error) from None
 

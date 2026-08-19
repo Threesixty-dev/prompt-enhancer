@@ -51,7 +51,7 @@
 /* plots */
 .prompt-plot { margin: 0; display: grid; gap: 0.3rem; }
 .prompt-plot svg { width: 100%; height: auto; max-width: 40rem; }
-.prompt-plot--radar svg { max-width: 22rem; justify-self: center; }
+.prompt-plot--radar svg { max-width: 34rem; justify-self: center; }
 .prompt-plot figcaption { font-size: 0.76rem; color: var(--ink-500, var(--p-5b6573)); }
 .prompt-plot__ring, .prompt-plot__axis, .prompt-plot__grid { fill: none; stroke: var(--border, var(--p-d5d9e0)); stroke-width: 1; }
 .prompt-plot__area { fill: var(--pa-47-143-91-220); stroke: var(--p-2f8f5b); stroke-width: 2; }

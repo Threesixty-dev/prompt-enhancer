@@ -4,6 +4,7 @@ import { TransportError } from "../../shared/api/httpTransport";
 import "./AgentPage.css";
 
 const POLL_MS = 700;
+const IDLE_POLL_MS = 4000;
 const TOOL_LABELS: Record<string, string> = {
   read_file: "Read file",
   list_dir: "List folder",
@@ -104,22 +105,29 @@ export function AgentPage({
     if (!current) return;
     let cancelled = false;
     const controller = new AbortController();
-    const tick = async () => {
+    const tick = async (): Promise<boolean> => {
       try {
         const page = await transport.getAgentEvents(current.session_id, lastSeq.current, controller.signal);
-        if (cancelled) return;
+        if (cancelled) return false;
         if (page.events.length > 0) {
           setEvents((prev) => [...prev, ...page.events]);
-          lastSeq.current = page.last_seq;
+          lastSeq.current = page.events[page.events.length - 1].seq;
         }
         setCurrent((prev) => prev && prev.session_id === page.session_id ? { ...prev, running: page.running, pending_approval_id: page.pending_approval_id ?? null, last_seq: page.last_seq } : prev);
+        return page.running || Boolean(page.pending_approval_id) || page.events.length > 0;
       } catch {
-        // transient; keep polling
+        return true; // transient; keep polling at the active rate
       }
     };
-    void tick();
-    const handle = window.setInterval(() => void tick(), POLL_MS);
-    return () => { cancelled = true; controller.abort(); window.clearInterval(handle); };
+    let handle = 0;
+    const schedule = (active: boolean) => {
+      if (cancelled) return;
+      handle = window.setTimeout(async () => {
+        schedule(await tick());
+      }, active ? POLL_MS : IDLE_POLL_MS);
+    };
+    void tick().then(schedule);
+    return () => { cancelled = true; controller.abort(); window.clearTimeout(handle); };
   }, [current?.session_id, transport]);
 
   useEffect(() => {
@@ -238,6 +246,7 @@ export function AgentPage({
               <label className="agent__toggle"><input checked={allowCommands} onChange={(e) => setAllowCommands(e.currentTarget.checked)} type="checkbox" /><span>May run commands (each command needs approval)</span></label>
               <label className="agent__toggle"><input checked={allowWeb} onChange={(e) => setAllowWeb(e.currentTarget.checked)} type="checkbox" /><span>May fetch web pages (each fetch needs approval)</span></label>
               <button className="button button--primary" disabled={busy || !workspace.trim()} type="submit">Start session</button>
+              {message && !current && <p className="agent__error" role="alert">{message}</p>}
             </form>
             <section className="agent__sessions" aria-labelledby="agent-sessions-title">
               <h2 id="agent-sessions-title">Sessions</h2>
@@ -249,7 +258,7 @@ export function AgentPage({
                         <strong>{s.settings.title || s.settings.workspace.split(/[\\/]/).filter(Boolean).pop()}</strong>
                         <small>{s.running ? "running" : s.pending_approval_id ? "waiting for you" : `${s.turns} turns`}{s.model_alias ? ` · ${s.model_alias}` : ""}</small>
                       </button>
-                      <button aria-label={`Close session ${s.session_id.slice(0, 8)}`} className="agent__session-close" onClick={() => void closeSession(s.session_id)} title="Close session" type="button">×</button>
+                      <button aria-label={`Close session ${s.settings.title || s.settings.workspace.split(/[\\/]/).filter(Boolean).pop()}`} className="agent__session-close" onClick={() => { if (window.confirm("Close this session? The conversation is not stored anywhere and cannot be reopened.")) void closeSession(s.session_id); }} title="Close session" type="button">×</button>
                     </li>
                   ))}
                 </ul>
@@ -267,7 +276,7 @@ export function AgentPage({
                 <code>{current.settings.workspace}</code>
                 <span>{current.model_alias ?? "no model"} · {current.settings.allow_writes ? "writes" : "no writes"} · {current.settings.allow_commands ? "commands" : "no commands"} · {current.settings.allow_web ? "web" : "no web"}</span>
               </div>
-              <div aria-live="polite" className="agent__log" ref={logRef} role="log">
+              <div className="agent__log" ref={logRef} role="log" aria-live="off">
                 {events.map((event) => <EventRow key={event.seq} event={event} />)}
                 {current.running && !pending && <p className="agent__thinking">Working…</p>}
               </div>

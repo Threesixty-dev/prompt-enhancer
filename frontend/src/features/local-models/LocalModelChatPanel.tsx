@@ -34,11 +34,12 @@ export function LocalModelChatPanel({
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
-  const chosen = running.find((item) => item.record.alias === alias) ?? running[0] ?? null;
+  const chosen = alias ? running.find((item) => item.record.alias === alias) ?? null : running[0] ?? null;
+  const lostModel = Boolean(alias) && running.length > 0 && !running.some((item) => item.record.alias === alias);
 
   useEffect(() => {
-    if (chosen && chosen.record.alias !== alias) setAlias(chosen.record.alias);
-  }, [alias, chosen]);
+    if (!alias && running[0]) setAlias(running[0].record.alias);
+  }, [alias, running]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -127,7 +128,8 @@ export function LocalModelChatPanel({
           New conversation
         </button>
       </div>
-      <div aria-live="polite" className="local-chat__log" ref={logRef} role="log">
+      {lostModel && <p className="local-models__error" role="alert">{alias} is no longer running. Pick another model above or activate it again.</p>}
+      <div className="local-chat__log" ref={logRef} role="log" aria-live="off">
         {turns.length === 0 && !draft && (
           <p className="local-models__note">Nothing yet. Ask for a commit message, a regex, a summary of an error - whatever is handy. Stays on this machine.</p>
         )}

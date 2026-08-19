@@ -45,6 +45,7 @@ export function ModelJudgePane({
     const controller = new AbortController();
     setState("loading");
     setMessage("");
+    setReading(null);
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
@@ -73,7 +74,7 @@ export function ModelJudgePane({
       setMessage(outcome.raw_valid ? `Judged by ${outcome.model_alias}.` : "The model did not answer in the required format.");
       await load();
     } catch (caught) {
-      setMessage(caught instanceof TransportError && caught.message.includes("409")
+      setMessage(caught instanceof TransportError && caught.status === 409
         ? "No local model is active - activate one on the Models page."
         : "The model judge is not available right now.");
     } finally {

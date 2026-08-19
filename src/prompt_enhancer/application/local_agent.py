@@ -26,6 +26,7 @@ import subprocess
 import threading
 import time
 from typing import Any, Literal
+import uuid
 
 from pydantic import Field, field_validator
 
@@ -40,7 +41,12 @@ MAX_TOOL_RESULT_CHARS = 24_000
 MAX_FILE_READ_BYTES = 96_000
 MAX_LIST_ENTRIES = 400
 MAX_SEARCH_RESULTS = 80
-MAX_DIFF_CHARS = 12_000
+MAX_DIFF_CHARS = 60_000
+MAX_REVIEWABLE_COMMAND_CHARS = 4_000
+MAX_TOOL_CALLS_PER_REPLY = 8
+MAX_HISTORY_MESSAGES = 60
+OLD_TOOL_RESULT_KEEP_CHARS = 2_000
+MAX_EVENT_PAGE = 500
 MAX_COMMAND_SECONDS = 600
 DEFAULT_COMMAND_SECONDS = 120
 APPROVAL_WAIT_SECONDS = 1_800
@@ -111,6 +117,8 @@ class AgentEvents(StrictModel):
     running: bool
     pending_approval_id: str | None = None
     last_seq: int
+    #: Oldest sequence number still kept; a client whose cursor is below it missed events.
+    first_seq: int = 0
 
 
 class SendMessage(StrictModel):
@@ -169,7 +177,7 @@ class WorkspaceTools:
     def __init__(self, root: Path, *, command_timeout: int = DEFAULT_COMMAND_SECONDS, runner: Callable[..., subprocess.CompletedProcess[str]] | None = None, fetcher: Callable[[str], str] | None = None) -> None:
         self.root = root.resolve()
         self._command_timeout = command_timeout
-        self._runner = runner or subprocess.run
+        self._runner = runner or run_with_tree_kill
         self._fetcher = fetcher
 
     def resolve(self, relative: str) -> Path:
@@ -182,6 +190,8 @@ class WorkspaceTools:
         target = self.resolve(path)
         if not target.is_file():
             return ToolOutcome(False, f"not a file: {path}")
+        if (self.root / (path or ".")).is_symlink():
+            return ToolOutcome(False, f"is a link, not followed: {path}")
         data = target.read_bytes()
         truncated = len(data) > MAX_FILE_READ_BYTES
         text = data[:MAX_FILE_READ_BYTES].decode("utf-8", errors="replace")
@@ -205,6 +215,9 @@ class WorkspaceTools:
                 if len(lines) >= MAX_LIST_ENTRIES:
                     return
                 rel = entry.relative_to(self.root).as_posix()
+                if entry.is_symlink():
+                    lines.append(f"{rel} (link, not followed)")
+                    continue
                 if entry.is_dir():
                     if entry.name in SKIP_DIRS:
                         lines.append(f"{rel}/ (skipped)")
@@ -231,12 +244,21 @@ class WorkspaceTools:
             pattern = re.compile(query if regex else re.escape(query), re.I)
         except re.error:
             return ToolOutcome(False, "invalid regex")
+        pattern_path = Path(glob or "**/*")
+        if pattern_path.is_absolute() or ".." in pattern_path.parts or (glob or "").startswith(("/", "\\")):
+            return ToolOutcome(False, "glob must stay inside the workspace")
         results: list[str] = []
         scanned = 0
         for file in self.root.glob(glob or "**/*"):
             if len(results) >= MAX_SEARCH_RESULTS or scanned > 20_000:
                 break
-            if not file.is_file() or any(part in SKIP_DIRS for part in file.relative_to(self.root).parts):
+            try:
+                real = file.resolve()
+            except OSError:
+                continue
+            if real != self.root and self.root not in real.parents:
+                continue
+            if file.is_symlink() or not file.is_file() or any(part in SKIP_DIRS for part in file.relative_to(self.root).parts):
                 continue
             try:
                 if file.stat().st_size > 2_000_000:
@@ -272,13 +294,22 @@ class WorkspaceTools:
         return ToolOutcome(True, f"wrote {path} ({len(content)} characters)")
 
     def run_command(self, command: str, timeout_seconds: int | None = None) -> ToolOutcome:
-        timeout = max(5, min(int(timeout_seconds or self._command_timeout), MAX_COMMAND_SECONDS))
+        # The person's session setting is the ceiling; the model may only ask for less.
+        requested = int(timeout_seconds) if timeout_seconds else self._command_timeout
+        timeout = max(5, min(requested, self._command_timeout, MAX_COMMAND_SECONDS))
+        if len(command) > MAX_REVIEWABLE_COMMAND_CHARS:
+            return ToolOutcome(False, "command too long to review; split it into smaller commands")
         if platform.system() == "Windows":
-            argv = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command]
+            # PowerShell needs the call operator for a quoted executable path ("C:\x y\python.exe" -c ...).
+            shell_command = ("& " + command) if command.lstrip().startswith(('"', "'")) else command
+            argv = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", shell_command]
         else:
-            argv = ["bash", "-lc", command]
+            argv = ["bash", "-c", command]
         try:
-            completed = self._runner(argv, cwd=str(self.root), capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL, errors="replace")
+            completed = self._runner(
+                argv, cwd=str(self.root), capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+                errors="replace", env=minimal_environment(),
+            )
         except subprocess.TimeoutExpired:
             return ToolOutcome(False, f"timed out after {timeout}s")
         except OSError as error:
@@ -294,6 +325,59 @@ class WorkspaceTools:
             return ToolOutcome(True, self._fetcher(url)[:MAX_TOOL_RESULT_CHARS])
         except Exception as error:  # noqa: BLE001 - reported as text to the model, never raised into the loop
             return ToolOutcome(False, f"fetch failed: {error.__class__.__name__}")
+
+
+_ENV_KEEP = ("PATH", "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP", "HOME", "USERPROFILE", "APPDATA",
+             "LOCALAPPDATA", "PROGRAMDATA", "LANG", "LC_ALL", "TERM", "SHELL", "USERNAME", "USER", "PROCESSOR_ARCHITECTURE",
+             "NUMBER_OF_PROCESSORS", "PYTHONIOENCODING", "VIRTUAL_ENV", "NVM_DIR", "JAVA_HOME", "CARGO_HOME", "GOPATH")
+
+
+def minimal_environment() -> dict[str, str]:
+    """Child commands get PATH and the usual locations, never the app's own secrets or tokens."""
+
+    env = {key: value for key, value in os.environ.items() if key in _ENV_KEEP or key.upper() in _ENV_KEEP}
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
+    return env
+
+
+def run_with_tree_kill(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    """Like subprocess.run, but a timeout kills the whole process tree and never hangs on the pipes."""
+
+    timeout = kwargs.pop("timeout", None)
+    kwargs.pop("capture_output", None)
+    popen_kwargs: dict[str, Any] = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, **kwargs}
+    if platform.system() == "Windows":
+        popen_kwargs["creationflags"] = popen_kwargs.get("creationflags", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        popen_kwargs["start_new_session"] = True
+    process = subprocess.Popen(argv, **popen_kwargs)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(process)
+        try:
+            process.communicate(timeout=5)
+        except Exception:  # noqa: BLE001 - best effort drain
+            pass
+        raise
+    return subprocess.CompletedProcess(argv, process.returncode, stdout or "", stderr or "")
+
+
+def _kill_tree(process: subprocess.Popen[Any]) -> None:
+    try:
+        if platform.system() == "Windows":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
+        else:
+            import signal
+
+            os.killpg(process.pid, signal.SIGKILL)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        process.kill()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ----- sessions and the run loop -----
@@ -360,7 +444,7 @@ class LocalAgentService:
         with self._lock:
             if len(self._sessions) >= MAX_SESSIONS:
                 raise LocalAgentError("too_many_sessions")
-            session_id = hashlib.md5(f"{self._clock().isoformat()}|{root}|{len(self._sessions)}".encode("utf-8")).hexdigest()  # noqa: S324 - identifier only
+            session_id = uuid.uuid4().hex
             session = AgentSession(
                 session_id=session_id,
                 settings=settings,
@@ -383,23 +467,34 @@ class LocalAgentService:
     def delete(self, session_id: str) -> None:
         session = self._session(session_id)
         self.stop(session_id)
+        thread = session.thread
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=15)
         with self._lock:
             self._sessions.pop(session_id, None)
 
-    def events(self, session_id: str, after: int = 0) -> AgentEvents:
+    def events(self, session_id: str, after: int = 0, limit: int = MAX_EVENT_PAGE) -> AgentEvents:
         session = self._session(session_id)
+        limit = max(1, min(int(limit), MAX_EVENT_PAGE))
         with session.lock:
-            items = tuple(event for event in session.events if event.seq > after)
-            return AgentEvents(session_id=session_id, events=items, running=session.running, pending_approval_id=session.pending.approval_id if session.pending else None, last_seq=session.events[-1].seq if session.events else 0)
+            items = tuple(event for event in session.events if event.seq > after)[:limit]
+            return AgentEvents(
+                session_id=session_id,
+                events=items,
+                running=session.running,
+                pending_approval_id=session.pending.approval_id if session.pending else None,
+                last_seq=session.events[-1].seq if session.events else 0,
+                first_seq=session.events[0].seq if session.events else 0,
+            )
 
     # -- turns --
 
     def send(self, session_id: str, message: SendMessage) -> AgentSessionView:
         session = self._session(session_id)
+        alias = session.settings.model_alias or self._active_model()
         with session.lock:
             if session.running:
                 raise LocalAgentError("turn_in_progress")
-            alias = session.settings.model_alias or self._active_model()
             if alias is None:
                 raise LocalAgentError("no_active_model")
             session.running = True
@@ -444,6 +539,7 @@ class LocalAgentService:
         return session
 
     def _view(self, session: AgentSession) -> AgentSessionView:
+        alias = session.settings.model_alias or self._active_model()  # may probe hardware; never under the lock
         with session.lock:
             return AgentSessionView(
                 session_id=session.session_id,
@@ -452,7 +548,7 @@ class LocalAgentService:
                 running=session.running,
                 last_seq=session.events[-1].seq if session.events else 0,
                 pending_approval_id=session.pending.approval_id if session.pending else None,
-                model_alias=session.settings.model_alias or self._active_model(),
+                model_alias=alias,
                 turns=session.turns,
             )
 
@@ -471,6 +567,7 @@ class LocalAgentService:
                 if session.stop_requested:
                     self._emit(session, "status", text="Stopped.")
                     break
+                _trim_history(session.messages)
                 body = json.dumps({
                     "messages": session.messages,
                     "tools": tool_schemas(session.settings),
@@ -500,7 +597,9 @@ class LocalAgentService:
                     self._emit(session, "assistant", text=content)
                 if not tool_calls:
                     break
-                for call in tool_calls:
+                if len(tool_calls) > MAX_TOOL_CALLS_PER_REPLY:
+                    self._emit(session, "status", text=f"The model asked for {len(tool_calls)} tool calls at once; only the first {MAX_TOOL_CALLS_PER_REPLY} run.")
+                for call in tool_calls[:MAX_TOOL_CALLS_PER_REPLY]:
                     if session.stop_requested:
                         break
                     call_id = str(call.get("id") or hashlib.md5(json.dumps(call, sort_keys=True).encode()).hexdigest()[:12])  # noqa: S324
@@ -546,6 +645,10 @@ class LocalAgentService:
             preview = None
             if tool is ToolName.WRITE_FILE:
                 preview = tools.diff_preview(str(arguments.get("path") or ""), str(arguments.get("content") or ""))
+                if preview.endswith("… diff truncated"):
+                    return ToolOutcome(False, "change too large to review in one step; write it in smaller pieces")
+            if tool is ToolName.RUN_COMMAND and len(str(arguments.get("command") or "")) > MAX_REVIEWABLE_COMMAND_CHARS:
+                return ToolOutcome(False, "command too long to review; split it into smaller commands")
             if not self._await_approval(session, tool, arguments, preview):
                 return ToolOutcome(False, "denied by the person - do not retry this call; explain or choose another approach")
             if tool is ToolName.WRITE_FILE:
@@ -559,8 +662,10 @@ class LocalAgentService:
             return ToolOutcome(False, f"tool failed: {error.__class__.__name__}")
 
     def _await_approval(self, session: AgentSession, tool: ToolName, arguments: Mapping[str, Any], preview: str | None) -> bool:
-        approval = PendingApproval(approval_id=hashlib.md5(f"{session.session_id}|{self._clock().isoformat()}|{tool}".encode()).hexdigest(), tool=tool, arguments=dict(arguments))  # noqa: S324
+        approval = PendingApproval(approval_id=uuid.uuid4().hex, tool=tool, arguments=dict(arguments))
         with session.lock:
+            if session.stop_requested:
+                return False
             session.pending = approval
         self._emit(session, "approval_required", tool=tool.value, arguments=_safe_arguments(arguments), approval_id=approval.approval_id, preview=preview)
         decided = approval.decided.wait(self._approval_wait)
@@ -569,6 +674,20 @@ class LocalAgentService:
         approved = bool(decided and approval.approved and not session.stop_requested)
         self._emit(session, "approval_resolved", tool=tool.value, approval_id=approval.approval_id, ok=approved, text=None if decided else "no decision in time; treated as denied")
         return approved
+
+
+def _trim_history(messages: list[dict[str, Any]]) -> None:
+    """Keep the system prompt and a rolling window; shrink old tool results so requests stay bounded."""
+
+    if len(messages) > MAX_HISTORY_MESSAGES:
+        keep = messages[-(MAX_HISTORY_MESSAGES - 1):]
+        # never cut between an assistant tool_calls message and its tool results
+        while keep and keep[0].get("role") == "tool":
+            keep.pop(0)
+        messages[:] = [messages[0], *keep]
+    for message in messages[1:-6]:
+        if message.get("role") == "tool" and isinstance(message.get("content"), str) and len(message["content"]) > OLD_TOOL_RESULT_KEEP_CHARS:
+            message["content"] = message["content"][:OLD_TOOL_RESULT_KEEP_CHARS] + "\n… (older tool output shortened)"
 
 
 def _safe_arguments(arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -597,5 +716,7 @@ __all__ = (
     "SendMessage",
     "ToolName",
     "WorkspaceTools",
+    "minimal_environment",
+    "run_with_tree_kill",
     "tool_schemas",
 )
