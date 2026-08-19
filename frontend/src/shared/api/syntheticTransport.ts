@@ -544,6 +544,12 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         },
       };
     },
+    async getOnboardingStatus() {
+      throw new TransportError("Onboarding is unavailable in synthetic preview", 404);
+    },
+    async acceptOnboarding() {
+      throw new TransportError("Onboarding is unavailable in synthetic preview", 404);
+    },
     async getSessionTranscript() {
       throw new TransportError("Session reading is unavailable in synthetic preview", 404);
     },

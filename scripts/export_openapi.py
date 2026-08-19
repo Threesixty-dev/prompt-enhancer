@@ -261,6 +261,19 @@ class _SchemaClaudeSourceService:
         raise RuntimeError("schema-only service cannot access local sources")
 
 
+class _SchemaOnboardingService:
+    """Non-executing stand-in so the first-run routes are typed."""
+
+    def status(self):
+        raise RuntimeError("schema-only service cannot detect providers")
+
+    def accept(self, payload):
+        raise RuntimeError("schema-only service cannot grant consent")
+
+    def refresh(self):
+        raise RuntimeError("schema-only service cannot index")
+
+
 class _SchemaSessionReaderService:
     """Non-executing stand-in so the owner-authorized reader route is typed."""
 
@@ -401,6 +414,7 @@ def _build_schema_app(*, include_control_plane: bool):
         codex_source_service=_SchemaCodexSourceService(),
         claude_source_service=_SchemaClaudeSourceService(),  # type: ignore[arg-type]
         session_reader_service=_SchemaSessionReaderService(),  # type: ignore[arg-type]
+        onboarding_service=_SchemaOnboardingService(),  # type: ignore[arg-type]
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),
     )

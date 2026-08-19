@@ -49,10 +49,22 @@ MAX_TRANSCRIPT_LINES = 200_000
 _RECOGNIZED_TYPES = ("user", "assistant")
 
 
-def default_claude_home(environment: dict[str, str] | None = None) -> Path:
+def default_claude_home(environment: dict[str, str] | None = None, override_file: Path | None = None) -> Path:
+    """Explicit env var, then an owner-supplied override file, then ~/.claude."""
+
     env = os.environ if environment is None else environment
     explicit = env.get(CLAUDE_HOME_ENV)
-    return Path(explicit) if explicit else Path.home() / ".claude"
+    if explicit:
+        return Path(explicit)
+    if override_file is not None:
+        try:
+            if override_file.is_file() and not override_file.is_symlink():
+                text = override_file.read_text(encoding="utf-8").strip().splitlines()
+                if text and text[0].strip():
+                    return Path(text[0].strip())
+        except OSError:
+            pass
+    return Path.home() / ".claude"
 
 
 def catalog_session_id_for(pseudonymizer: Pseudonymizer, raw_session_id: str) -> str:

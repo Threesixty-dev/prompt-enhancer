@@ -1,3 +1,4 @@
+import { FirstRunPanel } from "../features/onboarding/FirstRunPanel";
 import {
   Component,
   Suspense,
@@ -451,11 +452,14 @@ export function App({
           >
             <Suspense fallback={<RouteLoading route={route} />}>
               {route.name === "discovery" ? (
-                <DiscoveryInbox
-                  navigate={navigate}
-                  onUndecidedCountChange={setUndecidedCount}
-                  transport={transport}
-                />
+                <>
+                  <FirstRunPanel navigate={navigate} transport={transport} />
+                  <DiscoveryInbox
+                    navigate={navigate}
+                    onUndecidedCountChange={setUndecidedCount}
+                    transport={transport}
+                  />
+                </>
               ) : route.name === "sessions" ? (
                 <SessionsScreen navigate={navigate} transport={transport} />
               ) : route.name === "projects" ? (

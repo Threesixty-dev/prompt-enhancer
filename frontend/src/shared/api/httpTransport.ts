@@ -69,6 +69,9 @@ import type {
   ClaudeCodeLocalSourceStatus,
   IngestionReport,
   SessionTranscript,
+  OnboardingAccept,
+  OnboardingResult,
+  OnboardingStatus,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2322,6 +2325,16 @@ export function createHttpTransport(options: {
       return request<CodexLocalSourceStatus>(
         "/v1/local-sources/codex/consents/local-history",
         { method: "DELETE" },
+        signal,
+      );
+    },
+    getOnboardingStatus(signal) {
+      return request<OnboardingStatus>("/v1/onboarding", { method: "GET" }, signal);
+    },
+    acceptOnboarding(payload, signal) {
+      return request<OnboardingResult>(
+        "/v1/onboarding/accept",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         signal,
       );
     },

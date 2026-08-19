@@ -611,6 +611,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status */
+        get: operations["status_v1_onboarding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/onboarding/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept */
+        post: operations["accept_v1_onboarding_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/onboarding/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh */
+        post: operations["refresh_v1_onboarding_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/metric-coverage": {
         parameters: {
             query?: never;
@@ -2824,6 +2875,11 @@ export interface components {
          * @enum {string}
          */
         DeploymentProfile: "development" | "production";
+        /**
+         * DetectionSignal
+         * @enum {string}
+         */
+        DetectionSignal: "codex_cli_on_path" | "claude_transcript_root" | "not_found";
         /**
          * EvidenceAuthority
          * @description Highest authority allowed to publish a known value.
@@ -5310,6 +5366,50 @@ export interface components {
             /** System Ram Bucket */
             system_ram_bucket: ("below_16_gib_class" | "16_gib_class" | "32_gib_class" | "64_gib_plus_class") | null;
         };
+        /** OnboardingAccept */
+        OnboardingAccept: {
+            /** Claude Home */
+            claude_home?: string | null;
+            /** Providers */
+            providers: ("codex" | "claude_code")[];
+        };
+        /** OnboardingResult */
+        OnboardingResult: {
+            /** Granted */
+            granted: ("codex" | "claude_code")[];
+            /** Indexed Sessions */
+            indexed_sessions: number;
+            status: components["schemas"]["OnboardingStatus"];
+        };
+        /** OnboardingStatus */
+        OnboardingStatus: {
+            /** Any Installed */
+            any_installed: boolean;
+            /**
+             * Claude Home Override Supported
+             * @default true
+             */
+            claude_home_override_supported: boolean;
+            /**
+             * Contract Version
+             * @default onboarding.v1
+             * @constant
+             */
+            contract_version: "onboarding.v1";
+            /** Last Refresh At */
+            last_refresh_at?: string | null;
+            /**
+             * Last Refresh Error
+             * @default false
+             */
+            last_refresh_error: boolean;
+            /** Needs Onboarding */
+            needs_onboarding: boolean;
+            /** Providers */
+            providers: components["schemas"]["ProviderDetection"][];
+            /** Refresh Interval Seconds */
+            refresh_interval_seconds: number;
+        };
         /**
          * OpportunityStatistics
          * @description Content-free sufficient statistics for one metric's opportunity set.
@@ -5628,6 +5728,23 @@ export interface components {
             update_support: "supported" | "unsupported" | "unknown";
             /** Update Target */
             update_target?: ("prompt_enhancer" | "provider") | null;
+        };
+        /** ProviderDetection */
+        ProviderDetection: {
+            /** Consent Active */
+            consent_active: boolean;
+            /** Indexed Sessions */
+            indexed_sessions: number;
+            /** Installed */
+            installed: boolean;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "codex" | "claude_code";
+            signal: components["schemas"]["DetectionSignal"];
+            /** Transcript Files */
+            transcript_files?: number | null;
         };
         /** ProviderMetricCapability */
         ProviderMetricCapability: {
@@ -8496,6 +8613,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                };
+            };
+        };
+    };
+    status_v1_onboarding_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_v1_onboarding_accept_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingAccept"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_v1_onboarding_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

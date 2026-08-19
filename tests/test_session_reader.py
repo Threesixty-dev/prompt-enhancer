@@ -168,16 +168,18 @@ def test_service_gates_on_enabled_flag_catalog_and_consent(home) -> None:
     assert consent.value.reason is SessionReadFailure.CONSENT_REQUIRED
 
 
-def test_http_route_is_absent_by_default_and_serves_when_enabled(tmp_path: Path, monkeypatch) -> None:
+def test_http_route_is_absent_when_disabled_and_serves_by_default(tmp_path: Path, monkeypatch) -> None:
     claude_home = tmp_path / "claude-home"
     monkeypatch.setenv("PROMPT_ENHANCER_CLAUDE_HOME", str(claude_home))
-    # Default composition: reader off, capability truthful, route absent.
-    default_settings = AppSettings(home=tmp_path / "default")
-    default_app = bootstrap_local_application(default_settings)
-    client = TestClient(default_app.create_http_app(), base_url="http://127.0.0.1")
-    headers = {API_TOKEN_HEADER: default_settings.api_token_path.read_text(encoding="utf-8").strip()}
+    # Owner direction (2026-08-19): the reader is on by default. Explicitly
+    # disabled, the capability is false and the route is absent.
+    disabled_settings = AppSettings.from_env({"PROMPT_ENHANCER_HOME": str(tmp_path / "disabled"), "PROMPT_ENHANCER_SESSION_READER": "disabled"})
+    disabled_app = bootstrap_local_application(disabled_settings)
+    client = TestClient(disabled_app.create_http_app(), base_url="http://127.0.0.1")
+    headers = {API_TOKEN_HEADER: disabled_settings.api_token_path.read_text(encoding="utf-8").strip()}
     assert client.get("/v1/capabilities", headers=headers).json()["raw_transcripts"] is False
     assert client.get(f"/v1/sessions/{'a' * 64}/transcript", headers=headers).status_code == 404
+    assert AppSettings(home=tmp_path / "plain").session_reader_enabled is True
 
     settings = AppSettings.from_env({"PROMPT_ENHANCER_HOME": str(tmp_path / "app"), "PROMPT_ENHANCER_SESSION_READER": "enabled"})
     bootstrap_local_application(settings)

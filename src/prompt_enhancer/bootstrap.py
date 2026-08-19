@@ -129,6 +129,22 @@ class LocalApplication:
             mode = CodexReadMode.METADATA_INDEX
         return CodexAppServerAdapter(mode=mode)
 
+    def claude_home(self):
+        """Env var, then the owner-supplied override file, then ~/.claude."""
+
+        from .infrastructure.providers.claude_code_hooks.transcript_reader import (
+            default_claude_home,
+        )
+
+        return default_claude_home(override_file=self.settings.claude_home_override_path)
+
+    def set_claude_home(self, path) -> None:
+        """Persist an owner-supplied Claude home as a private one-line file."""
+
+        from .privacy import write_private_text
+
+        write_private_text(self.settings.claude_home_override_path, str(path))
+
     def create_claude_transcript_adapter(self):
         """Owner-authorized transcript adapter (ADR 0011): history, tokens, tool errors."""
 
@@ -136,7 +152,7 @@ class LocalApplication:
             ClaudeTranscriptAdapter,
         )
 
-        return ClaudeTranscriptAdapter(self.pseudonymizer)
+        return ClaudeTranscriptAdapter(self.pseudonymizer, claude_home=self.claude_home())
 
     def create_claude_hook_adapter(self):
         """Read-only adapter over the local Claude Code hook ledger.
@@ -196,6 +212,49 @@ class LocalApplication:
             transcript_supersede=self._supersede_hook_events_covered_by_transcripts,
         )
 
+    def create_onboarding_service(self, codex_source_service=None, claude_source_service=None):
+        """First-run detection, one consent, first index, periodic refresh."""
+
+        from .application.onboarding import OnboardingService
+
+        codex_service = codex_source_service or self.create_codex_local_source_service()
+        claude_service = claude_source_service or self.create_claude_local_source_service()
+
+        def index_codex() -> int:
+            report = codex_service.index(max_sessions=500)
+            # Fill missing Codex titles in bounded batches without a second click.
+            try:
+                missing: list[str] = []
+                offset = 0
+                while len(missing) < 25:
+                    page = self.database.list_sessions(limit=100, offset=offset)
+                    for row in page:
+                        if row.get("provider") == "codex" and not row.get("session_display_name"):
+                            missing.append(str(row["session_id"]))
+                            if len(missing) >= 25:
+                                break
+                    offset += len(page)
+                    if len(page) < 100:
+                        break
+                if missing:
+                    codex_service.enrich_labels(
+                        project_ids=frozenset(), session_ids=frozenset(missing), max_sessions=25
+                    )
+            except Exception:
+                pass
+            return int(report.sessions_seen)
+
+        def index_claude() -> int:
+            return int(claude_service.index(max_sessions=1000).sessions_seen)
+
+        return OnboardingService(
+            self.database,
+            claude_home=self.claude_home,
+            set_claude_home=self.set_claude_home,
+            index_codex=index_codex,
+            index_claude=index_claude,
+        )
+
     def create_session_reader_service(self):
         """Owner-authorized on-demand session reading (ADR 0011); off by default."""
 
@@ -213,7 +272,7 @@ class LocalApplication:
             self.database,
             {
                 Provider.CODEX: CodexSessionReader(CodexTextAnalysisSource(self.pseudonymizer)),
-                Provider.CLAUDE_CODE: ClaudeTranscriptReader(self.pseudonymizer),
+                Provider.CLAUDE_CODE: ClaudeTranscriptReader(self.pseudonymizer, claude_home=self.claude_home()),
             },
             enabled=self.settings.session_reader_enabled,
         )
@@ -728,6 +787,10 @@ class LocalApplication:
         claude_source_service.set_automation_revoker(revoke_local_workers)
         otlp_ingest_token = load_or_create_api_token(self.settings.otlp_ingest_token_path)
         telemetry_ingest_service = self.database.claude_telemetry_ingest(self.pseudonymizer)
+        onboarding_service = self.create_onboarding_service(codex_source_service, claude_source_service)
+        from .application.onboarding import LocalSourceRefreshWorker
+
+        local_source_refresh_worker = LocalSourceRefreshWorker(onboarding_service)
         control_plane = (
             self.create_control_plane()
             if self.settings.control_plane_development_api
@@ -763,6 +826,8 @@ class LocalApplication:
             otlp_ingest_token=otlp_ingest_token,
             telemetry_ingest_service=telemetry_ingest_service,
             session_reader_service=self.create_session_reader_service(),
+            onboarding_service=onboarding_service,
+            local_source_refresh_worker=local_source_refresh_worker,
             display_label_service=self.create_manual_display_label_service(),
             model_evaluation_service=LocalTextModelEvaluationService(),
             analysis_job_service=analysis_job_service,

@@ -94,11 +94,13 @@ class AppSettings(BaseModel):
         ),
     )
     session_reader_enabled: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Owner-authorized on-demand reading of the owner's own sessions in "
-            "the local dashboard (ADR 0011). Off by default; when on, the "
-            "raw_transcripts capability reports true. Nothing is persisted."
+            "the local dashboard (ADR 0011). On by default at the owner's "
+            "direction; set PROMPT_ENHANCER_SESSION_READER=disabled to turn it "
+            "off. The raw_transcripts capability reports the truth either way. "
+            "Nothing is persisted."
         ),
     )
     social_development_api: bool = Field(
@@ -145,6 +147,12 @@ class AppSettings(BaseModel):
         return self.home / "api.token"
 
     @property
+    def claude_home_override_path(self) -> Path:
+        """Optional owner-supplied Claude Code home, one line, private."""
+
+        return self.home / "claude-home.path"
+
+    @property
     def otlp_ingest_token_path(self) -> Path:
         """Separate write-only token the Claude Code telemetry exporter presents."""
 
@@ -168,7 +176,7 @@ class AppSettings(BaseModel):
             env.get("PROMPT_ENHANCER_PAID_PRODUCT_DEV_API", "") == "enabled"
         )
         social = env.get("PROMPT_ENHANCER_SOCIAL_DEV_API", "") == "enabled"
-        session_reader = env.get("PROMPT_ENHANCER_SESSION_READER", "") == "enabled"
+        session_reader = env.get("PROMPT_ENHANCER_SESSION_READER", "enabled") != "disabled"
         return cls(
             home=default_app_home(env),
             host=host,

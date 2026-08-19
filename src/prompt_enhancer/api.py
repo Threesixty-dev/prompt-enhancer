@@ -121,6 +121,7 @@ from .interfaces.http.claude_local_source_routes import (
 )
 from .interfaces.http.otlp_ingest_routes import create_otlp_ingest_router
 from .interfaces.http.session_reader_routes import create_session_reader_router
+from .interfaces.http.onboarding_routes import create_onboarding_router
 from .interfaces.http.display_label_routes import create_display_label_router
 from .interfaces.http.dto import (
     CapabilitiesDto,
@@ -335,6 +336,8 @@ def create_app(
     otlp_ingest_token: str | None = None,
     telemetry_ingest_service=None,
     session_reader_service=None,
+    onboarding_service=None,
+    local_source_refresh_worker=None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
     analysis_job_service: AnalysisJobService | None = None,
@@ -377,9 +380,13 @@ def create_app(
             automation_grant_worker.start()
         if model_ensemble_watch_worker is not None:
             model_ensemble_watch_worker.start()
+        if local_source_refresh_worker is not None:
+            local_source_refresh_worker.start()
         try:
             yield
         finally:
+            if local_source_refresh_worker is not None:
+                local_source_refresh_worker.stop()
             if model_ensemble_watch_worker is not None:
                 model_ensemble_watch_worker.stop()
             if automation_grant_worker is not None:
@@ -855,6 +862,8 @@ def create_app(
         app.include_router(
             create_session_reader_router(require_local_token, session_reader_service)
         )
+    if onboarding_service is not None:
+        app.include_router(create_onboarding_router(require_local_token, onboarding_service))
 
     if display_label_service is not None:
         app.include_router(

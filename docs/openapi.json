@@ -3237,6 +3237,15 @@
         "title": "DeploymentProfile",
         "type": "string"
       },
+      "DetectionSignal": {
+        "enum": [
+          "codex_cli_on_path",
+          "claude_transcript_root",
+          "not_found"
+        ],
+        "title": "DetectionSignal",
+        "type": "string"
+      },
       "EvidenceAuthority": {
         "description": "Highest authority allowed to publish a known value.\n\n``OBJECTIVE_RECEIPT`` outranks ``CONVERSATION``.  A conversational\nprojection may never resolve an objective contract, and no volume of\nassistant prose upgrades a conversational observation into a receipt.",
         "enum": [
@@ -9431,6 +9440,133 @@
         "title": "ModelRuntimeInventoryDto",
         "type": "object"
       },
+      "OnboardingAccept": {
+        "additionalProperties": false,
+        "properties": {
+          "claude_home": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claude Home"
+          },
+          "providers": {
+            "items": {
+              "enum": [
+                "codex",
+                "claude_code"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Providers",
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "providers"
+        ],
+        "title": "OnboardingAccept",
+        "type": "object"
+      },
+      "OnboardingResult": {
+        "additionalProperties": false,
+        "properties": {
+          "granted": {
+            "items": {
+              "enum": [
+                "codex",
+                "claude_code"
+              ],
+              "type": "string"
+            },
+            "title": "Granted",
+            "type": "array"
+          },
+          "indexed_sessions": {
+            "minimum": 0.0,
+            "title": "Indexed Sessions",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OnboardingStatus"
+          }
+        },
+        "required": [
+          "granted",
+          "indexed_sessions",
+          "status"
+        ],
+        "title": "OnboardingResult",
+        "type": "object"
+      },
+      "OnboardingStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "any_installed": {
+            "title": "Any Installed",
+            "type": "boolean"
+          },
+          "claude_home_override_supported": {
+            "default": true,
+            "title": "Claude Home Override Supported",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "onboarding.v1",
+            "default": "onboarding.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "last_refresh_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Refresh At"
+          },
+          "last_refresh_error": {
+            "default": false,
+            "title": "Last Refresh Error",
+            "type": "boolean"
+          },
+          "needs_onboarding": {
+            "title": "Needs Onboarding",
+            "type": "boolean"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderDetection"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "refresh_interval_seconds": {
+            "minimum": 60.0,
+            "title": "Refresh Interval Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "providers",
+          "any_installed",
+          "needs_onboarding",
+          "refresh_interval_seconds"
+        ],
+        "title": "OnboardingStatus",
+        "type": "object"
+      },
       "OpportunityStatistics": {
         "additionalProperties": false,
         "description": "Content-free sufficient statistics for one metric's opportunity set.\n\nThese are the only numbers a downstream aggregate needs: no text, no\nidentifiers, and no per-opportunity receipt beyond the counts.",
@@ -10318,6 +10454,56 @@
           "reason_code"
         ],
         "title": "ProviderCompatibilityStatusDto",
+        "type": "object"
+      },
+      "ProviderDetection": {
+        "additionalProperties": false,
+        "properties": {
+          "consent_active": {
+            "title": "Consent Active",
+            "type": "boolean"
+          },
+          "indexed_sessions": {
+            "minimum": 0.0,
+            "title": "Indexed Sessions",
+            "type": "integer"
+          },
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "provider": {
+            "enum": [
+              "codex",
+              "claude_code"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "signal": {
+            "$ref": "#/components/schemas/DetectionSignal"
+          },
+          "transcript_files": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Files"
+          }
+        },
+        "required": [
+          "provider",
+          "installed",
+          "signal",
+          "consent_active",
+          "indexed_sessions"
+        ],
+        "title": "ProviderDetection",
         "type": "object"
       },
       "ProviderMetricCapability": {
@@ -17389,6 +17575,211 @@
         "summary": "Annotate Link",
         "tags": [
           "local-model-link-experiments"
+        ]
+      }
+    },
+    "/v1/onboarding": {
+      "get": {
+        "operationId": "status_v1_onboarding_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/v1/onboarding/accept": {
+      "post": {
+        "operationId": "accept_v1_onboarding_accept_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingAccept"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/v1/onboarding/refresh": {
+      "post": {
+        "operationId": "refresh_v1_onboarding_refresh_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh",
+        "tags": [
+          "onboarding"
         ]
       }
     },

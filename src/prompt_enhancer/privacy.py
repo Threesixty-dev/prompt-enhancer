@@ -115,6 +115,20 @@ def load_or_create_pseudonymizer(path: Path) -> Pseudonymizer:
     return Pseudonymizer(key)
 
 
+def write_private_text(path: Path, text: str) -> None:
+    """Replace a small private text file with restricted permissions."""
+
+    _prepare_private_parent(path)
+    if path.is_symlink():
+        raise PrivacyBoundaryError("private state file cannot be a symlink")
+    data = (text.strip() + "\n").encode("utf-8")
+    try:
+        path.unlink(missing_ok=True)
+        _create_private_file(path, data)
+    except OSError as exc:
+        raise PrivacyBoundaryError("could not write private state file") from exc
+
+
 def load_or_create_api_token(path: Path) -> str:
     """Load or create a local API token. Callers must never print it."""
 
