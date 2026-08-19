@@ -232,3 +232,39 @@ main td, main .metric-value, main [class*="__value"], main [class*="-value"] { f
 @media (prefers-reduced-motion: no-preference) {
   body, .sidebar, .topbar, main, main * { transition: var(--theme-transition); }
 }
+
+/* charts in dark: bars and areas get enough luminance to read against the deep surface */
+:root[data-theme="dark"] .session-timeline__turn { fill: rgba(94, 225, 196, 0.12); stroke: var(--accent-primary); }
+:root[data-theme="dark"] .session-timeline__tool,
+:root[data-theme="dark"] .session-timeline__tool--file_read,
+:root[data-theme="dark"] .session-timeline__tool--search { fill: #7d8f9d; }
+:root[data-theme="dark"] .session-timeline__tool--command { fill: #a6b5c0; }
+:root[data-theme="dark"] .session-timeline__tool--file_write { fill: var(--status-caution); }
+:root[data-theme="dark"] .session-timeline__tool--version_control { fill: var(--accent-violet); }
+:root[data-theme="dark"] .session-timeline__tool--network,
+:root[data-theme="dark"] .session-timeline__tool--mcp { fill: var(--accent-secondary); }
+:root[data-theme="dark"] .session-timeline__tool--subagent { fill: var(--accent-cyan); }
+:root[data-theme="dark"] .session-timeline__tool--passed { fill: var(--status-positive); filter: drop-shadow(0 0 4px rgba(85, 212, 171, 0.55)); }
+:root[data-theme="dark"] .session-timeline__tool--failed { fill: var(--status-negative); filter: drop-shadow(0 0 4px rgba(241, 138, 144, 0.55)); }
+:root[data-theme="dark"] .session-timeline__marker line { stroke: var(--ink-650); }
+:root[data-theme="dark"] .project-timeline__task rect { fill: rgba(94, 225, 196, 0.14); stroke: var(--accent-primary); }
+:root[data-theme="dark"] .project-timeline__task--closed rect,
+:root[data-theme="dark"] .project-timeline__task--done rect,
+:root[data-theme="dark"] .project-timeline__task--completed rect { fill: rgba(85, 212, 171, 0.16); stroke: var(--status-positive); }
+:root[data-theme="dark"] .project-timeline__session rect { fill: #7d8f9d; }
+:root[data-theme="dark"] .project-timeline__session--codex rect { fill: var(--accent-violet); }
+:root[data-theme="dark"] .project-timeline__session--claude_code rect { fill: var(--status-caution); }
+:root[data-theme="dark"] .project-timeline__session.is-clickable:hover rect,
+:root[data-theme="dark"] .project-timeline__session.is-clickable:focus-visible rect { stroke: var(--ink-950); }
+:root[data-theme="dark"] .project-timeline__activity { fill: #3a4854; }
+:root[data-theme="dark"] .prompt-plot__area { fill: rgba(94, 225, 196, 0.22); stroke: var(--accent-primary); }
+:root[data-theme="dark"] .prompt-plot__dot { fill: var(--accent-primary-strong); }
+:root[data-theme="dark"] .prompt-plot__series--0 polyline, :root[data-theme="dark"] .prompt-plot__series--0 circle, :root[data-theme="dark"] .prompt-plot__series--0 i { stroke: var(--chart-1); fill: var(--chart-1); background: var(--chart-1); }
+:root[data-theme="dark"] .prompt-plot__series--1 polyline, :root[data-theme="dark"] .prompt-plot__series--1 circle, :root[data-theme="dark"] .prompt-plot__series--1 i { stroke: var(--chart-2); fill: var(--chart-2); background: var(--chart-2); }
+:root[data-theme="dark"] .prompt-plot__series--2 polyline, :root[data-theme="dark"] .prompt-plot__series--2 circle, :root[data-theme="dark"] .prompt-plot__series--2 i { stroke: var(--chart-3); fill: var(--chart-3); background: var(--chart-3); }
+:root[data-theme="dark"] .prompt-plot__series--3 polyline, :root[data-theme="dark"] .prompt-plot__series--3 circle, :root[data-theme="dark"] .prompt-plot__series--3 i { stroke: var(--chart-4); fill: var(--chart-4); background: var(--chart-4); }
+:root[data-theme="dark"] .prompt-plot__series--4 polyline, :root[data-theme="dark"] .prompt-plot__series--4 circle, :root[data-theme="dark"] .prompt-plot__series--4 i { stroke: var(--chart-5); fill: var(--chart-5); background: var(--chart-5); }
+:root[data-theme="dark"] .prompt-plot__series--5 polyline, :root[data-theme="dark"] .prompt-plot__series--5 circle, :root[data-theme="dark"] .prompt-plot__series--5 i { stroke: var(--chart-6); fill: var(--chart-6); background: var(--chart-6); }
+:root[data-theme="dark"] .prompt-plot__series polyline { fill: none !important; }
+:root[data-theme="dark"] .quality-radar__ring { fill: rgba(255, 255, 255, 0.02); stroke: var(--line-strong); }
+:root[data-theme="dark"] .quality-radar__point { fill: var(--accent-primary-strong); stroke: var(--surface); }
