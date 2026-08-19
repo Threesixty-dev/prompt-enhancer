@@ -338,6 +338,7 @@ def create_app(
     session_reader_service=None,
     onboarding_service=None,
     calibration_rating_service=None,
+    objective_overrides_provider=None,
     local_source_refresh_worker=None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
@@ -718,7 +719,11 @@ def create_app(
                 AgentMetricEvidenceService(metric_lifecycle_evidence_service),
             )
         )
-    app.include_router(create_session_analysis_query_router(require_local_token))
+    app.include_router(
+        create_session_analysis_query_router(
+            require_local_token, objective_overrides=objective_overrides_provider
+        )
+    )
     app.include_router(create_session_quality_aggregation_router(require_local_token))
     if project_quality_aggregation_service is not None:
         app.include_router(

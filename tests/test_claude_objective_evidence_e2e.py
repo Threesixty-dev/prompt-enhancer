@@ -129,3 +129,59 @@ def test_claude_session_with_accepted_task_publishes_first_pass_verification(tmp
     )
     assert preview.status_code == 200, preview.text
     assert preview.json()["binding"]["provider"] == "claude_code"
+
+
+def test_p1_publication_preview_carries_objective_first_pass_for_claude(tmp_path: Path, monkeypatch) -> None:
+    """The automatic P1 run's V2 preview shows first-pass 1/1 from evidence - no ensemble click."""
+
+    from prompt_enhancer.application.analysis.session_text_service import SESSION_TEXT_ANALYSIS_CONFIRMATION
+    from prompt_enhancer.application.analysis.text_analysis_presets import TextAnalysisPresetId
+    from prompt_enhancer.application.providers import (
+        CapabilityKey,
+        ProviderSurface,
+        ProviderSurfaceCompatibilityPolicy,
+    )
+
+    claude_home = tmp_path / "claude-home"
+    monkeypatch.setenv("PROMPT_ENHANCER_CLAUDE_HOME", str(claude_home))
+    _write(claude_home)
+    settings = AppSettings(home=tmp_path / "app")
+    application = bootstrap_local_application(settings)
+    client = TestClient(application.create_http_app(), base_url="http://127.0.0.1")
+    headers = {API_TOKEN_HEADER: settings.api_token_path.read_text(encoding="utf-8").strip()}
+    # One consent: index, discovery and singleton auto-accept all happen here.
+    assert client.post("/v1/onboarding/accept", headers=headers, json={"providers": ["claude_code"]}).status_code == 200
+    session_id = str(application.database.list_sessions(limit=5, offset=0)[0]["session_id"])
+    assert len(application.database.task_repository().list_current_revisions_for_session(session_id)) == 1
+
+    catalog = application.create_provider_compatibility_catalog()
+    catalog.refresh("claude_code", ProviderSurface.TEXT_WINDOW)
+    policy = ProviderSurfaceCompatibilityPolicy(
+        catalog,
+        surface=ProviderSurface.TEXT_WINDOW,
+        required_capabilities=(CapabilityKey.USER_MESSAGES, CapabilityKey.AGENT_MESSAGES, CapabilityKey.PLAN_MESSAGES),
+    )
+    outcome = application.create_session_text_analysis_service(policy).run_preset(
+        provider=Provider.CLAUDE_CODE,
+        session_id=session_id,
+        preset_id=TextAnalysisPresetId.COACHING_PROFILE_V1,
+        confirmation=SESSION_TEXT_ANALYSIS_CONFIRMATION,
+        idempotency_key="example-e2e-p1-1",
+    )
+    preview = client.get(f"/v1/quality-analysis/runs/{outcome.run_id}/metric-v2-compatibility-preview", headers=headers)
+    assert preview.status_code == 200, preview.text
+    metrics = preview.json()["publication"]["metrics"]
+    first_pass = next(item for item in metrics if item["state"]["metric_key"] == "outcome.first_pass_verification")
+    assert first_pass["state"]["value_state"] == "known", first_pass
+    assert (first_pass["state"]["numerator"], first_pass["state"]["denominator"]) == (1, 1)
+    assert first_pass["state"]["evidence_authority"] == "objective_receipt"
+
+    # The run detail and latest-run routes overlay the same objective value on the
+    # result row, with typed-evidence provenance instead of the rubric's.
+    for path in (f"/v1/quality-analysis/runs/{outcome.run_id}", f"/v1/sessions/{session_id}/quality-analysis-runs/latest"):
+        detail = client.get(path, headers=headers)
+        assert detail.status_code == 200, detail.text
+        row = next(item for item in detail.json()["results"] if item["key"] == "outcome.first_pass_verification")
+        assert row["value_state"] == "known" and row["fraction"] == {"numerator": 1, "denominator": 1}, row
+        assert row["algorithm_id"] == "typed-objective-evidence"
+        assert row["explanation_code"] == "typed_first_verification_outcomes"

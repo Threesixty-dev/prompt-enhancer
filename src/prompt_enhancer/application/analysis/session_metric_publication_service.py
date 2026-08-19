@@ -17,6 +17,8 @@ disappears with the run when a privacy deletion cascades.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+
 from pydantic import Field
 
 from ...domain import Provider, StrictModel
@@ -32,6 +34,8 @@ from .metric_publication_v2 import (
     MetricPublicationV2,
     publish_v1_compatibility_preview,
 )
+from .objective_metric_projection import ObjectiveMetricOverride
+from ...domain import Provider
 
 
 SESSION_METRIC_PUBLICATION_KEY = "metric.contract-v2.v1-compatibility-preview"
@@ -71,10 +75,23 @@ class SessionMetricPublicationError(RuntimeError):
 
 
 class SessionMetricPublicationService:
-    """Project a completed coaching-pack run onto the V2 compatibility preview."""
+    """Project a completed coaching-pack run onto the V2 compatibility preview.
 
-    def __init__(self, analyses: SessionAnalysisRunRepository) -> None:
+    ``objective_overrides`` (optional) resolves the evidence-lane contracts
+    from typed local evidence (decoder 4, ADR 0012) for the run's session, so
+    the objective rows read from the same automatic run the rubric came from.
+    Without it - or when evidence cannot be projected - those rows stay
+    withheld exactly as before; a provider failure never hides the run.
+    """
+
+    def __init__(
+        self,
+        analyses: SessionAnalysisRunRepository,
+        *,
+        objective_overrides: Callable[[Provider, str], Mapping[str, ObjectiveMetricOverride] | None] | None = None,
+    ) -> None:
         self._analyses = analyses
+        self._objective_overrides = objective_overrides
 
     def get(self, run_id: str) -> SessionMetricPublication | None:
         run = self._analyses.get(run_id)
@@ -89,13 +106,19 @@ class SessionMetricPublicationService:
         ):
             raise SessionMetricPublicationError("publication_pack_unsupported")
         results = self._analyses.get_results(run_id)
+        overrides: Mapping[str, ObjectiveMetricOverride] | None = None
+        if self._objective_overrides is not None:
+            try:
+                overrides = self._objective_overrides(draft.provider, draft.session_id)
+            except Exception:
+                overrides = None
         return SessionMetricPublication(
             run_id=draft.run_id,
             provider=draft.provider,
             source_metric_pack_key=draft.metric_pack_key,
             source_metric_pack_version=draft.metric_pack_version,
             source_result_count=len(results),
-            publication=publish_v1_compatibility_preview(results),
+            publication=publish_v1_compatibility_preview(results, objective_overrides=overrides),
         )
 
 

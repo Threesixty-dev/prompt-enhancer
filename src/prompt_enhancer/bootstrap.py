@@ -550,6 +550,32 @@ class LocalApplication:
             SubprocessSessionModelLinkRunner(),
         )
 
+    def create_objective_overrides_provider(self):
+        """Objective (evidence-lane) overrides for one session, or None.
+
+        Reads only already-indexed safe events and the reviewed task ledger;
+        never the provider.  Any failure yields None so a run is still shown.
+        """
+
+        from .application.analysis.objective_metric_projection import (
+            project_objective_metric_overrides_v3,
+        )
+
+        projector = self.create_typed_evidence_projector()
+
+        def overrides(provider, session_id: str):
+            try:
+                projection = projector.project(provider=provider, session_id=session_id)
+                if projection is None:
+                    return None
+                return project_objective_metric_overrides_v3(
+                    projection, projector.descriptor_for(provider)
+                )
+            except Exception:
+                return None
+
+        return overrides
+
     def create_typed_evidence_projector(self):
         """Safe-event typed evidence (decoder 4) for the measured metric lane.
 
@@ -962,6 +988,7 @@ class LocalApplication:
             telemetry_ingest_service=telemetry_ingest_service,
             session_reader_service=self.create_session_reader_service(),
             calibration_rating_service=self.create_calibration_rating_service(),
+            objective_overrides_provider=self.create_objective_overrides_provider(),
             onboarding_service=onboarding_service,
             local_source_refresh_worker=local_source_refresh_worker,
             display_label_service=self.create_manual_display_label_service(),

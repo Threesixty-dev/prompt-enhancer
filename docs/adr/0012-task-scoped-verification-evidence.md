@@ -71,8 +71,12 @@ without inventing one: the session is the task by construction.
 - First-pass verification becomes numeric exactly when a person has accepted
   the task and the session contains a classified test or build run. The
   other four objective contracts keep their existing authority rules.
-- The measured value lives in the model-ensemble run's objective layer, as
-  before; a measured-only automation run that does not need the predictive
-  cascade is the natural next step so these rows fill without a click.
+- The measured value is read wherever a session's metrics are read: the
+  model-ensemble run's objective layer as before, and - since 2026-08-19 -
+  the automatic P1 run's detail, latest-run and V2 compatibility preview
+  routes, which overlay the decoder-4 projection on the five evidence-lane
+  rows at read time (typed-objective-evidence provenance, objective_receipt
+  authority). Nothing is rewritten in the stored run; a projection failure
+  leaves the rows withheld exactly as before. No ensemble click is needed.
 - Decoder versions 2 and 3 remain supported for reading historical
   projections; current code composes 4 only.

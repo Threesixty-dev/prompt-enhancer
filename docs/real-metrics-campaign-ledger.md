@@ -1278,6 +1278,12 @@ addendum), which makes `outcome.first_pass_verification` computable for every
 singleton session that contains a classified test or build run. Grouped
 candidates still require a person.
 
+The automatic P1 run's read routes (detail, latest, V2 compatibility preview)
+now overlay the decoder-4 objective projection on the evidence-lane rows, so
+`outcome.first_pass_verification` is published as an objective receipt for
+every auto-accepted session with a classified test or build run - end to end
+from one consent, verified by `tests/test_claude_objective_evidence_e2e.py`.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

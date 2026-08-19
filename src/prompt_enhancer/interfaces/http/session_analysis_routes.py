@@ -92,9 +92,65 @@ def _definition_index(
     return definitions
 
 
+OBJECTIVE_EVIDENCE_ALGORITHM_ID = "typed-objective-evidence"
+OBJECTIVE_EVIDENCE_ALGORITHM_VERSION = "typed-objective-evidence-v2"
+
+
+def _overlay_objective_results(results, overrides):
+    """Replace evidence-lane rows with their objective (decoder 4) values.
+
+    Objective evidence outranks a rubric estimate for an objective contract;
+    the row keeps its identity but carries the typed-evidence provenance so a
+    reader can tell a measured fraction from a model judgment.
+    """
+
+    if not overrides:
+        return results
+    overlaid = []
+    for result in results:
+        override = overrides.get(result.observation.key)
+        if override is None:
+            overlaid.append(result)
+            continue
+        eligible = int(override.eligible_opportunity_count)
+        observed = int(override.resolved_opportunity_count)
+        known = override.numerator is not None and override.denominator is not None and override.denominator > 0
+        observation = result.observation.model_copy(
+            update={
+                "numeric_value": (override.numerator / override.denominator) if known else None,
+                "observed_count": observed,
+                "eligible_count": eligible,
+                "coverage": 0.0 if eligible == 0 else min(1.0, observed / eligible),
+            }
+        )
+        overlaid.append(
+            result.model_copy(
+                update={
+                    "observation": observation,
+                    "value_state": override.value_state,
+                    "fraction_numerator": override.numerator if known else None,
+                    "fraction_denominator": override.denominator if known else None,
+                    "explanation_code": override.explanation_code,
+                    "error_code": None,
+                    "evidence": (),
+                    "signals": (),
+                    "algorithm_id": OBJECTIVE_EVIDENCE_ALGORITHM_ID,
+                    "algorithm_version": OBJECTIVE_EVIDENCE_ALGORITHM_VERSION,
+                    "model_id": None,
+                    "model_revision": None,
+                    "model_license": None,
+                    "tokenizer_id": None,
+                    "prompt_version": None,
+                }
+            )
+        )
+    return tuple(overlaid)
+
+
 def _detail_response(
     store: SessionAnalysisQueryStore,
     run_id: str,
+    objective_overrides=None,
 ) -> SessionAnalysisRunResponse:
     repository = store.session_analysis_run_repository()
     run = repository.get(run_id)
@@ -102,6 +158,12 @@ def _detail_response(
         raise HTTPException(status_code=404, detail="quality analysis run not found")
     definitions = _definition_index(store)
     results = repository.get_results(run_id)
+    if objective_overrides is not None:
+        try:
+            overrides = objective_overrides(run.draft.provider, run.draft.session_id)
+        except Exception:
+            overrides = None
+        results = _overlay_objective_results(results, overrides)
     return SessionAnalysisRunResponse(
         run=SessionAnalysisRunDto.from_record(run),
         results=tuple(
@@ -118,6 +180,7 @@ def _detail_response(
 
 def create_session_analysis_query_router(
     require_local_token: Callable[..., None],
+    objective_overrides: Callable[..., object] | None = None,
 ) -> APIRouter:
     """Expose list/latest/detail without initiating a provider read or analysis."""
 
@@ -163,7 +226,7 @@ def create_session_analysis_query_router(
             raise HTTPException(
                 status_code=404, detail="completed quality analysis run not found"
             )
-        return _detail_response(store, run.draft.run_id)
+        return _detail_response(store, run.draft.run_id, objective_overrides)
 
     @router.get(
         "/quality-analysis/runs/{run_id}",
@@ -173,7 +236,7 @@ def create_session_analysis_query_router(
         request: Request,
         run_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
     ) -> SessionAnalysisRunResponse:
-        return _detail_response(_query_store(request), run_id)
+        return _detail_response(_query_store(request), run_id, objective_overrides)
 
     @router.get(
         "/quality-analysis/runs/{run_id}/coaching-summary",
@@ -238,7 +301,8 @@ def create_session_analysis_query_router(
         response.headers.update(_PRIVATE_HEADERS)
         store = _query_store(request)
         service = SessionMetricPublicationService(
-            store.session_analysis_run_repository()
+            store.session_analysis_run_repository(),
+            objective_overrides=objective_overrides,  # type: ignore[arg-type]
         )
         try:
             projection = service.get(run_id)
