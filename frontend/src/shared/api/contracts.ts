@@ -110,6 +110,10 @@ export type PromptCheckRequest = Schemas["PromptCheckRequest"];
 export type PromptCheckResult = Schemas["PromptCheckResult"];
 export type PromptCheckRecord = Schemas["PromptCheckRecord"];
 export type PromptCheckHistory = Schemas["PromptCheckHistory"];
+export type AgentSettings = Schemas["AgentSettings"];
+export type AgentSessionView = Schemas["AgentSessionView"];
+export type AgentEvents = Schemas["AgentEvents"];
+export type AgentEvent = Schemas["AgentEvent"];
 export type OnboardingStatus = Schemas["OnboardingStatus"];
 export type ProviderDetection = Schemas["ProviderDetection"];
 export type OnboardingAccept = Schemas["OnboardingAccept"];
@@ -586,6 +590,15 @@ export interface PromptEnhancerTransport {
   checkPrompt(request: PromptCheckRequest, signal?: AbortSignal): Promise<PromptCheckResult>;
   getPromptCheckHistory(limit: number, offset: number, signal?: AbortSignal): Promise<PromptCheckHistory>;
   getPromptCheck(checkId: string, signal?: AbortSignal): Promise<PromptCheckRecord>;
+  /** Local agent workspace (ADR 0016): sessions, turns, events, approvals. */
+  listAgentSessions(signal?: AbortSignal): Promise<AgentSessionView[]>;
+  createAgentSession(settings: AgentSettings, signal?: AbortSignal): Promise<AgentSessionView>;
+  getAgentSession(sessionId: string, signal?: AbortSignal): Promise<AgentSessionView>;
+  deleteAgentSession(sessionId: string, signal?: AbortSignal): Promise<void>;
+  sendAgentMessage(sessionId: string, text: string, signal?: AbortSignal): Promise<AgentSessionView>;
+  getAgentEvents(sessionId: string, after: number, signal?: AbortSignal): Promise<AgentEvents>;
+  decideAgentApproval(sessionId: string, approvalId: string, approved: boolean, signal?: AbortSignal): Promise<AgentSessionView>;
+  stopAgentSession(sessionId: string, signal?: AbortSignal): Promise<AgentSessionView>;
   startModelJudgeSweep(signal?: AbortSignal, scope?: "sample" | "all"): Promise<JudgeSweepStatus>;
   getModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;
   getModelJudgeAgreement(signal?: AbortSignal): Promise<JudgeAgreementReport>;

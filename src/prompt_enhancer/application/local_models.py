@@ -108,6 +108,10 @@ class RuntimeStatus(StrictModel):
     started_at: datetime | None = None
     last_error_code: str | None = None
     pid: int | None = None
+    #: Flash attention + 8-bit KV cache were on (falls back to plain when the runtime refuses them).
+    fast_attention: bool | None = None
+    #: The runtime was started with its chat template engine, so OpenAI-style tool calls work.
+    tool_calling: bool | None = None
 
 
 class LocalModelStatus(StrictModel):
@@ -148,6 +152,10 @@ class ActivateLocalModel(StrictModel):
     context_size: int | None = Field(default=None, ge=512, le=MAX_CONTEXT_SIZE)
     #: Keep this device / layer choice as the model's default for next time.
     remember: bool = False
+    #: Flash attention with an 8-bit KV cache: ~2x prompt processing and less VRAM on CUDA; retried without on failure.
+    fast_attention: bool = True
+    #: Start the runtime's chat-template engine (``--jinja``) so tool calls follow the model's own format.
+    tool_calling: bool = True
 
 
 class DownloadRequest(StrictModel):
@@ -611,34 +619,46 @@ class LocalModelService:
                 )
             )
             record = self._registry.get(alias) or record
-        with self._lock:
-            self.deactivate(alias)
-            port = free_loopback_port()
-            command = [
-                str(binary), "-m", str(path), "--host", "127.0.0.1", "--port", str(port),
-                "-ngl", str(gpu_layers), "-c", str(context), "--no-webui",
-            ]
-            started_at = self._clock()
-            try:
-                process = self._popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
-            except OSError:
-                self._failures[alias] = "runtime_spawn_failed"
-                raise LocalModelError("runtime_spawn_failed") from None
-            handle = LlamaServerProcess(
-                process=process,
-                port=port,
-                status=RuntimeStatus(state=RuntimeState.STARTING, device=device, gpu_layers=gpu_layers, context_size=context, started_at=started_at, pid=process.pid),
-            )
-            self._processes[alias] = handle
-            self._failures.pop(alias, None)
-        if not self._wait_healthy(handle):
+        attempts = [(request.fast_attention, request.tool_calling)]
+        if request.fast_attention:
+            attempts.append((False, request.tool_calling))  # older builds or CPU-only: retry plain
+        last_error = "runtime_not_healthy"
+        for fast_attention, tool_calling in attempts:
+            with self._lock:
+                self.deactivate(alias)
+                port = free_loopback_port()
+                command = [
+                    str(binary), "-m", str(path), "--host", "127.0.0.1", "--port", str(port),
+                    "-ngl", str(gpu_layers), "-c", str(context), "--no-webui",
+                ]
+                if fast_attention:
+                    command += ["-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0"]
+                if tool_calling:
+                    command.append("--jinja")
+                started_at = self._clock()
+                try:
+                    process = self._popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                except OSError:
+                    self._failures[alias] = "runtime_spawn_failed"
+                    raise LocalModelError("runtime_spawn_failed") from None
+                handle = LlamaServerProcess(
+                    process=process,
+                    port=port,
+                    status=RuntimeStatus(
+                        state=RuntimeState.STARTING, device=device, gpu_layers=gpu_layers, context_size=context,
+                        started_at=started_at, pid=process.pid, fast_attention=fast_attention, tool_calling=tool_calling,
+                    ),
+                )
+                self._processes[alias] = handle
+                self._failures.pop(alias, None)
+            if self._wait_healthy(handle):
+                handle.status = handle.status.model_copy(update={"state": RuntimeState.RUNNING})
+                return self.status(alias, record=record)
             with self._lock:
                 self._stop(handle)
                 self._processes.pop(alias, None)
-                self._failures[alias] = "runtime_not_healthy"
-            raise LocalModelError("runtime_not_healthy")
-        handle.status = handle.status.model_copy(update={"state": RuntimeState.RUNNING})
-        return self.status(alias, record=record)
+                self._failures[alias] = last_error
+        raise LocalModelError(last_error)
 
     def _wait_healthy(self, handle: LlamaServerProcess) -> bool:
         deadline = time.monotonic() + self._health_timeout

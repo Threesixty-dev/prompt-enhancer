@@ -322,6 +322,34 @@ class _SchemaPromptCheckService:
         raise RuntimeError("schema-only service has no history")
 
 
+class _SchemaLocalAgentService:
+    """Non-executing stand-in so the local-agent routes are typed."""
+
+    def list(self):
+        raise RuntimeError("schema-only service")
+
+    def create(self, settings):
+        raise RuntimeError("schema-only service")
+
+    def get(self, session_id):
+        raise RuntimeError("schema-only service")
+
+    def delete(self, session_id):
+        raise RuntimeError("schema-only service")
+
+    def send(self, session_id, message):
+        raise RuntimeError("schema-only service")
+
+    def events(self, session_id, after=0):
+        raise RuntimeError("schema-only service")
+
+    def approve(self, session_id, approval_id, decision):
+        raise RuntimeError("schema-only service")
+
+    def stop(self, session_id):
+        raise RuntimeError("schema-only service")
+
+
 class _SchemaLocalModelService:
     """Non-executing stand-in so the local model routes are typed."""
 
@@ -501,6 +529,7 @@ def _build_schema_app(*, include_control_plane: bool):
         local_model_service=_SchemaLocalModelService(),  # type: ignore[arg-type]
         model_judge_service=_SchemaModelJudgeService(),  # type: ignore[arg-type]
         prompt_check_service=_SchemaPromptCheckService(),  # type: ignore[arg-type]
+        local_agent_service=_SchemaLocalAgentService(),  # type: ignore[arg-type]
         calibration_sample_session_ids=lambda: (),
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),

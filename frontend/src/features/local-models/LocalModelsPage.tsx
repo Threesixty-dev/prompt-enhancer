@@ -220,7 +220,7 @@ export function LocalModelsPage({
                     onClick={() => {
                       const raw = (layers[item.record.alias] ?? "").trim();
                       const parsed = raw === "" ? null : Number.parseInt(raw, 10);
-                      const request = { device, remember: true, ...(device === "split" && parsed !== null && Number.isFinite(parsed) ? { gpu_layers: parsed } : {}) };
+                      const request = { device, remember: true, fast_attention: true, tool_calling: true, ...(device === "split" && parsed !== null && Number.isFinite(parsed) ? { gpu_layers: parsed } : {}) };
                       void run(item.record.alias, () => transport.activateLocalModel(item.record.alias, request), `${item.record.display_name} is running on ${device}.`);
                     }}
                     type="button"

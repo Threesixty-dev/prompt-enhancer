@@ -4,6 +4,110 @@
  */
 
 export interface paths {
+    "/v1/agent/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sessions */
+        get: operations["list_sessions_v1_agent_sessions_get"];
+        put?: never;
+        /** Create Session */
+        post: operations["create_session_v1_agent_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session */
+        get: operations["get_session_v1_agent_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Session */
+        delete: operations["delete_session_v1_agent_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/approvals/{approval_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide */
+        post: operations["decide_v1_agent_sessions__session_id__approvals__approval_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Events */
+        get: operations["events_v1_agent_sessions__session_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send Message */
+        post: operations["send_message_v1_agent_sessions__session_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop */
+        post: operations["stop_v1_agent_sessions__session_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analysis-jobs": {
         parameters: {
             query?: never;
@@ -2013,6 +2117,11 @@ export interface components {
             /** Context Size */
             context_size?: number | null;
             device?: components["schemas"]["DeviceMode"] | null;
+            /**
+             * Fast Attention
+             * @default true
+             */
+            fast_attention: boolean;
             /** Gpu Layers */
             gpu_layers?: number | null;
             /**
@@ -2020,6 +2129,11 @@ export interface components {
              * @default false
              */
             remember: boolean;
+            /**
+             * Tool Calling
+             * @default true
+             */
+            tool_calling: boolean;
         };
         /** ActivityDay */
         ActivityDay: {
@@ -2045,6 +2159,56 @@ export interface components {
             layer_count?: number | null;
             /** Path */
             path: string;
+        };
+        /** AgentEvent */
+        AgentEvent: {
+            /** Approval Id */
+            approval_id?: string | null;
+            /** Arguments */
+            arguments?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Call Id */
+            call_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "user" | "assistant" | "tool_call" | "tool_result" | "approval_required" | "approval_resolved" | "status" | "error" | "done";
+            /** Ok */
+            ok?: boolean | null;
+            /** Preview */
+            preview?: string | null;
+            /** Seq */
+            seq: number;
+            /** Text */
+            text?: string | null;
+            /** Tool */
+            tool?: string | null;
+        };
+        /** AgentEvents */
+        AgentEvents: {
+            /**
+             * Contract Version
+             * @default local-agent.v1
+             * @constant
+             */
+            contract_version: "local-agent.v1";
+            /** Events */
+            events: components["schemas"]["AgentEvent"][];
+            /** Last Seq */
+            last_seq: number;
+            /** Pending Approval Id */
+            pending_approval_id?: string | null;
+            /** Running */
+            running: boolean;
+            /** Session Id */
+            session_id: string;
         };
         /** AgentMetricEvidenceFileContract */
         AgentMetricEvidenceFileContract: {
@@ -2207,6 +2371,67 @@ export interface components {
             producer_id: string;
             /** Producer Version */
             producer_version: string;
+        };
+        /** AgentSessionView */
+        AgentSessionView: {
+            /**
+             * Contract Version
+             * @default local-agent.v1
+             * @constant
+             */
+            contract_version: "local-agent.v1";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Seq */
+            last_seq: number;
+            /** Model Alias */
+            model_alias?: string | null;
+            /** Pending Approval Id */
+            pending_approval_id?: string | null;
+            /** Running */
+            running: boolean;
+            /** Session Id */
+            session_id: string;
+            settings: components["schemas"]["AgentSettings"];
+            /** Turns */
+            turns: number;
+        };
+        /** AgentSettings */
+        AgentSettings: {
+            /**
+             * Allow Commands
+             * @default true
+             */
+            allow_commands: boolean;
+            /**
+             * Allow Web
+             * @default false
+             */
+            allow_web: boolean;
+            /**
+             * Allow Writes
+             * @default true
+             */
+            allow_writes: boolean;
+            /**
+             * Command Timeout Seconds
+             * @default 120
+             */
+            command_timeout_seconds: number;
+            /**
+             * Max Steps
+             * @default 10
+             */
+            max_steps: number;
+            /** Model Alias */
+            model_alias?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Workspace */
+            workspace: string;
         };
         /**
          * AnalysisDestination
@@ -2478,6 +2703,11 @@ export interface components {
          * @enum {string}
          */
         AnalysisRunStatus: "running" | "completed" | "failed";
+        /** ApprovalDecision */
+        ApprovalDecision: {
+            /** Approved */
+            approved: boolean;
+        };
         /** AutomationGrantCreateRequest */
         AutomationGrantCreateRequest: {
             /**
@@ -2917,6 +3147,11 @@ export interface components {
              * @constant
              */
             demo_provider: "synthetic";
+            /**
+             * Local Agent
+             * @default false
+             */
+            local_agent: boolean;
             /**
              * Local Models
              * @default false
@@ -7093,6 +7328,8 @@ export interface components {
             /** Context Size */
             context_size?: number | null;
             device?: components["schemas"]["DeviceMode"] | null;
+            /** Fast Attention */
+            fast_attention?: boolean | null;
             /** Gpu Layers */
             gpu_layers?: number | null;
             /** Last Error Code */
@@ -7103,6 +7340,8 @@ export interface components {
             started_at?: string | null;
             /** @default stopped */
             state: components["schemas"]["RuntimeState"];
+            /** Tool Calling */
+            tool_calling?: boolean | null;
         };
         /** SanitizedModelLinkValidationFailureResponse */
         SanitizedModelLinkValidationFailureResponse: {
@@ -7126,6 +7365,11 @@ export interface components {
          * @enum {string}
          */
         SemanticUnitKind: "request_revision" | "requirement" | "constraint" | "deliverable" | "ambiguity" | "clarification" | "scope_change" | "feedback" | "hypothesis" | "decision" | "open_loop" | "action" | "verification";
+        /** SendMessage */
+        SendMessage: {
+            /** Text */
+            text: string;
+        };
         /** SessionAnalysisEvidenceDto */
         SessionAnalysisEvidenceDto: {
             /** Message Id */
@@ -8507,6 +8751,287 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_sessions_v1_agent_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_session_v1_agent_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_v1_agent_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_session_v1_agent_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_v1_agent_sessions__session_id__approvals__approval_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    events_v1_agent_sessions__session_id__events_get: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentEvents"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_message_v1_agent_sessions__session_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMessage"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_v1_agent_sessions__session_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_jobs_v1_analysis_jobs_get: {
         parameters: {
             query?: {

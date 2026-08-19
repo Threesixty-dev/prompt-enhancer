@@ -45,6 +45,9 @@ const CalibrationScreen = lazy(() =>
 const LocalModelsScreen = lazy(() =>
   import("../features/local-models/LocalModelsPage").then((module) => ({ default: module.LocalModelsPage })),
 );
+const AgentScreen = lazy(() =>
+  import("../features/agent/AgentPage").then((module) => ({ default: module.AgentPage })),
+);
 const OverviewScreen = lazy(() =>
   import("../features/overview/OverviewPage").then((module) => ({ default: module.OverviewPage })),
 );
@@ -173,6 +176,7 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "models") return "Models";
   if (route.name === "prompt_checks") return "Prompt check";
   if (route.name === "overview") return "Overview";
+  if (route.name === "agent") return "Agent";
   if (route.name === "live") return "Live";
   if (route.name === "research") return "Methods & models";
   if (route.name === "team") return "Team analytics";
@@ -299,6 +303,21 @@ export function App({
     }
   }
 
+  if (route.name === "agent" && route.window) {
+    // Chrome-less agent window: the workspace chat alone, like a second editor pane.
+    return (
+      <div className="app-shell app-shell--live app-shell--agent-window" data-layout="agent-window">
+        <main id="main-content" tabIndex={-1}>
+          <RouteErrorBoundary onExit={() => navigate({ name: "agent" })} resetKey={routePath(route)}>
+            <Suspense fallback={<RouteLoading route={route} />}>
+              <AgentScreen sessionId={route.sessionId} transport={transport} windowMode />
+            </Suspense>
+          </RouteErrorBoundary>
+        </main>
+      </div>
+    );
+  }
+
   if (route.name === "live") {
     // Chrome-less mini window: no sidebar, no header - just the live view.
     return (
@@ -386,6 +405,15 @@ export function App({
           >
             <Icon name="layers" />
             <span>Models</span>
+          </button>
+          <button
+            aria-current={route.name === "agent" ? "page" : undefined}
+            className={route.name === "agent" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "agent" })}
+            type="button"
+          >
+            <Icon name="layers" />
+            <span>Agent</span>
           </button>
           <button
             aria-current={route.name === "prompt_checks" ? "page" : undefined}
@@ -543,6 +571,8 @@ export function App({
                 <PromptChecksScreen checkId={route.checkId} navigate={navigate} transport={transport} />
               ) : route.name === "overview" ? (
                 <OverviewScreen navigate={navigate} transport={transport} />
+              ) : route.name === "agent" ? (
+                <AgentScreen sessionId={route.sessionId} transport={transport} />
               ) : route.name === "projects" ? (
                 <ProjectCatalogScreen
                   coverageProvider={coverageProvider}

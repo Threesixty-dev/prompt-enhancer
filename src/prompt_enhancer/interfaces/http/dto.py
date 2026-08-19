@@ -94,6 +94,7 @@ class CapabilitiesDto(HttpDto):
     claude_code_local_source: bool = False
     local_models: bool = False
     prompt_check: bool = False
+    local_agent: bool = False
     manual_display_labels: bool
     browser_session: Literal[True]
     demo_provider: Literal["synthetic"]

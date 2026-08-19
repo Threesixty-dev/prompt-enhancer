@@ -365,6 +365,26 @@ class LocalApplication:
             active_model=active_model,
         )
 
+    def create_local_agent_service(self, local_model_service=None):
+        """Local agent workspace (ADR 0016): one folder, tools with approval, the active local model."""
+
+        from .application.local_agent import LocalAgentService
+        from .application.local_models import RuntimeState
+
+        models = local_model_service or self.create_local_model_service()
+
+        def active_model() -> str | None:
+            try:
+                overview = models.overview()
+            except Exception:
+                return None
+            for item in overview.models:
+                if item.runtime.state is RuntimeState.RUNNING:
+                    return item.record.alias
+            return None
+
+        return LocalAgentService(chat=models.chat, active_model=active_model)
+
     def create_agent_read_surface(self, prompt_check_service=None):
         """Read-only allowlisted tools for connected coding agents (ADR 0014), plus the prompt check tool (ADR 0015)."""
 
@@ -1089,6 +1109,7 @@ class LocalApplication:
         calibration_rating_service = self.create_calibration_rating_service()
         model_judge_service, _ = self.create_model_judge_service(local_model_service, calibration_rating_service)
         prompt_check_service = self.create_prompt_check_service(local_model_service)
+        local_agent_service = self.create_local_agent_service(local_model_service)
 
         def judge_new_sessions(provider: Provider) -> None:
             # Judge the newest indexed sessions with the active local model, one
@@ -1156,6 +1177,7 @@ class LocalApplication:
             local_model_service=local_model_service,
             model_judge_service=model_judge_service,
             prompt_check_service=prompt_check_service,
+            local_agent_service=local_agent_service,
             calibration_sample_session_ids=lambda: tuple(m.session_id for m in calibration_rating_service.sample().members),
             all_session_ids=every_session_id,
             objective_overrides_provider=self.create_objective_overrides_provider(),

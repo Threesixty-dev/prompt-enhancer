@@ -54,7 +54,7 @@ describe("LocalModelsPage", () => {
     expect(screen.getByText("POST /v1/local-models/qwen-27b-q4/chat/completions")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Device for Qwen 27B Q4").querySelector("input[value='gpu']") as HTMLInputElement);
     fireEvent.click(screen.getByRole("button", { name: "Activate" }));
-    await waitFor(() => expect(activateLocalModel).toHaveBeenCalledWith("qwen-27b-q4", { device: "gpu", remember: true }));
+    await waitFor(() => expect(activateLocalModel).toHaveBeenCalledWith("qwen-27b-q4", { device: "gpu", remember: true, fast_attention: true, tool_calling: true }));
     await screen.findByText(/running · split · 52 GPU layers/);
 
     // Adding from Hugging Face shows sizes and picks the 4-bit file by default.

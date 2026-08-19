@@ -94,6 +94,9 @@ import type {
   PromptCheckResult,
   PromptCheckRecord,
   PromptCheckHistory,
+  AgentSettings,
+  AgentSessionView,
+  AgentEvents,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2382,6 +2385,30 @@ export function createHttpTransport(options: {
     },
     getPromptCheck(checkId, signal) {
       return request<PromptCheckRecord>(`/v1/prompt-checks/${encodeURIComponent(checkId)}`, { method: "GET" }, signal);
+    },
+    listAgentSessions(signal) {
+      return request<AgentSessionView[]>("/v1/agent/sessions", { method: "GET" }, signal);
+    },
+    createAgentSession(settings, signal) {
+      return request<AgentSessionView>("/v1/agent/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }, signal);
+    },
+    getAgentSession(sessionId, signal) {
+      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" }, signal);
+    },
+    async deleteAgentSession(sessionId, signal) {
+      await request<unknown>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }, signal);
+    },
+    sendAgentMessage(sessionId, text, signal) {
+      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }, signal);
+    },
+    getAgentEvents(sessionId, after, signal) {
+      return request<AgentEvents>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/events?after=${after}`, { method: "GET" }, signal);
+    },
+    decideAgentApproval(sessionId, approvalId, approved, signal) {
+      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(approvalId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved }) }, signal);
+    },
+    stopAgentSession(sessionId, signal) {
+      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" }, signal);
     },
     getModelJudgments(sessionId, signal) {
       return request<SessionJudgments>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" }, signal);

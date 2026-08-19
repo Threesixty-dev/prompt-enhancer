@@ -344,6 +344,7 @@ def create_app(
     calibration_sample_session_ids=None,
     all_session_ids=None,
     prompt_check_service=None,
+    local_agent_service=None,
     local_source_refresh_worker=None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
@@ -415,6 +416,9 @@ def create_app(
         openapi_url=None,
         lifespan=local_lifespan,
     )
+    from fastapi.middleware.gzip import GZipMiddleware
+
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.state.database = database
 
     def _session_provider(session_id: str) -> Provider:
@@ -644,6 +648,7 @@ def create_app(
             claude_code_local_source=claude_source_service is not None,
             local_models=local_model_service is not None,
             prompt_check=prompt_check_service is not None,
+            local_agent=local_agent_service is not None,
             manual_display_labels=display_label_service is not None,
             browser_session=True,
             demo_provider="synthetic",
@@ -910,6 +915,10 @@ def create_app(
         from .interfaces.http.prompt_check_routes import create_prompt_check_router
 
         app.include_router(create_prompt_check_router(require_local_token, prompt_check_service))
+    if local_agent_service is not None:
+        from .interfaces.http.local_agent_routes import create_local_agent_router
+
+        app.include_router(create_local_agent_router(require_local_token, local_agent_service))
     if model_judge_service is not None:
         from .interfaces.http.model_judge_routes import create_model_judge_router
 
