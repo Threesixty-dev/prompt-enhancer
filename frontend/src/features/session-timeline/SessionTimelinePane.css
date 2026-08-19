@@ -1,0 +1,31 @@
+.session-timeline { margin: 0 0 18px; padding: 16px 18px 14px; border: 1px solid var(--line); border-radius: var(--radius-lg, 14px); background: var(--surface); display: grid; gap: 12px; }
+.session-timeline__head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-start; justify-content: space-between; }
+.session-timeline__head h2 { margin: 2px 0 0; font-size: 1.05rem; }
+.session-timeline__stats { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: 0; }
+.session-timeline__stats div { display: grid; gap: 1px; }
+.session-timeline__stats dt { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-500); }
+.session-timeline__stats dd { margin: 0; font-size: 0.88rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.session-timeline__chart { position: relative; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 0 8px; align-items: stretch; }
+.session-timeline__chart svg { grid-column: 2; display: block; overflow: visible; }
+.session-timeline__lanes { grid-column: 1; grid-row: 1; list-style: none; margin: 0; padding: 12px 0 0; display: grid; grid-auto-rows: 28px; font-size: 0.7rem; color: var(--ink-500); letter-spacing: 0.04em; text-transform: uppercase; }
+.session-timeline__grid { stroke: var(--line); stroke-width: 1; }
+.session-timeline__turn { fill: var(--teal-100, #cfe9e5); stroke: var(--teal-700, #14796e); stroke-width: 1; }
+.session-timeline__tool { fill: var(--ink-300, #b9c2c8); }
+.session-timeline__tool--file_write { fill: var(--amber-400, #e0a84a); }
+.session-timeline__tool--file_read, .session-timeline__tool--search { fill: var(--ink-300, #b9c2c8); }
+.session-timeline__tool--command { fill: var(--ink-500, #6b7a84); }
+.session-timeline__tool--version_control { fill: var(--violet-400, #9a86d6); }
+.session-timeline__tool--network, .session-timeline__tool--mcp { fill: var(--blue-400, #5d9bd6); }
+.session-timeline__tool--subagent { fill: var(--teal-400, #5fb8ad); }
+.session-timeline__tool--passed { fill: var(--green-500, #2f9e6a); }
+.session-timeline__tool--failed { fill: var(--red-500, #c9423a); }
+.session-timeline__tool--unknown.session-timeline__tool--test, .session-timeline__tool--unknown.session-timeline__tool--build { fill: var(--ink-400, #8b98a1); }
+.session-timeline__marker line { stroke: var(--ink-500); stroke-width: 2; stroke-dasharray: 3 2; }
+.session-timeline__marker--compaction line { stroke: var(--amber-600, #b07a18); }
+.session-timeline__axis { display: flex; justify-content: space-between; margin: 0; padding-left: 72px; font-size: 0.7rem; color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.session-timeline__note { margin: 0; font-size: 0.78rem; color: var(--ink-650); }
+@media (max-width: 640px) {
+  .session-timeline { padding: 12px; }
+  .session-timeline__chart { grid-template-columns: 52px minmax(0, 1fr); }
+  .session-timeline__axis { padding-left: 60px; }
+}

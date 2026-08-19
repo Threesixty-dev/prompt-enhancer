@@ -73,6 +73,7 @@ export type CodexLocalSourceStatus = Schemas["CodexLocalSourceStatus"];
 export type ClaudeCodeLocalSourceStatus = Schemas["ClaudeCodeLocalSourceStatus"];
 export type IngestionReport = Schemas["IngestionReport"];
 export type SessionTranscript = Schemas["SessionTranscript"];
+export type SessionTimeline = Schemas["SessionTimeline"];
 export type OnboardingStatus = Schemas["OnboardingStatus"];
 export type ProviderDetection = Schemas["ProviderDetection"];
 export type OnboardingAccept = Schemas["OnboardingAccept"];
@@ -522,6 +523,8 @@ export interface PromptEnhancerTransport {
   revokeCodexLocalHistoryConsent(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
   /** Owner-authorized on-demand read of one session (ADR 0011); nothing is stored. */
   getSessionTranscript(sessionId: string, signal?: AbortSignal): Promise<SessionTranscript>;
+  /** Deterministic, content-free timeline of one session's indexed events. */
+  getSessionTimeline(sessionId: string, signal?: AbortSignal): Promise<SessionTimeline>;
   getOnboardingStatus(signal?: AbortSignal): Promise<OnboardingStatus>;
   acceptOnboarding(request: OnboardingAccept, signal?: AbortSignal): Promise<OnboardingResult>;
   /** Blind calibration ratings over a frozen sample of the owner's own sessions. */

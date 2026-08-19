@@ -76,6 +76,7 @@ import type {
   CalibrationProgress,
   CalibrationRating,
   CalibrationSample,
+  SessionTimeline,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2342,6 +2343,13 @@ export function createHttpTransport(options: {
     },
     getOnboardingStatus(signal) {
       return request<OnboardingStatus>("/v1/onboarding", { method: "GET" }, signal);
+    },
+    getSessionTimeline(sessionId, signal) {
+      return request<SessionTimeline>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/timeline`,
+        { method: "GET" },
+        signal,
+      );
     },
     getCalibrationSample(raterLabel, signal) {
       const query = raterLabel ? `?rater_label=${encodeURIComponent(raterLabel)}` : "";

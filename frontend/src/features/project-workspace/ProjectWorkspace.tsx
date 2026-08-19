@@ -1,4 +1,5 @@
 import { SessionTranscriptPane } from "../session-reader/SessionTranscriptPane";
+import { SessionTimelinePane } from "../session-timeline/SessionTimelinePane";
 import { isLocalProvider } from "../../shared/api/contracts";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import {
@@ -1426,6 +1427,11 @@ export function ProjectWorkspace({
               transport={transport}
             />
           </section>
+          <SessionTimelinePane
+            key={`timeline-${currentSession.session_id}`}
+            sessionId={currentSession.session_id}
+            transport={transport}
+          />
           <SessionTranscriptPane
             key={`reader-${currentSession.session_id}`}
             sessionId={currentSession.session_id}

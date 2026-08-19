@@ -185,3 +185,35 @@ def test_p1_publication_preview_carries_objective_first_pass_for_claude(tmp_path
         assert row["value_state"] == "known" and row["fraction"] == {"numerator": 1, "denominator": 1}, row
         assert row["algorithm_id"] == "typed-objective-evidence"
         assert row["explanation_code"] == "typed_first_verification_outcomes"
+
+
+def test_session_timeline_route_is_content_free_and_pairs_tools(tmp_path: Path, monkeypatch) -> None:
+    claude_home = tmp_path / "claude-home"
+    monkeypatch.setenv("PROMPT_ENHANCER_CLAUDE_HOME", str(claude_home))
+    _write(claude_home)
+    settings = AppSettings(home=tmp_path / "app")
+    application = bootstrap_local_application(settings)
+    application.database.grant_consent(Provider.CLAUDE_CODE, DataTier.REDACTED_CONTENT)
+    application.create_claude_local_source_service().index(max_sessions=10)
+    session_id = str(application.database.list_sessions(limit=5, offset=0)[0]["session_id"])
+    client = TestClient(application.create_http_app(), base_url="http://127.0.0.1")
+    headers = {API_TOKEN_HEADER: settings.api_token_path.read_text(encoding="utf-8").strip()}
+
+    assert client.get(f"/v1/sessions/{session_id}/timeline").status_code == 401
+    missing = client.get(f"/v1/sessions/{'f' * 64}/timeline", headers=headers)
+    assert missing.status_code == 404
+    response = client.get(f"/v1/sessions/{session_id}/timeline", headers=headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["contract_version"] == "session-timeline.v1" and body["provider"] == "claude_code"
+    assert body["session_display_name"]  # title from the first prompt, nothing else textual
+    assert body["counts"]["turns"] >= 1
+    # Two tool spans: the Edit (file_write) and the pytest run (test, passed).
+    categories = [(tool["category"], tool["verification"], tool["success"]) for tool in body["tools"]]
+    assert ("file_write", False, None) in categories  # no is_error key -> outcome unknown, never assumed
+    assert ("test", True, True) in categories
+    assert body["counts"]["verifications_passed"] == 1 and body["counts"]["verifications_failed"] == 0
+    assert all(tool["ended_at"] is not None for tool in body["tools"])
+    # No prompt text, command text or path leaks into the timeline.
+    text = response.text
+    assert "pytest" not in text and "/srv/" not in text and "test_uploader" not in text  # the title keeps its first-prompt words; commands and paths never appear

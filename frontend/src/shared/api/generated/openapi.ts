@@ -1317,6 +1317,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session Timeline */
+        get: operations["session_timeline_v1_sessions__session_id__timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/transcript": {
         parameters: {
             query?: never;
@@ -6944,6 +6961,46 @@ export interface components {
             confirmation: "analyze_selected_redacted_text";
             preset_id: components["schemas"]["TextAnalysisPresetId"];
         };
+        /** SessionTimeline */
+        SessionTimeline: {
+            /**
+             * Contract Version
+             * @default session-timeline.v1
+             * @constant
+             */
+            contract_version: "session-timeline.v1";
+            counts: components["schemas"]["TimelineCounts"];
+            /** Ended At */
+            ended_at?: string | null;
+            /** Events Complete */
+            events_complete: boolean;
+            /** Markers */
+            markers: components["schemas"]["TimelineMarker"][];
+            /** Project Display Name */
+            project_display_name?: string | null;
+            /** Project Id */
+            project_id: string;
+            provider: components["schemas"]["Provider"];
+            /** Session Display Name */
+            session_display_name?: string | null;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Tools */
+            tools: components["schemas"]["TimelineTool"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Turns */
+            turns: components["schemas"]["TimelineTurn"][];
+            usage: components["schemas"]["TimelineUsage"];
+        };
         /** SessionTranscript */
         SessionTranscript: {
             /**
@@ -7304,6 +7361,84 @@ export interface components {
          * @enum {string}
          */
         TextRole: "user" | "agent";
+        /** TimelineCounts */
+        TimelineCounts: {
+            /** Events */
+            events: number;
+            /** Tool Errors */
+            tool_errors: number;
+            /** Tools */
+            tools: number;
+            /** Turns */
+            turns: number;
+            /** Verifications Failed */
+            verifications_failed: number;
+            /** Verifications Passed */
+            verifications_passed: number;
+            /** Verifications Unknown */
+            verifications_unknown: number;
+        };
+        /** TimelineMarker */
+        TimelineMarker: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "compaction" | "subagent_start" | "subagent_end" | "approval" | "permission_change" | "session_end";
+        };
+        /** TimelineTool */
+        TimelineTool: {
+            category: components["schemas"]["ToolCategory"];
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Success */
+            success?: boolean | null;
+            /**
+             * Verification
+             * @default false
+             */
+            verification: boolean;
+        };
+        /** TimelineTurn */
+        TimelineTurn: {
+            /** Ended At */
+            ended_at?: string | null;
+            /** Index */
+            index: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /** TimelineUsage */
+        TimelineUsage: {
+            /** Cached Input Tokens */
+            cached_input_tokens?: number | null;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** Requests */
+            requests: number;
+        };
+        /**
+         * ToolCategory
+         * @enum {string}
+         */
+        ToolCategory: "file_read" | "file_write" | "command" | "search" | "test" | "build" | "version_control" | "network" | "mcp" | "subagent" | "other" | "unknown";
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -10661,6 +10796,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionAnalysisRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_timeline_v1_sessions__session_id__timeline_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTimeline"];
                 };
             };
             /** @description Validation Error */

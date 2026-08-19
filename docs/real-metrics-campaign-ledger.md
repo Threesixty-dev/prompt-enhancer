@@ -1284,6 +1284,11 @@ now overlay the decoder-4 objective projection on the evidence-lane rows, so
 every auto-accepted session with a classified test or build run - end to end
 from one consent, verified by `tests/test_claude_objective_evidence_e2e.py`.
 
+`GET /v1/sessions/{id}/timeline` (session-timeline.v1) projects the indexed
+safe events of one session into turns, tool spans by category, verification
+receipts and markers with token totals - content-free by construction - and
+the session view draws it as a responsive SVG timeline above the reader.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

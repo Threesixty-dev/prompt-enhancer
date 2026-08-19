@@ -13672,6 +13672,119 @@
         "title": "SessionTextAnalysisRequest",
         "type": "object"
       },
+      "SessionTimeline": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "session-timeline.v1",
+            "default": "session-timeline.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/TimelineCounts"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "events_complete": {
+            "title": "Events Complete",
+            "type": "boolean"
+          },
+          "markers": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineMarker"
+            },
+            "title": "Markers",
+            "type": "array"
+          },
+          "project_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Display Name"
+          },
+          "project_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "session_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Display Name"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineTool"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineTurn"
+            },
+            "title": "Turns",
+            "type": "array"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/TimelineUsage"
+          }
+        },
+        "required": [
+          "session_id",
+          "provider",
+          "project_id",
+          "started_at",
+          "events_complete",
+          "turns",
+          "tools",
+          "markers",
+          "usage",
+          "counts"
+        ],
+        "title": "SessionTimeline",
+        "type": "object"
+      },
       "SessionTranscript": {
         "additionalProperties": false,
         "properties": {
@@ -14700,6 +14813,243 @@
           "agent"
         ],
         "title": "TextRole",
+        "type": "string"
+      },
+      "TimelineCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "minimum": 0.0,
+            "title": "Events",
+            "type": "integer"
+          },
+          "tool_errors": {
+            "minimum": 0.0,
+            "title": "Tool Errors",
+            "type": "integer"
+          },
+          "tools": {
+            "minimum": 0.0,
+            "title": "Tools",
+            "type": "integer"
+          },
+          "turns": {
+            "minimum": 0.0,
+            "title": "Turns",
+            "type": "integer"
+          },
+          "verifications_failed": {
+            "minimum": 0.0,
+            "title": "Verifications Failed",
+            "type": "integer"
+          },
+          "verifications_passed": {
+            "minimum": 0.0,
+            "title": "Verifications Passed",
+            "type": "integer"
+          },
+          "verifications_unknown": {
+            "minimum": 0.0,
+            "title": "Verifications Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "events",
+          "turns",
+          "tools",
+          "verifications_passed",
+          "verifications_failed",
+          "verifications_unknown",
+          "tool_errors"
+        ],
+        "title": "TimelineCounts",
+        "type": "object"
+      },
+      "TimelineMarker": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "compaction",
+              "subagent_start",
+              "subagent_end",
+              "approval",
+              "permission_change",
+              "session_end"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "kind"
+        ],
+        "title": "TimelineMarker",
+        "type": "object"
+      },
+      "TimelineTool": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/ToolCategory"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "success": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success"
+          },
+          "verification": {
+            "default": false,
+            "title": "Verification",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "started_at",
+          "category"
+        ],
+        "title": "TimelineTool",
+        "type": "object"
+      },
+      "TimelineTurn": {
+        "additionalProperties": false,
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "index": {
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "started_at"
+        ],
+        "title": "TimelineTurn",
+        "type": "object"
+      },
+      "TimelineUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "cached_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Input Tokens"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "requests": {
+            "minimum": 0.0,
+            "title": "Requests",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "title": "TimelineUsage",
+        "type": "object"
+      },
+      "ToolCategory": {
+        "enum": [
+          "file_read",
+          "file_write",
+          "command",
+          "search",
+          "test",
+          "build",
+          "version_control",
+          "network",
+          "mcp",
+          "subagent",
+          "other",
+          "unknown"
+        ],
+        "title": "ToolCategory",
         "type": "string"
       },
       "ValidationError": {
@@ -21881,6 +22231,81 @@
         "summary": "Latest Session Analysis Run",
         "tags": [
           "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/timeline": {
+      "get": {
+        "operationId": "session_timeline_v1_sessions__session_id__timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTimeline"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Timeline",
+        "tags": [
+          "session-timeline"
         ]
       }
     },
