@@ -268,3 +268,7 @@ main td, main .metric-value, main [class*="__value"], main [class*="-value"] { f
 :root[data-theme="dark"] .prompt-plot__series polyline { fill: none !important; }
 :root[data-theme="dark"] .quality-radar__ring { fill: rgba(255, 255, 255, 0.02); stroke: var(--line-strong); }
 :root[data-theme="dark"] .quality-radar__point { fill: var(--accent-primary-strong); stroke: var(--surface); }
+
+/* inline text-style buttons used by several pages (lives here so every page has it) */
+.link-button { background: none; border: none; padding: 0; color: var(--accent-primary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font: inherit; text-align: left; }
+.link-button:hover { color: var(--accent-primary-strong); }

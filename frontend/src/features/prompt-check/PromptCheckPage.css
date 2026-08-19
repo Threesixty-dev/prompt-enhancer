@@ -47,7 +47,6 @@
 .prompt-check__table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 .prompt-check__table th, .prompt-check__table td { padding: 0.4rem 0.5rem; border-top: 1px solid var(--border, var(--p-e3e6ea)); text-align: left; white-space: nowrap; }
 .prompt-check__table td[data-state="known"] { font-variant-numeric: tabular-nums; }
-.link-button { background: none; border: none; padding: 0; color: var(--accent, var(--p-1f5fbf)); text-decoration: underline; cursor: pointer; font: inherit; }
 
 /* plots */
 .prompt-plot { margin: 0; display: grid; gap: 0.3rem; }
