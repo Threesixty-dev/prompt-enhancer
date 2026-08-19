@@ -1272,6 +1272,12 @@ cannot-judge while reading the session in the ADR 0011 reader, rater stored
 as a pseudonym, export content-free. These ratings are gathered, not yet fed
 into any activation gate; no estimator changes state because of them.
 
+Migration 49 records decision provenance (`decision_source`); single-session
+candidates are now accepted automatically after each index (ADR 0012
+addendum), which makes `outcome.first_pass_verification` computable for every
+singleton session that contains a classified test or build run. Grouped
+candidates still require a person.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

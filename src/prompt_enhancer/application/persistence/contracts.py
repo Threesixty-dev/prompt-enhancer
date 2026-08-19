@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 import re
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import Field, field_validator, model_validator
 
@@ -294,6 +294,7 @@ class CandidateListItem(StrictModel):
     decision_status: CandidateDecisionStatus
     decision_id: str | None = None
     decision_action: DecisionAction | None = None
+    decision_source: Literal["person", "automation"] | None = None
 
     _validate_decision_id = field_validator("decision_id")(_optional_pseudonym)
 
@@ -350,6 +351,9 @@ class TaskDecisionRecord(StrictModel):
     decision_schema_version: str
     decision_code: str | None = None
     decided_at: datetime
+    # Provenance: a person in the review panel, or local automation that
+    # accepted a single-session candidate (visible, never silent).
+    decision_source: Literal["person", "automation"] = "person"
 
     _validate_decision_id = field_validator("decision_id")(_pseudonym)
     _validate_version = field_validator("decision_schema_version")(_safe_code)

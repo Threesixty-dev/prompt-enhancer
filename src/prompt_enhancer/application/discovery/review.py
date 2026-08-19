@@ -87,6 +87,7 @@ class TaskReviewService:
         command: TaskDecisionCommand,
         *,
         idempotency_key: str,
+        decision_source: str = "person",
     ) -> TaskReviewResult:
         if not SAFE_VERSION_PATTERN.fullmatch(idempotency_key):
             raise InvalidTaskReviewError(
@@ -131,6 +132,7 @@ class TaskReviewService:
                 for revision in output_revisions
             ),
             decision_schema_version=DECISION_SCHEMA_VERSION,
+            decision_source=decision_source,  # type: ignore[arg-type]
             decision_code=decision_code,
             decided_at=decided_at,
         )

@@ -292,6 +292,8 @@ class CandidateListItemDto(HttpDto):
     decision_status: CandidateDecisionStatus
     decision_id: Pseudonym | None
     decision_action: DecisionAction | None
+    # "automation" marks a single-session candidate accepted without a person.
+    decision_source: Literal["person", "automation"] | None = None
 
     @classmethod
     def from_record(cls, record: CandidateListItem) -> CandidateListItemDto:
@@ -300,6 +302,7 @@ class CandidateListItemDto(HttpDto):
             decision_status=record.decision_status,
             decision_id=record.decision_id,
             decision_action=record.decision_action,
+            decision_source=record.decision_source,
         )
 
 
@@ -323,6 +326,7 @@ class TaskDecisionDto(HttpDto):
     decision_schema_version: str
     decision_code: str | None
     decided_at: datetime
+    decision_source: Literal["person", "automation"] = "person"
 
     @classmethod
     def from_record(cls, record: TaskDecisionRecord) -> TaskDecisionDto:
@@ -340,6 +344,7 @@ class TaskDecisionDto(HttpDto):
             ),
             decision_schema_version=record.decision_schema_version,
             decision_code=record.decision_code,
+            decision_source=record.decision_source,
             decided_at=record.decided_at,
         )
 

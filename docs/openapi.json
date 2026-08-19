@@ -2073,6 +2073,21 @@
             ],
             "title": "Decision Id"
           },
+          "decision_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "person",
+                  "automation"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Source"
+          },
           "decision_status": {
             "$ref": "#/components/schemas/CandidateDecisionStatus"
           }
@@ -14018,6 +14033,15 @@
           },
           "decision_schema_version": {
             "title": "Decision Schema Version",
+            "type": "string"
+          },
+          "decision_source": {
+            "default": "person",
+            "enum": [
+              "person",
+              "automation"
+            ],
+            "title": "Decision Source",
             "type": "string"
           },
           "revision_links": {

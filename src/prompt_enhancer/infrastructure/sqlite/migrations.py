@@ -12671,3 +12671,14 @@ CREATE INDEX calibration_ratings_by_session
 
 COMMIT;
 """
+
+MIGRATION_49 = r"""
+BEGIN IMMEDIATE;
+
+-- Who made a task decision: a person in the review panel, or the local
+-- automation that accepts single-session candidates so evidence metrics have
+-- a reviewed denominator. Existing rows were all made by a person.
+ALTER TABLE task_decisions ADD COLUMN decision_source TEXT NOT NULL DEFAULT 'person'
+    CHECK(decision_source IN ('person', 'automation'));
+COMMIT;
+"""

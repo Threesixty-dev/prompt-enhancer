@@ -45,6 +45,7 @@ function parseDecision(value: unknown, candidateId: string): TaskDecision {
     "decision_code",
     "decision_id",
     "decision_schema_version",
+    "decision_source",
     "revision_links",
   ])) throw new TaskDecisionPayloadError();
   if (
@@ -59,6 +60,7 @@ function parseDecision(value: unknown, candidateId: string): TaskDecision {
     || (value.decision_code !== null
       && (typeof value.decision_code !== "string" || !SAFE_CODE.test(value.decision_code)))
     || !safeUtcTime(value.decided_at)
+    || (value.decision_source !== "person" && value.decision_source !== "automation")
     || !Array.isArray(value.revision_links)
     || value.revision_links.length > MAX_IDENTITIES
   ) throw new TaskDecisionPayloadError();
@@ -95,6 +97,7 @@ function parseDecision(value: unknown, candidateId: string): TaskDecision {
     decision_schema_version: value.decision_schema_version,
     decision_code: value.decision_code,
     decided_at: value.decided_at,
+    decision_source: value.decision_source,
   };
 }
 

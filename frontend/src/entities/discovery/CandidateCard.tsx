@@ -53,7 +53,11 @@ export function CandidateCard({
             </span>
           </span>
           <StatusPill tone={item.decision_status === "decided" ? "positive" : "warning"}>
-            {item.decision_status === "decided" ? item.decision_action ?? "Reviewed" : "Needs review"}
+            {item.decision_status !== "decided"
+              ? "Needs review"
+              : item.decision_source === "automation"
+                ? "Auto-accepted"
+                : item.decision_action ?? "Reviewed"}
           </StatusPill>
         </span>
 

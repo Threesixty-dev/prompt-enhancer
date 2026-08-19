@@ -485,7 +485,7 @@ class SqliteTaskRepository:
         with self._connection_scope(readonly=True) as connection:
             rows = connection.execute(
                 f"""
-                SELECT c.candidate_id, d.decision_id, d.action
+                SELECT c.candidate_id, d.decision_id, d.action, d.decision_source
                 FROM task_candidates c
                 LEFT JOIN task_decision_candidates dc
                     ON dc.candidate_id = c.candidate_id
@@ -510,6 +510,7 @@ class SqliteTaskRepository:
                         ),
                         decision_id=row["decision_id"],
                         decision_action=row["action"],
+                        decision_source=row["decision_source"],
                     )
                 )
         return tuple(items)
@@ -725,8 +726,8 @@ class SqliteTaskRepository:
                     """
                     INSERT INTO task_decisions(
                         decision_id, action, decision_schema_version,
-                        decision_code, decided_at
-                    ) VALUES (?, ?, ?, ?, ?)
+                        decision_code, decided_at, decision_source
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         decision.decision_id,
@@ -734,6 +735,7 @@ class SqliteTaskRepository:
                         decision.decision_schema_version,
                         decision.decision_code,
                         to_iso(decision.decided_at),
+                        decision.decision_source,
                     ),
                 )
                 connection.executemany(
@@ -829,6 +831,7 @@ class SqliteTaskRepository:
             decision_schema_version=row["decision_schema_version"],
             decision_code=row["decision_code"],
             decided_at=from_iso(row["decided_at"]),
+            decision_source=row["decision_source"] or "person",
         )
 
     def list_decisions(self, candidate_id: str) -> tuple[TaskDecisionRecord, ...]:

@@ -2464,6 +2464,8 @@ export interface components {
             decision_action: components["schemas"]["DecisionAction"] | null;
             /** Decision Id */
             decision_id: string | null;
+            /** Decision Source */
+            decision_source?: ("person" | "automation") | null;
             decision_status: components["schemas"]["CandidateDecisionStatus"];
         };
         /** CandidateListResponse */
@@ -7077,6 +7079,12 @@ export interface components {
             decision_id: string;
             /** Decision Schema Version */
             decision_schema_version: string;
+            /**
+             * Decision Source
+             * @default person
+             * @enum {string}
+             */
+            decision_source: "person" | "automation";
             /** Revision Links */
             revision_links: components["schemas"]["DecisionRevisionLinkDto"][];
         };

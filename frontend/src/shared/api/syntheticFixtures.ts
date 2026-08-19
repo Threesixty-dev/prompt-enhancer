@@ -332,6 +332,7 @@ export const SYNTHETIC_TASK_DECISIONS: Readonly<Record<string, readonly TaskDeci
         { task_id: pseudonym("d"), revision: 1, role: "output" },
       ],
       decision_schema_version: "synthetic.task-review.v1",
+      decision_source: "person",
       decision_code: null,
       decided_at: "2040-01-01T14:05:00Z",
     },

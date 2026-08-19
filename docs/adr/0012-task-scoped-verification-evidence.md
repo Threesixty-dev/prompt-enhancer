@@ -54,6 +54,18 @@ and schema. Hook-only Claude sessions do not match the transcript descriptor
 and project nothing; hooks cannot classify commands without reading tool
 input, which ADR 0010 forbids.
 
+## Addendum: single-session candidates are accepted automatically (2026-08-19)
+
+The owner chose propose-then-accept for groupings and asked that single-session
+candidates not wait for a click. After every index the refresh path runs
+discovery and then `SingletonCandidateAutoAccepter`: each undecided candidate
+with exactly one session is accepted with `task_category = UNKNOWN` and the
+decision is stored with `decision_source = "automation"` (migration 49) so the
+inbox shows "Auto-accepted" instead of a person's review. Multi-session
+candidates - the ones that carry a grouping judgement - still wait for a
+person. This gives decoder 4 its reviewed denominator for the common case
+without inventing one: the session is the task by construction.
+
 ## Consequences
 
 - First-pass verification becomes numeric exactly when a person has accepted

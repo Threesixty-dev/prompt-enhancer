@@ -242,6 +242,10 @@ class LocalApplication:
                         break
                 if sessions:
                     self.create_discovery_persistence_service().discover_and_persist(sessions)
+                # Single-session candidates are accepted automatically with
+                # decision_source="automation" (owner's direction, 2026-08-19);
+                # multi-session groupings still wait for a person.
+                self.create_singleton_auto_accepter().run(provider=provider)
             except Exception:
                 pass
 
@@ -344,6 +348,16 @@ class LocalApplication:
             TaskDiscoveryEngine(identifiers),
             self.database.task_repository(),
             identifiers,
+        )
+
+    def create_singleton_auto_accepter(self):
+        """Accept single-session candidates automatically, visibly as automation."""
+
+        from .application.discovery.auto_accept import SingletonCandidateAutoAccepter
+
+        return SingletonCandidateAutoAccepter(
+            self.database.task_repository(),
+            self.create_task_review_service(),
         )
 
     def create_task_review_service(self) -> TaskReviewService:

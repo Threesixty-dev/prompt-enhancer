@@ -170,8 +170,9 @@ def _insert_decision(
     connection.execute(
         """
         INSERT INTO task_decisions(
-            decision_id, action, decision_schema_version, decision_code, decided_at
-        ) VALUES (?, ?, ?, ?, ?)
+            decision_id, action, decision_schema_version, decision_code, decided_at,
+            decision_source
+        ) VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             decision.decision_id,
@@ -179,6 +180,7 @@ def _insert_decision(
             decision.decision_schema_version,
             decision.decision_code,
             to_iso(decision.decided_at),
+            decision.decision_source,
         ),
     )
     connection.executemany(

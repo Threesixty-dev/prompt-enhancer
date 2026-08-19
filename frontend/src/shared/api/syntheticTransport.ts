@@ -1144,6 +1144,7 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         decision_schema_version: "synthetic.task-review.v1",
         decision_code: command.action === "reject" ? command.request.reason : null,
         decided_at: "2040-01-02T12:00:00Z",
+        decision_source: "person",
       };
       reviewedIds.forEach((candidateId) => auditDecisions.set(candidateId, [copy(audit)]));
       decisions.set(idempotencyKey, result);

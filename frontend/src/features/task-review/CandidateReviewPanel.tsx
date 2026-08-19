@@ -93,7 +93,11 @@ export function CandidateReviewPanel({
           <h2 id="review-panel-heading">{candidateTitle(item.candidate)}</h2>
         </div>
         <StatusPill tone={item.decision_status === "decided" ? "positive" : "warning"}>
-          {item.decision_status === "decided" ? "Reviewed" : "Decision needed"}
+          {item.decision_status !== "decided"
+            ? "Decision needed"
+            : item.decision_source === "automation"
+              ? "Auto-accepted (single session)"
+              : "Reviewed"}
         </StatusPill>
       </div>
 
