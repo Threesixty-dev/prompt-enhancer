@@ -314,9 +314,17 @@ class ModelJudgeService:
 
     # ----- agreement -----
 
-    def agreement(self) -> JudgeAgreementReport:
-        active = self._active_model()
-        alias = active[0] if active else None
+    def judged_model_aliases(self) -> tuple[str, ...]:
+        """Every model alias that has stored judgments (for surfaces outside the serving process)."""
+
+        return tuple(sorted({judgment.model_alias for judgment in self._repository.list()}))
+
+    def agreement(self, model_alias: str | None = None) -> JudgeAgreementReport:
+        if model_alias is None:
+            active = self._active_model()
+            alias = active[0] if active else None
+        else:
+            alias = model_alias
         judgments = self._repository.list(model_alias=alias) if alias else ()
         judged_sessions = {j.session_id for j in judgments}
         ratings = self._ratings.list_ratings()

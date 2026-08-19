@@ -1348,6 +1348,18 @@ provider instead of assuming Codex. Claude Code sessions can therefore have
 ensemble runs and continuous watches persisted exactly like Codex ones; the
 judge sweep gained `scope=all` to cover every indexed session.
 
+Read-only agent surface (ADR 0014): `prompt-enhancer mcp` speaks MCP over
+stdio without an SDK (initialize / ping / tools/list / tools/call, bounded
+messages) and exposes six allowlisted tools from one shared
+`AgentReadSurface` - metric catalog, paged session list with the owner's
+display names, per-session metric results, a content-free period summary
+(≤ 300 recent sessions, truncation flagged), a metric explainer that restates
+"unknown is never zero" and the evidence-over-judgment rule, and calibration
+status with per-model judge agreement. No transcript text, raw event, path,
+token or model reply crosses the boundary; the server refuses to start without
+the context-egress acknowledgement, and `mcp-config` prints (never writes) the
+Claude Code and Codex snippets.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

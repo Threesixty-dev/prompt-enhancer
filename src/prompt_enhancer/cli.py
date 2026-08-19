@@ -80,6 +80,22 @@ def _parser() -> argparse.ArgumentParser:
             "this loopback receiver (token usage, cost, model, version)"
         ),
     )
+    mcp = subparsers.add_parser(
+        "mcp",
+        help=(
+            "serve the read-only, allowlisted metrics tools to one coding agent over "
+            "stdio (MCP); refuses to start without the context-egress acknowledgement"
+        ),
+    )
+    mcp.add_argument(
+        "--acknowledge-context-egress",
+        action="store_true",
+        help="confirm that returned values enter the connected model's context",
+    )
+    subparsers.add_parser(
+        "mcp-config",
+        help="print the Claude Code / Codex configuration snippets for the MCP server",
+    )
     return parser
 
 
@@ -308,6 +324,65 @@ def _run_claude_hooks_config(settings: AppSettings) -> int:
     return 0
 
 
+def _run_mcp(settings: AppSettings, args: argparse.Namespace) -> int:
+    """Serve the read-only agent surface over stdio after an explicit acknowledgement."""
+
+    import os
+
+    from . import __version__
+    from .interfaces.mcp import (
+        CONTEXT_EGRESS_ACKNOWLEDGEMENT_ENV,
+        CONTEXT_EGRESS_NOTICE,
+        McpStdioServer,
+    )
+
+    acknowledged = bool(getattr(args, "acknowledge_context_egress", False)) or os.environ.get(
+        CONTEXT_EGRESS_ACKNOWLEDGEMENT_ENV, ""
+    ).strip() in {"1", "true", "yes"}
+    if not acknowledged:
+        print(CONTEXT_EGRESS_NOTICE, file=sys.stderr)
+        return 2
+    application = _initialize(settings)
+    surface = application.create_agent_read_surface()
+    return McpStdioServer(surface, version=__version__).serve_forever()
+
+
+def _run_mcp_config(settings: AppSettings) -> int:
+    """Print configuration snippets; the person adds them, we write no config."""
+
+    import json
+    import shlex
+
+    command = sys.executable
+    args = ["-m", "prompt_enhancer", "mcp", "--acknowledge-context-egress"]
+    claude_snippet = {
+        "mcpServers": {
+            "prompt-enhancer": {"type": "stdio", "command": command, "args": args}
+        }
+    }
+    print("# Claude Code (.mcp.json in a project, or ~/.claude.json under mcpServers):")
+    print(json.dumps(claude_snippet, indent=2))
+    print()
+    print("# Claude Code one-liner:")
+    print(
+        "claude mcp add --transport stdio prompt-enhancer -- "
+        + " ".join(shlex.quote(part) for part in [command, *args])
+    )
+    print()
+    print("# Codex (~/.codex/config.toml):")
+    print("[mcp_servers.prompt-enhancer]")
+    print(f"command = {json.dumps(command)}")
+    print(f"args = {json.dumps(args)}")
+    notes = (
+        "",
+        "# Read-only and allowlisted: list_metric_definitions, list_sessions, get_session_metrics,",
+        "# summarize_period, explain_metric, get_calibration_status. No transcript text, paths, or",
+        "# tokens are ever returned; everything a tool returns enters the connected model's context.",
+    )
+    print("\n".join(notes), file=sys.stderr)
+    return 0
+
+
 def _run_claude_otel_config(settings: AppSettings) -> int:
     """Print exporter env vars; the user sets them, we write no config."""
 
@@ -385,6 +460,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_claude_hooks_config(settings)
         if args.command == "claude-otel-config":
             return _run_claude_otel_config(settings)
+        if args.command == "mcp":
+            return _run_mcp(settings, args)
+        if args.command == "mcp-config":
+            return _run_mcp_config(settings)
         handlers = {
             "init": _run_init,
             "demo": _run_demo,

@@ -353,7 +353,7 @@ Do not expose arbitrary SQL, filesystem paths, decrypted vault contents, or unre
 
 ### Phase 4 — optional integrations
 
-- Read-only MCP server.
+- Read-only MCP server - landed as ADR 0014 (`prompt-enhancer mcp`, stdio, six allowlisted tools, context-egress acknowledgement).
 - Remote LLM judge with redaction preview and policy controls.
 - Content-free team aggregation and DuckDB/Parquet analytical cache if measured scale requires it.
 

@@ -338,6 +338,53 @@ class LocalApplication:
             session_lookup=self.database.get_session,
         ), calibration
 
+    def create_agent_read_surface(self):
+        """Read-only allowlisted tools for connected coding agents (ADR 0014)."""
+
+        from .application.agent_surface import AgentReadSurface
+
+        calibration = self.create_calibration_rating_service()
+        judge, _ = self.create_model_judge_service(calibration_service=calibration)
+
+        def calibration_status() -> dict[str, object]:
+            from .application.analysis.calibration_ratings import CalibrationSampleEmptyError
+
+            try:
+                sample = calibration.sample()
+                members, metric_keys = sample.members, sample.metric_keys
+            except CalibrationSampleEmptyError:
+                members, metric_keys = (), ()
+            metric_count = len(metric_keys)
+            fully_rated = sum(1 for member in members if len(member.rated_metric_keys) >= metric_count) if metric_count else 0
+            agreements = []
+            for alias in judge.judged_model_aliases():
+                report = judge.agreement(alias)
+                agreements.append(
+                    {
+                        "model_alias": alias,
+                        "judged_sessions": report.judged_sessions,
+                        "metrics": [
+                            {
+                                "metric_key": m.metric_key,
+                                "pairs": m.pairs,
+                                "agreement_rate": m.agreement_rate,
+                                "cohen_kappa": m.cohen_kappa,
+                                "state": m.state,
+                            }
+                            for m in report.metrics
+                        ],
+                    }
+                )
+            return {
+                "sample_sessions": len(members),
+                "fully_rated_sessions": fully_rated,
+                "metric_keys": list(metric_keys),
+                "model_judge": agreements,
+                "caveat": "model judgments are labels stored apart from metrics; they never become metric values",
+            }
+
+        return AgentReadSurface(self.database, calibration_status=calibration_status)
+
     def create_calibration_rating_service(self):
         """Blind ratings of the owner's own sessions over a frozen sample."""
 
