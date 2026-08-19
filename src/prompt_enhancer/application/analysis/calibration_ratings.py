@@ -147,6 +147,8 @@ class CalibrationRatingRepository(Protocol):
 
     def create_sample(self, sample: CalibrationSample) -> None: ...
 
+    def replace_sample(self, sample: CalibrationSample) -> None: ...
+
     def upsert_rating(
         self,
         *,
@@ -250,37 +252,56 @@ class CalibrationRatingService:
         return rows
 
     def sample(self, *, rater_label: str | None = None) -> CalibrationSample:
-        """The frozen sample, created on first call; never re-drawn."""
+        """The frozen sample, created on first call.
+
+        It is re-drawn only while it is under-filled *and* nothing has been
+        rated yet - for example when it was first drawn before a second
+        provider was loaded.  Once a rating exists the sample never changes,
+        so ratings stay comparable across sittings.
+        """
 
         existing = self._repository.get_sample()
-        if existing is None:
+        redraw = (
+            existing is not None
+            and len(existing.members) < existing.target_size
+            and not self._repository.list_ratings()
+        )
+        if existing is None or redraw:
             candidates = self._candidates()
             if not candidates:
                 raise CalibrationSampleEmptyError("no indexed session to sample")
             chosen = stratified_selection(candidates, size=self._sample_size)
+            if redraw and existing is not None and [str(row["session_id"]) for row in chosen] == [m.session_id for m in existing.members]:
+                chosen = []  # nothing new to draw; keep the existing sample
             created_at = self._clock()
             sample_id = hashlib.sha256(
                 "|".join([CALIBRATION_SAMPLE_VERSION, *(str(row["session_id"]) for row in chosen)]).encode("utf-8")
             ).hexdigest()
-            existing = CalibrationSample(
-                sample_id=sample_id,
-                sample_version=CALIBRATION_SAMPLE_VERSION,
-                created_at=created_at,
-                target_size=self._sample_size,
-                members=tuple(
-                    CalibrationSampleMember(
-                        position=position,
-                        session_id=str(row["session_id"]),
-                        provider=Provider(str(row["provider"])),
-                        project_id=str(row["project_id"]),
-                        project_display_name=_label(row.get("project_display_name")),
-                        session_display_name=_label(row.get("session_display_name")),
-                        started_at=_timestamp(row.get("started_at")),
-                    )
-                    for position, row in enumerate(chosen)
-                ),
+            existing_members = tuple(
+                CalibrationSampleMember(
+                    position=position,
+                    session_id=str(row["session_id"]),
+                    provider=Provider(str(row["provider"])),
+                    project_id=str(row["project_id"]),
+                    project_display_name=_label(row.get("project_display_name")),
+                    session_display_name=_label(row.get("session_display_name")),
+                    started_at=_timestamp(row.get("started_at")),
+                )
+                for position, row in enumerate(chosen)
             )
-            self._repository.create_sample(existing)
+            if chosen:
+                existing = CalibrationSample(
+                    sample_id=sample_id,
+                    sample_version=CALIBRATION_SAMPLE_VERSION,
+                    created_at=created_at,
+                    target_size=self._sample_size,
+                    members=existing_members,
+                )
+                if redraw:
+                    self._repository.replace_sample(existing)
+                else:
+                    self._repository.create_sample(existing)
+        assert existing is not None
         if rater_label is None:
             return existing
         rated = self._repository.list_ratings(rater_id=self.rater_id(rater_label))

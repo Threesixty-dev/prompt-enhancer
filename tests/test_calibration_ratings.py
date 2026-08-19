@@ -71,7 +71,7 @@ def test_service_freezes_sample_and_records_ratings(tmp_path: Path, monkeypatch)
     assert sample.metric_keys == CALIBRATION_METRIC_KEYS
     assert all(member.provider is Provider.CLAUDE_CODE for member in sample.members)
     assert all(member.session_display_name for member in sample.members)
-    # Frozen: a second call (even after more sessions exist) returns the same sample.
+    # Frozen once full: a second call (even after more sessions exist) returns the same sample.
     _transcript(claude_home, "sess-late", 99)
     application.create_claude_local_source_service().index(max_sessions=50)
     assert service.sample().sample_id == sample.sample_id
@@ -154,3 +154,38 @@ def test_http_calibration_routes(tmp_path: Path, monkeypatch) -> None:
     export = client.get("/v1/calibration/export", headers=headers)
     assert export.status_code == 200 and len(export.json()["rows"]) == 1
     assert "Owner" not in export.text
+
+
+def test_under_filled_unrated_sample_is_redrawn_when_more_sessions_arrive(tmp_path: Path, monkeypatch) -> None:
+    """A sample drawn before a second provider was loaded must not stay Codex-only forever."""
+
+    claude_home = tmp_path / "claude-home"
+    monkeypatch.setenv("PROMPT_ENHANCER_CLAUDE_HOME", str(claude_home))
+    _transcript(claude_home, "sess-0", 0)
+    application = bootstrap_local_application(AppSettings(home=tmp_path / "app"))
+    application.database.grant_consent(Provider.CLAUDE_CODE, DataTier.REDACTED_CONTENT)
+    application.create_claude_local_source_service().index(max_sessions=50)
+    service = CalibrationRatingService(
+        application.database,
+        application.database.calibration_rating_repository(),
+        application.pseudonymizer,
+        sample_size=4,
+        clock=lambda: T0,
+    )
+    first = service.sample()
+    assert len(first.members) == 1 and first.target_size == 4
+
+    # More sessions appear; nothing rated yet -> the sample grows towards its target.
+    for index in range(1, 6):
+        _transcript(claude_home, f"sess-{index}", index)
+    application.create_claude_local_source_service().index(max_sessions=50)
+    grown = service.sample()
+    assert len(grown.members) == 4 and grown.sample_id != first.sample_id
+
+    # Once a rating exists the sample is frozen even if more sessions arrive.
+    service.rate(RatingSubmission(rater_label="Owner", session_id=grown.members[0].session_id, ratings={CALIBRATION_METRIC_KEYS[0]: RatingLabel.LOW}))
+    small = CalibrationRatingService(
+        application.database, application.database.calibration_rating_repository(), application.pseudonymizer, sample_size=8, clock=lambda: T0,
+    )
+    assert small.sample().sample_id == grown.sample_id
+    assert len(small.sample().members) == 4

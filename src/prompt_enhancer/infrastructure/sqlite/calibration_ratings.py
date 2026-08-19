@@ -91,6 +91,31 @@ class SqliteCalibrationRatingRepository:
                 connection.rollback()
                 raise
 
+    def replace_sample(self, sample: CalibrationSample) -> None:
+        """Replace an under-filled sample; only legal while no rating exists."""
+
+        self._ensure_initialized()
+        with self._connection_scope() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                if connection.execute("SELECT 1 FROM calibration_ratings LIMIT 1").fetchone() is not None:
+                    connection.rollback()
+                    raise ValueError("calibration sample cannot change once ratings exist")
+                connection.execute("DELETE FROM calibration_sample_members")
+                connection.execute("DELETE FROM calibration_samples")
+                connection.execute(
+                    "INSERT INTO calibration_samples(sample_id, sample_version, created_at, target_size) VALUES (?, ?, ?, ?)",
+                    (sample.sample_id, sample.sample_version, to_iso(require_utc(sample.created_at)), sample.target_size),
+                )
+                connection.executemany(
+                    "INSERT INTO calibration_sample_members(sample_id, position, session_id, provider) VALUES (?, ?, ?, ?)",
+                    [(sample.sample_id, member.position, member.session_id, member.provider.value) for member in sample.members],
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
     def upsert_rating(
         self,
         *,
