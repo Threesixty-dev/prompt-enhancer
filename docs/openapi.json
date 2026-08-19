@@ -13490,6 +13490,61 @@
         "title": "SanitizedRequestValidationFailureResponse",
         "type": "object"
       },
+      "ScanFolderRequest": {
+        "additionalProperties": false,
+        "description": "Register every GGUF file found in a folder (one level deep) with a generated alias.",
+        "properties": {
+          "default_device": {
+            "$ref": "#/components/schemas/DeviceMode",
+            "default": "split"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ScanFolderRequest",
+        "type": "object"
+      },
+      "ScanFolderResult": {
+        "additionalProperties": false,
+        "properties": {
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "registered": {
+            "items": {
+              "$ref": "#/components/schemas/LocalModelRecord"
+            },
+            "title": "Registered",
+            "type": "array"
+          },
+          "skipped_existing": {
+            "minimum": 0.0,
+            "title": "Skipped Existing",
+            "type": "integer"
+          },
+          "skipped_invalid": {
+            "minimum": 0.0,
+            "title": "Skipped Invalid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "folder",
+          "registered",
+          "skipped_existing",
+          "skipped_invalid"
+        ],
+        "title": "ScanFolderResult",
+        "type": "object"
+      },
       "SemanticUnitKind": {
         "description": "Versioned semantic opportunities used by the 20 metric contracts.",
         "enum": [
@@ -20783,6 +20838,82 @@
           }
         },
         "summary": "Remote Files",
+        "tags": [
+          "local-models"
+        ]
+      }
+    },
+    "/v1/local-models/scan-folder": {
+      "post": {
+        "description": "Register every GGUF in a folder (one level deep); nothing is moved or downloaded.",
+        "operationId": "scan_folder_v1_local_models_scan_folder_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanFolderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanFolderResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scan Folder",
         "tags": [
           "local-models"
         ]

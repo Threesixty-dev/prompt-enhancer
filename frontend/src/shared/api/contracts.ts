@@ -83,6 +83,7 @@ export type ActivateLocalModel = Schemas["ActivateLocalModel"];
 export type DownloadRequest = Schemas["DownloadRequest"];
 export type DownloadStatus = Schemas["DownloadStatus"];
 export type RemoteRepoFiles = Schemas["RemoteRepoFiles"];
+export type ScanFolderResult = Schemas["ScanFolderResult"];
 
 /** One turn sent to a local model's loopback endpoint (OpenAI chat shape). */
 export type LocalModelChatMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -576,6 +577,8 @@ export interface PromptEnhancerTransport {
   removeLocalModel(alias: string, deleteWeights: boolean, signal?: AbortSignal): Promise<void>;
   getLocalModelRemoteFiles(repoId: string, signal?: AbortSignal): Promise<RemoteRepoFiles>;
   startLocalModelDownload(request: DownloadRequest, signal?: AbortSignal): Promise<DownloadStatus>;
+  /** Register every GGUF found in a folder (one level deep). */
+  scanLocalModelFolder(path: string, signal?: AbortSignal): Promise<ScanFolderResult>;
   /** Stream one chat completion from a running local model; `onDelta` receives fragments as they arrive. */
   streamLocalModelChat(
     alias: string,

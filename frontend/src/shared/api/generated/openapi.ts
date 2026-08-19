@@ -582,6 +582,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-models/scan-folder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan Folder
+         * @description Register every GGUF in a folder (one level deep); nothing is moved or downloaded.
+         */
+        post: operations["scan_folder_v1_local_models_scan_folder_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-models/{alias}": {
         parameters: {
             query?: never;
@@ -7377,6 +7397,27 @@ export interface components {
             detail: "request validation failed";
         };
         /**
+         * ScanFolderRequest
+         * @description Register every GGUF file found in a folder (one level deep) with a generated alias.
+         */
+        ScanFolderRequest: {
+            /** @default split */
+            default_device: components["schemas"]["DeviceMode"];
+            /** Path */
+            path: string;
+        };
+        /** ScanFolderResult */
+        ScanFolderResult: {
+            /** Folder */
+            folder: string;
+            /** Registered */
+            registered: components["schemas"]["LocalModelRecord"][];
+            /** Skipped Existing */
+            skipped_existing: number;
+            /** Skipped Invalid */
+            skipped_invalid: number;
+        };
+        /**
          * SemanticUnitKind
          * @description Versioned semantic opportunities used by the 20 metric contracts.
          * @enum {string}
@@ -10271,6 +10312,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RemoteRepoFiles"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scan_folder_v1_local_models_scan_folder_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanFolderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanFolderResult"];
                 };
             };
             /** @description Validation Error */

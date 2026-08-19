@@ -86,6 +86,7 @@ import type {
   LocalModelChatResult,
   DownloadStatus,
   RemoteRepoFiles,
+  ScanFolderResult,
   JudgeOutcome,
   JudgeSweepStatus,
   JudgeAgreementReport,
@@ -2462,6 +2463,13 @@ export function createHttpTransport(options: {
       return request<DownloadStatus>(
         "/v1/local-models/downloads",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+      );
+    },
+    scanLocalModelFolder(path, signal) {
+      return request<ScanFolderResult>(
+        "/v1/local-models/scan-folder",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, default_device: "split" }) },
         signal,
       );
     },

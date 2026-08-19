@@ -20,6 +20,8 @@ from ...application.local_models import (
     LocalModelStatus,
     LocalModelsOverview,
     RemoteRepoFiles,
+    ScanFolderRequest,
+    ScanFolderResult,
 )
 
 import json
@@ -38,6 +40,7 @@ _STATUS_FOR_CODE = {
     "chat_body_invalid": 422,
     "chat_body_too_large": 413,
     "huggingface_hub_unavailable": 409,
+    "folder_not_found": 422,
     "remote_repo_unavailable": 502,
 }
 
@@ -64,6 +67,15 @@ def create_local_model_router(require_local_auth: Callable[..., None], service: 
     def remote_files(repo_id: Annotated[str, Query(min_length=3, max_length=200)]) -> RemoteRepoFiles:
         try:
             return service.remote_files(repo_id)
+        except LocalModelError as error:
+            raise _failure(error) from None
+
+    @router.post("/scan-folder", response_model=ScanFolderResult)
+    def scan_folder(payload: ScanFolderRequest) -> ScanFolderResult:
+        """Register every GGUF in a folder (one level deep); nothing is moved or downloaded."""
+
+        try:
+            return service.scan_folder(payload)
         except LocalModelError as error:
             raise _failure(error) from None
 

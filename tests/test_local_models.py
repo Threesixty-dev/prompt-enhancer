@@ -262,6 +262,28 @@ def test_download_requires_confirmed_size_and_registers_the_model(tmp_path: Path
     assert service.registry.get("other-q4") is None
 
 
+def test_scan_folder_registers_every_gguf_once(tmp_path: Path) -> None:
+    from prompt_enhancer.application.local_models import ScanFolderRequest
+
+    service = _service(tmp_path)
+    folder = tmp_path / "models"
+    (folder / "sub").mkdir(parents=True)
+    a = _weights(folder, "Cool-Model.Q4_K_M.gguf")
+    b = _weights(folder / "sub", "other-IQ3_M.gguf")
+    (folder / "notes.txt").write_text("x", encoding="utf-8")
+    first = service.scan_folder(ScanFolderRequest(path=str(folder)))
+    assert [r.alias for r in first.registered] == ["cool-model.q4_k_m", "other-iq3_m"]
+    assert first.skipped_existing == 0 and {r.path for r in first.registered} == {str(a), str(b)}
+    again = service.scan_folder(ScanFolderRequest(path=str(folder)))
+    assert again.registered == () and again.skipped_existing == 2
+    try:
+        service.scan_folder(ScanFolderRequest(path=str(tmp_path / "missing")))
+    except LocalModelError as error:
+        assert error.code == "folder_not_found"
+    else:
+        raise AssertionError("missing folder accepted")
+
+
 def test_download_reports_partial_bytes_while_the_hub_writes(tmp_path: Path, monkeypatch) -> None:
     import prompt_enhancer.application.local_models as module
 

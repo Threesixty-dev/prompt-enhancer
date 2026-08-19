@@ -606,6 +606,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async startLocalModelDownload() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },
+    async scanLocalModelFolder() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
     async streamLocalModelChat() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },

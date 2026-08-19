@@ -11,7 +11,13 @@ import { Icon } from "../../shared/ui/Icon";
 import { LocalModelChatPanel } from "./LocalModelChatPanel";
 import "./LocalModelsPage.css";
 
-const RECOMMENDED_REPO = "orcarouter/Qwen3.8-27B-Uncensored-GGUF";
+const RECOMMENDED_REPO = "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF";
+/** Verified on 2026-08-19: ungated imatrix quantizations of orcarouter's unrestricted Qwen3.8-27B; the first fits a 16 GB card entirely. */
+const RECOMMENDED: readonly { repo: string; file: string; alias: string; label: string; note: string; sizeGb: number; device: DeviceMode }[] = [
+  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ3_M.gguf", alias: "orca27b-iq3m", label: "Qwen3.8-27B uncensored · IQ3_M", note: "12.8 GB - fully on a 16 GB GPU, ~25 tok/s; the default judge and agent model", sizeGb: 12.8, device: "gpu" },
+  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ4_XS.gguf", alias: "orca27b-iq4xs", label: "Qwen3.8-27B uncensored · IQ4_XS", note: "15.3 GB - higher quality, needs a GPU/CPU split on 16 GB", sizeGb: 15.3, device: "split" },
+  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-Q4_K_M.gguf", alias: "orca27b-q4km", label: "Qwen3.8-27B uncensored · Q4_K_M", note: "16.8 GB - best quality of the three, split 62/65 layers ~14 tok/s", sizeGb: 16.8, device: "split" },
+];
 const DEVICES: readonly { value: DeviceMode; title: string; hint: string }[] = [
   { value: "gpu", title: "GPU", hint: "All layers on the GPU - only if the weights fit" },
   { value: "split", title: "GPU / CPU", hint: "Fits what it can on the GPU, rest on CPU" },
@@ -51,7 +57,7 @@ export function LocalModelsPage({
   transport: Pick<
     PromptEnhancerTransport,
     "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "removeLocalModel" | "getLocalModelRemoteFiles" | "startLocalModelDownload" | "addLocalModel" | "streamLocalModelChat"
-  >;
+  > & Partial<Pick<PromptEnhancerTransport, "scanLocalModelFolder">>;
 }) {
   const [overview, setOverview] = useState<LocalModelsOverview | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "unavailable" | "error">("loading");
@@ -65,6 +71,7 @@ export function LocalModelsPage({
   const [chosenFile, setChosenFile] = useState<string>("");
   const [alias, setAlias] = useState<string>("");
   const [localPath, setLocalPath] = useState<string>("");
+  const [folderPath, setFolderPath] = useState<string>("");
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -248,6 +255,34 @@ export function LocalModelsPage({
 
       <section aria-labelledby="add-model-title" className="local-models__section">
         <h2 id="add-model-title">Add a model</h2>
+        <div className="local-models__recommended">
+          <h3>Recommended for this machine</h3>
+          <ul>
+            {RECOMMENDED.map((item) => {
+              const installed = overview.models.some((m) => m.record.source_file === item.file || m.record.alias === item.alias);
+              return (
+                <li key={item.file}>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <small>{item.note} · {item.repo}</small>
+                  </div>
+                  <button
+                    className="button button--ghost"
+                    disabled={installed || busy !== ""}
+                    onClick={() => {
+                      if (!window.confirm(`Download ${item.file} (${item.sizeGb.toFixed(1)} GB) from ${item.repo} into the app's model folder?`)) return;
+                      void run("download", () => transport.startLocalModelDownload({ repo_id: item.repo, filename: item.file, confirmed_size_bytes: Math.round(item.sizeGb * 1024 ** 3), alias: item.alias, default_device: item.device }), "Download started; it appears below and in the list when finished.");
+                    }}
+                    type="button"
+                  >
+                    {installed ? "Installed" : `Download ${item.sizeGb.toFixed(1)} GB`}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="local-models__hint">Sizes are approximate; the exact byte count is confirmed server-side before the download completes. Other repositories: paste any GGUF repo id below.</p>
+        </div>
         <div className="local-models__add">
           <label>
             <span>Hugging Face repository (GGUF)</span>
@@ -283,6 +318,15 @@ export function LocalModelsPage({
                 Download {selectedRemote ? gb(selectedRemote.size_bytes) : ""}
               </button>
             </>
+          )}
+          {transport.scanLocalModelFolder && (
+            <label>
+              <span>…or point at a folder: every GGUF in it (one level deep) gets registered, nothing is moved</span>
+              <span className="local-models__inline">
+                <input aria-label="Model folder" onChange={(e) => setFolderPath(e.currentTarget.value)} placeholder="for example D:\\models" type="text" value={folderPath} />
+                <button className="button button--ghost" disabled={!folderPath.trim() || busy !== ""} onClick={() => void run("scan", async () => { const result = await transport.scanLocalModelFolder!(folderPath.trim()); setMessage(`${result.registered.length} registered, ${result.skipped_existing} already known, ${result.skipped_invalid} skipped.`); }, "Folder scanned.")} type="button">Scan folder</button>
+              </span>
+            </label>
           )}
           <label>
             <span>…or register a GGUF file already on this machine</span>

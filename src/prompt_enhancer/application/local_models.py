@@ -146,6 +146,20 @@ class AddLocalModel(StrictModel):
     _alias_not_reserved = field_validator("alias")(_reject_reserved_alias)
 
 
+class ScanFolderRequest(StrictModel):
+    """Register every GGUF file found in a folder (one level deep) with a generated alias."""
+
+    path: str = Field(min_length=1, max_length=1024)
+    default_device: DeviceMode = DeviceMode.SPLIT
+
+
+class ScanFolderResult(StrictModel):
+    folder: str
+    registered: tuple[LocalModelRecord, ...]
+    skipped_existing: int = Field(ge=0)
+    skipped_invalid: int = Field(ge=0)
+
+
 class ActivateLocalModel(StrictModel):
     device: DeviceMode | None = None
     gpu_layers: int | None = Field(default=None, ge=0, le=4096)
@@ -527,6 +541,39 @@ class LocalModelService:
         self._registry.upsert(record)
         return record
 
+    def scan_folder(self, request: ScanFolderRequest) -> ScanFolderResult:
+        """Register the GGUF files in a folder; aliases come from the file names, existing paths are skipped."""
+
+        folder = Path(request.path).expanduser()
+        if not folder.is_dir():
+            raise LocalModelError("folder_not_found")
+        known_paths = {str(Path(record.path).resolve()) for record in self._registry.list()}
+        known_aliases = {record.alias for record in self._registry.list()}
+        registered: list[LocalModelRecord] = []
+        skipped_existing = skipped_invalid = 0
+        candidates = sorted(list(folder.glob("*.gguf")) + list(folder.glob("*/*.gguf")))[:200]
+        for path in candidates:
+            if not path.is_file():
+                continue
+            if str(path.resolve()) in known_paths:
+                skipped_existing += 1
+                continue
+            base = re.sub(r"[^a-z0-9._-]+", "-", path.stem.lower()).strip("-.")[:56] or "model"
+            alias = base
+            counter = 2
+            while alias in known_aliases:
+                alias = f"{base}-{counter}"
+                counter += 1
+            try:
+                record = self.add(AddLocalModel(alias=alias, path=str(path), default_device=request.default_device))
+            except (LocalModelError, ValueError):
+                skipped_invalid += 1
+                continue
+            known_aliases.add(alias)
+            known_paths.add(str(path.resolve()))
+            registered.append(record)
+        return ScanFolderResult(folder=str(folder), registered=tuple(registered), skipped_existing=skipped_existing, skipped_invalid=skipped_invalid)
+
     def remove(self, alias: str, *, delete_weights: bool = False) -> None:
         with self._lock:
             self.deactivate(alias)
@@ -900,6 +947,8 @@ __all__ = (
     "ModelFormat",
     "RemoteFile",
     "RemoteRepoFiles",
+    "ScanFolderRequest",
+    "ScanFolderResult",
     "RuntimeState",
     "RuntimeStatus",
     "detect_llama_server",
