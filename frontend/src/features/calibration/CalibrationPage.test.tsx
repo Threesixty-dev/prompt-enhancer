@@ -4,6 +4,7 @@ import type {
   CalibrationProgress,
   CalibrationRating,
   CalibrationSample,
+  RatingSubmission,
   SessionTranscript,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
@@ -16,7 +17,7 @@ const METRICS = ["prompt.task_definition_coverage", "prompt.context_sufficiency"
 
 function sample(rated: Record<string, string[]> = {}): CalibrationSample {
   return {
-    contract_version: "calibration-ratings.v1",
+    contract_version: "calibration-ratings.v1" as const,
     sample_id: "d".repeat(64),
     sample_version: "calibration-sample-v1",
     created_at: "2026-03-01T09:00:00Z",
@@ -31,7 +32,7 @@ function sample(rated: Record<string, string[]> = {}): CalibrationSample {
 
 function progress(rated: number): CalibrationProgress {
   return {
-    contract_version: "calibration-ratings.v1",
+    contract_version: "calibration-ratings.v1" as const,
     sample_id: "d".repeat(64),
     sample_size: 2,
     rated_sessions: rated,
@@ -63,17 +64,17 @@ describe("CalibrationPage", () => {
 
   it("lists the frozen sample, rates a session blind, and advances", async () => {
     let current = sample();
-    const submitCalibrationRatings = vi.fn(async () => {
+    const submitCalibrationRatings = vi.fn(async (_request: RatingSubmission) => {
       current = sample({ [SESSION_A]: METRICS });
       return progress(1);
     });
     const ratings: CalibrationRating[] = [];
     const transport = {
-      getCalibrationSample: vi.fn(async () => current),
+      getCalibrationSample: vi.fn(async (_raterLabel: string | null, _signal?: AbortSignal) => current),
       submitCalibrationRatings,
       getCalibrationRatings: vi.fn(async () => ratings),
       getCalibrationProgress: vi.fn(async () => progress(0)),
-      getCalibrationExport: vi.fn(async () => ({ contract_version: "calibration-ratings.v1", sample_id: "d".repeat(64), sample_version: "calibration-sample-v1", rating_version: "calibration-rating-v1", exported_at: "2026-03-01T10:00:00Z", rows: [] })),
+      getCalibrationExport: vi.fn(async () => ({ contract_version: "calibration-ratings.v1" as const, sample_id: "d".repeat(64), sample_version: "calibration-sample-v1", rating_version: "calibration-rating-v1", exported_at: "2026-03-01T10:00:00Z", rows: [] })),
       getSessionTranscript: vi.fn(async () => transcript),
     };
     render(<CalibrationPage transport={transport} />);
