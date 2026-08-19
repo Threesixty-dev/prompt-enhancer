@@ -213,7 +213,7 @@ class LocalApplication:
         )
 
     def create_onboarding_service(
-        self, codex_source_service=None, claude_source_service=None, *, enable_automation=None
+        self, codex_source_service=None, claude_source_service=None, *, enable_automation=None, after_index=None
     ):
         """First-run detection, one consent, first index, periodic refresh."""
 
@@ -248,6 +248,12 @@ class LocalApplication:
                 self.create_singleton_auto_accepter().run(provider=provider)
             except Exception:
                 pass
+            if after_index is not None:
+                # e.g. the model-judge sweep over newly indexed sessions; never fails the index.
+                try:
+                    after_index(provider)
+                except Exception:
+                    pass
 
         def index_codex() -> int:
             report = codex_service.index(max_sessions=500)
@@ -990,8 +996,19 @@ class LocalApplication:
                 provider, self.database.list_project_ids(provider)
             )
 
+        local_model_service = self.create_local_model_service()
+        calibration_rating_service = self.create_calibration_rating_service()
+        model_judge_service, _ = self.create_model_judge_service(local_model_service, calibration_rating_service)
+
+        def judge_new_sessions(provider: Provider) -> None:
+            # Judge the newest indexed sessions with the active local model, one
+            # at a time in the judge's own thread; already-judged sessions are
+            # skipped, and with no active model nothing happens.
+            rows = self.database.list_sessions(limit=200, offset=0, provider=provider)
+            model_judge_service.start_sweep(tuple(str(row["session_id"]) for row in rows))
+
         onboarding_service = self.create_onboarding_service(
-            codex_source_service, claude_source_service, enable_automation=enable_automation
+            codex_source_service, claude_source_service, enable_automation=enable_automation, after_index=judge_new_sessions
         )
         from .application.onboarding import LocalSourceRefreshWorker
 
@@ -1001,9 +1018,6 @@ class LocalApplication:
             if self.settings.control_plane_development_api
             else None
         )
-        local_model_service = self.create_local_model_service()
-        calibration_rating_service = self.create_calibration_rating_service()
-        model_judge_service, _ = self.create_model_judge_service(local_model_service, calibration_rating_service)
         return create_app(
             settings=self.settings,
             database=self.database,

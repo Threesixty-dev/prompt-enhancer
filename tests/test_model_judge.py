@@ -154,3 +154,46 @@ def test_render_window_keeps_roles_and_bounds_length() -> None:
     assert len(rendered) <= 500 + 40
     full = render_window(_Ctx())  # type: ignore[arg-type]
     assert "USER: please do x" in render_window(_Ctx(), max_characters=100_000)  # type: ignore[arg-type]
+
+
+def test_index_refresh_judges_new_sessions_when_a_model_is_active(tmp_path: Path, monkeypatch) -> None:
+    """After each index the app sweeps the judge over newly indexed sessions (no clicks)."""
+
+    claude_home = tmp_path / "claude-home"
+    monkeypatch.setenv("PROMPT_ENHANCER_CLAUDE_HOME", str(claude_home))
+    _transcript(claude_home, "judge-auto-1")
+    stub = tmp_path / "stub.py"
+    stub.write_text(STUB, encoding="utf-8")
+    monkeypatch.setenv("PROMPT_ENHANCER_LLAMA_SERVER", str(stub))
+    settings = AppSettings(home=tmp_path / "app")
+    application = bootstrap_local_application(settings)
+    # Make the app's own model service launch the stub (the http app composes it internally).
+    original = type(application).create_local_model_service
+
+    def stubbed_model_service(self):
+        models = original(self)
+        models._popen = lambda command, **kw: subprocess.Popen([sys.executable, str(stub), *command[1:]], **kw)  # noqa: SLF001
+        models._hardware = lambda b: HardwareSummary(llama_server_path=str(b) if b else None)  # noqa: SLF001
+        return models
+
+    # LocalApplication is a frozen dataclass; patch the class for this test only.
+    monkeypatch.setattr(type(application), "create_local_model_service", stubbed_model_service)
+    app = application.create_http_app()
+    client = TestClient(app, base_url="http://127.0.0.1")
+    headers = {API_TOKEN_HEADER: settings.api_token_path.read_text(encoding="utf-8").strip()}
+    weights = tmp_path / "tiny.gguf"
+    weights.write_bytes(b"GGUF" + b"\0" * 4092)
+    assert client.post("/v1/local-models", headers=headers, json={"alias": "stub-judge", "path": str(weights)}).status_code == 201
+    assert client.post("/v1/local-models/stub-judge/activate", headers=headers, json={"device": "cpu"}).status_code == 200
+    try:
+        accepted = client.post("/v1/onboarding/accept", headers=headers, json={"providers": ["claude_code"]})
+        assert accepted.status_code == 200, accepted.text
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            report = client.get("/v1/model-judge/agreement", headers=headers).json()
+            if report["judged_sessions"] >= 1:
+                break
+            time.sleep(0.5)
+        assert report["judged_sessions"] == 1 and report["model_alias"] == "stub-judge"
+    finally:
+        client.post("/v1/local-models/stub-judge/deactivate", headers=headers)
