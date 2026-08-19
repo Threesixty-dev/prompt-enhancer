@@ -282,3 +282,30 @@ def test_storage_root_is_configurable_without_moving_the_app_home(tmp_path: Path
     runtime.parent.mkdir(parents=True)
     runtime.write_text("", encoding="utf-8")
     assert detect_llama_server({}, app_home=tmp_path / "app", models_root=elsewhere) == runtime
+
+
+def test_gguf_block_count_reader_is_minimal_and_bounded(tmp_path: Path) -> None:
+    import struct
+
+    from prompt_enhancer.application.local_models import read_gguf_layer_count
+
+    def gguf_string(text: str) -> bytes:
+        raw = text.encode("utf-8")
+        return struct.pack("<Q", len(raw)) + raw
+
+    pairs = [
+        ("general.architecture", 8, gguf_string("qwen3")),
+        ("qwen3.block_count", 4, struct.pack("<I", 64)),
+        ("tokenizer.ggml.tokens", 9, struct.pack("<IQ", 8, 2) + gguf_string("a") + gguf_string("b")),
+    ]
+    body = b"GGUF" + struct.pack("<I", 3) + struct.pack("<QQ", 0, len(pairs))
+    for key, value_type, value in pairs:
+        body += gguf_string(key) + struct.pack("<I", value_type) + value
+    good = tmp_path / "good.gguf"
+    good.write_bytes(body + b"\0" * 32)
+    assert read_gguf_layer_count(good) == 64
+    (tmp_path / "not.gguf").write_bytes(b"NOPE" + b"\0" * 64)
+    assert read_gguf_layer_count(tmp_path / "not.gguf") is None
+    truncated = tmp_path / "short.gguf"
+    truncated.write_bytes(body[:40])
+    assert read_gguf_layer_count(truncated) is None

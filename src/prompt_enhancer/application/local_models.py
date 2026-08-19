@@ -283,20 +283,66 @@ def estimate_gpu_layers(*, size_bytes: int | None, layer_count: int | None, gpu_
     return max(0, min(layer_count, int(budget // per_layer)))
 
 
+_GGUF_MAGIC = b"GGUF"
+_GGUF_HEADER_READ_LIMIT = 64 * 1024 * 1024
+
+
 def read_gguf_layer_count(path: Path) -> int | None:
-    """Best-effort block count from the GGUF header; None when unreadable."""
+    """Block count from the GGUF header (``<arch>.block_count``), or None.
+
+    A minimal, dependency-free reader: it walks the key/value metadata in
+    order and stops at the first ``*.block_count``; nothing else is kept.
+    Bounded so a hostile or truncated file cannot make it read forever.
+    """
+
+    import struct
 
     try:
-        from gguf import GGUFReader  # type: ignore[import-not-found]
-    except Exception:
-        return None
-    try:
-        reader = GGUFReader(str(path))
-        for field_name, field in reader.fields.items():
-            if field_name.endswith(".block_count"):
-                value = field.parts[field.data[0]]
-                return int(value[0])
-    except Exception:
+        with path.open("rb") as handle:
+            if handle.read(4) != _GGUF_MAGIC:
+                return None
+            version = struct.unpack("<I", handle.read(4))[0]
+            if version < 2:
+                return None
+            _tensor_count, kv_count = struct.unpack("<QQ", handle.read(16))
+            consumed = [24]
+
+            def take(count: int) -> bytes:
+                if count < 0 or consumed[0] + count > _GGUF_HEADER_READ_LIMIT:
+                    raise ValueError("gguf header read limit")
+                data = handle.read(count)
+                if len(data) != count:
+                    raise ValueError("gguf header truncated")
+                consumed[0] += count
+                return data
+
+            def read_string() -> str:
+                length = struct.unpack("<Q", take(8))[0]
+                return take(length).decode("utf-8", errors="replace")
+
+            sizes = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+            formats = {0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i", 6: "<f", 7: "<?", 10: "<Q", 11: "<q", 12: "<d"}
+
+            def read_value(value_type: int):
+                if value_type == 8:
+                    return read_string()
+                if value_type == 9:
+                    element_type, count = struct.unpack("<IQ", take(12))
+                    for _ in range(count):
+                        read_value(element_type)
+                    return None
+                size = sizes.get(value_type)
+                if size is None:
+                    raise ValueError("unknown gguf value type")
+                return struct.unpack(formats[value_type], take(size))[0]
+
+            for _ in range(kv_count):
+                key = read_string()
+                value_type = struct.unpack("<I", take(4))[0]
+                value = read_value(value_type)
+                if key.endswith(".block_count") and isinstance(value, int) and not isinstance(value, bool):
+                    return int(value) if 1 <= int(value) <= 4096 else None
+    except (OSError, ValueError, struct.error):
         return None
     return None
 
