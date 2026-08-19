@@ -147,6 +147,9 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
     purpose = TextAnalysisPurpose.TEXT_ANALYSIS
     read_only = True
     requires_explicit_selection = True
+    # Provenance identities a provider-specific subclass overrides.
+    text_adapter_version = TEXT_CONTENT_ADAPTER_VERSION
+    text_source_schema_version = SOURCE_SCHEMA_VERSION
 
     def __init__(
         self,
@@ -493,8 +496,8 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             provider=self.provider,
             session_id=selection.session_id,
             provider_version=server_info.provider_version,
-            adapter_version=TEXT_CONTENT_ADAPTER_VERSION,
-            source_schema_version=SOURCE_SCHEMA_VERSION,
+            adapter_version=self.text_adapter_version,
+            source_schema_version=self.text_source_schema_version,
             content_schema_version=self._content_schema_version,
             redactor_version=self._redactor.version,
             analysis_scope=analysis_scope,

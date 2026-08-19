@@ -110,7 +110,10 @@ def test_claude_code_compatibility_is_served_by_the_composed_app(tmp_path: Path)
     assert cached.status_code == 200, cached.text
     body = cached.json()
     assert body["provider"] == "claude_code"
-    # Hooks are an operational-event surface, never a text surface.
+    # With no transcript root in the isolated home the text window is
+    # unavailable, so the hook ledger speaks for the provider: an
+    # operational-event surface, never a text surface.  (With a root present
+    # the transcript text window is primary - see test_onboarding.)
     assert body["capability"] == "operational_events"
     assert body["adapter_family"] == "claude_code_hooks"
     assert body["adapter_version"] == "claude-code-hooks-adapter-1"

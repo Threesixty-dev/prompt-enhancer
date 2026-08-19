@@ -36,6 +36,13 @@ _PUBLIC_FAMILIES = {
         "claude_hook_ledger",
         "claude_hook_events",
     ),
+    # The transcript text window is a different adapter over different files.
+    ("claude_code", ProviderSurface.TEXT_WINDOW): (
+        "claude_code",
+        "claude_code_transcripts",
+        "claude_transcript_jsonl",
+        "claude_transcript_messages",
+    ),
     "synthetic": (
         "synthetic_provider",
         "synthetic_adapter",
@@ -118,8 +125,12 @@ class ProviderCompatibilityStatusDto(StrictModel):
     update_target: Literal["prompt_enhancer", "provider"] | None = None
 
 
-def _families(provider: str) -> tuple[str, str, str, str]:
+def _families(
+    provider: str, surface: ProviderSurface | None = None
+) -> tuple[str, str, str, str]:
     try:
+        if surface is not None and (provider, surface) in _PUBLIC_FAMILIES:
+            return _PUBLIC_FAMILIES[(provider, surface)]
         return _PUBLIC_FAMILIES[provider]
     except KeyError:
         raise ProviderCompatibilityCatalogError(
@@ -166,7 +177,7 @@ def provider_compatibility_status(
 ) -> ProviderCompatibilityStatusDto:
     provider = descriptor.provider.key
     provider_family, adapter_family, source_family, content_family = _families(
-        provider
+        provider, descriptor.surface
     )
     untested = report is None or report.state is CompatibilityState.UNTESTED
     common = dict(
@@ -226,24 +237,36 @@ def create_provider_compatibility_router(
     def surface_for(provider: str) -> ProviderSurface:
         """Each provider publishes exactly one primary surface here.
 
-        The Codex catalog registers the text window; a hook-captured provider
-        registers only its operational-event surface.  Preferring the text
-        window keeps the Codex contract unchanged.
+        The text window is preferred when the provider registers one and its
+        last check did not find it unavailable (Codex: the app-server; Claude
+        Code: the transcript root).  Otherwise the operational-event surface
+        speaks for the provider - for Claude Code that is the hook ledger,
+        the only source when no transcript root exists.
         """
 
+        has_events = True
+        try:
+            catalog.descriptor(provider, ProviderSurface.OPERATIONAL_EVENTS)
+        except ProviderCompatibilityCatalogError:
+            has_events = False
         try:
             catalog.descriptor(provider, ProviderSurface.TEXT_WINDOW)
+            cached = catalog.get_cached(provider, ProviderSurface.TEXT_WINDOW)
+            if (
+                has_events
+                and cached is not None
+                and cached.state is CompatibilityState.UNAVAILABLE
+            ):
+                return ProviderSurface.OPERATIONAL_EVENTS
             return ProviderSurface.TEXT_WINDOW
         except ProviderCompatibilityCatalogError:
             pass
-        try:
-            catalog.descriptor(provider, ProviderSurface.OPERATIONAL_EVENTS)
+        if has_events:
             return ProviderSurface.OPERATIONAL_EVENTS
-        except ProviderCompatibilityCatalogError:
-            raise HTTPException(
-                status_code=404,
-                detail="provider compatibility surface is unavailable",
-            ) from None
+        raise HTTPException(
+            status_code=404,
+            detail="provider compatibility surface is unavailable",
+        )
 
     def descriptor_for(provider: str) -> tuple[DecoderDescriptor, ProviderSurface]:
         surface = surface_for(provider)

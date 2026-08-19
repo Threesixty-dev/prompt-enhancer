@@ -129,3 +129,22 @@ def test_http_onboarding_routes_and_path_override(tmp_path: Path, monkeypatch) -
     assert sessions[0]["session_display_name"] == "Fix the onboarding demo"
     refreshed = client.post("/v1/onboarding/refresh", headers=headers)
     assert refreshed.status_code == 200 and refreshed.json()["needs_onboarding"] is False
+    # Default-on analysis: the indexed project holds a standing local grant,
+    # and refreshing again does not duplicate it.
+    grants = client.get("/v1/automation-grants?provider=claude_code&active_only=true", headers=headers)
+    assert grants.status_code == 200, grants.text
+    records = grants.json()
+    assert len(records) == 1
+    assert records[0]["scope"]["provider"] == "claude_code"
+    assert records[0]["scope"]["project_id"] == sessions[0]["project_id"]
+    assert records[0]["scope"]["local_only"] is True
+    client.post("/v1/onboarding/refresh", headers=headers)
+    assert len(client.get("/v1/automation-grants?provider=claude_code&active_only=true", headers=headers).json()) == 1
+    # Indexing also proposes task candidates, so the Discovery inbox is not empty.
+    inbox = client.get("/v1/discovery/candidates?limit=50&offset=0", headers=headers)
+    assert inbox.status_code == 200, inbox.text
+    assert len(inbox.json()["candidates"]) >= 1, inbox.text
+    # The transcript text window is now the provider's primary compatibility surface.
+    compat = client.post("/v1/providers/claude_code/compatibility/check", headers=headers).json()
+    assert compat["capability"] == "session_text_analysis"
+    assert compat["state"] == "compatible" and compat["provider_version"] == "2.1.0"

@@ -11,6 +11,7 @@ import type {
   AutomationPollResult,
   CodexLocalSourceStatus,
   CodexSession,
+  LocalProvider,
   MetricReadiness,
   PromptEnhancerTransport,
   SessionMetricReadinessReport,
@@ -99,11 +100,10 @@ function isUtcTimestamp(value: unknown): value is string {
 function isProjectSession(value: unknown, projectId: string): value is CodexSession {
   if (!isRecord(value) || !hasExactKeys(value, SESSION_KEYS)) return false;
   const origins = new Set(["provider", "manual", "unknown"]);
-  // Automation grants enqueue Codex text-analysis jobs; the local runtime has no
-  // reviewed text surface for any other provider yet, so only Codex sessions
-  // are eligible here. Hook-captured Claude Code sessions remain visible in the
-  // project workspace and catalog with their provider badge.
-  return value.provider === "codex" &&
+  // Automation grants enqueue text-analysis jobs for the providers the local
+  // runtime has a reviewed text surface for: Codex (app-server) and Claude
+  // Code (transcript text window, ADR 0011). A project belongs to one provider.
+  return (value.provider === "codex" || value.provider === "claude_code") &&
     value.project_id === projectId &&
     typeof value.session_id === "string" && isPseudonym(value.session_id) &&
     typeof value.installation_id === "string" && isPseudonym(value.installation_id) &&
@@ -148,6 +148,12 @@ function parseProjectSessions(
   return [...sessions].sort(
     (left, right) => Date.parse(right.started_at) - Date.parse(left.started_at),
   );
+}
+
+function parseConsentActive(value: unknown, provider: LocalProvider): boolean | null {
+  if (provider === "codex") return parseConsentStatus(value)?.consent_active ?? null;
+  if (!isRecord(value) || typeof value.consent_active !== "boolean") return null;
+  return value.consent_active;
 }
 
 function parseConsentStatus(value: unknown): CodexLocalSourceStatus | null {
@@ -279,7 +285,8 @@ export function ProjectAutomationSettings({
   navigate: (route: AppRoute) => void;
 }) {
   const [sessions, setSessions] = useState<CodexSession[] | null>(null);
-  const [consent, setConsent] = useState<CodexLocalSourceStatus | null>(null);
+  const [consentActive, setConsentActive] = useState<boolean | null>(null);
+  const [provider, setProvider] = useState<LocalProvider>("codex");
   const [readiness, setReadiness] = useState<SessionMetricReadinessReport | null>(null);
   const [grants, setGrants] = useState<AutomationGrantRecord[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -311,7 +318,7 @@ export function ProjectAutomationSettings({
   useEffect(() => {
     if (!localAvailable) {
       setSessions(null);
-      setConsent(null);
+      setConsentActive(null);
       setReadiness(null);
       setGrants(null);
       return;
@@ -324,20 +331,33 @@ export function ProjectAutomationSettings({
     setReadinessError("");
     void (async () => {
       try {
-        const [sessionPage, sourceStatus, allGrants] = await Promise.all([
-          transport.listProjectSessions(projectId, SESSION_PAGE_LIMIT, 0, controller.signal),
-          transport.getCodexLocalSourceStatus(controller.signal),
-          transport.listAutomationGrants("codex", false, controller.signal),
-        ]);
+        const sessionPage = await transport.listProjectSessions(
+          projectId, SESSION_PAGE_LIMIT, 0, controller.signal,
+        );
         if (controller.signal.aborted) return;
         const verifiedSessions = parseProjectSessions(sessionPage, projectId);
-        const verifiedConsent = parseConsentStatus(sourceStatus);
-        if (verifiedSessions === null || verifiedConsent === null) {
+        if (verifiedSessions === null) {
           setLoadError("The local project or consent response could not be verified.");
           return;
         }
+        // The project's provider decides which consent and grants apply.
+        const projectProvider: LocalProvider =
+          verifiedSessions[0]?.provider === "claude_code" ? "claude_code" : "codex";
+        const [sourceStatus, allGrants] = await Promise.all([
+          projectProvider === "claude_code"
+            ? transport.getClaudeLocalSourceStatus(controller.signal)
+            : transport.getCodexLocalSourceStatus(controller.signal),
+          transport.listAutomationGrants(projectProvider, false, controller.signal),
+        ]);
+        if (controller.signal.aborted) return;
+        const verifiedConsent = parseConsentActive(sourceStatus, projectProvider);
+        if (verifiedConsent === null) {
+          setLoadError("The local project or consent response could not be verified.");
+          return;
+        }
+        setProvider(projectProvider);
         setSessions(verifiedSessions);
-        setConsent(verifiedConsent);
+        setConsentActive(verifiedConsent);
         setGrants(allGrants.filter((grant) => grant.scope.project_id === projectId));
         const newest = verifiedSessions[0];
         if (newest === undefined) {
@@ -351,7 +371,7 @@ export function ProjectAutomationSettings({
             controller.signal,
           );
           if (controller.signal.aborted) return;
-          if (report.provider !== "codex" || report.session_id !== newest.session_id) {
+          if (report.provider !== projectProvider || report.session_id !== newest.session_id) {
             setReadinessError("Metric readiness did not match the exact project session.");
             return;
           }
@@ -401,7 +421,6 @@ export function ProjectAutomationSettings({
   const parsedNewestLimit = Number(newestLimit);
   const newestLimitValid = Number.isSafeInteger(parsedNewestLimit) &&
     parsedNewestLimit >= 1 && parsedNewestLimit <= 100;
-  const consentActive = consent?.consent_active === true;
   const projectIndexed = (sessions?.length ?? 0) > 0;
   const readinessVerified = readiness !== null && readinessError === "";
   const selectedEligible = selectedMetrics.size > 0 &&
@@ -427,7 +446,7 @@ export function ProjectAutomationSettings({
   }
 
   function upsertGrant(record: AutomationGrantRecord) {
-    if (record.scope.provider !== "codex" || record.scope.project_id !== projectId) {
+    if (record.scope.provider !== provider || record.scope.project_id !== projectId) {
       setActionError(
         "The grant response did not match this exact provider and project. Refresh before continuing.",
       );
@@ -444,7 +463,7 @@ export function ProjectAutomationSettings({
     const controller = beginAction("create");
     if (controller === null) return;
     const request: AutomationGrantCreateRequest = {
-      provider: "codex",
+      provider,
       project_id: projectId,
       metric_keys: [...selectedMetrics].sort(),
       newest_session_limit: parsedNewestLimit,
@@ -512,7 +531,7 @@ export function ProjectAutomationSettings({
     try {
       const result = await transport.pollAutomationGrants(controller.signal);
       if (controller.signal.aborted) return;
-      const refreshed = await transport.listAutomationGrants("codex", false, controller.signal);
+      const refreshed = await transport.listAutomationGrants(provider, false, controller.signal);
       if (!controller.signal.aborted) {
         setPollResult(result);
         setGrants(refreshed.filter((grant) => grant.scope.project_id === projectId));
@@ -571,11 +590,15 @@ export function ProjectAutomationSettings({
     <section aria-labelledby="automation-settings-title" className="automation-settings">
       <header className="automation-settings__header">
         <div>
-          <p className="eyebrow">Local real · Codex · project {shortId(projectId)}</p>
+          <p className="eyebrow">
+            Local real · {provider === "claude_code" ? "Claude Code" : "Codex"} · project {shortId(projectId)}
+          </p>
           <h1 id="automation-settings-title">Project automation</h1>
           <p>
             Schedule reviewed local analysis only for new or changed sessions in this exact project.
             A grant schedules work; it never proves that a model ran or that a metric is valid.
+            After a source is consented, every indexed project receives the standard grant
+            automatically; create one here only to choose a narrower scope.
           </p>
         </div>
         <nav aria-label="Automation destinations">

@@ -3486,6 +3486,25 @@ class Database:
             changed=True,
         )
 
+    def list_project_ids(self, provider: Provider, *, limit: int = 500) -> tuple[str, ...]:
+        """Pseudonymous project ids indexed for one provider, most recent first."""
+
+        self._ensure_initialized()
+        bounded = max(1, min(int(limit), 5_000))
+        with self._connection(readonly=True) as connection:
+            rows = connection.execute(
+                """
+                SELECT project_id
+                FROM sessions
+                WHERE provider = ?
+                GROUP BY project_id
+                ORDER BY MAX(COALESCE(ended_at, started_at)) DESC, project_id
+                LIMIT ?
+                """,
+                (provider.value, bounded),
+            ).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
     def provider_catalog_summary(self, provider: Provider) -> dict[str, int]:
         """Return aggregate counts without exposing source or safe identifiers."""
 

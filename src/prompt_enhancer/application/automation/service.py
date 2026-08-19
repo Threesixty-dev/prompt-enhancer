@@ -226,6 +226,44 @@ class AutomationGrantService:
             self._jobs.cancel_for_grant(grant.grant_id, now=now)
         return len(grants)
 
+    def ensure_default_grants(
+        self,
+        provider: Provider,
+        project_ids: tuple[str, ...],
+        *,
+        max_new: int = 200,
+    ) -> int:
+        """Create the default local grant for each indexed project without one.
+
+        Default-on analysis: the person consented to the provider once; every
+        project they have indexed then gets the standard (reviewed, local-only,
+        battery-aware) grant for the rubric metrics.  Projects that already
+        hold an active grant are left alone, so this is idempotent and safe to
+        call on every refresh.  Individual failures are counted, not raised.
+        """
+
+        active = {
+            record.scope.project_id
+            for record in self.list_for_provider(provider, active_only=True)
+        }
+        metric_keys = tuple(sorted(COACHING_AUTOMATION_METRIC_KEYS))
+        created = 0
+        for project_id in project_ids:
+            if project_id in active or created >= max_new:
+                continue
+            try:
+                self.create(
+                    AutomationGrantScope(
+                        provider=provider,
+                        project_id=project_id,
+                        metric_keys=metric_keys,
+                    )
+                )
+            except (AutomationGrantError, ValueError):
+                continue
+            created += 1
+        return created
+
     def poll_due(self, *, limit: int = AUTOMATION_POLL_LIMIT) -> AutomationPollResult:
         if limit < 1 or limit > AUTOMATION_POLL_LIMIT:
             raise ValueError("automation poll limit is out of bounds")

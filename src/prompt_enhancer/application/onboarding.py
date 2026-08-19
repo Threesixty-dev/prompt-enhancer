@@ -112,6 +112,7 @@ class OnboardingService:
         set_claude_home: Callable[[Path], None] | None,
         index_codex: Callable[[], int],
         index_claude: Callable[[], int],
+        enable_automation: Callable[[Provider], int] | None = None,
         which: Callable[[str], str | None] | None = None,
         refresh_interval_seconds: int = DEFAULT_REFRESH_INTERVAL_SECONDS,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -120,6 +121,11 @@ class OnboardingService:
         self._claude_home = claude_home
         self._set_claude_home = set_claude_home
         self._index = {Provider.CODEX: index_codex, Provider.CLAUDE_CODE: index_claude}
+        # Default-on analysis: after an index, every indexed project gets a
+        # standing local automation grant so the single model lane analyses
+        # new and changed sessions without further clicks.
+        self._enable_automation = enable_automation
+        self._last_automation_grants = 0
         # Resolved at call time so tests can pin PATH detection deterministically.
         self._which = which if which is not None else (lambda name: shutil.which(name))
         self._interval = max(60, int(refresh_interval_seconds))
@@ -203,6 +209,12 @@ class OnboardingService:
                     total += int(index())
                 except Exception:
                     failed = True
+                    continue
+                if self._enable_automation is not None:
+                    try:
+                        self._last_automation_grants += int(self._enable_automation(provider))
+                    except Exception:
+                        failed = True
             self._last_refresh_at = self._clock()
             self._last_refresh_error = failed
             return total
@@ -212,6 +224,10 @@ class OnboardingService:
     @property
     def refresh_interval_seconds(self) -> int:
         return self._interval
+
+    @property
+    def automation_grants_created(self) -> int:
+        return self._last_automation_grants
 
 
 class LocalSourceRefreshWorker:

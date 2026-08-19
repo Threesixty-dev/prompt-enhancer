@@ -212,16 +212,42 @@ class LocalApplication:
             transcript_supersede=self._supersede_hook_events_covered_by_transcripts,
         )
 
-    def create_onboarding_service(self, codex_source_service=None, claude_source_service=None):
+    def create_onboarding_service(
+        self, codex_source_service=None, claude_source_service=None, *, enable_automation=None
+    ):
         """First-run detection, one consent, first index, periodic refresh."""
 
         from .application.onboarding import OnboardingService
+        from .domain import Provider
 
         codex_service = codex_source_service or self.create_codex_local_source_service()
         claude_service = claude_source_service or self.create_claude_local_source_service()
 
+        def discover_tasks(provider: Provider) -> None:
+            # Propose task candidates from the freshly indexed sessions so the
+            # Discovery inbox fills without the CLI. Candidate ids are
+            # deterministic and persistence skips existing ones, so this is
+            # idempotent; failures never fail the index.
+            try:
+                sessions = []
+                offset = 0
+                while len(sessions) < 5_000:
+                    page = self.database.list_sessions(limit=500, offset=offset, provider=provider)
+                    for item in page:
+                        session = self.database.get_session(str(item["session_id"]))
+                        if session is not None:
+                            sessions.append(session)
+                    offset += len(page)
+                    if len(page) < 500:
+                        break
+                if sessions:
+                    self.create_discovery_persistence_service().discover_and_persist(sessions)
+            except Exception:
+                pass
+
         def index_codex() -> int:
             report = codex_service.index(max_sessions=500)
+            discover_tasks(Provider.CODEX)
             # Fill missing Codex titles in bounded batches without a second click.
             try:
                 missing: list[str] = []
@@ -245,7 +271,9 @@ class LocalApplication:
             return int(report.sessions_seen)
 
         def index_claude() -> int:
-            return int(claude_service.index(max_sessions=1000).sessions_seen)
+            report = claude_service.index(max_sessions=1000)
+            discover_tasks(Provider.CLAUDE_CODE)
+            return int(report.sessions_seen)
 
         return OnboardingService(
             self.database,
@@ -253,6 +281,7 @@ class LocalApplication:
             set_claude_home=self.set_claude_home,
             index_codex=index_codex,
             index_claude=index_claude,
+            enable_automation=enable_automation,
         )
 
     def create_session_reader_service(self):
@@ -377,9 +406,14 @@ class LocalApplication:
             CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR,
             ClaudeCodeHooksCompatibilityProbe,
         )
+        from .infrastructure.providers.claude_code_hooks.text_source import (
+            CLAUDE_CODE_TEXT_WINDOW_DECODER_DESCRIPTOR,
+            ClaudeTranscriptTextWindowProbe,
+        )
 
         descriptors = (
             CODEX_TEXT_WINDOW_DECODER_DESCRIPTOR,
+            CLAUDE_CODE_TEXT_WINDOW_DECODER_DESCRIPTOR,
             CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR,
         )
         registry = TrustedProviderRegistry(descriptors)
@@ -387,10 +421,35 @@ class LocalApplication:
             registry,
             (
                 CodexTextWindowCompatibilityProbe(),
+                ClaudeTranscriptTextWindowProbe(self.claude_home),
                 ClaudeCodeHooksCompatibilityProbe(self.database.claude_hook_ledger()),
             ),
         )
         return ProviderCompatibilityCatalog(service, descriptors)
+
+    def create_text_analysis_source(self, provider: Provider):
+        """One local, read-only text source per provider for the P1 pipeline.
+
+        Codex reads the app-server; Claude Code reads the owner's transcript
+        file (ADR 0011).  Both redact locally before anything reaches a model.
+        """
+
+        from .domain import Provider
+        from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
+
+        if provider is Provider.CODEX:
+            return CodexTextAnalysisSource(self.pseudonymizer)
+        if provider is Provider.CLAUDE_CODE:
+            from .infrastructure.providers.claude_code_hooks.text_source import (
+                ClaudeTranscriptTextAnalysisSource,
+            )
+            from .infrastructure.providers.claude_code_hooks.transcript_reader import (
+                ClaudeTranscriptReader,
+            )
+
+            reader = ClaudeTranscriptReader(self.pseudonymizer, claude_home=self.claude_home())
+            return ClaudeTranscriptTextAnalysisSource(self.pseudonymizer, locate=reader.locate)
+        raise ValueError("unsupported local text-analysis provider")
 
     def create_session_text_analysis_service(
         self,
@@ -400,14 +459,9 @@ class LocalApplication:
 
         from .application.analysis import SessionTextAnalysisService
         from .application.persistence import SESSION_ANALYSIS_RUN_SCHEMA_VERSION
-        from .domain import Provider
         from .infrastructure.identifiers import LocalArtifactIdFactory
-        from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
 
-        def source_factory(provider: Provider) -> CodexTextAnalysisSource:
-            if provider is not Provider.CODEX:
-                raise ValueError("unsupported local text-analysis provider")
-            return CodexTextAnalysisSource(self.pseudonymizer)
+        source_factory = self.create_text_analysis_source
 
         return SessionTextAnalysisService(
             self.database,
@@ -455,17 +509,12 @@ class LocalApplication:
         """Compose the explicit offline neural comparison for one session."""
 
         from .application.analysis import SessionModelLinkExperimentService
-        from .domain import Provider
         from .infrastructure.identifiers import LocalArtifactIdFactory
-        from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
         from .infrastructure.text_models.session_links import (
             SubprocessSessionModelLinkRunner,
         )
 
-        def source_factory(provider: Provider) -> CodexTextAnalysisSource:
-            if provider is not Provider.CODEX:
-                raise ValueError("unsupported local model-link provider")
-            return CodexTextAnalysisSource(self.pseudonymizer)
+        source_factory = self.create_text_analysis_source
 
         return SessionModelLinkExperimentService(
             self.database,
@@ -497,9 +546,7 @@ class LocalApplication:
             SchemaArtifactKind,
             SchemaArtifactProvenance,
         )
-        from .domain import Provider
         from .infrastructure.identifiers import LocalArtifactIdFactory
-        from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
         from .infrastructure.providers.codex_app_server.contracts import (
             ADAPTER_VERSION,
             SOURCE_SCHEMA_VERSION,
@@ -508,10 +555,7 @@ class LocalApplication:
             LocalProbabilisticMetricRunner,
         )
 
-        def source_factory(provider: Provider) -> CodexTextAnalysisSource:
-            if provider is not Provider.CODEX:
-                raise ValueError("unsupported local model-ensemble provider")
-            return CodexTextAnalysisSource(self.pseudonymizer)
+        source_factory = self.create_text_analysis_source
 
         safe_event_descriptor = DecoderDescriptor(
             provider=ProviderIdentity(key="codex"),
@@ -598,6 +642,7 @@ class LocalApplication:
         codex_source_service: CodexLocalSourceService,
         session_text_analysis_service: SessionTextAnalysisService,
         analysis_job_service: AnalysisJobService,
+        claude_source_service=None,
     ) -> tuple[
         AutomationGrantService,
         AutomationGrantWorker,
@@ -651,7 +696,14 @@ class LocalApplication:
             grants,
             access,
             LocalAutomationCatalogRefresher(
-                {Provider.CODEX: codex_source_service}
+                {
+                    Provider.CODEX: codex_source_service,
+                    **(
+                        {Provider.CLAUDE_CODE: claude_source_service}
+                        if claude_source_service is not None
+                        else {}
+                    ),
+                }
             ),
             candidates,
             QueueAutomationJobSink(
@@ -672,11 +724,12 @@ class LocalApplication:
         job_worker = AnalysisJobWorker(
             self.database.analysis_job_repository(),
             {
-                (AnalysisJobKind.SESSION_QUALITY, Provider.CODEX): (
+                (AnalysisJobKind.SESSION_QUALITY, provider): (
                     SessionQualityAutomationHandler(
                         session_text_analysis_service
                     )
                 )
+                for provider in (Provider.CODEX, Provider.CLAUDE_CODE)
             },
             authorization_check=guard.authorized,
             fingerprint_resolver=guard.fingerprints,
@@ -729,6 +782,12 @@ class LocalApplication:
         # This invokes only the documented schema generator in an isolated
         # empty provider home. It never lists or reads provider sessions.
         compatibility_catalog.refresh("codex", ProviderSurface.TEXT_WINDOW)
+        # Structure-only sample of the owner's transcript root (type keys, no
+        # content); the text window is simply unavailable when it fails.
+        try:
+            compatibility_catalog.refresh("claude_code", ProviderSurface.TEXT_WINDOW)
+        except Exception:
+            pass
         compatibility_policy = ProviderSurfaceCompatibilityPolicy(
             compatibility_catalog,
             surface=ProviderSurface.TEXT_WINDOW,
@@ -767,6 +826,7 @@ class LocalApplication:
             model_ensemble_watch_service
         )
         analysis_job_service = self.create_analysis_job_service()
+        claude_source_service = self.create_claude_local_source_service()
         (
             automation_grant_service,
             automation_grant_worker,
@@ -775,6 +835,7 @@ class LocalApplication:
             codex_source_service=codex_source_service,
             session_text_analysis_service=session_text_analysis_service,
             analysis_job_service=analysis_job_service,
+            claude_source_service=claude_source_service,
         )
         def revoke_local_workers(provider: Provider) -> int:
             return (
@@ -783,11 +844,17 @@ class LocalApplication:
             )
 
         codex_source_service.set_automation_revoker(revoke_local_workers)
-        claude_source_service = self.create_claude_local_source_service()
         claude_source_service.set_automation_revoker(revoke_local_workers)
         otlp_ingest_token = load_or_create_api_token(self.settings.otlp_ingest_token_path)
         telemetry_ingest_service = self.database.claude_telemetry_ingest(self.pseudonymizer)
-        onboarding_service = self.create_onboarding_service(codex_source_service, claude_source_service)
+        def enable_automation(provider: Provider) -> int:
+            return automation_grant_service.ensure_default_grants(
+                provider, self.database.list_project_ids(provider)
+            )
+
+        onboarding_service = self.create_onboarding_service(
+            codex_source_service, claude_source_service, enable_automation=enable_automation
+        )
         from .application.onboarding import LocalSourceRefreshWorker
 
         local_source_refresh_worker = LocalSourceRefreshWorker(onboarding_service)

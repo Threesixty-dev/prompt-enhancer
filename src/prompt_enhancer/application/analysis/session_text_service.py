@@ -966,13 +966,6 @@ class SessionTextAnalysisService:
             finally:
                 if cooperative_check is not None:
                     cooperative_check()
-            finished_at = _require_utc(self._clock())
-            if finished_at < draft.started_at:
-                raise ValueError("analysis clock moved backwards")
-            records = tuple(
-                self._to_record(result, computed_at=finished_at)
-                for result in calculated
-            )
         except SessionTextAnalysisCooperativeStop:
             raise
         except Exception:
@@ -984,6 +977,23 @@ class SessionTextAnalysisService:
         try:
             if cooperative_check is not None:
                 cooperative_check()
+            # The publication timestamp is read after the last cooperative
+            # checkpoint: a checkpoint advances the job's publication
+            # high-water mark to its own wall-clock reading, so a timestamp
+            # taken before it would be rejected as a clock regression.
+            try:
+                finished_at = _require_utc(self._clock())
+                if finished_at < draft.started_at:
+                    raise ValueError("analysis clock moved backwards")
+                records = tuple(
+                    self._to_record(result, computed_at=finished_at)
+                    for result in calculated
+                )
+            except Exception:
+                self._mark_failed(run_id, SessionTextAnalysisExecutionError.code)
+                raise SessionTextAnalysisExecutionError(
+                    "local metric analysis failed"
+                ) from None
             self._analyses.complete(
                 run_id,
                 records,
@@ -992,7 +1002,7 @@ class SessionTextAnalysisService:
             )
         except SessionAnalysisPublicationRejectedError as error:
             raise SessionTextAnalysisCooperativeStop(error.reason_code) from None
-        except SessionTextAnalysisCooperativeStop:
+        except (SessionTextAnalysisCooperativeStop, SessionTextAnalysisExecutionError):
             raise
         except Exception:
             if cooperative_check is not None:

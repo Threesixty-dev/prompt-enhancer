@@ -420,25 +420,32 @@ function safeNullableVersion(value: unknown): value is string | null {
     (typeof value === "string" && SAFE_COMPATIBILITY_VERSION.test(value));
 }
 
+// A provider may publish more than one surface family over time; Claude Code
+// serves its transcript text window first and the hook ledger behind it.
 const COMPATIBILITY_FAMILIES = {
-  codex: {
+  codex: [{
     provider: "codex_app_server",
     adapter: "codex_app_server",
     source: "codex_thread",
     content: "codex_thread_items",
-  },
-  claude_code: {
+  }],
+  claude_code: [{
+    provider: "claude_code",
+    adapter: "claude_code_transcripts",
+    source: "claude_transcript_jsonl",
+    content: "claude_transcript_messages",
+  }, {
     provider: "claude_code",
     adapter: "claude_code_hooks",
     source: "claude_hook_ledger",
     content: "claude_hook_events",
-  },
-  synthetic: {
+  }],
+  synthetic: [{
     provider: "synthetic_provider",
     adapter: "synthetic_adapter",
     source: "synthetic_session",
     content: "synthetic_content",
-  },
+  }],
 } as const;
 
 export function parseProviderCompatibilityStatus(
@@ -515,7 +522,11 @@ export function parseProviderCompatibilityStatus(
     value.source_schema_version,
     value.content_schema_version,
   ].every((item) => typeof item === "string");
-  const expectedFamilies = COMPATIBILITY_FAMILIES[provider];
+  const familiesMatch = COMPATIBILITY_FAMILIES[provider].some((expected) =>
+    value.provider_family === expected.provider &&
+    value.adapter_family === expected.adapter &&
+    value.source_schema_family === expected.source &&
+    value.content_schema_family === expected.content);
   const coherent =
     ((state === "exact" &&
       capabilityState === "supported" &&
@@ -548,10 +559,7 @@ export function parseProviderCompatibilityStatus(
         capabilityState === "unknown" &&
         ["provider_unavailable", "check_failed"].includes(reason) &&
         checkedAt !== null)) &&
-    value.provider_family === expectedFamilies.provider &&
-    value.adapter_family === expectedFamilies.adapter &&
-    value.source_schema_family === expectedFamilies.source &&
-    value.content_schema_family === expectedFamilies.content &&
+    familiesMatch &&
     (updateSupport === "supported"
       ? updateTarget !== null
       : updateTarget === null);

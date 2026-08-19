@@ -68,6 +68,38 @@ reads one file fully only when that session is ingested. The status surface
 reports `reads_transcripts = true` when it is wired. Under test the Claude home
 is always an isolated temporary directory, so no real session is ever scanned.
 
+## Text window and default-on analysis (added 2026-08-19)
+
+The same transcript files also feed the **P1 local text analysis** for Claude
+Code, so the rubric metrics no longer stop at Codex. A Claude text source
+subclasses the Codex app-server text source and differs only in extraction
+and provenance: user text blocks are user messages, assistant text blocks are
+agent messages, and `TodoWrite` / `ExitPlanMode` tool inputs are plan
+messages; tool results, thinking, slash-command echoes and meta rows are never
+messages. Redaction, language detection, focus selection, windowing and scope
+accounting are the shared implementation, and the raw text is redacted in
+process before the pipeline sees it.
+
+The provider publishes a **text-window surface** next to its hook surface. Its
+compatibility probe is structural: it reads only the `type` keys of a bounded
+sample of the newest transcripts and reports the surface *compatible* with
+complete extraction when every message-bearing row and content block is one
+the decoder classifies, *degraded* with unknown completeness when one is not,
+and *unavailable* when there is no transcript root. That is the same posture
+the Codex schema preflight takes toward unclassified union variants; the
+public route names this family `claude_code_transcripts` so it is never
+mistaken for the hook ledger, and it falls back to the hook surface whenever
+the text window's last check found no transcript root - hooks remain the only
+source in that case.
+
+Analysis is **default-on after consent**: whenever a provider is indexed, every
+indexed project without an active local automation grant receives the standard
+one (reviewed resource policy, local-only, battery-aware, rubric metric keys),
+idempotently on each refresh. The automation runtime lists Claude Code next to
+Codex in its catalog refresher and job handlers, so new and changed sessions
+from either provider are scheduled through the single serial analysis lane
+without a click. Revoking the provider's consent still revokes every grant.
+
 ## What this does not accept
 
 Reading any provider file that is not a session transcript; reading a session

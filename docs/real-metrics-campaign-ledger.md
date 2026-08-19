@@ -1238,6 +1238,24 @@ The receiver requires a separate write-only ingest token, answers inactive
 consent with an OTLP `partialSuccess`, and writes nothing in that case. Token
 counts are provider-reported facts, not calibration evidence.
 
+The 2026-08-19 checkpoints then made the transcript files the primary Claude
+source (ADR 0011 addendum), added default-on onboarding, and closed the
+Codex-only analysis gap: a Claude text source subclassing the Codex text source
+(fragments from user text, assistant text, and `TodoWrite` / `ExitPlanMode`
+plans; shared redaction, windowing and scope accounting), a structural
+text-window compatibility probe (`claude_code_transcripts` family; compatible
+with complete extraction only when every message row and block type is
+classified), Claude Code in the automation catalog refresher and job handlers,
+and `ensure_default_grants` so every indexed project of a consented provider
+holds the standard local grant. The first end-to-end run through the real
+`SessionQualityAutomationHandler` exposed a latent publication-ordering bug -
+`finished_at` was read before the final cooperative checkpoint advanced the
+job's high-water mark, so every automated run would have been rejected as
+`automation_publication_clock_regressed` - which is fixed by reading the
+timestamp after that checkpoint. Rubric results for Claude sessions are model
+judgments under the same P1 profile and remain calibration-pending; no metric
+becomes numeric by this change alone.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and
