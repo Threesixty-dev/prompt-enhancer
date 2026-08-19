@@ -74,7 +74,14 @@ def test_build_time_schema_contains_bounded_queries_and_review_commands() -> Non
     )
     assert provider_parameter["in"] == "query"
     assert provider_parameter["required"] is False
-    assert all("transcript" not in path for path in paths)
+    # ADR 0011: exactly one owner-authorized, read-only transcript route, GET only,
+    # returning the bounded SessionTranscript whose persisted flag is fixed false.
+    transcript_paths = [path for path in paths if "transcript" in path]
+    assert transcript_paths == ["/v1/sessions/{session_id}/transcript"]
+    assert set(paths["/v1/sessions/{session_id}/transcript"]) == {"get"}
+    transcript_schema = schema["components"]["schemas"]["SessionTranscript"]["properties"]
+    assert transcript_schema["persisted"].get("const") is False or transcript_schema["persisted"].get("enum") == [False]
+    assert transcript_schema["turns"]["maxItems"] == 2000
 
 
 def test_exporter_writes_reproducible_json_without_runtime_state(tmp_path) -> None:
