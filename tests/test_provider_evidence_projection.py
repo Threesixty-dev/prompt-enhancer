@@ -290,8 +290,12 @@ def test_tool_only_descriptor_skips_undeclared_verification_evidence() -> None:
     assert projection.records[0].kind is TypedEvidenceKind.ACTION
 
 
-def test_shipped_codex_capability_set_cannot_declare_any_denominator() -> None:
-    """The composition root ships `tool_events` only; all five stay unknown."""
+def test_tool_only_capability_set_cannot_declare_any_denominator() -> None:
+    """A `tool_events`-only descriptor (the r2/r3 composition root) keeps all five unknown.
+
+    Decoder 4 ships four capabilities and a reviewed-task denominator; see
+    test_task_scoped_evidence.py.  This test pins the tool-only contract.
+    """
 
     shipped = _descriptor(CapabilityKey.TOOL_EVENTS)
     projection = SafeEventTypedEvidenceProjector(

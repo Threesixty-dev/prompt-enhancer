@@ -148,6 +148,99 @@ _HOOK_EVENT_KINDS: dict[HookEventName, EventKind] = {
 }
 
 
+# Deterministic, content-free classification of a shell command into the
+# closed TEST / BUILD categories.  Only the leading program words are matched;
+# the command text itself is never kept.  Anything unmatched stays COMMAND.
+COMMAND_CLASSIFY_MAX_CHARS = 400
+_TEST_PROGRAMS = frozenset(
+    {
+        "pytest", "py.test", "tox", "nox", "vitest", "jest", "mocha", "ava", "karma",
+        "cypress", "playwright", "phpunit", "rspec", "minitest", "ctest", "busted",
+        "prove", "elixir", "mix", "swift", "flutter", "bun", "deno", "go", "cargo",
+        "dotnet", "mvn", "mvnw", "gradle", "gradlew", "make", "npm", "pnpm", "yarn",
+        "npx", "bundle", "rake", "unittest", "behave", "nosetests", "ginkgo",
+    }
+)
+_TEST_WORDS = frozenset({"test", "tests", "spec", "check", "verify", "e2e", "rspec", "unittest"})
+_ALWAYS_TEST = frozenset(
+    {"pytest", "py.test", "tox", "nox", "vitest", "jest", "mocha", "ava", "karma",
+     "cypress", "playwright", "phpunit", "rspec", "minitest", "ctest", "busted",
+     "unittest", "behave", "nosetests", "ginkgo"}
+)
+_ALWAYS_BUILD = frozenset({"tsc", "webpack", "esbuild", "rollup", "ninja", "gcc", "g++", "clang", "clang++", "javac", "rustc", "cl"})
+_BUILD_WORDS = frozenset({"build", "compile", "package", "assemble", "install", "bundle", "dist"})
+_BUILD_PROGRAMS = frozenset(
+    {"npm", "pnpm", "yarn", "npx", "bun", "cargo", "go", "dotnet", "mvn", "mvnw", "gradle",
+     "gradlew", "make", "cmake", "docker", "podman", "bazel", "vite", "next", "nuxt", "swift", "flutter", "mix", "zig"}
+)
+
+
+def classify_command(command: object) -> ToolCategory:
+    """Classify a shell command as TEST, BUILD, or COMMAND without keeping it."""
+
+    if not isinstance(command, str) or not command.strip():
+        return ToolCategory.COMMAND
+    head = command[:COMMAND_CLASSIFY_MAX_CHARS]
+    # Look at each simple command in a pipeline / chain; the first that is a
+    # recognised test or build invocation decides (test outranks build).
+    found_build = False
+    for segment in _split_segments(head):
+        words = [word for word in segment.split() if word]
+        # Skip environment assignments and common runners/prefixes.
+        while words and ("=" in words[0] or words[0] in {"time", "sudo", "env", "exec", "nice", "uv", "poetry", "pipenv", "hatch", "pdm"}):
+            words.pop(0)
+        if words and words[0] in {"run"} and len(words) > 1:
+            words.pop(0)
+        # Package runners execute the named tool: classify the tool itself.
+        if len(words) > 1 and words[0].rsplit("/", 1)[-1].lower() in {"npx", "bunx", "pnpx"}:
+            words.pop(0)
+        if not words:
+            continue
+        program = words[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+        if program.startswith("./"):
+            program = program[2:]
+        if program.endswith(".exe") or program.endswith(".cmd") or program.endswith(".bat"):
+            program = program.rsplit(".", 1)[0]
+        if program in {"python", "python3", "py"} and len(words) > 2 and words[1] == "-m":
+            program = words[2].lower()
+            words = words[2:]
+        rest = [word.lower() for word in words[1:]]
+        if program in _ALWAYS_TEST:
+            return ToolCategory.TEST
+        if program in _TEST_PROGRAMS and any(
+            word in _TEST_WORDS or word.startswith("test") for word in rest
+        ):
+            return ToolCategory.TEST
+        if program in _ALWAYS_BUILD:
+            found_build = True
+            continue
+        if program in _BUILD_PROGRAMS and any(
+            word in _BUILD_WORDS or word.startswith("build") for word in rest
+        ):
+            found_build = True
+            continue
+        if program == "make" and (not rest or rest[0] in {"all", "-j", "-c"}):
+            found_build = True
+    return ToolCategory.BUILD if found_build else ToolCategory.COMMAND
+
+
+def _split_segments(text: str) -> list[str]:
+    segments: list[str] = []
+    current: list[str] = []
+    index = 0
+    while index < len(text):
+        two = text[index : index + 2]
+        if two in {"&&", "||"} or text[index] in {";", "|", "\n"}:
+            segments.append("".join(current))
+            current = []
+            index += 2 if two in {"&&", "||"} else 1
+            continue
+        current.append(text[index])
+        index += 1
+    segments.append("".join(current))
+    return [segment.strip() for segment in segments if segment.strip()]
+
+
 def categorize_tool_name(tool_name: object) -> ToolCategory:
     """Reduce a provider tool name to a closed category; the name is not kept."""
 

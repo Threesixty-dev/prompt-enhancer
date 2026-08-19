@@ -9,6 +9,7 @@ never itself a persistence record and it never invents requirement links.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Protocol
 
 from ...domain import EventKind, Provider, SafeEvent, SafeSession, ToolCategory
@@ -46,13 +47,22 @@ SAFE_EVENT_EVIDENCE_DECODER_KEY = "safe-event-evidence"
 #: verification *receipts* and declares no task denominator at all.
 SAFE_EVENT_EVIDENCE_DECODER_VERSION_2 = "2"
 SAFE_EVENT_EVIDENCE_DECODER_VERSION_3 = "3"
+#: Decoder 4 is task-scoped.  It keeps decoder 3's receipts exactly and adds
+#: the one denominator that *is* observable locally: a reviewed task.  When
+#: exactly one current accepted task revision contains the session, that
+#: revision is the verification task every receipt in the session links to;
+#: when none or more than one does, the decoder declares no task family and
+#: ``outcome.first_pass_verification`` stays unknown - never a manufactured
+#: 1/1 and never a guessed attribution.
+SAFE_EVENT_EVIDENCE_DECODER_VERSION_4 = "4"
 #: Frozen alias for readers of the r2 composition root.
 SAFE_EVENT_EVIDENCE_DECODER_VERSION = SAFE_EVENT_EVIDENCE_DECODER_VERSION_2
 #: What current code composes.
-SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION = SAFE_EVENT_EVIDENCE_DECODER_VERSION_3
+SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION = SAFE_EVENT_EVIDENCE_DECODER_VERSION_4
 SUPPORTED_SAFE_EVENT_EVIDENCE_DECODER_VERSIONS = (
     SAFE_EVENT_EVIDENCE_DECODER_VERSION_2,
     SAFE_EVENT_EVIDENCE_DECODER_VERSION_3,
+    SAFE_EVENT_EVIDENCE_DECODER_VERSION_4,
 )
 
 
@@ -66,6 +76,24 @@ class SafeEventEvidenceSource(Protocol):
 
 class SafeEventEvidenceIdFactory(Protocol):
     def fingerprint(self, namespace: str, values: tuple[str, ...]) -> str: ...
+
+
+class ReviewedTaskRevision(Protocol):
+    """The two identity fields decoder 4 reads from an accepted task revision."""
+
+    @property
+    def task_id(self) -> str: ...
+
+    @property
+    def revision(self) -> int: ...
+
+
+class ReviewedTaskSource(Protocol):
+    """Current accepted task revisions that contain a session (read-only)."""
+
+    def list_current_revisions_for_session(
+        self, session_id: str
+    ) -> tuple[ReviewedTaskRevision, ...]: ...
 
 
 def _action_family(category: ToolCategory | None) -> ActionFamily:
@@ -122,9 +150,26 @@ class SafeEventTypedEvidenceProjector:
         source: SafeEventEvidenceSource,
         identifiers: SafeEventEvidenceIdFactory,
         descriptor: DecoderDescriptor,
+        *,
+        tasks: ReviewedTaskSource | None = None,
+        descriptors: Mapping[Provider, DecoderDescriptor] | None = None,
     ) -> None:
         self._source = source
         self._identifiers = identifiers
+        self._tasks = tasks
+        # Optional per-provider descriptors (same decoder key and version,
+        # different adapter/schema identities); ``descriptor`` stays the default.
+        self._descriptors: dict[Provider, DecoderDescriptor] = {}
+        for provider, candidate in (descriptors or {}).items():
+            if not isinstance(candidate, DecoderDescriptor):
+                raise ValueError("typed evidence requires a trusted decoder descriptor")
+            if (
+                candidate.decoder_key != SAFE_EVENT_EVIDENCE_DECODER_KEY
+                or candidate.decoder_version != descriptor.decoder_version
+                or candidate.provider.key != provider.value
+            ):
+                raise ValueError("typed evidence provider descriptor does not match the decoder")
+            self._descriptors[provider] = candidate
         if not isinstance(descriptor, DecoderDescriptor):
             raise ValueError("typed evidence requires a trusted decoder descriptor")
         if descriptor.decoder_key != SAFE_EVENT_EVIDENCE_DECODER_KEY:
@@ -135,6 +180,11 @@ class SafeEventTypedEvidenceProjector:
         ):
             raise ValueError("typed evidence decoder version is unsupported")
         self._descriptor = descriptor
+
+    def descriptor_for(self, provider: Provider) -> DecoderDescriptor:
+        """The descriptor that speaks for one provider (default otherwise)."""
+
+        return self._descriptors.get(provider, self._descriptor)
 
     @property
     def _emits_verification_task_identity(self) -> bool:
@@ -153,6 +203,37 @@ class SafeEventTypedEvidenceProjector:
         )
 
     @property
+    def _task_scoped(self) -> bool:
+        """Decoder 4: the denominator is a reviewed task, not an event."""
+
+        return (
+            self._descriptor.decoder_version
+            == SAFE_EVENT_EVIDENCE_DECODER_VERSION_4
+        )
+
+    def _reviewed_task_reference(self, session_id: str) -> str | None:
+        """The one current accepted revision containing the session, or None.
+
+        None covers every case the decoder refuses to guess: no task source,
+        no accepted revision, more than one current revision claiming the
+        session, or a source failure.
+        """
+
+        if not self._task_scoped or self._tasks is None:
+            return None
+        try:
+            revisions = self._tasks.list_current_revisions_for_session(session_id)
+        except Exception:
+            return None
+        if len(revisions) != 1:
+            return None
+        revision = revisions[0]
+        return self._identifiers.fingerprint(
+            "typed-reviewed-task-evidence-v4",
+            (session_id, str(revision.task_id), str(int(revision.revision))),
+        )
+
+    @property
     def descriptor(self) -> DecoderDescriptor:
         """The composition-root-selected authority for this projection."""
 
@@ -167,6 +248,7 @@ class SafeEventTypedEvidenceProjector:
         session = self._source.get_session(session_id)
         if session is None or session.provider is not provider:
             return None
+        descriptor = self.descriptor_for(provider)
         events = tuple(
             sorted(
                 self._source.get_session_events(session_id),
@@ -181,7 +263,7 @@ class SafeEventTypedEvidenceProjector:
                 (TypedEvidenceKind.DECISION, CapabilityKey.DECISION_EVENTS),
                 (TypedEvidenceKind.VERIFICATION, CapabilityKey.VERIFICATION_EVENTS),
             )
-            if capability in self._descriptor.capabilities
+            if capability in descriptor.capabilities
         )
         # A verification *task* denominator needs three separate authorities:
         # the outcome capability, the enumeration capability, and the link
@@ -192,20 +274,30 @@ class SafeEventTypedEvidenceProjector:
         # requirements, hypotheses, or material claims, so this decoder cannot
         # enumerate them.  ``bind_semantic_unit_opportunities`` is the only
         # place a semantic-unit denominator may enter this projection.
-        verification_tasks_authorized = (
-            self._emits_verification_task_identity
-            and TypedEvidenceKind.VERIFICATION in declared_kinds
+        task_capabilities_declared = (
+            TypedEvidenceKind.VERIFICATION in declared_kinds
             and CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES
-            in self._descriptor.capabilities
+            in descriptor.capabilities
             and CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS
-            in self._descriptor.capabilities
+            in descriptor.capabilities
+        )
+        verification_tasks_authorized = (
+            self._emits_verification_task_identity and task_capabilities_declared
+        )
+        # Decoder 4: one reviewed task, if exactly one current accepted
+        # revision contains this session.  Every verification receipt in the
+        # session then links to it; otherwise no task family is declared.
+        reviewed_task = (
+            self._reviewed_task_reference(session_id)
+            if task_capabilities_declared
+            else None
         )
         declared_opportunity_kinds = (
             frozenset({TypedEvidenceOpportunityKind.VERIFICATION_TASK})
-            if verification_tasks_authorized
+            if verification_tasks_authorized or reviewed_task is not None
             else frozenset()
         )
-        verification_tasks: list[str] = []
+        verification_tasks: list[str] = [reviewed_task] if reviewed_task else []
 
         for event in events:
             if event.session_id != session_id:
@@ -276,6 +368,8 @@ class SafeEventTypedEvidenceProjector:
                         )
                         verification_tasks.append(task_id)
                         task_ids = (task_id,)
+                    elif reviewed_task is not None:
+                        task_ids = (reviewed_task,)
                     records.append(
                         VerificationEvidence(
                             evidence_id=self._evidence_id(
@@ -297,7 +391,7 @@ class SafeEventTypedEvidenceProjector:
                 provider_version=session.provider_version,
                 adapter_version=session.adapter_version,
                 decoder_key=SAFE_EVENT_EVIDENCE_DECODER_KEY,
-                decoder_version=self._descriptor.decoder_version,
+                decoder_version=descriptor.decoder_version,
                 source_schema_version=session.source_schema_version,
                 extraction_complete=session.events_complete,
             ),
@@ -306,7 +400,7 @@ class SafeEventTypedEvidenceProjector:
             eligible_verification_task_reference_ids=tuple(verification_tasks),
             records=tuple(sorted(records, key=lambda item: item.sequence)),
         )
-        validate_projection_descriptor(projection, self._descriptor)
+        validate_projection_descriptor(projection, descriptor)
         return projection
 
     def _evidence_id(
@@ -438,6 +532,9 @@ __all__ = [
     "SAFE_EVENT_EVIDENCE_DECODER_VERSION_2",
     "SAFE_EVENT_EVIDENCE_DECODER_VERSION_3",
     "SUPPORTED_SAFE_EVENT_EVIDENCE_DECODER_VERSIONS",
+    "SAFE_EVENT_EVIDENCE_DECODER_VERSION_4",
+    "ReviewedTaskRevision",
+    "ReviewedTaskSource",
     "SafeEventEvidenceIdFactory",
     "SafeEventEvidenceSource",
     "SafeEventTypedEvidenceProjector",

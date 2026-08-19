@@ -1256,6 +1256,15 @@ timestamp after that checkpoint. Rubric results for Claude sessions are model
 judgments under the same P1 profile and remain calibration-pending; no metric
 becomes numeric by this change alone.
 
+Decoder 4 ([ADR 0012](adr/0012-task-scoped-verification-evidence.md)) then
+made `outcome.first_pass_verification` computable from evidence: the Claude
+transcript adapter classifies shell commands into `TEST` / `BUILD`
+deterministically (command text dropped), and the typed-evidence projector
+links every verification receipt to the one current accepted task revision
+containing the session, declaring no task family when none or several do.
+Per-provider safe-event descriptors let Claude transcript sessions project the
+same evidence as Codex. A reviewed task without any receipt stays unknown.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

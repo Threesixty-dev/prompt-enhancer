@@ -703,7 +703,7 @@ class SessionModelEnsembleService:
             # meaning of the algorithm that wrote them.
             objective_overrides = project_objective_metric_overrides_v3(
                 typed_evidence,
-                self._objective_evidence_descriptor(),
+                self._objective_evidence_descriptor(context.provider),
             )
             live_states = project_metric_states_v4(
                 context=context,
@@ -852,7 +852,7 @@ class SessionModelEnsembleService:
                 raise ValueError("typed evidence belongs to another session")
             validate_projection_descriptor(
                 projection,
-                self._typed_evidence_projector.descriptor,
+                self._objective_evidence_descriptor(provider),
             )
             return projection
         except Exception:
@@ -860,11 +860,18 @@ class SessionModelEnsembleService:
             # objective measurements, never discard deterministic text output.
             return None
 
-    def _objective_evidence_descriptor(self) -> DecoderDescriptor | None:
+    def _objective_evidence_descriptor(
+        self, provider: Provider | None = None
+    ) -> DecoderDescriptor | None:
         if self._typed_evidence_projector is None:
             return None
         try:
-            descriptor = self._typed_evidence_projector.descriptor
+            descriptor_for = getattr(self._typed_evidence_projector, "descriptor_for", None)
+            descriptor = (
+                descriptor_for(provider)
+                if provider is not None and callable(descriptor_for)
+                else self._typed_evidence_projector.descriptor
+            )
             return descriptor if isinstance(descriptor, DecoderDescriptor) else None
         except Exception:
             return None
@@ -880,7 +887,9 @@ class SessionModelEnsembleService:
                 None
                 if semantic_projection is None
                 else semantic_projection.reconciliation,
-                self._objective_evidence_descriptor(),
+                self._objective_evidence_descriptor(
+                    None if projection is None else projection.provenance.provider
+                ),
             )
         except Exception:
             # A semantic-link binding is optional objective authority. Any

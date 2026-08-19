@@ -532,6 +532,7 @@ class LocalApplication:
         """Compose the serial, process-isolated all-metric live pipeline."""
 
         from .application.analysis import SessionModelEnsembleService
+        from .domain import Provider
         from .application.analysis.provider_evidence import (
             SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION,
             SAFE_EVENT_EVIDENCE_DECODER_KEY,
@@ -557,6 +558,16 @@ class LocalApplication:
 
         source_factory = self.create_text_analysis_source
 
+        # Decoder 4 (task-scoped): tool events are actions; a test/build tool
+        # end with an exit status is a verification receipt; the verification
+        # *task* denominator is the one current accepted task revision that
+        # contains the session (never minted from an event).
+        safe_event_capabilities = (
+            CapabilityKey.TOOL_EVENTS,
+            CapabilityKey.VERIFICATION_EVENTS,
+            CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES,
+            CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
+        )
         safe_event_descriptor = DecoderDescriptor(
             provider=ProviderIdentity(key="codex"),
             surface=ProviderSurface.OPERATIONAL_EVENTS,
@@ -570,7 +581,27 @@ class LocalApplication:
                 artifact_version="1",
                 kind=SchemaArtifactKind.MINIMIZED,
             ),
-            capabilities=(CapabilityKey.TOOL_EVENTS,),
+            capabilities=safe_event_capabilities,
+        )
+        from .infrastructure.providers.claude_code_hooks.transcript_adapter import (
+            TRANSCRIPT_ADAPTER_VERSION,
+            TRANSCRIPT_SOURCE_SCHEMA_VERSION,
+        )
+
+        claude_safe_event_descriptor = DecoderDescriptor(
+            provider=ProviderIdentity(key="claude_code"),
+            surface=ProviderSurface.OPERATIONAL_EVENTS,
+            adapter_version=TRANSCRIPT_ADAPTER_VERSION,
+            decoder_key=SAFE_EVENT_EVIDENCE_DECODER_KEY,
+            decoder_version=SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION,
+            wire_schema_family="claude-code.transcripts.v1.safe-events",
+            canonical_schema_version=TRANSCRIPT_SOURCE_SCHEMA_VERSION,
+            schema_artifact=SchemaArtifactProvenance(
+                artifact_key="claude-code.safe-event-index",
+                artifact_version="1",
+                kind=SchemaArtifactKind.MINIMIZED,
+            ),
+            capabilities=safe_event_capabilities,
         )
 
         return SessionModelEnsembleService(
@@ -584,6 +615,8 @@ class LocalApplication:
                 self.database,
                 LocalArtifactIdFactory(self.pseudonymizer),
                 safe_event_descriptor,
+                tasks=self.database.task_repository(),
+                descriptors={Provider.CLAUDE_CODE: claude_safe_event_descriptor},
             ),
             semantic_unit_reconciler=SemanticUnitReconciler(
                 LocalArtifactIdFactory(self.pseudonymizer),

@@ -95,7 +95,8 @@ def test_scan_head_and_parse_are_deterministic_and_bounded(env) -> None:
     non_usage = [e for e in parsed.events if e.kind is not EventKind.USAGE]
     assert [e.sequence for e in non_usage] == list(range(len(non_usage)))
     tool_end = next(e for e in parsed.events if e.kind is EventKind.TOOL_END)
-    assert tool_end.tool_category is ToolCategory.COMMAND and tool_end.success is False and tool_end.duration_ms == 6000
+    # "pytest -q" is classified as a TEST run (content-free; the command is dropped).
+    assert tool_end.tool_category is ToolCategory.TEST and tool_end.success is False and tool_end.duration_ms == 6000
     usage = [e for e in parsed.events if e.kind is EventKind.USAGE]
     assert len(usage) == 3 and usage[0].usage is not None
     assert usage[0].usage.input_tokens == 1200 and usage[0].usage.cached_input_tokens == 800 and usage[0].usage.model_id == "claude-opus-5"
@@ -189,3 +190,23 @@ def test_status_reports_transcript_reading_honestly(env) -> None:
     application = bootstrap_local_application(settings)
     status = application.create_claude_local_source_service().status()
     assert status.reads_transcripts is True and status.persists_content is False
+
+
+def test_shell_commands_classify_as_test_or_build_without_keeping_text() -> None:
+    from prompt_enhancer.infrastructure.providers.claude_code_hooks.contracts import classify_command
+
+    assert classify_command("pytest tests -q") is ToolCategory.TEST
+    assert classify_command("./.venv/Scripts/python.exe -m pytest tests -x") is ToolCategory.TEST
+    assert classify_command("npm run test:unit") is ToolCategory.TEST
+    assert classify_command("npx vitest run --maxWorkers=4") is ToolCategory.TEST
+    assert classify_command("cd frontend && npm ci && npm run build") is ToolCategory.BUILD
+    assert classify_command("npm run build && npm test") is ToolCategory.TEST
+    assert classify_command("npx tsc --noEmit") is ToolCategory.BUILD
+    assert classify_command("cargo build --release") is ToolCategory.BUILD
+    assert classify_command("make") is ToolCategory.BUILD
+    assert classify_command("git status") is ToolCategory.COMMAND
+    assert classify_command("echo pytest") is ToolCategory.COMMAND
+    assert classify_command("") is ToolCategory.COMMAND
+    assert classify_command(None) is ToolCategory.COMMAND
+    # Only the leading part of a long command is examined.
+    assert classify_command("echo " + "x" * 1000 + " && pytest") is ToolCategory.COMMAND

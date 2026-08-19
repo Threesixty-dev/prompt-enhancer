@@ -47,6 +47,7 @@ from .contracts import (
     PSEUDONYM_NAMESPACE_SESSION,
     UNKNOWN_PROVIDER_VERSION,
     categorize_tool_name,
+    classify_command,
     project_display_label,
     project_identity_material,
     session_title_from_prompt,
@@ -289,6 +290,12 @@ def parse_events(path: Path, stem: str) -> ParsedTranscript:
                     for block in blocks:
                         if isinstance(block, dict) and block.get("type") == "tool_use":
                             category = categorize_tool_name(block.get("name"))
+                            if category is ToolCategory.COMMAND:
+                                # Deterministic test/build recognition; the
+                                # command text is classified and dropped.
+                                tool_input = block.get("input")
+                                command = tool_input.get("command") if isinstance(tool_input, dict) else None
+                                category = classify_command(command)
                             ref = block.get("id")
                             if isinstance(ref, str):
                                 open_tools[ref] = (at, category)
