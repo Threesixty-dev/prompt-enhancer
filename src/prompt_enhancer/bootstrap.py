@@ -300,6 +300,38 @@ class LocalApplication:
             llama_server=lambda: detect_llama_server(app_home=home, models_root=models_root),
         )
 
+    def create_model_judge_service(self, local_model_service=None, calibration_service=None):
+        """Model-judge lane over the active local model (ADR 0013 section 4)."""
+
+        from pathlib import Path
+
+        from .application.analysis.model_judge import ModelJudgeService
+        from .application.local_models import RuntimeState
+
+        models = local_model_service or self.create_local_model_service()
+        calibration = calibration_service or self.create_calibration_rating_service()
+
+        def active_model():
+            try:
+                overview = models.overview()
+            except Exception:
+                return None
+            for item in overview.models:
+                if item.runtime.state is RuntimeState.RUNNING:
+                    identity = item.record.source_file or Path(item.record.path).name
+                    return item.record.alias, identity
+            return None
+
+        return ModelJudgeService(
+            repository=self.database.model_judgment_repository(),
+            ratings=self.database.calibration_rating_repository(),
+            access=self.database,
+            source_factory=self.create_text_analysis_source,
+            chat=models.chat,
+            active_model=active_model,
+            session_lookup=self.database.get_session,
+        ), calibration
+
     def create_calibration_rating_service(self):
         """Blind ratings of the owner's own sessions over a frozen sample."""
 
@@ -969,6 +1001,9 @@ class LocalApplication:
             if self.settings.control_plane_development_api
             else None
         )
+        local_model_service = self.create_local_model_service()
+        calibration_rating_service = self.create_calibration_rating_service()
+        model_judge_service, _ = self.create_model_judge_service(local_model_service, calibration_rating_service)
         return create_app(
             settings=self.settings,
             database=self.database,
@@ -999,8 +1034,10 @@ class LocalApplication:
             otlp_ingest_token=otlp_ingest_token,
             telemetry_ingest_service=telemetry_ingest_service,
             session_reader_service=self.create_session_reader_service(),
-            calibration_rating_service=self.create_calibration_rating_service(),
-            local_model_service=self.create_local_model_service(),
+            calibration_rating_service=calibration_rating_service,
+            local_model_service=local_model_service,
+            model_judge_service=model_judge_service,
+            calibration_sample_session_ids=lambda: tuple(m.session_id for m in calibration_rating_service.sample().members),
             objective_overrides_provider=self.create_objective_overrides_provider(),
             onboarding_service=onboarding_service,
             local_source_refresh_worker=local_source_refresh_worker,

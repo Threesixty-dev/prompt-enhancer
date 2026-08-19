@@ -43,3 +43,9 @@
   .calibration__list { position: static; max-height: 320px; }
   .calibration__choices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.calibration__judge { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-lg, 14px); background: var(--surface); }
+.calibration__judge-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 20px; }
+.calibration__judge-head h2 { margin: 2px 0 4px; font-size: 1rem; }
+.calibration__agreement { border-collapse: collapse; font-size: 0.82rem; width: 100%; }
+.calibration__agreement th, .calibration__agreement td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line-soft, var(--line)); }
+.calibration__agreement th { font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-500); }

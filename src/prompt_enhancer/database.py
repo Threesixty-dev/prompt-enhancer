@@ -115,10 +115,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_47,
     MIGRATION_48,
     MIGRATION_49,
+    MIGRATION_50,
 )
 
 
-SCHEMA_VERSION = 49
+SCHEMA_VERSION = 50
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1647,6 +1648,7 @@ class Database:
                 (47, MIGRATION_47),
                 (48, MIGRATION_48),
                 (49, MIGRATION_49),
+                (50, MIGRATION_50),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1824,6 +1826,14 @@ class Database:
         return TelemetryIngestService(
             self._connection, self._ensure_initialized, pseudonymizer
         )
+
+    def model_judgment_repository(self):
+        """Model-judge lane judgments (labels only, separate from metrics)."""
+
+        from .infrastructure.sqlite.model_judgments import SqliteModelJudgmentRepository
+
+        self._ensure_initialized()
+        return SqliteModelJudgmentRepository(self._connection, self._ensure_initialized)
 
     def calibration_rating_repository(self):
         """Frozen calibration sample and blind ratings (content-free)."""

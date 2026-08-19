@@ -787,6 +787,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model-judge/agreement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agreement */
+        get: operations["agreement_v1_model_judge_agreement_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/model-judge/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Judge Session */
+        post: operations["judge_session_v1_model_judge_sessions__session_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/model-judge/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sweep Status */
+        get: operations["sweep_status_v1_model_judge_sweep_get"];
+        put?: never;
+        /** Sweep */
+        post: operations["sweep_v1_model_judge_sweep_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model-link-experiments/{run_id}/links/{link_id}/annotations": {
         parameters: {
             query?: never;
@@ -3453,6 +3505,64 @@ export interface components {
              */
             truncated: boolean;
         };
+        /** JudgeAgreementReport */
+        JudgeAgreementReport: {
+            /**
+             * Caveat
+             * @default Model judgments are experimental and are never product metrics; agreement with human ratings is evidence for the activation gate, not calibration by itself.
+             */
+            caveat: string;
+            /**
+             * Contract Version
+             * @default model-judge.v1
+             * @constant
+             */
+            contract_version: "model-judge.v1";
+            /** Judged Sessions */
+            judged_sessions: number;
+            /** Metrics */
+            metrics: components["schemas"]["MetricAgreement"][];
+            /** Model Alias */
+            model_alias: string | null;
+        };
+        /** JudgeOutcome */
+        JudgeOutcome: {
+            /**
+             * Contract Version
+             * @default model-judge.v1
+             * @constant
+             */
+            contract_version: "model-judge.v1";
+            /** Judgments */
+            judgments: components["schemas"]["ModelJudgment"][];
+            /** Model Alias */
+            model_alias: string;
+            /** Raw Valid */
+            raw_valid: boolean;
+            /** Session Id */
+            session_id: string;
+        };
+        /** JudgeSweepStatus */
+        JudgeSweepStatus: {
+            /**
+             * Contract Version
+             * @default model-judge.v1
+             * @constant
+             */
+            contract_version: "model-judge.v1";
+            /** Done */
+            done: number;
+            /** Failed */
+            failed: number;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** Model Alias */
+            model_alias?: string | null;
+            /** Running */
+            running: boolean;
+            /** Total */
+            total: number;
+        };
         /** LabelEnrichmentReport */
         LabelEnrichmentReport: {
             /**
@@ -3601,6 +3711,21 @@ export interface components {
             expected_discovery_version: string;
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
+        };
+        /** MetricAgreement */
+        MetricAgreement: {
+            /** Agreement Rate */
+            agreement_rate?: number | null;
+            /** Cohen Kappa */
+            cohen_kappa?: number | null;
+            /** Metric Key */
+            metric_key: string;
+            /** Pairs */
+            pairs: number;
+            /** Reason */
+            reason?: string | null;
+            /** State */
+            state: string;
         };
         /** MetricCoverageMetric */
         MetricCoverageMetric: {
@@ -5454,6 +5579,27 @@ export interface components {
          * @enum {string}
          */
         ModelFormat: "gguf";
+        /** ModelJudgment */
+        ModelJudgment: {
+            /**
+             * Judged At
+             * Format: date-time
+             */
+            judged_at: string;
+            label: components["schemas"]["RatingLabel"];
+            /** Metric Key */
+            metric_key: string;
+            /** Model Alias */
+            model_alias: string;
+            /** Model Identity */
+            model_identity: string;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Session Id */
+            session_id: string;
+            /** Window Fingerprint */
+            window_fingerprint: string;
+        };
         /** ModelLabInventoryDto */
         ModelLabInventoryDto: {
             /**
@@ -9828,6 +9974,136 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEnsembleTrajectoryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agreement_v1_model_judge_agreement_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JudgeAgreementReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    judge_session_v1_model_judge_sessions__session_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JudgeOutcome"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sweep_status_v1_model_judge_sweep_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JudgeSweepStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sweep_v1_model_judge_sweep_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JudgeSweepStatus"];
                 };
             };
             /** @description Validation Error */

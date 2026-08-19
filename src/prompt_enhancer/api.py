@@ -340,6 +340,8 @@ def create_app(
     calibration_rating_service=None,
     objective_overrides_provider=None,
     local_model_service=None,
+    model_judge_service=None,
+    calibration_sample_session_ids=None,
     local_source_refresh_worker=None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
@@ -894,6 +896,16 @@ def create_app(
         from .interfaces.http.local_model_routes import create_local_model_router
 
         app.include_router(create_local_model_router(require_local_token, local_model_service))
+    if model_judge_service is not None:
+        from .interfaces.http.model_judge_routes import create_model_judge_router
+
+        def _sample_ids():
+            try:
+                return tuple(calibration_sample_session_ids()) if calibration_sample_session_ids is not None else ()
+            except Exception:
+                return ()
+
+        app.include_router(create_model_judge_router(require_local_token, model_judge_service, _sample_ids))
     if calibration_rating_service is not None:
         from .interfaces.http.calibration_routes import create_calibration_router
 

@@ -550,6 +550,18 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async acceptOnboarding() {
       throw new TransportError("Onboarding is unavailable in synthetic preview", 404);
     },
+    async judgeSessionWithModel() {
+      throw new TransportError("Model judge is unavailable in synthetic preview", 404);
+    },
+    async startModelJudgeSweep() {
+      throw new TransportError("Model judge is unavailable in synthetic preview", 404);
+    },
+    async getModelJudgeSweep() {
+      throw new TransportError("Model judge is unavailable in synthetic preview", 404);
+    },
+    async getModelJudgeAgreement() {
+      throw new TransportError("Model judge is unavailable in synthetic preview", 404);
+    },
     async getLocalModels() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },

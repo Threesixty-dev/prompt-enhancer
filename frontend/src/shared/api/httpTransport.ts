@@ -83,6 +83,9 @@ import type {
   LocalModelRecord,
   DownloadStatus,
   RemoteRepoFiles,
+  JudgeOutcome,
+  JudgeSweepStatus,
+  JudgeAgreementReport,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2349,6 +2352,18 @@ export function createHttpTransport(options: {
     },
     getOnboardingStatus(signal) {
       return request<OnboardingStatus>("/v1/onboarding", { method: "GET" }, signal);
+    },
+    judgeSessionWithModel(sessionId, signal) {
+      return request<JudgeOutcome>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}`, { method: "POST" }, signal);
+    },
+    startModelJudgeSweep(signal) {
+      return request<JudgeSweepStatus>("/v1/model-judge/sweep", { method: "POST" }, signal);
+    },
+    getModelJudgeSweep(signal) {
+      return request<JudgeSweepStatus>("/v1/model-judge/sweep", { method: "GET" }, signal);
+    },
+    getModelJudgeAgreement(signal) {
+      return request<JudgeAgreementReport>("/v1/model-judge/agreement", { method: "GET" }, signal);
     },
     getLocalModels(signal) {
       return request<LocalModelsOverview>("/v1/local-models", { method: "GET" }, signal);

@@ -1317,6 +1317,14 @@ higher-quality manual use. Thinking mode must be disabled for short answers
 (`chat_template_kwargs.enable_thinking=false`). Hardware numbers only; no
 session content was involved.
 
+Model-judge lane (ADR 0013 section 4, migration 50 `model_judgments`): the
+active local model reads the same redacted window as P1 (loopback, never
+persisted) and answers the three Calibration questions with thinking disabled;
+labels are stored with model identity and prompt version `judge-v1`, apart
+from every metric table, and compared with human ratings through
+`model_human_agreement` (rate + Cohen's kappa per metric) on the Calibration
+page. Judgments never become metric values; objective evidence outranks them.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

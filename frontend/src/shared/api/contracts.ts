@@ -84,6 +84,9 @@ export type DownloadRequest = Schemas["DownloadRequest"];
 export type DownloadStatus = Schemas["DownloadStatus"];
 export type RemoteRepoFiles = Schemas["RemoteRepoFiles"];
 export type DeviceMode = Schemas["DeviceMode"];
+export type JudgeOutcome = Schemas["JudgeOutcome"];
+export type JudgeSweepStatus = Schemas["JudgeSweepStatus"];
+export type JudgeAgreementReport = Schemas["JudgeAgreementReport"];
 export type OnboardingStatus = Schemas["OnboardingStatus"];
 export type ProviderDetection = Schemas["ProviderDetection"];
 export type OnboardingAccept = Schemas["OnboardingAccept"];
@@ -545,6 +548,11 @@ export interface PromptEnhancerTransport {
   removeLocalModel(alias: string, deleteWeights: boolean, signal?: AbortSignal): Promise<void>;
   getLocalModelRemoteFiles(repoId: string, signal?: AbortSignal): Promise<RemoteRepoFiles>;
   startLocalModelDownload(request: DownloadRequest, signal?: AbortSignal): Promise<DownloadStatus>;
+  /** Model-judge lane: the active local model answers the calibration questions (judgments, not metrics). */
+  judgeSessionWithModel(sessionId: string, signal?: AbortSignal): Promise<JudgeOutcome>;
+  startModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;
+  getModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;
+  getModelJudgeAgreement(signal?: AbortSignal): Promise<JudgeAgreementReport>;
   getOnboardingStatus(signal?: AbortSignal): Promise<OnboardingStatus>;
   acceptOnboarding(request: OnboardingAccept, signal?: AbortSignal): Promise<OnboardingResult>;
   /** Blind calibration ratings over a frozen sample of the owner's own sessions. */

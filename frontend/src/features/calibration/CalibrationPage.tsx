@@ -4,6 +4,8 @@ import type {
   CalibrationRating,
   CalibrationSample,
   CalibrationSampleMember,
+  JudgeAgreementReport,
+  JudgeSweepStatus,
   PromptEnhancerTransport,
   RatingLabel,
 } from "../../shared/api/contracts";
@@ -72,8 +74,11 @@ export function CalibrationPage({
   transport: Pick<
     PromptEnhancerTransport,
     "getCalibrationSample" | "submitCalibrationRatings" | "getCalibrationRatings" | "getCalibrationProgress" | "getCalibrationExport" | "getSessionTranscript"
-  >;
+  > & Partial<Pick<PromptEnhancerTransport, "judgeSessionWithModel" | "startModelJudgeSweep" | "getModelJudgeSweep" | "getModelJudgeAgreement">>;
 }) {
+  const [agreement, setAgreement] = useState<JudgeAgreementReport | null>(null);
+  const [sweep, setSweep] = useState<JudgeSweepStatus | null>(null);
+  const [judgeMessage, setJudgeMessage] = useState("");
   const [rater, setRater] = useState<string>(() => {
     try { return localStorage.getItem(RATER_KEY) ?? ""; } catch { return ""; }
   });
@@ -117,6 +122,49 @@ export function CalibrationPage({
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  const loadJudge = useCallback(async (signal?: AbortSignal) => {
+    if (!transport.getModelJudgeAgreement || !transport.getModelJudgeSweep) return;
+    try {
+      const [report, status] = await Promise.all([transport.getModelJudgeAgreement(signal), transport.getModelJudgeSweep(signal)]);
+      if (signal?.aborted) return;
+      setAgreement(report);
+      setSweep(status);
+    } catch {
+      /* judge lane absent in this runtime */
+    }
+  }, [transport]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadJudge(controller.signal);
+    const handle = window.setInterval(() => void loadJudge(controller.signal), 15000);
+    return () => { controller.abort(); window.clearInterval(handle); };
+  }, [loadJudge]);
+
+  async function judgeCurrent() {
+    if (!current || !transport.judgeSessionWithModel) return;
+    setJudgeMessage("");
+    try {
+      const outcome = await transport.judgeSessionWithModel(current.session_id);
+      setJudgeMessage(outcome.raw_valid ? `Model judged this session (${outcome.model_alias}); your own rating stays blind to it.` : "The model did not answer in the required format.");
+      await loadJudge();
+    } catch (caught) {
+      setJudgeMessage(caught instanceof TransportError && caught.message.includes("no_active_model") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
+    }
+  }
+
+  async function judgeSample() {
+    if (!transport.startModelJudgeSweep) return;
+    setJudgeMessage("");
+    try {
+      const status = await transport.startModelJudgeSweep();
+      setSweep(status);
+      setJudgeMessage(status.total === 0 ? "Every sampled session is already judged by this model." : `Judging ${status.total} sessions in the background.`);
+    } catch (caught) {
+      setJudgeMessage(caught instanceof TransportError && caught.message.includes("no_active_model") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
+    }
+  }
 
   const members = sample?.members ?? [];
   const metricKeys = sample?.metric_keys ?? [];
@@ -311,6 +359,41 @@ export function CalibrationPage({
             )}
           </div>
         </div>
+      )}
+
+      {state === "ready" && agreement && (
+        <section aria-labelledby="model-judge-title" className="calibration__judge">
+          <div className="calibration__judge-head">
+            <div>
+              <p className="eyebrow">Model judge · experimental, never a product metric</p>
+              <h2 id="model-judge-title">How often does the local model agree with you?</h2>
+              <p className="calibration__note">
+                {agreement.model_alias ? `Active model: ${agreement.model_alias} · ${agreement.judged_sessions} session${agreement.judged_sessions === 1 ? "" : "s"} judged.` : "No local model is active. Activate one on the Models page to compare."}
+                {sweep?.running ? ` Sweep running: ${sweep.done}/${sweep.total}${sweep.failed ? ` (${sweep.failed} failed)` : ""}.` : ""}
+              </p>
+            </div>
+            <div className="calibration__actions">
+              <button className="button button--ghost" disabled={!current || !agreement.model_alias} onClick={() => void judgeCurrent()} type="button">Judge this session</button>
+              <button className="button button--ghost" disabled={!agreement.model_alias || Boolean(sweep?.running)} onClick={() => void judgeSample()} type="button">Judge the whole sample</button>
+            </div>
+          </div>
+          <table className="calibration__agreement">
+            <thead><tr><th>Metric</th><th>Pairs</th><th>Agreement</th><th>Cohen's κ</th><th>State</th></tr></thead>
+            <tbody>
+              {agreement.metrics.map((m) => (
+                <tr key={m.metric_key}>
+                  <td>{METRIC_COPY[m.metric_key]?.title ?? m.metric_key}</td>
+                  <td>{m.pairs}</td>
+                  <td>{m.agreement_rate === null || m.agreement_rate === undefined ? "—" : `${Math.round(m.agreement_rate * 100)}%`}</td>
+                  <td>{m.cohen_kappa === null || m.cohen_kappa === undefined ? "—" : m.cohen_kappa.toFixed(2)}</td>
+                  <td>{m.state.replace(/_/g, " ")}{m.reason ? ` · ${m.reason.replace(/_/g, " ")}` : ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="calibration__note">{agreement.caveat}</p>
+          {judgeMessage && <p className="calibration__message" aria-live="polite">{judgeMessage}</p>}
+        </section>
       )}
 
       {state === "ready" && (

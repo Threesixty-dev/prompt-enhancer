@@ -4077,6 +4077,150 @@
         "title": "IngestionReport",
         "type": "object"
       },
+      "JudgeAgreementReport": {
+        "additionalProperties": false,
+        "properties": {
+          "caveat": {
+            "default": "Model judgments are experimental and are never product metrics; agreement with human ratings is evidence for the activation gate, not calibration by itself.",
+            "title": "Caveat",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "model-judge.v1",
+            "default": "model-judge.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "judged_sessions": {
+            "minimum": 0.0,
+            "title": "Judged Sessions",
+            "type": "integer"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricAgreement"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "model_alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Alias"
+          }
+        },
+        "required": [
+          "model_alias",
+          "judged_sessions",
+          "metrics"
+        ],
+        "title": "JudgeAgreementReport",
+        "type": "object"
+      },
+      "JudgeOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "model-judge.v1",
+            "default": "model-judge.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "judgments": {
+            "items": {
+              "$ref": "#/components/schemas/ModelJudgment"
+            },
+            "title": "Judgments",
+            "type": "array"
+          },
+          "model_alias": {
+            "title": "Model Alias",
+            "type": "string"
+          },
+          "raw_valid": {
+            "title": "Raw Valid",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "model_alias",
+          "judgments",
+          "raw_valid"
+        ],
+        "title": "JudgeOutcome",
+        "type": "object"
+      },
+      "JudgeSweepStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "model-judge.v1",
+            "default": "model-judge.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "done": {
+            "minimum": 0.0,
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "model_alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Alias"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "running",
+          "total",
+          "done",
+          "failed"
+        ],
+        "title": "JudgeSweepStatus",
+        "type": "object"
+      },
       "LabelEnrichmentReport": {
         "additionalProperties": false,
         "properties": {
@@ -4446,6 +4590,64 @@
           "expected_discovery_version"
         ],
         "title": "MergeTasksRequest",
+        "type": "object"
+      },
+      "MetricAgreement": {
+        "additionalProperties": false,
+        "properties": {
+          "agreement_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agreement Rate"
+          },
+          "cohen_kappa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cohen Kappa"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "pairs": {
+            "minimum": 0.0,
+            "title": "Pairs",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_key",
+          "pairs",
+          "state"
+        ],
+        "title": "MetricAgreement",
         "type": "object"
       },
       "MetricCoverageMetric": {
@@ -9116,6 +9318,65 @@
         ],
         "title": "ModelFormat",
         "type": "string"
+      },
+      "ModelJudgment": {
+        "additionalProperties": false,
+        "properties": {
+          "judged_at": {
+            "format": "date-time",
+            "title": "Judged At",
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/components/schemas/RatingLabel"
+          },
+          "metric_key": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "model_alias": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Model Alias",
+            "type": "string"
+          },
+          "model_identity": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model Identity",
+            "type": "string"
+          },
+          "prompt_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "metric_key",
+          "label",
+          "model_alias",
+          "model_identity",
+          "prompt_version",
+          "window_fingerprint",
+          "judged_at"
+        ],
+        "title": "ModelJudgment",
+        "type": "object"
       },
       "ModelLabInventoryDto": {
         "additionalProperties": false,
@@ -20243,6 +20504,274 @@
         "summary": "Watch Trajectory",
         "tags": [
           "local-model-ensemble-watch"
+        ]
+      }
+    },
+    "/v1/model-judge/agreement": {
+      "get": {
+        "operationId": "agreement_v1_model_judge_agreement_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeAgreementReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agreement",
+        "tags": [
+          "model-judge"
+        ]
+      }
+    },
+    "/v1/model-judge/sessions/{session_id}": {
+      "post": {
+        "operationId": "judge_session_v1_model_judge_sessions__session_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeOutcome"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Judge Session",
+        "tags": [
+          "model-judge"
+        ]
+      }
+    },
+    "/v1/model-judge/sweep": {
+      "get": {
+        "operationId": "sweep_status_v1_model_judge_sweep_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeSweepStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sweep Status",
+        "tags": [
+          "model-judge"
+        ]
+      },
+      "post": {
+        "operationId": "sweep_v1_model_judge_sweep_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeSweepStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sweep",
+        "tags": [
+          "model-judge"
         ]
       }
     },

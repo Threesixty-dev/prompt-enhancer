@@ -12682,3 +12682,28 @@ ALTER TABLE task_decisions ADD COLUMN decision_source TEXT NOT NULL DEFAULT 'per
     CHECK(decision_source IN ('person', 'automation'));
 COMMIT;
 """
+
+MIGRATION_50 = r"""
+BEGIN IMMEDIATE;
+
+-- Model judgments (ADR 0013 section 4): a local LLM's answers to the three
+-- calibration questions. Stored apart from every metric table with the
+-- model's identity and the prompt version; labels only, never text. They are
+-- compared with human ratings; they never become product metric values.
+CREATE TABLE model_judgments (
+    session_id TEXT NOT NULL
+        CHECK(length(session_id) = 64 AND session_id GLOB '[0-9a-f]*'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 120),
+    model_alias TEXT NOT NULL CHECK(length(model_alias) BETWEEN 1 AND 64),
+    label TEXT NOT NULL CHECK(label IN ('low', 'medium', 'high', 'cannot_judge')),
+    model_identity TEXT NOT NULL CHECK(length(model_identity) BETWEEN 1 AND 200),
+    prompt_version TEXT NOT NULL CHECK(length(prompt_version) BETWEEN 1 AND 64),
+    window_fingerprint TEXT NOT NULL
+        CHECK(length(window_fingerprint) = 64 AND window_fingerprint GLOB '[0-9a-f]*'),
+    judged_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, metric_key, model_alias)
+) STRICT;
+
+CREATE INDEX model_judgments_by_model ON model_judgments(model_alias, metric_key);
+COMMIT;
+"""
