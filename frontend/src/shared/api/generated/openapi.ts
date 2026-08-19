@@ -7044,9 +7044,13 @@ export interface components {
             installation_id: string;
             /** Observed Count */
             observed_count: number;
+            /** Project Display Name */
+            project_display_name?: string | null;
             /** Project Id */
             project_id: string;
             provider: components["schemas"]["Provider"];
+            /** Session Display Name */
+            session_display_name?: string | null;
             /** Session Ids */
             session_ids: string[];
             /** Signals */

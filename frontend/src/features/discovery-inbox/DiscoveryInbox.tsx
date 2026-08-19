@@ -132,7 +132,7 @@ export function DiscoveryInbox({
           <p>Review metadata-based groupings before they become tasks.</p>
         </div>
         <div className="page-header__meta">
-          <span className="privacy-chip"><Icon name="lock" /> Local - synthetic data</span>
+          <span className="privacy-chip"><Icon name="lock" /> Local only</span>
           <span className="count-summary"><strong>{counts.undecided}</strong> need review</span>
         </div>
       </header>

@@ -257,6 +257,10 @@ class TaskCandidateDto(HttpDto):
     discovery_version: str
     input_fingerprint: Pseudonym
     created_at: datetime
+    # Display labels from the session catalog (project title, first session's
+    # title) so the inbox can name a candidate instead of showing a hash.
+    project_display_name: str | None = Field(default=None, max_length=120)
+    session_display_name: str | None = Field(default=None, max_length=160)
 
     @classmethod
     def from_record(cls, record: TaskCandidateRecord) -> TaskCandidateDto:

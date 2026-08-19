@@ -143,7 +143,11 @@ def test_http_onboarding_routes_and_path_override(tmp_path: Path, monkeypatch) -
     # Indexing also proposes task candidates, so the Discovery inbox is not empty.
     inbox = client.get("/v1/discovery/candidates?limit=50&offset=0", headers=headers)
     assert inbox.status_code == 200, inbox.text
-    assert len(inbox.json()["candidates"]) >= 1, inbox.text
+    candidates = inbox.json()["candidates"]
+    assert len(candidates) >= 1, inbox.text
+    # Candidates carry the catalog names so the inbox shows titles, not hashes.
+    assert candidates[0]["candidate"]["session_display_name"] == "Fix the onboarding demo"
+    assert candidates[0]["candidate"]["project_display_name"]
     # The transcript text window is now the provider's primary compatibility surface.
     compat = client.post("/v1/providers/claude_code/compatibility/check", headers=headers).json()
     assert compat["capability"] == "session_text_analysis"

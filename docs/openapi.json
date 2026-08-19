@@ -13898,6 +13898,18 @@
             "title": "Observed Count",
             "type": "integer"
           },
+          "project_display_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Display Name"
+          },
           "project_id": {
             "maxLength": 64,
             "minLength": 64,
@@ -13907,6 +13919,18 @@
           },
           "provider": {
             "$ref": "#/components/schemas/Provider"
+          },
+          "session_display_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Display Name"
           },
           "session_ids": {
             "items": {

@@ -62,6 +62,26 @@ def _metric_definition_index(
     return definitions
 
 
+def _with_names(store, candidate: TaskCandidateDto) -> TaskCandidateDto:
+    """Attach catalog display labels (first session) when the store has them."""
+
+    getter = getattr(store, "get_session", None)
+    if not callable(getter) or not candidate.session_ids:
+        return candidate
+    try:
+        session = getter(candidate.session_ids[0])
+    except Exception:
+        return candidate
+    if session is None:
+        return candidate
+    return candidate.model_copy(
+        update={
+            "project_display_name": getattr(session, "project_display_name", None),
+            "session_display_name": getattr(session, "session_display_name", None),
+        }
+    )
+
+
 def create_task_query_router(
     require_local_token: Callable[..., None],
 ) -> APIRouter:
@@ -83,13 +103,18 @@ def create_task_query_router(
         limit: Annotated[int, Query(ge=1, le=100)] = 100,
         offset: Annotated[int, Query(ge=0)] = 0,
     ) -> CandidateListResponse:
-        records = _query_store(request).task_repository().list_candidates(
+        store = _query_store(request)
+        records = store.task_repository().list_candidates(
             status=status,
             limit=limit,
             offset=offset,
         )
+        items = []
+        for item in records:
+            dto = CandidateListItemDto.from_record(item)
+            items.append(dto.model_copy(update={"candidate": _with_names(store, dto.candidate)}))
         return CandidateListResponse(
-            candidates=tuple(CandidateListItemDto.from_record(item) for item in records),
+            candidates=tuple(items),
             limit=limit,
             offset=offset,
         )
@@ -105,7 +130,7 @@ def create_task_query_router(
         record = _query_store(request).task_repository().get_candidate(candidate_id)
         if record is None:
             raise HTTPException(status_code=404, detail="candidate not found")
-        return CandidateResponse(candidate=TaskCandidateDto.from_record(record))
+        return CandidateResponse(candidate=_with_names(_query_store(request), TaskCandidateDto.from_record(record)))
 
     @router.get(
         "/discovery/candidates/{candidate_id}/decisions",

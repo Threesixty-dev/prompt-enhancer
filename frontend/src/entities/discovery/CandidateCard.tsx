@@ -1,4 +1,5 @@
-import { candidateLabel, type CandidateListItem } from "./model";
+import { candidateTitle, type CandidateListItem } from "./model";
+import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import { formatPercent, formatTimestamp, shortId } from "../../shared/lib/format";
 import { CoverageBar } from "../../shared/ui/CoverageBar";
 import { Icon } from "../../shared/ui/Icon";
@@ -18,7 +19,8 @@ export function CandidateCard({
   onSelect: (selected: boolean) => void;
 }) {
   const { candidate } = item;
-  const title = candidateLabel(candidate.candidate_id);
+  const title = candidateTitle(candidate);
+  const projectName = candidate.project_display_name?.trim();
   const confidence = candidate.confidence;
 
   return (
@@ -43,7 +45,11 @@ export function CandidateCard({
             <span className="candidate-card__glyph"><Icon name="branch" /></span>
             <span>
               <strong>{title}</strong>
-              <small>{formatTimestamp(candidate.created_at)}</small>
+              <small>
+                <ProviderBadge provider={candidate.provider} />
+                {" "}
+                {formatTimestamp(candidate.created_at)}
+              </small>
             </span>
           </span>
           <StatusPill tone={item.decision_status === "decided" ? "positive" : "warning"}>
@@ -62,7 +68,7 @@ export function CandidateCard({
           </span>
           <span>
             <small>Project</small>
-            <strong className="mono">{shortId(candidate.project_id)}</strong>
+            <strong className={projectName ? "" : "mono"}>{projectName ?? shortId(candidate.project_id)}</strong>
           </span>
         </span>
         <CoverageBar

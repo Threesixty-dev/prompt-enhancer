@@ -7,7 +7,7 @@ import type {
   TaskCategory,
   TaskReviewResponse,
 } from "../../shared/api/contracts";
-import { candidateLabel } from "../../entities/discovery/model";
+import { candidateTitle } from "../../entities/discovery/model";
 import { EvidenceList } from "../../entities/discovery/EvidenceList";
 import { formatPercent, shortId, titleFromKey } from "../../shared/lib/format";
 import { CoverageBar } from "../../shared/ui/CoverageBar";
@@ -90,7 +90,7 @@ export function CandidateReviewPanel({
       <div className="review-panel__header">
         <div>
           <p className="eyebrow">Discovery evidence</p>
-          <h2 id="review-panel-heading">{candidateLabel(item.candidate.candidate_id)}</h2>
+          <h2 id="review-panel-heading">{candidateTitle(item.candidate)}</h2>
         </div>
         <StatusPill tone={item.decision_status === "decided" ? "positive" : "warning"}>
           {item.decision_status === "decided" ? "Reviewed" : "Decision needed"}
