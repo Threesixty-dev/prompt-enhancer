@@ -100,6 +100,24 @@ def test_polish_prompt_is_analysed_and_task_type_prefers_the_earliest_verb() -> 
     assert result.context.verification_requested is True
     assert result.commentary.state == "skipped"
 
+    # A prompt that names things only the earlier turns identify relies on them; an explicit file does not.
+    shared = service.check(
+        PromptCheckRequest(
+            prompt="Add retry with exponential backoff to the uploader so transient 503s don't fail the batch.",
+            prior_messages=(PromptCheckMessage(role="user", content="Yesterday the uploader in src/upload/client.py failed under load with transient 503 errors."),),
+            want_commentary=False,
+        )
+    )
+    assert shared.context.depends_on_prior_context is True
+    explicit = service.check(
+        PromptCheckRequest(
+            prompt="Add retry with exponential backoff to the uploader in src/upload/client.py so transient 503s don't fail.",
+            prior_messages=(PromptCheckMessage(role="user", content="Yesterday the uploader failed under load."),),
+            want_commentary=False,
+        )
+    )
+    assert explicit.context.depends_on_prior_context is False
+
 
 def test_model_commentary_is_parsed_strictly_and_labelled_as_model_output() -> None:
     calls: list[dict] = []

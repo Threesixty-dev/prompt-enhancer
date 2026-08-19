@@ -112,6 +112,15 @@ _SENTENCE = re.compile(r"[.!?]+(?:\s|$)")
 _BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)]|\[[ xX-]\])\s+", re.M)
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.I | re.M)
 _SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+_WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
+_COMMON_WORDS = frozenset(
+    {
+        "about", "after", "again", "before", "between", "could", "every", "first", "请", "should", "their", "there",
+        "these", "thing", "things", "those", "through", "under", "which", "while", "would", "write", "please", "make",
+        "change", "changes", "update", "implement", "create", "tests", "test", "using", "where", "other", "without",
+        "także", "które", "który", "która", "proszę", "zrobić", "dodać", "zmiany", "zmianę", "przez", "jest", "oraz",
+    }
+)
 EXPLANATION_PHRASES: Mapping[str, str] = {
     "unsupported_language": "too short or language not recognised (English and Polish are analysed)",
     "diagnostic_task_not_detected": "only measured for bug / diagnosis prompts",
@@ -498,6 +507,11 @@ class PromptCheckService:
         depends = bool(_PRIOR_CONTEXT_MARKERS.search(prompt_text)) or bool(_LEADING_PRONOUN.match(prompt_text)) or (
             words <= 6 and not _FILE_REFERENCE.search(prompt_text)
         )
+        if not depends and prior and not _FILE_REFERENCE.search(prompt_text):
+            # The prompt names things only the earlier turns identify (shared rare words, no explicit file).
+            prompt_tokens = {t for t in _WORD.findall(prompt_text.casefold()) if len(t) >= 5 and t not in _COMMON_WORDS}
+            prior_tokens = {t for m in prior for t in _WORD.findall(m.content.casefold()) if len(t) >= 5}
+            depends = len(prompt_tokens & prior_tokens) >= 2
         missing: list[str] = []
         for reading in readings:
             if reading.state != "known":
