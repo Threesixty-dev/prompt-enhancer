@@ -1,0 +1,67 @@
+# ADR 0016: Local agent workspace - a local model working in one folder with approvals
+
+- Status: accepted (2026-08-20), first slice
+- Owner direction: a separate window where the chosen local model works the
+  way Codex or Claude Code work - with tools (files, terminal, web), usable
+  through the endpoint or inside the app's chat, to write code and documents;
+  the elements a code editor needs should live inside this application, built
+  on a sound architecture.
+
+## Context
+
+The app already runs a strong local model on the owner's GPU (ADR 0013) and
+talks to it through an OpenAI-compatible loopback endpoint; llama.cpp's chat
+template engine emits proper `tool_calls` for Qwen3 when started with
+`--jinja`. What was missing was a place where that model can *act*: inspect a
+folder, change files, run tests, and report - under the same rule as the rest
+of the app: nothing happens to the person's machine without their say-so.
+
+## Decision
+
+1. **One folder, one session.** `application/local_agent.py` holds sessions
+   in memory. A session is bound to an absolute folder the person chose (not a
+   drive root; optionally restricted to allowed roots); every path the model
+   names is resolved and must stay inside it (symlink escapes are resolved
+   away). The session records its own event stream (user, assistant,
+   tool_call, tool_result, approval_required/resolved, status, error, done),
+   bounded and cursor-paged, so any UI can follow it.
+2. **Tools with two trust levels.** `read_file`, `list_dir`, `search_text`
+   run immediately (bounded output, binaries refused, noisy folders skipped).
+   `write_file` (a unified diff is produced first), `run_command` (PowerShell
+   on Windows, bash elsewhere, workspace as cwd, timeout, output capped) and
+   `fetch_url` (off unless enabled) **pause the run** with an
+   `approval_required` event carrying the exact arguments and the diff; the
+   person approves or denies that one call in the dashboard; a denial is
+   reported to the model as a tool result so it adapts instead of retrying;
+   stop cancels any pending approval.
+3. **The loop.** Per user message the service runs at most N model steps:
+   the model gets the conversation plus the tool schemas for the permissions
+   the session allows; tool calls are executed in order and their results
+   appended as tool messages; a plain reply ends the turn. Thinking is off for
+   speed; the model's own chat template is used (`--jinja`, on by default in
+   the runtime activation together with flash attention and an 8-bit KV
+   cache, with a plain retry if the runtime refuses them).
+4. **Surfaces.** `/v1/agent/*` (sessions, messages, events, approvals, stop)
+   under the app token; the *Agent* page (folder, model, permissions,
+   sessions list, transcript with tool cards, approval dialog with diff,
+   composer, stop) and a chrome-less popup `/agent/window/{id}` so the agent
+   can sit beside an editor like a second pane.
+5. **Boundaries.** Nothing is persisted beyond the server's memory (no
+   transcript of the agent's work is stored); the agent module itself opens
+   no network connection - web fetch is a pluggable callable that is absent
+   unless the app composes one, and even then every fetch needs approval;
+   the runtime stays on loopback.
+
+## Consequences
+
+- Verified on the owner's machine: the 27B unrestricted model listed the
+  workspace, read two files, proposed a diff (approved), added a test
+  (approved), ran `pytest` (approved, 3 passed) and summarised - about 17 s
+  end to end.
+- What an editor still needs and is not here yet: a file tree and editor
+  pane with live diffs, streaming of partial assistant text, multi-session
+  layouts, persistent agent transcripts (content tier), shell sessions that
+  survive between calls, and web search. Those are the next slices; the
+  service's event stream and approval protocol are built to carry them.
+- The agent is only as good as the model and the prompts; the app keeps the
+  person in the loop at every change, which is the property that matters.

@@ -1404,6 +1404,21 @@ reads only existing endpoints and shows sessions per provider with a 30-day
 sparkline, calibration progress and judge coverage, the active model and
 hardware, prompt checks, and the next worthwhile action.
 
+Local agent workspace (ADR 0016): `LocalAgentService` binds a session to one
+folder and lets the active local model use `read_file` / `list_dir` /
+`search_text` freely and `write_file` (diff first) / `run_command` /
+`fetch_url` only after the person approves that exact call; path containment,
+bounded outputs, step limit, stop; events are an in-memory, cursor-paged
+stream; `/v1/agent/*`; Agent page and `/agent/window/{id}` popup. The
+runtime now starts with `--jinja` (tool calls in the model's own format),
+flash attention and an 8-bit KV cache (about 2.4x prompt processing on the
+owner's GPU) with a plain retry; the API is gzip-compressed. Verified live:
+list -> read -> diff (approved) -> test added (approved) -> pytest (approved,
+3 passed) -> summary in about 17 s. Also: session interpretation by the model
+(`POST /v1/model-judge/sessions/{id}/interpret`, commentary never a metric),
+folder scan for GGUF files, recommended models, live-window shortcuts on
+project cards and session rows, a new brand glyph.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

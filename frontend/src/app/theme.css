@@ -272,3 +272,12 @@ main td, main .metric-value, main [class*="__value"], main [class*="-value"] { f
 /* inline text-style buttons used by several pages (lives here so every page has it) */
 .link-button { background: none; border: none; padding: 0; color: var(--accent-primary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font: inherit; text-align: left; }
 .link-button:hover { color: var(--accent-primary-strong); }
+
+/* brand glyph: a prompt caret, its baseline underline, and the spark that "enhances" it */
+.brand__mark--glyph { display: grid; place-items: center; transform: rotate(0deg); }
+.brand__mark--glyph svg { width: 28px; height: 28px; overflow: visible; }
+.brand__caret { fill: none; stroke: var(--p-69d2c5); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.brand__caret--lift { stroke-width: 2.4; opacity: 0.85; }
+.brand__spark { fill: var(--p-69d2c5); filter: drop-shadow(0 0 4px rgba(94, 225, 196, 0.75)); transform-origin: 26.5px 12.1px; animation: brand-spark 6s ease-in-out infinite; }
+@keyframes brand-spark { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.22); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .brand__spark { animation: none; } }

@@ -338,10 +338,12 @@ export function App({
       <a className="skip-link" href="#main-content">Skip to dashboard</a>
       <aside aria-label="Application" className="sidebar">
         <div aria-label="Prompt Enhancer" className="brand">
-          <span className="brand__mark" aria-hidden="true">
-            <span />
-            <span />
-            <span />
+          <span className="brand__mark brand__mark--glyph" aria-hidden="true">
+            <svg viewBox="0 0 36 36" focusable="false">
+              <path className="brand__caret" d="M11 10 L19 18 L11 26" />
+              <path className="brand__caret brand__caret--lift" d="M17 25.5 L25 25.5" />
+              <path className="brand__spark" d="M26.5 7.5 L27.6 11 L31 12.1 L27.6 13.2 L26.5 16.7 L25.4 13.2 L22 12.1 L25.4 11 Z" />
+            </svg>
           </span>
           <span>
             <strong>Prompt</strong>
