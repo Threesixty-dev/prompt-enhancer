@@ -67,6 +67,17 @@ class JudgeOutcome(StrictModel):
     raw_valid: bool
 
 
+class SessionJudgments(StrictModel):
+    """Every stored judgment for one session, grouped by model, with the questions asked."""
+
+    contract_version: Literal[MODEL_JUDGE_CONTRACT_VERSION] = MODEL_JUDGE_CONTRACT_VERSION
+    session_id: str
+    active_model_alias: str | None = None
+    questions: dict[str, str]
+    judgments: tuple[ModelJudgment, ...]
+    caveat: str = "Model judgments are labels from a local model, stored apart from metrics; they are never metric values."
+
+
 class MetricAgreement(StrictModel):
     metric_key: str
     pairs: int = Field(ge=0)
@@ -314,6 +325,20 @@ class ModelJudgeService:
 
     # ----- agreement -----
 
+    def judgments_for(self, session_id: str) -> SessionJudgments:
+        """Stored judgments for one session (no model call, no content)."""
+
+        if PSEUDONYM_PATTERN.fullmatch(session_id) is None:
+            raise ModelJudgeError("session_not_found")
+        active = self._active_model()
+        rows = tuple(sorted(self._repository.list(session_id=session_id), key=lambda j: (j.model_alias, j.metric_key)))
+        return SessionJudgments(
+            session_id=session_id,
+            active_model_alias=active[0] if active else None,
+            questions=dict(_QUESTIONS),
+            judgments=rows,
+        )
+
     def judged_model_aliases(self) -> tuple[str, ...]:
         """Every model alias that has stored judgments (for surfaces outside the serving process)."""
 
@@ -363,6 +388,7 @@ __all__ = (
     "ModelJudgeError",
     "ModelJudgeService",
     "ModelJudgment",
+    "SessionJudgments",
     "ModelJudgmentRepository",
     "parse_judge_reply",
     "render_window",

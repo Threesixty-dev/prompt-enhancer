@@ -1,5 +1,6 @@
 import { SessionTranscriptPane } from "../session-reader/SessionTranscriptPane";
 import { SessionTimelinePane } from "../session-timeline/SessionTimelinePane";
+import { ModelJudgePane } from "../model-judge/ModelJudgePane";
 import { ProjectTimelinePane } from "../project-timeline/ProjectTimelinePane";
 import { openLiveWindow } from "../live-window/LiveMiniWindow";
 import { isLocalProvider } from "../../shared/api/contracts";
@@ -1465,6 +1466,11 @@ export function ProjectWorkspace({
           </p>
           <SessionTimelinePane
             key={`timeline-${currentSession.session_id}`}
+            sessionId={currentSession.session_id}
+            transport={transport}
+          />
+          <ModelJudgePane
+            key={`judge-${currentSession.session_id}`}
             sessionId={currentSession.session_id}
             transport={transport}
           />

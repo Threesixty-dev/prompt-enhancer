@@ -131,6 +131,13 @@ def test_judge_lane_end_to_end_with_stub_model(tmp_path: Path, monkeypatch) -> N
         agreement = client.get("/v1/model-judge/agreement", headers=headers)
         assert agreement.status_code == 200, agreement.text
         assert client.get("/v1/model-judge/sweep", headers=headers).status_code == 200
+        stored = client.get(f"/v1/model-judge/sessions/{session_id}", headers=headers)
+        assert stored.status_code == 200, stored.text
+        body = stored.json()
+        assert body["session_id"] == session_id and len(body["judgments"]) == len(CALIBRATION_METRIC_KEYS)
+        assert set(body["questions"]) == set(CALIBRATION_METRIC_KEYS) and "never metric values" in body["caveat"]
+        assert {j["metric_key"] for j in body["judgments"]} == set(CALIBRATION_METRIC_KEYS)
+        assert client.get("/v1/model-judge/sessions/not-a-pseudonym", headers=headers).status_code == 422
         # scope=all sweeps every indexed session (the HTTP app composes its own judge with no active model here,
         # so it fails closed with no_active_model rather than silently doing nothing).
         everything = client.post("/v1/model-judge/sweep?scope=all", headers=headers)

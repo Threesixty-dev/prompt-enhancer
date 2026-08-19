@@ -559,6 +559,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async getModelJudgeSweep() {
       throw new TransportError("Model judge is unavailable in synthetic preview", 404);
     },
+    async getModelJudgments() {
+      throw new TransportError("Model judge is unavailable in synthetic preview", 404);
+    },
     async getModelJudgeAgreement() {
       throw new TransportError("Model judge is unavailable in synthetic preview", 404);
     },

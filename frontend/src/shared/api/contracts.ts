@@ -105,6 +105,7 @@ export type DeviceMode = Schemas["DeviceMode"];
 export type JudgeOutcome = Schemas["JudgeOutcome"];
 export type JudgeSweepStatus = Schemas["JudgeSweepStatus"];
 export type JudgeAgreementReport = Schemas["JudgeAgreementReport"];
+export type SessionJudgments = Schemas["SessionJudgments"];
 export type OnboardingStatus = Schemas["OnboardingStatus"];
 export type ProviderDetection = Schemas["ProviderDetection"];
 export type OnboardingAccept = Schemas["OnboardingAccept"];
@@ -575,6 +576,8 @@ export interface PromptEnhancerTransport {
   ): Promise<LocalModelChatResult>;
   /** Model-judge lane: the active local model answers the calibration questions (judgments, not metrics). */
   judgeSessionWithModel(sessionId: string, signal?: AbortSignal): Promise<JudgeOutcome>;
+  /** Stored judgments for one session (labels only; never metric values). */
+  getModelJudgments(sessionId: string, signal?: AbortSignal): Promise<SessionJudgments>;
   startModelJudgeSweep(signal?: AbortSignal, scope?: "sample" | "all"): Promise<JudgeSweepStatus>;
   getModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;
   getModelJudgeAgreement(signal?: AbortSignal): Promise<JudgeAgreementReport>;

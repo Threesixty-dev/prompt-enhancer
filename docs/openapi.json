@@ -9035,7 +9035,10 @@
             "type": "string"
           },
           "provider": {
-            "const": "codex",
+            "enum": [
+              "codex",
+              "claude_code"
+            ],
             "title": "Provider",
             "type": "string"
           },
@@ -13240,6 +13243,59 @@
         ],
         "title": "SessionEvidenceOrigin",
         "type": "string"
+      },
+      "SessionJudgments": {
+        "additionalProperties": false,
+        "description": "Every stored judgment for one session, grouped by model, with the questions asked.",
+        "properties": {
+          "active_model_alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Model Alias"
+          },
+          "caveat": {
+            "default": "Model judgments are labels from a local model, stored apart from metrics; they are never metric values.",
+            "title": "Caveat",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "model-judge.v1",
+            "default": "model-judge.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "judgments": {
+            "items": {
+              "$ref": "#/components/schemas/ModelJudgment"
+            },
+            "title": "Judgments",
+            "type": "array"
+          },
+          "questions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Questions",
+            "type": "object"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "questions",
+          "judgments"
+        ],
+        "title": "SessionJudgments",
+        "type": "object"
       },
       "SessionMetricAggregation": {
         "description": "Server-side aggregation contract; ratios must never be client-averaged.",
@@ -20857,6 +20913,79 @@
       }
     },
     "/v1/model-judge/sessions/{session_id}": {
+      "get": {
+        "operationId": "session_judgments_v1_model_judge_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionJudgments"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Judgments",
+        "tags": [
+          "model-judge"
+        ]
+      },
       "post": {
         "operationId": "judge_session_v1_model_judge_sessions__session_id__post",
         "parameters": [

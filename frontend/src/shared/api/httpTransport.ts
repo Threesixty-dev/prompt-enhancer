@@ -89,6 +89,7 @@ import type {
   JudgeOutcome,
   JudgeSweepStatus,
   JudgeAgreementReport,
+  SessionJudgments,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2364,6 +2365,9 @@ export function createHttpTransport(options: {
     },
     getModelJudgeSweep(signal) {
       return request<JudgeSweepStatus>("/v1/model-judge/sweep", { method: "GET" }, signal);
+    },
+    getModelJudgments(sessionId, signal) {
+      return request<SessionJudgments>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" }, signal);
     },
     getModelJudgeAgreement(signal) {
       return request<JudgeAgreementReport>("/v1/model-judge/agreement", { method: "GET" }, signal);

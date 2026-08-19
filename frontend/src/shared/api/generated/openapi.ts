@@ -891,7 +891,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Session Judgments */
+        get: operations["session_judgments_v1_model_judge_sessions__session_id__get"];
         put?: never;
         /** Judge Session */
         post: operations["judge_session_v1_model_judge_sessions__session_id__post"];
@@ -5551,9 +5552,9 @@ export interface components {
             project_id: string;
             /**
              * Provider
-             * @constant
+             * @enum {string}
              */
-            provider: "codex";
+            provider: "codex" | "claude_code";
             /**
              * Serial Model Execution
              * @default true
@@ -7043,6 +7044,33 @@ export interface components {
          * @enum {string}
          */
         SessionEvidenceOrigin: "direct" | "inherited";
+        /**
+         * SessionJudgments
+         * @description Every stored judgment for one session, grouped by model, with the questions asked.
+         */
+        SessionJudgments: {
+            /** Active Model Alias */
+            active_model_alias?: string | null;
+            /**
+             * Caveat
+             * @default Model judgments are labels from a local model, stored apart from metrics; they are never metric values.
+             */
+            caveat: string;
+            /**
+             * Contract Version
+             * @default model-judge.v1
+             * @constant
+             */
+            contract_version: "model-judge.v1";
+            /** Judgments */
+            judgments: components["schemas"]["ModelJudgment"][];
+            /** Questions */
+            questions: {
+                [key: string]: string;
+            };
+            /** Session Id */
+            session_id: string;
+        };
         /**
          * SessionMetricAggregation
          * @description Server-side aggregation contract; ratios must never be client-averaged.
@@ -10225,6 +10253,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JudgeAgreementReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_judgments_v1_model_judge_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionJudgments"];
                 };
             };
             /** @description Validation Error */
