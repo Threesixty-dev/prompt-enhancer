@@ -684,6 +684,40 @@ class SqliteTaskRepository:
         )
         return tuple(record for record in records if record is not None)
 
+    def list_current_revisions_for_project(
+        self,
+        project_id: str,
+        *,
+        limit: int = 500,
+    ) -> tuple[TaskRevisionRecord, ...]:
+        """Latest revision of every task in one project (newest first, bounded)."""
+
+        self._ensure_initialized()
+        require_safe_id(project_id)
+        bounded = max(1, min(int(limit), 2_000))
+        with self._connection_scope(readonly=True) as connection:
+            rows = connection.execute(
+                """
+                WITH latest_revisions AS (
+                    SELECT task_id, MAX(revision) AS revision
+                    FROM task_revisions
+                    GROUP BY task_id
+                )
+                SELECT latest.task_id, latest.revision
+                FROM latest_revisions AS latest
+                JOIN tasks ON tasks.task_id = latest.task_id
+                WHERE tasks.project_id = ?
+                ORDER BY tasks.created_at DESC, latest.task_id
+                LIMIT ?
+                """,
+                (project_id, bounded),
+            ).fetchall()
+        records = (
+            self.get_revision(row["task_id"], row["revision"])
+            for row in rows
+        )
+        return tuple(record for record in records if record is not None)
+
     def record_decision(self, decision: TaskDecisionRecord) -> None:
         self._ensure_initialized()
         with self._connection_scope() as connection:

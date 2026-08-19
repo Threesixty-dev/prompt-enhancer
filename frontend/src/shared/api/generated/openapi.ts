@@ -765,6 +765,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Project Timeline */
+        get: operations["project_timeline_v1_projects__project_id__timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/providers/{provider}/capabilities": {
         parameters: {
             query?: never;
@@ -1692,6 +1709,13 @@ export interface components {
             expected_discovery_version: string;
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
+        };
+        /** ActivityDay */
+        ActivityDay: {
+            /** Day */
+            day: string;
+            /** Sessions */
+            sessions: number;
         };
         /** AgentMetricEvidenceFileContract */
         AgentMetricEvidenceFileContract: {
@@ -5871,6 +5895,38 @@ export interface components {
             /** Unexpected Result Record Count */
             unexpected_result_record_count: number;
         };
+        /** ProjectTimeline */
+        ProjectTimeline: {
+            /** Activity */
+            activity: components["schemas"]["ActivityDay"][];
+            /**
+             * Contract Version
+             * @default project-timeline.v1
+             * @constant
+             */
+            contract_version: "project-timeline.v1";
+            /** First Started At */
+            first_started_at?: string | null;
+            /** Last Ended At */
+            last_ended_at?: string | null;
+            /** Project Display Name */
+            project_display_name?: string | null;
+            /** Project Id */
+            project_id: string;
+            /** Providers */
+            providers: components["schemas"]["Provider"][];
+            /** Sessions */
+            sessions: components["schemas"]["TimelineSession"][];
+            /** Sessions Drawn */
+            sessions_drawn: number;
+            /** Tasks */
+            tasks: components["schemas"]["TimelineTask"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
         /**
          * Provider
          * @enum {string}
@@ -7390,6 +7446,44 @@ export interface components {
              * @enum {string}
              */
             kind: "compaction" | "subagent_start" | "subagent_end" | "approval" | "permission_change" | "session_end";
+        };
+        /** TimelineSession */
+        TimelineSession: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Events Complete */
+            events_complete: boolean;
+            provider: components["schemas"]["Provider"];
+            /** Session Id */
+            session_id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Terminal State */
+            terminal_state?: string | null;
+        };
+        /** TimelineTask */
+        TimelineTask: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Lifecycle State */
+            lifecycle_state: string;
+            /** Revision */
+            revision: number;
+            /** Session Ids */
+            session_ids: string[];
+            /** Started At */
+            started_at?: string | null;
+            /** Task Id */
+            task_id: string;
+            /** Task Type */
+            task_type: string;
         };
         /** TimelineTool */
         TimelineTool: {
@@ -9331,6 +9425,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectSessionCatalogResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_timeline_v1_projects__project_id__timeline_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTimeline"];
                 };
             };
             /** @description Validation Error */

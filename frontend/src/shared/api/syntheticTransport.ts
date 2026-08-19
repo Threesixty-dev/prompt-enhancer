@@ -550,6 +550,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async acceptOnboarding() {
       throw new TransportError("Onboarding is unavailable in synthetic preview", 404);
     },
+    async getProjectTimeline() {
+      throw new TransportError("Timeline is unavailable in synthetic preview", 404);
+    },
     async getSessionTimeline() {
       throw new TransportError("Timeline is unavailable in synthetic preview", 404);
     },

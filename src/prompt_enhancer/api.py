@@ -727,6 +727,9 @@ def create_app(
     from .interfaces.http.session_timeline_routes import create_session_timeline_router
 
     app.include_router(create_session_timeline_router(require_local_token))
+    from .interfaces.http.project_timeline_routes import create_project_timeline_router
+
+    app.include_router(create_project_timeline_router(require_local_token))
     app.include_router(create_session_quality_aggregation_router(require_local_token))
     if project_quality_aggregation_service is not None:
         app.include_router(

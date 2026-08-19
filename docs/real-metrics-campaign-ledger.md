@@ -1289,6 +1289,11 @@ safe events of one session into turns, tool spans by category, verification
 receipts and markers with token totals - content-free by construction - and
 the session view draws it as a responsive SVG timeline above the reader.
 
+`GET /v1/projects/{id}/timeline` (project-timeline.v1) lists a project's
+sessions and the windows of its current reviewed task revisions (first start to
+last stop of their member sessions) with activity by day; the project overview
+draws them on one calendar axis with a 30/90-day/all range and session click-through.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

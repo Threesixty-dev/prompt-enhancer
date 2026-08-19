@@ -30,6 +30,27 @@
         "title": "AcceptTaskRequest",
         "type": "object"
       },
+      "ActivityDay": {
+        "additionalProperties": false,
+        "properties": {
+          "day": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "title": "Day",
+            "type": "string"
+          },
+          "sessions": {
+            "minimum": 0.0,
+            "title": "Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "sessions"
+        ],
+        "title": "ActivityDay",
+        "type": "object"
+      },
       "AgentMetricEvidenceFileContract": {
         "additionalProperties": false,
         "properties": {
@@ -10555,6 +10576,106 @@
         "title": "ProjectSessionQualityAggregate",
         "type": "object"
       },
+      "ProjectTimeline": {
+        "additionalProperties": false,
+        "properties": {
+          "activity": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityDay"
+            },
+            "title": "Activity",
+            "type": "array"
+          },
+          "contract_version": {
+            "const": "project-timeline.v1",
+            "default": "project-timeline.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "first_started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Started At"
+          },
+          "last_ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ended At"
+          },
+          "project_display_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Display Name"
+          },
+          "project_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/Provider"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineSession"
+            },
+            "title": "Sessions",
+            "type": "array"
+          },
+          "sessions_drawn": {
+            "minimum": 0.0,
+            "title": "Sessions Drawn",
+            "type": "integer"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineTask"
+            },
+            "title": "Tasks",
+            "type": "array"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id",
+          "providers",
+          "sessions",
+          "tasks",
+          "activity",
+          "sessions_drawn"
+        ],
+        "title": "ProjectTimeline",
+        "type": "object"
+      },
       "Provider": {
         "enum": [
           "codex",
@@ -14894,6 +15015,146 @@
         "title": "TimelineMarker",
         "type": "object"
       },
+      "TimelineSession": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "events_complete": {
+            "title": "Events Complete",
+            "type": "boolean"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "terminal_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal State"
+          }
+        },
+        "required": [
+          "session_id",
+          "provider",
+          "started_at",
+          "events_complete"
+        ],
+        "title": "TimelineSession",
+        "type": "object"
+      },
+      "TimelineTask": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "lifecycle_state": {
+            "title": "Lifecycle State",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "session_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Session Ids",
+            "type": "array"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "task_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_type": {
+            "title": "Task Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "revision",
+          "task_type",
+          "lifecycle_state",
+          "session_ids"
+        ],
+        "title": "TimelineTask",
+        "type": "object"
+      },
       "TimelineTool": {
         "additionalProperties": false,
         "properties": {
@@ -19154,6 +19415,93 @@
           }
         },
         "summary": "Project Sessions"
+      }
+    },
+    "/v1/projects/{project_id}/timeline": {
+      "get": {
+        "operationId": "project_timeline_v1_projects__project_id__timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectTimeline"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Project Timeline",
+        "tags": [
+          "project-timeline"
+        ]
       }
     },
     "/v1/providers/{provider}/capabilities": {

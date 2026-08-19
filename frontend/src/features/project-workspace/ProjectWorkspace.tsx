@@ -1,5 +1,6 @@
 import { SessionTranscriptPane } from "../session-reader/SessionTranscriptPane";
 import { SessionTimelinePane } from "../session-timeline/SessionTimelinePane";
+import { ProjectTimelinePane } from "../project-timeline/ProjectTimelinePane";
 import { isLocalProvider } from "../../shared/api/contracts";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import {
@@ -1273,6 +1274,18 @@ export function ProjectWorkspace({
           <MetricCoveragePanel
             projectId={route.projectId}
             provider={coverageProvider}
+            transport={transport}
+          />
+          <ProjectTimelinePane
+            key={`project-timeline-${route.projectId}`}
+            onOpenSession={(openedSessionId) =>
+              navigate({
+                name: "session_metrics",
+                projectId: route.projectId,
+                sessionId: openedSessionId,
+                category: "prompt-quality",
+              })}
+            projectId={route.projectId}
             transport={transport}
           />
           <MetricCategoryDeck onOpen={openCategory} />
