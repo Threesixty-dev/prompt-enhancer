@@ -1389,6 +1389,21 @@ machine: deterministic answer in well under a second, commentary from the
 orcarouter IQ3_M in about 20-40 s, the hook handing the advice to Claude Code
 as additional context.
 
+Dashboard theming and the Overview page: every literal colour of the frontend
+CSS is now a token (`frontend/scripts/make_theme.py` generates
+`palette.generated.css`: original light values plus OKLCH lightness-inverted
+dark counterparts, sidebar-family colours pinned, faint white highlights kept,
+frosted whites mapped to dark surfaces); `theme.css` hand-tunes the dark core
+(deep blue-graphite surfaces, luminous teal accent, ember caution, aurora
+canvas, glass cards, glowing chart strokes, dark-ink primary buttons,
+scrollbars, forms, zebra and sticky tables). Dark is the default
+(`index.html` stamps it before the first paint; `ThemeToggle` in the top bar
+persists the choice); an automated contrast audit over the main pages in dark
+found no text under WCAG AA after the primary-button fix. The Overview page
+reads only existing endpoints and shows sessions per provider with a 30-day
+sparkline, calibration progress and judge coverage, the active model and
+hardware, prompt checks, and the next worthwhile action.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and
