@@ -41,6 +41,9 @@ const SessionsScreen = lazy(() =>
 const CalibrationScreen = lazy(() =>
   import("../features/calibration/CalibrationPage").then((module) => ({ default: module.CalibrationPage })),
 );
+const LiveMiniWindowScreen = lazy(() =>
+  import("../features/live-window/LiveMiniWindow").then((module) => ({ default: module.LiveMiniWindow })),
+);
 const ProjectCatalogScreen = lazy(() =>
   import("../features/project-catalog").then((module) => ({
     default: module.ProjectCatalog,
@@ -157,6 +160,7 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "projects") return "Projects";
   if (route.name === "sessions") return "Sessions";
   if (route.name === "calibration") return "Calibration";
+  if (route.name === "live") return "Live";
   if (route.name === "research") return "Methods & models";
   if (route.name === "team") return "Team analytics";
   if (route.name === "social") return "Social hub";
@@ -280,6 +284,21 @@ export function App({
     } catch {
       setNavigationNotice("The task index could not be loaded.");
     }
+  }
+
+  if (route.name === "live") {
+    // Chrome-less mini window: no sidebar, no header - just the live view.
+    return (
+      <div className="app-shell app-shell--live" data-layout="live-window">
+        <main id="main-content" tabIndex={-1}>
+          <RouteErrorBoundary onExit={() => navigate({ name: "discovery" })} resetKey={routePath(route)}>
+            <Suspense fallback={<RouteLoading route={route} />}>
+              <LiveMiniWindowScreen projectId={route.projectId} sessionId={route.sessionId} transport={transport} />
+            </Suspense>
+          </RouteErrorBoundary>
+        </main>
+      </div>
+    );
   }
 
   return (

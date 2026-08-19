@@ -10,6 +10,7 @@ export type AppRoute =
   | { name: "sessions" }
   | { name: "calibration" }
   | { name: "project_overview"; projectId: string }
+  | { name: "live"; projectId: string; sessionId?: string }
   | { name: "project_sessions"; projectId: string }
   | { name: "project_automation"; projectId: string }
   | { name: "project_metrics"; projectId: string; category: MetricCategory }
@@ -95,6 +96,13 @@ export function parseRoute(pathname: string): AppRoute {
     };
   }
 
+  const liveMatch = pathname.match(/^\/live\/projects\/([a-f0-9]{64})(?:\/sessions\/([a-f0-9]{64}))?\/?$/);
+  if (liveMatch && isPseudonym(liveMatch[1]) && (liveMatch[2] === undefined || isPseudonym(liveMatch[2]))) {
+    return liveMatch[2]
+      ? { name: "live", projectId: liveMatch[1], sessionId: liveMatch[2] }
+      : { name: "live", projectId: liveMatch[1] };
+  }
+
   const projectViewMatch = pathname.match(
     /^\/projects\/([a-f0-9]{64})\/(overview|sessions|automation)\/?$/,
   );
@@ -132,6 +140,14 @@ export function routePath(route: AppRoute): string {
   if (route.name === "project_overview") {
     assertPseudonym(route.projectId);
     return `/projects/${route.projectId}/overview`;
+  }
+  if (route.name === "live") {
+    assertPseudonym(route.projectId);
+    if (route.sessionId) {
+      assertPseudonym(route.sessionId);
+      return `/live/projects/${route.projectId}/sessions/${route.sessionId}`;
+    }
+    return `/live/projects/${route.projectId}`;
   }
   if (route.name === "project_sessions") {
     assertPseudonym(route.projectId);

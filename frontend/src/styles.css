@@ -5316,3 +5316,9 @@ canvas { max-width: 100%; }
   .primary-nav button > span,
   .primary-nav button > small { font-size: max(12px, 0.75rem); }
 }
+
+/* Live mini window spawners and the chrome-less live shell */
+.project-overview__actions { display: flex; align-items: flex-start; gap: 8px; }
+.session-live-actions { margin: 0 0 12px; }
+.app-shell--live { display: block; min-height: 100vh; background: var(--surface-soft, var(--surface)); }
+.app-shell--live main { padding: 0; max-width: none; }

@@ -22,6 +22,18 @@ describe("platform routes", () => {
     expect(parseRoute(routePath(route))).toEqual(route);
   });
 
+  it("round-trips the live mini-window routes for a project and a session", () => {
+    const projectId = "a".repeat(64);
+    const sessionId = "b".repeat(64);
+    const project = { name: "live", projectId } as const;
+    const session = { name: "live", projectId, sessionId } as const;
+    expect(routePath(project)).toBe(`/live/projects/${projectId}`);
+    expect(routePath(session)).toBe(`/live/projects/${projectId}/sessions/${sessionId}`);
+    expect(parseRoute(routePath(project))).toEqual(project);
+    expect(parseRoute(routePath(session))).toEqual(session);
+    expect(parseRoute("/live/projects/not-a-pseudonym")).toEqual({ name: "discovery" });
+  });
+
   it("round-trips a project-scoped automation settings route", () => {
     const projectId = "a".repeat(64);
     const route = { name: "project_automation", projectId } as const;

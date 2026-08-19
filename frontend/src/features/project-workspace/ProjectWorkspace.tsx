@@ -1,6 +1,7 @@
 import { SessionTranscriptPane } from "../session-reader/SessionTranscriptPane";
 import { SessionTimelinePane } from "../session-timeline/SessionTimelinePane";
 import { ProjectTimelinePane } from "../project-timeline/ProjectTimelinePane";
+import { openLiveWindow } from "../live-window/LiveMiniWindow";
 import { isLocalProvider } from "../../shared/api/contracts";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import {
@@ -1265,6 +1266,17 @@ export function ProjectWorkspace({
                 focused review. No setup is required.
               </p>
             </div>
+            <div className="project-overview__actions">
+              <button
+                className="button button--ghost"
+                onClick={() => { openLiveWindow({ name: "live", projectId: route.projectId }); }}
+                title="Opens a small window that follows this project and refreshes itself; open one per project or session"
+                type="button"
+              >
+                <Icon name="layers" />
+                <span>Open live window</span>
+              </button>
+            </div>
             <dl className="project-overview__facts" aria-label="Indexed scope">
               <div><dt>Sessions</dt><dd>{projectSessionTotal}</dd></div>
               <div><dt>Complete</dt><dd>{completeSessions}</dd></div>
@@ -1440,6 +1452,17 @@ export function ProjectWorkspace({
               transport={transport}
             />
           </section>
+          <p className="session-live-actions">
+            <button
+              className="button button--ghost"
+              onClick={() => { openLiveWindow({ name: "live", projectId: route.projectId, sessionId: currentSession.session_id }); }}
+              title="Opens a small window that follows this session and refreshes itself"
+              type="button"
+            >
+              <Icon name="layers" />
+              <span>Open live window for this session</span>
+            </button>
+          </p>
           <SessionTimelinePane
             key={`timeline-${currentSession.session_id}`}
             sessionId={currentSession.session_id}

@@ -1294,6 +1294,11 @@ sessions and the windows of its current reviewed task revisions (first start to
 last stop of their member sessions) with activity by day; the project overview
 draws them on one calendar axis with a 30/90-day/all range and session click-through.
 
+Live mini windows: `/live/projects/{id}[/sessions/{sid}]` renders a
+chrome-less, self-refreshing view (name, provider, latest automatic analysis,
+job state, timeline) that the project and session views open as a named
+browser popup - one per project or session, several at once.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and
