@@ -7,10 +7,10 @@
 .session-reader__meta { margin: 14px 0 8px; color: var(--ink-500); font-size: 0.74rem; }
 .session-reader__turns { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; max-height: 70vh; overflow: auto; }
 .session-turn { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
-.session-turn--user { background: var(--teal-50, #eaf6f4); border-color: #bfdfd8; }
+.session-turn--user { background: var(--teal-50, var(--p-eaf6f4)); border-color: var(--p-bfdfd8); }
 .session-turn--assistant { background: var(--surface-soft); }
 .session-turn--plan { border-style: dashed; }
-.session-turn--tool_call, .session-turn--tool_result { background: #f4f0fb; border-color: #d9cdf0; }
+.session-turn--tool_call, .session-turn--tool_result { background: var(--p-f4f0fb); border-color: var(--p-d9cdf0); }
 .session-turn__head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 4px; font-size: 0.72rem; }
 .session-turn__head strong { color: var(--ink-800); }
 .session-turn__head small { color: var(--ink-500); white-space: nowrap; }

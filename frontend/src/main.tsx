@@ -14,6 +14,11 @@ import {
 } from "./shared/platform/runtimeMode";
 import { startUiRevisionGuard } from "./shared/platform/uiRevisionGuard";
 import "./styles.css";
+import "./app/theme.css";
+import "./app/palette.generated.css";
+import { bootstrapTheme } from "./shared/platform/theme";
+
+bootstrapTheme();
 
 async function mountApp() {
   const mode = resolveRuntimeDataMode({

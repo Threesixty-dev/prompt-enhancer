@@ -14,11 +14,11 @@
 .calibration__list li + li { border-top: 1px solid var(--line-soft, var(--line)); }
 .calibration__list li button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 10px 12px; border: 0; background: transparent; text-align: left; cursor: pointer; font: inherit; color: inherit; }
 .calibration__list li button:hover { background: var(--surface-soft); }
-.calibration__list li button.is-selected { background: var(--teal-50, #eaf6f4); box-shadow: inset 3px 0 0 var(--accent-primary); }
+.calibration__list li button.is-selected { background: var(--teal-50, var(--p-eaf6f4)); box-shadow: inset 3px 0 0 var(--accent-primary); }
 .calibration__item-title { grid-column: 1; font-size: 0.86rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calibration__item-sub { grid-column: 1; display: flex; align-items: center; gap: 8px; font-size: 0.72rem; color: var(--ink-500); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .calibration__item-state { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 0.72rem; color: var(--ink-500); display: inline-flex; align-items: center; }
-.calibration__list li button[data-state="done"] .calibration__item-state { color: var(--teal-700, #14796e); }
+.calibration__list li button[data-state="done"] .calibration__item-state { color: var(--teal-700, var(--accent-primary)); }
 .calibration__list li button[data-state="done"] .calibration__item-state svg { width: 16px; height: 16px; }
 .calibration__main { display: grid; gap: 16px; min-width: 0; }
 .calibration__session-title { margin: 0; font-size: 1.1rem; }
@@ -29,7 +29,7 @@
 .calibration__metric legend span { font-size: 0.8rem; color: var(--ink-650); line-height: 1.45; }
 .calibration__choices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .calibration__choices label { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); cursor: pointer; font-size: 0.82rem; }
-.calibration__choices label.is-chosen { border-color: var(--accent-primary); background: var(--teal-50, #eaf6f4); }
+.calibration__choices label.is-chosen { border-color: var(--accent-primary); background: var(--teal-50, var(--p-eaf6f4)); }
 .calibration__choices label input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .calibration__choices label:focus-within { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
 .calibration__choices small { color: var(--ink-500); font-size: 0.7rem; }

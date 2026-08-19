@@ -23,6 +23,7 @@ import type {
 import { DiscoveryInbox } from "../features/discovery-inbox/DiscoveryInbox";
 import type { ProjectWorkspaceRoute } from "../features/project-workspace";
 import { Icon } from "../shared/ui/Icon";
+import { ThemeToggle } from "../shared/ui/ThemeToggle";
 import { LoadingState } from "../shared/ui/AsyncState";
 
 const AnalysisJobCentreScreen = lazy(() =>
@@ -490,6 +491,7 @@ export function App({
             <strong>{routeTitle(route)}</strong>
           </div>
           <div className="topbar__right">
+            <ThemeToggle />
             <span
               aria-label={`Runtime status: ${runtimeCopy.indicator}`}
               aria-live="polite"
