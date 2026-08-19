@@ -68,7 +68,7 @@ def test_claude_source_consent_capture_index_roundtrip(tmp_path: Path) -> None:
     now = lambda: next(clock)  # noqa: E731
     for step in (
         _hook("SessionStart", source="startup"),
-        _hook("UserPromptSubmit", prompt="CANARY-PROMPT"),
+        _hook("UserPromptSubmit", prompt="Fix the demo build\nCANARY-PROMPT"),
         _hook("PreToolUse", tool_name="Bash", tool_use_id="toolu_9", tool_input={"command": "CANARY"}),
         _hook("PostToolUse", tool_name="Bash", tool_use_id="toolu_9", tool_input={}, tool_response={"stdout": "CANARY"}),
         _hook("Stop"),

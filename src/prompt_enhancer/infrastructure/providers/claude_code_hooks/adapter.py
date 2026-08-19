@@ -170,7 +170,11 @@ def _source_session(
             if session.project_display_label is None
             else SecretStr(session.project_display_label)
         ),
-        source_session_display_name=None,
+        source_session_display_name=(
+            None
+            if session.session_display_label is None
+            else SecretStr(session.session_display_label)
+        ),
     )
 
 

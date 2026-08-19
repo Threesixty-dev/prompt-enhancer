@@ -163,10 +163,28 @@ gap, never a zero. `claude-otel-config` prints the environment variables the
 user sets where they launch Claude Code; the application writes no
 configuration and keeps `OTEL_LOG_USER_PROMPTS` at 0.
 
+## Session titles (added 2026-08-19)
+
+At the owner's request, hook-captured sessions carry a private title so a
+person can find their own session by name, exactly as Codex thread titles
+already do. The receiver reads the ``prompt`` field of ``UserPromptSubmit`` for
+that one purpose: the first non-empty line, minimized to one bounded line of
+at most 160 characters by the same minimizer that refuses absolute paths and
+control characters, stored once per session (the first prompt wins) in
+migration 47's ``session_display_label`` column, and surfaced through the
+ordinary ``session_display_name`` path. Nothing beyond that first line is read
+into any record; the second and later lines and every later prompt are never
+touched. Setting ``PROMPT_ENHANCER_CLAUDE_SESSION_TITLES=0`` in the environment
+that launches Claude Code turns the read off entirely. The receiver source is
+still scanned by test: ``prompt`` is read in exactly one place, behind that
+switch, and the only string-typed fields on the minimized record remain the
+two display labels, the pseudonyms, and the version identifiers.
+
 ## Not accepted by this ADR
 
-Reading `~/.claude` in any form; any telemetry protocol other than OTLP/HTTP
-JSON on loopback; a live-update watcher; any inference of task start, finish, or outcome from hook events;
+Reading `~/.claude` through this hook surface (a separate, owner-authorized
+read-only transcript reader is recorded in ADR 0011); any telemetry protocol
+other than OTLP/HTTP JSON on loopback; a live-update watcher; any inference of task start, finish, or outcome from hook events;
 any use of `tool_name` beyond categorization; provider-neutral persistence of
 Claude display labels through the migration-5 label tables (a separate
 migration is required); and any dashboard claim that a Claude session is

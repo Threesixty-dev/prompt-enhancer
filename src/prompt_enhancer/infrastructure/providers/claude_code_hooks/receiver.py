@@ -8,10 +8,13 @@ Its obligations, in priority order:
    therefore writes nothing to stdout or stderr and always exits ``0``, even
    when it drops the event.
 2. **Never persist content.**  Only the keys in :data:`ALLOWED_PAYLOAD_KEYS`
-   are read.  ``prompt``, ``tool_input``, ``tool_response``, ``message``,
-   ``custom_instructions`` and ``transcript_path`` are never accessed, and the
-   only record shape it can build is :class:`MinimizedHookEvent`, which has no
-   field able to hold them.
+   are read.  ``tool_input``, ``tool_response``, ``message``,
+   ``custom_instructions`` and ``transcript_path`` are never accessed.
+   ``prompt`` is read for exactly one purpose - deriving a bounded one-line
+   private session title from its first line so a person can find their own
+   session by name - and only while :data:`SESSION_TITLES_ENV` is not ``0``.
+   The only record shape the receiver can build is :class:`MinimizedHookEvent`,
+   whose sole text-bearing fields are the two minimized display labels.
 3. **Never initialize state.**  It loads an existing pseudonym key and appends
    to an existing, migrated store.  If either is missing, or if
    ``claude_code`` local-history consent is not active, it does nothing.
@@ -23,6 +26,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
 import json
+import os
 import sys
 from typing import BinaryIO
 
@@ -44,6 +48,7 @@ from .contracts import (
     parse_session_start_source,
     project_display_label,
     project_identity_material,
+    session_title_from_prompt,
 )
 from .ledger import (
     HookLedgerConsentInactive,
@@ -56,8 +61,12 @@ from .ledger import (
 # asserts that no other payload key name appears anywhere in this file.
 ALLOWED_PAYLOAD_KEYS = frozenset(
     {"session_id", "cwd", "hook_event_name", "source", "reason", "tool_name",
-     "tool_use_id", "trigger"}
+     "tool_use_id", "trigger", "prompt"}
 )
+
+# Set to "0" in the environment that launches Claude Code to keep session
+# titles off; the first prompt line is then never read at all.
+SESSION_TITLES_ENV = "PROMPT_ENHANCER_CLAUDE_SESSION_TITLES"
 
 MAX_RAW_ID_LENGTH = 256
 
@@ -90,11 +99,17 @@ def _raw_identifier(value: object) -> str | None:
     return value
 
 
+def session_titles_enabled(environment: Mapping[str, str] | None = None) -> bool:
+    value = (environment if environment is not None else os.environ).get(SESSION_TITLES_ENV, "1")
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def minimize_payload(
     payload: Mapping[str, object],
     *,
     pseudonymizer: Pseudonymizer,
     received_at: datetime,
+    titles: bool = True,
 ) -> MinimizedHookEvent | None:
     """Reduce one hook payload to its content-free record.
 
@@ -122,6 +137,9 @@ def minimize_payload(
     start_source = None
     end_reason = None
     compact_trigger = None
+    session_title = None
+    if name is HookEventName.USER_PROMPT_SUBMIT and titles:
+        session_title = session_title_from_prompt(payload.get("prompt"))
     if name in (HookEventName.PRE_TOOL_USE, HookEventName.POST_TOOL_USE):
         tool_category = categorize_tool_name(payload.get("tool_name"))
         tool_use_id = _raw_identifier(payload.get("tool_use_id"))
@@ -145,6 +163,7 @@ def minimize_payload(
         hook_session_id=hook_session_id,
         hook_project_id=hook_project_id,
         project_display_label=project_display_label(cwd),
+        session_display_label=session_title,
         hook_event_name=name,
         event_kind=hook_event_kind(name),
         received_at=received_at.astimezone(UTC),
@@ -193,7 +212,10 @@ def receive(
 
         try:
             event = minimize_payload(
-                payload, pseudonymizer=pseudonymizer, received_at=now()
+                payload,
+                pseudonymizer=pseudonymizer,
+                received_at=now(),
+                titles=session_titles_enabled(),
             )
         except ValueError:
             return ReceiverOutcome(status=ReceiverStatus.INVALID_PAYLOAD)
@@ -235,6 +257,8 @@ def main(settings: AppSettings | None = None) -> int:
 
 __all__ = (
     "ALLOWED_PAYLOAD_KEYS",
+    "SESSION_TITLES_ENV",
+    "session_titles_enabled",
     "ReceiverOutcome",
     "ReceiverStatus",
     "main",

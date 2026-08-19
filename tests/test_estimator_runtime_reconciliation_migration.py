@@ -441,9 +441,9 @@ def test_populated_v23_upgrades_to_v24_with_prior_checksums_unchanged(
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 46
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 46
-        assert tuple(row[0] for row in rows) == tuple(range(1, 47))
+        assert SCHEMA_VERSION == 47
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 47
+        assert tuple(row[0] for row in rows) == tuple(range(1, 48))
         assert tuple(row[1] for row in rows[:23]) == checksums
         assert rows[23][1] == hashlib.sha256(
             migrations.MIGRATION_24.encode("utf-8")

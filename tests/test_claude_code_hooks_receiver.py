@@ -121,23 +121,35 @@ def _ledger_dump(home: Path) -> str:
 def test_receiver_source_reads_only_allowlisted_payload_keys() -> None:
     source = Path(receiver_module.__file__).read_text(encoding="utf-8")
     forbidden = (
-        "transcript_path", "prompt", "tool_input", "tool_response",
+        "transcript_path", "tool_input", "tool_response",
         "message", "custom_instructions", "stop_hook_active",
     )
     # Every payload.get(...) call must name an allowlisted key.
     for key in re.findall(r'payload\.get\("([a-z_]+)"\)', source):
         assert key in receiver_module.ALLOWED_PAYLOAD_KEYS, key
-    # And forbidden names may appear only in the docstring that lists them.
+    # Forbidden names may appear only in the docstring that lists them.
     body = source.split('"""', 2)[2]
     for name in forbidden:
         assert f'"{name}"' not in body, name
+    # `prompt` is read in exactly one place, guarded by the titles switch.
+    assert body.count('payload.get("prompt")') == 1
+    assert 'session_title_from_prompt(payload.get("prompt"))' in body
 
 
-def test_minimized_event_type_cannot_hold_content() -> None:
+def test_minimized_event_type_holds_only_two_bounded_labels() -> None:
     fields = set(hooks.MinimizedHookEvent.model_fields)
     for content_field in ("prompt", "tool_input", "tool_response", "cwd",
                           "transcript_path", "tool_name", "message", "session_id"):
         assert content_field not in fields
+    string_fields = {
+        name for name, field in hooks.MinimizedHookEvent.model_fields.items()
+        if field.annotation is str or str(field.annotation) == "str | None"
+    }
+    # Only pseudonyms, versions, and the two minimized labels are string-typed.
+    assert string_fields <= {
+        "contract_version", "receiver_version", "hook_session_id", "hook_project_id",
+        "project_display_label", "session_display_label", "tool_use_ref",
+    }
 
 
 def test_tool_names_reduce_to_categories_and_mcp_servers_are_not_kept() -> None:
@@ -188,7 +200,7 @@ def test_minimize_maps_every_lifecycle_hook_and_skips_notification() -> None:
     cases = {
         "SessionStart": (EventKind.SESSION_START, {"source": "resume"}),
         "SessionEnd": (EventKind.SESSION_END, {"reason": "logout"}),
-        "UserPromptSubmit": (EventKind.TURN_START, {"prompt": CANARY_PROMPT}),
+        "UserPromptSubmit": (EventKind.TURN_START, {"prompt": "Describe the request\n" + CANARY_PROMPT}),
         "PreToolUse": (EventKind.TOOL_START, {"tool_name": "Read", "tool_input": {"file_path": CANARY_TOOL_INPUT}}),
         "Stop": (EventKind.TURN_END, {"stop_hook_active": False}),
         "SubagentStop": (EventKind.SUBAGENT_END, {"stop_hook_active": False}),
@@ -233,6 +245,46 @@ def test_same_directory_yields_same_project_pseudonym_across_sessions() -> None:
     assert c is not None and c.hook_project_id == a.hook_project_id
 
 
+def test_session_title_is_first_prompt_line_only_bounded_and_switchable() -> None:
+    from prompt_enhancer.infrastructure.providers.claude_code_hooks.receiver import session_titles_enabled
+
+    prompt = "  Add retries to the uploader for the demo project  \n" + "CANARY-SECOND-LINE " * 3 + "\n" + CANARY_TOOL_INPUT
+    event = minimize_payload(_payload("UserPromptSubmit", prompt=prompt), pseudonymizer=KEY, received_at=T0)
+    assert event is not None
+    assert event.session_display_label == "Add retries to the uploader for the demo project"
+    assert "CANARY-SECOND-LINE" not in event.model_dump_json()
+    long_event = minimize_payload(_payload("UserPromptSubmit", prompt="x" * 500), pseudonymizer=KEY, received_at=T0)
+    assert long_event is not None and long_event.session_display_label is not None
+    assert len(long_event.session_display_label) == 160
+    path_event = minimize_payload(_payload("UserPromptSubmit", prompt="/home/example-user/secret.txt\nreal request"), pseudonymizer=KEY, received_at=T0)
+    assert path_event is not None and path_event.session_display_label is None
+    off = minimize_payload(_payload("UserPromptSubmit", prompt=CANARY_PROMPT), pseudonymizer=KEY, received_at=T0, titles=False)
+    assert off is not None and off.session_display_label is None
+    other = minimize_payload(_payload("Stop", prompt=CANARY_PROMPT), pseudonymizer=KEY, received_at=T0)
+    assert other is not None and other.session_display_label is None
+    assert session_titles_enabled({}) is True
+    assert session_titles_enabled({"PROMPT_ENHANCER_CLAUDE_SESSION_TITLES": "0"}) is False
+    assert session_titles_enabled({"PROMPT_ENHANCER_CLAUDE_SESSION_TITLES": "off"}) is False
+
+
+def test_receiver_persists_the_first_title_and_keeps_it(consented_home: Path) -> None:
+    settings = AppSettings(home=consented_home)
+    clock = iter(T0 + timedelta(seconds=i) for i in range(10))
+    now = lambda: next(clock)  # noqa: E731
+    receive(_stdin(_payload("SessionStart", source="startup")), settings=settings, now=now)
+    receive(_stdin(_payload("UserPromptSubmit", prompt="First request title\nCANARY-BODY")), settings=settings, now=now)
+    receive(_stdin(_payload("UserPromptSubmit", prompt="Second request CANARY-LATER")), settings=settings, now=now)
+    connection = sqlite3.connect(consented_home / "metrics.sqlite3")
+    connection.row_factory = sqlite3.Row
+    try:
+        row = connection.execute("SELECT session_display_label FROM claude_code_hook_sessions").fetchone()
+        assert row["session_display_label"] == "First request title"
+    finally:
+        connection.close()
+    dump = _ledger_dump(consented_home)
+    assert "CANARY-BODY" not in dump and "CANARY-LATER" not in dump
+
+
 # --- receiver end to end ------------------------------------------------------
 
 
@@ -256,7 +308,7 @@ def test_receiver_appends_a_content_free_record_with_consent(consented_home: Pat
     now = lambda: next(clock)  # noqa: E731
     sequence = [
         _payload("SessionStart", source="startup"),
-        _payload("UserPromptSubmit", prompt=CANARY_PROMPT),
+        _payload("UserPromptSubmit", prompt="Plan the demo refactor\n" + CANARY_PROMPT),
         _payload("PreToolUse", tool_name="Bash", tool_use_id=CANARY_TOOL_USE,
                  tool_input={"command": CANARY_TOOL_INPUT}),
         _payload("PostToolUse", tool_name="Bash", tool_use_id=CANARY_TOOL_USE,
@@ -287,6 +339,7 @@ def test_receiver_appends_a_content_free_record_with_consent(consented_home: Pat
         assert session["session_end_reason"] == "prompt_input_exit"
         assert session["ended_at"] is not None
         assert session["project_display_label"] == "CANARY-PROJECT-DIR"
+        assert session["session_display_label"] == "Plan the demo refactor"
         events = connection.execute(
             "SELECT * FROM claude_code_hook_events ORDER BY sequence"
         ).fetchall()

@@ -103,7 +103,7 @@ def _drive_one_session(home: Path, *, session: str = CANARY_SESSION, cwd: str = 
     now = lambda: next(clock)  # noqa: E731
     steps = [
         _payload("SessionStart", session, cwd, source="startup"),
-        _payload("UserPromptSubmit", session, cwd, prompt=CANARY_PROMPT),
+        _payload("UserPromptSubmit", session, cwd, prompt="Add retries to the uploader\n" + CANARY_PROMPT),
         _payload("PreToolUse", session, cwd, tool_name="Bash", tool_use_id="toolu_1",
                  tool_input={"command": CANARY_TOOL_INPUT}),
         _payload("PostToolUse", session, cwd, tool_name="Bash", tool_use_id="toolu_1",
@@ -133,7 +133,8 @@ def test_adapter_requires_probe_and_scopes_reads_to_the_snapshot(home: Path) -> 
     assert session.events_complete is False
     assert session.source_project_display_name is not None
     assert session.source_project_display_name.get_secret_value() == "CANARY-HOOK-PROJECT"
-    assert session.source_session_display_name is None
+    assert session.source_session_display_name is not None
+    assert session.source_session_display_name.get_secret_value() == "Add retries to the uploader"
     # Identifiers yielded are already pseudonyms.
     assert re.fullmatch(r"[a-f0-9]{64}", session.source_session_id.get_secret_value())
     assert re.fullmatch(r"[a-f0-9]{64}", session.source_project_id.get_secret_value())
@@ -222,6 +223,7 @@ def test_end_to_end_ingestion_persists_pseudonymous_content_free_rows(home: Path
     assert safe_session.provider is Provider.CLAUDE_CODE
     assert safe_session.terminal_state is SessionState.COMPLETED
     assert safe_session.project_display_name == "CANARY-HOOK-PROJECT"
+    assert safe_session.session_display_name == "Add retries to the uploader"
     events = application.database.get_session_events(session_id)
     assert [e.kind for e in events] == [
         EventKind.SESSION_START, EventKind.TURN_START, EventKind.TOOL_START,

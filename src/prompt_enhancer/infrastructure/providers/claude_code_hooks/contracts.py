@@ -32,6 +32,7 @@ from pydantic import Field, field_validator, model_validator
 
 from ....display_labels import (
     PROJECT_DISPLAY_NAME_MAX_LENGTH,
+    SESSION_DISPLAY_NAME_MAX_LENGTH,
     minimize_private_display_name,
 )
 from ....domain import (
@@ -253,6 +254,24 @@ def _pseudonym(value: str) -> str:
     return value
 
 
+def session_title_from_prompt(prompt: object) -> str | None:
+    """Bounded one-line private title from the first non-empty prompt line.
+
+    Nothing beyond that first line is ever read into the result; the
+    minimizer additionally refuses absolute paths and control characters.
+    """
+
+    if not isinstance(prompt, str) or not prompt:
+        return None
+    for line in prompt.splitlines():
+        candidate = line.strip()
+        if candidate:
+            return minimize_private_display_name(
+                candidate, max_length=SESSION_DISPLAY_NAME_MAX_LENGTH
+            )
+    return None
+
+
 class MinimizedHookEvent(StrictModel):
     """The only record shape the receiver may hand to the ledger.
 
@@ -268,6 +287,7 @@ class MinimizedHookEvent(StrictModel):
     hook_session_id: str
     hook_project_id: str
     project_display_label: str | None = Field(default=None, repr=False)
+    session_display_label: str | None = Field(default=None, repr=False)
     hook_event_name: HookEventName
     event_kind: EventKind
     received_at: datetime
@@ -294,6 +314,17 @@ class MinimizedHookEvent(StrictModel):
             value, max_length=PROJECT_DISPLAY_NAME_MAX_LENGTH
         ) != value:
             raise ValueError("project display label must already be minimized")
+        return value
+
+    @field_validator("session_display_label")
+    @classmethod
+    def validate_session_label(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if minimize_private_display_name(
+            value, max_length=SESSION_DISPLAY_NAME_MAX_LENGTH
+        ) != value:
+            raise ValueError("session display label must already be minimized")
         return value
 
     @field_validator("received_at")
@@ -329,4 +360,8 @@ class MinimizedHookEvent(StrictModel):
             raise ValueError("compaction trigger is permitted only on PreCompact")
         if self.success is not None and self.hook_event_name is not HookEventName.POST_TOOL_USE:
             raise ValueError("success is asserted only by PostToolUse")
+        if self.session_display_label is not None and (
+            self.hook_event_name is not HookEventName.USER_PROMPT_SUBMIT
+        ):
+            raise ValueError("a session title is derived only from UserPromptSubmit")
         return self

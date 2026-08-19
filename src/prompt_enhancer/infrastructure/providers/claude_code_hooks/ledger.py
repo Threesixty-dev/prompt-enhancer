@@ -54,6 +54,7 @@ class LedgerSession(StrictModel):
     hook_session_id: str
     hook_project_id: str
     project_display_label: str | None = None
+    session_display_label: str | None = None
     contract_version: str
     receiver_version: str
     first_received_at: datetime
@@ -102,6 +103,7 @@ def _row_session(row: sqlite3.Row) -> LedgerSession:
         hook_session_id=row["hook_session_id"],
         hook_project_id=row["hook_project_id"],
         project_display_label=row["project_display_label"],
+        session_display_label=row["session_display_label"],
         contract_version=row["contract_version"],
         receiver_version=row["receiver_version"],
         first_received_at=first,
@@ -170,14 +172,15 @@ def _append(
         connection.execute(
             """INSERT INTO claude_code_hook_sessions(
                    hook_session_id, hook_project_id, project_display_label,
-                   contract_version, receiver_version,
+                   session_display_label, contract_version, receiver_version,
                    first_received_at, last_received_at,
                    session_start_source, session_end_reason, ended_at, event_count)
-               VALUES (?,?,?,?,?,?,?,?,NULL,NULL,0)""",
+               VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL,0)""",
             (
                 event.hook_session_id,
                 event.hook_project_id,
                 event.project_display_label,
+                event.session_display_label,
                 CONTRACT_VERSION,
                 RECEIVER_VERSION,
                 received_iso,
@@ -290,9 +293,15 @@ def _append(
             """UPDATE claude_code_hook_sessions
                SET last_received_at=?, event_count=event_count+1,
                    session_end_reason=NULL, ended_at=NULL,
-                   project_display_label=COALESCE(project_display_label, ?)
+                   project_display_label=COALESCE(project_display_label, ?),
+                   session_display_label=COALESCE(session_display_label, ?)
                WHERE hook_session_id=?""",
-            (received_iso, event.project_display_label, event.hook_session_id),
+            (
+                received_iso,
+                event.project_display_label,
+                event.session_display_label,
+                event.hook_session_id,
+            ),
         )
     return AppendOutcome(
         hook_event_id=hook_event_id, sequence=sequence, paired_duration_ms=paired_duration
@@ -311,12 +320,13 @@ class SqliteClaudeHookLedger:
         self._ensure_initialized = ensure_initialized
 
     _SESSION_UNION = """
-        SELECT hook_session_id, hook_project_id, project_display_label, contract_version,
+        SELECT hook_session_id, hook_project_id, project_display_label,
+               session_display_label, contract_version,
                receiver_version, first_received_at, last_received_at, session_start_source,
                session_end_reason, ended_at, event_count
           FROM claude_code_hook_sessions
         UNION ALL
-        SELECT t.hook_session_id, t.hook_project_id, NULL, t.contract_version,
+        SELECT t.hook_session_id, t.hook_project_id, NULL, NULL, t.contract_version,
                'claude-code-otlp-receiver-1', t.first_received_at, t.last_received_at,
                NULL, NULL, NULL, 0
           FROM claude_code_telemetry_sessions t

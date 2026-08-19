@@ -12611,3 +12611,15 @@ WHEN EXISTS(SELECT 1 FROM claude_code_telemetry_sessions WHERE hook_session_id=O
 BEGIN SELECT RAISE(ABORT,'claude code telemetry requests require parent privacy deletion'); END;
 COMMIT;
 """
+
+MIGRATION_47 = r"""
+BEGIN IMMEDIATE;
+
+-- Optional private session title for hook-captured Claude Code sessions: the
+-- first line of the first prompt, minimized to one bounded line, kept only so
+-- a person can find their own session by name.  Same treatment Codex thread
+-- titles already receive; capture can be switched off in the receiver.
+ALTER TABLE claude_code_hook_sessions ADD COLUMN session_display_label TEXT
+    CHECK(session_display_label IS NULL OR length(session_display_label) BETWEEN 1 AND 160);
+COMMIT;
+"""
