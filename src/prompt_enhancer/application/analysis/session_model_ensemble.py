@@ -49,6 +49,7 @@ from .text_analysis_presets import COACHING_PROFILE_V1
 from .text_baselines import TextMetricEngine
 from .text_contracts import P1LocalAnalysisGrant, P1TextAnalysisInput
 from .text_source import (
+    TEXT_ANALYSIS_PROVIDERS,
     TextAnalysisPurpose,
     TextAnalysisSelection,
     TextSourceAccessGrant,
@@ -299,9 +300,8 @@ class SessionModelEnsembleService:
         ) = None,
     ) -> SessionModelEnsembleOutcome:
         if (
-            # The ensemble run tables still CHECK provider='codex'; widening to
-            # TEXT_ANALYSIS_PROVIDERS waits for the table rebuild (migration 49).
-            provider is not Provider.CODEX
+            # Migration 51 widened the ensemble tables to the text analysis providers.
+            provider not in TEXT_ANALYSIS_PROVIDERS
             or PSEUDONYM_PATTERN.fullmatch(session_id) is None
             or _IDEMPOTENCY.fullmatch(idempotency_key) is None
             or not isinstance(max_messages, int)
@@ -569,7 +569,7 @@ class SessionModelEnsembleService:
     def require_watchable(self, *, provider: Provider, session_id: str) -> None:
         """Validate standing local authority without reading session content."""
 
-        if provider is not Provider.CODEX or PSEUDONYM_PATTERN.fullmatch(session_id) is None:
+        if provider not in TEXT_ANALYSIS_PROVIDERS or PSEUDONYM_PATTERN.fullmatch(session_id) is None:
             raise ModelEnsembleInputError("model ensemble selection is invalid")
         self._enforce_access(provider, session_id)
 

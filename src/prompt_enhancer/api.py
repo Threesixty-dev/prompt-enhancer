@@ -877,6 +877,7 @@ def create_app(
                 require_local_token,
                 model_ensemble_watch_service,
                 session_model_ensemble_service,
+                provider_resolver=_session_provider,
             )
         )
     if task_review_service is not None:

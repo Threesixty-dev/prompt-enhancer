@@ -1337,6 +1337,17 @@ default, history kept in the tab only). The unrestricted orcarouter weights are
 now installed as an imatrix IQ3_M from an ungated mirror built from
 `orcarouter/Qwen3.8-27B-Uncensored-FP8` (12.8 GB, fully on the GPU).
 
+Migration 51 widens `session_model_ensemble_runs` and
+`session_model_ensemble_watches` from `provider='codex'` to the text-analysis
+providers (`codex`, `claude_code`) using the SQLite-documented
+`writable_schema` relaxation (rows untouched, strictly weaker constraint, new
+provider index bumps the schema cookie, integrity and foreign-key checks
+asserted in tests); the ensemble service, the watch service and the watch
+routes now admit any text-analysis provider, resolving the session's real
+provider instead of assuming Codex. Claude Code sessions can therefore have
+ensemble runs and continuous watches persisted exactly like Codex ones; the
+judge sweep gained `scope=all` to cover every indexed session.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

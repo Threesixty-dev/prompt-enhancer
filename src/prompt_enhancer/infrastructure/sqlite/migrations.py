@@ -12707,3 +12707,31 @@ CREATE TABLE model_judgments (
 CREATE INDEX model_judgments_by_model ON model_judgments(model_alias, metric_key);
 COMMIT;
 """
+
+
+MIGRATION_51 = r"""
+BEGIN IMMEDIATE;
+
+-- Widen the two model-ensemble tables from provider='codex' to the text
+-- analysis providers so Claude Code sessions can have ensemble runs and
+-- watches persisted (Codex and Claude Code share the redacted text window).
+-- SQLite cannot ALTER a CHECK constraint and a rebuild would cascade-delete
+-- the twenty child tables that reference session_model_ensemble_runs, so this
+-- uses the procedure the SQLite manual documents for relaxing CHECK
+-- constraints: edit the stored CREATE TABLE text under writable_schema, reset
+-- the schema cache, and let a real DDL statement bump the schema cookie. Rows
+-- are untouched; the new constraint is strictly weaker than the old one.
+PRAGMA writable_schema=ON;
+UPDATE sqlite_master
+   SET sql = replace(sql, 'CHECK(provider=''codex'')', 'CHECK(provider IN (''codex'',''claude_code''))')
+ WHERE type='table'
+   AND name IN ('session_model_ensemble_runs','session_model_ensemble_watches')
+   AND instr(sql, 'CHECK(provider=''codex'')') > 0;
+PRAGMA writable_schema=RESET;
+
+CREATE INDEX session_model_ensemble_runs_provider_idx
+ON session_model_ensemble_runs(provider, completed_at DESC, run_id DESC);
+
+COMMIT;
+"""
+

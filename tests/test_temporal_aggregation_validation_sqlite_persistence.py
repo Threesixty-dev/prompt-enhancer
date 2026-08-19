@@ -496,9 +496,9 @@ def test_v23_fresh_schema_is_normalized_zero_backfill_and_checksum_bound(
 ) -> None:
     database = Database(tmp_path / "reserved-v23-schema.sqlite3")
     database.initialize()
-    assert SCHEMA_VERSION == 50
+    assert SCHEMA_VERSION == 51
     with database._connection(readonly=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 50
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 51
         row = connection.execute(
             "SELECT checksum FROM schema_migrations WHERE version=23"
         ).fetchone()
@@ -567,7 +567,7 @@ def test_populated_v22_upgrade_preserves_rows_and_zero_backfills_v23(tmp_path) -
     database = Database(path)
     database.initialize()
     with database._connection(readonly=True) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 50
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 51
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert tuple(
@@ -575,7 +575,7 @@ def test_populated_v22_upgrade_preserves_rows_and_zero_backfills_v23(tmp_path) -
             for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-        ) == tuple(range(1, 51))
+        ) == tuple(range(1, 52))
         assert connection.execute(
             "SELECT provider FROM installations WHERE installation_id=?",
             (installation_id,),

@@ -64,7 +64,7 @@ NOW = datetime(2040, 2, 3, 10, 0, tzinfo=UTC)
 METRIC_KEY = "prompt.task_definition_coverage"
 
 
-def _database_and_session(tmp_path) -> tuple[Database, str]:
+def _database_and_session(tmp_path, provider: Provider = Provider.CODEX) -> tuple[Database, str]:
     database = Database(tmp_path / "metrics.sqlite3")
     database.initialize()
     IngestionService(database, Pseudonymizer(bytes(range(32)))).ingest(
@@ -74,13 +74,13 @@ def _database_and_session(tmp_path) -> tuple[Database, str]:
         "session_id"
     ]
     with sqlite3.connect(database.path) as connection:
-        connection.execute("UPDATE projects SET provider='codex'")
-        connection.execute("UPDATE sessions SET provider='codex'")
+        connection.execute("UPDATE projects SET provider=?", (provider.value,))
+        connection.execute("UPDATE sessions SET provider=?", (provider.value,))
         connection.commit()
     return database, session_id
 
 
-def _run(session_id: str) -> SessionModelEnsembleRunRecord:
+def _run(session_id: str, provider: Provider = Provider.CODEX) -> SessionModelEnsembleRunRecord:
     identities = tuple(item.identity for item in ensemble_expert_specs())
     expert_receipts = tuple(
         ModelExpertReceipt(
@@ -170,7 +170,7 @@ def _run(session_id: str) -> SessionModelEnsembleRunRecord:
         session_id=session_id,
         request_fingerprint="b" * 64,
         input_fingerprint="d" * 64,
-        provider=Provider.CODEX,
+        provider=provider,
         provider_version="codex-app-server-v1",
         adapter_version="codex-adapter-v1",
         source_schema_version="codex-source-v1",
@@ -278,6 +278,42 @@ def test_model_ensemble_graph_round_trips_and_contains_no_content_columns(tmp_pa
         for column in columns
         for fragment in ("text", "prompt", "response", "output", "path")
     )
+
+
+def test_migration_51_admits_claude_code_ensemble_runs_and_watches(tmp_path) -> None:
+    """Migration 51 relaxes the provider CHECK on both ensemble tables (ADR 0011 / ADR 0012)."""
+
+    database, session_id = _database_and_session(tmp_path, Provider.CLAUDE_CODE)
+    repository = database.model_ensemble_repository()
+    run = _run(session_id, Provider.CLAUDE_CODE)
+    repository.save_completed(run)
+    stored = repository.get(run.run_id)
+    assert stored is not None and stored.provider is Provider.CLAUDE_CODE
+    project_id = database.list_sessions(provider=Provider.CLAUDE_CODE, limit=1)[0]["project_id"]
+    watches = database.model_ensemble_watch_repository()
+    enabled = watches.enable(
+        watch_id="7" * 64, provider=Provider.CLAUDE_CODE, project_id=project_id, session_id=session_id, max_messages=25, now=NOW,
+    )
+    assert enabled.provider is Provider.CLAUDE_CODE and enabled.state.value == "queued"
+    with sqlite3.connect(database.path) as connection:
+        for table in ("session_model_ensemble_runs", "session_model_ensemble_watches"):
+            sql = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()[0]
+            assert "CHECK(provider IN ('codex','claude_code'))" in sql and "CHECK(provider='codex')" not in sql
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='index' AND name='session_model_ensemble_runs_provider_idx'"
+        ).fetchone() is not None
+        # Other providers stay rejected by the widened constraint itself (a disabled row dodges the
+        # one-active-watch index and the identity trigger, so only the CHECK can refuse it).
+        stamp = "2040-02-03T10:00:00.000000+00:00"
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            connection.execute(
+                """INSERT INTO session_model_ensemble_watches(watch_id,provider,project_id,session_id,state,generation,
+                   progress_completed,progress_total,next_check_at,created_at,updated_at)
+                   VALUES (?,?,?,?,'disabled',0,0,10,?,?,?)""",
+                ("6" * 64, "synthetic", project_id, session_id, stamp, stamp, stamp),
+            )
 
 
 def test_semantic_unit_sidecar_is_atomic_immutable_and_round_trips(tmp_path) -> None:
@@ -476,13 +512,13 @@ def test_model_ensemble_graph_is_immutable_sealed_and_privacy_deletable(tmp_path
 def test_model_ensemble_migrations_have_zero_backfill(tmp_path) -> None:
     database, _ = _database_and_session(tmp_path)
     with sqlite3.connect(database.path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 50
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 51
         assert tuple(
             row[0]
             for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
-        ) == tuple(range(1, 51))
+        ) == tuple(range(1, 52))
         assert connection.execute(
             "SELECT COUNT(*) FROM session_model_ensemble_runs"
         ).fetchone()[0] == 0
@@ -566,7 +602,7 @@ def test_v28_watch_upgrade_preserves_the_original_message_window(tmp_path) -> No
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 50
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 51
         assert tuple(row[1] for row in rows[:28]) == checksums
         assert rows[28][1] == hashlib.sha256(
             migrations.MIGRATION_29.encode("utf-8")
@@ -685,8 +721,8 @@ def test_v25_to_v26_preserves_prior_checksums_and_rows(tmp_path, populated: bool
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 50
-        assert tuple(row[0] for row in rows) == tuple(range(1, 51))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 51
+        assert tuple(row[0] for row in rows) == tuple(range(1, 52))
         assert tuple(row[1] for row in rows[:25]) == checksums
         assert rows[25][1] == hashlib.sha256(
             migrations.MIGRATION_26.encode("utf-8")

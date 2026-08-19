@@ -16,6 +16,7 @@ from typing import Callable, Literal, Protocol
 from pydantic import Field, field_validator, model_validator
 
 from ...domain import PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTERN, StrictModel
+from .text_source import TEXT_ANALYSIS_PROVIDERS
 from .model_ensemble import (
     MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION,
     SessionModelEnsembleMetricReceipt,
@@ -756,7 +757,7 @@ class ModelEnsembleWatchService:
         confirmation: str,
     ) -> ModelEnsembleWatchRecord:
         if (
-            provider is not Provider.CODEX
+            provider not in TEXT_ANALYSIS_PROVIDERS
             or PSEUDONYM_PATTERN.fullmatch(project_id) is None
             or PSEUDONYM_PATTERN.fullmatch(session_id) is None
             or not isinstance(max_messages, int)

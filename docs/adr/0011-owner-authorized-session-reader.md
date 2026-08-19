@@ -107,3 +107,15 @@ that is not in the local catalog; any network transmission; any persistence -
 the owner has separately authorized an encrypted local copy (Tier 3 vault),
 which is a distinct decision with its own security review and is not part of
 this ADR; and any change to what the metric pipeline reads.
+
+## Addendum (2026-08-19): ensemble tables accept Claude Code
+
+Migration 51 relaxes the `provider='codex'` CHECK on the model-ensemble run and
+watch tables to the text-analysis providers, so the same redacted window that
+feeds the automatic P1 run for Claude Code sessions can also feed persisted
+ensemble runs and continuous watches. The relaxation edits the stored table
+definitions under `writable_schema` (the procedure the SQLite manual documents
+for removing or relaxing CHECK constraints); no row is rewritten, and the
+twenty child tables keep their foreign keys. Nothing about consent, redaction,
+or the reader changes.
+

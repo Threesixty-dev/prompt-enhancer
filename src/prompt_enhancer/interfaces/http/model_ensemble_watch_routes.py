@@ -50,7 +50,7 @@ class ModelEnsembleWatchRequest(StrictModel):
 
 class ModelEnsembleWatchDto(StrictModel):
     watch_id: str
-    provider: Literal[Provider.CODEX]
+    provider: Literal[Provider.CODEX, Provider.CLAUDE_CODE]
     project_id: str
     session_id: str
     max_messages: int = Field(ge=1, le=100)
@@ -72,7 +72,7 @@ class ModelEnsembleWatchDto(StrictModel):
     def from_record(cls, record: ModelEnsembleWatchRecord) -> "ModelEnsembleWatchDto":
         return cls(
             watch_id=record.watch_id,
-            provider=Provider.CODEX,
+            provider=record.provider,
             project_id=record.project_id,
             session_id=record.session_id,
             max_messages=record.max_messages,
@@ -218,6 +218,7 @@ def create_model_ensemble_watch_router(
     require_local_auth: Callable[..., None],
     service: ModelEnsembleWatchService,
     ensemble: ModelEnsembleRunReader,
+    provider_resolver: Callable[[str], Provider] | None = None,
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
@@ -260,7 +261,7 @@ def create_model_ensemble_watch_router(
         response.headers.update(_PRIVATE_HEADERS)
         try:
             record = service.enable(
-                provider=Provider.CODEX,
+                provider=provider_resolver(session_id) if provider_resolver is not None else Provider.CODEX,
                 project_id=payload.project_id,
                 session_id=session_id,
                 max_messages=payload.max_messages,
