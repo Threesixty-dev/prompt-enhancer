@@ -72,6 +72,10 @@ import type {
   OnboardingAccept,
   OnboardingResult,
   OnboardingStatus,
+  CalibrationExport,
+  CalibrationProgress,
+  CalibrationRating,
+  CalibrationSample,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2338,6 +2342,30 @@ export function createHttpTransport(options: {
     },
     getOnboardingStatus(signal) {
       return request<OnboardingStatus>("/v1/onboarding", { method: "GET" }, signal);
+    },
+    getCalibrationSample(raterLabel, signal) {
+      const query = raterLabel ? `?rater_label=${encodeURIComponent(raterLabel)}` : "";
+      return request<CalibrationSample>(`/v1/calibration/sample${query}`, { method: "GET" }, signal);
+    },
+    submitCalibrationRatings(payload, signal) {
+      return request<CalibrationProgress>(
+        "/v1/calibration/ratings",
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+      );
+    },
+    getCalibrationRatings(raterLabel, signal) {
+      return request<CalibrationRating[]>(
+        `/v1/calibration/ratings?rater_label=${encodeURIComponent(raterLabel)}`,
+        { method: "GET" },
+        signal,
+      );
+    },
+    getCalibrationProgress(signal) {
+      return request<CalibrationProgress>("/v1/calibration/progress", { method: "GET" }, signal);
+    },
+    getCalibrationExport(signal) {
+      return request<CalibrationExport>("/v1/calibration/export", { method: "GET" }, signal);
     },
     acceptOnboarding(payload, signal) {
       return request<OnboardingResult>(

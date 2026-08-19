@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PromptEnhancerTransport, SessionTranscript, SessionTranscriptTurn } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { Icon } from "../../shared/ui/Icon";
@@ -52,13 +52,38 @@ function timeLabel(value: string | null): string {
 export function SessionTranscriptPane({
   sessionId,
   transport,
+  autoLoad = false,
 }: {
   sessionId: string;
   transport: Pick<PromptEnhancerTransport, "getSessionTranscript">;
+  /** Read as soon as the pane mounts (calibration); the default waits for the button. */
+  autoLoad?: boolean;
 }) {
   const [state, setState] = useState<"idle" | "loading" | "ready" | "off" | "consent" | "missing" | "error">("idle");
   const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (!autoLoad) return;
+    let cancelled = false;
+    setState("loading");
+    setTranscript(null);
+    transport.getSessionTranscript(sessionId)
+      .then((value) => {
+        if (cancelled) return;
+        if (!safeTranscript(value)) { setState("error"); return; }
+        setTranscript(value);
+        setState("ready");
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        if (caught instanceof TransportError && caught.status === 404) setState("off");
+        else if (caught instanceof TransportError && caught.status === 403) setState("consent");
+        else if (caught instanceof TransportError && caught.status === 409) setState("missing");
+        else setState("error");
+      });
+    return () => { cancelled = true; };
+  }, [autoLoad, sessionId, transport]);
 
   async function load() {
     setState("loading");

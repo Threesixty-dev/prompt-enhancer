@@ -8,6 +8,7 @@ export type AppRoute =
   | { name: "task_flow" }
   | { name: "projects" }
   | { name: "sessions" }
+  | { name: "calibration" }
   | { name: "project_overview"; projectId: string }
   | { name: "project_sessions"; projectId: string }
   | { name: "project_automation"; projectId: string }
@@ -60,6 +61,7 @@ export function parseRoute(pathname: string): AppRoute {
   if (/^\/tasks\/flow\/?$/.test(pathname)) return { name: "task_flow" };
   if (/^\/projects\/?$/.test(pathname)) return { name: "projects" };
   if (/^\/sessions\/?$/.test(pathname)) return { name: "sessions" };
+  if (/^\/calibration\/?$/.test(pathname)) return { name: "calibration" };
 
   const sessionMetricMatch = pathname.match(
     /^\/projects\/([a-f0-9]{64})\/sessions\/([a-f0-9]{64})\/metrics\/([a-z-]+)\/?$/,
@@ -126,6 +128,7 @@ export function routePath(route: AppRoute): string {
   if (route.name === "task_flow") return "/tasks/flow";
   if (route.name === "projects") return "/projects";
   if (route.name === "sessions") return "/sessions";
+  if (route.name === "calibration") return "/calibration";
   if (route.name === "project_overview") {
     assertPseudonym(route.projectId);
     return `/projects/${route.projectId}/overview`;

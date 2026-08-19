@@ -1,0 +1,404 @@
+"""Blind human ratings of the owner's own sessions, for calibration.
+
+A person reads a session in the reader (ADR 0011) and rates a few metrics on
+a closed ordinal scale, or says they cannot judge.  Ratings are the
+independent human truth source the estimator calibration math accepts
+(``TruthSource.INDEPENDENT_HUMAN``); model values are never shown on the
+rating page, and nothing here stores text - only pseudonymous identifiers,
+labels and timestamps.
+
+The sample is frozen on first use: a deterministic, provider-stratified
+selection of indexed sessions, so ratings gathered over several sittings stay
+comparable.  The rater is known only by a pseudonym derived from a label the
+person types; the label itself is not stored.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
+from enum import StrEnum
+import hashlib
+from typing import Literal, Protocol
+
+from pydantic import Field, field_validator
+
+from ...domain import PSEUDONYM_PATTERN, Provider, StrictModel
+
+
+CALIBRATION_CONTRACT_VERSION = "calibration-ratings.v1"
+CALIBRATION_SAMPLE_VERSION = "calibration-sample-v1"
+CALIBRATION_RATING_VERSION = "calibration-rating-v1"
+DEFAULT_SAMPLE_SIZE = 96
+MAX_SAMPLE_SIZE = 1000
+MAX_CANDIDATE_SESSIONS = 5_000
+RATER_NAMESPACE = "calibration:rater"
+
+#: The three rubric metrics a person rates blind in the first wave.  They are
+#: the ones the P1 profile emits for every session and whose wording a reader
+#: can judge from the transcript alone.
+CALIBRATION_METRIC_KEYS: tuple[str, ...] = (
+    "prompt.task_definition_coverage",
+    "prompt.context_sufficiency",
+    "outcome.verification_strategy_adequacy",
+)
+
+
+class RatingLabel(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CANNOT_JUDGE = "cannot_judge"
+
+
+class CalibrationSampleMember(StrictModel):
+    position: int = Field(ge=0)
+    session_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    provider: Provider
+    project_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    project_display_name: str | None = Field(default=None, max_length=120)
+    session_display_name: str | None = Field(default=None, max_length=160)
+    started_at: datetime | None = None
+    rated_metric_keys: tuple[str, ...] = ()
+
+
+class CalibrationSample(StrictModel):
+    contract_version: Literal[CALIBRATION_CONTRACT_VERSION] = CALIBRATION_CONTRACT_VERSION
+    sample_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    sample_version: str
+    created_at: datetime
+    target_size: int = Field(ge=1, le=MAX_SAMPLE_SIZE)
+    metric_keys: tuple[str, ...] = CALIBRATION_METRIC_KEYS
+    members: tuple[CalibrationSampleMember, ...]
+
+
+class CalibrationRating(StrictModel):
+    rater_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    session_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    metric_key: str = Field(min_length=1, max_length=120)
+    label: RatingLabel
+    rated_at: datetime
+    revision: int = Field(ge=1)
+
+
+class RatingSubmission(StrictModel):
+    rater_label: str = Field(min_length=1, max_length=80)
+    session_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    ratings: dict[str, RatingLabel] = Field(min_length=1, max_length=len(CALIBRATION_METRIC_KEYS))
+
+    @field_validator("ratings")
+    @classmethod
+    def only_calibration_metrics(cls, value: dict[str, RatingLabel]) -> dict[str, RatingLabel]:
+        unknown = set(value) - set(CALIBRATION_METRIC_KEYS)
+        if unknown:
+            raise ValueError("ratings name a metric outside the calibration set")
+        return value
+
+    @field_validator("rater_label")
+    @classmethod
+    def printable_label(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped or any(ord(ch) < 32 or ord(ch) == 127 for ch in stripped):
+            raise ValueError("rater label must be printable")
+        return stripped
+
+
+class MetricRatingCount(StrictModel):
+    metric_key: str
+    rated_sessions: int = Field(ge=0)
+    low: int = Field(ge=0)
+    medium: int = Field(ge=0)
+    high: int = Field(ge=0)
+    cannot_judge: int = Field(ge=0)
+
+
+class CalibrationProgress(StrictModel):
+    contract_version: Literal[CALIBRATION_CONTRACT_VERSION] = CALIBRATION_CONTRACT_VERSION
+    sample_id: str | None = None
+    sample_size: int = Field(ge=0)
+    rated_sessions: int = Field(ge=0)
+    rater_count: int = Field(ge=0)
+    metrics: tuple[MetricRatingCount, ...]
+
+
+class CalibrationExportRow(StrictModel):
+    rater_id: str
+    session_id: str
+    provider: Provider
+    metric_key: str
+    label: RatingLabel
+    rated_at: datetime
+    revision: int
+
+
+class CalibrationExport(StrictModel):
+    """Content-free: pseudonyms, labels and timestamps only."""
+
+    contract_version: Literal[CALIBRATION_CONTRACT_VERSION] = CALIBRATION_CONTRACT_VERSION
+    sample_id: str | None
+    sample_version: str
+    rating_version: str
+    exported_at: datetime
+    rows: tuple[CalibrationExportRow, ...]
+
+
+class CalibrationRatingRepository(Protocol):
+    def get_sample(self) -> CalibrationSample | None: ...
+
+    def create_sample(self, sample: CalibrationSample) -> None: ...
+
+    def upsert_rating(
+        self,
+        *,
+        rater_id: str,
+        session_id: str,
+        metric_key: str,
+        label: RatingLabel,
+        rated_at: datetime,
+    ) -> CalibrationRating: ...
+
+    def list_ratings(
+        self, *, rater_id: str | None = None, session_id: str | None = None
+    ) -> tuple[CalibrationRating, ...]: ...
+
+
+class SessionCatalogReader(Protocol):
+    def list_sessions(self, *, limit: int, offset: int) -> list[dict[str, object]]: ...
+
+
+class Pseudonymizing(Protocol):
+    def pseudonymize(self, namespace: str, value: str) -> str: ...
+
+
+class CalibrationSampleEmptyError(RuntimeError):
+    """No indexed session exists yet, so no sample can be frozen."""
+
+
+class CalibrationSessionNotSampledError(ValueError):
+    """The rated session is not a member of the frozen sample."""
+
+
+def _stable_order_key(sample_version: str, session_id: str) -> str:
+    return hashlib.sha256(f"{sample_version}|{session_id}".encode("utf-8")).hexdigest()
+
+
+def stratified_selection(
+    candidates: Iterable[dict[str, object]],
+    *,
+    size: int,
+    sample_version: str = CALIBRATION_SAMPLE_VERSION,
+) -> list[dict[str, object]]:
+    """Deterministic, provider-stratified selection (round robin by provider).
+
+    Within a provider the order is a stable hash of the session pseudonym, so
+    the choice is pseudo-random but identical on every machine and run.
+    """
+
+    by_provider: dict[str, list[dict[str, object]]] = {}
+    for row in candidates:
+        provider = str(row.get("provider", ""))
+        by_provider.setdefault(provider, []).append(row)
+    for rows in by_provider.values():
+        rows.sort(key=lambda row: _stable_order_key(sample_version, str(row["session_id"])))
+    selected: list[dict[str, object]] = []
+    providers = sorted(by_provider)
+    cursors = {provider: 0 for provider in providers}
+    while len(selected) < size:
+        progressed = False
+        for provider in providers:
+            rows = by_provider[provider]
+            cursor = cursors[provider]
+            if cursor < len(rows):
+                selected.append(rows[cursor])
+                cursors[provider] = cursor + 1
+                progressed = True
+                if len(selected) >= size:
+                    break
+        if not progressed:
+            break
+    return selected
+
+
+class CalibrationRatingService:
+    def __init__(
+        self,
+        catalog: SessionCatalogReader,
+        repository: CalibrationRatingRepository,
+        pseudonymizer: Pseudonymizing,
+        *,
+        sample_size: int = DEFAULT_SAMPLE_SIZE,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
+        self._catalog = catalog
+        self._repository = repository
+        self._pseudonymizer = pseudonymizer
+        self._sample_size = max(1, min(int(sample_size), MAX_SAMPLE_SIZE))
+        self._clock = clock
+
+    def rater_id(self, rater_label: str) -> str:
+        return self._pseudonymizer.pseudonymize(RATER_NAMESPACE, rater_label.strip())
+
+    def _candidates(self) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        offset = 0
+        while len(rows) < MAX_CANDIDATE_SESSIONS:
+            page = self._catalog.list_sessions(limit=500, offset=offset)
+            rows.extend(page)
+            offset += len(page)
+            if len(page) < 500:
+                break
+        return rows
+
+    def sample(self, *, rater_label: str | None = None) -> CalibrationSample:
+        """The frozen sample, created on first call; never re-drawn."""
+
+        existing = self._repository.get_sample()
+        if existing is None:
+            candidates = self._candidates()
+            if not candidates:
+                raise CalibrationSampleEmptyError("no indexed session to sample")
+            chosen = stratified_selection(candidates, size=self._sample_size)
+            created_at = self._clock()
+            sample_id = hashlib.sha256(
+                "|".join([CALIBRATION_SAMPLE_VERSION, *(str(row["session_id"]) for row in chosen)]).encode("utf-8")
+            ).hexdigest()
+            existing = CalibrationSample(
+                sample_id=sample_id,
+                sample_version=CALIBRATION_SAMPLE_VERSION,
+                created_at=created_at,
+                target_size=self._sample_size,
+                members=tuple(
+                    CalibrationSampleMember(
+                        position=position,
+                        session_id=str(row["session_id"]),
+                        provider=Provider(str(row["provider"])),
+                        project_id=str(row["project_id"]),
+                        project_display_name=_label(row.get("project_display_name")),
+                        session_display_name=_label(row.get("session_display_name")),
+                        started_at=_timestamp(row.get("started_at")),
+                    )
+                    for position, row in enumerate(chosen)
+                ),
+            )
+            self._repository.create_sample(existing)
+        if rater_label is None:
+            return existing
+        rated = self._repository.list_ratings(rater_id=self.rater_id(rater_label))
+        by_session: dict[str, set[str]] = {}
+        for rating in rated:
+            by_session.setdefault(rating.session_id, set()).add(rating.metric_key)
+        return existing.model_copy(
+            update={
+                "members": tuple(
+                    member.model_copy(update={"rated_metric_keys": tuple(sorted(by_session.get(member.session_id, ())))})
+                    for member in existing.members
+                )
+            }
+        )
+
+    def rate(self, submission: RatingSubmission) -> CalibrationProgress:
+        sample = self.sample()
+        if submission.session_id not in {member.session_id for member in sample.members}:
+            raise CalibrationSessionNotSampledError("session is not part of the calibration sample")
+        rater_id = self.rater_id(submission.rater_label)
+        now = self._clock()
+        for metric_key, label in submission.ratings.items():
+            self._repository.upsert_rating(
+                rater_id=rater_id,
+                session_id=submission.session_id,
+                metric_key=metric_key,
+                label=label,
+                rated_at=now,
+            )
+        return self.progress()
+
+    def ratings_for(self, rater_label: str) -> tuple[CalibrationRating, ...]:
+        return self._repository.list_ratings(rater_id=self.rater_id(rater_label))
+
+    def progress(self) -> CalibrationProgress:
+        sample = self._repository.get_sample()
+        ratings = self._repository.list_ratings()
+        metrics: list[MetricRatingCount] = []
+        for metric_key in CALIBRATION_METRIC_KEYS:
+            rows = [rating for rating in ratings if rating.metric_key == metric_key]
+            metrics.append(
+                MetricRatingCount(
+                    metric_key=metric_key,
+                    rated_sessions=len({rating.session_id for rating in rows}),
+                    low=sum(1 for rating in rows if rating.label is RatingLabel.LOW),
+                    medium=sum(1 for rating in rows if rating.label is RatingLabel.MEDIUM),
+                    high=sum(1 for rating in rows if rating.label is RatingLabel.HIGH),
+                    cannot_judge=sum(1 for rating in rows if rating.label is RatingLabel.CANNOT_JUDGE),
+                )
+            )
+        return CalibrationProgress(
+            sample_id=None if sample is None else sample.sample_id,
+            sample_size=0 if sample is None else len(sample.members),
+            rated_sessions=len({rating.session_id for rating in ratings}),
+            rater_count=len({rating.rater_id for rating in ratings}),
+            metrics=tuple(metrics),
+        )
+
+    def export(self) -> CalibrationExport:
+        sample = self._repository.get_sample()
+        providers = {} if sample is None else {member.session_id: member.provider for member in sample.members}
+        rows = tuple(
+            CalibrationExportRow(
+                rater_id=rating.rater_id,
+                session_id=rating.session_id,
+                provider=providers.get(rating.session_id, Provider.SYNTHETIC),
+                metric_key=rating.metric_key,
+                label=rating.label,
+                rated_at=rating.rated_at,
+                revision=rating.revision,
+            )
+            for rating in self._repository.list_ratings()
+        )
+        return CalibrationExport(
+            sample_id=None if sample is None else sample.sample_id,
+            sample_version=CALIBRATION_SAMPLE_VERSION,
+            rating_version=CALIBRATION_RATING_VERSION,
+            exported_at=self._clock(),
+            rows=rows,
+        )
+
+
+def _label(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()[:160]
+    return None
+
+
+def _timestamp(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    if isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    return None
+
+
+__all__ = (
+    "CALIBRATION_CONTRACT_VERSION",
+    "CALIBRATION_METRIC_KEYS",
+    "CALIBRATION_RATING_VERSION",
+    "CALIBRATION_SAMPLE_VERSION",
+    "CalibrationExport",
+    "CalibrationExportRow",
+    "CalibrationProgress",
+    "CalibrationRating",
+    "CalibrationRatingRepository",
+    "CalibrationRatingService",
+    "CalibrationSample",
+    "CalibrationSampleEmptyError",
+    "CalibrationSampleMember",
+    "CalibrationSessionNotSampledError",
+    "DEFAULT_SAMPLE_SIZE",
+    "MetricRatingCount",
+    "RatingLabel",
+    "RatingSubmission",
+    "stratified_selection",
+)

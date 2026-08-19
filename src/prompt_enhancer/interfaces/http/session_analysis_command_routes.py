@@ -359,12 +359,18 @@ def _analysis_failure(error: Exception) -> HTTPException:
 def create_session_analysis_command_router(
     require_local_auth: Callable[..., None],
     service: SessionTextAnalysisCommand,
+    provider_resolver: Callable[[str], Provider] | None = None,
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
         tags=["session-quality-analysis"],
         dependencies=[Depends(require_local_auth)],
     )
+
+    def provider_of(session_id: str) -> Provider:
+        # The session's own provider decides which local text source is read;
+        # without a resolver the historical Codex default applies.
+        return provider_resolver(session_id) if provider_resolver is not None else Provider.CODEX
 
     @router.post(
         "/sessions/{session_id}/quality-analysis-previews",
@@ -390,7 +396,7 @@ def create_session_analysis_command_router(
         response.headers.update(_PRIVATE_NO_STORE_HEADERS)
         try:
             inspection = service.prepare_preset_preview(
-                provider=Provider.CODEX,
+                provider=provider_of(session_id),
                 session_id=session_id,
                 preset_id=payload.preset_id,
             )
@@ -494,7 +500,7 @@ def create_session_analysis_command_router(
     ) -> SessionTextAnalysisCommandResponse:
         try:
             outcome = service.run_preset(
-                provider=Provider.CODEX,
+                provider=provider_of(session_id),
                 session_id=session_id,
                 preset_id=payload.preset_id,
                 confirmation=payload.confirmation,

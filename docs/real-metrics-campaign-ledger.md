@@ -1265,6 +1265,13 @@ containing the session, declaring no task family when none or several do.
 Per-provider safe-event descriptors let Claude transcript sessions project the
 same evidence as Codex. A reviewed task without any receipt stays unknown.
 
+Migration 48 adds the blind calibration ratings surface (`/v1/calibration/*`,
+dashboard "Calibration" page): a frozen provider-stratified sample of the
+owner's indexed sessions, three rubric metrics rated low / medium / high /
+cannot-judge while reading the session in the ADR 0011 reader, rater stored
+as a pseudonym, export content-free. These ratings are gathered, not yet fed
+into any activation gate; no estimator changes state because of them.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

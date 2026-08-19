@@ -28,6 +28,7 @@ from .session_text_service import (
 from .text_analysis_presets import COACHING_PROFILE_V1
 from .text_contracts import P1TextAnalysisInput, TextMessageKind, TextRole
 from .text_source import (
+    TEXT_ANALYSIS_PROVIDERS,
     TextAnalysisPurpose,
     TextAnalysisSelection,
     TextSourceAccessGrant,
@@ -425,7 +426,7 @@ class SessionModelLinkExperimentService:
         device: ModelExperimentDevice,
         idempotency_key: str,
     ) -> ModelLinkExperimentOutcome:
-        if provider is not Provider.CODEX or PSEUDONYM_PATTERN.fullmatch(session_id) is None:
+        if provider not in TEXT_ANALYSIS_PROVIDERS or PSEUDONYM_PATTERN.fullmatch(session_id) is None:
             raise ModelLinkInputError("model-link selection is invalid")
         if confirmation != MODEL_LINK_CONFIRMATION:
             raise ModelLinkConfirmationError("explicit model-link confirmation is required")

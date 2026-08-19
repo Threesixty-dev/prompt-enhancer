@@ -337,6 +337,7 @@ def create_app(
     telemetry_ingest_service=None,
     session_reader_service=None,
     onboarding_service=None,
+    calibration_rating_service=None,
     local_source_refresh_worker=None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
@@ -403,6 +404,15 @@ def create_app(
         lifespan=local_lifespan,
     )
     app.state.database = database
+
+    def _session_provider(session_id: str) -> Provider:
+        """The catalog's provider for a session (Codex when unknown)."""
+
+        try:
+            record = database.get_session(session_id) if database is not None else None
+        except Exception:
+            record = None
+        return record.provider if record is not None else Provider.CODEX
     app.state.api_token = resolved_token
     app.state.settings = resolved_settings
     app.state.browser_sessions = browser_session_manager or BrowserSessionManager()
@@ -750,6 +760,7 @@ def create_app(
             create_session_analysis_command_router(
                 require_local_token,
                 session_text_analysis_service,
+                provider_resolver=_session_provider,
             )
         )
     if analysis_job_service is not None:
@@ -818,6 +829,7 @@ def create_app(
             create_model_link_experiment_router(
                 require_local_token,
                 session_model_link_experiment_service,
+                provider_resolver=_session_provider,
             )
         )
     if session_model_ensemble_service is not None:
@@ -825,6 +837,7 @@ def create_app(
             create_model_ensemble_router(
                 require_local_token,
                 session_model_ensemble_service,
+                provider_resolver=_session_provider,
             )
         )
     if (
@@ -858,6 +871,10 @@ def create_app(
         app.include_router(
             create_otlp_ingest_router(otlp_ingest_token, telemetry_ingest_service)
         )
+    if calibration_rating_service is not None:
+        from .interfaces.http.calibration_routes import create_calibration_router
+
+        app.include_router(create_calibration_router(require_local_token, calibration_rating_service))
     if session_reader_service is not None and session_reader_service.enabled:
         app.include_router(
             create_session_reader_router(require_local_token, session_reader_service)

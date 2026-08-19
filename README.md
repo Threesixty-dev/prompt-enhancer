@@ -102,6 +102,8 @@ Only `api_request` usage and the documented session counters are recorded; accou
 
 Analysis is automatic once a source is consented: every indexed project receives a standing local automation grant, and the single serial analysis lane scores new and changed sessions from Codex and Claude Code alike - the Claude rubric metrics read your own transcript files through the same redacting text source ([ADR 0011](docs/adr/0011-owner-authorized-session-reader.md)). Revoking a source's consent revokes its grants.
 
+The **Calibration** page draws a frozen, provider-stratified sample of your own indexed sessions (96 by default) and lets you rate three rubric metrics blind - task definition, context given, verification strategy - as low / medium / high / can't judge while reading the session. Model values are never shown there; ratings are stored locally under a rater pseudonym (`calibration_ratings`, migration 48) and export as labels and pseudonyms only (`GET /v1/calibration/export`). Those ratings are the independent human reference the estimator calibration math accepts; nothing becomes "calibrated" by this page alone.
+
 To read your own sessions inside the dashboard - for example while rating them for calibration - start the server with `PROMPT_ENHANCER_SESSION_READER=enabled` ([ADR 0011](docs/adr/0011-owner-authorized-session-reader.md)). Codex sessions are read through the documented app-server; Claude Code sessions are read from your own transcript files, on demand, bounded, and never persisted. The `raw_transcripts` capability reports `true` only while this is on.
 
 The dashboard's development profile is synthetic and does not require the local API token:

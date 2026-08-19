@@ -550,6 +550,21 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async acceptOnboarding() {
       throw new TransportError("Onboarding is unavailable in synthetic preview", 404);
     },
+    async getCalibrationSample() {
+      throw new TransportError("Calibration is unavailable in synthetic preview", 404);
+    },
+    async submitCalibrationRatings() {
+      throw new TransportError("Calibration is unavailable in synthetic preview", 404);
+    },
+    async getCalibrationRatings() {
+      throw new TransportError("Calibration is unavailable in synthetic preview", 404);
+    },
+    async getCalibrationProgress() {
+      throw new TransportError("Calibration is unavailable in synthetic preview", 404);
+    },
+    async getCalibrationExport() {
+      throw new TransportError("Calibration is unavailable in synthetic preview", 404);
+    },
     async getSessionTranscript() {
       throw new TransportError("Session reading is unavailable in synthetic preview", 404);
     },

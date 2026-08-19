@@ -12623,3 +12623,51 @@ ALTER TABLE claude_code_hook_sessions ADD COLUMN session_display_label TEXT
     CHECK(session_display_label IS NULL OR length(session_display_label) BETWEEN 1 AND 160);
 COMMIT;
 """
+
+MIGRATION_48 = r"""
+BEGIN IMMEDIATE;
+
+-- Calibration ratings: a person reads their own session in the reader and
+-- rates a few metrics blind.  Only pseudonymous identifiers, a closed label
+-- vocabulary and timestamps are stored - never text, never a model value.
+-- The sample is frozen once so ratings stay comparable across visits.
+CREATE TABLE calibration_samples (
+    sample_id TEXT PRIMARY KEY
+        CHECK(length(sample_id) = 64 AND sample_id GLOB '[0-9a-f]*'),
+    sample_version TEXT NOT NULL
+        CHECK(length(sample_version) BETWEEN 1 AND 64),
+    created_at TEXT NOT NULL,
+    target_size INTEGER NOT NULL CHECK(target_size BETWEEN 1 AND 1000)
+) STRICT;
+
+CREATE TABLE calibration_sample_members (
+    sample_id TEXT NOT NULL REFERENCES calibration_samples(sample_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL CHECK(position >= 0),
+    session_id TEXT NOT NULL
+        CHECK(length(session_id) = 64 AND session_id GLOB '[0-9a-f]*'),
+    provider TEXT NOT NULL CHECK(provider IN ('codex', 'claude_code', 'synthetic')),
+    PRIMARY KEY (sample_id, position),
+    UNIQUE (sample_id, session_id)
+) STRICT;
+
+CREATE TABLE calibration_ratings (
+    rater_id TEXT NOT NULL
+        CHECK(length(rater_id) = 64 AND rater_id GLOB '[0-9a-f]*'),
+    session_id TEXT NOT NULL
+        CHECK(length(session_id) = 64 AND session_id GLOB '[0-9a-f]*'),
+    metric_key TEXT NOT NULL
+        CHECK(length(metric_key) BETWEEN 1 AND 120),
+    label TEXT NOT NULL
+        CHECK(label IN ('low', 'medium', 'high', 'cannot_judge')),
+    rating_version TEXT NOT NULL
+        CHECK(length(rating_version) BETWEEN 1 AND 64),
+    rated_at TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision >= 1),
+    PRIMARY KEY (rater_id, session_id, metric_key)
+) STRICT;
+
+CREATE INDEX calibration_ratings_by_session
+    ON calibration_ratings(session_id, metric_key);
+
+COMMIT;
+"""

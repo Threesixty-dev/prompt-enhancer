@@ -176,6 +176,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calibration/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export */
+        get: operations["export_v1_calibration_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calibration/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Progress */
+        get: operations["progress_v1_calibration_progress_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calibration/ratings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ratings */
+        get: operations["ratings_v1_calibration_ratings_get"];
+        /** Rate */
+        put: operations["rate_v1_calibration_ratings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calibration/sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sample */
+        get: operations["sample_v1_calibration_sample_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/capabilities": {
         parameters: {
             query?: never;
@@ -2216,6 +2285,137 @@ export interface components {
          */
         AutomationRoute: "fast" | "balanced" | "deep";
         /**
+         * CalibrationExport
+         * @description Content-free: pseudonyms, labels and timestamps only.
+         */
+        CalibrationExport: {
+            /**
+             * Contract Version
+             * @default calibration-ratings.v1
+             * @constant
+             */
+            contract_version: "calibration-ratings.v1";
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            /** Rating Version */
+            rating_version: string;
+            /** Rows */
+            rows: components["schemas"]["CalibrationExportRow"][];
+            /** Sample Id */
+            sample_id: string | null;
+            /** Sample Version */
+            sample_version: string;
+        };
+        /** CalibrationExportRow */
+        CalibrationExportRow: {
+            label: components["schemas"]["RatingLabel"];
+            /** Metric Key */
+            metric_key: string;
+            provider: components["schemas"]["Provider"];
+            /**
+             * Rated At
+             * Format: date-time
+             */
+            rated_at: string;
+            /** Rater Id */
+            rater_id: string;
+            /** Revision */
+            revision: number;
+            /** Session Id */
+            session_id: string;
+        };
+        /** CalibrationProgress */
+        CalibrationProgress: {
+            /**
+             * Contract Version
+             * @default calibration-ratings.v1
+             * @constant
+             */
+            contract_version: "calibration-ratings.v1";
+            /** Metrics */
+            metrics: components["schemas"]["MetricRatingCount"][];
+            /** Rated Sessions */
+            rated_sessions: number;
+            /** Rater Count */
+            rater_count: number;
+            /** Sample Id */
+            sample_id?: string | null;
+            /** Sample Size */
+            sample_size: number;
+        };
+        /** CalibrationRating */
+        CalibrationRating: {
+            label: components["schemas"]["RatingLabel"];
+            /** Metric Key */
+            metric_key: string;
+            /**
+             * Rated At
+             * Format: date-time
+             */
+            rated_at: string;
+            /** Rater Id */
+            rater_id: string;
+            /** Revision */
+            revision: number;
+            /** Session Id */
+            session_id: string;
+        };
+        /** CalibrationSample */
+        CalibrationSample: {
+            /**
+             * Contract Version
+             * @default calibration-ratings.v1
+             * @constant
+             */
+            contract_version: "calibration-ratings.v1";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Members */
+            members: components["schemas"]["CalibrationSampleMember"][];
+            /**
+             * Metric Keys
+             * @default [
+             *       "prompt.task_definition_coverage",
+             *       "prompt.context_sufficiency",
+             *       "outcome.verification_strategy_adequacy"
+             *     ]
+             */
+            metric_keys: string[];
+            /** Sample Id */
+            sample_id: string;
+            /** Sample Version */
+            sample_version: string;
+            /** Target Size */
+            target_size: number;
+        };
+        /** CalibrationSampleMember */
+        CalibrationSampleMember: {
+            /** Position */
+            position: number;
+            /** Project Display Name */
+            project_display_name?: string | null;
+            /** Project Id */
+            project_id: string;
+            provider: components["schemas"]["Provider"];
+            /**
+             * Rated Metric Keys
+             * @default []
+             */
+            rated_metric_keys: string[];
+            /** Session Display Name */
+            session_display_name?: string | null;
+            /** Session Id */
+            session_id: string;
+            /** Started At */
+            started_at?: string | null;
+        };
+        /**
          * CandidateDecisionStatus
          * @enum {string}
          */
@@ -3855,6 +4055,21 @@ export interface components {
          * @enum {string}
          */
         MetricRadarPolicy: "direct_bounded_ratio" | "exact_value_only_unnormalized_lower_is_better";
+        /** MetricRatingCount */
+        MetricRatingCount: {
+            /** Cannot Judge */
+            cannot_judge: number;
+            /** High */
+            high: number;
+            /** Low */
+            low: number;
+            /** Medium */
+            medium: number;
+            /** Metric Key */
+            metric_key: string;
+            /** Rated Sessions */
+            rated_sessions: number;
+        };
         /** MetricReadiness */
         MetricReadiness: {
             /**
@@ -5783,6 +5998,22 @@ export interface components {
             state: components["schemas"]["MetricStateV2"];
         };
         /**
+         * RatingLabel
+         * @enum {string}
+         */
+        RatingLabel: "low" | "medium" | "high" | "cannot_judge";
+        /** RatingSubmission */
+        RatingSubmission: {
+            /** Rater Label */
+            rater_label: string;
+            /** Ratings */
+            ratings: {
+                [key: string]: components["schemas"]["RatingLabel"];
+            };
+            /** Session Id */
+            session_id: string;
+        };
+        /**
          * ReaderRole
          * @enum {string}
          */
@@ -7592,6 +7823,174 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_v1_calibration_export_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationExport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    progress_v1_calibration_progress_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationProgress"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ratings_v1_calibration_ratings_get: {
+        parameters: {
+            query: {
+                rater_label: string;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationRating"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rate_v1_calibration_ratings_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RatingSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationProgress"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sample_v1_calibration_sample_get: {
+        parameters: {
+            query?: {
+                rater_label?: string | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalibrationSample"];
+                };
             };
             /** @description Validation Error */
             422: {

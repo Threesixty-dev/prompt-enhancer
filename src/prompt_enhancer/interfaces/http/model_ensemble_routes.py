@@ -449,12 +449,16 @@ def _failure(error: Exception) -> HTTPException:
 def create_model_ensemble_router(
     require_local_auth: Callable[..., None],
     service: ModelEnsembleCommand,
+    provider_resolver: Callable[[str], Provider] | None = None,
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
         tags=["local-model-ensemble"],
         dependencies=[Depends(require_local_auth)],
     )
+
+    def provider_of(session_id: str) -> Provider:
+        return provider_resolver(session_id) if provider_resolver is not None else Provider.CODEX
 
     @router.post(
         "/sessions/{session_id}/model-ensemble-runs",
@@ -472,7 +476,7 @@ def create_model_ensemble_router(
         response.headers.update(_PRIVATE_HEADERS)
         try:
             outcome = service.run(
-                provider=Provider.CODEX,
+                provider=provider_of(session_id),
                 session_id=session_id,
                 confirmation=payload.confirmation,
                 idempotency_key=idempotency_key,

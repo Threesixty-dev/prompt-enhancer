@@ -13,6 +13,11 @@ from typing import Protocol, runtime_checkable
 from pydantic import Field, field_validator, model_validator
 
 from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, StrictModel
+
+#: Providers with a reviewed local text surface (Codex app-server window;
+#: Claude Code transcript window, ADR 0011).  Every text-analysis entry point
+#: that used to say "Codex only" gates on this set instead.
+TEXT_ANALYSIS_PROVIDERS: frozenset[Provider] = frozenset({Provider.CODEX, Provider.CLAUDE_CODE})
 from .text_contracts import (
     MAX_ANALYSIS_CHARACTERS,
     MAX_ANALYSIS_MESSAGES,

@@ -77,6 +77,13 @@ export type OnboardingStatus = Schemas["OnboardingStatus"];
 export type ProviderDetection = Schemas["ProviderDetection"];
 export type OnboardingAccept = Schemas["OnboardingAccept"];
 export type OnboardingResult = Schemas["OnboardingResult"];
+export type CalibrationSample = Schemas["CalibrationSample"];
+export type CalibrationSampleMember = Schemas["CalibrationSampleMember"];
+export type CalibrationRating = Schemas["CalibrationRating"];
+export type CalibrationProgress = Schemas["CalibrationProgress"];
+export type CalibrationExport = Schemas["CalibrationExport"];
+export type RatingSubmission = Schemas["RatingSubmission"];
+export type RatingLabel = Schemas["RatingLabel"];
 export type SessionTranscriptTurn = Schemas["ReaderTurn"];
 export type Provider = Schemas["Provider"];
 export type ProviderCapabilityReport = Schemas["ProviderCapabilityReport"];
@@ -517,6 +524,12 @@ export interface PromptEnhancerTransport {
   getSessionTranscript(sessionId: string, signal?: AbortSignal): Promise<SessionTranscript>;
   getOnboardingStatus(signal?: AbortSignal): Promise<OnboardingStatus>;
   acceptOnboarding(request: OnboardingAccept, signal?: AbortSignal): Promise<OnboardingResult>;
+  /** Blind calibration ratings over a frozen sample of the owner's own sessions. */
+  getCalibrationSample(raterLabel: string | null, signal?: AbortSignal): Promise<CalibrationSample>;
+  submitCalibrationRatings(request: RatingSubmission, signal?: AbortSignal): Promise<CalibrationProgress>;
+  getCalibrationRatings(raterLabel: string, signal?: AbortSignal): Promise<CalibrationRating[]>;
+  getCalibrationProgress(signal?: AbortSignal): Promise<CalibrationProgress>;
+  getCalibrationExport(signal?: AbortSignal): Promise<CalibrationExport>;
   getClaudeLocalSourceStatus(signal?: AbortSignal): Promise<ClaudeCodeLocalSourceStatus>;
   grantClaudeLocalHistoryConsent(signal?: AbortSignal): Promise<ClaudeCodeLocalSourceStatus>;
   revokeClaudeLocalHistoryConsent(signal?: AbortSignal): Promise<ClaudeCodeLocalSourceStatus>;

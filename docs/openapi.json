@@ -1530,6 +1530,331 @@
         "title": "AutomationRoute",
         "type": "string"
       },
+      "CalibrationExport": {
+        "additionalProperties": false,
+        "description": "Content-free: pseudonyms, labels and timestamps only.",
+        "properties": {
+          "contract_version": {
+            "const": "calibration-ratings.v1",
+            "default": "calibration-ratings.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "exported_at": {
+            "format": "date-time",
+            "title": "Exported At",
+            "type": "string"
+          },
+          "rating_version": {
+            "title": "Rating Version",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationExportRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "sample_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Id"
+          },
+          "sample_version": {
+            "title": "Sample Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample_id",
+          "sample_version",
+          "rating_version",
+          "exported_at",
+          "rows"
+        ],
+        "title": "CalibrationExport",
+        "type": "object"
+      },
+      "CalibrationExportRow": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "$ref": "#/components/schemas/RatingLabel"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "rated_at": {
+            "format": "date-time",
+            "title": "Rated At",
+            "type": "string"
+          },
+          "rater_id": {
+            "title": "Rater Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rater_id",
+          "session_id",
+          "provider",
+          "metric_key",
+          "label",
+          "rated_at",
+          "revision"
+        ],
+        "title": "CalibrationExportRow",
+        "type": "object"
+      },
+      "CalibrationProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "calibration-ratings.v1",
+            "default": "calibration-ratings.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricRatingCount"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "rated_sessions": {
+            "minimum": 0.0,
+            "title": "Rated Sessions",
+            "type": "integer"
+          },
+          "rater_count": {
+            "minimum": 0.0,
+            "title": "Rater Count",
+            "type": "integer"
+          },
+          "sample_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Id"
+          },
+          "sample_size": {
+            "minimum": 0.0,
+            "title": "Sample Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sample_size",
+          "rated_sessions",
+          "rater_count",
+          "metrics"
+        ],
+        "title": "CalibrationProgress",
+        "type": "object"
+      },
+      "CalibrationRating": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "$ref": "#/components/schemas/RatingLabel"
+          },
+          "metric_key": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "rated_at": {
+            "format": "date-time",
+            "title": "Rated At",
+            "type": "string"
+          },
+          "rater_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Rater Id",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rater_id",
+          "session_id",
+          "metric_key",
+          "label",
+          "rated_at",
+          "revision"
+        ],
+        "title": "CalibrationRating",
+        "type": "object"
+      },
+      "CalibrationSample": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "calibration-ratings.v1",
+            "default": "calibration-ratings.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationSampleMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "metric_keys": {
+            "default": [
+              "prompt.task_definition_coverage",
+              "prompt.context_sufficiency",
+              "outcome.verification_strategy_adequacy"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Keys",
+            "type": "array"
+          },
+          "sample_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Sample Id",
+            "type": "string"
+          },
+          "sample_version": {
+            "title": "Sample Version",
+            "type": "string"
+          },
+          "target_size": {
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Target Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sample_id",
+          "sample_version",
+          "created_at",
+          "target_size",
+          "members"
+        ],
+        "title": "CalibrationSample",
+        "type": "object"
+      },
+      "CalibrationSampleMember": {
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "minimum": 0.0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "project_display_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Display Name"
+          },
+          "project_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "rated_metric_keys": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Rated Metric Keys",
+            "type": "array"
+          },
+          "session_display_name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Display Name"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "position",
+          "session_id",
+          "provider",
+          "project_id"
+        ],
+        "title": "CalibrationSampleMember",
+        "type": "object"
+      },
       "CandidateDecisionStatus": {
         "enum": [
           "undecided",
@@ -5317,6 +5642,50 @@
         ],
         "title": "MetricRadarPolicy",
         "type": "string"
+      },
+      "MetricRatingCount": {
+        "additionalProperties": false,
+        "properties": {
+          "cannot_judge": {
+            "minimum": 0.0,
+            "title": "Cannot Judge",
+            "type": "integer"
+          },
+          "high": {
+            "minimum": 0.0,
+            "title": "High",
+            "type": "integer"
+          },
+          "low": {
+            "minimum": 0.0,
+            "title": "Low",
+            "type": "integer"
+          },
+          "medium": {
+            "minimum": 0.0,
+            "title": "Medium",
+            "type": "integer"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "rated_sessions": {
+            "minimum": 0.0,
+            "title": "Rated Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "metric_key",
+          "rated_sessions",
+          "low",
+          "medium",
+          "high",
+          "cannot_judge"
+        ],
+        "title": "MetricRatingCount",
+        "type": "object"
       },
       "MetricReadiness": {
         "additionalProperties": false,
@@ -10592,6 +10961,48 @@
         "title": "PublishedMetricV2",
         "type": "object"
       },
+      "RatingLabel": {
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "cannot_judge"
+        ],
+        "title": "RatingLabel",
+        "type": "string"
+      },
+      "RatingSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "rater_label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Rater Label",
+            "type": "string"
+          },
+          "ratings": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RatingLabel"
+            },
+            "maxProperties": 3,
+            "minProperties": 1,
+            "title": "Ratings",
+            "type": "object"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rater_label",
+          "session_id",
+          "ratings"
+        ],
+        "title": "RatingSubmission",
+        "type": "object"
+      },
       "ReaderRole": {
         "enum": [
           "user",
@@ -15371,6 +15782,372 @@
         "summary": "Revoke Grant",
         "tags": [
           "automation-grants"
+        ]
+      }
+    },
+    "/v1/calibration/export": {
+      "get": {
+        "operationId": "export_v1_calibration_export_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalibrationExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/v1/calibration/progress": {
+      "get": {
+        "operationId": "progress_v1_calibration_progress_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalibrationProgress"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Progress",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/v1/calibration/ratings": {
+      "get": {
+        "operationId": "ratings_v1_calibration_ratings_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "rater_label",
+            "required": true,
+            "schema": {
+              "maxLength": 80,
+              "minLength": 1,
+              "title": "Rater Label",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CalibrationRating"
+                  },
+                  "title": "Response Ratings V1 Calibration Ratings Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ratings",
+        "tags": [
+          "calibration"
+        ]
+      },
+      "put": {
+        "operationId": "rate_v1_calibration_ratings_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RatingSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalibrationProgress"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rate",
+        "tags": [
+          "calibration"
+        ]
+      }
+    },
+    "/v1/calibration/sample": {
+      "get": {
+        "operationId": "sample_v1_calibration_sample_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "rater_label",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Rater Label"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalibrationSample"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sample",
+        "tags": [
+          "calibration"
         ]
       }
     },

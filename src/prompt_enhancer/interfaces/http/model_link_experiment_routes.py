@@ -268,12 +268,16 @@ def _failure(status_code: int, code: ModelLinkFailureCode, message: str) -> HTTP
 def create_model_link_experiment_router(
     require_local_auth: Callable[..., None],
     service: ModelLinkExperimentCommand,
+    provider_resolver: Callable[[str], Provider] | None = None,
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
         tags=["local-model-link-experiments"],
         dependencies=[Depends(require_local_auth)],
     )
+
+    def provider_of(session_id: str) -> Provider:
+        return provider_resolver(session_id) if provider_resolver is not None else Provider.CODEX
 
     @router.post(
         "/sessions/{session_id}/model-link-experiments",
@@ -301,7 +305,7 @@ def create_model_link_experiment_router(
     ) -> ModelLinkExperimentCommandResponse:
         try:
             outcome = service.run(
-                provider=Provider.CODEX,
+                provider=provider_of(session_id),
                 session_id=session_id,
                 confirmation=payload.confirmation,
                 device=payload.device,

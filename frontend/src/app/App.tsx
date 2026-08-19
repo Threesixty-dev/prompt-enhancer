@@ -38,6 +38,9 @@ const LocalSourcesScreen = lazy(() =>
 const SessionsScreen = lazy(() =>
   import("../features/session-catalog/SessionsPage").then((module) => ({ default: module.SessionsPage })),
 );
+const CalibrationScreen = lazy(() =>
+  import("../features/calibration/CalibrationPage").then((module) => ({ default: module.CalibrationPage })),
+);
 const ProjectCatalogScreen = lazy(() =>
   import("../features/project-catalog").then((module) => ({
     default: module.ProjectCatalog,
@@ -153,6 +156,7 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "project_automation") return "Project automation";
   if (route.name === "projects") return "Projects";
   if (route.name === "sessions") return "Sessions";
+  if (route.name === "calibration") return "Calibration";
   if (route.name === "research") return "Methods & models";
   if (route.name === "team") return "Team analytics";
   if (route.name === "social") return "Social hub";
@@ -325,6 +329,15 @@ export function App({
             <span>Sessions</span>
           </button>
           <button
+            aria-current={route.name === "calibration" ? "page" : undefined}
+            className={route.name === "calibration" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "calibration" })}
+            type="button"
+          >
+            <Icon name="check" />
+            <span>Calibration</span>
+          </button>
+          <button
             aria-current={route.name === "discovery" ? "page" : undefined}
             className={route.name === "discovery" ? "primary-nav__item--active" : ""}
             onClick={() => navigate({ name: "discovery" })}
@@ -462,6 +475,8 @@ export function App({
                 </>
               ) : route.name === "sessions" ? (
                 <SessionsScreen navigate={navigate} transport={transport} />
+              ) : route.name === "calibration" ? (
+                <CalibrationScreen transport={transport} />
               ) : route.name === "projects" ? (
                 <ProjectCatalogScreen
                   coverageProvider={coverageProvider}

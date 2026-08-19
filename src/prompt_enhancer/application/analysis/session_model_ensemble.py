@@ -299,6 +299,8 @@ class SessionModelEnsembleService:
         ) = None,
     ) -> SessionModelEnsembleOutcome:
         if (
+            # The ensemble run tables still CHECK provider='codex'; widening to
+            # TEXT_ANALYSIS_PROVIDERS waits for the table rebuild (migration 49).
             provider is not Provider.CODEX
             or PSEUDONYM_PATTERN.fullmatch(session_id) is None
             or _IDEMPOTENCY.fullmatch(idempotency_key) is None

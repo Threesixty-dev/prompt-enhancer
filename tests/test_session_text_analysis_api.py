@@ -191,7 +191,9 @@ def test_explicit_quality_command_is_authenticated_and_content_free(tmp_path) ->
     }
     assert len(service.calls) == 1
     call = service.calls[0]
-    assert call["provider"] is Provider.CODEX
+    # The route passes the session's own catalog provider (the fixture seeds a
+    # synthetic session) instead of assuming Codex.
+    assert call["provider"] is Provider.SYNTHETIC
     assert call["session_id"] == session_id
     assert call["confirmation"] == SESSION_TEXT_ANALYSIS_CONFIRMATION
     assert call["preset_id"] is TextAnalysisPresetId.STANDARD_ENGINEERING_V1

@@ -274,6 +274,25 @@ class _SchemaOnboardingService:
         raise RuntimeError("schema-only service cannot index")
 
 
+class _SchemaCalibrationRatingService:
+    """Non-executing stand-in so the blind calibration routes are typed."""
+
+    def sample(self, *, rater_label=None):
+        raise RuntimeError("schema-only service cannot sample sessions")
+
+    def rate(self, submission):
+        raise RuntimeError("schema-only service cannot store ratings")
+
+    def ratings_for(self, rater_label):
+        raise RuntimeError("schema-only service cannot list ratings")
+
+    def progress(self):
+        raise RuntimeError("schema-only service cannot report progress")
+
+    def export(self):
+        raise RuntimeError("schema-only service cannot export")
+
+
 class _SchemaSessionReaderService:
     """Non-executing stand-in so the owner-authorized reader route is typed."""
 
@@ -415,6 +434,7 @@ def _build_schema_app(*, include_control_plane: bool):
         claude_source_service=_SchemaClaudeSourceService(),  # type: ignore[arg-type]
         session_reader_service=_SchemaSessionReaderService(),  # type: ignore[arg-type]
         onboarding_service=_SchemaOnboardingService(),  # type: ignore[arg-type]
+        calibration_rating_service=_SchemaCalibrationRatingService(),  # type: ignore[arg-type]
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),
     )

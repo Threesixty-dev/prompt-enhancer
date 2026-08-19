@@ -113,10 +113,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_45,
     MIGRATION_46,
     MIGRATION_47,
+    MIGRATION_48,
 )
 
 
-SCHEMA_VERSION = 47
+SCHEMA_VERSION = 48
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1643,6 +1644,7 @@ class Database:
                 (45, MIGRATION_45),
                 (46, MIGRATION_46),
                 (47, MIGRATION_47),
+                (48, MIGRATION_48),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1820,6 +1822,16 @@ class Database:
         return TelemetryIngestService(
             self._connection, self._ensure_initialized, pseudonymizer
         )
+
+    def calibration_rating_repository(self):
+        """Frozen calibration sample and blind ratings (content-free)."""
+
+        from .infrastructure.sqlite.calibration_ratings import (
+            SqliteCalibrationRatingRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteCalibrationRatingRepository(self._connection, self._ensure_initialized)
 
     def claude_hook_ledger(self):
         """Return the read side of the Claude Code hook ledger."""

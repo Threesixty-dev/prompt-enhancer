@@ -284,6 +284,17 @@ class LocalApplication:
             enable_automation=enable_automation,
         )
 
+    def create_calibration_rating_service(self):
+        """Blind ratings of the owner's own sessions over a frozen sample."""
+
+        from .application.analysis.calibration_ratings import CalibrationRatingService
+
+        return CalibrationRatingService(
+            self.database,
+            self.database.calibration_rating_repository(),
+            self.pseudonymizer,
+        )
+
     def create_session_reader_service(self):
         """Owner-authorized on-demand session reading (ADR 0011); off by default."""
 
@@ -525,20 +536,21 @@ class LocalApplication:
             SubprocessSessionModelLinkRunner(),
         )
 
-    def create_session_model_ensemble_service(
-        self,
-        compatibility_policy: ProviderSurfaceCompatibilityPolicy,
-    ) -> SessionModelEnsembleService:
-        """Compose the serial, process-isolated all-metric live pipeline."""
+    def create_typed_evidence_projector(self):
+        """Safe-event typed evidence (decoder 4) for the measured metric lane.
 
-        from .application.analysis import SessionModelEnsembleService
-        from .domain import Provider
+        Tool events are actions; a test/build tool end with an exit status is
+        a verification receipt; the verification *task* denominator is the one
+        current accepted task revision that contains the session (ADR 0012) -
+        never minted from an event.  One descriptor per provider so Claude
+        transcript sessions project with their own adapter/schema identity.
+        """
+
         from .application.analysis.provider_evidence import (
             SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION,
             SAFE_EVENT_EVIDENCE_DECODER_KEY,
             SafeEventTypedEvidenceProjector,
         )
-        from .application.analysis.semantic_units import SemanticUnitReconciler
         from .application.providers import (
             CapabilityKey,
             DecoderDescriptor,
@@ -547,21 +559,13 @@ class LocalApplication:
             SchemaArtifactKind,
             SchemaArtifactProvenance,
         )
+        from .domain import Provider
         from .infrastructure.identifiers import LocalArtifactIdFactory
         from .infrastructure.providers.codex_app_server.contracts import (
             ADAPTER_VERSION,
             SOURCE_SCHEMA_VERSION,
         )
-        from .infrastructure.text_models.probabilistic_metrics import (
-            LocalProbabilisticMetricRunner,
-        )
 
-        source_factory = self.create_text_analysis_source
-
-        # Decoder 4 (task-scoped): tool events are actions; a test/build tool
-        # end with an exit status is a verification receipt; the verification
-        # *task* denominator is the one current accepted task revision that
-        # contains the session (never minted from an event).
         safe_event_capabilities = (
             CapabilityKey.TOOL_EVENTS,
             CapabilityKey.VERIFICATION_EVENTS,
@@ -604,6 +608,29 @@ class LocalApplication:
             capabilities=safe_event_capabilities,
         )
 
+        return SafeEventTypedEvidenceProjector(
+            self.database,
+            LocalArtifactIdFactory(self.pseudonymizer),
+            safe_event_descriptor,
+            tasks=self.database.task_repository(),
+            descriptors={Provider.CLAUDE_CODE: claude_safe_event_descriptor},
+        )
+
+    def create_session_model_ensemble_service(
+        self,
+        compatibility_policy: ProviderSurfaceCompatibilityPolicy,
+    ) -> SessionModelEnsembleService:
+        """Compose the serial, process-isolated all-metric live pipeline."""
+
+        from .application.analysis import SessionModelEnsembleService
+        from .application.analysis.semantic_units import SemanticUnitReconciler
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+        from .infrastructure.text_models.probabilistic_metrics import (
+            LocalProbabilisticMetricRunner,
+        )
+
+        source_factory = self.create_text_analysis_source
+
         return SessionModelEnsembleService(
             self.database,
             self.database.model_ensemble_repository(),
@@ -611,13 +638,7 @@ class LocalApplication:
             compatibility_policy,
             LocalArtifactIdFactory(self.pseudonymizer),
             LocalProbabilisticMetricRunner(),
-            typed_evidence_projector=SafeEventTypedEvidenceProjector(
-                self.database,
-                LocalArtifactIdFactory(self.pseudonymizer),
-                safe_event_descriptor,
-                tasks=self.database.task_repository(),
-                descriptors={Provider.CLAUDE_CODE: claude_safe_event_descriptor},
-            ),
+            typed_evidence_projector=self.create_typed_evidence_projector(),
             semantic_unit_reconciler=SemanticUnitReconciler(
                 LocalArtifactIdFactory(self.pseudonymizer),
             ),
@@ -926,6 +947,7 @@ class LocalApplication:
             otlp_ingest_token=otlp_ingest_token,
             telemetry_ingest_service=telemetry_ingest_service,
             session_reader_service=self.create_session_reader_service(),
+            calibration_rating_service=self.create_calibration_rating_service(),
             onboarding_service=onboarding_service,
             local_source_refresh_worker=local_source_refresh_worker,
             display_label_service=self.create_manual_display_label_service(),

@@ -185,7 +185,8 @@ def test_explicit_experiment_returns_transient_excerpts_but_latest_does_not(tmp_
     assert latest.status_code == 200
     assert "Fictional" not in latest.text
     assert "query_message_id" not in latest.text
-    assert service.calls[0]["provider"] is Provider.CODEX
+    # The route passes the session's own catalog provider (synthetic fixture).
+    assert service.calls[0]["provider"] is Provider.SYNTHETIC
     assert service.calls[0]["device"] is ModelExperimentDevice.CUDA
 
 

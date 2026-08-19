@@ -49,6 +49,8 @@ def is_spa_navigation_path(path: str) -> bool:
         "projects/",
         "sessions",
         "sessions/",
+        "calibration",
+        "calibration/",
         "team",
         "team/",
         "tasks/flow",
