@@ -4328,11 +4328,16 @@
           "runtime_available": {
             "title": "Runtime Available",
             "type": "boolean"
+          },
+          "storage_root": {
+            "title": "Storage Root",
+            "type": "string"
           }
         },
         "required": [
           "hardware",
           "runtime_available",
+          "storage_root",
           "models",
           "downloads"
         ],

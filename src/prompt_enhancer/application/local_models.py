@@ -111,6 +111,7 @@ class LocalModelsOverview(StrictModel):
     contract_version: Literal[LOCAL_MODELS_CONTRACT_VERSION] = LOCAL_MODELS_CONTRACT_VERSION
     hardware: HardwareSummary
     runtime_available: bool
+    storage_root: str
     models: tuple[LocalModelStatus, ...]
     downloads: tuple["DownloadStatus", ...]
 
@@ -188,12 +189,24 @@ def free_loopback_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def detect_llama_server(environment: dict[str, str] | None = None) -> Path | None:
+RUNTIME_DIR_NAME = "runtimes"
+
+
+def detect_llama_server(environment: dict[str, str] | None = None, *, app_home: Path | None = None, models_root: Path | None = None) -> Path | None:
+    """Explicit path, then the models folder's runtimes, then the app home's, then PATH."""
+
     env = os.environ if environment is None else environment
     explicit = env.get(LLAMA_SERVER_ENV)
     if explicit:
         candidate = Path(explicit).expanduser()
         return candidate if candidate.is_file() else None
+    for root in (models_root, app_home):
+        if root is None:
+            continue
+        for name in ("llama-server.exe", "llama-server"):
+            candidate = root / RUNTIME_DIR_NAME / "llama.cpp" / name
+            if candidate.is_file():
+                return candidate
     for name in ("llama-server", "llama-server.exe"):
         found = shutil.which(name)
         if found:
@@ -295,6 +308,10 @@ class LocalModelRegistry:
         self._root = root
         self._file = root / REGISTRY_FILE_NAME
         self._lock = threading.Lock()
+
+    @property
+    def root(self) -> Path:
+        return self._root
 
     @property
     def weights_dir(self) -> Path:
@@ -435,6 +452,7 @@ class LocalModelService:
         return LocalModelsOverview(
             hardware=hardware,
             runtime_available=binary is not None,
+            storage_root=str(self._registry.root),
             models=tuple(self.status(record.alias, record=record) for record in self._registry.list()),
             downloads=tuple(sorted(self._downloads.values(), key=lambda d: d.started_at)),
         )
@@ -669,6 +687,7 @@ __all__ = (
     "DownloadStatus",
     "HardwareSummary",
     "LLAMA_SERVER_ENV",
+    "RUNTIME_DIR_NAME",
     "LOCAL_MODELS_CONTRACT_VERSION",
     "LocalModelError",
     "LocalModelRecord",

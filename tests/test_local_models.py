@@ -106,6 +106,15 @@ def test_detection_honours_env_override_and_path(tmp_path: Path) -> None:
     assert detect_llama_server({"PROMPT_ENHANCER_LLAMA_SERVER": str(present)}) == present
 
 
+def test_detection_prefers_the_app_runtimes_folder_over_path(tmp_path: Path) -> None:
+    home = tmp_path / "app"
+    runtime = home / "runtimes" / "llama.cpp" / "llama-server.exe"
+    runtime.parent.mkdir(parents=True)
+    runtime.write_text("", encoding="utf-8")
+    assert detect_llama_server({}, app_home=home) == runtime
+    assert detect_llama_server({}, app_home=tmp_path / "elsewhere") in (None, detect_llama_server({}))
+
+
 def test_split_estimate_is_conservative_and_never_guesses() -> None:
     assert estimate_gpu_layers(size_bytes=None, layer_count=64, gpu_memory_free_mb=16000, context_size=8192) == 0
     assert estimate_gpu_layers(size_bytes=16 * 1024 ** 3, layer_count=64, gpu_memory_free_mb=None, context_size=8192) == 0
@@ -254,3 +263,22 @@ def test_http_routes_and_capability(tmp_path: Path, monkeypatch) -> None:
     removed = client.delete("/v1/local-models/stub", headers=headers)
     assert removed.status_code == 204 and client.get("/v1/local-models/stub", headers=headers).status_code == 404
     assert weights.is_file()  # weights outside the managed directory are never deleted
+
+
+def test_storage_root_is_configurable_without_moving_the_app_home(tmp_path: Path, monkeypatch) -> None:
+    from prompt_enhancer.privacy import write_private_text
+
+    monkeypatch.delenv("PROMPT_ENHANCER_LOCAL_MODELS_DIR", raising=False)
+    settings = AppSettings(home=tmp_path / "app")
+    assert settings.local_models_dir == tmp_path / "app" / "local-models"
+    elsewhere = tmp_path / "big-drive" / "models"
+    settings.home.mkdir(parents=True, exist_ok=True)
+    write_private_text(settings.local_models_override_path, str(elsewhere) + "\n")
+    assert AppSettings(home=tmp_path / "app").local_models_dir == elsewhere
+    monkeypatch.setenv("PROMPT_ENHANCER_LOCAL_MODELS_DIR", str(tmp_path / "env-drive"))
+    assert AppSettings(home=tmp_path / "app").local_models_dir == tmp_path / "env-drive"
+    # The runtime is found under the storage root's runtimes folder.
+    runtime = elsewhere / "runtimes" / "llama.cpp" / "llama-server.exe"
+    runtime.parent.mkdir(parents=True)
+    runtime.write_text("", encoding="utf-8")
+    assert detect_llama_server({}, app_home=tmp_path / "app", models_root=elsewhere) == runtime

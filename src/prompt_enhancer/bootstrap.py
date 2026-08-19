@@ -291,9 +291,14 @@ class LocalApplication:
     def create_local_model_service(self):
         """Local model runtimes: registry under the app home, llama-server on loopback."""
 
-        from .application.local_models import LocalModelService
+        from .application.local_models import LocalModelService, detect_llama_server
 
-        return LocalModelService(self.settings.local_models_dir)
+        home = self.settings.home
+        models_root = self.settings.local_models_dir
+        return LocalModelService(
+            models_root,
+            llama_server=lambda: detect_llama_server(app_home=home, models_root=models_root),
+        )
 
     def create_calibration_rating_service(self):
         """Blind ratings of the owner's own sessions over a frozen sample."""

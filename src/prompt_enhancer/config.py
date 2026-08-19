@@ -153,9 +153,32 @@ class AppSettings(BaseModel):
         return self.home / "claude-home.path"
 
     @property
-    def local_models_dir(self) -> Path:
-        """Registry and downloaded weights for local model runtimes (ADR 0013)."""
+    def local_models_override_path(self) -> Path:
+        """One-line private file naming where model weights and runtimes live."""
 
+        return self.home / "local-models.path"
+
+    @property
+    def local_models_dir(self) -> Path:
+        """Registry, weights and runtimes for local models (ADR 0013).
+
+        Resolution: ``PROMPT_ENHANCER_LOCAL_MODELS_DIR``, then the override
+        file under the app home, then ``<app home>/local-models``. Model
+        weights are tens of gigabytes, so the owner can keep them on another
+        drive without moving the rest of the app state.
+        """
+
+        explicit = os.environ.get("PROMPT_ENHANCER_LOCAL_MODELS_DIR")
+        if explicit:
+            return Path(explicit).expanduser()
+        override = self.local_models_override_path
+        try:
+            if override.is_file():
+                text = override.read_text(encoding="utf-8").strip().splitlines()
+                if text and text[0].strip():
+                    return Path(text[0].strip()).expanduser()
+        except OSError:
+            pass
         return self.home / "local-models"
 
     @property

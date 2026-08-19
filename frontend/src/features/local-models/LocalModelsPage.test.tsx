@@ -20,6 +20,7 @@ function overview(models: LocalModelStatus[] = [model()], runtime = true): Local
     contract_version: "local-models.v1" as const,
     hardware: { gpu_name: "Example GPU", gpu_memory_mb: 16384, gpu_memory_free_mb: 15000, ram_mb: 32768, llama_server_path: runtime ? "C:/tools/llama-server.exe" : null, llama_server_version: runtime ? "b1234" : null },
     runtime_available: runtime,
+    storage_root: "D:/example/local-models",
     models,
     downloads: [],
   };

@@ -151,6 +151,7 @@ export function LocalModelsPage({
           <p className="local-models__hint">
             A 27B model at 4-bit is about 16 GB of weights: use <strong>GPU / CPU</strong> on a 16 GB card; the app estimates how many layers fit and you can override it.
           </p>
+          <p className="local-models__hint">Storage: <code>{overview.storage_root}</code> (set <code>PROMPT_ENHANCER_LOCAL_MODELS_DIR</code> or the <code>local-models.path</code> file in the app home to keep weights on another drive).</p>
         </article>
         <article className="local-models__card" data-state={overview.runtime_available ? "ok" : "missing"}>
           <h2>Runtime</h2>

@@ -3563,6 +3563,8 @@ export interface components {
             models: components["schemas"]["LocalModelStatus"][];
             /** Runtime Available */
             runtime_available: boolean;
+            /** Storage Root */
+            storage_root: string;
         };
         /** ManualDisplayLabelRequest */
         ManualDisplayLabelRequest: {
