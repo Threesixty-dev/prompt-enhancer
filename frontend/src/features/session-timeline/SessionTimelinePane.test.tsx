@@ -49,9 +49,10 @@ describe("SessionTimelinePane", () => {
     expect(screen.getByText("3 · 1 failed")).toBeTruthy();
     expect(screen.getByText("12.0k in · 800 out")).toBeTruthy();
     expect(container.querySelectorAll(".session-timeline__turn").length).toBe(2);
-    expect(container.querySelectorAll(".session-timeline__tool").length).toBe(3);
-    expect(container.querySelectorAll(".session-timeline__tool--passed").length).toBe(1);
-    expect(container.querySelectorAll(".session-timeline__tool--failed").length).toBe(1);
+    // Verification runs render in the Checks lane with their outcome; plain tools keep their category and mark failures with an outline.
+    expect(container.querySelectorAll(".session-timeline__tool").length).toBe(1);
+    expect(container.querySelectorAll(".session-timeline__check--passed").length).toBe(1);
+    expect(container.querySelectorAll(".session-timeline__check--failed").length).toBe(1);
     expect(container.querySelectorAll(".session-timeline__marker--compaction").length).toBe(1);
     // Nothing textual beyond labels: no command, path or prompt text is rendered.
     expect(container.textContent).not.toMatch(/pytest|\/srv\//);

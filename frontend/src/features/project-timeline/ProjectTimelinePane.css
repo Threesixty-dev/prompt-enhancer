@@ -27,3 +27,5 @@
   .project-timeline { padding: 12px; }
   .project-timeline__controls { justify-items: start; }
 }
+.project-timeline__task--open rect { stroke-dasharray: 5 3; }
+.project-timeline__session--partial rect { opacity: 0.55; }

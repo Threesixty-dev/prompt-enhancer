@@ -80,6 +80,8 @@ class SessionTimeline(StrictModel):
 
 _MARKER_KINDS: dict[EventKind, str] = {
     EventKind.COMPACTION: "compaction",
+    EventKind.PLAN: "plan",
+    EventKind.USER_FEEDBACK: "user_feedback",
     EventKind.SUBAGENT_START: "subagent_start",
     EventKind.SUBAGENT_END: "subagent_end",
     EventKind.APPROVAL: "approval",

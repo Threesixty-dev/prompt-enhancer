@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ProjectTimeline, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { packRows } from "../session-timeline/SessionTimelinePane";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import "./ProjectTimelinePane.css";
 
@@ -64,7 +65,7 @@ export function ProjectTimelinePane({
   }, [projectId, transport]);
 
   const model = useMemo(() => {
-    if (!timeline || timeline.sessions.length === 0) return null;
+    if (!timeline || timeline.sessions.length === 0) return "empty" as const;
     const ends = timeline.sessions.map((s) => Date.parse(s.ended_at ?? s.started_at));
     const starts = timeline.sessions.map((s) => Date.parse(s.started_at));
     const fullEnd = Math.max(...ends, ...starts);
@@ -74,26 +75,53 @@ export function ProjectTimelinePane({
     const end = Math.max(fullEnd, start + DAY);
     const span = end - start;
     const x = (iso: string) => Math.min(1, Math.max(0, (Date.parse(iso) - start) / span));
-    const visibleSessions = timeline.sessions.filter((s) => Date.parse(s.ended_at ?? s.started_at) >= start);
-    const visibleTasks = timeline.tasks.filter((t) => t.ended_at !== null && t.ended_at !== undefined && Date.parse(t.ended_at) >= start);
-    const maxActivity = Math.max(1, ...timeline.activity.map((d) => d.sessions));
-    return { start, end, span, x, visibleSessions, visibleTasks, maxActivity };
+    const visibleSessions = timeline.sessions.filter((s) => {
+      const startedAt = Date.parse(s.started_at);
+      return Number.isFinite(startedAt) && Date.parse(s.ended_at ?? s.started_at) >= start;
+    });
+    // Open tasks (no ended_at yet) stay visible: they run to the right edge.
+    const visibleTasks = timeline.tasks.filter((t) => {
+      const taskEnd = t.ended_at ? Date.parse(t.ended_at) : end;
+      const taskStart = t.started_at ? Date.parse(t.started_at) : NaN;
+      return Number.isFinite(taskStart) && taskEnd >= start;
+    });
+    const windowedActivity = timeline.activity.filter((d) => Date.parse(`${d.day}T00:00:00Z`) >= start - DAY);
+    const maxActivity = Math.max(1, ...windowedActivity.map((d) => d.sessions));
+    return { start, end, span, x, visibleSessions, visibleTasks, maxActivity, windowedActivity };
   }, [timeline, range]);
 
   if (state === "loading") return <section className="project-timeline" aria-busy="true"><p className="project-timeline__note">Drawing the project timeline…</p></section>;
   if (state === "missing") return null;
-  if (state === "error" || !timeline || !model) {
+  if (state === "error" || !timeline || model === null) {
     return <section className="project-timeline"><p className="project-timeline__note" role="alert">The project timeline could not be verified.</p></section>;
   }
+  if (model === "empty") {
+    return (
+      <section className="project-timeline">
+        <header className="project-timeline__head">
+          <div>
+            <p className="eyebrow">Project timeline</p>
+            <h2>Sessions and reviewed tasks over time</h2>
+          </div>
+        </header>
+        <p className="project-timeline__note">No indexed sessions in this project yet; the timeline appears with the first one.</p>
+      </section>
+    );
+  }
 
-  const { x, span, visibleSessions, visibleTasks, maxActivity } = model;
+  const { x, span, visibleSessions, visibleTasks, maxActivity, windowedActivity } = model;
   const width = 1000;
   const rowHeight = 14;
   const taskRows = visibleTasks.slice(0, 60);
   const sessionRows = visibleSessions.slice(-120);
+  const packedSessions = sessionRows
+    .map((session) => ({ session, start: Date.parse(session.started_at), end: Math.max(Date.parse(session.ended_at ?? session.started_at), Date.parse(session.started_at) + 60_000) }))
+    .sort((a, b) => a.start - b.start);
+  const sessionRowIndex = packRows(packedSessions, 6);
+  const sessionRowCount = packedSessions.length ? Math.max(...sessionRowIndex) + 1 : 1;
   const taskTop = 8;
   const sessionTop = taskTop + taskRows.length * (rowHeight + 4) + 14;
-  const activityTop = sessionTop + rowHeight + 4 + 12;
+  const activityTop = sessionTop + sessionRowCount * (rowHeight + 3) + 12;
   const activityHeight = 28;
   const height = activityTop + activityHeight + 8;
   const ticks = [0, 0.25, 0.5, 0.75, 1];
@@ -132,7 +160,7 @@ export function ProjectTimelinePane({
         <div><dt>Span</dt><dd>{formatSpan(span)}</dd></div>
         <div><dt>Tasks</dt><dd>{visibleTasks.length}{timeline.tasks.length !== visibleTasks.length ? ` of ${timeline.tasks.length}` : ""}</dd></div>
         <div><dt>Sessions</dt><dd>{visibleSessions.length}{timeline.truncated ? "+" : ""}</dd></div>
-        <div><dt>Active days</dt><dd>{timeline.activity.length}</dd></div>
+        <div><dt>Active days</dt><dd>{windowedActivity.length}</dd></div>
       </dl>
       <div className="project-timeline__chart" role="img" aria-label={`${visibleTasks.length} task windows and ${visibleSessions.length} sessions over ${formatSpan(span)}`}>
         <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" width="100%" height={height}>
@@ -140,29 +168,35 @@ export function ProjectTimelinePane({
             <line key={tick} className="project-timeline__grid" x1={tick * width} x2={tick * width} y1={4} y2={height - 4} />
           ))}
           {taskRows.map((task, index) => {
-            const x1 = x(task.started_at ?? task.ended_at ?? timeline.first_started_at ?? "") * width;
-            const x2 = x(task.ended_at ?? task.started_at ?? "") * width;
+            const startMs = task.started_at ? Date.parse(task.started_at) : NaN;
+            if (!Number.isFinite(startMs)) return null;
+            const open = !task.ended_at;
+            const endMs = open ? model.end : Date.parse(task.ended_at as string);
+            const x1 = x(new Date(Math.max(startMs, model.start)).toISOString()) * width;
+            const x2 = x(new Date(endMs).toISOString()) * width;
             return (
-              <g key={task.task_id} className={`project-timeline__task project-timeline__task--${task.lifecycle_state}`}>
+              <g key={task.task_id} className={`project-timeline__task project-timeline__task--${task.lifecycle_state}${open ? " project-timeline__task--open" : ""}`}>
                 <rect x={x1} y={taskTop + index * (rowHeight + 4)} width={Math.max(4, x2 - x1)} height={rowHeight} rx={3} />
-                <title>{`${task.display_name ?? "Task"} · ${task.session_ids.length} session${task.session_ids.length === 1 ? "" : "s"} · ${task.lifecycle_state}`}</title>
+                <title>{`${task.display_name ?? "Task"} · ${task.task_type ?? "task"} · ${task.session_ids.length} session${task.session_ids.length === 1 ? "" : "s"} · ${task.lifecycle_state}${open ? " · still open" : ""}`}</title>
               </g>
             );
           })}
-          {sessionRows.map((session) => {
-            const x1 = x(session.started_at) * width;
-            const x2 = x(session.ended_at ?? session.started_at) * width;
+          {packedSessions.map((item, index) => {
+            const session = item.session;
+            const x1 = x(new Date(Math.max(item.start, model.start)).toISOString()) * width;
+            const x2 = x(new Date(item.end).toISOString()) * width;
             return (
               <g
                 key={session.session_id}
-                className={`project-timeline__session project-timeline__session--${session.provider}${onOpenSession ? " is-clickable" : ""}`}
+                className={`project-timeline__session project-timeline__session--${session.provider}${onOpenSession ? " is-clickable" : ""}${session.events_complete === false ? " project-timeline__session--partial" : ""}`}
                 onClick={onOpenSession ? () => onOpenSession(session.session_id) : undefined}
                 role={onOpenSession ? "button" : undefined}
                 tabIndex={onOpenSession ? 0 : undefined}
+                aria-label={onOpenSession ? `${session.display_name ?? "Session"} · ${shortDate(session.started_at)}` : undefined}
                 onKeyDown={onOpenSession ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpenSession(session.session_id); } } : undefined}
               >
-                <rect x={x1} y={sessionTop} width={Math.max(3, x2 - x1)} height={rowHeight} rx={2} />
-                <title>{`${session.display_name ?? "Session"} · ${shortDate(session.started_at)}`}</title>
+                <rect x={x1} y={sessionTop + sessionRowIndex[index] * (rowHeight + 3)} width={Math.max(3, x2 - x1)} height={rowHeight} rx={2} />
+                <title>{`${session.display_name ?? "Session"} · ${shortDate(session.started_at)}${session.terminal_state && session.terminal_state !== "unknown" ? ` · ${session.terminal_state}` : ""}`}</title>
               </g>
             );
           })}
