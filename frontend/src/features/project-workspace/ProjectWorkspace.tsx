@@ -1,3 +1,4 @@
+import { SessionTranscriptPane } from "../session-reader/SessionTranscriptPane";
 import { isLocalProvider } from "../../shared/api/contracts";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import {
@@ -1425,6 +1426,11 @@ export function ProjectWorkspace({
               transport={transport}
             />
           </section>
+          <SessionTranscriptPane
+            key={`reader-${currentSession.session_id}`}
+            sessionId={currentSession.session_id}
+            transport={transport}
+          />
           <details
             className="project-model-ensemble project-model-ensemble--legacy"
             onToggle={(event) => setLegacyQualityExpanded(event.currentTarget.open)}

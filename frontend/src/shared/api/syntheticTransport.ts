@@ -544,6 +544,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
         },
       };
     },
+    async getSessionTranscript() {
+      throw new TransportError("Session reading is unavailable in synthetic preview", 404);
+    },
     async getClaudeLocalSourceStatus() {
       return {
         consent_active: false,

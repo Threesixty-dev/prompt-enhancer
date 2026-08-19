@@ -68,6 +68,7 @@ import type {
   TextAnalysisPresetId,
   ClaudeCodeLocalSourceStatus,
   IngestionReport,
+  SessionTranscript,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2321,6 +2322,13 @@ export function createHttpTransport(options: {
       return request<CodexLocalSourceStatus>(
         "/v1/local-sources/codex/consents/local-history",
         { method: "DELETE" },
+        signal,
+      );
+    },
+    getSessionTranscript(sessionId, signal) {
+      return request<SessionTranscript>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/transcript`,
+        { method: "GET" },
         signal,
       );
     },

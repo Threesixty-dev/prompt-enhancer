@@ -72,6 +72,8 @@ export type VerificationCapability = Schemas["VerificationCapability"];
 export type CodexLocalSourceStatus = Schemas["CodexLocalSourceStatus"];
 export type ClaudeCodeLocalSourceStatus = Schemas["ClaudeCodeLocalSourceStatus"];
 export type IngestionReport = Schemas["IngestionReport"];
+export type SessionTranscript = Schemas["SessionTranscript"];
+export type SessionTranscriptTurn = Schemas["ReaderTurn"];
 export type Provider = Schemas["Provider"];
 export type ProviderCapabilityReport = Schemas["ProviderCapabilityReport"];
 export type ProviderMetricCapability = Schemas["ProviderMetricCapability"];
@@ -507,6 +509,8 @@ export interface PromptEnhancerTransport {
   getCodexLocalSourceStatus(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
   grantCodexLocalHistoryConsent(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
   revokeCodexLocalHistoryConsent(signal?: AbortSignal): Promise<CodexLocalSourceStatus>;
+  /** Owner-authorized on-demand read of one session (ADR 0011); nothing is stored. */
+  getSessionTranscript(sessionId: string, signal?: AbortSignal): Promise<SessionTranscript>;
   getClaudeLocalSourceStatus(signal?: AbortSignal): Promise<ClaudeCodeLocalSourceStatus>;
   grantClaudeLocalHistoryConsent(signal?: AbortSignal): Promise<ClaudeCodeLocalSourceStatus>;
   revokeClaudeLocalHistoryConsent(signal?: AbortSignal): Promise<ClaudeCodeLocalSourceStatus>;
