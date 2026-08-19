@@ -1950,7 +1950,7 @@ describe("same-origin HTTP transport", () => {
 
     expect(response).toMatchObject({ total: 75, has_more: false });
     expect(fetchMock.mock.calls[1][0]).toBe(
-      `/v1/projects/${projectId}/sessions?provider=codex&limit=25&offset=50`,
+      `/v1/projects/${projectId}/sessions?limit=25&offset=50`,
     );
     expect(fetchMock.mock.calls[1][1]).toEqual(
       expect.objectContaining({ method: "GET" }),

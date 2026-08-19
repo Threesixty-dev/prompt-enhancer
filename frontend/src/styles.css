@@ -1903,9 +1903,11 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
   .sidebar { position: relative; inset: auto; width: 100%; height: auto; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px clamp(10px, 2.4vw, 18px); box-shadow: 0 8px 22px rgba(12, 31, 37, 0.12); }
   .brand { padding: 0; }
   .brand__mark { width: 32px; height: 32px; }
-  .primary-nav { min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; overflow: visible; }
+  /* One horizontally scrollable strip: labels never break mid-word and never stack into uneven rows. */
+  .primary-nav { min-width: 0; display: flex; flex-wrap: nowrap; justify-content: flex-start; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
   .primary-nav > p, .primary-nav button.primary-nav__item--future, .sidebar__footer { display: none; }
-  .primary-nav button { width: auto; min-width: 0; min-height: 42px; flex: 1 1 104px; grid-template-columns: 18px minmax(0, auto) auto; justify-content: center; gap: 6px; margin: 0; padding: 5px 8px; text-align: center; }
+  .primary-nav button { width: auto; min-width: 0; min-height: 42px; flex: 0 0 auto; grid-template-columns: 18px auto auto; justify-content: center; gap: 6px; margin: 0; padding: 5px 10px; text-align: center; scroll-snap-align: start; }
+  .primary-nav button > span:not(.nav-indicator) { overflow-wrap: normal; white-space: nowrap; }
   .primary-nav button.primary-nav__item--active { box-shadow: inset 0 -3px #55cbbd, 0 5px 12px rgba(4, 20, 24, 0.1); }
   .workspace { grid-column: auto; }
   .topbar { min-height: 52px; padding: 8px clamp(14px, 3vw, 20px); }
@@ -1922,8 +1924,8 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 @media (max-width: 600px) {
   .sidebar { gap: 8px; padding: 8px 10px; }
   .brand > span:last-child, .primary-nav button > svg, .nav-indicator { display: none; }
-  .primary-nav { min-width: 0; justify-content: stretch; overflow: visible; }
-  .primary-nav button { min-height: 44px; flex: 1 1 76px; grid-template-columns: minmax(0, 1fr); padding: 5px 6px; font-size: 0.69rem; line-height: 1.15; }
+  .primary-nav { min-width: 0; justify-content: flex-start; overflow-x: auto; }
+  .primary-nav button { min-height: 44px; flex: 0 0 auto; grid-template-columns: auto; padding: 5px 9px; font-size: 0.72rem; line-height: 1.15; }
   .topbar__trail > span, .topbar__trail > svg { display: none; }
   .topbar { gap: 8px; }
   .topbar__trail strong { font-size: 0.73rem; }

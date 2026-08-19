@@ -2423,16 +2423,18 @@ export function createHttpTransport(options: {
         signal,
       );
     },
+    // Despite the legacy name this lists every local provider's sessions;
+    // a provider filter here silently hid hook-captured Claude Code sessions.
     listCodexSessions(limit = 100, offset = 0, signal) {
       return request<CodexSessionListResponse>(
-        `/v1/sessions?provider=codex&limit=${limit}&offset=${offset}`,
+        `/v1/sessions?limit=${limit}&offset=${offset}`,
         { method: "GET" },
         signal,
       );
     },
     listProjectSessions(projectId, limit = 100, offset = 0, signal) {
       return request<ProjectSessionListResponse>(
-        `/v1/projects/${encodeURIComponent(projectId)}/sessions?provider=codex&limit=${limit}&offset=${offset}`,
+        `/v1/projects/${encodeURIComponent(projectId)}/sessions?limit=${limit}&offset=${offset}`,
         { method: "GET" },
         signal,
       );

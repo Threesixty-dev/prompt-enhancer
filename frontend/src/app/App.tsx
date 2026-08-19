@@ -34,6 +34,9 @@ const LocalSourcesScreen = lazy(() =>
     default: module.LocalSources,
   })),
 );
+const SessionsScreen = lazy(() =>
+  import("../features/session-catalog/SessionsPage").then((module) => ({ default: module.SessionsPage })),
+);
 const ProjectCatalogScreen = lazy(() =>
   import("../features/project-catalog").then((module) => ({
     default: module.ProjectCatalog,
@@ -148,6 +151,7 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "analysis_jobs") return "Analysis jobs";
   if (route.name === "project_automation") return "Project automation";
   if (route.name === "projects") return "Projects";
+  if (route.name === "sessions") return "Sessions";
   if (route.name === "research") return "Methods & models";
   if (route.name === "team") return "Team analytics";
   if (route.name === "social") return "Social hub";
@@ -311,6 +315,15 @@ export function App({
             <span>Projects</span>
           </button>
           <button
+            aria-current={route.name === "sessions" ? "page" : undefined}
+            className={route.name === "sessions" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "sessions" })}
+            type="button"
+          >
+            <Icon name="clock" />
+            <span>Sessions</span>
+          </button>
+          <button
             aria-current={route.name === "discovery" ? "page" : undefined}
             className={route.name === "discovery" ? "primary-nav__item--active" : ""}
             onClick={() => navigate({ name: "discovery" })}
@@ -443,6 +456,8 @@ export function App({
                   onUndecidedCountChange={setUndecidedCount}
                   transport={transport}
                 />
+              ) : route.name === "sessions" ? (
+                <SessionsScreen navigate={navigate} transport={transport} />
               ) : route.name === "projects" ? (
                 <ProjectCatalogScreen
                   coverageProvider={coverageProvider}
