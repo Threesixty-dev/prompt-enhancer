@@ -1841,6 +1841,11 @@ export interface components {
             device?: components["schemas"]["DeviceMode"] | null;
             /** Gpu Layers */
             gpu_layers?: number | null;
+            /**
+             * Remember
+             * @default false
+             */
+            remember: boolean;
         };
         /** ActivityDay */
         ActivityDay: {
@@ -3524,6 +3529,8 @@ export interface components {
             context_size: number;
             /** @default split */
             default_device: components["schemas"]["DeviceMode"];
+            /** Default Gpu Layers */
+            default_gpu_layers?: number | null;
             /** Display Name */
             display_name: string;
             /** @default gguf */

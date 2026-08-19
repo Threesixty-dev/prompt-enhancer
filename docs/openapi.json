@@ -68,6 +68,11 @@
               }
             ],
             "title": "Gpu Layers"
+          },
+          "remember": {
+            "default": false,
+            "title": "Remember",
+            "type": "boolean"
           }
         },
         "title": "ActivateLocalModel",
@@ -4189,6 +4194,19 @@
           "default_device": {
             "$ref": "#/components/schemas/DeviceMode",
             "default": "split"
+          },
+          "default_gpu_layers": {
+            "anyOf": [
+              {
+                "maximum": 4096.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Gpu Layers"
           },
           "display_name": {
             "maxLength": 120,

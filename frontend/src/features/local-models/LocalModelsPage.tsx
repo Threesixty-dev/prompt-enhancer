@@ -57,6 +57,7 @@ export function LocalModelsPage({
   const [busy, setBusy] = useState<string>("");
   const [message, setMessage] = useState<string>("");
   const [devices, setDevices] = useState<Record<string, DeviceMode>>({});
+  const [layers, setLayers] = useState<Record<string, string>>({});
   const [repoId, setRepoId] = useState(RECOMMENDED_REPO);
   const [remote, setRemote] = useState<RemoteRepoFiles | null>(null);
   const [remoteError, setRemoteError] = useState("");
@@ -198,11 +199,29 @@ export function LocalModelsPage({
                     </label>
                   ))}
                 </div>
+                {device === "split" && (
+                  <label className="local-models__layers">
+                    <span>GPU layers{item.record.layer_count ? ` of ${item.record.layer_count}` : ""} (blank = estimate{item.record.default_gpu_layers !== null && item.record.default_gpu_layers !== undefined ? `, remembered ${item.record.default_gpu_layers}` : ""})</span>
+                    <input
+                      aria-label={`GPU layers for ${item.record.display_name}`}
+                      inputMode="numeric"
+                      onChange={(e) => setLayers((prev) => ({ ...prev, [item.record.alias]: e.currentTarget.value }))}
+                      placeholder={item.record.default_gpu_layers !== null && item.record.default_gpu_layers !== undefined ? String(item.record.default_gpu_layers) : "auto"}
+                      type="text"
+                      value={layers[item.record.alias] ?? ""}
+                    />
+                  </label>
+                )}
                 <div className="local-models__actions">
                   <button
                     className="button button--primary"
                     disabled={busy !== "" || !overview.runtime_available}
-                    onClick={() => void run(item.record.alias, () => transport.activateLocalModel(item.record.alias, { device }), `${item.record.display_name} is running on ${device}.`)}
+                    onClick={() => {
+                      const raw = (layers[item.record.alias] ?? "").trim();
+                      const parsed = raw === "" ? null : Number.parseInt(raw, 10);
+                      const request = { device, remember: true, ...(device === "split" && parsed !== null && Number.isFinite(parsed) ? { gpu_layers: parsed } : {}) };
+                      void run(item.record.alias, () => transport.activateLocalModel(item.record.alias, request), `${item.record.display_name} is running on ${device}.`);
+                    }}
                     type="button"
                   >
                     {busy === item.record.alias ? "Starting…" : running ? "Restart" : "Activate"}

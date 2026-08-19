@@ -39,3 +39,5 @@
 .local-models__message { margin: 0; font-size: 0.84rem; color: var(--ink-650); }
 .local-models__note { margin: 0; color: var(--ink-650); font-size: 0.86rem; }
 @media (max-width: 640px) { .local-models__card dl div { grid-template-columns: 1fr; } .local-models__inline { flex-direction: column; } }
+.local-models__layers { display: grid; gap: 4px; font-size: 0.76rem; color: var(--ink-650); max-width: 360px; }
+.local-models__layers input { height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font: inherit; font-size: 0.84rem; }

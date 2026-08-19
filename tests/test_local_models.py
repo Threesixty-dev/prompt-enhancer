@@ -160,6 +160,11 @@ def test_registry_activation_devices_chat_and_deactivation(tmp_path: Path) -> No
     assert status.runtime.device is DeviceMode.SPLIT and status.runtime.gpu_layers == 8  # whole tiny model fits
     status = service.activate("qwen-test", ActivateLocalModel(device=DeviceMode.SPLIT, gpu_layers=3))
     assert status.runtime.gpu_layers == 3
+    # "remember" keeps the tuned split for next time; a plain split activation reuses it.
+    status = service.activate("qwen-test", ActivateLocalModel(device=DeviceMode.SPLIT, gpu_layers=5, remember=True))
+    assert service.registry.get("qwen-test").default_gpu_layers == 5
+    status = service.activate("qwen-test", ActivateLocalModel(device=DeviceMode.SPLIT))
+    assert status.runtime.gpu_layers == 5
 
     service.deactivate("qwen-test")
     assert service.status("qwen-test").runtime.state is RuntimeState.STOPPED

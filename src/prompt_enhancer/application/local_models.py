@@ -77,6 +77,8 @@ class LocalModelRecord(StrictModel):
     size_bytes: int | None = Field(default=None, ge=0)
     sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     default_device: DeviceMode = DeviceMode.SPLIT
+    #: Remembered split offload (layers on the GPU); None = estimate from free VRAM.
+    default_gpu_layers: int | None = Field(default=None, ge=0, le=4096)
     context_size: int = Field(default=DEFAULT_CONTEXT_SIZE, ge=512, le=MAX_CONTEXT_SIZE)
     layer_count: int | None = Field(default=None, ge=1, le=4096)
     added_at: datetime
@@ -129,6 +131,8 @@ class ActivateLocalModel(StrictModel):
     device: DeviceMode | None = None
     gpu_layers: int | None = Field(default=None, ge=0, le=4096)
     context_size: int | None = Field(default=None, ge=512, le=MAX_CONTEXT_SIZE)
+    #: Keep this device / layer choice as the model's default for next time.
+    remember: bool = False
 
 
 class DownloadRequest(StrictModel):
@@ -542,12 +546,28 @@ class LocalModelService:
         elif device is DeviceMode.GPU:
             gpu_layers = request.gpu_layers if request.gpu_layers is not None else 999
         else:
-            gpu_layers = request.gpu_layers if request.gpu_layers is not None else estimate_gpu_layers(
-                size_bytes=record.size_bytes,
-                layer_count=record.layer_count,
-                gpu_memory_free_mb=hardware.gpu_memory_free_mb,
-                context_size=context,
+            if request.gpu_layers is not None:
+                gpu_layers = request.gpu_layers
+            elif record.default_gpu_layers is not None:
+                gpu_layers = record.default_gpu_layers
+            else:
+                gpu_layers = estimate_gpu_layers(
+                    size_bytes=record.size_bytes,
+                    layer_count=record.layer_count,
+                    gpu_memory_free_mb=hardware.gpu_memory_free_mb,
+                    context_size=context,
+                )
+        if request.remember:
+            self._registry.upsert(
+                record.model_copy(
+                    update={
+                        "default_device": device,
+                        "default_gpu_layers": gpu_layers if device is DeviceMode.SPLIT else record.default_gpu_layers,
+                        "context_size": context,
+                    }
+                )
             )
+            record = self._registry.get(alias) or record
         with self._lock:
             self.deactivate(alias)
             port = free_loopback_port()

@@ -8,7 +8,7 @@ function model(state: LocalModelStatus["runtime"]["state"] = "stopped"): LocalMo
     record: {
       alias: "qwen-27b-q4", display_name: "Qwen 27B Q4", format: "gguf", path: "D:/models/qwen.gguf",
       source_repo: "example-org/Example-GGUF", source_file: "qwen-q4_k_m.gguf", size_bytes: 16 * 1024 ** 3,
-      sha256: null, default_device: "split", context_size: 8192, layer_count: 64, added_at: "2026-03-04T09:00:00Z",
+      sha256: null, default_device: "split", default_gpu_layers: null, context_size: 8192, layer_count: 64, added_at: "2026-03-04T09:00:00Z",
     },
     runtime: { state, device: state === "running" ? "split" : null, gpu_layers: state === "running" ? 52 : null, context_size: state === "running" ? 8192 : null, started_at: null, last_error_code: null, pid: null },
     endpoint_path: "/v1/local-models/qwen-27b-q4/chat/completions",
@@ -53,7 +53,7 @@ describe("LocalModelsPage", () => {
     expect(screen.getByText("POST /v1/local-models/qwen-27b-q4/chat/completions")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Device for Qwen 27B Q4").querySelector("input[value='gpu']") as HTMLInputElement);
     fireEvent.click(screen.getByRole("button", { name: "Activate" }));
-    await waitFor(() => expect(activateLocalModel).toHaveBeenCalledWith("qwen-27b-q4", { device: "gpu" }));
+    await waitFor(() => expect(activateLocalModel).toHaveBeenCalledWith("qwen-27b-q4", { device: "gpu", remember: true }));
     await screen.findByText(/running · split · 52 GPU layers/);
 
     // Adding from Hugging Face shows sizes and picks the 4-bit file by default.
