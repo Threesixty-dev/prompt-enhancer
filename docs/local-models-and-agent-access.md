@@ -34,7 +34,7 @@ so they work unchanged with:
 
 ```text
 base_url = http://127.0.0.1:8765/v1/local-models/openai/v1
-api_key  = <contents of api.token>
+api_key  = <placeholder: the contents of api.token>
 model    = <alias>          # for example orca27b-iq3m
 ```
 
@@ -51,7 +51,8 @@ Python (`openai` package):
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://127.0.0.1:8765/v1/local-models/openai/v1", api_key=open(TOKEN_PATH).read().strip())
+token = open(TOKEN_PATH).read().strip()  # the app token; never commit it
+client = OpenAI(base_url="http://127.0.0.1:8765/v1/local-models/openai/v1", api_key=token)
 reply = client.chat.completions.create(
     model="orca27b-iq3m",
     messages=[{"role": "user", "content": "Write a conventional commit message for: fix retry loop"}],
