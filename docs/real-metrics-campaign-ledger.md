@@ -1306,6 +1306,17 @@ overridable), `/v1/local-models/*` incl. an OpenAI-compatible chat proxy, and
 the Models page; downloads are size-confirmed and go through the person's own
 Hugging Face login. No metric uses a local LLM yet; that is the judge lane.
 
+First local-model benchmark on the owner's machine (RTX 3080 Ti Laptop 16 GB,
+i9-12900HK, llama.cpp b10502 CUDA 12.4, 160 generated tokens, 8192 ctx):
+Qwen3.8-27B-Uncensored Q4_K_M (16.8 GB) in split mode peaks at ~13.8 tok/s
+with 62/65 layers on the GPU (auto-estimate 48 layers: 7 tok/s; all 65
+layers: VRAM overflow, 7.6 tok/s); the IQ3_M 3-bit build (12.8 GB) fully on
+the GPU reaches ~25 tok/s generation and ~205 tok/s prompt processing at
+13.5 GB VRAM, so it is the default judge model; Q4_K_M stays installed for
+higher-quality manual use. Thinking mode must be disabled for short answers
+(`chat_template_kwargs.enable_thinking=false`). Hardware numbers only; no
+session content was involved.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and
