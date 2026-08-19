@@ -338,13 +338,41 @@ class LocalApplication:
             session_lookup=self.database.get_session,
         ), calibration
 
-    def create_agent_read_surface(self):
-        """Read-only allowlisted tools for connected coding agents (ADR 0014)."""
+    def create_prompt_check_service(self, local_model_service=None):
+        """Prompt validation in context: deterministic cues + optional local-model commentary (ADR 0015)."""
+
+        from pathlib import Path
+
+        from .application.local_models import RuntimeState
+        from .application.prompt_check import PromptCheckService
+
+        models = local_model_service or self.create_local_model_service()
+
+        def active_model() -> str | None:
+            try:
+                overview = models.overview()
+            except Exception:
+                return None
+            for item in overview.models:
+                if item.runtime.state is RuntimeState.RUNNING:
+                    return item.record.alias
+            return None
+
+        return PromptCheckService(
+            self.database.prompt_check_repository(),
+            pseudonymize=self.pseudonymizer.pseudonymize,
+            chat=models.chat,
+            active_model=active_model,
+        )
+
+    def create_agent_read_surface(self, prompt_check_service=None):
+        """Read-only allowlisted tools for connected coding agents (ADR 0014), plus the prompt check tool (ADR 0015)."""
 
         from .application.agent_surface import AgentReadSurface
 
         calibration = self.create_calibration_rating_service()
         judge, _ = self.create_model_judge_service(calibration_service=calibration)
+        prompt_checks = prompt_check_service or self.create_prompt_check_service()
 
         def calibration_status() -> dict[str, object]:
             from .application.analysis.calibration_ratings import CalibrationSampleEmptyError
@@ -383,7 +411,21 @@ class LocalApplication:
                 "caveat": "model judgments are labels stored apart from metrics; they never become metric values",
             }
 
-        return AgentReadSurface(self.database, calibration_status=calibration_status)
+        def check_prompt(request):
+            # The MCP process has no model runtime; when the dashboard server is running,
+            # its prompt check (with the active model's commentary) answers instead.
+            from .application.prompt_check import PromptCheckResult
+            from .interfaces.hooks import post_prompt_check
+
+            via_server = post_prompt_check(self.settings, request.model_dump(mode="json"))
+            if via_server is not None:
+                try:
+                    return PromptCheckResult.model_validate(via_server)
+                except Exception:
+                    pass
+            return prompt_checks.check(request)
+
+        return AgentReadSurface(self.database, calibration_status=calibration_status, prompt_check=check_prompt)
 
     def create_calibration_rating_service(self):
         """Blind ratings of the owner's own sessions over a frozen sample."""
@@ -1046,6 +1088,7 @@ class LocalApplication:
         local_model_service = self.create_local_model_service()
         calibration_rating_service = self.create_calibration_rating_service()
         model_judge_service, _ = self.create_model_judge_service(local_model_service, calibration_rating_service)
+        prompt_check_service = self.create_prompt_check_service(local_model_service)
 
         def judge_new_sessions(provider: Provider) -> None:
             # Judge the newest indexed sessions with the active local model, one
@@ -1112,6 +1155,7 @@ class LocalApplication:
             calibration_rating_service=calibration_rating_service,
             local_model_service=local_model_service,
             model_judge_service=model_judge_service,
+            prompt_check_service=prompt_check_service,
             calibration_sample_session_ids=lambda: tuple(m.session_id for m in calibration_rating_service.sample().members),
             all_session_ids=every_session_id,
             objective_overrides_provider=self.create_objective_overrides_provider(),

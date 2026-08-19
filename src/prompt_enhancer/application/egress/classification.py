@@ -60,6 +60,9 @@ EGRESS_REGISTRY: tuple[EgressRegistration, ...] = (
     # proxy). Weights downloads delegate to huggingface_hub and happen only
     # after a size-confirmed approval through the person's own login.
     EgressRegistration(module="prompt_enhancer.application.local_models", egress_class=EgressClass.LOOPBACK_OWNED_SERVICE, state=FutureEgressState.ACTIVE_LOCAL_ONLY, reason_code="owned_loopback_model_runtime"),
+    # Prompt-check hook (ADR 0015): a Claude Code hook process posting the
+    # person's prompt to this app's own loopback API and printing the advice.
+    EgressRegistration(module="prompt_enhancer.interfaces.hooks.prompt_check_hook", egress_class=EgressClass.LOOPBACK_OWNED_SERVICE, state=FutureEgressState.ACTIVE_LOCAL_ONLY, reason_code="owned_loopback_prompt_check_hook"),
     EgressRegistration(module="prompt_enhancer.infrastructure.estimator_runners.codex", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="bounded_child_cli_runner_uncomposed"),
 )
 

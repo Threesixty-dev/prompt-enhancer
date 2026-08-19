@@ -559,6 +559,15 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async getModelJudgeSweep() {
       throw new TransportError("Model judge is unavailable in synthetic preview", 404);
     },
+    async checkPrompt() {
+      throw new TransportError("Prompt checks are unavailable in synthetic preview", 404);
+    },
+    async getPromptCheckHistory() {
+      throw new TransportError("Prompt checks are unavailable in synthetic preview", 404);
+    },
+    async getPromptCheck() {
+      throw new TransportError("Prompt checks are unavailable in synthetic preview", 404);
+    },
     async getModelJudgments() {
       throw new TransportError("Model judge is unavailable in synthetic preview", 404);
     },

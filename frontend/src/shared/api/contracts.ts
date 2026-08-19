@@ -106,6 +106,10 @@ export type JudgeOutcome = Schemas["JudgeOutcome"];
 export type JudgeSweepStatus = Schemas["JudgeSweepStatus"];
 export type JudgeAgreementReport = Schemas["JudgeAgreementReport"];
 export type SessionJudgments = Schemas["SessionJudgments"];
+export type PromptCheckRequest = Schemas["PromptCheckRequest"];
+export type PromptCheckResult = Schemas["PromptCheckResult"];
+export type PromptCheckRecord = Schemas["PromptCheckRecord"];
+export type PromptCheckHistory = Schemas["PromptCheckHistory"];
 export type OnboardingStatus = Schemas["OnboardingStatus"];
 export type ProviderDetection = Schemas["ProviderDetection"];
 export type OnboardingAccept = Schemas["OnboardingAccept"];
@@ -578,6 +582,10 @@ export interface PromptEnhancerTransport {
   judgeSessionWithModel(sessionId: string, signal?: AbortSignal): Promise<JudgeOutcome>;
   /** Stored judgments for one session (labels only; never metric values). */
   getModelJudgments(sessionId: string, signal?: AbortSignal): Promise<SessionJudgments>;
+  /** Prompt check (ADR 0015): validate a prompt in context; only metrics are stored. */
+  checkPrompt(request: PromptCheckRequest, signal?: AbortSignal): Promise<PromptCheckResult>;
+  getPromptCheckHistory(limit: number, offset: number, signal?: AbortSignal): Promise<PromptCheckHistory>;
+  getPromptCheck(checkId: string, signal?: AbortSignal): Promise<PromptCheckRecord>;
   startModelJudgeSweep(signal?: AbortSignal, scope?: "sample" | "all"): Promise<JudgeSweepStatus>;
   getModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;
   getModelJudgeAgreement(signal?: AbortSignal): Promise<JudgeAgreementReport>;

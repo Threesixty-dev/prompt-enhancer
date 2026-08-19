@@ -44,6 +44,9 @@ const CalibrationScreen = lazy(() =>
 const LocalModelsScreen = lazy(() =>
   import("../features/local-models/LocalModelsPage").then((module) => ({ default: module.LocalModelsPage })),
 );
+const PromptChecksScreen = lazy(() =>
+  import("../features/prompt-check/PromptCheckPage").then((module) => ({ default: module.PromptCheckPage })),
+);
 const LiveMiniWindowScreen = lazy(() =>
   import("../features/live-window/LiveMiniWindow").then((module) => ({ default: module.LiveMiniWindow })),
 );
@@ -164,6 +167,7 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "sessions") return "Sessions";
   if (route.name === "calibration") return "Calibration";
   if (route.name === "models") return "Models";
+  if (route.name === "prompt_checks") return "Prompt check";
   if (route.name === "live") return "Live";
   if (route.name === "research") return "Methods & models";
   if (route.name === "team") return "Team analytics";
@@ -370,6 +374,15 @@ export function App({
             <span>Models</span>
           </button>
           <button
+            aria-current={route.name === "prompt_checks" ? "page" : undefined}
+            className={route.name === "prompt_checks" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "prompt_checks" })}
+            type="button"
+          >
+            <Icon name="check" />
+            <span>Prompt check</span>
+          </button>
+          <button
             aria-current={route.name === "discovery" ? "page" : undefined}
             className={route.name === "discovery" ? "primary-nav__item--active" : ""}
             onClick={() => navigate({ name: "discovery" })}
@@ -511,6 +524,8 @@ export function App({
                 <CalibrationScreen transport={transport} />
               ) : route.name === "models" ? (
                 <LocalModelsScreen transport={transport} />
+              ) : route.name === "prompt_checks" ? (
+                <PromptChecksScreen checkId={route.checkId} navigate={navigate} transport={transport} />
               ) : route.name === "projects" ? (
                 <ProjectCatalogScreen
                   coverageProvider={coverageProvider}

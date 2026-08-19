@@ -90,6 +90,10 @@ import type {
   JudgeSweepStatus,
   JudgeAgreementReport,
   SessionJudgments,
+  PromptCheckRequest,
+  PromptCheckResult,
+  PromptCheckRecord,
+  PromptCheckHistory,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2365,6 +2369,19 @@ export function createHttpTransport(options: {
     },
     getModelJudgeSweep(signal) {
       return request<JudgeSweepStatus>("/v1/model-judge/sweep", { method: "GET" }, signal);
+    },
+    checkPrompt(payload, signal) {
+      return request<PromptCheckResult>(
+        "/v1/prompt-checks",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+      );
+    },
+    getPromptCheckHistory(limit, offset, signal) {
+      return request<PromptCheckHistory>(`/v1/prompt-checks?limit=${limit}&offset=${offset}`, { method: "GET" }, signal);
+    },
+    getPromptCheck(checkId, signal) {
+      return request<PromptCheckRecord>(`/v1/prompt-checks/${encodeURIComponent(checkId)}`, { method: "GET" }, signal);
     },
     getModelJudgments(sessionId, signal) {
       return request<SessionJudgments>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" }, signal);

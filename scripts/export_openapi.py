@@ -309,6 +309,19 @@ class _SchemaModelJudgeService:
         raise RuntimeError("schema-only service has no agreement")
 
 
+class _SchemaPromptCheckService:
+    """Non-executing stand-in so the prompt-check routes are typed."""
+
+    def check(self, request):
+        raise RuntimeError("schema-only service cannot check prompts")
+
+    def history(self, *, limit=50, offset=0):
+        raise RuntimeError("schema-only service has no history")
+
+    def get(self, check_id):
+        raise RuntimeError("schema-only service has no history")
+
+
 class _SchemaLocalModelService:
     """Non-executing stand-in so the local model routes are typed."""
 
@@ -487,6 +500,7 @@ def _build_schema_app(*, include_control_plane: bool):
         calibration_rating_service=_SchemaCalibrationRatingService(),  # type: ignore[arg-type]
         local_model_service=_SchemaLocalModelService(),  # type: ignore[arg-type]
         model_judge_service=_SchemaModelJudgeService(),  # type: ignore[arg-type]
+        prompt_check_service=_SchemaPromptCheckService(),  # type: ignore[arg-type]
         calibration_sample_session_ids=lambda: (),
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),

@@ -848,12 +848,14 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
                     "prompt_enhancer."
                     + source_path.relative_to(_SOURCE_ROOT).with_suffix("").as_posix().replace("/", ".")
                 )
-    # Exactly two modules may touch network primitives directly, and both are
-    # owned-loopback services: the desktop overlay (probe + open) and the local
-    # model runtime manager (free-port bind, health, chat proxy to its child).
+    # Exactly three modules may touch network primitives directly, and all are
+    # owned-loopback services: the desktop overlay (probe + open), the local
+    # model runtime manager (free-port bind, health, chat proxy to its child),
+    # and the Claude Code prompt-check hook (posts to this app's loopback API).
     allowed_direct = {
         "prompt_enhancer.desktop_overlay",
         "prompt_enhancer.application.local_models",
+        "prompt_enhancer.interfaces.hooks.prompt_check_hook",
     }
     registered_direct = {
         entry.module

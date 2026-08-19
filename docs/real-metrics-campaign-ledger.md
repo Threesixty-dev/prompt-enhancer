@@ -1371,6 +1371,24 @@ labels as `hook_event` - instead of the plain display-name columns, which only
 the synthetic demo adapter still writes. Reads are unchanged (COALESCE over
 manual, provider, column), so existing rows keep their names.
 
+Prompt check (ADR 0015, migration 53 `prompt_checks`): one service behind
+`POST /v1/prompt-checks`, the MCP tool `check_prompt` (the ADR 0014 surface's
+single text-accepting tool; the MCP process forwards to the running app so the
+active model answers) and the opt-in Claude Code `UserPromptSubmit` hook
+`prompt-enhancer claude-prompt-check` (silent, never blocking, switchable by
+environment). The prompt and optional earlier turns go through the redactor,
+language detector and coaching engine with the prompt as the focus request,
+so the six prompt metrics and their cues are the dashboard's own; content-free
+context inference adds task type, dependence on earlier turns and whether
+verification was asked for; the active local model returns strict-JSON
+commentary (findings, a reformulated prompt with `<specify: …>` placeholders,
+element rewrites) that is labelled model output and never a metric. Only
+metrics, counters and an HMAC fingerprint are stored; the Prompt check page
+plots radar and trend over the stored checks. Verified live on the owner's
+machine: deterministic answer in well under a second, commentary from the
+orcarouter IQ3_M in about 20-40 s, the hook handing the advice to Claude Code
+as additional context.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

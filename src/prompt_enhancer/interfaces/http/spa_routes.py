@@ -34,6 +34,7 @@ _SESSION_METRICS = re.compile(
     rf"projects/({_PSEUDONYM})/sessions/({_PSEUDONYM})/metrics/([a-z-]+)/?"
 )
 _TASK_REVISION = re.compile(rf"tasks/({_PSEUDONYM})/revisions/([0-9]+)/?")
+_PROMPT_CHECK = re.compile(rf"prompt-checks/({_PSEUDONYM})/?")
 
 
 def is_spa_navigation_path(path: str) -> bool:
@@ -55,6 +56,8 @@ def is_spa_navigation_path(path: str) -> bool:
         "live/",
         "models",
         "models/",
+        "prompt-checks",
+        "prompt-checks/",
         "team",
         "team/",
         "tasks/flow",
@@ -69,6 +72,8 @@ def is_spa_navigation_path(path: str) -> bool:
         return True
 
     if _PROJECT_VIEW.fullmatch(path) is not None:
+        return True
+    if _PROMPT_CHECK.fullmatch(path) is not None:
         return True
 
     project_metrics = _PROJECT_METRICS.fullmatch(path)

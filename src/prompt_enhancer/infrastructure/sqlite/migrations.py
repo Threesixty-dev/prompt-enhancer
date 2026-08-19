@@ -12763,3 +12763,31 @@ ON session_display_labels(provider_observed_at);
 COMMIT;
 """
 
+
+MIGRATION_53 = r"""
+BEGIN IMMEDIATE;
+
+-- Prompt checks (ADR 0015): history of prompt validations. Metrics and
+-- content-free counters only - the prompt, the earlier messages and the
+-- model commentary are returned to the caller and never stored.
+CREATE TABLE prompt_checks (
+    check_id TEXT PRIMARY KEY CHECK(length(check_id) = 64 AND check_id GLOB '[0-9a-f]*'),
+    created_at TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK(provider IN ('codex', 'claude_code', 'other')),
+    agent_model TEXT CHECK(agent_model IS NULL OR length(agent_model) BETWEEN 1 AND 120),
+    language TEXT NOT NULL CHECK(language IN ('en', 'pl', 'mixed', 'unknown')),
+    task_type TEXT NOT NULL CHECK(length(task_type) BETWEEN 1 AND 32),
+    prompt_chars INTEGER NOT NULL CHECK(prompt_chars >= 0),
+    prior_message_count INTEGER NOT NULL CHECK(prior_message_count >= 0),
+    depends_on_prior_context INTEGER NOT NULL CHECK(depends_on_prior_context IN (0, 1)),
+    verification_requested INTEGER NOT NULL CHECK(verification_requested IN (0, 1)),
+    metrics_json TEXT NOT NULL CHECK(length(metrics_json) BETWEEN 2 AND 65536 AND substr(metrics_json, 1, 1) = '['),
+    commentary_state TEXT NOT NULL CHECK(length(commentary_state) BETWEEN 1 AND 32),
+    commentary_model_alias TEXT CHECK(commentary_model_alias IS NULL OR length(commentary_model_alias) BETWEEN 1 AND 64),
+    prompt_fingerprint TEXT NOT NULL CHECK(length(prompt_fingerprint) = 64 AND prompt_fingerprint GLOB '[0-9a-f]*')
+) STRICT;
+
+CREATE INDEX prompt_checks_by_time ON prompt_checks(created_at DESC, check_id);
+COMMIT;
+"""
+

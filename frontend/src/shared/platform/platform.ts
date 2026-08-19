@@ -10,6 +10,7 @@ export type AppRoute =
   | { name: "sessions" }
   | { name: "calibration" }
   | { name: "models" }
+  | { name: "prompt_checks"; checkId?: string }
   | { name: "project_overview"; projectId: string }
   | { name: "live"; projectId: string; sessionId?: string }
   | { name: "project_sessions"; projectId: string }
@@ -65,6 +66,9 @@ export function parseRoute(pathname: string): AppRoute {
   if (/^\/sessions\/?$/.test(pathname)) return { name: "sessions" };
   if (/^\/calibration\/?$/.test(pathname)) return { name: "calibration" };
   if (/^\/models\/?$/.test(pathname)) return { name: "models" };
+  if (/^\/prompt-checks\/?$/.test(pathname)) return { name: "prompt_checks" };
+  const promptCheckMatch = pathname.match(/^\/prompt-checks\/([a-f0-9]{64})\/?$/);
+  if (promptCheckMatch && isPseudonym(promptCheckMatch[1])) return { name: "prompt_checks", checkId: promptCheckMatch[1] };
 
   const sessionMetricMatch = pathname.match(
     /^\/projects\/([a-f0-9]{64})\/sessions\/([a-f0-9]{64})\/metrics\/([a-z-]+)\/?$/,
@@ -140,6 +144,7 @@ export function routePath(route: AppRoute): string {
   if (route.name === "sessions") return "/sessions";
   if (route.name === "calibration") return "/calibration";
   if (route.name === "models") return "/models";
+  if (route.name === "prompt_checks") return route.checkId ? `/prompt-checks/${route.checkId}` : "/prompt-checks";
   if (route.name === "project_overview") {
     assertPseudonym(route.projectId);
     return `/projects/${route.projectId}/overview`;

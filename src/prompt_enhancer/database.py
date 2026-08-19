@@ -120,10 +120,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_50,
     MIGRATION_51,
     MIGRATION_52,
+    MIGRATION_53,
 )
 
 
-SCHEMA_VERSION = 52
+SCHEMA_VERSION = 53
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1655,6 +1656,7 @@ class Database:
                 (50, MIGRATION_50),
                 (51, MIGRATION_51),
                 (52, MIGRATION_52),
+                (53, MIGRATION_53),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1832,6 +1834,14 @@ class Database:
         return TelemetryIngestService(
             self._connection, self._ensure_initialized, pseudonymizer
         )
+
+    def prompt_check_repository(self):
+        """Prompt-check history (metrics and counters only; never text)."""
+
+        from .infrastructure.sqlite.prompt_checks import SqlitePromptCheckRepository
+
+        self._ensure_initialized()
+        return SqlitePromptCheckRepository(self._connection, self._ensure_initialized)
 
     def model_judgment_repository(self):
         """Model-judge lane judgments (labels only, separate from metrics)."""

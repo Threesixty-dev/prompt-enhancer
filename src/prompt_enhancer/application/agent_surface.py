@@ -1,10 +1,13 @@
-"""Read-only, allowlisted metric surface for connected coding agents (MCP, ADR 0014).
+"""Allowlisted surface for connected coding agents (MCP, ADR 0014 and ADR 0015).
 
-Everything here is metadata or a metric value: names the owner chose to show in
-the dashboard, pseudonymous identifiers, counts, metric states and values,
-calibration progress and model-judge agreement. No transcript text, file path,
-token, or raw event ever crosses this boundary; inputs are validated and every
-answer is bounded. The surface is the same for every transport that exposes it.
+Everything the read tools return is metadata or a metric value: names the owner
+chose to show in the dashboard, pseudonymous identifiers, counts, metric states
+and values, calibration progress and model-judge agreement. No transcript text,
+file path, token, or raw event ever crosses this boundary; inputs are validated
+and every answer is bounded. The one tool that accepts text, ``check_prompt``,
+receives the prompt the agent already holds, analyses it locally, stores
+metrics only, and returns commentary about that prompt. The surface is the same
+for every transport that exposes it.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from typing import Any, Literal, Protocol
 from pydantic import Field, ValidationError
 
 from ..domain import PSEUDONYM_PATTERN, Provider, StrictModel
+from .prompt_check import PromptCheckRequest, PromptCheckResult
 
 
 AGENT_SURFACE_CONTRACT_VERSION = "agent-surface.v1"
@@ -69,6 +73,10 @@ class ExplainMetricInput(StrictModel):
 
 class EmptyInput(StrictModel):
     pass
+
+
+class CheckPromptInput(PromptCheckRequest):
+    """Same contract as the HTTP prompt check; documented here for the tool schema."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,16 +138,18 @@ class AgentReadSurface:
         catalog: SessionCatalog,
         *,
         calibration_status: Callable[[], dict[str, object]] | None = None,
+        prompt_check: Callable[[PromptCheckRequest], PromptCheckResult] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._catalog = catalog
         self._calibration_status = calibration_status
+        self._prompt_check = prompt_check
         self._clock = clock or (lambda: datetime.now(UTC))
 
     # -- catalog --
 
     def tools(self) -> tuple[ToolSpec, ...]:
-        return (
+        base = (
             ToolSpec(
                 name="list_metric_definitions",
                 description="The metric catalog: key, dimension, name, description, unit and source of every metric the app computes. No values.",
@@ -169,6 +179,23 @@ class AgentReadSurface:
                 name="get_calibration_status",
                 description="Progress of the owner's blind calibration ratings and the local model judge's agreement with them (labels only). Judgments are never metric values.",
                 input_model=EmptyInput,
+            ),
+        )
+        if self._prompt_check is None:
+            return base
+        return (
+            *base,
+            ToolSpec(
+                name="check_prompt",
+                description=(
+                    "Validate a prompt before acting on it. Send the prompt the person just wrote (and, if you have them, the earlier "
+                    "turns as prior_messages, oldest first). Returns deterministic prompt metrics with the cues detected or missing, "
+                    "content-free context inference (task type, dependence on earlier turns, whether verification was asked for), "
+                    "local-model commentary with a reformulated prompt and element-level rewrites when a model is active, and a short "
+                    "summary. Use the suggestions to ask the person a clarifying question or to restate the task; nothing but metrics is stored. "
+                    "Optional - use it when a prompt looks vague, large, or high-stakes."
+                ),
+                input_model=CheckPromptInput,
             ),
         )
 
@@ -261,6 +288,14 @@ class AgentReadSurface:
                 "authority": "objective evidence (tests, builds, explicit acceptance) outranks model-written claims and model judgments; model judgments are stored apart and never become metric values",
             },
         }
+
+    def _tool_check_prompt(self, payload: CheckPromptInput) -> dict[str, Any]:
+        if self._prompt_check is None:
+            raise AgentSurfaceError("unknown_tool")
+        result = self._prompt_check(PromptCheckRequest.model_validate(payload.model_dump()))
+        data = result.model_dump(mode="json")
+        data.pop("contract_version", None)
+        return data
 
     def _tool_get_calibration_status(self, _: EmptyInput) -> dict[str, Any]:
         if self._calibration_status is None:

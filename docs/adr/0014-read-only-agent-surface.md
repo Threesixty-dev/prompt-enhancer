@@ -59,3 +59,15 @@ widen the supply chain for no gain.
 - If the protocol version a client needs diverges, the server's
   `initialize` reply is the single place to negotiate; the tool set does not
   depend on it.
+
+## Addendum (2026-08-19): the one text-accepting tool
+
+ADR 0015 adds `check_prompt` to this surface. It is the only tool that accepts
+text: the prompt the agent already holds (and, optionally, the earlier turns).
+The text is analysed locally, only metrics are stored, and what comes back is
+commentary about that prompt - which enters the agent's context exactly as the
+prompt itself already has. The read tools are unchanged; there is still no
+generic query and no transcript access. When the dashboard server is running
+the MCP process forwards the check to it so the active local model's commentary
+is included; otherwise the deterministic cues are returned alone.
+

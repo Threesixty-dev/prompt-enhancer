@@ -100,3 +100,25 @@ model's provider. The tools are read-only and bounded ([ADR 0014](adr/0014-read-
 
 No tool returns transcript text, raw events, file paths, tokens, or model
 replies, and there is no generic query.
+
+## Check a prompt before acting on it
+
+The same check the *Prompt check* page runs is available to agents:
+
+- `check_prompt` MCP tool (above) - the agent sends the prompt and, if it has
+  them, the earlier turns as `prior_messages`; it gets the cues, the context
+  inference, the local model's commentary and a reformulated prompt. When the
+  dashboard server is running the MCP process forwards to it so the active
+  model answers; otherwise the deterministic cues come back alone.
+- `POST /v1/prompt-checks` with the app token - body `{"prompt": "...",
+  "prior_messages": [{"role": "user", "content": "..."}], "provider":
+  "claude_code", "want_commentary": true}`.
+- Claude Code hook: `prompt-enhancer claude-prompt-check-config` prints the
+  `UserPromptSubmit` snippet; once merged into `~/.claude/settings.json`, every
+  prompt of four words or more is checked and the advice reaches the model as
+  additional context. `PROMPT_ENHANCER_PROMPT_CHECK_HOOK=0` switches it off,
+  `PROMPT_ENHANCER_PROMPT_CHECK_COMMENTARY=0` keeps it deterministic-only
+  (sub-second), `PROMPT_ENHANCER_PROMPT_CHECK_TIMEOUT_SECONDS` bounds the wait.
+
+Nothing but metrics is stored; the prompt text never leaves 127.0.0.1.
+

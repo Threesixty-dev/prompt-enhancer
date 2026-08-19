@@ -96,6 +96,17 @@ def _parser() -> argparse.ArgumentParser:
         "mcp-config",
         help="print the Claude Code / Codex configuration snippets for the MCP server",
     )
+    subparsers.add_parser(
+        "claude-prompt-check",
+        help=(
+            "Claude Code UserPromptSubmit hook: check the prompt through the local app and "
+            "return the advice as additional context; silent and exit 0 on any failure"
+        ),
+    )
+    subparsers.add_parser(
+        "claude-prompt-check-config",
+        help="print the Claude Code settings.json hooks snippet for the prompt check",
+    )
     return parser
 
 
@@ -383,6 +394,41 @@ def _run_mcp_config(settings: AppSettings) -> int:
     return 0
 
 
+def _run_claude_prompt_check(settings: AppSettings) -> int:
+    from .interfaces.hooks import run_prompt_check_hook
+
+    return run_prompt_check_hook(settings)
+
+
+def _run_claude_prompt_check_config(settings: AppSettings) -> int:
+    """Print the hooks snippet; the person adds it, we write no config."""
+
+    import json
+
+    from .interfaces.hooks import HOOK_COMMENTARY_ENV, HOOK_ENABLED_ENV
+
+    command = f'"{sys.executable}" -m prompt_enhancer claude-prompt-check'
+    snippet = {
+        "hooks": {
+            "UserPromptSubmit": [
+                {"hooks": [{"type": "command", "command": command, "timeout": 60}]}
+            ]
+        }
+    }
+    print(json.dumps(snippet, indent=2))
+    notes = (
+        "",
+        "# Merge into ~/.claude/settings.json (or a project's .claude/settings.json).",
+        "# Every prompt of at least four words is then checked by the local app (prompt-enhancer serve",
+        "# must be running): deterministic cues always, local-model commentary and a reformulated prompt",
+        f"# when a model is active. Switch off without editing settings: {HOOK_ENABLED_ENV}=0;",
+        f"# deterministic-only (fast): {HOOK_COMMENTARY_ENV}=0. The prompt travels only to 127.0.0.1;",
+        "# nothing but metrics is stored. The hook never blocks: on any failure it prints nothing.",
+    )
+    print("\n".join(notes), file=sys.stderr)
+    return 0
+
+
 def _run_claude_otel_config(settings: AppSettings) -> int:
     """Print exporter env vars; the user sets them, we write no config."""
 
@@ -464,6 +510,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_mcp(settings, args)
         if args.command == "mcp-config":
             return _run_mcp_config(settings)
+        if args.command == "claude-prompt-check":
+            return _run_claude_prompt_check(settings)
+        if args.command == "claude-prompt-check-config":
+            return _run_claude_prompt_check_config(settings)
         handlers = {
             "init": _run_init,
             "demo": _run_demo,

@@ -1042,6 +1042,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/prompt-checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** History */
+        get: operations["history_v1_prompt_checks_get"];
+        put?: never;
+        /**
+         * Check
+         * @description Validate one prompt (optionally with the earlier turns); nothing but metrics is stored.
+         */
+        post: operations["check_v1_prompt_checks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/prompt-checks/{check_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stored */
+        get: operations["stored_v1_prompt_checks__check_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/providers/{provider}/capabilities": {
         parameters: {
             query?: never;
@@ -2892,6 +2930,11 @@ export interface components {
              */
             network_inference: false;
             /**
+             * Prompt Check
+             * @default false
+             */
+            prompt_check: boolean;
+            /**
              * Raw Transcripts
              * @default false
              */
@@ -3330,12 +3373,69 @@ export interface components {
             indexed_sessions: number;
             verification_capability: components["schemas"]["VerificationCapability"];
         };
+        /** CommentaryFinding */
+        CommentaryFinding: {
+            /**
+             * Aspect
+             * @enum {string}
+             */
+            aspect: "goal" | "scope" | "context" | "constraints" | "acceptance" | "deliverable" | "verification" | "ambiguity" | "other";
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "low" | "medium" | "high";
+            /** Suggestion */
+            suggestion: string;
+            /** Why */
+            why: string;
+        };
         /**
          * CompatibilityState
          * @description Compatibility of one provider surface, never the whole provider.
          * @enum {string}
          */
         CompatibilityState: "exact" | "compatible" | "degraded" | "untested" | "incompatible" | "unavailable";
+        /** ContextInference */
+        ContextInference: {
+            /** Bullet Count */
+            bullet_count: number;
+            /** Code Identifiers */
+            code_identifiers: number;
+            /** Depends On Prior Context */
+            depends_on_prior_context: boolean;
+            /** File References */
+            file_references: number;
+            /**
+             * Language
+             * @enum {string}
+             */
+            language: "en" | "pl" | "mixed" | "unknown";
+            /**
+             * Missing Elements
+             * @default []
+             */
+            missing_elements: string[];
+            /** Prior Context Supplied */
+            prior_context_supplied: number;
+            /** Prompt Chars */
+            prompt_chars: number;
+            /** Prompt Words */
+            prompt_words: number;
+            /** Question Count */
+            question_count: number;
+            /** Sentence Count */
+            sentence_count: number;
+            /**
+             * Task Type
+             * @enum {string}
+             */
+            task_type: "implement" | "fix" | "refactor" | "review" | "explain" | "plan" | "write" | "test" | "other";
+            /** Urls */
+            urls: number;
+            /** Verification Requested */
+            verification_requested: boolean;
+        };
         /**
          * ControlPlaneReadiness
          * @description An explicit statement that this plane is not a finished product.
@@ -4831,6 +4931,40 @@ export interface components {
              * @constant
              */
             trust_remote_code: false;
+        };
+        /** ModelCommentary */
+        ModelCommentary: {
+            /**
+             * Caveat
+             * @default Commentary and rewrites come from a local model; they are suggestions, not metrics, and may be wrong. The deterministic cues above are what was actually detected.
+             */
+            caveat: string;
+            /**
+             * Findings
+             * @default []
+             */
+            findings: components["schemas"]["CommentaryFinding"][];
+            /** Model Alias */
+            model_alias?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Prompt Version
+             * @default prompt-check-commentary-v1
+             */
+            prompt_version: string;
+            /**
+             * Reformulated Elements
+             * @default []
+             */
+            reformulated_elements: components["schemas"]["ReformulatedElement"][];
+            /** Reformulated Prompt */
+            reformulated_prompt?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ok" | "no_active_model" | "model_error" | "reply_invalid" | "skipped";
         };
         /** ModelCompatibilityCatalogDto */
         ModelCompatibilityCatalogDto: {
@@ -6449,6 +6583,183 @@ export interface components {
              */
             truncated: boolean;
         };
+        /** PromptCheckHistory */
+        PromptCheckHistory: {
+            /** Checks */
+            checks: components["schemas"]["PromptCheckRecord"][];
+            /**
+             * Contract Version
+             * @default prompt-check.v1
+             * @constant
+             */
+            contract_version: "prompt-check.v1";
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** PromptCheckMessage */
+        PromptCheckMessage: {
+            /** Content */
+            content: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+        };
+        /**
+         * PromptCheckRecord
+         * @description Stored history row: metrics and counters only; no text.
+         */
+        PromptCheckRecord: {
+            /** Agent Model */
+            agent_model?: string | null;
+            /** Check Id */
+            check_id: string;
+            /** Commentary Model Alias */
+            commentary_model_alias?: string | null;
+            /** Commentary State */
+            commentary_state: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Depends On Prior Context */
+            depends_on_prior_context: boolean;
+            /** Language */
+            language: string;
+            /** Metrics */
+            metrics: components["schemas"]["PromptMetricReading"][];
+            /** Prior Message Count */
+            prior_message_count: number;
+            /** Prompt Chars */
+            prompt_chars: number;
+            /** Prompt Fingerprint */
+            prompt_fingerprint: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "codex" | "claude_code" | "other";
+            /** Task Type */
+            task_type: string;
+            /** Verification Requested */
+            verification_requested: boolean;
+        };
+        /**
+         * PromptCheckRequest
+         * @description The prompt about to be sent, the earlier turns if the agent has them, and hints about the agent.
+         */
+        PromptCheckRequest: {
+            /** Agent Model */
+            agent_model?: string | null;
+            /**
+             * Prior Messages
+             * @default []
+             */
+            prior_messages: components["schemas"]["PromptCheckMessage"][];
+            /** Prompt */
+            prompt: string;
+            /**
+             * Provider
+             * @default other
+             * @enum {string}
+             */
+            provider: "codex" | "claude_code" | "other";
+            /**
+             * Want Commentary
+             * @default true
+             */
+            want_commentary: boolean;
+        };
+        /** PromptCheckResult */
+        PromptCheckResult: {
+            /** Agent Model */
+            agent_model?: string | null;
+            /** Check Id */
+            check_id: string;
+            commentary: components["schemas"]["ModelCommentary"];
+            context: components["schemas"]["ContextInference"];
+            /**
+             * Contract Version
+             * @default prompt-check.v1
+             * @constant
+             */
+            contract_version: "prompt-check.v1";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dashboard Path */
+            dashboard_path: string;
+            /** Engine Version */
+            engine_version: string;
+            /** Metrics */
+            metrics: components["schemas"]["PromptMetricReading"][];
+            /**
+             * Other Metric Families Note
+             * @default Collaboration, logic and outcome metrics need the agent's replies and the session's evidence; they are computed for the session afterwards, not for a single prompt.
+             */
+            other_metric_families_note: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "codex" | "claude_code" | "other";
+            /** Rubric Version */
+            rubric_version: string;
+            /** Summary */
+            summary: string;
+        };
+        /** PromptCue */
+        PromptCue: {
+            /** Code */
+            code: string;
+            /** Count */
+            count?: number | null;
+            /** Label */
+            label: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "detected" | "missing" | "counted" | "unknown";
+        };
+        /** PromptMetricReading */
+        PromptMetricReading: {
+            /**
+             * Cues
+             * @default []
+             */
+            cues: components["schemas"]["PromptCue"][];
+            /** Denominator */
+            denominator?: number | null;
+            /** Description */
+            description: string;
+            /** Display Name */
+            display_name: string;
+            /** Explanation Code */
+            explanation_code: string;
+            /**
+             * Higher Is Better
+             * @default true
+             */
+            higher_is_better: boolean;
+            /** Key */
+            key: string;
+            /** Numerator */
+            numerator?: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error";
+            /** Value */
+            value?: number | null;
+        };
         /**
          * Provider
          * @enum {string}
@@ -6670,6 +6981,18 @@ export interface components {
             retention_class: components["schemas"]["RetentionClass"];
             /** Session Id */
             session_id: string;
+        };
+        /** ReformulatedElement */
+        ReformulatedElement: {
+            /**
+             * Element
+             * @enum {string}
+             */
+            element: "goal" | "scope" | "context" | "constraints" | "acceptance" | "deliverable" | "verification" | "other";
+            /** Original */
+            original?: string | null;
+            /** Suggested */
+            suggested: string;
         };
         /** RejectTaskRequest */
         RejectTaskRequest: {
@@ -10661,6 +10984,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectTimeline"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    history_v1_prompt_checks_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptCheckHistory"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_v1_prompt_checks_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptCheckResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stored_v1_prompt_checks__check_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                check_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptCheckRecord"];
                 };
             };
             /** @description Validation Error */

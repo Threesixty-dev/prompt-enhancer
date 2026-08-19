@@ -2434,6 +2434,11 @@
             "title": "Network Inference",
             "type": "boolean"
           },
+          "prompt_check": {
+            "default": false,
+            "title": "Prompt Check",
+            "type": "boolean"
+          },
           "raw_transcripts": {
             "default": false,
             "title": "Raw Transcripts",
@@ -3566,6 +3571,55 @@
         "title": "CodexLocalSourceStatus",
         "type": "object"
       },
+      "CommentaryFinding": {
+        "additionalProperties": false,
+        "properties": {
+          "aspect": {
+            "enum": [
+              "goal",
+              "scope",
+              "context",
+              "constraints",
+              "acceptance",
+              "deliverable",
+              "verification",
+              "ambiguity",
+              "other"
+            ],
+            "title": "Aspect",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "suggestion": {
+            "maxLength": 800,
+            "minLength": 1,
+            "title": "Suggestion",
+            "type": "string"
+          },
+          "why": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "aspect",
+          "severity",
+          "why",
+          "suggestion"
+        ],
+        "title": "CommentaryFinding",
+        "type": "object"
+      },
       "CompatibilityState": {
         "description": "Compatibility of one provider surface, never the whole provider.",
         "enum": [
@@ -3578,6 +3632,114 @@
         ],
         "title": "CompatibilityState",
         "type": "string"
+      },
+      "ContextInference": {
+        "additionalProperties": false,
+        "properties": {
+          "bullet_count": {
+            "minimum": 0.0,
+            "title": "Bullet Count",
+            "type": "integer"
+          },
+          "code_identifiers": {
+            "minimum": 0.0,
+            "title": "Code Identifiers",
+            "type": "integer"
+          },
+          "depends_on_prior_context": {
+            "title": "Depends On Prior Context",
+            "type": "boolean"
+          },
+          "file_references": {
+            "minimum": 0.0,
+            "title": "File References",
+            "type": "integer"
+          },
+          "language": {
+            "enum": [
+              "en",
+              "pl",
+              "mixed",
+              "unknown"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "missing_elements": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Elements",
+            "type": "array"
+          },
+          "prior_context_supplied": {
+            "minimum": 0.0,
+            "title": "Prior Context Supplied",
+            "type": "integer"
+          },
+          "prompt_chars": {
+            "minimum": 0.0,
+            "title": "Prompt Chars",
+            "type": "integer"
+          },
+          "prompt_words": {
+            "minimum": 0.0,
+            "title": "Prompt Words",
+            "type": "integer"
+          },
+          "question_count": {
+            "minimum": 0.0,
+            "title": "Question Count",
+            "type": "integer"
+          },
+          "sentence_count": {
+            "minimum": 0.0,
+            "title": "Sentence Count",
+            "type": "integer"
+          },
+          "task_type": {
+            "enum": [
+              "implement",
+              "fix",
+              "refactor",
+              "review",
+              "explain",
+              "plan",
+              "write",
+              "test",
+              "other"
+            ],
+            "title": "Task Type",
+            "type": "string"
+          },
+          "urls": {
+            "minimum": 0.0,
+            "title": "Urls",
+            "type": "integer"
+          },
+          "verification_requested": {
+            "title": "Verification Requested",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "task_type",
+          "language",
+          "prompt_chars",
+          "prompt_words",
+          "sentence_count",
+          "bullet_count",
+          "question_count",
+          "file_references",
+          "code_identifiers",
+          "urls",
+          "prior_context_supplied",
+          "depends_on_prior_context",
+          "verification_requested"
+        ],
+        "title": "ContextInference",
+        "type": "object"
       },
       "ControlPlaneReadiness": {
         "additionalProperties": false,
@@ -7100,6 +7262,88 @@
           "source_keys"
         ],
         "title": "ModelCandidateDto",
+        "type": "object"
+      },
+      "ModelCommentary": {
+        "additionalProperties": false,
+        "properties": {
+          "caveat": {
+            "default": "Commentary and rewrites come from a local model; they are suggestions, not metrics, and may be wrong. The deterministic cues above are what was actually detected.",
+            "title": "Caveat",
+            "type": "string"
+          },
+          "findings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CommentaryFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "model_alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Alias"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "prompt_version": {
+            "default": "prompt-check-commentary-v1",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "reformulated_elements": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReformulatedElement"
+            },
+            "title": "Reformulated Elements",
+            "type": "array"
+          },
+          "reformulated_prompt": {
+            "anyOf": [
+              {
+                "maxLength": 42000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reformulated Prompt"
+          },
+          "state": {
+            "enum": [
+              "ok",
+              "no_active_model",
+              "model_error",
+              "reply_invalid",
+              "skipped"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "ModelCommentary",
         "type": "object"
       },
       "ModelCompatibilityCatalogDto": {
@@ -11468,6 +11712,437 @@
         "title": "ProjectTimeline",
         "type": "object"
       },
+      "PromptCheckHistory": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/PromptCheckRecord"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "contract_version": {
+            "const": "prompt-check.v1",
+            "default": "prompt-check.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "checks",
+          "limit",
+          "offset"
+        ],
+        "title": "PromptCheckHistory",
+        "type": "object"
+      },
+      "PromptCheckMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "PromptCheckMessage",
+        "type": "object"
+      },
+      "PromptCheckRecord": {
+        "additionalProperties": false,
+        "description": "Stored history row: metrics and counters only; no text.",
+        "properties": {
+          "agent_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Model"
+          },
+          "check_id": {
+            "title": "Check Id",
+            "type": "string"
+          },
+          "commentary_model_alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commentary Model Alias"
+          },
+          "commentary_state": {
+            "title": "Commentary State",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "depends_on_prior_context": {
+            "title": "Depends On Prior Context",
+            "type": "boolean"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PromptMetricReading"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "prior_message_count": {
+            "minimum": 0.0,
+            "title": "Prior Message Count",
+            "type": "integer"
+          },
+          "prompt_chars": {
+            "minimum": 0.0,
+            "title": "Prompt Chars",
+            "type": "integer"
+          },
+          "prompt_fingerprint": {
+            "title": "Prompt Fingerprint",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "codex",
+              "claude_code",
+              "other"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "task_type": {
+            "title": "Task Type",
+            "type": "string"
+          },
+          "verification_requested": {
+            "title": "Verification Requested",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "check_id",
+          "created_at",
+          "provider",
+          "language",
+          "task_type",
+          "prompt_chars",
+          "prior_message_count",
+          "depends_on_prior_context",
+          "verification_requested",
+          "metrics",
+          "commentary_state",
+          "prompt_fingerprint"
+        ],
+        "title": "PromptCheckRecord",
+        "type": "object"
+      },
+      "PromptCheckRequest": {
+        "additionalProperties": false,
+        "description": "The prompt about to be sent, the earlier turns if the agent has them, and hints about the agent.",
+        "properties": {
+          "agent_model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:/+-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Model"
+          },
+          "prior_messages": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PromptCheckMessage"
+            },
+            "maxItems": 24,
+            "title": "Prior Messages",
+            "type": "array"
+          },
+          "prompt": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
+          },
+          "provider": {
+            "default": "other",
+            "enum": [
+              "codex",
+              "claude_code",
+              "other"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "want_commentary": {
+            "default": true,
+            "title": "Want Commentary",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "title": "PromptCheckRequest",
+        "type": "object"
+      },
+      "PromptCheckResult": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Model"
+          },
+          "check_id": {
+            "title": "Check Id",
+            "type": "string"
+          },
+          "commentary": {
+            "$ref": "#/components/schemas/ModelCommentary"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ContextInference"
+          },
+          "contract_version": {
+            "const": "prompt-check.v1",
+            "default": "prompt-check.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dashboard_path": {
+            "title": "Dashboard Path",
+            "type": "string"
+          },
+          "engine_version": {
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/PromptMetricReading"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "other_metric_families_note": {
+            "default": "Collaboration, logic and outcome metrics need the agent's replies and the session's evidence; they are computed for the session afterwards, not for a single prompt.",
+            "title": "Other Metric Families Note",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "codex",
+              "claude_code",
+              "other"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "rubric_version": {
+            "title": "Rubric Version",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check_id",
+          "created_at",
+          "provider",
+          "metrics",
+          "context",
+          "commentary",
+          "summary",
+          "engine_version",
+          "rubric_version",
+          "dashboard_path"
+        ],
+        "title": "PromptCheckResult",
+        "type": "object"
+      },
+      "PromptCue": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "detected",
+              "missing",
+              "counted",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "status"
+        ],
+        "title": "PromptCue",
+        "type": "object"
+      },
+      "PromptMetricReading": {
+        "additionalProperties": false,
+        "properties": {
+          "cues": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PromptCue"
+            },
+            "title": "Cues",
+            "type": "array"
+          },
+          "denominator": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denominator"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "explanation_code": {
+            "title": "Explanation Code",
+            "type": "string"
+          },
+          "higher_is_better": {
+            "default": true,
+            "title": "Higher Is Better",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "numerator": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numerator"
+          },
+          "state": {
+            "enum": [
+              "known",
+              "unknown",
+              "not_applicable",
+              "abstained",
+              "execution_error"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "display_name",
+          "description",
+          "state",
+          "explanation_code"
+        ],
+        "title": "PromptMetricReading",
+        "type": "object"
+      },
       "Provider": {
         "enum": [
           "codex",
@@ -12114,6 +12789,49 @@
           "cost_state"
         ],
         "title": "RedactionPreviewBinding",
+        "type": "object"
+      },
+      "ReformulatedElement": {
+        "additionalProperties": false,
+        "properties": {
+          "element": {
+            "enum": [
+              "goal",
+              "scope",
+              "context",
+              "constraints",
+              "acceptance",
+              "deliverable",
+              "verification",
+              "other"
+            ],
+            "title": "Element",
+            "type": "string"
+          },
+          "original": {
+            "anyOf": [
+              {
+                "maxLength": 600,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original"
+          },
+          "suggested": {
+            "maxLength": 1200,
+            "minLength": 1,
+            "title": "Suggested",
+            "type": "string"
+          }
+        },
+        "required": [
+          "element",
+          "suggested"
+        ],
+        "title": "ReformulatedElement",
         "type": "object"
       },
       "RejectTaskRequest": {
@@ -21813,6 +22531,244 @@
         "summary": "Project Timeline",
         "tags": [
           "project-timeline"
+        ]
+      }
+    },
+    "/v1/prompt-checks": {
+      "get": {
+        "operationId": "history_v1_prompt_checks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptCheckHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "History",
+        "tags": [
+          "prompt-checks"
+        ]
+      },
+      "post": {
+        "description": "Validate one prompt (optionally with the earlier turns); nothing but metrics is stored.",
+        "operationId": "check_v1_prompt_checks_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptCheckResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check",
+        "tags": [
+          "prompt-checks"
+        ]
+      }
+    },
+    "/v1/prompt-checks/{check_id}": {
+      "get": {
+        "operationId": "stored_v1_prompt_checks__check_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "check_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Check Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptCheckRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stored",
+        "tags": [
+          "prompt-checks"
         ]
       }
     },
