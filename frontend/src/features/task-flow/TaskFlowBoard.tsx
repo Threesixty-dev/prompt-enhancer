@@ -1,6 +1,7 @@
 import type { PromptEnhancerTransport, TaskDecision } from "../../shared/api/contracts";
 import { formatTimestamp, shortId } from "../../shared/lib/format";
 import { FactList } from "../../shared/ui/FactList";
+import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import { Icon } from "../../shared/ui/Icon";
 import { StatusPill, type PillTone } from "../../shared/ui/StatusPill";
 import { TaskFlowAudit } from "./TaskFlowAudit";
@@ -151,7 +152,11 @@ export function TaskFlowCard({
           transport={transport}
         />
         <footer>
-          <span>{item.sessionCount} session{item.sessionCount === 1 ? "" : "s"}{item.provider === null ? "" : ` · ${item.provider}`}</span>
+          <span>
+            {item.provider === null ? null : <ProviderBadge provider={item.provider} />}
+            {item.provider === null ? "" : " "}
+            {item.sessionCount} session{item.sessionCount === 1 ? "" : "s"}
+          </span>
           <button
             className="button button--secondary button--compact"
             disabled={item.route === null}

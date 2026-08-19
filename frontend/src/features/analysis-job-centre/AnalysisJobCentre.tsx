@@ -9,6 +9,7 @@ import type {
   RuntimeServiceState,
 } from "../../shared/platform/runtimeMode";
 import { StatusPill, type PillTone } from "../../shared/ui/StatusPill";
+import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 
 const PAGE_SIZE = 25;
 const POLL_INTERVAL_MS = 5_000;
@@ -432,7 +433,10 @@ export function AnalysisJobCentre({
                       <time dateTime={job.updated_at}>{formatTimestamp(job.updated_at)} UTC</time>
                     </span>
                     <strong>{job.identity.kind === "session_quality" ? "Session quality" : "Synthetic validation"}</strong>
-                    <span>Session {shortId(job.identity.session_id)} · {job.identity.metric_keys.length} metrics</span>
+                    <span>
+                      <ProviderBadge provider={job.identity.provider} />
+                      {" "}Session {shortId(job.identity.session_id)} · {job.identity.metric_keys.length} metrics
+                    </span>
                     <JobProgress job={job} />
                     {job.state === "queued" && job.last_error_code === "lease_expired" && (
                       <small>Recovered after restart · bounded retry pending</small>
@@ -493,7 +497,7 @@ export function AnalysisJobCentre({
                 <div><dt>Job ID</dt><dd><code>{selected.job_id}</code></dd></div>
                 <div><dt>Project</dt><dd><code>{selected.identity.project_id}</code></dd></div>
                 <div><dt>Session</dt><dd><code>{selected.identity.session_id}</code></dd></div>
-                <div><dt>Provider</dt><dd>{selected.identity.provider}</dd></div>
+                <div><dt>Provider</dt><dd><ProviderBadge provider={selected.identity.provider} /></dd></div>
                 <div><dt>Attempts</dt><dd>{selected.attempt_count} used · {selected.max_attempts} maximum</dd></div>
                 <div><dt>Updated</dt><dd><time dateTime={selected.updated_at}>{formatTimestamp(selected.updated_at)} UTC</time></dd></div>
                 <div><dt>Estimator plan</dt><dd><code>{selected.identity.estimator_plan_version}</code></dd></div>
