@@ -55,6 +55,11 @@ EGRESS_REGISTRY: tuple[EgressRegistration, ...] = (
     EgressRegistration(module="prompt_enhancer.interfaces.http.desktop_identity", egress_class=EgressClass.NONE, state=FutureEgressState.ACTIVE_LOCAL_ONLY, reason_code="origin_parse_only"),
     EgressRegistration(module="prompt_enhancer.infrastructure.providers.codex_app_server.transports.stdio_jsonl", egress_class=EgressClass.NONE, state=FutureEgressState.ACTIVE_LOCAL_ONLY, reason_code="bounded_child_stdio_only"),
     EgressRegistration(module="prompt_enhancer.infrastructure.text_models.loader", egress_class=EgressClass.APPROVED_MODEL_DOWNLOAD, state=FutureEgressState.ACTIVE_EXPLICIT_APPROVAL, reason_code="reviewed_public_pin_download_opt_in"),
+    # Local model runtimes (ADR 0013): the only direct network use is loopback
+    # traffic to an owned llama-server child (free-port bind, health, chat
+    # proxy). Weights downloads delegate to huggingface_hub and happen only
+    # after a size-confirmed approval through the person's own login.
+    EgressRegistration(module="prompt_enhancer.application.local_models", egress_class=EgressClass.LOOPBACK_OWNED_SERVICE, state=FutureEgressState.ACTIVE_LOCAL_ONLY, reason_code="owned_loopback_model_runtime"),
     EgressRegistration(module="prompt_enhancer.infrastructure.estimator_runners.codex", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="bounded_child_cli_runner_uncomposed"),
 )
 

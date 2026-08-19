@@ -288,6 +288,13 @@ class LocalApplication:
             enable_automation=enable_automation,
         )
 
+    def create_local_model_service(self):
+        """Local model runtimes: registry under the app home, llama-server on loopback."""
+
+        from .application.local_models import LocalModelService
+
+        return LocalModelService(self.settings.local_models_dir)
+
     def create_calibration_rating_service(self):
         """Blind ratings of the owner's own sessions over a frozen sample."""
 
@@ -988,6 +995,7 @@ class LocalApplication:
             telemetry_ingest_service=telemetry_ingest_service,
             session_reader_service=self.create_session_reader_service(),
             calibration_rating_service=self.create_calibration_rating_service(),
+            local_model_service=self.create_local_model_service(),
             objective_overrides_provider=self.create_objective_overrides_provider(),
             onboarding_service=onboarding_service,
             local_source_refresh_worker=local_source_refresh_worker,

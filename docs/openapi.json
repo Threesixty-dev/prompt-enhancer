@@ -30,6 +30,49 @@
         "title": "AcceptTaskRequest",
         "type": "object"
       },
+      "ActivateLocalModel": {
+        "additionalProperties": false,
+        "properties": {
+          "context_size": {
+            "anyOf": [
+              {
+                "maximum": 131072.0,
+                "minimum": 512.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Size"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gpu_layers": {
+            "anyOf": [
+              {
+                "maximum": 4096.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Layers"
+          }
+        },
+        "title": "ActivateLocalModel",
+        "type": "object"
+      },
       "ActivityDay": {
         "additionalProperties": false,
         "properties": {
@@ -49,6 +92,64 @@
           "sessions"
         ],
         "title": "ActivityDay",
+        "type": "object"
+      },
+      "AddLocalModel": {
+        "additionalProperties": false,
+        "properties": {
+          "alias": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Alias",
+            "type": "string"
+          },
+          "context_size": {
+            "default": 8192,
+            "maximum": 131072.0,
+            "minimum": 512.0,
+            "title": "Context Size",
+            "type": "integer"
+          },
+          "default_device": {
+            "$ref": "#/components/schemas/DeviceMode",
+            "default": "split"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "layer_count": {
+            "anyOf": [
+              {
+                "maximum": 4096.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer Count"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alias",
+          "path"
+        ],
+        "title": "AddLocalModel",
         "type": "object"
       },
       "AgentMetricEvidenceFileContract": {
@@ -2314,6 +2415,11 @@
             "title": "Demo Provider",
             "type": "string"
           },
+          "local_models": {
+            "default": false,
+            "title": "Local Models",
+            "type": "boolean"
+          },
           "manual_display_labels": {
             "title": "Manual Display Labels",
             "type": "boolean"
@@ -3607,6 +3713,149 @@
         "title": "DetectionSignal",
         "type": "string"
       },
+      "DeviceMode": {
+        "enum": [
+          "cpu",
+          "gpu",
+          "split"
+        ],
+        "title": "DeviceMode",
+        "type": "string"
+      },
+      "DownloadRequest": {
+        "additionalProperties": false,
+        "description": "A download the person confirmed after seeing the file name and size.",
+        "properties": {
+          "alias": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Alias",
+            "type": "string"
+          },
+          "confirmed_size_bytes": {
+            "minimum": 1.0,
+            "title": "Confirmed Size Bytes",
+            "type": "integer"
+          },
+          "default_device": {
+            "$ref": "#/components/schemas/DeviceMode",
+            "default": "split"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "filename": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Filename",
+            "type": "string"
+          },
+          "repo_id": {
+            "maxLength": 200,
+            "minLength": 3,
+            "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+            "title": "Repo Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_id",
+          "filename",
+          "confirmed_size_bytes",
+          "alias"
+        ],
+        "title": "DownloadRequest",
+        "type": "object"
+      },
+      "DownloadStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "alias": {
+            "title": "Alias",
+            "type": "string"
+          },
+          "bytes_done": {
+            "minimum": 0.0,
+            "title": "Bytes Done",
+            "type": "integer"
+          },
+          "bytes_total": {
+            "minimum": 0.0,
+            "title": "Bytes Total",
+            "type": "integer"
+          },
+          "download_id": {
+            "title": "Download Id",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "downloading",
+              "completed",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "download_id",
+          "repo_id",
+          "filename",
+          "alias",
+          "state",
+          "bytes_total",
+          "bytes_done",
+          "started_at"
+        ],
+        "title": "DownloadStatus",
+        "type": "object"
+      },
       "EvidenceAuthority": {
         "description": "Highest authority allowed to publish a known value.\n\n``OBJECTIVE_RECEIPT`` outranks ``CONVERSATION``.  A conversational\nprojection may never resolve an objective contract, and no volume of\nassistant prose upgrades a conversational observation into a receipt.",
         "enum": [
@@ -3687,6 +3936,82 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HardwareSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "gpu_memory_free_mb": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Memory Free Mb"
+          },
+          "gpu_memory_mb": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Memory Mb"
+          },
+          "gpu_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Name"
+          },
+          "llama_server_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llama Server Path"
+          },
+          "llama_server_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llama Server Version"
+          },
+          "ram_mb": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ram Mb"
+          }
+        },
+        "title": "HardwareSummary",
         "type": "object"
       },
       "IngestionReport": {
@@ -3839,6 +4164,179 @@
           "never_run"
         ],
         "title": "LatestProfileRunCounts",
+        "type": "object"
+      },
+      "LocalModelRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "title": "Added At",
+            "type": "string"
+          },
+          "alias": {
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "title": "Alias",
+            "type": "string"
+          },
+          "context_size": {
+            "default": 8192,
+            "maximum": 131072.0,
+            "minimum": 512.0,
+            "title": "Context Size",
+            "type": "integer"
+          },
+          "default_device": {
+            "$ref": "#/components/schemas/DeviceMode",
+            "default": "split"
+          },
+          "display_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "format": {
+            "$ref": "#/components/schemas/ModelFormat",
+            "default": "gguf"
+          },
+          "layer_count": {
+            "anyOf": [
+              {
+                "maximum": 4096.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer Count"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "source_file": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source File"
+          },
+          "source_repo": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Repo"
+          }
+        },
+        "required": [
+          "alias",
+          "display_name",
+          "path",
+          "added_at"
+        ],
+        "title": "LocalModelRecord",
+        "type": "object"
+      },
+      "LocalModelStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint_path": {
+            "title": "Endpoint Path",
+            "type": "string"
+          },
+          "record": {
+            "$ref": "#/components/schemas/LocalModelRecord"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/RuntimeStatus"
+          }
+        },
+        "required": [
+          "record",
+          "runtime",
+          "endpoint_path"
+        ],
+        "title": "LocalModelStatus",
+        "type": "object"
+      },
+      "LocalModelsOverview": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "local-models.v1",
+            "default": "local-models.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "downloads": {
+            "items": {
+              "$ref": "#/components/schemas/DownloadStatus"
+            },
+            "title": "Downloads",
+            "type": "array"
+          },
+          "hardware": {
+            "$ref": "#/components/schemas/HardwareSummary"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/LocalModelStatus"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "runtime_available": {
+            "title": "Runtime Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "hardware",
+          "runtime_available",
+          "models",
+          "downloads"
+        ],
+        "title": "LocalModelsOverview",
         "type": "object"
       },
       "ManualDisplayLabelRequest": {
@@ -8589,6 +9087,13 @@
         "title": "ModelExpertRole",
         "type": "string"
       },
+      "ModelFormat": {
+        "enum": [
+          "gguf"
+        ],
+        "title": "ModelFormat",
+        "type": "string"
+      },
       "ModelLabInventoryDto": {
         "additionalProperties": false,
         "properties": {
@@ -11363,6 +11868,64 @@
         "title": "RejectionReason",
         "type": "string"
       },
+      "RemoteFile": {
+        "additionalProperties": false,
+        "properties": {
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          }
+        },
+        "required": [
+          "filename"
+        ],
+        "title": "RemoteFile",
+        "type": "object"
+      },
+      "RemoteRepoFiles": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/RemoteFile"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "gated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gated"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_id",
+          "files"
+        ],
+        "title": "RemoteRepoFiles",
+        "type": "object"
+      },
       "ResearchSourceDto": {
         "additionalProperties": false,
         "properties": {
@@ -11452,6 +12015,94 @@
           }
         },
         "title": "ReviewedAutomationResourcePolicyRequest",
+        "type": "object"
+      },
+      "RuntimeState": {
+        "enum": [
+          "stopped",
+          "starting",
+          "running",
+          "failed"
+        ],
+        "title": "RuntimeState",
+        "type": "string"
+      },
+      "RuntimeStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "context_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Size"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeviceMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gpu_layers": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Layers"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RuntimeState",
+            "default": "stopped"
+          }
+        },
+        "title": "RuntimeStatus",
         "type": "object"
       },
       "SanitizedModelLinkValidationFailureResponse": {
@@ -17590,6 +18241,687 @@
         "summary": "List Estimator Plans",
         "tags": [
           "estimators"
+        ]
+      }
+    },
+    "/v1/local-models": {
+      "get": {
+        "operationId": "overview_v1_local_models_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelsOverview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Overview",
+        "tags": [
+          "local-models"
+        ]
+      },
+      "post": {
+        "operationId": "add_v1_local_models_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddLocalModel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add",
+        "tags": [
+          "local-models"
+        ]
+      }
+    },
+    "/v1/local-models/downloads": {
+      "post": {
+        "operationId": "start_download_v1_local_models_downloads_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DownloadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Download",
+        "tags": [
+          "local-models"
+        ]
+      }
+    },
+    "/v1/local-models/remote-files": {
+      "get": {
+        "operationId": "remote_files_v1_local_models_remote_files_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 3,
+              "title": "Repo Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteRepoFiles"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remote Files",
+        "tags": [
+          "local-models"
+        ]
+      }
+    },
+    "/v1/local-models/{alias}": {
+      "delete": {
+        "operationId": "remove_v1_local_models__alias__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+              "title": "Alias",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "delete_weights",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Delete Weights",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove",
+        "tags": [
+          "local-models"
+        ]
+      },
+      "get": {
+        "operationId": "status_v1_local_models__alias__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+              "title": "Alias",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "local-models"
+        ]
+      }
+    },
+    "/v1/local-models/{alias}/activate": {
+      "post": {
+        "operationId": "activate_v1_local_models__alias__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+              "title": "Alias",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ActivateLocalModel"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate",
+        "tags": [
+          "local-models"
+        ]
+      }
+    },
+    "/v1/local-models/{alias}/chat/completions": {
+      "post": {
+        "description": "OpenAI-compatible chat completion proxied to the model's loopback runtime.",
+        "operationId": "chat_completions_v1_local_models__alias__chat_completions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+              "title": "Alias",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chat Completions",
+        "tags": [
+          "local-models"
+        ]
+      }
+    },
+    "/v1/local-models/{alias}/deactivate": {
+      "post": {
+        "operationId": "deactivate_v1_local_models__alias__deactivate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+              "title": "Alias",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deactivate",
+        "tags": [
+          "local-models"
         ]
       }
     },

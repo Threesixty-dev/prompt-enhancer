@@ -386,6 +386,130 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Overview */
+        get: operations["overview_v1_local_models_get"];
+        put?: never;
+        /** Add */
+        post: operations["add_v1_local_models_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/downloads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Download */
+        post: operations["start_download_v1_local_models_downloads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/remote-files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Remote Files */
+        get: operations["remote_files_v1_local_models_remote_files_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/{alias}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Status */
+        get: operations["status_v1_local_models__alias__get"];
+        put?: never;
+        post?: never;
+        /** Remove */
+        delete: operations["remove_v1_local_models__alias__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/{alias}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate */
+        post: operations["activate_v1_local_models__alias__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/{alias}/chat/completions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chat Completions
+         * @description OpenAI-compatible chat completion proxied to the model's loopback runtime.
+         */
+        post: operations["chat_completions_v1_local_models__alias__chat_completions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local-models/{alias}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate */
+        post: operations["deactivate_v1_local_models__alias__deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local-sources/claude-code": {
         parameters: {
             query?: never;
@@ -1710,12 +1834,38 @@ export interface components {
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
         };
+        /** ActivateLocalModel */
+        ActivateLocalModel: {
+            /** Context Size */
+            context_size?: number | null;
+            device?: components["schemas"]["DeviceMode"] | null;
+            /** Gpu Layers */
+            gpu_layers?: number | null;
+        };
         /** ActivityDay */
         ActivityDay: {
             /** Day */
             day: string;
             /** Sessions */
             sessions: number;
+        };
+        /** AddLocalModel */
+        AddLocalModel: {
+            /** Alias */
+            alias: string;
+            /**
+             * Context Size
+             * @default 8192
+             */
+            context_size: number;
+            /** @default split */
+            default_device: components["schemas"]["DeviceMode"];
+            /** Display Name */
+            display_name?: string | null;
+            /** Layer Count */
+            layer_count?: number | null;
+            /** Path */
+            path: string;
         };
         /** AgentMetricEvidenceFileContract */
         AgentMetricEvidenceFileContract: {
@@ -2588,6 +2738,11 @@ export interface components {
              * @constant
              */
             demo_provider: "synthetic";
+            /**
+             * Local Models
+             * @default false
+             */
+            local_models: boolean;
             /** Manual Display Labels */
             manual_display_labels: boolean;
             /**
@@ -3124,6 +3279,58 @@ export interface components {
          */
         DetectionSignal: "codex_cli_on_path" | "claude_transcript_root" | "not_found";
         /**
+         * DeviceMode
+         * @enum {string}
+         */
+        DeviceMode: "cpu" | "gpu" | "split";
+        /**
+         * DownloadRequest
+         * @description A download the person confirmed after seeing the file name and size.
+         */
+        DownloadRequest: {
+            /** Alias */
+            alias: string;
+            /** Confirmed Size Bytes */
+            confirmed_size_bytes: number;
+            /** @default split */
+            default_device: components["schemas"]["DeviceMode"];
+            /** Display Name */
+            display_name?: string | null;
+            /** Filename */
+            filename: string;
+            /** Repo Id */
+            repo_id: string;
+        };
+        /** DownloadStatus */
+        DownloadStatus: {
+            /** Alias */
+            alias: string;
+            /** Bytes Done */
+            bytes_done: number;
+            /** Bytes Total */
+            bytes_total: number;
+            /** Download Id */
+            download_id: string;
+            /** Error Code */
+            error_code?: string | null;
+            /** Filename */
+            filename: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Repo Id */
+            repo_id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "downloading" | "completed" | "failed";
+        };
+        /**
          * EvidenceAuthority
          * @description Highest authority allowed to publish a known value.
          *
@@ -3176,6 +3383,21 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HardwareSummary */
+        HardwareSummary: {
+            /** Gpu Memory Free Mb */
+            gpu_memory_free_mb?: number | null;
+            /** Gpu Memory Mb */
+            gpu_memory_mb?: number | null;
+            /** Gpu Name */
+            gpu_name?: string | null;
+            /** Llama Server Path */
+            llama_server_path?: string | null;
+            /** Llama Server Version */
+            llama_server_version?: string | null;
+            /** Ram Mb */
+            ram_mb?: number | null;
         };
         /** IngestionReport */
         IngestionReport: {
@@ -3285,6 +3507,62 @@ export interface components {
             never_run: number;
             /** Running */
             running: number;
+        };
+        /** LocalModelRecord */
+        LocalModelRecord: {
+            /**
+             * Added At
+             * Format: date-time
+             */
+            added_at: string;
+            /** Alias */
+            alias: string;
+            /**
+             * Context Size
+             * @default 8192
+             */
+            context_size: number;
+            /** @default split */
+            default_device: components["schemas"]["DeviceMode"];
+            /** Display Name */
+            display_name: string;
+            /** @default gguf */
+            format: components["schemas"]["ModelFormat"];
+            /** Layer Count */
+            layer_count?: number | null;
+            /** Path */
+            path: string;
+            /** Sha256 */
+            sha256?: string | null;
+            /** Size Bytes */
+            size_bytes?: number | null;
+            /** Source File */
+            source_file?: string | null;
+            /** Source Repo */
+            source_repo?: string | null;
+        };
+        /** LocalModelStatus */
+        LocalModelStatus: {
+            /** Endpoint Path */
+            endpoint_path: string;
+            record: components["schemas"]["LocalModelRecord"];
+            runtime: components["schemas"]["RuntimeStatus"];
+        };
+        /** LocalModelsOverview */
+        LocalModelsOverview: {
+            /**
+             * Contract Version
+             * @default local-models.v1
+             * @constant
+             */
+            contract_version: "local-models.v1";
+            /** Downloads */
+            downloads: components["schemas"]["DownloadStatus"][];
+            hardware: components["schemas"]["HardwareSummary"];
+            /** Models */
+            models: components["schemas"]["LocalModelStatus"][];
+            /** Runtime Available */
+            runtime_available: boolean;
         };
         /** ManualDisplayLabelRequest */
         ManualDisplayLabelRequest: {
@@ -5162,6 +5440,11 @@ export interface components {
          * @enum {string}
          */
         ModelExpertRole: "retrieval" | "reranking" | "scope_nli" | "structured_rubric";
+        /**
+         * ModelFormat
+         * @enum {string}
+         */
+        ModelFormat: "gguf";
         /** ModelLabInventoryDto */
         ModelLabInventoryDto: {
             /**
@@ -6162,6 +6445,22 @@ export interface components {
          * @enum {string}
          */
         RejectionReason: "not_a_task" | "wrong_grouping" | "duplicate" | "other";
+        /** RemoteFile */
+        RemoteFile: {
+            /** Filename */
+            filename: string;
+            /** Size Bytes */
+            size_bytes?: number | null;
+        };
+        /** RemoteRepoFiles */
+        RemoteRepoFiles: {
+            /** Files */
+            files: components["schemas"]["RemoteFile"][];
+            /** Gated */
+            gated?: boolean | null;
+            /** Repo Id */
+            repo_id: string;
+        };
         /** ResearchSourceDto */
         ResearchSourceDto: {
             /** Key */
@@ -6221,6 +6520,27 @@ export interface components {
              * @constant
              */
             route: "balanced";
+        };
+        /**
+         * RuntimeState
+         * @enum {string}
+         */
+        RuntimeState: "stopped" | "starting" | "running" | "failed";
+        /** RuntimeStatus */
+        RuntimeStatus: {
+            /** Context Size */
+            context_size?: number | null;
+            device?: components["schemas"]["DeviceMode"] | null;
+            /** Gpu Layers */
+            gpu_layers?: number | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** Pid */
+            pid?: number | null;
+            /** Started At */
+            started_at?: string | null;
+            /** @default stopped */
+            state: components["schemas"]["RuntimeState"];
         };
         /** SanitizedModelLinkValidationFailureResponse */
         SanitizedModelLinkValidationFailureResponse: {
@@ -8579,6 +8899,318 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelLabInventoryDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overview_v1_local_models_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelsOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_v1_local_models_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddLocalModel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_download_v1_local_models_downloads_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DownloadRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remote_files_v1_local_models_remote_files_get: {
+        parameters: {
+            query: {
+                repo_id: string;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteRepoFiles"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    status_v1_local_models__alias__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                alias: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_v1_local_models__alias__delete: {
+        parameters: {
+            query?: {
+                delete_weights?: boolean;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                alias: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_v1_local_models__alias__activate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                alias: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ActivateLocalModel"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_completions_v1_local_models__alias__chat_completions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                alias: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deactivate_v1_local_models__alias__deactivate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                alias: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelStatus"];
                 };
             };
             /** @description Validation Error */

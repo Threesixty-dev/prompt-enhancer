@@ -75,6 +75,15 @@ export type IngestionReport = Schemas["IngestionReport"];
 export type SessionTranscript = Schemas["SessionTranscript"];
 export type SessionTimeline = Schemas["SessionTimeline"];
 export type ProjectTimeline = Schemas["ProjectTimeline"];
+export type LocalModelsOverview = Schemas["LocalModelsOverview"];
+export type LocalModelStatus = Schemas["LocalModelStatus"];
+export type LocalModelRecord = Schemas["LocalModelRecord"];
+export type AddLocalModel = Schemas["AddLocalModel"];
+export type ActivateLocalModel = Schemas["ActivateLocalModel"];
+export type DownloadRequest = Schemas["DownloadRequest"];
+export type DownloadStatus = Schemas["DownloadStatus"];
+export type RemoteRepoFiles = Schemas["RemoteRepoFiles"];
+export type DeviceMode = Schemas["DeviceMode"];
 export type OnboardingStatus = Schemas["OnboardingStatus"];
 export type ProviderDetection = Schemas["ProviderDetection"];
 export type OnboardingAccept = Schemas["OnboardingAccept"];
@@ -528,6 +537,14 @@ export interface PromptEnhancerTransport {
   getSessionTimeline(sessionId: string, signal?: AbortSignal): Promise<SessionTimeline>;
   /** Sessions and reviewed task windows of one project over calendar time. */
   getProjectTimeline(projectId: string, signal?: AbortSignal): Promise<ProjectTimeline>;
+  /** Local model runtimes (ADR 0013): registry, activation on cpu/gpu/split, per-model endpoint. */
+  getLocalModels(signal?: AbortSignal): Promise<LocalModelsOverview>;
+  addLocalModel(request: AddLocalModel, signal?: AbortSignal): Promise<LocalModelRecord>;
+  activateLocalModel(alias: string, request: ActivateLocalModel, signal?: AbortSignal): Promise<LocalModelStatus>;
+  deactivateLocalModel(alias: string, signal?: AbortSignal): Promise<LocalModelStatus>;
+  removeLocalModel(alias: string, deleteWeights: boolean, signal?: AbortSignal): Promise<void>;
+  getLocalModelRemoteFiles(repoId: string, signal?: AbortSignal): Promise<RemoteRepoFiles>;
+  startLocalModelDownload(request: DownloadRequest, signal?: AbortSignal): Promise<DownloadStatus>;
   getOnboardingStatus(signal?: AbortSignal): Promise<OnboardingStatus>;
   acceptOnboarding(request: OnboardingAccept, signal?: AbortSignal): Promise<OnboardingResult>;
   /** Blind calibration ratings over a frozen sample of the owner's own sessions. */

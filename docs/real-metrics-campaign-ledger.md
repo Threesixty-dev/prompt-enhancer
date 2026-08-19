@@ -1299,6 +1299,13 @@ chrome-less, self-refreshing view (name, provider, latest automatic analysis,
 job state, timeline) that the project and session views open as a named
 browser popup - one per project or session, several at once.
 
+Local model runtimes (ADR 0013): registry + weights under the app home
+(`local-models/`, inventoried), llama-server spawned per activated model on a
+loopback port with cpu / gpu / split layer offload (estimate from free VRAM,
+overridable), `/v1/local-models/*` incl. an OpenAI-compatible chat proxy, and
+the Models page; downloads are size-confirmed and go through the person's own
+Hugging Face login. No metric uses a local LLM yet; that is the judge lane.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and

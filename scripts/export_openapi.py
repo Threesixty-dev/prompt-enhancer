@@ -293,6 +293,40 @@ class _SchemaCalibrationRatingService:
         raise RuntimeError("schema-only service cannot export")
 
 
+class _SchemaLocalModelService:
+    """Non-executing stand-in so the local model routes are typed."""
+
+    def overview(self):
+        raise RuntimeError("schema-only service cannot list models")
+
+    def add(self, payload):
+        raise RuntimeError("schema-only service cannot add models")
+
+    def remote_files(self, repo_id):
+        raise RuntimeError("schema-only service cannot query the hub")
+
+    def start_download(self, payload):
+        raise RuntimeError("schema-only service cannot download")
+
+    def status(self, alias):
+        raise RuntimeError("schema-only service has no runtimes")
+
+    def remove(self, alias, *, delete_weights=False):
+        raise RuntimeError("schema-only service cannot remove models")
+
+    def activate(self, alias, payload=None):
+        raise RuntimeError("schema-only service cannot activate models")
+
+    def deactivate(self, alias):
+        raise RuntimeError("schema-only service cannot deactivate models")
+
+    def chat(self, alias, body):
+        raise RuntimeError("schema-only service cannot chat")
+
+    def shutdown(self):
+        return None
+
+
 class _SchemaSessionReaderService:
     """Non-executing stand-in so the owner-authorized reader route is typed."""
 
@@ -435,6 +469,7 @@ def _build_schema_app(*, include_control_plane: bool):
         session_reader_service=_SchemaSessionReaderService(),  # type: ignore[arg-type]
         onboarding_service=_SchemaOnboardingService(),  # type: ignore[arg-type]
         calibration_rating_service=_SchemaCalibrationRatingService(),  # type: ignore[arg-type]
+        local_model_service=_SchemaLocalModelService(),  # type: ignore[arg-type]
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),
     )

@@ -78,6 +78,11 @@ import type {
   CalibrationSample,
   SessionTimeline,
   ProjectTimeline,
+  LocalModelsOverview,
+  LocalModelStatus,
+  LocalModelRecord,
+  DownloadStatus,
+  RemoteRepoFiles,
 } from "./contracts";
 import {
   ModelEnsembleHeadPayloadError,
@@ -2344,6 +2349,51 @@ export function createHttpTransport(options: {
     },
     getOnboardingStatus(signal) {
       return request<OnboardingStatus>("/v1/onboarding", { method: "GET" }, signal);
+    },
+    getLocalModels(signal) {
+      return request<LocalModelsOverview>("/v1/local-models", { method: "GET" }, signal);
+    },
+    addLocalModel(payload, signal) {
+      return request<LocalModelRecord>(
+        "/v1/local-models",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+      );
+    },
+    activateLocalModel(alias, payload, signal) {
+      return request<LocalModelStatus>(
+        `/v1/local-models/${encodeURIComponent(alias)}/activate`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+      );
+    },
+    deactivateLocalModel(alias, signal) {
+      return request<LocalModelStatus>(
+        `/v1/local-models/${encodeURIComponent(alias)}/deactivate`,
+        { method: "POST" },
+        signal,
+      );
+    },
+    async removeLocalModel(alias, deleteWeights, signal) {
+      await request<unknown>(
+        `/v1/local-models/${encodeURIComponent(alias)}?delete_weights=${deleteWeights ? "true" : "false"}`,
+        { method: "DELETE" },
+        signal,
+      );
+    },
+    getLocalModelRemoteFiles(repoId, signal) {
+      return request<RemoteRepoFiles>(
+        `/v1/local-models/remote-files?repo_id=${encodeURIComponent(repoId)}`,
+        { method: "GET" },
+        signal,
+      );
+    },
+    startLocalModelDownload(payload, signal) {
+      return request<DownloadStatus>(
+        "/v1/local-models/downloads",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+      );
     },
     getProjectTimeline(projectId, signal) {
       return request<ProjectTimeline>(

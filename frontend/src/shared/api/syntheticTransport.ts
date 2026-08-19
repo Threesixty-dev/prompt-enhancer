@@ -550,6 +550,27 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async acceptOnboarding() {
       throw new TransportError("Onboarding is unavailable in synthetic preview", 404);
     },
+    async getLocalModels() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async addLocalModel() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async activateLocalModel() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async deactivateLocalModel() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async removeLocalModel() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async getLocalModelRemoteFiles() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
+    async startLocalModelDownload() {
+      throw new TransportError("Local models are unavailable in synthetic preview", 404);
+    },
     async getProjectTimeline() {
       throw new TransportError("Timeline is unavailable in synthetic preview", 404);
     },

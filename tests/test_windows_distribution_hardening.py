@@ -848,13 +848,22 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
                     "prompt_enhancer."
                     + source_path.relative_to(_SOURCE_ROOT).with_suffix("").as_posix().replace("/", ".")
                 )
+    # Exactly two modules may touch network primitives directly, and both are
+    # owned-loopback services: the desktop overlay (probe + open) and the local
+    # model runtime manager (free-port bind, health, chat proxy to its child).
+    allowed_direct = {
+        "prompt_enhancer.desktop_overlay",
+        "prompt_enhancer.application.local_models",
+    }
     registered_direct = {
         entry.module
         for entry in EGRESS_REGISTRY
-        if entry.module == "prompt_enhancer.desktop_overlay"
+        if entry.module in allowed_direct
+        and entry.egress_class is EgressClass.LOOPBACK_OWNED_SERVICE
+        and entry.state is FutureEgressState.ACTIVE_LOCAL_ONLY
     }
 
-    assert capable == registered_direct == {"prompt_enhancer.desktop_overlay"}
+    assert capable == registered_direct == allowed_direct
 
 
 def test_suite_guard_fails_before_non_loopback_connection() -> None:

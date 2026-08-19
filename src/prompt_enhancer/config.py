@@ -153,6 +153,12 @@ class AppSettings(BaseModel):
         return self.home / "claude-home.path"
 
     @property
+    def local_models_dir(self) -> Path:
+        """Registry and downloaded weights for local model runtimes (ADR 0013)."""
+
+        return self.home / "local-models"
+
+    @property
     def otlp_ingest_token_path(self) -> Path:
         """Separate write-only token the Claude Code telemetry exporter presents."""
 

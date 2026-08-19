@@ -339,6 +339,7 @@ def create_app(
     onboarding_service=None,
     calibration_rating_service=None,
     objective_overrides_provider=None,
+    local_model_service=None,
     local_source_refresh_worker=None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
@@ -395,6 +396,12 @@ def create_app(
                 automation_grant_worker.stop()
             if analysis_job_worker is not None:
                 analysis_job_worker.stop()
+            if local_model_service is not None:
+                # Never leave a model runtime running after the app exits.
+                try:
+                    local_model_service.shutdown()
+                except Exception:
+                    pass
 
     app = FastAPI(
         title="Prompt Enhancer Local API",
@@ -625,6 +632,7 @@ def create_app(
             session_text_content_persistence=False,
             codex_local_source=codex_source_service is not None,
             claude_code_local_source=claude_source_service is not None,
+            local_models=local_model_service is not None,
             manual_display_labels=display_label_service is not None,
             browser_session=True,
             demo_provider="synthetic",
@@ -882,6 +890,10 @@ def create_app(
         app.include_router(
             create_otlp_ingest_router(otlp_ingest_token, telemetry_ingest_service)
         )
+    if local_model_service is not None:
+        from .interfaces.http.local_model_routes import create_local_model_router
+
+        app.include_router(create_local_model_router(require_local_token, local_model_service))
     if calibration_rating_service is not None:
         from .interfaces.http.calibration_routes import create_calibration_router
 

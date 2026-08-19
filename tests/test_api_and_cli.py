@@ -82,6 +82,7 @@ def test_health_is_minimal_and_only_v1_routes_require_authentication(tmp_path) -
         "session_text_content_persistence": False,
         "codex_local_source": False,
         "claude_code_local_source": False,
+        "local_models": False,
         "manual_display_labels": False,
         "browser_session": True,
         "demo_provider": "synthetic",
