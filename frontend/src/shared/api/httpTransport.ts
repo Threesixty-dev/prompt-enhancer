@@ -354,7 +354,7 @@ export function parseSessionTextAnalysisCapability(
     value.session_text_content_persistence !== false ||
     typeof value.codex_local_source !== "boolean" ||
     value.network_inference !== false ||
-    value.raw_transcripts !== false
+    typeof value.raw_transcripts !== "boolean"
   ) {
     throw new TransportError("Local analysis capability response was invalid", 200);
   }
@@ -372,7 +372,7 @@ export function parseSessionTextAnalysisCapability(
       data_tier: "redacted_content",
       content_persistence: false,
       network_inference: false,
-      raw_transcripts: false,
+      raw_transcripts: value.raw_transcripts as boolean,
     };
   }
 
@@ -387,7 +387,7 @@ export function parseSessionTextAnalysisCapability(
     data_tier: null,
     content_persistence: false,
     network_inference: false,
-    raw_transcripts: false,
+    raw_transcripts: value.raw_transcripts as boolean,
   };
 }
 

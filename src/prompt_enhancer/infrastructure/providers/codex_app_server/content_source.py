@@ -182,6 +182,24 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             text_limits=self._text_limits,
         )
 
+    def read_raw_thread(self, selected_session_id: str):
+        """Owner-authorized on-demand read of one listed thread, unredacted.
+
+        Used only by the session reader (ADR 0011).  Same client, snapshot
+        scope, and selection rules as :meth:`read`; the caller receives the
+        raw thread and the server info and must persist neither.
+        """
+
+        client: CodexTextClient | None = None
+        try:
+            client = self._client_factory()
+            server_info = client.initialize()
+            thread = self._find_and_read_selected(client, selected_session_id)
+            return thread, server_info
+        finally:
+            if client is not None:
+                client.close()
+
     def read(
         self,
         *,

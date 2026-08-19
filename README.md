@@ -100,6 +100,8 @@ python -m prompt_enhancer claude-otel-config
 
 Only `api_request` usage and the documented session counters are recorded; account, organization, user, prompt, tool-parameter, and error fields are never read, and a missing export batch is a gap, never a zero.
 
+To read your own sessions inside the dashboard - for example while rating them for calibration - start the server with `PROMPT_ENHANCER_SESSION_READER=enabled` ([ADR 0011](docs/adr/0011-owner-authorized-session-reader.md)). Codex sessions are read through the documented app-server; Claude Code sessions are read from your own transcript files, on demand, bounded, and never persisted. The `raw_transcripts` capability reports `true` only while this is on.
+
 The dashboard's development profile is synthetic and does not require the local API token:
 
 ```powershell

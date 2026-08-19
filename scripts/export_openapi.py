@@ -261,6 +261,15 @@ class _SchemaClaudeSourceService:
         raise RuntimeError("schema-only service cannot access local sources")
 
 
+class _SchemaSessionReaderService:
+    """Non-executing stand-in so the owner-authorized reader route is typed."""
+
+    enabled = True
+
+    def read(self, session_id: str):
+        raise RuntimeError("schema-only service cannot read sessions")
+
+
 class _SchemaCodexSourceService:
     """Non-executing stand-in that exposes only local-source route signatures."""
 
@@ -391,6 +400,7 @@ def _build_schema_app(*, include_control_plane: bool):
         ),  # type: ignore[arg-type]
         codex_source_service=_SchemaCodexSourceService(),
         claude_source_service=_SchemaClaudeSourceService(),  # type: ignore[arg-type]
+        session_reader_service=_SchemaSessionReaderService(),  # type: ignore[arg-type]
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),
     )

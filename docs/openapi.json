@@ -1963,7 +1963,7 @@
             "type": "boolean"
           },
           "raw_transcripts": {
-            "const": false,
+            "default": false,
             "title": "Raw Transcripts",
             "type": "boolean"
           },
@@ -2013,7 +2013,6 @@
           "cost_mode",
           "data_tier",
           "network_inference",
-          "raw_transcripts",
           "arbitrary_sql",
           "write_api",
           "task_review",
@@ -10407,6 +10406,74 @@
         "title": "PublishedMetricV2",
         "type": "object"
       },
+      "ReaderRole": {
+        "enum": [
+          "user",
+          "assistant",
+          "plan",
+          "tool_call",
+          "tool_result",
+          "system"
+        ],
+        "title": "ReaderRole",
+        "type": "string"
+      },
+      "ReaderSource": {
+        "enum": [
+          "codex_app_server",
+          "claude_transcript_file"
+        ],
+        "title": "ReaderSource",
+        "type": "string"
+      },
+      "ReaderTurn": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ReaderRole"
+          },
+          "text": {
+            "maxLength": 20000,
+            "title": "Text",
+            "type": "string"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "role",
+          "text"
+        ],
+        "title": "ReaderTurn",
+        "type": "object"
+      },
       "ReadinessGap": {
         "description": "Exactly what is missing before this plane could serve a real team.",
         "enum": [
@@ -12991,6 +13058,83 @@
           "preset_id"
         ],
         "title": "SessionTextAnalysisRequest",
+        "type": "object"
+      },
+      "SessionTranscript": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "session-reader.v1",
+            "default": "session-reader.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "persisted": {
+            "const": false,
+            "default": false,
+            "title": "Persisted",
+            "type": "boolean"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "provider_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Version"
+          },
+          "read_at": {
+            "format": "date-time",
+            "title": "Read At",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ReaderSource"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "turn_count_total": {
+            "minimum": 0.0,
+            "title": "Turn Count Total",
+            "type": "integer"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/ReaderTurn"
+            },
+            "maxItems": 2000,
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "provider",
+          "session_id",
+          "source",
+          "turns",
+          "turn_count_total",
+          "read_at"
+        ],
+        "title": "SessionTranscript",
         "type": "object"
       },
       "SignalDirection": {
@@ -20521,6 +20665,81 @@
         "summary": "Latest Session Analysis Run",
         "tags": [
           "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/transcript": {
+      "get": {
+        "operationId": "read_transcript_v1_sessions__session_id__transcript_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTranscript"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Transcript",
+        "tags": [
+          "session-reader"
         ]
       }
     },

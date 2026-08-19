@@ -1197,6 +1197,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Transcript */
+        get: operations["read_transcript_v1_sessions__session_id__transcript_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/task-decisions/accept": {
         parameters: {
             query?: never;
@@ -2286,9 +2303,9 @@ export interface components {
             network_inference: false;
             /**
              * Raw Transcripts
-             * @constant
+             * @default false
              */
-            raw_transcripts: false;
+            raw_transcripts: boolean;
             /** Session Model Link Experiment */
             session_model_link_experiment: boolean;
             /** Session Text Analysis */
@@ -5649,6 +5666,31 @@ export interface components {
             state: components["schemas"]["MetricStateV2"];
         };
         /**
+         * ReaderRole
+         * @enum {string}
+         */
+        ReaderRole: "user" | "assistant" | "plan" | "tool_call" | "tool_result" | "system";
+        /**
+         * ReaderSource
+         * @enum {string}
+         */
+        ReaderSource: "codex_app_server" | "claude_transcript_file";
+        /** ReaderTurn */
+        ReaderTurn: {
+            /** At */
+            at?: string | null;
+            role: components["schemas"]["ReaderRole"];
+            /** Text */
+            text: string;
+            /** Tool Name */
+            tool_name?: string | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /**
          * ReadinessGap
          * @description Exactly what is missing before this plane could serve a real team.
          * @enum {string}
@@ -6551,6 +6593,47 @@ export interface components {
              */
             confirmation: "analyze_selected_redacted_text";
             preset_id: components["schemas"]["TextAnalysisPresetId"];
+        };
+        /** SessionTranscript */
+        SessionTranscript: {
+            /**
+             * Contract Version
+             * @default session-reader.v1
+             * @constant
+             */
+            contract_version: "session-reader.v1";
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Persisted
+             * @default false
+             * @constant
+             */
+            persisted: false;
+            provider: components["schemas"]["Provider"];
+            /** Provider Version */
+            provider_version?: string | null;
+            /**
+             * Read At
+             * Format: date-time
+             */
+            read_at: string;
+            /** Session Id */
+            session_id: string;
+            source: components["schemas"]["ReaderSource"];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Turn Count Total */
+            turn_count_total: number;
+            /** Turns */
+            turns: components["schemas"]["ReaderTurn"][];
         };
         /**
          * SignalDirection
@@ -9950,6 +10033,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionAnalysisRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_transcript_v1_sessions__session_id__transcript_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTranscript"];
                 };
             };
             /** @description Validation Error */

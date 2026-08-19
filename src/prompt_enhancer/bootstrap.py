@@ -152,6 +152,28 @@ class LocalApplication:
             validation_only_capability(),
         )
 
+    def create_session_reader_service(self):
+        """Owner-authorized on-demand session reading (ADR 0011); off by default."""
+
+        from .application.analysis.session_reader import SessionReaderService
+        from .domain import Provider
+        from .infrastructure.providers.claude_code_hooks.transcript_reader import (
+            ClaudeTranscriptReader,
+        )
+        from .infrastructure.providers.codex_app_server import CodexTextAnalysisSource
+        from .infrastructure.providers.codex_app_server.session_reader import (
+            CodexSessionReader,
+        )
+
+        return SessionReaderService(
+            self.database,
+            {
+                Provider.CODEX: CodexSessionReader(CodexTextAnalysisSource(self.pseudonymizer)),
+                Provider.CLAUDE_CODE: ClaudeTranscriptReader(self.pseudonymizer),
+            },
+            enabled=self.settings.session_reader_enabled,
+        )
+
     def create_manual_display_label_service(self):
         from .application.display_labels import ManualDisplayLabelService
 
@@ -696,6 +718,7 @@ class LocalApplication:
             claude_source_service=claude_source_service,
             otlp_ingest_token=otlp_ingest_token,
             telemetry_ingest_service=telemetry_ingest_service,
+            session_reader_service=self.create_session_reader_service(),
             display_label_service=self.create_manual_display_label_service(),
             model_evaluation_service=LocalTextModelEvaluationService(),
             analysis_job_service=analysis_job_service,

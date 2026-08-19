@@ -93,6 +93,14 @@ class AppSettings(BaseModel):
             "and activates no identity, billing, or hosted-model provider."
         ),
     )
+    session_reader_enabled: bool = Field(
+        default=False,
+        description=(
+            "Owner-authorized on-demand reading of the owner's own sessions in "
+            "the local dashboard (ADR 0011). Off by default; when on, the "
+            "raw_transcripts capability reports true. Nothing is persisted."
+        ),
+    )
     social_development_api: bool = Field(
         default=False,
         description=(
@@ -160,6 +168,7 @@ class AppSettings(BaseModel):
             env.get("PROMPT_ENHANCER_PAID_PRODUCT_DEV_API", "") == "enabled"
         )
         social = env.get("PROMPT_ENHANCER_SOCIAL_DEV_API", "") == "enabled"
+        session_reader = env.get("PROMPT_ENHANCER_SESSION_READER", "") == "enabled"
         return cls(
             home=default_app_home(env),
             host=host,
@@ -167,6 +176,7 @@ class AppSettings(BaseModel):
             control_plane_development_api=control_plane,
             paid_product_development_api=paid_product,
             social_development_api=social,
+            session_reader_enabled=session_reader,
         )
 
 

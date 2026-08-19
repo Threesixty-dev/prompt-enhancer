@@ -16,7 +16,8 @@ weaken the repository's privacy or safety rules.
 | [0007](0007-windows-distribution-and-local-data-foundation.md) | Accepted offline foundation | Packaged resource, private-path, inventory, deterministic artifact, backup, diagnostic, update-verification, and egress contracts without a supported installer or release path |
 | [0008](0008-durable-local-social-metadata-runtime.md) | Accepted local development runtime | Separate transactional social metadata persistence and a principal-gated, default-off loopback composition; no production identity, E2EE, signaling, or byte transport |
 | [0009](0009-synthetic-browser-direct-transfer-prototype.md) | Accepted synthetic development prototype | Exact-opt-in, generated-byte WebRTC data-channel exercise with ephemeral in-process signaling; no real file, identity, cross-device signaling, STUN/TURN, relay, or production claim |
-| [0010](0010-claude-code-hook-capture-boundary.md) | Accepted prospective capture surface | Content-free Claude Code capture through documented hooks into an append-only ledger under separate consent; no transcript, JSONL, settings, or private-directory read, no token capture, and no task-outcome inference |
+| [0010](0010-claude-code-hook-capture-boundary.md) | Accepted prospective capture surface | Content-free Claude Code capture through documented hooks into an append-only ledger under separate consent; separate loopback OTLP receiver for token usage; no task-outcome inference; the only private-directory read is the owner-authorized reader in 0011 |
+| [0011](0011-owner-authorized-session-reader.md) | Accepted, off by default | Owner-authorized on-demand reading of the owner's own Codex and Claude Code sessions in the local dashboard: catalog- and consent-gated, bounded, never persisted, `raw_transcripts` truthful; no network path and no vault |
 
 Changes that reverse an accepted decision should add a superseding ADR rather
 than silently rewriting the original rationale.

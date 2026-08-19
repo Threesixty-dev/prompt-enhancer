@@ -78,7 +78,9 @@ class CapabilitiesDto(HttpDto):
     cost_mode: Literal["offline_only"]
     data_tier: Literal["metadata"]
     network_inference: Literal[False]
-    raw_transcripts: Literal[False]
+    # False unless the owner enabled the on-demand session reader (ADR 0011);
+    # never true silently.
+    raw_transcripts: bool = False
     arbitrary_sql: Literal[False]
     write_api: bool
     task_review: bool

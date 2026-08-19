@@ -358,7 +358,8 @@ export type SessionTextAnalysisCapability =
       data_tier: "redacted_content";
       content_persistence: false;
       network_inference: false;
-      raw_transcripts: false;
+      /** True only when the owner enabled the on-demand session reader. */
+      raw_transcripts: boolean;
     }
   | {
       available: false;
@@ -366,7 +367,7 @@ export type SessionTextAnalysisCapability =
       data_tier: null;
       content_persistence: false;
       network_inference: false;
-      raw_transcripts: false;
+      raw_transcripts: boolean;
     };
 
 export type ProviderCompatibilityProvider = "codex" | "claude_code" | "synthetic";
