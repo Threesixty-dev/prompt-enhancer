@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import textwrap
+import time
 
 from fastapi.testclient import TestClient
 
@@ -54,9 +55,21 @@ STUB_SERVER = textwrap.dedent(
         def do_POST(self):
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length) or b"{}")
+            text = "echo:" + body["messages"][-1]["content"] + " ngl=" + ngl + " ctx=" + ctx
+            if body["messages"][-1]["content"] == "overflow":
+                self.send_response(400); self.send_header("Content-Type", "application/json"); self.end_headers()
+                self.wfile.write(b'{"error": {"code": 400, "message": "context too long"}}')
+                return
+            if body.get("stream") is True:
+                self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.end_headers()
+                for index, piece in enumerate(text.split(" ")):
+                    chunk = {"id": "stub", "object": "chat.completion.chunk", "model": body.get("model"),
+                             "choices": [{"index": 0, "delta": {"content": ("" if index == 0 else " ") + piece}, "finish_reason": None}]}
+                    self.wfile.write(("data: " + json.dumps(chunk) + "\\n\\n").encode("utf-8")); self.wfile.flush()
+                self.wfile.write(b"data: [DONE]\\n\\n"); self.wfile.flush()
+                return
             reply = {"id": "stub", "object": "chat.completion", "model": body.get("model"),
-                     "choices": [{"index": 0, "message": {"role": "assistant",
-                        "content": "echo:" + body["messages"][-1]["content"] + " ngl=" + ngl + " ctx=" + ctx},
+                     "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
                         "finish_reason": "stop"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
             data = json.dumps(reply).encode("utf-8")
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
@@ -155,6 +168,20 @@ def test_registry_activation_devices_chat_and_deactivation(tmp_path: Path) -> No
     assert status.runtime.gpu_layers == 999 and status.runtime.context_size == 4096
     code, payload, _ = service.chat("qwen-test", json.dumps({"messages": [{"role": "user", "content": "x"}]}).encode("utf-8"))
     assert json.loads(payload)["choices"][0]["message"]["content"].endswith("ngl=999 ctx=4096")
+    assert service.running_aliases() == ("qwen-test",)
+
+    # stream=true relays the runtime's server-sent events line by line and ends with [DONE].
+    upstream = service.open_chat("qwen-test", json.dumps({"stream": True, "messages": [{"role": "user", "content": "a b"}]}).encode("utf-8"))
+    assert upstream.status_code == 200 and upstream.content_type == "text/event-stream" and upstream.lines is not None and upstream.body is None
+    lines = list(upstream.lines)
+    events = [json.loads(line[len(b"data: "):]) for line in lines if line.startswith(b"data: ") and b"[DONE]" not in line]
+    assert "".join(event["choices"][0]["delta"]["content"] for event in events) == "echo:a b ngl=999 ctx=4096"
+    assert lines[-2] == b"data: [DONE]\n"
+    # A non-streaming request through open_chat is a complete JSON body; an upstream 4xx stays a JSON error.
+    plain = service.open_chat("qwen-test", json.dumps({"messages": [{"role": "user", "content": "x"}]}).encode("utf-8"))
+    assert plain.lines is None and plain.status_code == 200 and json.loads(plain.body)["choices"][0]["message"]["content"].startswith("echo:x")
+    overflow = service.open_chat("qwen-test", json.dumps({"stream": True, "messages": [{"role": "user", "content": "overflow"}]}).encode("utf-8"))
+    assert overflow.status_code == 400 and overflow.lines is None and b"context too long" in (overflow.body or b"")
 
     status = service.activate("qwen-test", ActivateLocalModel(device=DeviceMode.SPLIT))
     assert status.runtime.device is DeviceMode.SPLIT and status.runtime.gpu_layers == 8  # whole tiny model fits
@@ -235,6 +262,44 @@ def test_download_requires_confirmed_size_and_registers_the_model(tmp_path: Path
     assert service.registry.get("other-q4") is None
 
 
+def test_download_reports_partial_bytes_while_the_hub_writes(tmp_path: Path, monkeypatch) -> None:
+    import prompt_enhancer.application.local_models as module
+
+    monkeypatch.setattr(module, "DOWNLOAD_PROGRESS_INTERVAL_SECONDS", 0.05)
+    seen: list[int] = []
+
+    def slow_downloader(*, repo_id: str, filename: str, local_dir: Path) -> Path:
+        partial_dir = local_dir / ".cache" / "huggingface" / "download"
+        partial_dir.mkdir(parents=True, exist_ok=True)
+        partial = partial_dir / f"{filename}.abc123.incomplete"
+        partial.write_bytes(b"GGUF" + b"\0" * 2044)
+        import time as _time
+        deadline = _time.monotonic() + 5
+        while _time.monotonic() < deadline:
+            status = next(iter(service.overview().downloads))
+            if status.bytes_done:
+                seen.append(status.bytes_done)
+                break
+            _time.sleep(0.02)
+        partial.unlink()
+        final = local_dir / filename
+        final.write_bytes(b"GGUF" + b"\0" * 4092)
+        return final
+
+    service = LocalModelService(
+        tmp_path / "local-models", llama_server=lambda: None, hardware=lambda _b: HardwareSummary(),
+        clock=lambda: T0, downloader=slow_downloader,
+    )
+    status = service.start_download(DownloadRequest(repo_id="example/repo", filename="example-q4.gguf", confirmed_size_bytes=4096, alias="example-q4"))
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and service.overview().downloads[0].state in {"queued", "downloading"}:
+        time.sleep(0.05)
+    final = service.overview().downloads[0]
+    assert final.state == "completed", final
+    assert seen and seen[0] == 2048  # the partial file was reported before completion
+    assert final.bytes_done == 4096
+
+
 def test_http_routes_and_capability(tmp_path: Path, monkeypatch) -> None:
     script = _stub_binary(tmp_path)
     monkeypatch.setenv("PROMPT_ENHANCER_LLAMA_SERVER", str(script))
@@ -244,8 +309,9 @@ def test_http_routes_and_capability(tmp_path: Path, monkeypatch) -> None:
     # Swap in the stub launcher so the route tests never need a real binary.
     service._popen = _stub_popen(script)  # noqa: SLF001 - test seam
     service._hardware = lambda binary: HardwareSummary(llama_server_path=str(binary) if binary else None)  # noqa: SLF001
+    # The HTTP app composes its own service; hand it the stubbed one so activation goes through the stub launcher.
+    monkeypatch.setattr(type(application), "create_local_model_service", lambda self: service)
     app = application.create_http_app()
-    # Replace the composed service with the stubbed one on the router.
     client = TestClient(app, base_url="http://127.0.0.1")
     headers = {API_TOKEN_HEADER: settings.api_token_path.read_text(encoding="utf-8").strip()}
     assert client.get("/v1/local-models").status_code == 401
@@ -263,6 +329,29 @@ def test_http_routes_and_capability(tmp_path: Path, monkeypatch) -> None:
     assert missing.status_code == 404
     inactive = client.post("/v1/local-models/stub/chat/completions", headers=headers, json={"messages": [{"role": "user", "content": "hi"}]})
     assert inactive.status_code == 409 and inactive.json()["detail"]["code"] == "model_not_active"
+    reserved = client.post("/v1/local-models", headers=headers, json={"alias": "openai", "path": str(weights)})
+    assert reserved.status_code == 422
+    # OpenAI-style clients: bearer app token, a base URL per model or one shared base URL routed by "model".
+    bearer = {"Authorization": f"Bearer {headers[API_TOKEN_HEADER]}"}
+    assert client.get("/v1/local-models/openai/v1/models", headers={"Authorization": "Bearer nope"}).status_code == 401
+    assert client.get("/v1/local-models/openai/v1/models", headers=bearer).json() == {"object": "list", "data": []}
+    assert client.get("/v1/local-models/stub/v1/models", headers=bearer).json()["data"] == []
+    started = client.post("/v1/local-models/stub/activate", headers=headers, json={"device": "cpu"})
+    assert started.status_code == 200, started.text
+    assert [m["id"] for m in client.get("/v1/local-models/openai/v1/models", headers=bearer).json()["data"]] == ["stub"]
+    assert client.get("/v1/local-models/stub/v1/models", headers=bearer).json()["data"][0]["id"] == "stub"
+    via_base = client.post("/v1/local-models/stub/v1/chat/completions", headers=bearer, json={"messages": [{"role": "user", "content": "hi"}]})
+    assert via_base.status_code == 200 and via_base.json()["choices"][0]["message"]["content"].startswith("echo:hi")
+    routed = client.post("/v1/local-models/openai/v1/chat/completions", headers=bearer, json={"model": "stub", "messages": [{"role": "user", "content": "yo"}]})
+    assert routed.status_code == 200 and routed.json()["choices"][0]["message"]["content"].startswith("echo:yo")
+    unrouted = client.post("/v1/local-models/openai/v1/chat/completions", headers=bearer, json={"model": "other", "messages": [{"role": "user", "content": "yo"}]})
+    assert unrouted.status_code == 409 and unrouted.json()["detail"]["code"] == "model_not_active"
+    with client.stream("POST", "/v1/local-models/stub/chat/completions", headers=bearer, json={"stream": True, "messages": [{"role": "user", "content": "a b"}]}) as streamed:
+        assert streamed.status_code == 200 and streamed.headers["content-type"].startswith("text/event-stream")
+        assert streamed.headers["cache-control"] == "no-store"
+        body = b"".join(streamed.iter_bytes())
+    assert body.endswith(b"data: [DONE]\n\n") and b'"content": "echo:a"' in body
+    client.post("/v1/local-models/stub/deactivate", headers=headers)
     status = client.get("/v1/local-models/stub", headers=headers).json()
     assert status["runtime"]["state"] == "stopped" and status["endpoint_path"] == "/v1/local-models/stub/chat/completions"
     removed = client.delete("/v1/local-models/stub", headers=headers)

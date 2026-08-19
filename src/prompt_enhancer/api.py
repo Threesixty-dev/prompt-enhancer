@@ -506,6 +506,12 @@ def create_app(
         supplied_csrf: Annotated[str | None, Header(alias=CSRF_HEADER)] = None,
     ) -> None:
         candidate = supplied_token or ""
+        supplied_authorization = request.headers.get("authorization")
+        if not candidate and supplied_authorization:
+            # OpenAI-style clients send the app token as a bearer credential.
+            scheme, _, bearer = supplied_authorization.partition(" ")
+            if scheme.casefold() == "bearer":
+                candidate = bearer.strip()
         expected = request.app.state.api_token
         token_authenticated = hmac.compare_digest(
             candidate.encode("utf-8"), expected.encode("utf-8")

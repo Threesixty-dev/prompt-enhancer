@@ -8,6 +8,7 @@ import type {
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { Icon } from "../../shared/ui/Icon";
+import { LocalModelChatPanel } from "./LocalModelChatPanel";
 import "./LocalModelsPage.css";
 
 const RECOMMENDED_REPO = "orcarouter/Qwen3.8-27B-Uncensored-GGUF";
@@ -49,7 +50,7 @@ export function LocalModelsPage({
 }: {
   transport: Pick<
     PromptEnhancerTransport,
-    "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "removeLocalModel" | "getLocalModelRemoteFiles" | "startLocalModelDownload" | "addLocalModel"
+    "getLocalModels" | "activateLocalModel" | "deactivateLocalModel" | "removeLocalModel" | "getLocalModelRemoteFiles" | "startLocalModelDownload" | "addLocalModel" | "streamLocalModelChat"
   >;
 }) {
   const [overview, setOverview] = useState<LocalModelsOverview | null>(null);
@@ -234,7 +235,7 @@ export function LocalModelsPage({
                   </button>
                 </div>
                 <p className="local-models__endpoint">
-                  Endpoint: <code>POST {item.endpoint_path}</code> (OpenAI chat format, app token required)
+                  Endpoint: <code>POST {item.endpoint_path}</code> (OpenAI chat format, <code>stream: true</code> supported; app token as header or bearer) · base URL for OpenAI clients: <code>/v1/local-models/{item.record.alias}/v1</code>
                   {item.runtime.last_error_code ? <span className="local-models__error"> · last error: {item.runtime.last_error_code.replace(/_/g, " ")}</span> : null}
                 </p>
               </li>
@@ -242,6 +243,8 @@ export function LocalModelsPage({
           })}
         </ul>
       </section>
+
+      <LocalModelChatPanel models={overview.models} transport={transport} />
 
       <section aria-labelledby="add-model-title" className="local-models__section">
         <h2 id="add-model-title">Add a model</h2>

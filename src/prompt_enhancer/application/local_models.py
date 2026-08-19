@@ -12,7 +12,8 @@ beyond loopback; the Hugging Face token, when a download needs one, is used by
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 import hashlib
@@ -45,6 +46,12 @@ MAX_CONTEXT_SIZE = 131072
 HEALTH_TIMEOUT_SECONDS = 240
 CHAT_TIMEOUT_SECONDS = 600
 MAX_CHAT_BODY_BYTES = 4 * 1024 * 1024
+#: Upper bound on one streamed reply so a runaway runtime cannot stream forever.
+MAX_CHAT_STREAM_BYTES = 16 * 1024 * 1024
+#: Names that the HTTP surface uses for fixed routes under /v1/local-models.
+RESERVED_ALIASES = frozenset({"openai", "downloads", "remote-files"})
+#: How often the download worker samples the partial file for progress.
+DOWNLOAD_PROGRESS_INTERVAL_SECONDS = 2.0
 #: Rough per-layer budget used to estimate a split: weight bytes / layers plus
 #: a fixed headroom for the KV cache and scratch buffers.
 SPLIT_VRAM_HEADROOM_BYTES = 2 * 1024 ** 3
@@ -118,6 +125,12 @@ class LocalModelsOverview(StrictModel):
     downloads: tuple["DownloadStatus", ...]
 
 
+def _reject_reserved_alias(value: str) -> str:
+    if value in RESERVED_ALIASES:
+        raise ValueError("alias is reserved")
+    return value
+
+
 class AddLocalModel(StrictModel):
     alias: str = Field(pattern=ALIAS_PATTERN.pattern)
     display_name: str | None = Field(default=None, max_length=120)
@@ -125,6 +138,8 @@ class AddLocalModel(StrictModel):
     default_device: DeviceMode = DeviceMode.SPLIT
     context_size: int = Field(default=DEFAULT_CONTEXT_SIZE, ge=512, le=MAX_CONTEXT_SIZE)
     layer_count: int | None = Field(default=None, ge=1, le=4096)
+
+    _alias_not_reserved = field_validator("alias")(_reject_reserved_alias)
 
 
 class ActivateLocalModel(StrictModel):
@@ -144,6 +159,8 @@ class DownloadRequest(StrictModel):
     alias: str = Field(pattern=ALIAS_PATTERN.pattern)
     display_name: str | None = Field(default=None, max_length=120)
     default_device: DeviceMode = DeviceMode.SPLIT
+
+    _alias_not_reserved = field_validator("alias")(_reject_reserved_alias)
 
     @field_validator("filename")
     @classmethod
@@ -175,6 +192,32 @@ class RemoteRepoFiles(StrictModel):
     repo_id: str
     gated: bool | None = None
     files: tuple[RemoteFile, ...]
+
+
+@dataclass(slots=True)
+class ChatUpstream:
+    """One upstream chat reply: either a complete body or a line iterator over a server-sent event stream."""
+
+    status_code: int
+    content_type: str
+    body: bytes | None = None
+    lines: Iterator[bytes] | None = None
+
+
+def _relay_event_stream(response: object) -> Iterator[bytes]:
+    """Yield the runtime's SSE lines unchanged, bounded in size; close upstream when the consumer stops."""
+
+    sent = 0
+    try:
+        with response:  # type: ignore[attr-defined]
+            for line in response:  # type: ignore[attr-defined]
+                sent += len(line)
+                if sent > MAX_CHAT_STREAM_BYTES:
+                    yield b"data: [DONE]\n\n"
+                    return
+                yield line
+    except (OSError, ValueError):
+        return
 
 
 class LocalModelError(RuntimeError):
@@ -638,9 +681,13 @@ class LocalModelService:
 
     # ----- chat proxy -----
 
-    def chat(self, alias: str, body: bytes) -> tuple[int, bytes, str]:
-        """Forward one OpenAI-compatible chat completion to the model's runtime."""
+    def running_aliases(self) -> tuple[str, ...]:
+        """Aliases whose runtime is healthy right now (for the OpenAI-style model list)."""
 
+        with self._lock:
+            return tuple(sorted(alias for alias, handle in self._processes.items() if handle.status.state is RuntimeState.RUNNING))
+
+    def _prepare_chat(self, alias: str, body: bytes) -> tuple[LlamaServerProcess, dict[str, object]]:
         if len(body) > MAX_CHAT_BODY_BYTES:
             raise LocalModelError("chat_body_too_large")
         with self._lock:
@@ -653,8 +700,14 @@ class LocalModelService:
             raise LocalModelError("chat_body_invalid") from None
         if not isinstance(payload, dict) or not isinstance(payload.get("messages"), list):
             raise LocalModelError("chat_body_invalid")
-        payload["stream"] = False  # streaming comes later; keep the proxy simple and bounded
-        payload.setdefault("model", alias)
+        payload["model"] = alias
+        return handle, payload
+
+    def chat(self, alias: str, body: bytes) -> tuple[int, bytes, str]:
+        """Forward one OpenAI-compatible chat completion to the model's runtime (never streamed)."""
+
+        handle, payload = self._prepare_chat(alias, body)
+        payload["stream"] = False
         request = urllib.request.Request(
             f"{handle.base_url}/v1/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
@@ -668,6 +721,40 @@ class LocalModelService:
             return error.code, error.read(), error.headers.get("Content-Type", "application/json") if error.headers else "application/json"
         except (urllib.error.URLError, OSError):
             raise LocalModelError("runtime_unreachable") from None
+
+    def open_chat(self, alias: str, body: bytes) -> ChatUpstream:
+        """Forward a chat completion; when the caller asked for ``stream`` the reply is relayed chunk by chunk.
+
+        The upstream status and headers are read synchronously so failures (for example a context overflow,
+        which llama.cpp reports as HTTP 400) come back as ordinary JSON errors rather than a broken stream.
+        """
+
+        handle, payload = self._prepare_chat(alias, body)
+        wants_stream = payload.get("stream") is True
+        if not wants_stream:
+            status_code, reply, content_type = self.chat(alias, json.dumps(payload).encode("utf-8"))
+            return ChatUpstream(status_code=status_code, content_type=content_type, body=reply)
+        request = urllib.request.Request(
+            f"{handle.base_url}/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+            method="POST",
+        )
+        try:
+            response = urllib.request.urlopen(request, timeout=CHAT_TIMEOUT_SECONDS)  # noqa: S310 - loopback only
+        except urllib.error.HTTPError as error:
+            return ChatUpstream(
+                status_code=error.code,
+                content_type=error.headers.get("Content-Type", "application/json") if error.headers else "application/json",
+                body=error.read(),
+            )
+        except (urllib.error.URLError, OSError):
+            raise LocalModelError("runtime_unreachable") from None
+        content_type = response.headers.get("Content-Type", "text/event-stream")
+        if "text/event-stream" not in content_type:
+            with response:
+                return ChatUpstream(status_code=response.status, content_type=content_type, body=response.read())
+        return ChatUpstream(status_code=response.status, content_type="text/event-stream", lines=_relay_event_stream(response))
 
     # ----- downloads -----
 
@@ -711,11 +798,35 @@ class LocalModelService:
             if current is not None:
                 self._downloads[download_id] = current.model_copy(update=changes)
 
+    def _sample_download_progress(self, download_id: str, target_dir: Path, filename: str, done: threading.Event) -> None:
+        """Report partial bytes while huggingface_hub writes its ``.incomplete`` file next to the target."""
+
+        partial_dir = target_dir / ".cache" / "huggingface" / "download"
+        while not done.wait(DOWNLOAD_PROGRESS_INTERVAL_SECONDS):
+            best = 0
+            try:
+                candidates = [target_dir / filename, *partial_dir.glob(f"{filename}*.incomplete")] if partial_dir.exists() else [target_dir / filename]
+                for candidate in candidates:
+                    try:
+                        best = max(best, candidate.stat().st_size)
+                    except OSError:
+                        continue
+            except OSError:
+                best = 0
+            if best:
+                self._update_download(download_id, bytes_done=best)
+
     def _run_download(self, download_id: str, request: DownloadRequest) -> None:
         self._update_download(download_id, state="downloading")
         target_dir = self._registry.weights_dir / request.repo_id.replace("/", "__")
+        finished = threading.Event()
+        sampler = threading.Thread(
+            target=self._sample_download_progress, args=(download_id, target_dir, request.filename, finished),
+            name=f"local-model-download-progress-{request.alias}", daemon=True,
+        )
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
+            sampler.start()
             if self._downloader is not None:
                 path = self._downloader(repo_id=request.repo_id, filename=request.filename, local_dir=target_dir)
             else:
@@ -742,11 +853,16 @@ class LocalModelService:
         except Exception as error:  # noqa: BLE001 - reported as a closed code, never as text
             code = "gated_or_unauthorized" if "401" in str(error) or "403" in str(error) or "gated" in str(error).lower() else "download_failed"
             self._update_download(download_id, state="failed", error_code=code, finished_at=self._clock())
+        finally:
+            finished.set()
 
 
 __all__ = (
     "ALIAS_PATTERN",
     "ActivateLocalModel",
+    "ChatUpstream",
+    "MAX_CHAT_STREAM_BYTES",
+    "RESERVED_ALIASES",
     "AddLocalModel",
     "DeviceMode",
     "DownloadRequest",

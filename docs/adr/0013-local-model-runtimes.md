@@ -58,3 +58,19 @@ mode; that is exactly the device option the owner asked for.
   app does not filter them, and they are never persisted by the app.
 - The judge lane makes no metric "calibrated" by itself; the Calibration page
   ratings and the activation gate decide that.
+
+## Addendum (2026-08-19): streaming and OpenAI-style base URLs
+
+- The chat proxy honours `stream: true` by relaying the runtime's server-sent
+  events unchanged, bounded to 16 MB per reply; a failure the runtime reports
+  before streaming (for example a context overflow, HTTP 400) is returned as
+  the same JSON error a non-streamed call would get.
+- Every model is reachable under an OpenAI-style base URL:
+  `/v1/local-models/{alias}/v1` (`GET /models`, `POST /chat/completions`), and
+  one shared base URL `/v1/local-models/openai/v1` routes by the request's
+  `model` field among running aliases. The app token may be sent as
+  `Authorization: Bearer <token>` so unchanged OpenAI clients can use the local
+  models; the aliases `openai`, `downloads` and `remote-files` are reserved.
+- The Models page offers a chat box for running models (thinking disabled by
+  default, conversation kept in the browser tab only, never persisted).
+

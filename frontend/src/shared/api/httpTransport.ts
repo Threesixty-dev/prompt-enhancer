@@ -81,6 +81,9 @@ import type {
   LocalModelsOverview,
   LocalModelStatus,
   LocalModelRecord,
+  LocalModelChatDelta,
+  LocalModelChatRequest,
+  LocalModelChatResult,
   DownloadStatus,
   RemoteRepoFiles,
   JudgeOutcome,
@@ -2409,6 +2412,116 @@ export function createHttpTransport(options: {
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         signal,
       );
+    },
+    async streamLocalModelChat(alias, payload, onDelta, signal) {
+      const target = assertSameOriginRelativePath(
+        `/v1/local-models/${encodeURIComponent(alias)}/chat/completions`,
+        origin,
+      );
+      const { enable_thinking, ...rest } = payload;
+      const body = JSON.stringify({
+        ...rest,
+        stream: true,
+        chat_template_kwargs: { enable_thinking: enable_thinking === true },
+      });
+      const started = Date.now();
+      let csrfToken = await ensureBrowserSession(signal);
+      const send = (csrf: string) =>
+        fetchRequest(target, {
+          method: "POST",
+          credentials: "include",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
+          cache: "no-store",
+          signal,
+          headers: {
+            Accept: "text/event-stream, application/json",
+            "Content-Type": "application/json",
+            "X-Prompt-Enhancer-CSRF": csrf,
+          },
+          body,
+        });
+      let response = await send(csrfToken);
+      if (response.status === 401) {
+        if (sessionAuth?.csrfToken === csrfToken) sessionAuth = undefined;
+        csrfToken = await ensureBrowserSession(signal);
+        response = await send(csrfToken);
+      }
+      if (!response.ok) {
+        let reasonCode: SafeTransportReasonCode | null = null;
+        if (isJsonResponse(response)) {
+          try {
+            reasonCode = safeReasonFromErrorPayload(await response.json());
+          } catch {
+            // Upstream error bodies are deliberately not surfaced.
+          }
+        }
+        throw new TransportError(`Local model chat failed (${response.status})`, response.status, reasonCode);
+      }
+      const result: LocalModelChatResult = { content: "", reasoning: "", finish_reason: null, elapsed_ms: 0 };
+      const apply = (delta: LocalModelChatDelta) => {
+        if (delta.content) result.content += delta.content;
+        if (delta.reasoning) result.reasoning += delta.reasoning;
+        onDelta(delta);
+      };
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.startsWith("text/event-stream")) {
+        // A runtime that ignored `stream` still answers with one JSON body.
+        const whole = (await response.json()) as { choices?: { message?: { content?: unknown; reasoning_content?: unknown }; finish_reason?: unknown }[] };
+        const choice = whole.choices?.[0];
+        apply({
+          content: typeof choice?.message?.content === "string" ? choice.message.content : "",
+          reasoning: typeof choice?.message?.reasoning_content === "string" ? choice.message.reasoning_content : "",
+        });
+        result.finish_reason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null;
+        result.elapsed_ms = Date.now() - started;
+        return result;
+      }
+      if (!response.body) {
+        throw new TransportError("Local model chat returned no stream", response.status);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffered = "";
+      let finished = false;
+      while (!finished) {
+        const { value, done } = await reader.read();
+        buffered += done ? decoder.decode() : decoder.decode(value, { stream: true });
+        let newline = buffered.indexOf("\n");
+        while (newline !== -1) {
+          const line = buffered.slice(0, newline).replace(/\r$/, "");
+          buffered = buffered.slice(newline + 1);
+          newline = buffered.indexOf("\n");
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (data === "[DONE]") {
+            finished = true;
+            break;
+          }
+          let event: unknown;
+          try {
+            event = JSON.parse(data);
+          } catch {
+            continue;
+          }
+          const choice = (event as { choices?: { delta?: { content?: unknown; reasoning_content?: unknown }; finish_reason?: unknown }[] }).choices?.[0];
+          if (!choice) continue;
+          const delta = choice.delta ?? {};
+          apply({
+            content: typeof delta.content === "string" ? delta.content : "",
+            reasoning: typeof delta.reasoning_content === "string" ? delta.reasoning_content : "",
+          });
+          if (typeof choice.finish_reason === "string") result.finish_reason = choice.finish_reason;
+        }
+        if (done) break;
+      }
+      try {
+        await reader.cancel();
+      } catch {
+        // The stream is already closed; nothing to release.
+      }
+      result.elapsed_ms = Date.now() - started;
+      return result;
     },
     getProjectTimeline(projectId, signal) {
       return request<ProjectTimeline>(

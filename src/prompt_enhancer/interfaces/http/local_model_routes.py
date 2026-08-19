@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
+from fastapi.responses import StreamingResponse
 
 from ...application.local_models import (
     ALIAS_PATTERN,
@@ -20,6 +21,8 @@ from ...application.local_models import (
     LocalModelsOverview,
     RemoteRepoFiles,
 )
+
+import json
 
 
 _STATUS_FOR_CODE = {
@@ -107,19 +110,78 @@ def create_local_model_router(require_local_auth: Callable[..., None], service: 
         except LocalModelError as error:
             raise _failure(error) from None
 
+    def _model_list(aliases: tuple[str, ...]) -> dict[str, object]:
+        return {
+            "object": "list",
+            "data": [{"id": alias, "object": "model", "created": 0, "owned_by": "local"} for alias in aliases],
+        }
+
+    def _relay(alias: str, body: bytes) -> Response:
+        try:
+            upstream = service.open_chat(alias, body)
+        except LocalModelError as error:
+            raise _failure(error) from None
+        if upstream.lines is not None:
+            return StreamingResponse(
+                upstream.lines,
+                status_code=upstream.status_code,
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
+        return Response(
+            content=upstream.body or b"",
+            status_code=upstream.status_code,
+            media_type=upstream.content_type,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @router.get("/openai/v1/models")
+    def openai_models() -> dict[str, object]:
+        """OpenAI-style model list for clients that use one base URL for every running model."""
+
+        return _model_list(service.running_aliases())
+
+    @router.post("/openai/v1/chat/completions")
+    async def openai_chat_completions(request: Request) -> Response:
+        """OpenAI-style chat completion routed by the ``model`` field to a running alias."""
+
+        body = await request.body()
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            raise HTTPException(status_code=422, detail={"code": "chat_body_invalid"}) from None
+        model = payload.get("model") if isinstance(payload, dict) else None
+        if not isinstance(model, str) or ALIAS_PATTERN.fullmatch(model) is None:
+            raise HTTPException(status_code=422, detail={"code": "chat_body_invalid"})
+        return _relay(model, body)
+
+    @router.get("/{alias}/v1/models")
+    def model_list(alias: Annotated[str, Path(pattern=ALIAS_PATTERN.pattern)]) -> dict[str, object]:
+        """OpenAI-style single-model list, so ``…/{alias}/v1`` works as a base URL."""
+
+        try:
+            status = service.status(alias)
+        except LocalModelError as error:
+            raise _failure(error) from None
+        return _model_list((alias,) if status.runtime.state == "running" else ())
+
+    @router.post("/{alias}/v1/chat/completions")
+    async def chat_completions_openai_base(
+        request: Request,
+        alias: Annotated[str, Path(pattern=ALIAS_PATTERN.pattern)],
+    ) -> Response:
+        """Same proxy under an OpenAI-style base URL (``…/{alias}/v1``)."""
+
+        return _relay(alias, await request.body())
+
     @router.post("/{alias}/chat/completions")
     async def chat_completions(
         request: Request,
         alias: Annotated[str, Path(pattern=ALIAS_PATTERN.pattern)],
     ) -> Response:
-        """OpenAI-compatible chat completion proxied to the model's loopback runtime."""
+        """OpenAI-compatible chat completion proxied to the model's loopback runtime; ``stream: true`` relays SSE."""
 
-        body = await request.body()
-        try:
-            status_code, payload, content_type = service.chat(alias, body)
-        except LocalModelError as error:
-            raise _failure(error) from None
-        return Response(content=payload, status_code=status_code, media_type=content_type, headers={"Cache-Control": "no-store"})
+        return _relay(alias, await request.body())
 
     return router
 

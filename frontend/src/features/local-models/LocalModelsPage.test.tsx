@@ -46,6 +46,7 @@ describe("LocalModelsPage", () => {
       getLocalModelRemoteFiles: vi.fn(async () => ({ repo_id: "example-org/Example-GGUF", gated: true, files: [{ filename: "qwen-q4_k_m.gguf", size_bytes: 16 * 1024 ** 3 }, { filename: "qwen-q8_0.gguf", size_bytes: 28 * 1024 ** 3 }] })),
       startLocalModelDownload: vi.fn(),
       addLocalModel: vi.fn(),
+      streamLocalModelChat: vi.fn(),
     };
     render(<LocalModelsPage transport={transport} />);
     await screen.findByText("Example GPU");
@@ -68,10 +69,43 @@ describe("LocalModelsPage", () => {
     const transport = {
       getLocalModels: vi.fn(async () => overview([], false)),
       activateLocalModel: vi.fn(), deactivateLocalModel: vi.fn(), removeLocalModel: vi.fn(),
-      getLocalModelRemoteFiles: vi.fn(), startLocalModelDownload: vi.fn(), addLocalModel: vi.fn(),
+      getLocalModelRemoteFiles: vi.fn(), startLocalModelDownload: vi.fn(), addLocalModel: vi.fn(), streamLocalModelChat: vi.fn(),
     };
     render(<LocalModelsPage transport={transport} />);
     await screen.findByText(/llama.cpp is not installed/);
     expect(screen.getByText(/No model yet/)).toBeTruthy();
+    expect(screen.getByText(/Activate a model above to chat/)).toBeTruthy();
+  });
+
+  it("streams a chat reply from the running model with thinking off by default", async () => {
+    const streamLocalModelChat = vi.fn(
+      async (
+        _alias: string,
+        _request: { messages: { role: string; content: string }[]; enable_thinking?: boolean },
+        onDelta: (delta: { content?: string; reasoning?: string }) => void,
+      ) => {
+        onDelta({ content: "feat: " });
+        onDelta({ content: "add chat" });
+        return { content: "feat: add chat", reasoning: "", finish_reason: "stop", elapsed_ms: 1200 };
+      },
+    );
+    const transport = {
+      getLocalModels: vi.fn(async () => overview([model("running")])),
+      activateLocalModel: vi.fn(), deactivateLocalModel: vi.fn(), removeLocalModel: vi.fn(),
+      getLocalModelRemoteFiles: vi.fn(), startLocalModelDownload: vi.fn(), addLocalModel: vi.fn(),
+      streamLocalModelChat,
+    };
+    render(<LocalModelsPage transport={transport} />);
+    await screen.findByLabelText("Chat model");
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Write a commit message" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("feat: add chat");
+    expect(streamLocalModelChat).toHaveBeenCalledTimes(1);
+    const [alias, request] = streamLocalModelChat.mock.calls[0];
+    expect(alias).toBe("qwen-27b-q4");
+    expect(request.enable_thinking).toBe(false);
+    expect(request.messages).toEqual([{ role: "user", content: "Write a commit message" }]);
+    expect(screen.getByText(/1\.2 s/)).toBeTruthy();
+    expect(screen.getAllByText(/\/v1\/local-models\/qwen-27b-q4\/v1/).length).toBeGreaterThanOrEqual(2);
   });
 });

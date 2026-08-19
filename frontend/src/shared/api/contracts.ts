@@ -83,6 +83,24 @@ export type ActivateLocalModel = Schemas["ActivateLocalModel"];
 export type DownloadRequest = Schemas["DownloadRequest"];
 export type DownloadStatus = Schemas["DownloadStatus"];
 export type RemoteRepoFiles = Schemas["RemoteRepoFiles"];
+
+/** One turn sent to a local model's loopback endpoint (OpenAI chat shape). */
+export type LocalModelChatMessage = { role: "system" | "user" | "assistant"; content: string };
+export type LocalModelChatRequest = {
+  messages: LocalModelChatMessage[];
+  temperature?: number;
+  max_tokens?: number;
+  /** Qwen-style thinking; off by default so small tasks answer quickly. */
+  enable_thinking?: boolean;
+};
+/** A streamed fragment: visible answer text and, when the model thinks aloud, its reasoning. */
+export type LocalModelChatDelta = { content?: string; reasoning?: string };
+export type LocalModelChatResult = {
+  content: string;
+  reasoning: string;
+  finish_reason: string | null;
+  elapsed_ms: number;
+};
 export type DeviceMode = Schemas["DeviceMode"];
 export type JudgeOutcome = Schemas["JudgeOutcome"];
 export type JudgeSweepStatus = Schemas["JudgeSweepStatus"];
@@ -548,6 +566,13 @@ export interface PromptEnhancerTransport {
   removeLocalModel(alias: string, deleteWeights: boolean, signal?: AbortSignal): Promise<void>;
   getLocalModelRemoteFiles(repoId: string, signal?: AbortSignal): Promise<RemoteRepoFiles>;
   startLocalModelDownload(request: DownloadRequest, signal?: AbortSignal): Promise<DownloadStatus>;
+  /** Stream one chat completion from a running local model; `onDelta` receives fragments as they arrive. */
+  streamLocalModelChat(
+    alias: string,
+    request: LocalModelChatRequest,
+    onDelta: (delta: LocalModelChatDelta) => void,
+    signal?: AbortSignal,
+  ): Promise<LocalModelChatResult>;
   /** Model-judge lane: the active local model answers the calibration questions (judgments, not metrics). */
   judgeSessionWithModel(sessionId: string, signal?: AbortSignal): Promise<JudgeOutcome>;
   startModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;

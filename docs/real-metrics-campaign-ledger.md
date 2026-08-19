@@ -1325,6 +1325,18 @@ from every metric table, and compared with human ratings through
 `model_human_agreement` (rate + Cohen's kappa per metric) on the Calibration
 page. Judgments never become metric values; objective evidence outranks them.
 
+Local model endpoint, second slice: the chat proxy relays `stream: true` as
+server-sent events (bounded at 16 MB per reply; upstream 4xx stay JSON), each
+model also answers under an OpenAI-style base URL
+(`/v1/local-models/{alias}/v1` with `/models` and `/chat/completions`, plus
+`/v1/local-models/openai/v1` routed by the `model` field across running
+aliases), the app token is accepted as a bearer credential so ordinary OpenAI
+clients work unchanged, aliases used by fixed routes are reserved, downloads
+report partial bytes, and the Models page has a chat box (thinking off by
+default, history kept in the tab only). The unrestricted orcarouter weights are
+now installed as an imatrix IQ3_M from an ungated mirror built from
+`orcarouter/Qwen3.8-27B-Uncensored-FP8` (12.8 GB, fully on the GPU).
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and
