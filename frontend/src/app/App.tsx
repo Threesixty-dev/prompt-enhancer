@@ -45,6 +45,9 @@ const CalibrationScreen = lazy(() =>
 const LocalModelsScreen = lazy(() =>
   import("../features/local-models/LocalModelsPage").then((module) => ({ default: module.LocalModelsPage })),
 );
+const OverviewScreen = lazy(() =>
+  import("../features/overview/OverviewPage").then((module) => ({ default: module.OverviewPage })),
+);
 const PromptChecksScreen = lazy(() =>
   import("../features/prompt-check/PromptCheckPage").then((module) => ({ default: module.PromptCheckPage })),
 );
@@ -169,6 +172,7 @@ function routeTitle(route: AppRoute): string {
   if (route.name === "calibration") return "Calibration";
   if (route.name === "models") return "Models";
   if (route.name === "prompt_checks") return "Prompt check";
+  if (route.name === "overview") return "Overview";
   if (route.name === "live") return "Live";
   if (route.name === "research") return "Methods & models";
   if (route.name === "team") return "Team analytics";
@@ -328,6 +332,15 @@ export function App({
 
         <nav aria-label="Primary" className="primary-nav">
           <p>Workspace</p>
+          <button
+            aria-current={route.name === "overview" ? "page" : undefined}
+            className={route.name === "overview" ? "primary-nav__item--active" : ""}
+            onClick={() => navigate({ name: "overview" })}
+            type="button"
+          >
+            <Icon name="layers" />
+            <span>Overview</span>
+          </button>
           <button
             aria-current={
               route.name === "projects" || route.name === "project_automation" ||
@@ -528,6 +541,8 @@ export function App({
                 <LocalModelsScreen transport={transport} />
               ) : route.name === "prompt_checks" ? (
                 <PromptChecksScreen checkId={route.checkId} navigate={navigate} transport={transport} />
+              ) : route.name === "overview" ? (
+                <OverviewScreen navigate={navigate} transport={transport} />
               ) : route.name === "projects" ? (
                 <ProjectCatalogScreen
                   coverageProvider={coverageProvider}

@@ -58,6 +58,8 @@ def is_spa_navigation_path(path: str) -> bool:
         "models/",
         "prompt-checks",
         "prompt-checks/",
+        "overview",
+        "overview/",
         "team",
         "team/",
         "tasks/flow",
