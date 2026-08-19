@@ -248,8 +248,15 @@ class ClaudeCodeHookAdapter(ProviderAdapter):
 
     provider = Provider.CLAUDE_CODE
 
-    def __init__(self, ledger: SqliteClaudeHookLedger) -> None:
+    def __init__(
+        self,
+        ledger: SqliteClaudeHookLedger,
+        transcript_coverage: Callable[[str], bool] | None = None,
+    ) -> None:
         self._ledger = ledger
+        # When the owner's transcript file covers a session, the transcript
+        # adapter is its single source of record; the hook adapter skips it.
+        self._transcript_coverage = transcript_coverage
         self._health = AdapterHealth.UNAVAILABLE
         self._probed = False
         self._closed = False
@@ -338,6 +345,11 @@ class ClaudeCodeHookAdapter(ProviderAdapter):
         for row in rows:
             if row.hook_session_id in self._listed:
                 raise ClaudeHookAdapterError("ledger repeated a session in one snapshot")
+            if self._transcript_coverage is not None and self._transcript_coverage(row.hook_session_id):
+                # The transcript adapter owns this session entirely - its row,
+                # its events, its provenance. Listing it here would re-stamp the
+                # catalog row with hook provenance on every index.
+                continue
             session = _source_session(row, ledger.get_telemetry_session(row.hook_session_id))
             self._listed[row.hook_session_id] = session
             sessions.append(session)

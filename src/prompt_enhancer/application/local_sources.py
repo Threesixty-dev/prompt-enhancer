@@ -188,6 +188,10 @@ class CodexLocalSourceService:
 
 ClaudeHookAdapterFactory = Callable[[], ProviderAdapter]
 HookLedgerSummary = Callable[[], dict[str, int]]
+# Optional owner-authorized transcript adapter (ADR 0011). When present it is
+# the primary Claude source: history, tokens, tool errors, titles.
+ClaudeTranscriptAdapterFactory = Callable[[], ProviderAdapter]
+TranscriptSupersede = Callable[[ProviderAdapter], int]
 
 
 class ClaudeCodeLocalSourceStatus(StrictModel):
@@ -232,6 +236,8 @@ class ClaudeCodeLocalSourceService:
         ledger_summary: HookLedgerSummary,
         verification_capability: VerificationCapability,
         automation_revoker: AutomationRevoker | None = None,
+        transcript_adapter_factory: ClaudeTranscriptAdapterFactory | None = None,
+        transcript_supersede: TranscriptSupersede | None = None,
     ) -> None:
         self._repository = repository
         self._ingestion = ingestion
@@ -239,6 +245,8 @@ class ClaudeCodeLocalSourceService:
         self._ledger_summary = ledger_summary
         self._verification_capability = verification_capability
         self._automation_revoker = automation_revoker
+        self._transcript_adapter_factory = transcript_adapter_factory
+        self._transcript_supersede = transcript_supersede
 
     def set_automation_revoker(self, revoker: AutomationRevoker) -> None:
         self._automation_revoker = revoker
@@ -260,6 +268,9 @@ class ClaudeCodeLocalSourceService:
             indexed_sessions=counts["sessions"],
             indexed_projects=counts["projects"],
             verification_capability=self._verification_capability,
+            # Owner-authorized transcript reading (ADR 0011) is the primary
+            # Claude source when wired; the status says so rather than hiding it.
+            reads_transcripts=self._transcript_adapter_factory is not None,
         )
 
     def grant_local_history(self) -> ClaudeCodeLocalSourceStatus:
@@ -280,7 +291,40 @@ class ClaudeCodeLocalSourceService:
             raise ConsentRequiredError(
                 "explicit source consent is required before provider access"
             )
-        return self._ingestion.ingest(
+        if self._transcript_adapter_factory is None:
+            return self._ingestion.ingest(
+                self._adapter_factory(),
+                selection=IngestionSelection(max_sessions=max_sessions),
+            )
+        # Transcripts first: they are the provider's own record. Where one
+        # exists it supersedes earlier hook-captured events for that session,
+        # and the hook adapter then contributes only sessions without one.
+        transcripts = self._transcript_adapter_factory()
+        from ..adapters.base import AdapterHealth
+
+        if transcripts.probe().health is not AdapterHealth.READY:
+            # No transcript root on this machine: hooks are the only source.
+            return self._ingestion.ingest(
+                self._adapter_factory(),
+                selection=IngestionSelection(max_sessions=max_sessions),
+            )
+        if self._transcript_supersede is not None:
+            self._transcript_supersede(transcripts)
+        first = self._ingestion.ingest(
+            transcripts, selection=IngestionSelection(max_sessions=max_sessions)
+        )
+        second = self._ingestion.ingest(
             self._adapter_factory(),
             selection=IngestionSelection(max_sessions=max_sessions),
         )
+        return first.model_copy(update={
+            "sessions_seen": first.sessions_seen + second.sessions_seen,
+            "sessions_selected": first.sessions_selected + second.sessions_selected,
+            "sessions_inserted": first.sessions_inserted + second.sessions_inserted,
+            "sessions_updated": first.sessions_updated + second.sessions_updated,
+            "events_seen": first.events_seen + second.events_seen,
+            "events_inserted": first.events_inserted + second.events_inserted,
+            "events_updated": first.events_updated + second.events_updated,
+            "metrics_written": first.metrics_written + second.metrics_written,
+            "truncated": first.truncated or second.truncated,
+        })

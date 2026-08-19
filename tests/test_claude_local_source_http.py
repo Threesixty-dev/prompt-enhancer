@@ -51,7 +51,8 @@ def test_claude_source_routes_require_auth_and_report_capability(tmp_path: Path)
     assert body["consent_active"] is False
     assert body["captured_sessions"] == 0 and body["indexed_sessions"] == 0
     assert body["capture_channel"] == "claude_code_hooks"
-    assert body["reads_transcripts"] is False and body["persists_content"] is False
+    # The owner-authorized transcript adapter (ADR 0011) is the primary Claude source.
+    assert body["reads_transcripts"] is True and body["persists_content"] is False
 
 
 def test_claude_source_consent_capture_index_roundtrip(tmp_path: Path) -> None:

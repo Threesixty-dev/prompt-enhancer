@@ -129,14 +129,56 @@ class LocalApplication:
             mode = CodexReadMode.METADATA_INDEX
         return CodexAppServerAdapter(mode=mode)
 
+    def create_claude_transcript_adapter(self):
+        """Owner-authorized transcript adapter (ADR 0011): history, tokens, tool errors."""
+
+        from .infrastructure.providers.claude_code_hooks.transcript_adapter import (
+            ClaudeTranscriptAdapter,
+        )
+
+        return ClaudeTranscriptAdapter(self.pseudonymizer)
+
     def create_claude_hook_adapter(self):
-        """Read-only adapter over the local Claude Code hook ledger."""
+        """Read-only adapter over the local Claude Code hook ledger.
+
+        Sessions covered by a transcript file yield no hook events; the
+        transcript adapter is their single source of record.
+        """
 
         from .infrastructure.providers.claude_code_hooks.adapter import (
             ClaudeCodeHookAdapter,
         )
 
-        return ClaudeCodeHookAdapter(self.database.claude_hook_ledger())
+        covered = self.create_claude_transcript_adapter().covered_hook_session_ids()
+        return ClaudeCodeHookAdapter(
+            self.database.claude_hook_ledger(),
+            transcript_coverage=lambda hook_session_id: hook_session_id in covered,
+        )
+
+    def _supersede_hook_events_covered_by_transcripts(self, transcripts) -> int:
+        """Delete receiver-clock events for sessions a transcript now covers."""
+
+        from .infrastructure.providers.claude_code_hooks.contracts import (
+            SOURCE_SCHEMA_VERSION as HOOK_SOURCE_SCHEMA_VERSION,
+        )
+        from .infrastructure.providers.claude_code_hooks.transcript_reader import (
+            catalog_session_id_for,
+        )
+
+        removed = 0
+        for hook_session_id in transcripts.covered_hook_session_ids():
+            # catalog id = HMAC(claude_code:session:<installation>, hook pseudonym)
+            installation_id = self.pseudonymizer.pseudonymize(
+                "claude_code:installation", "claude-code-hooks-local-v1"
+            )
+            catalog_id = self.pseudonymizer.pseudonymize(
+                f"claude_code:session:{installation_id}", hook_session_id
+            )
+            removed += self.database.supersede_session_events(
+                catalog_id, only_source_schema_version=HOOK_SOURCE_SCHEMA_VERSION
+            )
+        del catalog_session_id_for
+        return removed
 
     def create_claude_local_source_service(self):
         """Consent, status, and index commands for the hook-captured source."""
@@ -150,6 +192,8 @@ class LocalApplication:
             self.create_claude_hook_adapter,
             lambda: self.database.claude_hook_ledger().summary(),
             validation_only_capability(),
+            transcript_adapter_factory=self.create_claude_transcript_adapter,
+            transcript_supersede=self._supersede_hook_events_covered_by_transcripts,
         )
 
     def create_session_reader_service(self):

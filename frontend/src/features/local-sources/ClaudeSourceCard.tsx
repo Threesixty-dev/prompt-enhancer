@@ -36,7 +36,7 @@ export function safeClaudeStatus(value: unknown): value is ClaudeCodeLocalSource
     nonNegativeInt(value.indexed_sessions) &&
     nonNegativeInt(value.indexed_projects) &&
     value.capture_channel === "claude_code_hooks" &&
-    value.reads_transcripts === false &&
+    typeof value.reads_transcripts === "boolean" &&
     value.persists_content === false &&
     isRecord(value.verification_capability)
   );
@@ -164,7 +164,7 @@ export function ClaudeSourceCard({ transport }: { transport: ClaudeTransport }) 
             <div><dt>Indexed sessions</dt><dd>{status.indexed_sessions}</dd></div>
             <div><dt>Safe projects</dt><dd>{status.indexed_projects}</dd></div>
             <div><dt>Captured requests</dt><dd>{status.captured_requests}</dd></div>
-            <div><dt>Transcripts read</dt><dd>{status.reads_transcripts ? "Yes" : "Never"}</dd></div>
+            <div><dt>Transcripts read</dt><dd>{status.reads_transcripts ? "On this machine only" : "Never"}</dd></div>
             <div><dt>Content stored</dt><dd>{status.persists_content ? "Yes" : "Never"}</dd></div>
           </dl>
           <p className="source-card__footnote">

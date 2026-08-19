@@ -66,3 +66,18 @@ def deny_non_loopback_tcp(
     monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
     monkeypatch.setattr(socket, "getaddrinfo", guarded_getaddrinfo)
     monkeypatch.setattr(socket.socket, "sendto", guarded_sendto)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_provider_homes(tmp_path_factory, monkeypatch):
+    """Never let a test touch the real Claude Code home.
+
+    The owner-authorized transcript reader and adapter (ADR 0011) default to
+    ``~/.claude``; under test that directory must be an empty temporary one so
+    no real session is ever scanned, even into a temporary store.  Tests that
+    need transcripts create them under this path.
+    """
+
+    home = tmp_path_factory.mktemp("claude-home-isolated")
+    monkeypatch.setenv("PROMPT_ENHANCER_CLAUDE_HOME", str(home))
+    yield

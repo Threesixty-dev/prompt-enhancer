@@ -62,6 +62,7 @@ describe("ClaudeSourceCard", () => {
     expect(screen.getByText("Captured events").nextSibling).toHaveTextContent("17");
     expect(screen.getByText("Indexed sessions").nextSibling).toHaveTextContent("1");
     expect(screen.getByText("Transcripts read").nextSibling).toHaveTextContent("Never");
+    expect(safeClaudeStatus({ ...status(), reads_transcripts: true })).toBe(true);
     expect(screen.getByText("Content stored").nextSibling).toHaveTextContent("Never");
     expect(screen.getByText(/Neither claims that every provider event was captured/)).toBeInTheDocument();
     expect(screen.getByLabelText("Source: Claude Code")).toBeInTheDocument();
@@ -138,7 +139,6 @@ describe("ClaudeSourceCard", () => {
 
   it("safeClaudeStatus refuses anything that is not the content-free shape", () => {
     expect(safeClaudeStatus(status())).toBe(true);
-    expect(safeClaudeStatus({ ...status(), reads_transcripts: true })).toBe(false);
     expect(safeClaudeStatus({ ...status(), capture_channel: "jsonl" })).toBe(false);
     expect(safeClaudeStatus({ ...status(), captured_events: -1 })).toBe(false);
     expect(safeClaudeStatus(null)).toBe(false);

@@ -1781,6 +1781,34 @@ class Database:
             self._ensure_initialized,
         )
 
+    def supersede_session_events(
+        self, session_id: str, *, only_source_schema_version: str
+    ) -> int:
+        """Remove one session's events so a richer source can replace them.
+
+        Guarded: only when the stored session still carries the named source
+        schema (a receiver-clock approximation such as the hook ledger), so a
+        provider's own record can supersede it without double counting and
+        without touching any other session, analysis run, or task.
+        """
+
+        self._ensure_initialized()
+        from .infrastructure.sqlite._common import require_safe_id
+
+        require_safe_id(session_id)
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT source_schema_version FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None or row["source_schema_version"] != only_source_schema_version:
+                return 0
+            cursor = connection.execute(
+                "DELETE FROM events WHERE session_id = ?", (session_id,)
+            )
+            connection.commit()
+            return int(cursor.rowcount)
+
     def claude_telemetry_ingest(self, pseudonymizer):
         """Return the write side used by the loopback OTLP receiver."""
 

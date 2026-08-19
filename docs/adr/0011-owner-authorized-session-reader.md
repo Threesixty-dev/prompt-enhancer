@@ -43,6 +43,31 @@ conversation:
    The application does, for its owner, on the owner's machine. Test fixtures
    are fictional.
 
+## Transcript adapter: the default Claude Code source (added 2026-08-19)
+
+At the owner's direction the same read surface is also the **primary Claude
+Code source**: a `ProviderAdapter` over the transcript files indexes every
+session - history included - with the provider's own timestamps, per-response
+token usage from `message.usage`, tool calls with their results and
+`is_error`, compaction markers, the project from `cwd`, and a title from the
+first prompt. Identity uses the exact pseudonym chain of the hook receiver, so
+a session seen by both channels is one catalog row.
+
+One source of record per session: where a transcript exists, the hook adapter
+does not list that session and the transcript supplies every event (hook-space
+sequences from 0, usage in a separate sequence space); where none exists, hooks
+and the OTLP receiver remain the source exactly as before. A session that was
+indexed from hooks before its transcript was read is superseded once, by a
+guarded, session-scoped deletion of its receiver-clock events - only when the
+stored session still carries the hook schema - and never touches analysis
+runs, tasks, or any other session. Re-indexing is idempotent.
+
+The adapter is read-only and bounded (20 000 files, 64 MiB and 200 000 lines
+per file, 60 head lines for listing); it scans filenames and heads to list and
+reads one file fully only when that session is ingested. The status surface
+reports `reads_transcripts = true` when it is wired. Under test the Claude home
+is always an isolated temporary directory, so no real session is ever scanned.
+
 ## What this does not accept
 
 Reading any provider file that is not a session transcript; reading a session
