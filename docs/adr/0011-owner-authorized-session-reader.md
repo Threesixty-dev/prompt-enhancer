@@ -119,3 +119,12 @@ for removing or relaxing CHECK constraints); no row is rewritten, and the
 twenty child tables keep their foreign keys. Nothing about consent, redaction,
 or the reader changes.
 
+## Addendum (2026-08-19): provider-neutral label provenance
+
+Migration 52 extends the display-label provenance tables so Claude Code labels
+are recorded with their origin (`transcript_head` with `provider_first_prompt`
+titles and `provider_path_basename` projects, or `hook_event` for hook-carried
+labels) exactly like Codex labels, instead of landing in the plain
+`display_name` columns. Manual overrides keep precedence; nothing about what
+is read or shown changes.
+

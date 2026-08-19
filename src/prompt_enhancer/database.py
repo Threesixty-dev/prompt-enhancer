@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 
 from .application.persistence import PersistenceConflictError
 from .application.display_labels import (
+    HOOK_ADAPTER_VERSION_PREFIX,
+    INDEXED_LABEL_PROVENANCE,
     DisplayLabelConflictError,
     DisplayLabelNotFoundError,
     LabelEntityKind,
@@ -117,10 +119,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_49,
     MIGRATION_50,
     MIGRATION_51,
+    MIGRATION_52,
 )
 
 
-SCHEMA_VERSION = 51
+SCHEMA_VERSION = 52
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1651,6 +1654,7 @@ class Database:
                 (49, MIGRATION_49),
                 (50, MIGRATION_50),
                 (51, MIGRATION_51),
+                (52, MIGRATION_52),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -2255,7 +2259,7 @@ class Database:
             int(session.events_complete),
             (
                 session.session_display_name
-                if session.provider is not Provider.CODEX
+                if session.provider not in INDEXED_LABEL_PROVENANCE
                 else None
             ),
         )
@@ -2292,7 +2296,7 @@ class Database:
                     session.provider.value,
                     (
                         session.project_display_name
-                        if session.provider is not Provider.CODEX
+                        if session.provider not in INDEXED_LABEL_PROVENANCE
                         else None
                     ),
                     now,
@@ -2304,7 +2308,7 @@ class Database:
         ):
             raise DatabaseInvariantError("project pseudonym provenance conflict")
         elif (
-            session.provider is not Provider.CODEX
+            session.provider not in INDEXED_LABEL_PROVENANCE
             and session.project_display_name is not None
             and project["display_name"] != session.project_display_name
         ):
@@ -2401,8 +2405,14 @@ class Database:
     ) -> bool:
         """Record provider labels with provenance outside identity columns."""
 
-        if session.provider is not Provider.CODEX:
+        provenance = INDEXED_LABEL_PROVENANCE.get(session.provider)
+        if provenance is None:
             return False
+        observation_method = provenance["observation_method"]
+        session_source = provenance["session_source"]
+        if session.provider is Provider.CLAUDE_CODE and session.adapter_version.startswith(HOOK_ADAPTER_VERSION_PREFIX):
+            observation_method = LabelObservationMethod.HOOK_EVENT.value
+            session_source = ProviderLabelSource.EXPLICIT_TITLE.value
         changed = False
         candidates = (
             (
@@ -2410,14 +2420,14 @@ class Database:
                 "project_id",
                 session.project_id,
                 session.project_display_name,
-                ProviderLabelSource.PATH_BASENAME.value,
+                provenance["project_source"],
             ),
             (
                 "session_display_labels",
                 "session_id",
                 session.session_id,
                 session.session_display_name,
-                ProviderLabelSource.EXPLICIT_TITLE.value,
+                session_source,
             ),
         )
         for table, identity_column, identity, value, source in candidates:
@@ -2435,8 +2445,8 @@ class Database:
             provider_values = (
                 value,
                 source,
-                LabelObservationMethod.THREAD_LIST_STATE_DB.value,
-                "codex-display-labels-v1",
+                observation_method,
+                provenance["extractor_version"],
                 session.provider_version,
                 session.adapter_version,
                 session.source_schema_version,

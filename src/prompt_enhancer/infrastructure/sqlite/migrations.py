@@ -12735,3 +12735,31 @@ ON session_model_ensemble_runs(provider, completed_at DESC, run_id DESC);
 COMMIT;
 """
 
+
+MIGRATION_52 = r"""
+BEGIN IMMEDIATE;
+
+-- Provider-neutral display-label provenance: Claude Code labels (project from
+-- the transcript cwd, title from the first prompt, or hook event fields) now
+-- land in the provenance tables like Codex labels instead of the plain
+-- display-name columns. Relax the closed value lists with the documented
+-- writable_schema procedure (strictly weaker constraints, rows untouched); a
+-- real DDL statement bumps the schema cookie.
+PRAGMA writable_schema=ON;
+UPDATE sqlite_master
+   SET sql = replace(
+               replace(sql,
+                       '''provider_path_basename'', ''provider_explicit_title''',
+                       '''provider_path_basename'', ''provider_explicit_title'', ''provider_first_prompt'''),
+               '''thread_list_state_db'', ''thread_read_summary'', ''legacy_v4_import''',
+               '''thread_list_state_db'', ''thread_read_summary'', ''legacy_v4_import'', ''transcript_head'', ''hook_event''')
+ WHERE type='table'
+   AND name IN ('project_display_labels','session_display_labels');
+PRAGMA writable_schema=RESET;
+
+CREATE INDEX session_display_labels_observed_idx
+ON session_display_labels(provider_observed_at);
+
+COMMIT;
+"""
+

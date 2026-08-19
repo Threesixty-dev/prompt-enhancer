@@ -347,11 +347,17 @@ def _pseudonym(value: str) -> str:
     return value
 
 
+#: A title taken from a prompt is cut at a word boundary well below the column
+#: bound so lists stay readable and as little of the prompt as possible is kept.
+SESSION_TITLE_SOFT_LIMIT = 96
+
+
 def session_title_from_prompt(prompt: object) -> str | None:
     """Bounded one-line private title from the first non-empty prompt line.
 
     Nothing beyond that first line is ever read into the result; the
-    minimizer additionally refuses absolute paths and control characters.
+    minimizer additionally refuses absolute paths and control characters, and
+    long lines are shortened at a word boundary with an ellipsis.
     """
 
     if not isinstance(prompt, str) or not prompt:
@@ -359,8 +365,18 @@ def session_title_from_prompt(prompt: object) -> str | None:
     for line in prompt.splitlines():
         candidate = line.strip()
         if candidate:
-            return minimize_private_display_name(
+            minimized = minimize_private_display_name(
                 candidate, max_length=SESSION_DISPLAY_NAME_MAX_LENGTH
+            )
+            if minimized is None or len(minimized) <= SESSION_TITLE_SOFT_LIMIT:
+                return minimized
+            head = minimized[: SESSION_TITLE_SOFT_LIMIT - 3]
+            cut = head.rfind(" ")
+            if cut >= SESSION_TITLE_SOFT_LIMIT // 2:
+                head = head[:cut]
+            # Re-minimize so the stored label is a fixed point of the minimizer.
+            return minimize_private_display_name(
+                head.rstrip(" ,;:-") + "...", max_length=SESSION_DISPLAY_NAME_MAX_LENGTH
             )
     return None
 

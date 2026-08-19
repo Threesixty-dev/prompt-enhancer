@@ -135,9 +135,25 @@ def test_adapter_lists_reads_and_ingests_history_with_titles_and_tokens(env) -> 
     connection = sqlite3.connect(settings.database_path)
     try:
         dump = "\n".join(repr(r) for t in [x[0] for x in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")] for r in connection.execute(f'SELECT * FROM "{t}"'))
+        # Migration 52: Claude labels carry provenance in the label tables (not the plain columns).
+        label_rows = connection.execute(
+            "SELECT provider_value, provider_source, observation_method, extractor_version FROM session_display_labels WHERE session_id=?",
+            (session_id,),
+        ).fetchall()
+        project_rows = connection.execute(
+            "SELECT provider_value, provider_source, observation_method FROM project_display_labels WHERE project_id=?",
+            (str(rows[0]["project_id"]),),
+        ).fetchall()
+        plain_columns = connection.execute(
+            "SELECT s.display_name, p.display_name FROM sessions s JOIN projects p ON p.project_id=s.project_id WHERE s.session_id=?",
+            (session_id,),
+        ).fetchone()
     finally:
         connection.close()
     assert CANARY not in dump and SESSION_A not in dump and CWD not in dump
+    assert label_rows == [("Add retries to the uploader", "provider_first_prompt", "transcript_head", "claude-code-display-labels-v1")]
+    assert project_rows == [("transcript-demo", "provider_path_basename", "transcript_head")]
+    assert plain_columns == (None, None)
 
 
 def test_transcript_supersedes_an_earlier_hook_ingest_without_sequence_conflict(env) -> None:

@@ -43,12 +43,38 @@ class LabelEntityKind(StrEnum):
 class ProviderLabelSource(StrEnum):
     PATH_BASENAME = "provider_path_basename"
     EXPLICIT_TITLE = "provider_explicit_title"
+    #: A title the app derived from the session's first prompt (Claude Code transcripts).
+    FIRST_PROMPT = "provider_first_prompt"
 
 
 class LabelObservationMethod(StrEnum):
     THREAD_LIST_STATE_DB = "thread_list_state_db"
     THREAD_READ_SUMMARY = "thread_read_summary"
     LEGACY_V4_IMPORT = "legacy_v4_import"
+    #: Read from the head of a Claude Code transcript file (cwd, first prompt).
+    TRANSCRIPT_HEAD = "transcript_head"
+    #: Carried by Claude Code hook event fields (cwd, explicit title).
+    HOOK_EVENT = "hook_event"
+
+
+#: Provenance each indexing provider stamps on the labels it observes. Providers
+#: absent here keep the plain display-name columns (the synthetic demo adapter).
+INDEXED_LABEL_PROVENANCE: dict[Provider, dict[str, str]] = {
+    Provider.CODEX: {
+        "extractor_version": "codex-display-labels-v1",
+        "observation_method": LabelObservationMethod.THREAD_LIST_STATE_DB.value,
+        "project_source": ProviderLabelSource.PATH_BASENAME.value,
+        "session_source": ProviderLabelSource.EXPLICIT_TITLE.value,
+    },
+    Provider.CLAUDE_CODE: {
+        "extractor_version": "claude-code-display-labels-v1",
+        "observation_method": LabelObservationMethod.TRANSCRIPT_HEAD.value,
+        "project_source": ProviderLabelSource.PATH_BASENAME.value,
+        "session_source": ProviderLabelSource.FIRST_PROMPT.value,
+    },
+}
+#: Claude Code's hook adapter carries labels in hook event fields rather than a transcript head.
+HOOK_ADAPTER_VERSION_PREFIX = "claude-code-hooks-adapter-"
 
 
 class ProviderDisplayLabelPolicy(StrictModel):

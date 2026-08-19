@@ -209,7 +209,7 @@ def test_v1_database_upgrades_in_order_without_changing_v1_checksum(tmp_path) ->
         task_table = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_revisions'"
         ).fetchone()
-    assert user_version == SCHEMA_VERSION == 51
+    assert user_version == SCHEMA_VERSION == 52
     assert [row[0] for row in versions] == list(range(1, SCHEMA_VERSION + 1))
     assert versions[0][1] == checksum
     assert task_table is not None

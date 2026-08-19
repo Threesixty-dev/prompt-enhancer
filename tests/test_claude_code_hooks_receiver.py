@@ -255,7 +255,7 @@ def test_session_title_is_first_prompt_line_only_bounded_and_switchable() -> Non
     assert "CANARY-SECOND-LINE" not in event.model_dump_json()
     long_event = minimize_payload(_payload("UserPromptSubmit", prompt="x" * 500), pseudonymizer=KEY, received_at=T0)
     assert long_event is not None and long_event.session_display_label is not None
-    assert len(long_event.session_display_label) == 160
+    assert len(long_event.session_display_label) <= 96 and long_event.session_display_label.endswith("...")
     path_event = minimize_payload(_payload("UserPromptSubmit", prompt="/home/example-user/secret.txt\nreal request"), pseudonymizer=KEY, received_at=T0)
     assert path_event is not None and path_event.session_display_label is None
     off = minimize_payload(_payload("UserPromptSubmit", prompt=CANARY_PROMPT), pseudonymizer=KEY, received_at=T0, titles=False)
@@ -464,3 +464,19 @@ def test_cli_consent_and_config_commands_write_nothing_private(tmp_path: Path, m
     for entry in config["hooks"].values():
         assert entry[0]["hooks"][0]["command"].endswith("-m prompt_enhancer claude-hook")
     assert "Notification" not in config["hooks"]
+
+
+def test_prompt_titles_are_shortened_at_a_word_boundary() -> None:
+    from prompt_enhancer.infrastructure.providers.claude_code_hooks.contracts import (
+        SESSION_TITLE_SOFT_LIMIT,
+        session_title_from_prompt,
+    )
+
+    assert session_title_from_prompt("Add retries to the uploader") == "Add retries to the uploader"
+    words = " ".join(f"word{i}" for i in range(40))
+    title = session_title_from_prompt(words + "\nsecond line never read")
+    assert title is not None and len(title) <= SESSION_TITLE_SOFT_LIMIT and title.endswith("...")
+    assert not title[:-3].endswith(" ") and "second" not in title
+    assert words.startswith(title[:-3])
+    unbroken = session_title_from_prompt("x" * 300)
+    assert unbroken is not None and len(unbroken) == SESSION_TITLE_SOFT_LIMIT and unbroken.endswith("...")

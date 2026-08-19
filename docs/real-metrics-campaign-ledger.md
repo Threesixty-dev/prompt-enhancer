@@ -1360,6 +1360,17 @@ token or model reply crosses the boundary; the server refuses to start without
 the context-egress acknowledgement, and `mcp-config` prints (never writes) the
 Claude Code and Codex snippets.
 
+Migration 52 makes display-label provenance provider-neutral: the closed value
+lists on `project_display_labels` / `session_display_labels` gain
+`provider_first_prompt`, `transcript_head` and `hook_event` (same
+writable_schema relaxation as migration 51), and indexing stamps every Codex
+and Claude Code label into the provenance tables - Claude project labels from
+the transcript cwd basename, session titles from the first prompt
+(`transcript_head`, extractor `claude-code-display-labels-v1`), hook-carried
+labels as `hook_event` - instead of the plain display-name columns, which only
+the synthetic demo adapter still writes. Reads are unchanged (COALESCE over
+manual, provider, column), so existing rows keep their names.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and
