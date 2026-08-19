@@ -1007,6 +1007,20 @@ class LocalApplication:
             rows = self.database.list_sessions(limit=200, offset=0, provider=provider)
             model_judge_service.start_sweep(tuple(str(row["session_id"]) for row in rows))
 
+        def every_session_id() -> tuple[str, ...]:
+            # Newest first, bounded: the sweep itself skips sessions the active model judged before.
+            ids: list[str] = []
+            offset = 0
+            while len(ids) < 5000:
+                rows = self.database.list_sessions(limit=500, offset=offset)
+                if not rows:
+                    break
+                ids.extend(str(row["session_id"]) for row in rows)
+                offset += len(rows)
+                if len(rows) < 500:
+                    break
+            return tuple(ids)
+
         onboarding_service = self.create_onboarding_service(
             codex_source_service, claude_source_service, enable_automation=enable_automation, after_index=judge_new_sessions
         )
@@ -1052,6 +1066,7 @@ class LocalApplication:
             local_model_service=local_model_service,
             model_judge_service=model_judge_service,
             calibration_sample_session_ids=lambda: tuple(m.session_id for m in calibration_rating_service.sample().members),
+            all_session_ids=every_session_id,
             objective_overrides_provider=self.create_objective_overrides_provider(),
             onboarding_service=onboarding_service,
             local_source_refresh_worker=local_source_refresh_worker,

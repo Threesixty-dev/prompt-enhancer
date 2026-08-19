@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ...application.analysis.model_judge import (
     JudgeAgreementReport,
@@ -25,6 +25,7 @@ def create_model_judge_router(
     require_local_auth: Callable[..., None],
     service: ModelJudgeService,
     sample_session_ids: Callable[[], tuple[str, ...]],
+    all_session_ids: Callable[[], tuple[str, ...]] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1/model-judge", tags=["model-judge"], dependencies=[Depends(require_local_auth)])
 
@@ -36,9 +37,12 @@ def create_model_judge_router(
             raise HTTPException(status_code=_STATUS.get(error.code, 500), detail={"code": error.code}) from None
 
     @router.post("/sweep", response_model=JudgeSweepStatus)
-    def sweep() -> JudgeSweepStatus:
+    def sweep(scope: Annotated[Literal["sample", "all"], Query()] = "sample") -> JudgeSweepStatus:
+        """Judge the calibration sample (default) or every indexed session with the active model."""
+
         try:
-            return service.start_sweep(sample_session_ids())
+            ids = all_session_ids() if scope == "all" and all_session_ids is not None else sample_session_ids()
+            return service.start_sweep(ids)
         except ModelJudgeError as error:
             raise HTTPException(status_code=_STATUS.get(error.code, 500), detail={"code": error.code}) from None
 

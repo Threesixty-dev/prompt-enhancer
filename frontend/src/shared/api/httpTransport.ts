@@ -2359,8 +2359,8 @@ export function createHttpTransport(options: {
     judgeSessionWithModel(sessionId, signal) {
       return request<JudgeOutcome>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}`, { method: "POST" }, signal);
     },
-    startModelJudgeSweep(signal) {
-      return request<JudgeSweepStatus>("/v1/model-judge/sweep", { method: "POST" }, signal);
+    startModelJudgeSweep(signal, scope = "sample") {
+      return request<JudgeSweepStatus>(`/v1/model-judge/sweep?scope=${scope}`, { method: "POST" }, signal);
     },
     getModelJudgeSweep(signal) {
       return request<JudgeSweepStatus>("/v1/model-judge/sweep", { method: "GET" }, signal);

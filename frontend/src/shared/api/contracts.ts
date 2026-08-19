@@ -575,7 +575,7 @@ export interface PromptEnhancerTransport {
   ): Promise<LocalModelChatResult>;
   /** Model-judge lane: the active local model answers the calibration questions (judgments, not metrics). */
   judgeSessionWithModel(sessionId: string, signal?: AbortSignal): Promise<JudgeOutcome>;
-  startModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;
+  startModelJudgeSweep(signal?: AbortSignal, scope?: "sample" | "all"): Promise<JudgeSweepStatus>;
   getModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;
   getModelJudgeAgreement(signal?: AbortSignal): Promise<JudgeAgreementReport>;
   getOnboardingStatus(signal?: AbortSignal): Promise<OnboardingStatus>;

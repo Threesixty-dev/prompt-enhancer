@@ -20996,8 +20996,23 @@
         ]
       },
       "post": {
+        "description": "Judge the calibration sample (default) or every indexed session with the active model.",
         "operationId": "sweep_v1_model_judge_sweep_post",
         "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "sample",
+              "enum": [
+                "sample",
+                "all"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          },
           {
             "in": "header",
             "name": "X-Prompt-Enhancer-Token",

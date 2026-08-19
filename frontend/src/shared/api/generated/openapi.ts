@@ -911,7 +911,10 @@ export interface paths {
         /** Sweep Status */
         get: operations["sweep_status_v1_model_judge_sweep_get"];
         put?: never;
-        /** Sweep */
+        /**
+         * Sweep
+         * @description Judge the calibration sample (default) or every indexed session with the active model.
+         */
         post: operations["sweep_v1_model_judge_sweep_post"];
         delete?: never;
         options?: never;
@@ -10303,7 +10306,9 @@ export interface operations {
     };
     sweep_v1_model_judge_sweep_post: {
         parameters: {
-            query?: never;
+            query?: {
+                scope?: "sample" | "all";
+            };
             header?: {
                 "X-Prompt-Enhancer-Token"?: string | null;
                 "X-Prompt-Enhancer-CSRF"?: string | null;

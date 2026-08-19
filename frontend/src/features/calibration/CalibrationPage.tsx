@@ -154,13 +154,13 @@ export function CalibrationPage({
     }
   }
 
-  async function judgeSample() {
+  async function judgeSample(scope: "sample" | "all" = "sample") {
     if (!transport.startModelJudgeSweep) return;
     setJudgeMessage("");
     try {
-      const status = await transport.startModelJudgeSweep();
+      const status = await transport.startModelJudgeSweep(undefined, scope);
       setSweep(status);
-      setJudgeMessage(status.total === 0 ? "Every sampled session is already judged by this model." : `Judging ${status.total} sessions in the background.`);
+      setJudgeMessage(status.total === 0 ? (scope === "all" ? "Every indexed session is already judged by this model." : "Every sampled session is already judged by this model.") : `Judging ${status.total} sessions in the background.`);
     } catch (caught) {
       setJudgeMessage(caught instanceof TransportError && caught.message.includes("no_active_model") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
     }
@@ -375,6 +375,7 @@ export function CalibrationPage({
             <div className="calibration__actions">
               <button className="button button--ghost" disabled={!current || !agreement.model_alias} onClick={() => void judgeCurrent()} type="button">Judge this session</button>
               <button className="button button--ghost" disabled={!agreement.model_alias || Boolean(sweep?.running)} onClick={() => void judgeSample()} type="button">Judge the whole sample</button>
+              <button className="button button--ghost" disabled={!agreement.model_alias || Boolean(sweep?.running)} onClick={() => void judgeSample("all")} type="button">Judge every session</button>
             </div>
           </div>
           <table className="calibration__agreement">
