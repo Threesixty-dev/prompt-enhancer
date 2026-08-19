@@ -111,10 +111,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_43,
     MIGRATION_44,
     MIGRATION_45,
+    MIGRATION_46,
 )
 
 
-SCHEMA_VERSION = 45
+SCHEMA_VERSION = 46
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1639,6 +1640,7 @@ class Database:
                 (43, MIGRATION_43),
                 (44, MIGRATION_44),
                 (45, MIGRATION_45),
+                (46, MIGRATION_46),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1775,6 +1777,18 @@ class Database:
         return SqliteTaskLifecycleRepository(
             self._connection,
             self._ensure_initialized,
+        )
+
+    def claude_telemetry_ingest(self, pseudonymizer):
+        """Return the write side used by the loopback OTLP receiver."""
+
+        from .infrastructure.providers.claude_code_hooks.telemetry import (
+            TelemetryIngestService,
+        )
+
+        self._ensure_initialized()
+        return TelemetryIngestService(
+            self._connection, self._ensure_initialized, pseudonymizer
         )
 
     def claude_hook_ledger(self):

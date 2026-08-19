@@ -92,6 +92,14 @@ python -m prompt_enhancer claude-hooks-config
 
 From then on each Claude Code lifecycle event invokes `python -m prompt_enhancer claude-hook`, which records only content-free metadata (pseudonymous session and project identity, event kind, tool category, timing) and is silent and harmless when consent is off or the store is absent. Sessions that started before the hook was installed are not read. Index captured sessions from the dashboard's Data source page or the `/v1/local-sources/claude-code/index` route.
 
+For tokens, cost, and model per request, also point Claude Code's documented telemetry at the app's loopback receiver. Print the environment variables and set them where you launch Claude Code (the local server must be running to receive exports):
+
+```powershell
+python -m prompt_enhancer claude-otel-config
+```
+
+Only `api_request` usage and the documented session counters are recorded; account, organization, user, prompt, tool-parameter, and error fields are never read, and a missing export batch is a gap, never a zero.
+
 The dashboard's development profile is synthetic and does not require the local API token:
 
 ```powershell
@@ -203,7 +211,7 @@ Objective evidence such as tests, builds, CI, artifacts, and explicit user accep
 ## Proposed integration model
 
 - Codex: the implemented App Server adapter separates a state-only content-discarding index, selector-gated summary label enrichment, and selector-gated operational history. Summary mode uses `thread/read` with turns omitted, is capped at 25 current-snapshot IDs, and persists only missing minimized labels with provenance. All modes require `local-history` consent. Opt-in OpenTelemetry remains a future live source.
-- Claude Code: implemented through the documented hooks interface only ([ADR 0010](docs/adr/0010-claude-code-hook-capture-boundary.md)). `prompt-enhancer claude-hook` is the receiver Claude Code invokes; it minimizes each payload in-process, keeps no prompt, tool input or output, transcript path, or working directory, and appends only under an active `claude_code` consent grant. Capture is prospective - sessions before the hook was installed are not read - and no transcript, JSONL, or settings file is ever opened. Opt-in OpenTelemetry for token counters is compatible follow-up work. Direct JSONL parsing remains a rejected fallback.
+- Claude Code: implemented through the documented hooks interface only ([ADR 0010](docs/adr/0010-claude-code-hook-capture-boundary.md)). `prompt-enhancer claude-hook` is the receiver Claude Code invokes; it minimizes each payload in-process, keeps no prompt, tool input or output, transcript path, or working directory, and appends only under an active `claude_code` consent grant. Capture is prospective - sessions before the hook was installed are not read - and no transcript, JSONL, or settings file is ever opened. Opt-in OpenTelemetry supplies per-request tokens, cost, model, and provider version through a loopback OTLP receiver that reads eleven allowlisted attributes and drops account, organization, user, prompt, and error fields. Direct JSONL parsing remains a rejected fallback.
   Claude display labels arrive with the hook as a bounded basename; persisting them through the migration-5 label tables still requires a provider-neutral migration.
 - Storage: SQLite as the initial source of truth, with a separate optional encrypted content vault. DuckDB/Parquet can be added later for larger analytical workloads.
 - Analysis: deterministic metrics first, then small local Hugging Face models that pass an in-domain benchmark. The local Model Lab screens seven revision-pinned candidates in isolated one-at-a-time subprocesses with CUDA, Apple MPS, or CPU fallback. Current neural candidates remain evaluation-only; none is activated in product metrics. Remote LLM analysis is optional, redacted, previewed, and explicitly approved.

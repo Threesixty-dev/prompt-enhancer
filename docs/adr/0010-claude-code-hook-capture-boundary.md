@@ -4,7 +4,9 @@
 - Date: 2026-08-18
 - Contract version: `claude-code-hooks.v1`
 - Receiver version: `claude-code-hook-receiver-1`; adapter version: `claude-code-hooks-adapter-1`
-- Storage schema: migration 45 (`claude_code_hook_sessions`, `claude_code_hook_events`)
+- Storage schema: migration 45 (`claude_code_hook_sessions`, `claude_code_hook_events`);
+  migration 46 (`claude_code_telemetry_sessions`, `claude_code_telemetry_requests`)
+- Telemetry contract: `claude-code-otlp.v1`; decoder version 2 adds `TOKEN_USAGE`
 - Extends: ADR 0002's documented-interface rule to a second provider
 
 ## Decision
@@ -26,7 +28,7 @@ captured, and no backfill is offered.
 | Surface | Verdict | Reason |
 |---|---|---|
 | Hooks | accepted | Documented interface; content-free by construction because the receiver decides what it keeps; each hook fires synchronously at its event, so the receiver's clock orders and times every record - the authoritative per-item timing that the Codex app-server surface lacks |
-| OpenTelemetry export | deferred, compatible | Documented opt-in aggregate counters (tokens, cost, activity) with no transcript; a loopback OTLP receiver is additive later work and is what would make `TOKEN_USAGE` a capability |
+| OpenTelemetry export | accepted (2026-08-19) | Documented opt-in export of per-request usage and aggregate counters; a loopback OTLP/HTTP JSON receiver with an eleven-key attribute allowlist makes `TOKEN_USAGE` a capability - see the section below |
 | Agent SDK session readers | not accepted for now | Reads real session content and would need the full consent, redaction, and preview path before any use |
 | Raw JSONL parsing | rejected | Touches exactly the private directory both `AGENTS.md` and `CLAUDE.md` single out; version-gated fallback only if ever authorized |
 
@@ -87,20 +89,22 @@ downstream row carries. The descriptor declares `EVENT_TIMING`.
 ## Capabilities the decoder declares, and does not
 
 Declared: `SESSION_LIST`, `SESSION_LABELS`, `OPERATIONAL_EVENTS`,
-`TOOL_EVENTS`, `EVENT_TIMING`.
+`TOOL_EVENTS`, `EVENT_TIMING`, and - since decoder version 2 - `TOKEN_USAGE`
+through the OpenTelemetry receiver described below.
 
 Not declared: any `*_opportunities` or `*_links` member, `USER_MESSAGES`,
 `AGENT_MESSAGES`, `PLAN_MESSAGES`, `DECISION_EVENTS`, `VERIFICATION_EVENTS`,
-`TOKEN_USAGE`, `LIVE_UPDATES`. Hooks enumerate no requirements, hypotheses,
+`LIVE_UPDATES`. Hooks enumerate no requirements, hypotheses,
 or verification tasks, and a tool end categorised as test or build is not a
 verification receipt. The five evidence-lane metrics therefore remain
 `unknown` for Claude Code, exactly as for Codex, until a reviewed descriptor
 or the agent-evidence boundary supplies a denominator.
 
 The compatibility report is `degraded` with `unknown` extraction completeness
-and reason `provider_version_unknown`: the decoder fully understands every
-payload it admits, but it cannot attest to the Claude Code version (payloads
-carry none) nor prove that the user's hook configuration delivered every event.
+and reason `provider_version_unknown` (or `provider_version_untested` once
+telemetry has reported an `app.version`): the decoder fully understands every
+payload it admits, but hook payloads carry no version and nothing can prove
+that the user's hook configuration delivered every event.
 The public compatibility DTO reports `capability = operational_events` for this
 surface; `session_text_analysis` is reserved for text-window decoders.
 
@@ -120,10 +124,49 @@ gains `/v1/local-sources/claude-code` (status, consent, index) and
 compatibility catalog registers both providers' descriptors; the route prefers
 a text-window surface where one exists so the Codex contract is unchanged.
 
+## OpenTelemetry token capture (added 2026-08-19)
+
+The same boundary admits Claude Code's documented OpenTelemetry export through
+a loopback OTLP/HTTP **JSON** receiver mounted at `/otlp/v1/logs` and
+`/otlp/v1/metrics` on the existing local server - outside the
+token-authenticated `/v1` tree, because the provider's exporter is the caller.
+It requires a separate write-only ingest token (`otlp-ingest.token`), accepts
+only `application/json`, bounds the body at 4 MiB and 10 000 records, and
+never echoes payload content.
+
+The receiver reads exactly eleven attribute keys (`event.name`, `session.id`,
+`app.version`, `model`, `cost_usd`, `duration_ms`, `input_tokens`,
+`output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `type`) and
+only `api_request` / `api_error` log records plus the six documented cumulative
+counters. `user.email`, `user.id`, `user.account_uuid`, `organization.id`,
+`terminal.type`, prompt text, `tool_parameters`, error text, and every other
+event kind are never read; the only record types it can produce have no field
+able to hold them, and migration 46 repeats the bounds as `CHECK` constraints.
+`session.id` is HMACed under the hook receiver's namespace, so usage joins the
+hook session without either side learning the raw value; a telemetry-only
+session (OTEL on, hooks off) is listed with no events and no label.
+
+Per-request usage becomes `USAGE` events with `DELTA` / `REQUEST` counters at
+the provider's own event timestamp, in a separate sequence space so hook
+sequences stay stable. When only counters were exported, one `CUMULATIVE` /
+`THREAD` usage event stands in. `app.version` supplies the provider version the
+hook payload lacks; the compatibility report then says
+`provider_version_untested` rather than `provider_version_unknown`, and stays
+`degraded` because coverage remains unprovable. Cost is stored as the
+provider's own estimate in micro-USD and never recomputed.
+
+A consent-inactive or store-unavailable export is answered with HTTP 200 and an
+OTLP `partialSuccess` naming the rejected count, so the exporter neither
+retries nor surfaces an error to the person using Claude Code, and nothing is
+written. Capture requires the local server to be running; a missing batch is a
+gap, never a zero. `claude-otel-config` prints the environment variables the
+user sets where they launch Claude Code; the application writes no
+configuration and keeps `OTEL_LOG_USER_PROMPTS` at 0.
+
 ## Not accepted by this ADR
 
-Reading `~/.claude` in any form; token or cost capture; a live-update
-watcher; any inference of task start, finish, or outcome from hook events;
+Reading `~/.claude` in any form; any telemetry protocol other than OTLP/HTTP
+JSON on loopback; a live-update watcher; any inference of task start, finish, or outcome from hook events;
 any use of `tool_name` beyond categorization; provider-neutral persistence of
 Claude display labels through the migration-5 label tables (a separate
 migration is required); and any dashboard claim that a Claude session is

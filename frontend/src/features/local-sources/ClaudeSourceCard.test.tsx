@@ -11,6 +11,8 @@ function status(overrides: Partial<ClaudeCodeLocalSourceStatus> = {}): ClaudeCod
     consent_active: false,
     captured_sessions: 0,
     captured_events: 0,
+    captured_requests: 0,
+    telemetry_sessions: 0,
     indexed_sessions: 0,
     indexed_projects: 0,
     verification_capability: {
@@ -23,6 +25,7 @@ function status(overrides: Partial<ClaudeCodeLocalSourceStatus> = {}): ClaudeCod
       normalizer_version: "synthetic-normalizer-1",
     },
     capture_channel: "claude_code_hooks",
+    telemetry_channel: "claude_code_otlp",
     reads_transcripts: false,
     persists_content: false,
     ...overrides,

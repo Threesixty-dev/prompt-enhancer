@@ -12533,3 +12533,81 @@ WHEN EXISTS(SELECT 1 FROM claude_code_hook_sessions WHERE hook_session_id=OLD.ho
 BEGIN SELECT RAISE(ABORT,'claude code hook events require parent privacy deletion'); END;
 COMMIT;
 """
+
+MIGRATION_46 = r"""
+BEGIN IMMEDIATE;
+
+-- Claude Code OpenTelemetry capture.  A loopback OTLP receiver minimizes the
+-- provider's documented telemetry in-process and appends only what these
+-- CHECK constraints admit: the same installation-local session pseudonym the
+-- hook ledger uses, safe model and version identifiers, token counts, the
+-- provider's own cost estimate, and provider-reported UTC times.  No prompt,
+-- tool parameter, error text, account, organization, or user identifier can
+-- be represented here.
+CREATE TABLE claude_code_telemetry_sessions (
+    hook_session_id TEXT PRIMARY KEY
+      CHECK(length(hook_session_id)=64 AND hook_session_id NOT GLOB '*[^0-9a-f]*'),
+    hook_project_id TEXT NOT NULL
+      CHECK(length(hook_project_id)=64 AND hook_project_id NOT GLOB '*[^0-9a-f]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='claude-code-otlp.v1'),
+    provider_version TEXT
+      CHECK(provider_version IS NULL
+            OR (length(provider_version) BETWEEN 1 AND 128
+                AND provider_version GLOB '[A-Za-z0-9]*'
+                AND provider_version NOT GLOB '*[^A-Za-z0-9._+:/-]*')),
+    first_received_at TEXT NOT NULL,
+    last_received_at TEXT NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0 CHECK(request_count >= 0),
+    -- Cumulative counters as last reported by the provider's periodic export.
+    -- NULL means never reported; it is never treated as zero.
+    input_tokens_total INTEGER CHECK(input_tokens_total IS NULL OR input_tokens_total >= 0),
+    output_tokens_total INTEGER CHECK(output_tokens_total IS NULL OR output_tokens_total >= 0),
+    cache_read_tokens_total INTEGER CHECK(cache_read_tokens_total IS NULL OR cache_read_tokens_total >= 0),
+    cache_creation_tokens_total INTEGER CHECK(cache_creation_tokens_total IS NULL OR cache_creation_tokens_total >= 0),
+    cost_micro_usd_total INTEGER CHECK(cost_micro_usd_total IS NULL OR cost_micro_usd_total >= 0),
+    lines_added_total INTEGER CHECK(lines_added_total IS NULL OR lines_added_total >= 0),
+    lines_removed_total INTEGER CHECK(lines_removed_total IS NULL OR lines_removed_total >= 0),
+    commit_count_total INTEGER CHECK(commit_count_total IS NULL OR commit_count_total >= 0),
+    pull_request_count_total INTEGER CHECK(pull_request_count_total IS NULL OR pull_request_count_total >= 0),
+    active_user_ms_total INTEGER CHECK(active_user_ms_total IS NULL OR active_user_ms_total >= 0),
+    active_cli_ms_total INTEGER CHECK(active_cli_ms_total IS NULL OR active_cli_ms_total >= 0),
+    counters_reported_at TEXT,
+    CHECK(last_received_at >= first_received_at)
+);
+CREATE INDEX claude_code_telemetry_sessions_first_idx
+    ON claude_code_telemetry_sessions(first_received_at, hook_session_id);
+
+CREATE TABLE claude_code_telemetry_requests (
+    request_id TEXT PRIMARY KEY
+      CHECK(length(request_id)=64 AND request_id NOT GLOB '*[^0-9a-f]*'),
+    hook_session_id TEXT NOT NULL
+      REFERENCES claude_code_telemetry_sessions(hook_session_id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK(sequence >= 0),
+    received_at TEXT NOT NULL,
+    reported_at TEXT NOT NULL,
+    model_id TEXT
+      CHECK(model_id IS NULL
+            OR (length(model_id) BETWEEN 1 AND 128
+                AND model_id GLOB '[A-Za-z0-9]*'
+                AND model_id NOT GLOB '*[^A-Za-z0-9._+:/-]*')),
+    input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens >= 0),
+    output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens >= 0),
+    cache_read_tokens INTEGER CHECK(cache_read_tokens IS NULL OR cache_read_tokens >= 0),
+    cache_creation_tokens INTEGER CHECK(cache_creation_tokens IS NULL OR cache_creation_tokens >= 0),
+    duration_ms INTEGER CHECK(duration_ms IS NULL OR duration_ms >= 0),
+    cost_micro_usd INTEGER CHECK(cost_micro_usd IS NULL OR cost_micro_usd >= 0),
+    outcome TEXT NOT NULL CHECK(outcome IN ('completed','error')),
+    UNIQUE(hook_session_id, sequence)
+);
+CREATE INDEX claude_code_telemetry_requests_session_idx
+    ON claude_code_telemetry_requests(hook_session_id, sequence);
+
+CREATE TRIGGER claude_code_telemetry_requests_no_update
+BEFORE UPDATE ON claude_code_telemetry_requests
+BEGIN SELECT RAISE(ABORT,'claude code telemetry requests are immutable'); END;
+CREATE TRIGGER claude_code_telemetry_requests_privacy_delete_only
+BEFORE DELETE ON claude_code_telemetry_requests
+WHEN EXISTS(SELECT 1 FROM claude_code_telemetry_sessions WHERE hook_session_id=OLD.hook_session_id)
+BEGIN SELECT RAISE(ABORT,'claude code telemetry requests require parent privacy deletion'); END;
+COMMIT;
+"""

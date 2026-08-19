@@ -125,9 +125,9 @@ def test_populated_v42_upgrades_to_v43_without_backfill_or_m42_drift(tmp_path) -
         rows = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 45
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 45
-        assert tuple(row[0] for row in rows) == tuple(range(1, 46))
+        assert SCHEMA_VERSION == 46
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 46
+        assert tuple(row[0] for row in rows) == tuple(range(1, 47))
         assert rows[41][1] == frozen_checksum
         assert rows[42][1] == hashlib.sha256(
             migrations.MIGRATION_43.encode("utf-8")
@@ -191,6 +191,6 @@ def test_failed_v43_rolls_back_schema_ledger_and_user_version_together(tmp_path)
 def test_database_registry_places_frozen_m42_before_lifecycle_m43() -> None:
     assert database_module.MIGRATION_42 is migrations.MIGRATION_42
     assert database_module.MIGRATION_43 is migrations.MIGRATION_43
-    assert SCHEMA_VERSION == 45
+    assert SCHEMA_VERSION == 46
     assert "task_lifecycle_events" not in migrations.MIGRATION_42
     assert "task_lifecycle_events" in migrations.MIGRATION_43

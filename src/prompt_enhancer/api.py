@@ -119,6 +119,7 @@ from .interfaces.http.local_source_routes import create_local_source_router
 from .interfaces.http.claude_local_source_routes import (
     create_claude_local_source_router,
 )
+from .interfaces.http.otlp_ingest_routes import create_otlp_ingest_router
 from .interfaces.http.display_label_routes import create_display_label_router
 from .interfaces.http.dto import (
     CapabilitiesDto,
@@ -330,6 +331,8 @@ def create_app(
     metric_coverage_service: MetricCoverageService | None = None,
     codex_source_service: CodexLocalSourceService | None = None,
     claude_source_service: ClaudeCodeLocalSourceService | None = None,
+    otlp_ingest_token: str | None = None,
+    telemetry_ingest_service=None,
     display_label_service: ManualDisplayLabelService | None = None,
     model_evaluation_service: LocalTextModelEvaluationService | None = None,
     analysis_job_service: AnalysisJobService | None = None,
@@ -839,6 +842,10 @@ def create_app(
             create_claude_local_source_router(
                 require_local_token, claude_source_service
             )
+        )
+    if otlp_ingest_token is not None and telemetry_ingest_service is not None:
+        app.include_router(
+            create_otlp_ingest_router(otlp_ingest_token, telemetry_ingest_service)
         )
 
     if display_label_service is not None:

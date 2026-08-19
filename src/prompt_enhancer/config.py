@@ -136,6 +136,12 @@ class AppSettings(BaseModel):
     def api_token_path(self) -> Path:
         return self.home / "api.token"
 
+    @property
+    def otlp_ingest_token_path(self) -> Path:
+        """Separate write-only token the Claude Code telemetry exporter presents."""
+
+        return self.home / "otlp-ingest.token"
+
     @classmethod
     def from_env(cls, environment: Mapping[str, str] | None = None) -> AppSettings:
         env = os.environ if environment is None else environment

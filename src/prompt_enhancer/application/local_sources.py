@@ -202,10 +202,13 @@ class ClaudeCodeLocalSourceStatus(StrictModel):
     consent_active: bool
     captured_sessions: int
     captured_events: int
+    captured_requests: int = 0
+    telemetry_sessions: int = 0
     indexed_sessions: int
     indexed_projects: int
     verification_capability: VerificationCapability
     capture_channel: str = "claude_code_hooks"
+    telemetry_channel: str = "claude_code_otlp"
     reads_transcripts: bool = False
     persists_content: bool = False
 
@@ -252,6 +255,8 @@ class ClaudeCodeLocalSourceService:
             ),
             captured_sessions=int(captured.get("sessions", 0)),
             captured_events=int(captured.get("events", 0)),
+            captured_requests=int(captured.get("requests", 0)),
+            telemetry_sessions=int(captured.get("telemetry_sessions", 0)),
             indexed_sessions=counts["sessions"],
             indexed_projects=counts["projects"],
             verification_capability=self._verification_capability,

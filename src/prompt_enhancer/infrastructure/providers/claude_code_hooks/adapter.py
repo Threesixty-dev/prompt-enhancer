@@ -39,6 +39,7 @@ from ....application.providers import (
 )
 from ....domain import (
     DataTier,
+    EventKind,
     EventTimeBasis,
     Provider,
     SessionState,
@@ -46,6 +47,9 @@ from ....domain import (
     SourceSession,
     SourceSessionPage,
     SourceSessionSnapshot,
+    UsageCounterKind,
+    UsageRecord,
+    UsageScope,
 )
 from .contracts import (
     ADAPTER_VERSION,
@@ -55,6 +59,12 @@ from .contracts import (
     SessionEndReason,
 )
 from .ledger import LedgerEvent, LedgerSession, SqliteClaudeHookLedger
+from .telemetry import (
+    USAGE_SEQUENCE_OFFSET,
+    TelemetryCounters,
+    TelemetryRequestView,
+    TelemetrySessionView,
+)
 
 
 MAX_HOOK_PAGE_SIZE = 500
@@ -72,6 +82,9 @@ CLAUDE_CODE_HOOK_CAPABILITIES: tuple[CapabilityKey, ...] = (
     CapabilityKey.OPERATIONAL_EVENTS,
     CapabilityKey.TOOL_EVENTS,
     CapabilityKey.EVENT_TIMING,
+    # Supplied by the loopback OTLP receiver when the user enables Claude
+    # Code telemetry; without it every usage field stays None, never zero.
+    CapabilityKey.TOKEN_USAGE,
 )
 
 CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR = DecoderDescriptor(
@@ -79,7 +92,7 @@ CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR = DecoderDescriptor(
     surface=ProviderSurface.OPERATIONAL_EVENTS,
     adapter_version=ADAPTER_VERSION,
     decoder_key="claude-code.hooks.operational-events",
-    decoder_version="1",
+    decoder_version="2",
     wire_schema_family="claude-code.hooks.v1",
     canonical_schema_version=SOURCE_SCHEMA_VERSION,
     schema_artifact=SchemaArtifactProvenance(
@@ -122,17 +135,30 @@ def _terminal_state(session: LedgerSession) -> SessionState:
     return SessionState.UNKNOWN
 
 
-def _source_session(session: LedgerSession) -> SourceSession:
+def _source_session(
+    session: LedgerSession, telemetry: TelemetrySessionView | None = None
+) -> SourceSession:
+    provider_version = (
+        telemetry.provider_version
+        if telemetry is not None and telemetry.provider_version is not None
+        else UNKNOWN_PROVIDER_VERSION
+    )
+    activity = session.last_received_at
+    if telemetry is not None and telemetry.last_received_at > activity:
+        activity = telemetry.last_received_at
+    started = session.first_received_at
+    if telemetry is not None and telemetry.first_received_at < started:
+        started = telemetry.first_received_at
     return SourceSession(
         provider=Provider.CLAUDE_CODE,
         source_installation_id=SecretStr(HOOK_INSTALLATION_MARKER),
         source_project_id=SecretStr(session.hook_project_id),
         source_session_id=SecretStr(session.hook_session_id),
-        provider_version=UNKNOWN_PROVIDER_VERSION,
+        provider_version=provider_version,
         adapter_version=ADAPTER_VERSION,
         source_schema_version=SOURCE_SCHEMA_VERSION,
-        started_at=session.first_received_at,
-        source_activity_at=session.last_received_at,
+        started_at=started,
+        source_activity_at=activity,
         ended_at=session.ended_at,
         terminal_state=_terminal_state(session),
         # A hook configuration cannot prove it covered every event, and the
@@ -161,6 +187,55 @@ def _source_event(event: LedgerEvent) -> SourceEvent:
         success=event.success,
         tool_category=event.tool_category,
         usage=None,
+    )
+
+
+def _usage_event(request: TelemetryRequestView) -> SourceEvent:
+    """One provider ``api_request`` as a delta usage record at request scope."""
+
+    return SourceEvent(
+        source_event_id=SecretStr(request.request_id),
+        kind=EventKind.USAGE,
+        # Usage records live in their own sequence space so hook sequences stay
+        # stable as telemetry arrives; consumers that need time order use
+        # occurred_at, which here is the provider's own event timestamp.
+        sequence=USAGE_SEQUENCE_OFFSET + request.sequence,
+        occurred_at=request.reported_at,
+        time_basis=EventTimeBasis.PROVIDER_REPORTED,
+        duration_ms=request.duration_ms,
+        success=None if request.outcome == "completed" else False,
+        usage=UsageRecord(
+            input_tokens=request.input_tokens,
+            cached_input_tokens=request.cache_read_tokens,
+            cache_creation_tokens=request.cache_creation_tokens,
+            output_tokens=request.output_tokens,
+            model_id=request.model_id,
+            provider_reported=True,
+            counter_kind=UsageCounterKind.DELTA,
+            scope=UsageScope.REQUEST,
+        ),
+    )
+
+
+def _cumulative_usage_event(session_id: str, counters: TelemetryCounters) -> SourceEvent:
+    """Session-total counters when no per-request events were exported."""
+
+    return SourceEvent(
+        source_event_id=SecretStr(f"cumulative:{session_id}"),
+        kind=EventKind.USAGE,
+        sequence=USAGE_SEQUENCE_OFFSET * 2,
+        occurred_at=counters.reported_at,
+        time_basis=EventTimeBasis.PROVIDER_REPORTED,
+        usage=UsageRecord(
+            input_tokens=counters.input_tokens_total,
+            cached_input_tokens=counters.cache_read_tokens_total,
+            cache_creation_tokens=counters.cache_creation_tokens_total,
+            output_tokens=counters.output_tokens_total,
+            model_id=None,
+            provider_reported=True,
+            counter_kind=UsageCounterKind.CUMULATIVE,
+            scope=UsageScope.THREAD,
+        ),
     )
 
 
@@ -199,9 +274,17 @@ class ClaudeCodeHookAdapter(ProviderAdapter):
         except Exception:
             self._health = AdapterHealth.UNAVAILABLE
         self._probed = True
+        provider_version = UNKNOWN_PROVIDER_VERSION
+        if self._health is AdapterHealth.READY:
+            try:
+                provider_version = (
+                    self._ledger.latest_provider_version() or UNKNOWN_PROVIDER_VERSION
+                )
+            except Exception:
+                provider_version = UNKNOWN_PROVIDER_VERSION
         return AdapterProbe(
             provider=self.provider,
-            provider_version=UNKNOWN_PROVIDER_VERSION,
+            provider_version=provider_version,
             adapter_version=ADAPTER_VERSION,
             source_schema_version=SOURCE_SCHEMA_VERSION,
             supports_metadata=True,
@@ -251,7 +334,7 @@ class ClaudeCodeHookAdapter(ProviderAdapter):
         for row in rows:
             if row.hook_session_id in self._listed:
                 raise ClaudeHookAdapterError("ledger repeated a session in one snapshot")
-            session = _source_session(row)
+            session = _source_session(row, ledger.get_telemetry_session(row.hook_session_id))
             self._listed[row.hook_session_id] = session
             sessions.append(session)
         self._page_count += 1
@@ -270,8 +353,15 @@ class ClaudeCodeHookAdapter(ProviderAdapter):
         listed = self._listed.get(hook_session_id)
         if listed is None or listed != session:
             raise ClaudeHookScopeError("session is not part of the current listed snapshot")
-        events = tuple(_source_event(event) for event in ledger.list_events(hook_session_id))
-        return SourceSessionSnapshot(session=session, events=events)
+        events = [_source_event(event) for event in ledger.list_events(hook_session_id)]
+        requests = ledger.list_telemetry_requests(hook_session_id)
+        if requests:
+            events.extend(_usage_event(request) for request in requests)
+        else:
+            telemetry = ledger.get_telemetry_session(hook_session_id)
+            if telemetry is not None and telemetry.counters is not None:
+                events.append(_cumulative_usage_event(hook_session_id, telemetry.counters))
+        return SourceSessionSnapshot(session=session, events=tuple(events))
 
     def read_events(self, session: SourceSession) -> Iterator[SourceEvent]:
         yield from self.read_session(session).events
@@ -333,13 +423,23 @@ class ClaudeCodeHooksCompatibilityProbe:
                 ),
                 checked_at=checked_at,
             )
-        # The decoder fully understands every payload it admits, but it can
-        # neither attest to the Claude Code version (hook payloads carry none)
-        # nor prove that the user's hook configuration delivered every event.
-        # That is a degraded, unknown-completeness surface, and it says so.
+        # The decoder fully understands every payload it admits, but it cannot
+        # prove that the user's hook configuration delivered every event, and
+        # it knows the Claude Code version only when telemetry reported one -
+        # and even then that version is not in a tested list.  That is a
+        # degraded, unknown-completeness surface, and it says so.
+        try:
+            provider_version = self.ledger.latest_provider_version() or UNKNOWN_PROVIDER_VERSION
+        except Exception:
+            provider_version = UNKNOWN_PROVIDER_VERSION
+        reason = (
+            CompatibilityReasonCode.PROVIDER_VERSION_UNKNOWN
+            if provider_version == UNKNOWN_PROVIDER_VERSION
+            else CompatibilityReasonCode.PROVIDER_VERSION_UNTESTED
+        )
         return ProviderCompatibilityReport(
             descriptor=self.descriptor,
-            provider_version=UNKNOWN_PROVIDER_VERSION,
+            provider_version=provider_version,
             state=CompatibilityState.DEGRADED,
             capabilities=tuple(
                 CapabilityObservation(key=capability, state=CapabilityState.SUPPORTED)
@@ -349,9 +449,7 @@ class ClaudeCodeHooksCompatibilityProbe:
                 state=ExtractionCompletenessState.UNKNOWN,
                 observed_units=min(int(summary["events"]), 10_000_000),
             ),
-            reasons=(
-                CompatibilityReason(code=CompatibilityReasonCode.PROVIDER_VERSION_UNKNOWN),
-            ),
+            reasons=(CompatibilityReason(code=reason),),
             checked_at=checked_at,
         )
 

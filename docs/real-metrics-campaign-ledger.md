@@ -1225,6 +1225,19 @@ Nothing here reads a Claude transcript, JSONL file, or settings file; capture
 is prospective only. This adds no calibration evidence, activates no
 estimator, and makes no metric numeric.
 
+The following checkpoint adds a loopback OTLP/HTTP JSON receiver for Claude
+Code's documented telemetry (migration 46, `claude-code-otlp.v1`, decoder
+version 2). It reads eleven allowlisted attributes and only `api_request` /
+`api_error` records plus six documented counters, drops every account,
+organization, user, prompt, tool-parameter, and error field by construction,
+joins usage to the hook session pseudonym, and emits `USAGE` events that make
+the deterministic token metrics numeric for Claude sessions. `TOKEN_USAGE` is
+now a declared capability; the compatibility report reports the provider
+version from `app.version` as `provider_version_untested` and stays `degraded`.
+The receiver requires a separate write-only ingest token, answers inactive
+consent with an OTLP `partialSuccess`, and writes nothing in that case. Token
+counts are provider-reported facts, not calibration evidence.
+
 ## P3a control-plane foundation evidence
 
 This checkpoint adds a development-only team control plane. It is a contract and
@@ -1291,7 +1304,8 @@ the application composes no control-plane service and exposes no route.
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |
 | Qwen embedding challenger | `Qwen/Qwen3-Embedding-0.6B` at `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` | Synthetic exploratory challenger; not product-enabled |
 | BGE reranker challenger | `BAAI/bge-reranker-v2-m3` at `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e` | Synthetic exploratory challenger; not product-enabled |
-| Claude Code hook capture | `claude-code-hooks.v1`; receiver `claude-code-hook-receiver-1`; adapter `claude-code-hooks-adapter-1`; source schema `claude-code-hooks.receipt-clock.v1`; decoder `claude-code.hooks.operational-events` v1; migration 45 | Prospective, content-free, consent-gated operational events with receiver-clock timing; no token usage, no transcript access, no task-outcome inference |
+| Claude Code hook capture | `claude-code-hooks.v1`; receiver `claude-code-hook-receiver-1`; adapter `claude-code-hooks-adapter-1`; source schema `claude-code-hooks.receipt-clock.v1`; decoder `claude-code.hooks.operational-events` v2; migrations 45-46 | Prospective, content-free, consent-gated operational events with receiver-clock timing; no transcript access, no task-outcome inference |
+| Claude Code telemetry capture | `claude-code-otlp.v1`; loopback OTLP/HTTP JSON receiver at `/otlp/v1/{logs,metrics}`; separate write-only ingest token | Per-request tokens, model, duration, and provider-reported cost; six documented cumulative counters; eleven allowlisted attributes; provider-reported facts, not calibration evidence |
 | Claude Opus review target | Exact requested and served model must be recorded by a reviewed BYOK/API runner | Not implemented; no private-session review is authorized |
 | Claude Fable review target | Exact requested and served model plus retention acknowledgement must be recorded | Not implemented; synthetic architecture review only until the remote approval boundary exists |
 

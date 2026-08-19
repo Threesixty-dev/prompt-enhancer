@@ -275,10 +275,12 @@ def test_compatibility_probe_reports_degraded_unknown_completeness_and_registers
     # No opportunity, link, or message-content capability is ever claimed.
     forbidden = {k for k in CapabilityKey if k.value.endswith(("_opportunities", "_links"))} | {
         CapabilityKey.USER_MESSAGES, CapabilityKey.AGENT_MESSAGES, CapabilityKey.PLAN_MESSAGES,
-        CapabilityKey.TOKEN_USAGE, CapabilityKey.VERIFICATION_EVENTS, CapabilityKey.DECISION_EVENTS,
+        CapabilityKey.VERIFICATION_EVENTS, CapabilityKey.DECISION_EVENTS, CapabilityKey.LIVE_UPDATES,
     }
     assert not forbidden & set(CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR.capabilities)
     assert CapabilityKey.EVENT_TIMING in CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR.capabilities
+    # TOKEN_USAGE is supplied by the loopback OTLP receiver (decoder version 2).
+    assert CapabilityKey.TOKEN_USAGE in CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR.capabilities
 
     registry = TrustedProviderRegistry((CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR,))
     service = ProviderCompatibilityService(registry, (probe,))

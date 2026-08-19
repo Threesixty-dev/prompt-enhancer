@@ -2343,6 +2343,11 @@ export interface components {
             capture_channel: string;
             /** Captured Events */
             captured_events: number;
+            /**
+             * Captured Requests
+             * @default 0
+             */
+            captured_requests: number;
             /** Captured Sessions */
             captured_sessions: number;
             /** Consent Active */
@@ -2361,6 +2366,16 @@ export interface components {
              * @default false
              */
             reads_transcripts: boolean;
+            /**
+             * Telemetry Channel
+             * @default claude_code_otlp
+             */
+            telemetry_channel: string;
+            /**
+             * Telemetry Sessions
+             * @default 0
+             */
+            telemetry_sessions: number;
             verification_capability: components["schemas"]["VerificationCapability"];
         };
         /** ClaudeIndexRequest */

@@ -73,6 +73,13 @@ def _parser() -> argparse.ArgumentParser:
         "claude-hooks-config",
         help="print the Claude Code settings.json hooks snippet for this receiver",
     )
+    subparsers.add_parser(
+        "claude-otel-config",
+        help=(
+            "print the environment variables that point Claude Code telemetry at "
+            "this loopback receiver (token usage, cost, model, version)"
+        ),
+    )
     return parser
 
 
@@ -301,6 +308,38 @@ def _run_claude_hooks_config(settings: AppSettings) -> int:
     return 0
 
 
+def _run_claude_otel_config(settings: AppSettings) -> int:
+    """Print exporter env vars; the user sets them, we write no config."""
+
+    from .privacy import load_or_create_api_token
+
+    token = load_or_create_api_token(settings.otlp_ingest_token_path)
+    endpoint = f"http://{settings.host}:{settings.port}"
+    lines = (
+        "CLAUDE_CODE_ENABLE_TELEMETRY=1",
+        "OTEL_METRICS_EXPORTER=otlp",
+        "OTEL_LOGS_EXPORTER=otlp",
+        "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+        f"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT={endpoint}/otlp/v1/logs",
+        f"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT={endpoint}/otlp/v1/metrics",
+        f"OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer {token}",
+        "OTEL_LOG_USER_PROMPTS=0",
+    )
+    print("\n".join(lines))
+    notes = (
+        "",
+        "# Set these in the environment that launches Claude Code, then run",
+        "# `prompt-enhancer serve`. Only api_request usage (tokens, model, duration,",
+        "# the provider's own cost estimate) and documented session counters are",
+        "# recorded; account, organization, user, prompt, tool-parameter, and error",
+        "# fields are never read. Capture requires the local server to be running",
+        "# and `claude-consent-grant local-history` to be active; a missing batch",
+        "# is a gap, never a zero. Keep OTEL_LOG_USER_PROMPTS unset or 0.",
+    )
+    print("\n".join(notes), file=sys.stderr)
+    return 0
+
+
 def _run_serve(settings: AppSettings) -> int:
     import uvicorn
 
@@ -344,6 +383,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_claude_hook(settings)
         if args.command == "claude-hooks-config":
             return _run_claude_hooks_config(settings)
+        if args.command == "claude-otel-config":
+            return _run_claude_otel_config(settings)
         handlers = {
             "init": _run_init,
             "demo": _run_demo,

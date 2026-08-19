@@ -163,6 +163,7 @@ export function ClaudeSourceCard({ transport }: { transport: ClaudeTransport }) 
             <div><dt>Captured events</dt><dd>{status.captured_events}</dd></div>
             <div><dt>Indexed sessions</dt><dd>{status.indexed_sessions}</dd></div>
             <div><dt>Safe projects</dt><dd>{status.indexed_projects}</dd></div>
+            <div><dt>Captured requests</dt><dd>{status.captured_requests}</dd></div>
             <div><dt>Transcripts read</dt><dd>{status.reads_transcripts ? "Yes" : "Never"}</dd></div>
             <div><dt>Content stored</dt><dd>{status.persists_content ? "Yes" : "Never"}</dd></div>
           </dl>
@@ -236,6 +237,17 @@ export function ClaudeSourceCard({ transport }: { transport: ClaudeTransport }) 
               <p>
                 Each configured event then runs <code>python -m prompt_enhancer claude-hook</code>,
                 which is silent, always exits 0, and writes nothing while capture is off.
+              </p>
+              <p>
+                For token, cost, and model per request, also point Claude Code&apos;s telemetry at
+                this app&apos;s loopback receiver. Print the environment variables and set them where
+                you launch Claude Code; the local server must be running to receive them.
+              </p>
+              <pre><code>python -m prompt_enhancer claude-otel-config</code></pre>
+              <p>
+                Only <code>api_request</code> usage and documented session counters are recorded;
+                account, organization, user, prompt, tool-parameter, and error fields are never read.
+                A missing export batch is a gap, never a zero.
               </p>
             </div>
           )}

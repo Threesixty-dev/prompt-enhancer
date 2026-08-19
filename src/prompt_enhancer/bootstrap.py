@@ -660,6 +660,8 @@ class LocalApplication:
         codex_source_service.set_automation_revoker(revoke_local_workers)
         claude_source_service = self.create_claude_local_source_service()
         claude_source_service.set_automation_revoker(revoke_local_workers)
+        otlp_ingest_token = load_or_create_api_token(self.settings.otlp_ingest_token_path)
+        telemetry_ingest_service = self.database.claude_telemetry_ingest(self.pseudonymizer)
         control_plane = (
             self.create_control_plane()
             if self.settings.control_plane_development_api
@@ -692,6 +694,8 @@ class LocalApplication:
             metric_coverage_service=metric_coverage_service,
             codex_source_service=codex_source_service,
             claude_source_service=claude_source_service,
+            otlp_ingest_token=otlp_ingest_token,
+            telemetry_ingest_service=telemetry_ingest_service,
             display_label_service=self.create_manual_display_label_service(),
             model_evaluation_service=LocalTextModelEvaluationService(),
             analysis_job_service=analysis_job_service,

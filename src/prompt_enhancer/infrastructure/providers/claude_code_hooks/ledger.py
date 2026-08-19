@@ -310,10 +310,28 @@ class SqliteClaudeHookLedger:
         self._connection_scope = connection_scope
         self._ensure_initialized = ensure_initialized
 
+    _SESSION_UNION = """
+        SELECT hook_session_id, hook_project_id, project_display_label, contract_version,
+               receiver_version, first_received_at, last_received_at, session_start_source,
+               session_end_reason, ended_at, event_count
+          FROM claude_code_hook_sessions
+        UNION ALL
+        SELECT t.hook_session_id, t.hook_project_id, NULL, t.contract_version,
+               'claude-code-otlp-receiver-1', t.first_received_at, t.last_received_at,
+               NULL, NULL, NULL, 0
+          FROM claude_code_telemetry_sessions t
+         WHERE NOT EXISTS (SELECT 1 FROM claude_code_hook_sessions h
+                            WHERE h.hook_session_id = t.hook_session_id)
+    """
+
     def list_sessions(
         self, *, limit: int, after: tuple[datetime, str] | None = None
     ) -> tuple[LedgerSession, ...]:
-        """Sessions in first-receipt order; ``after`` is a keyset cursor."""
+        """Sessions in first-receipt order; ``after`` is a keyset cursor.
+
+        A session captured only through telemetry (OTEL on, hooks off) is
+        listed too, with no events and no display label.
+        """
 
         self._ensure_initialized()
         if not 1 <= limit <= 1_001:
@@ -321,21 +339,58 @@ class SqliteClaudeHookLedger:
         with self._connection_scope(readonly=True) as connection:
             if after is None:
                 rows = connection.execute(
-                    """SELECT * FROM claude_code_hook_sessions
-                       ORDER BY first_received_at ASC, hook_session_id ASC LIMIT ?""",
+                    f"""SELECT * FROM ({self._SESSION_UNION})
+                        ORDER BY first_received_at ASC, hook_session_id ASC LIMIT ?""",
                     (limit,),
                 ).fetchall()
             else:
                 after_at, after_id = after
                 require_safe_id(after_id)
                 rows = connection.execute(
-                    """SELECT * FROM claude_code_hook_sessions
-                       WHERE first_received_at > ?
-                          OR (first_received_at = ? AND hook_session_id > ?)
-                       ORDER BY first_received_at ASC, hook_session_id ASC LIMIT ?""",
+                    f"""SELECT * FROM ({self._SESSION_UNION})
+                        WHERE first_received_at > ?
+                           OR (first_received_at = ? AND hook_session_id > ?)
+                        ORDER BY first_received_at ASC, hook_session_id ASC LIMIT ?""",
                     (to_iso(after_at), to_iso(after_at), after_id, limit),
                 ).fetchall()
         return tuple(_row_session(row) for row in rows)
+
+    def get_telemetry_session(self, hook_session_id: str):
+        from .telemetry import row_telemetry_session
+
+        self._ensure_initialized()
+        require_safe_id(hook_session_id)
+        with self._connection_scope(readonly=True) as connection:
+            row = connection.execute(
+                "SELECT * FROM claude_code_telemetry_sessions WHERE hook_session_id=?",
+                (hook_session_id,),
+            ).fetchone()
+        return None if row is None else row_telemetry_session(row)
+
+    def list_telemetry_requests(self, hook_session_id: str):
+        from .telemetry import row_telemetry_request
+
+        self._ensure_initialized()
+        require_safe_id(hook_session_id)
+        with self._connection_scope(readonly=True) as connection:
+            rows = connection.execute(
+                """SELECT * FROM claude_code_telemetry_requests
+                   WHERE hook_session_id=? ORDER BY sequence ASC""",
+                (hook_session_id,),
+            ).fetchall()
+        return tuple(row_telemetry_request(row) for row in rows)
+
+    def latest_provider_version(self) -> str | None:
+        """Most recently reported Claude Code version, if telemetry supplied one."""
+
+        self._ensure_initialized()
+        with self._connection_scope(readonly=True) as connection:
+            row = connection.execute(
+                """SELECT provider_version FROM claude_code_telemetry_sessions
+                   WHERE provider_version IS NOT NULL
+                   ORDER BY last_received_at DESC LIMIT 1"""
+            ).fetchone()
+        return None if row is None else row["provider_version"]
 
     def get_session(self, hook_session_id: str) -> LedgerSession | None:
         self._ensure_initialized()
@@ -367,7 +422,18 @@ class SqliteClaudeHookLedger:
             events = connection.execute(
                 "SELECT COUNT(*) FROM claude_code_hook_events"
             ).fetchone()[0]
-        return {"sessions": int(sessions), "events": int(events)}
+            telemetry_sessions = connection.execute(
+                "SELECT COUNT(*) FROM claude_code_telemetry_sessions"
+            ).fetchone()[0]
+            requests = connection.execute(
+                "SELECT COUNT(*) FROM claude_code_telemetry_requests"
+            ).fetchone()[0]
+        return {
+            "sessions": int(sessions),
+            "events": int(events),
+            "telemetry_sessions": int(telemetry_sessions),
+            "requests": int(requests),
+        }
 
     def append(
         self, pseudonymizer: Pseudonymizer, event: MinimizedHookEvent

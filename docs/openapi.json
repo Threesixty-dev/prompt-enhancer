@@ -2072,6 +2072,11 @@
             "title": "Captured Events",
             "type": "integer"
           },
+          "captured_requests": {
+            "default": 0,
+            "title": "Captured Requests",
+            "type": "integer"
+          },
           "captured_sessions": {
             "title": "Captured Sessions",
             "type": "integer"
@@ -2097,6 +2102,16 @@
             "default": false,
             "title": "Reads Transcripts",
             "type": "boolean"
+          },
+          "telemetry_channel": {
+            "default": "claude_code_otlp",
+            "title": "Telemetry Channel",
+            "type": "string"
+          },
+          "telemetry_sessions": {
+            "default": 0,
+            "title": "Telemetry Sessions",
+            "type": "integer"
           },
           "verification_capability": {
             "$ref": "#/components/schemas/VerificationCapability"
