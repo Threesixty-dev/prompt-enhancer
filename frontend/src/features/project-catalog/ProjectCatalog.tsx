@@ -11,6 +11,7 @@ import type { AppRoute } from "../../shared/platform/platform";
 import { isPseudonym } from "../../shared/platform/platform";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
 import { Icon } from "../../shared/ui/Icon";
+import { openLiveWindow } from "../live-window/LiveMiniWindow";
 import { MetricCoveragePanel } from "../metric-coverage";
 import {
   ProjectComparison,
@@ -547,6 +548,17 @@ export function ProjectCatalog({
                 </span>
                 <Icon name="arrow" />
               </button>
+              <div className="project-catalog-card__windows">
+                <button
+                  aria-label={`Open a live window for ${project.displayName ?? "this project"}`}
+                  className="project-catalog-card__live"
+                  onClick={() => { openLiveWindow({ name: "live", projectId: project.projectId }); }}
+                  title="Open a small self-refreshing window for this project"
+                  type="button"
+                >
+                  <Icon name="layers" /> Live window
+                </button>
+              </div>
               <dl className="project-catalog-card__facts">
                 <div><dt>Sessions</dt><dd>{project.sessions.length}</dd></div>
                 <div><dt>Complete streams</dt><dd>{project.completeSessionCount}</dd></div>

@@ -11,6 +11,7 @@ import type { AppRoute } from "../../shared/platform/platform";
 import { isPseudonym } from "../../shared/platform/platform";
 import { ErrorState, LoadingState } from "../../shared/ui/AsyncState";
 import { Icon } from "../../shared/ui/Icon";
+import { openLiveWindow } from "../live-window/LiveMiniWindow";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import "./Sessions.css";
 
@@ -235,6 +236,15 @@ export function SessionsPage({
                     <span className="session-row__duration">{durationLabel(row.started_at, row.ended_at)}</span>
                   </span>
                   <Icon className="session-row__arrow" name="arrow" />
+                </button>
+                <button
+                  aria-label={`Open a live window for ${visible(row.session_display_name, "this session")}`}
+                  className="session-row__live"
+                  onClick={() => { openLiveWindow({ name: "live", projectId: row.project_id, sessionId: row.session_id }); }}
+                  title="Open a small self-refreshing window for this session"
+                  type="button"
+                >
+                  <Icon name="layers" />
                 </button>
               </li>
             ))}

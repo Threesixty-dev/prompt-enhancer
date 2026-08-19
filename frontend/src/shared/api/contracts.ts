@@ -106,6 +106,7 @@ export type JudgeOutcome = Schemas["JudgeOutcome"];
 export type JudgeSweepStatus = Schemas["JudgeSweepStatus"];
 export type JudgeAgreementReport = Schemas["JudgeAgreementReport"];
 export type SessionJudgments = Schemas["SessionJudgments"];
+export type SessionInterpretation = Schemas["SessionInterpretation"];
 export type PromptCheckRequest = Schemas["PromptCheckRequest"];
 export type PromptCheckResult = Schemas["PromptCheckResult"];
 export type PromptCheckRecord = Schemas["PromptCheckRecord"];
@@ -586,6 +587,8 @@ export interface PromptEnhancerTransport {
   judgeSessionWithModel(sessionId: string, signal?: AbortSignal): Promise<JudgeOutcome>;
   /** Stored judgments for one session (labels only; never metric values). */
   getModelJudgments(sessionId: string, signal?: AbortSignal): Promise<SessionJudgments>;
+  /** Plain-language reading of a session's metrics by the local model (commentary, not a metric). */
+  interpretSessionWithModel(sessionId: string, signal?: AbortSignal): Promise<SessionInterpretation>;
   /** Prompt check (ADR 0015): validate a prompt in context; only metrics are stored. */
   checkPrompt(request: PromptCheckRequest, signal?: AbortSignal): Promise<PromptCheckResult>;
   getPromptCheckHistory(limit: number, offset: number, signal?: AbortSignal): Promise<PromptCheckHistory>;

@@ -90,6 +90,7 @@ import type {
   JudgeSweepStatus,
   JudgeAgreementReport,
   SessionJudgments,
+  SessionInterpretation,
   PromptCheckRequest,
   PromptCheckResult,
   PromptCheckRecord,
@@ -2409,6 +2410,9 @@ export function createHttpTransport(options: {
     },
     stopAgentSession(sessionId, signal) {
       return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" }, signal);
+    },
+    interpretSessionWithModel(sessionId, signal) {
+      return request<SessionInterpretation>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}/interpret`, { method: "POST" }, signal);
     },
     getModelJudgments(sessionId, signal) {
       return request<SessionJudgments>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" }, signal);

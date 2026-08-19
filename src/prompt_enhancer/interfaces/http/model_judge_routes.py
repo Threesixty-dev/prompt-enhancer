@@ -13,6 +13,7 @@ from ...application.analysis.model_judge import (
     JudgeSweepStatus,
     ModelJudgeError,
     ModelJudgeService,
+    SessionInterpretation,
     SessionJudgments,
 )
 from ...domain import PSEUDONYM_PATTERN
@@ -34,6 +35,13 @@ def create_model_judge_router(
     def session_judgments(session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)]) -> SessionJudgments:
         try:
             return service.judgments_for(session_id)
+        except ModelJudgeError as error:
+            raise HTTPException(status_code=_STATUS.get(error.code, 500), detail={"code": error.code}) from None
+
+    @router.post("/sessions/{session_id}/interpret", response_model=SessionInterpretation)
+    def interpret_session(session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)]) -> SessionInterpretation:
+        try:
+            return service.interpret(session_id)
         except ModelJudgeError as error:
             raise HTTPException(status_code=_STATUS.get(error.code, 500), detail={"code": error.code}) from None
 

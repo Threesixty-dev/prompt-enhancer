@@ -14328,6 +14328,81 @@
         "title": "SessionEvidenceOrigin",
         "type": "string"
       },
+      "SessionInterpretation": {
+        "additionalProperties": false,
+        "description": "Plain-language reading of one session's metrics by the local model - commentary, never a metric.",
+        "properties": {
+          "caveat": {
+            "default": "Written by a local model from the session's metric states and the redacted window; it is an interpretation, not a measurement, and may be wrong. Unknown metrics were reported to it as unknown.",
+            "title": "Caveat",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "model-judge.v1",
+            "default": "model-judge.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "improvements": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Improvements",
+            "type": "array"
+          },
+          "metrics_seen": {
+            "minimum": 0.0,
+            "title": "Metrics Seen",
+            "type": "integer"
+          },
+          "model_alias": {
+            "title": "Model Alias",
+            "type": "string"
+          },
+          "reframed_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reframed Prompt"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "strengths": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Strengths",
+            "type": "array"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "session_id",
+          "model_alias",
+          "metrics_seen"
+        ],
+        "title": "SessionInterpretation",
+        "type": "object"
+      },
       "SessionJudgments": {
         "additionalProperties": false,
         "description": "Every stored judgment for one session, grouped by model, with the questions asked.",
@@ -22763,6 +22838,81 @@
           }
         },
         "summary": "Judge Session",
+        "tags": [
+          "model-judge"
+        ]
+      }
+    },
+    "/v1/model-judge/sessions/{session_id}/interpret": {
+      "post": {
+        "operationId": "interpret_session_v1_model_judge_sessions__session_id__interpret_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInterpretation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Interpret Session",
         "tags": [
           "model-judge"
         ]

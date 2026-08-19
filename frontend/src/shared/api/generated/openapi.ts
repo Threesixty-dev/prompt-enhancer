@@ -1006,6 +1006,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/model-judge/sessions/{session_id}/interpret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Interpret Session */
+        post: operations["interpret_session_v1_model_judge_sessions__session_id__interpret_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/model-judge/sweep": {
         parameters: {
             query?: never;
@@ -7612,6 +7629,43 @@ export interface components {
          */
         SessionEvidenceOrigin: "direct" | "inherited";
         /**
+         * SessionInterpretation
+         * @description Plain-language reading of one session's metrics by the local model - commentary, never a metric.
+         */
+        SessionInterpretation: {
+            /**
+             * Caveat
+             * @default Written by a local model from the session's metric states and the redacted window; it is an interpretation, not a measurement, and may be wrong. Unknown metrics were reported to it as unknown.
+             */
+            caveat: string;
+            /**
+             * Contract Version
+             * @default model-judge.v1
+             * @constant
+             */
+            contract_version: "model-judge.v1";
+            /**
+             * Improvements
+             * @default []
+             */
+            improvements: string[];
+            /** Metrics Seen */
+            metrics_seen: number;
+            /** Model Alias */
+            model_alias: string;
+            /** Reframed Prompt */
+            reframed_prompt?: string | null;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Strengths
+             * @default []
+             */
+            strengths: string[];
+            /** Summary */
+            summary?: string | null;
+        };
+        /**
          * SessionJudgments
          * @description Every stored judgment for one session, grouped by model, with the questions asked.
          */
@@ -11169,6 +11223,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JudgeOutcome"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    interpret_session_v1_model_judge_sessions__session_id__interpret_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionInterpretation"];
                 };
             };
             /** @description Validation Error */

@@ -67,6 +67,23 @@ class JudgeOutcome(StrictModel):
     raw_valid: bool
 
 
+class SessionInterpretation(StrictModel):
+    """Plain-language reading of one session's metrics by the local model - commentary, never a metric."""
+
+    contract_version: Literal[MODEL_JUDGE_CONTRACT_VERSION] = MODEL_JUDGE_CONTRACT_VERSION
+    session_id: str
+    model_alias: str
+    strengths: tuple[str, ...] = ()
+    improvements: tuple[str, ...] = ()
+    reframed_prompt: str | None = None
+    summary: str | None = None
+    metrics_seen: int = Field(ge=0)
+    caveat: str = (
+        "Written by a local model from the session's metric states and the redacted window; it is an interpretation, "
+        "not a measurement, and may be wrong. Unknown metrics were reported to it as unknown."
+    )
+
+
 class SessionJudgments(StrictModel):
     """Every stored judgment for one session, grouped by model, with the questions asked."""
 
@@ -175,6 +192,7 @@ class ModelJudgeService:
         chat: Callable[[str, bytes], tuple[int, bytes, str]],
         active_model: Callable[[], tuple[str, str] | None],
         session_lookup: Callable[[str], object | None],
+        metrics_lookup: Callable[[str], list[dict[str, object]]] | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._repository = repository
@@ -184,6 +202,7 @@ class ModelJudgeService:
         self._chat = chat
         self._active_model = active_model
         self._session_lookup = session_lookup
+        self._metrics_lookup = metrics_lookup
         self._clock = clock
         self._sweep_lock = threading.Lock()
         self._sweep = JudgeSweepStatus(running=False, total=0, done=0, failed=0)
@@ -325,6 +344,89 @@ class ModelJudgeService:
 
     # ----- agreement -----
 
+    def interpret(self, session_id: str) -> SessionInterpretation:
+        """Ask the active model to read the session's metrics (and redacted window) in plain language."""
+
+        active = self._active_model()
+        if active is None:
+            raise ModelJudgeError("no_active_model")
+        alias, _ = active
+        session = self._session_lookup(session_id)
+        if session is None:
+            raise ModelJudgeError("session_not_found")
+        provider = Provider(getattr(session, "provider"))
+        rows = self._metrics_lookup(session_id) if self._metrics_lookup is not None else []
+        lines: list[str] = []
+        for row in rows[:40]:
+            key = str(row.get("key"))
+            value = row.get("numeric_value")
+            text_value = row.get("text_value")
+            coverage = row.get("coverage")
+            if value is not None:
+                lines.append(f"- {key}: {float(value):.2f}" + (f" (coverage {float(coverage):.2f})" if isinstance(coverage, (int, float)) else ""))
+            elif text_value is not None:
+                lines.append(f"- {key}: {text_value}")
+            else:
+                lines.append(f"- {key}: unknown")
+        try:
+            window = render_window(self._window(provider, session_id), max_characters=9_000)
+        except ModelJudgeError:
+            raise
+        except Exception:
+            window = "(transcript window unavailable)"
+        prompt = (
+            "Metric readings for this coding-agent session (unknown means not measurable, never zero):\n"
+            + ("\n".join(lines) if lines else "- none recorded")
+            + "\n\nRedacted transcript window:\n" + window
+        )
+        body = json.dumps(
+            {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You explain a coding-agent session to the person who ran it, using the metric readings and the redacted window. "
+                            "Answer with strict JSON only: {\"summary\": \"one sentence\", \"strengths\": [\"...\"], "
+                            "\"improvements\": [\"...\"], \"reframed_prompt\": \"how the first request could have been phrased\"}. "
+                            "At most three strengths and three improvements, concrete and kind; treat unknown metrics as unknown; "
+                            "never invent events that are not in the window; answer in the person's language."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.2,
+                "max_tokens": 700,
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
+        ).encode("utf-8")
+        try:
+            status, payload, _ = self._chat(alias, body)
+        except Exception:
+            raise ModelJudgeError("model_unreachable") from None
+        if status != 200:
+            raise ModelJudgeError("model_error")
+        try:
+            text = json.loads(payload.decode("utf-8"))["choices"][0]["message"]["content"]
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", str(text).strip(), flags=re.I | re.M)
+            data = json.loads(cleaned[cleaned.find("{") : cleaned.rfind("}") + 1])
+        except (ValueError, KeyError, IndexError, TypeError, UnicodeDecodeError):
+            raise ModelJudgeError("model_reply_invalid") from None
+        def _strings(value: object) -> tuple[str, ...]:
+            if not isinstance(value, list):
+                return ()
+            return tuple(str(item).strip()[:400] for item in value if str(item).strip())[:3]
+        reframed = data.get("reframed_prompt") if isinstance(data, dict) else None
+        summary = data.get("summary") if isinstance(data, dict) else None
+        return SessionInterpretation(
+            session_id=session_id,
+            model_alias=alias,
+            strengths=_strings(data.get("strengths") if isinstance(data, dict) else None),
+            improvements=_strings(data.get("improvements") if isinstance(data, dict) else None),
+            reframed_prompt=str(reframed).strip()[:2_000] if isinstance(reframed, str) and reframed.strip() else None,
+            summary=str(summary).strip()[:600] if isinstance(summary, str) and summary.strip() else None,
+            metrics_seen=len(lines),
+        )
+
     def judgments_for(self, session_id: str) -> SessionJudgments:
         """Stored judgments for one session (no model call, no content)."""
 
@@ -388,6 +490,7 @@ __all__ = (
     "ModelJudgeError",
     "ModelJudgeService",
     "ModelJudgment",
+    "SessionInterpretation",
     "SessionJudgments",
     "ModelJudgmentRepository",
     "parse_judge_reply",

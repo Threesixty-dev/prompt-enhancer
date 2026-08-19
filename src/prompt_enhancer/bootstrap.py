@@ -336,6 +336,7 @@ class LocalApplication:
             chat=models.chat,
             active_model=active_model,
             session_lookup=self.database.get_session,
+            metrics_lookup=self.database.get_session_metrics,
         ), calibration
 
     def create_prompt_check_service(self, local_model_service=None):

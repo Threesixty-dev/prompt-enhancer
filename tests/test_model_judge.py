@@ -38,9 +38,13 @@ STUB = textwrap.dedent(
         def do_POST(self):
             n = int(self.headers.get("Content-Length", "0")); body = json.loads(self.rfile.read(n) or b"{}")
             user = body["messages"][-1]["content"]
-            assert "Transcript window" in user and "USER:" in user, "window missing"
             assert body.get("chat_template_kwargs", {}).get("enable_thinking") is False
-            verdict = {"prompt.task_definition_coverage": "high", "prompt.context_sufficiency": "medium", "outcome.verification_strategy_adequacy": "cannot_judge"}
+            if user.startswith("Metric readings"):
+                assert "Redacted transcript window" in user and "USER:" in user, "window missing"
+                verdict = {"summary": "Clear request, verified by tests.", "strengths": ["Stated the goal", "Ran the tests"], "improvements": ["Name the files up front"], "reframed_prompt": "Add bounded retries to <specify: file>; done when the tests pass."}
+            else:
+                assert "Transcript window" in user and "USER:" in user, "window missing"
+                verdict = {"prompt.task_definition_coverage": "high", "prompt.context_sufficiency": "medium", "outcome.verification_strategy_adequacy": "cannot_judge"}
             reply = {"choices": [{"message": {"role": "assistant", "content": json.dumps(verdict)}}], "usage": {"completion_tokens": 20}}
             data = json.dumps(reply).encode(); self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(data)
     HTTPServer(("127.0.0.1", port), H).serve_forever()
@@ -109,6 +113,12 @@ def test_judge_lane_end_to_end_with_stub_model(tmp_path: Path, monkeypatch) -> N
         dumped = json.dumps([s.model_dump(mode="json") for s in stored])
         assert "uploader" not in dumped and "retries" not in dumped
 
+        # Interpretation: plain-language reading from metrics + window, labelled commentary.
+        reading = judge.interpret(session_id)
+        assert reading.model_alias == "stub-judge" and reading.strengths == ("Stated the goal", "Ran the tests")
+        assert reading.improvements == ("Name the files up front",) and reading.reframed_prompt.startswith("Add bounded retries")
+        assert "interpretation, not a measurement" in reading.caveat and reading.metrics_seen >= 0
+
         # Human rating for the same session -> agreement report pairs them.
         calibration.sample()
         calibration.rate(RatingSubmission(rater_label="Owner", session_id=session_id, ratings={
@@ -131,6 +141,8 @@ def test_judge_lane_end_to_end_with_stub_model(tmp_path: Path, monkeypatch) -> N
         agreement = client.get("/v1/model-judge/agreement", headers=headers)
         assert agreement.status_code == 200, agreement.text
         assert client.get("/v1/model-judge/sweep", headers=headers).status_code == 200
+        interpreted = client.post(f"/v1/model-judge/sessions/{session_id}/interpret", headers=headers)
+        assert interpreted.status_code in {200, 409}, interpreted.text  # 409 when the HTTP app has no active model
         stored = client.get(f"/v1/model-judge/sessions/{session_id}", headers=headers)
         assert stored.status_code == 200, stored.text
         body = stored.json()
