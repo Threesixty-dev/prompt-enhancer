@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentEvent, AgentSessionView, AgentSettings, LocalModelsOverview, PromptEnhancerTransport } from "../../shared/api/contracts";
+import type { AgentEvent, AgentEvents, AgentSessionView, AgentSettings, LocalModelsOverview, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { TeamFoldersPanel } from "./TeamFoldersPanel";
 import "./AgentPage.css";
 
 const POLL_MS = 700;
 const IDLE_POLL_MS = 4000;
+const STREAM_RETRY_MS = 350;
+const MAX_STREAM_RETRY_MS = 5600;
+const MAX_STREAM_FAILURES = 5;
 const TOOL_LABELS: Record<string, string> = {
   read_file: "Read file",
   list_dir: "List folder",
@@ -37,7 +40,7 @@ function summarizeArguments(tool: string | null | undefined, args: Record<string
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession"
-> & Partial<Pick<PromptEnhancerTransport, "getLocalModels" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
+> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
 
 /**
  * Agent workspace: a local model works inside one folder through tools. Reads
@@ -72,8 +75,13 @@ export function AgentPage({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [streamNotice, setStreamNotice] = useState("");
+  const [streamRetryNonce, setStreamRetryNonce] = useState(0);
+  const [historyGap, setHistoryGap] = useState(false);
   const lastSeq = useRef(0);
   const logRef = useRef<HTMLDivElement | null>(null);
+  const approvalRef = useRef<HTMLDivElement | null>(null);
+  const followOutput = useRef(true);
 
   const refreshSessions = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -102,50 +110,102 @@ export function AgentPage({
     if (wanted && wanted.session_id !== current?.session_id) {
       setCurrent(wanted);
       setEvents([]);
+      setHistoryGap(false);
+      setStreamNotice("");
       lastSeq.current = 0;
+      followOutput.current = true;
     }
   }, [sessions, sessionId, current]);
 
-  // Poll events while a session is open; faster while it runs or waits for approval.
+  const pending = useMemo(() => {
+    if (!current?.pending_approval_id) return null;
+    return [...events].reverse().find((event) => event.kind === "approval_required" && event.approval_id === current.pending_approval_id) ?? null;
+  }, [events, current?.pending_approval_id]);
+
+  useEffect(() => {
+    if (pending) approvalRef.current?.focus();
+  }, [pending]);
+
+  // Prefer the private SSE event stream; retain polling for older/test transports.
   useEffect(() => {
     if (!current) return;
     let cancelled = false;
     const controller = new AbortController();
-    const tick = async (): Promise<boolean> => {
-      try {
-        const page = await transport.getAgentEvents(current.session_id, lastSeq.current, controller.signal);
-        if (cancelled) return false;
-        if (page.events.length > 0) {
-          setEvents((prev) => [...prev, ...page.events]);
-          lastSeq.current = page.events[page.events.length - 1].seq;
-        }
-        setCurrent((prev) => prev && prev.session_id === page.session_id ? { ...prev, running: page.running, pending_approval_id: page.pending_approval_id ?? null, last_seq: page.last_seq } : prev);
-        return page.running || Boolean(page.pending_approval_id) || page.events.length > 0;
-      } catch {
-        return true; // transient; keep polling at the active rate
-      }
-    };
     let handle = 0;
-    const schedule = (active: boolean) => {
-      if (cancelled) return;
-      handle = window.setTimeout(async () => {
-        schedule(await tick());
-      }, active ? POLL_MS : IDLE_POLL_MS);
+    let streamFailures = 0;
+    const acceptPage = (page: AgentEvents): boolean => {
+      if (cancelled || page.session_id !== current.session_id) return false;
+      streamFailures = 0;
+      setStreamNotice("");
+      const cursor = lastSeq.current;
+      if (page.first_seq > cursor + 1) setHistoryGap(true);
+      const fresh = page.events.filter((event) => event.seq > cursor);
+      if (fresh.length > 0) {
+        setEvents((previous) => {
+          const priorSeq = previous.length > 0 ? previous[previous.length - 1].seq : 0;
+          return compactTerminalDeltas([...previous, ...fresh.filter((event) => event.seq > priorSeq)]);
+        });
+        lastSeq.current = fresh[fresh.length - 1].seq;
+      }
+      setCurrent((previous) => previous && previous.session_id === page.session_id
+        ? { ...previous, running: page.running, pending_approval_id: page.pending_approval_id ?? null, last_seq: page.last_seq }
+        : previous);
+      return page.running || Boolean(page.pending_approval_id) || fresh.length > 0;
     };
-    void tick().then(schedule);
+
+    if (transport.streamAgentEvents) {
+      let streamActive = current.running;
+      const connect = async () => {
+        try {
+          await transport.streamAgentEvents?.(
+            current.session_id,
+            lastSeq.current,
+            (page) => { streamActive = acceptPage(page); },
+            controller.signal,
+          );
+        } catch {
+          if (!controller.signal.aborted) {
+            streamFailures += 1;
+            if (streamFailures >= 3) setStreamNotice("Live updates were interrupted; reconnecting on this machine…");
+          }
+        }
+        if (cancelled) return;
+        if (streamFailures >= MAX_STREAM_FAILURES) {
+          setStreamNotice("Live updates paused after repeated connection failures. Retry when the local service is available.");
+          return;
+        }
+        const delay = streamFailures > 0
+          ? Math.min(STREAM_RETRY_MS * (2 ** (streamFailures - 1)), MAX_STREAM_RETRY_MS)
+          : streamActive ? STREAM_RETRY_MS : IDLE_POLL_MS;
+        handle = window.setTimeout(() => { void connect(); }, delay);
+      };
+      void connect();
+    } else {
+      const tick = async (): Promise<boolean> => {
+        try {
+          return acceptPage(await transport.getAgentEvents(current.session_id, lastSeq.current, controller.signal));
+        } catch {
+          return true;
+        }
+      };
+      const schedule = (active: boolean) => {
+        if (cancelled) return;
+        handle = window.setTimeout(async () => {
+          schedule(await tick());
+        }, active ? POLL_MS : IDLE_POLL_MS);
+      };
+      void tick().then(schedule);
+    }
     return () => { cancelled = true; controller.abort(); window.clearTimeout(handle); };
-  }, [current?.session_id, transport]);
+  }, [current?.session_id, current?.running, streamRetryNonce, transport]);
 
   useEffect(() => {
     const node = logRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
+    if (node && followOutput.current) node.scrollTop = node.scrollHeight;
   }, [events]);
 
   const runningModels = useMemo(() => (models?.models ?? []).filter((m) => m.runtime.state === "running"), [models]);
-  const pending = useMemo(() => {
-    if (!current?.pending_approval_id) return null;
-    return [...events].reverse().find((e) => e.kind === "approval_required" && e.approval_id === current.pending_approval_id) ?? null;
-  }, [events, current?.pending_approval_id]);
+  const liveStreams = useMemo(() => coalesceLiveStreams(events), [events]);
 
   async function createSession() {
     const path = workspace.trim();
@@ -168,7 +228,10 @@ export function AgentPage({
       await refreshSessions();
       setCurrent(created);
       setEvents([]);
+      setHistoryGap(false);
+      setStreamNotice("");
       lastSeq.current = 0;
+      followOutput.current = true;
     } catch (caught) {
       const status = caught instanceof TransportError ? caught.status : null;
       setMessage(status === 422 ? "That is not an existing folder (use an absolute path, not a drive root)." : status === 403 ? "That folder is outside the allowed roots." : status === 409 ? "Too many open sessions - close one first." : "The session could not be created.");
@@ -182,6 +245,7 @@ export function AgentPage({
     if (!current || !text || busy) return;
     setBusy(true);
     setMessage("");
+    followOutput.current = true;
     try {
       const view = await transport.sendAgentMessage(current.session_id, text);
       setCurrent(view);
@@ -212,7 +276,7 @@ export function AgentPage({
   async function closeSession(id: string) {
     try {
       await transport.deleteAgentSession(id);
-      if (current?.session_id === id) { setCurrent(null); setEvents([]); lastSeq.current = 0; }
+      if (current?.session_id === id) { setCurrent(null); setEvents([]); setHistoryGap(false); setStreamNotice(""); lastSeq.current = 0; }
       await refreshSessions();
     } catch {
       setMessage("The session could not be closed.");
@@ -319,12 +383,56 @@ export function AgentPage({
                   {" · "}{current.settings.allow_writes ? "writes" : "no writes"} · {current.settings.allow_commands ? "commands" : "no commands"} · {current.settings.allow_web ? "web" : "no web"}
                 </span>
               </div>
-              <div className="agent__log" ref={logRef} role="log" aria-live="off">
-                {events.map((event) => <EventRow key={event.seq} event={event} />)}
-                {current.running && !pending && <p className="agent__thinking">Working…</p>}
+              <p className="sr-only" aria-live="polite">
+                {pending
+                  ? `Approval needed for ${TOOL_LABELS[pending.tool ?? ""] ?? pending.tool ?? "an agent action"}.`
+                  : liveStreams.size > 0 ? "Agent response is streaming." : current.running ? "Agent is working." : ""}
+              </p>
+              <div
+                className="agent__log"
+                ref={logRef}
+                role="log"
+                aria-live="off"
+                onScroll={(event) => {
+                  const node = event.currentTarget;
+                  followOutput.current = node.scrollHeight - node.scrollTop - node.clientHeight < 64;
+                }}
+              >
+                {historyGap && <p className="agent__status" role="status">Earlier in-memory events expired; completed replies below remain authoritative.</p>}
+                {events.map((event) => {
+                  if (event.kind !== "assistant_delta") return <EventRow key={event.seq} event={event} />;
+                  if (!event.stream_id) return null;
+                  const live = liveStreams.get(event.stream_id);
+                  return live && live.firstSeq === event.seq
+                    ? <LiveAssistant key={event.stream_id} content={live.content} reasoning={live.reasoning} />
+                    : null;
+                })}
+                {current.running && !pending && liveStreams.size === 0 && <p className="agent__thinking">Working…</p>}
               </div>
+              {streamNotice && (
+                <div className="agent__status">
+                  <span role="status">{streamNotice}</span>{" "}
+                  <button
+                    className="button button--ghost"
+                    onClick={() => {
+                      setStreamNotice("");
+                      setStreamRetryNonce((value) => value + 1);
+                    }}
+                    type="button"
+                  >
+                    Retry live updates
+                  </button>
+                </div>
+              )}
               {pending && (
-                <div className="agent__approval" role="alertdialog" aria-label="Approval needed">
+                <div
+                  aria-label="Approval needed"
+                  aria-modal="true"
+                  className="agent__approval"
+                  ref={approvalRef}
+                  role="alertdialog"
+                  tabIndex={-1}
+                >
                   <p className="agent__approval-title">
                     <strong>{TOOL_LABELS[pending.tool ?? ""] ?? pending.tool}</strong> wants to {pending.tool === "write_file" ? "write" : pending.tool === "run_command" ? "run" : "fetch"}: <code>{summarizeArguments(pending.tool, pending.arguments as Record<string, unknown> | null)}</code>
                   </p>
@@ -356,9 +464,57 @@ export function AgentPage({
   );
 }
 
+type LiveStreamView = { firstSeq: number; content: string; reasoning: string };
+
+function compactTerminalDeltas(events: AgentEvent[]): AgentEvent[] {
+  const terminalIds = new Set(
+    events
+      .filter((event) => event.kind === "assistant" && event.stream_id)
+      .map((event) => event.stream_id as string),
+  );
+  return events.filter((event) => event.kind !== "assistant_delta" || !event.stream_id || !terminalIds.has(event.stream_id));
+}
+
+function coalesceLiveStreams(events: AgentEvent[]): Map<string, LiveStreamView> {
+  const terminalIds = new Set(
+    events
+      .filter((event) => event.kind === "assistant" && event.stream_id)
+      .map((event) => event.stream_id as string),
+  );
+  const live = new Map<string, LiveStreamView>();
+  for (const event of events) {
+    if (event.kind !== "assistant_delta" || !event.stream_id || terminalIds.has(event.stream_id) || !event.text) continue;
+    const current = live.get(event.stream_id) ?? { firstSeq: event.seq, content: "", reasoning: "" };
+    if (event.stream_phase === "reasoning") current.reasoning += event.text;
+    else current.content += event.text;
+    live.set(event.stream_id, current);
+  }
+  return live;
+}
+
+function LiveAssistant({ content, reasoning }: { content: string; reasoning: string }) {
+  return (
+    <article className="agent__turn agent__turn--assistant agent__turn--live" aria-label="Agent response streaming">
+      <header>Agent · streaming</header>
+      {reasoning && <details className="agent__reasoning" open><summary>Model reasoning · thinking mode</summary><pre>{reasoning}</pre></details>}
+      {content && <pre>{content}</pre>}
+    </article>
+  );
+}
+
 function EventRow({ event }: { event: AgentEvent }) {
   if (event.kind === "user") return <article className="agent__turn agent__turn--user"><header>You</header><pre>{event.text}</pre></article>;
-  if (event.kind === "assistant") return <article className="agent__turn agent__turn--assistant"><header>Agent</header><pre>{event.text}</pre></article>;
+  if (event.kind === "assistant") {
+    const suffix = event.stream_status === "stopped" ? " · stopped" : event.stream_status === "failed" ? " · interrupted" : "";
+    return (
+      <article className="agent__turn agent__turn--assistant" data-stream-status={event.stream_status ?? "whole"}>
+        <header>Agent{suffix}</header>
+        {event.reasoning && <details className="agent__reasoning"><summary>Model reasoning · thinking mode</summary><pre>{event.reasoning}</pre></details>}
+        {event.text ? <pre>{event.text}</pre> : !event.reasoning ? <p className="agent__status">No assistant text was completed.</p> : null}
+      </article>
+    );
+  }
+  if (event.kind === "assistant_delta") return null;
   if (event.kind === "tool_call") {
     return (
       <article className="agent__tool" data-tool={event.tool ?? ""}>

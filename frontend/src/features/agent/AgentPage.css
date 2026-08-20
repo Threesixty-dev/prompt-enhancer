@@ -28,6 +28,12 @@
 .agent__turn header { font-size: 0.74rem; color: var(--ink-500); }
 .agent__turn pre { margin: 0; padding: 0.55rem 0.7rem; border-radius: 0.5rem; background: var(--surface); border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; font: inherit; line-height: 1.45; }
 .agent__turn--user pre { background: var(--teal-50); border-color: transparent; }
+.agent__turn--live pre { border-color: var(--accent-primary); }
+.agent__turn[data-stream-status="failed"] pre,
+.agent__turn[data-stream-status="stopped"] pre { border-color: var(--status-caution); }
+.agent__reasoning { border-left: 3px solid var(--accent-secondary); padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+.agent__reasoning summary { cursor: pointer; color: var(--ink-650); }
+.agent__reasoning pre { margin-top: 0.35rem; font-size: 0.8rem; background: var(--surface-soft); }
 .agent__tool { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.8rem; padding: 0.25rem 0.5rem; border-left: 3px solid var(--accent-secondary); }
 .agent__tool-name { font-weight: 600; color: var(--accent-secondary); }
 .agent__tool code { overflow-wrap: anywhere; }

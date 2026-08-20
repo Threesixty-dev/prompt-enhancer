@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentEvent, AgentSessionView } from "../../shared/api/contracts";
 import { AgentPage } from "./AgentPage";
@@ -8,7 +8,7 @@ const APPROVAL = "b".repeat(32);
 
 function view(overrides: Partial<AgentSessionView> = {}): AgentSessionView {
   return {
-    contract_version: "local-agent.v1" as const,
+    contract_version: "local-agent.v2" as const,
     session_id: SESSION,
     settings: { workspace: "D:\\example\\project", model_alias: null, parameters: { temperature: 0.2, top_p: 0.95, max_tokens: 1400, enable_thinking: false }, instructions: null, allow_writes: true, allow_commands: true, allow_web: false, max_steps: 10, command_timeout_seconds: 120, title: null },
     created_at: "2026-08-20T01:00:00Z",
@@ -26,6 +26,60 @@ function event(seq: number, kind: AgentEvent["kind"], extra: Partial<AgentEvent>
 }
 
 describe("AgentPage", () => {
+  it("coalesces streamed deltas into one live bubble and replaces it with the terminal reply", async () => {
+    const streamId = "c".repeat(32);
+    let finishStream: (() => void) | undefined;
+    const current = view({ running: true, turns: 1 });
+    const transport = {
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(async () => current),
+      streamAgentEvents: vi.fn(async (_id: string, _after: number, onPage: (page: {
+        contract_version: "local-agent.v2";
+        session_id: string;
+        events: AgentEvent[];
+        running: boolean;
+        pending_approval_id: string | null;
+        last_seq: number;
+        first_seq: number;
+      }) => void) => {
+        onPage({
+          contract_version: "local-agent.v2",
+          session_id: SESSION,
+          events: [
+            event(1, "user", { text: "Say hello" }),
+            event(2, "assistant_delta", { text: "Hel", stream_id: streamId, stream_phase: "content" }),
+            event(3, "assistant_delta", { text: "lo", stream_id: streamId, stream_phase: "content" }),
+          ],
+          running: true,
+          pending_approval_id: null,
+          last_seq: 3,
+          first_seq: 1,
+        });
+        await new Promise<void>((resolve) => { finishStream = resolve; });
+        onPage({
+          contract_version: "local-agent.v2",
+          session_id: SESSION,
+          events: [
+            event(4, "assistant", { text: "Hello", stream_id: streamId, stream_status: "complete" }),
+            event(5, "done"),
+          ],
+          running: false,
+          pending_approval_id: null,
+          last_seq: 5,
+          first_seq: 1,
+        });
+      }),
+    };
+    render(<AgentPage transport={transport} />);
+    const live = await screen.findByLabelText("Agent response streaming");
+    expect(live.textContent).toContain("Hello");
+    finishStream?.();
+    await waitFor(() => expect(screen.queryByLabelText("Agent response streaming")).toBeNull());
+    expect(screen.getByText("Hello")).toBeTruthy();
+    expect(transport.getAgentEvents).not.toHaveBeenCalled();
+  });
+
   it("creates a session, sends a message, shows tool activity and approves a write with its diff", async () => {
     let events: AgentEvent[] = [event(1, "status", { text: "Session ready in project/ - reads are free." })];
     let current = view();
@@ -45,7 +99,7 @@ describe("AgentPage", () => {
         current = view({ running: true, pending_approval_id: APPROVAL, last_seq: 5, turns: 1 });
         return current;
       }),
-      getAgentEvents: vi.fn(async (_id: string, after: number) => ({ contract_version: "local-agent.v1" as const, session_id: SESSION, events: events.filter((e) => e.seq > after), running: current.running, pending_approval_id: current.pending_approval_id, last_seq: events.length ? events[events.length - 1].seq : 0, first_seq: events.length ? events[0].seq : 0 })),
+      getAgentEvents: vi.fn(async (_id: string, after: number) => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: events.filter((e) => e.seq > after), running: current.running, pending_approval_id: current.pending_approval_id, last_seq: events.length ? events[events.length - 1].seq : 0, first_seq: events.length ? events[0].seq : 0 })),
       decideAgentApproval: vi.fn(async () => {
         events = [...events, event(6, "approval_resolved", { tool: "write_file", approval_id: APPROVAL, ok: true }), event(7, "tool_result", { tool: "write_file", ok: true, text: "wrote src/app.py" }), event(8, "assistant", { text: "Done - comment added." }), event(9, "done")];
         current = view({ running: false, pending_approval_id: null, last_seq: 9, turns: 1 });
@@ -60,7 +114,10 @@ describe("AgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(transport.sendAgentMessage).toHaveBeenCalledWith(SESSION, "Add a noqa comment"));
     await screen.findByText("Read file");
-    await screen.findByRole("alertdialog", { name: "Approval needed" });
+    const approvalDialog = await screen.findByRole("alertdialog", { name: "Approval needed" });
+    expect(approvalDialog.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(approvalDialog);
+    expect(screen.getByText("Approval needed for Write file.")).toBeTruthy();
     expect(screen.getByText(/return a \+ b\s+# noqa/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(transport.decideAgentApproval).toHaveBeenCalledWith(SESSION, APPROVAL, true));
@@ -73,7 +130,7 @@ describe("AgentPage", () => {
       listAgentSessions: vi.fn(async () => []),
       createAgentSession: vi.fn(async (settings: { workspace: string; allow_web?: boolean }) => view({ settings: { ...view().settings, workspace: settings.workspace } })),
       getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
-      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v1" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
       decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
     };
     render(<AgentPage transport={transport} />);
@@ -91,7 +148,7 @@ describe("AgentPage", () => {
       listAgentSessions: vi.fn(async () => []),
       createAgentSession: vi.fn(async () => view()),
       getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
-      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v1" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v2" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
       decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
     };
     render(<AgentPage transport={transport} />);
@@ -111,5 +168,36 @@ describe("AgentPage", () => {
     expect(settings.parameters.max_tokens).toBe(2048);
     expect(settings.parameters.enable_thinking).toBe(true);
     expect(settings.instructions).toBe("Answer in Polish.");
+  });
+
+  it("caps failed live-stream reconnects and requires an explicit retry", async () => {
+    vi.useFakeTimers();
+    const current = view({ running: true, turns: 1 });
+    const transport = {
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(async () => current),
+      streamAgentEvents: vi.fn(async () => { throw new Error("synthetic stream failure"); }),
+    };
+    try {
+      render(<AgentPage transport={transport} />);
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(transport.streamAgentEvents).toHaveBeenCalledTimes(1);
+
+      for (let attempt = 1; attempt < 5; attempt += 1) {
+        await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+      }
+      expect(transport.streamAgentEvents).toHaveBeenCalledTimes(5);
+      expect(screen.getByText(/Live updates paused after repeated connection failures/)).toBeTruthy();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(transport.streamAgentEvents).toHaveBeenCalledTimes(5);
+
+      fireEvent.click(screen.getByRole("button", { name: "Retry live updates" }));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(transport.streamAgentEvents).toHaveBeenCalledTimes(6);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

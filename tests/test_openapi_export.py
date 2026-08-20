@@ -36,6 +36,10 @@ def test_build_time_schema_contains_bounded_queries_and_review_commands() -> Non
     assert "/v1/sessions/{session_id}/analysis-jobs/latest" in paths
     assert set(paths["/v1/estimators/plans"]) == {"get"}
     assert set(paths["/v1/control-plane/readiness"]) == {"get"}
+    assert set(paths["/v1/agent/sessions/{session_id}/events/stream"]) == {"get"}
+    agent_contract = schema["components"]["schemas"]["AgentEvents"]["properties"]["contract_version"]
+    assert agent_contract["const"] == "local-agent.v2"
+    assert "text/event-stream" in paths["/v1/agent/sessions/{session_id}/events/stream"]["get"]["responses"]["200"]["content"]
     assert {
         path for path in paths if path.startswith("/v1/control-plane/")
     } == {"/v1/control-plane/readiness"}

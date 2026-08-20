@@ -126,6 +126,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/sessions/{session_id}/events/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream Events */
+        get: operations["stream_events_v1_agent_sessions__session_id__events_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/sessions/{session_id}/messages": {
         parameters: {
             query?: never;
@@ -2525,13 +2542,19 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "user" | "assistant" | "tool_call" | "tool_result" | "approval_required" | "approval_resolved" | "status" | "error" | "done";
+            kind: "user" | "assistant" | "assistant_delta" | "tool_call" | "tool_result" | "approval_required" | "approval_resolved" | "status" | "error" | "done";
             /** Ok */
             ok?: boolean | null;
             /** Preview */
             preview?: string | null;
+            /** Reasoning */
+            reasoning?: string | null;
             /** Seq */
             seq: number;
+            /** Stream Id */
+            stream_id?: string | null;
+            stream_phase?: components["schemas"]["AgentStreamPhase"] | null;
+            stream_status?: components["schemas"]["AgentStreamStatus"] | null;
             /** Text */
             text?: string | null;
             /** Tool */
@@ -2541,10 +2564,10 @@ export interface components {
         AgentEvents: {
             /**
              * Contract Version
-             * @default local-agent.v1
+             * @default local-agent.v2
              * @constant
              */
-            contract_version: "local-agent.v1";
+            contract_version: "local-agent.v2";
             /** Events */
             events: components["schemas"]["AgentEvent"][];
             /**
@@ -2753,10 +2776,10 @@ export interface components {
         AgentSessionView: {
             /**
              * Contract Version
-             * @default local-agent.v1
+             * @default local-agent.v2
              * @constant
              */
-            contract_version: "local-agent.v1";
+            contract_version: "local-agent.v2";
             /**
              * Created At
              * Format: date-time
@@ -2821,6 +2844,16 @@ export interface components {
             /** Workspace */
             workspace: string;
         };
+        /**
+         * AgentStreamPhase
+         * @enum {string}
+         */
+        AgentStreamPhase: "content" | "reasoning";
+        /**
+         * AgentStreamStatus
+         * @enum {string}
+         */
+        AgentStreamStatus: "complete" | "stopped" | "failed";
         /** AllowanceState */
         AllowanceState: {
             /** Agent Allowed */
@@ -10128,6 +10161,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentEvents"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_events_v1_agent_sessions__session_id__events_stream_get: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
                 };
             };
             /** @description Validation Error */

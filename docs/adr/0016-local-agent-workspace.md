@@ -1,6 +1,6 @@
 # ADR 0016: Local agent workspace - a local model working in one folder with approvals
 
-- Status: accepted (2026-08-20), first slice
+- Status: accepted (2026-08-20), streaming slice added
 - Owner direction: a separate window where the chosen local model works the
   way Codex or Claude Code work - with tools (files, terminal, web), usable
   through the endpoint or inside the app's chat, to write code and documents;
@@ -41,7 +41,15 @@ of the app: nothing happens to the person's machine without their say-so.
    speed; the model's own chat template is used (`--jinja`, on by default in
    the runtime activation together with flash attention and an 8-bit KV
    cache, with a plain retry if the runtime refuses them).
-4. **Surfaces.** `/v1/agent/*` (sessions, messages, events, approvals, stop)
+   The agent consumes the runtime's OpenAI-compatible SSE reply directly.
+   Bounded `assistant_delta` events carry content (and, only when the person
+   enabled thinking, separately labelled reasoning) while tool-call fragments
+   are reassembled and validated before the approval loop sees them. A stream
+   must end with `[DONE]` or a terminal `finish_reason`; stopped, incomplete,
+   malformed and oversized replies get an explicit terminal state and never
+   enter model history as completed assistant messages.
+4. **Surfaces.** `/v1/agent/*` (sessions, messages, events, private SSE event
+   stream, approvals, stop)
    under the app token; the *Agent* page (folder, model, permissions,
    sessions list, transcript with tool cards, approval dialog with diff,
    composer, stop) and a chrome-less popup `/agent/window/{id}` so the agent
@@ -59,8 +67,8 @@ of the app: nothing happens to the person's machine without their say-so.
   (approved), ran `pytest` (approved, 3 passed) and summarised - about 17 s
   end to end.
 - What an editor still needs and is not here yet: a file tree and editor
-  pane with live diffs, streaming of partial assistant text, multi-session
-  layouts, persistent agent transcripts (content tier), shell sessions that
+  pane with live diffs, multi-session layouts, persistent agent transcripts
+  (content tier), shell sessions that
   survive between calls, and web search. Those are the next slices; the
   service's event stream and approval protocol are built to carry them.
 - The agent is only as good as the model and the prompts; the app keeps the

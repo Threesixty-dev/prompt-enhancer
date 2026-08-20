@@ -2193,3 +2193,68 @@ describe("same-origin HTTP transport", () => {
     });
   });
 });
+
+describe("local agent event streaming transport", () => {
+  it("consumes private same-origin SSE through the browser session", async () => {
+    const sessionId = "a".repeat(32);
+    const streamId = "b".repeat(32);
+    const payload = {
+      contract_version: "local-agent.v2",
+      session_id: sessionId,
+      events: [{
+        seq: 1,
+        at: "2026-08-20T01:00:00Z",
+        kind: "assistant_delta",
+        text: "Hello",
+        reasoning: null,
+        stream_id: streamId,
+        stream_phase: "content",
+        stream_status: null,
+        tool: null,
+        arguments: null,
+        call_id: null,
+        approval_id: null,
+        ok: null,
+        preview: null,
+      }],
+      running: false,
+      pending_approval_id: null,
+      last_seq: 1,
+      first_seq: 1,
+    };
+    const encoded = new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
+    const eventResponse = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoded.slice(0, 17));
+        controller.enqueue(encoded.slice(17));
+        controller.close();
+      },
+    }), {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-store, private",
+        Pragma: "no-cache",
+      },
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(eventResponse);
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+    const pages: unknown[] = [];
+
+    await transport.streamAgentEvents(sessionId, 0, (page) => pages.push(page));
+
+    expect(pages).toHaveLength(1);
+    expect(fetchMock.mock.calls[1][0]).toBe(`/v1/agent/sessions/${sessionId}/events/stream?after=0&limit=8`);
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
+      cache: "no-store",
+      credentials: "include",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    }));
+    expect(fetchMock.mock.calls[1][1]?.headers).toEqual({ Accept: "text/event-stream" });
+  });
+});

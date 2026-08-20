@@ -484,6 +484,7 @@ def create_app(
                 "/task-lifecycles",
                 "/lifecycle",
                 "/agent-metric-evidence",
+                "/agent/sessions",
             )
         ):
             response.headers["Cache-Control"] = "no-store, private"

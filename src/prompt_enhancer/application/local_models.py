@@ -392,6 +392,7 @@ class ChatUpstream:
     content_type: str
     body: bytes | None = None
     lines: Iterator[bytes] | None = None
+    cancel: Callable[[], None] | None = None
 
 
 def _relay_event_stream(response: object) -> Iterator[bytes]:
@@ -1165,7 +1166,18 @@ class LocalModelService:
         if "text/event-stream" not in content_type:
             with response:
                 return ChatUpstream(status_code=response.status, content_type=content_type, body=response.read())
-        return ChatUpstream(status_code=response.status, content_type="text/event-stream", lines=_relay_event_stream(response))
+        def cancel() -> None:
+            try:
+                response.close()
+            except (OSError, ValueError):
+                pass
+
+        return ChatUpstream(
+            status_code=response.status,
+            content_type="text/event-stream",
+            lines=_relay_event_stream(response),
+            cancel=cancel,
+        )
 
     # ----- downloads -----
 

@@ -149,6 +149,7 @@ import {
   parseMetricLifecycleProposalPage,
   parseMetricLifecycleProposalOutcome,
 } from "./agentMetricEvidenceContract";
+import { AgentEventPayloadError, parseAgentEvents } from "./agentEventContract";
 import type {
   LocalRuntimeTransport,
   RuntimeHealth,
@@ -283,6 +284,8 @@ const MODEL_LAB_PLAN_KEY = /^[a-z][a-z0-9_.:-]{0,127}$/;
 const MODEL_LAB_SAFE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$/;
 const MODEL_LAB_PSEUDONYM = /^[a-f0-9]{64}$/;
 const MAX_MODEL_LAB_PLANS = 1_000;
+// Eight worst-case escaped approval previews remain below the 4 MB SSE frame cap.
+const AGENT_EVENT_PAGE_LIMIT = 8;
 
 function modelLabSafeInteger(value: unknown, maximum = Number.MAX_SAFE_INTEGER): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) &&
@@ -2411,8 +2414,124 @@ export function createHttpTransport(options: {
     sendAgentMessage(sessionId, text, signal) {
       return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }, signal);
     },
-    getAgentEvents(sessionId, after, signal) {
-      return request<AgentEvents>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/events?after=${after}`, { method: "GET" }, signal);
+    async getAgentEvents(sessionId, after, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/events?after=${after}&limit=${AGENT_EVENT_PAGE_LIMIT}`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseAgentEvents(value, sessionId, after);
+      } catch (error) {
+        if (error instanceof AgentEventPayloadError) {
+          throw new TransportError("Local agent event response was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async streamAgentEvents(sessionId, after, onPage, signal) {
+      const target = assertSameOriginRelativePath(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/events/stream?after=${after}&limit=${AGENT_EVENT_PAGE_LIMIT}`,
+        origin,
+      );
+      let csrfToken = await ensureBrowserSession(signal);
+      const send = () => fetchRequest(target, {
+        method: "GET",
+        cache: "no-store",
+        credentials: "include",
+        redirect: "error",
+        referrerPolicy: "no-referrer",
+        signal,
+        headers: { Accept: "text/event-stream" },
+      });
+      let response = await send();
+      if (response.status === 401) {
+        if (sessionAuth?.csrfToken === csrfToken) sessionAuth = undefined;
+        csrfToken = await ensureBrowserSession(signal);
+        response = await send();
+      }
+      if (!response.ok) {
+        throw new TransportError(`Local API request failed (${response.status})`, response.status);
+      }
+      if (
+        response.headers.get("cache-control") !== "no-store, private" ||
+        response.headers.get("pragma") !== "no-cache" ||
+        !response.headers.get("content-type")?.startsWith("text/event-stream")
+      ) {
+        throw new TransportError("Local agent stream response was not private SSE", response.status);
+      }
+      if (response.body === null) {
+        throw new TransportError("Local agent stream response had no body", response.status);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8", { fatal: true });
+      let buffer = "";
+      let cursor = after;
+      let latestRunning = false;
+      const consumeFrames = () => {
+        while (true) {
+          const match = /\r?\n\r?\n/u.exec(buffer);
+          if (match?.index === undefined) return;
+          const frame = buffer.slice(0, match.index).replaceAll("\r\n", "\n");
+          buffer = buffer.slice(match.index + match[0].length);
+          const data = frame
+            .split("\n")
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n");
+          if (!data) continue;
+          if (data.length > 4_000_000) {
+            throw new TransportError("Local agent stream frame exceeded its limit", 200);
+          }
+          let raw: unknown;
+          try {
+            raw = JSON.parse(data);
+          } catch {
+            throw new TransportError("Local agent stream frame was invalid", 200);
+          }
+          try {
+            const page = parseAgentEvents(raw, sessionId, cursor);
+            onPage(page);
+            latestRunning = page.running;
+            if (page.events.length > 0) cursor = page.events[page.events.length - 1].seq;
+          } catch (error) {
+            if (error instanceof AgentEventPayloadError) {
+              throw new TransportError("Local agent stream payload was invalid", 200);
+            }
+            throw error;
+          }
+        }
+      };
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          if (buffer.length > 4_000_000) {
+            throw new TransportError("Local agent stream buffer exceeded its limit", 200);
+          }
+          consumeFrames();
+        }
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          buffer += "\n\n";
+          consumeFrames();
+        }
+        if (latestRunning) {
+          throw new TransportError("Local agent stream ended during a running turn", 200);
+        }
+      } catch (error) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The stream may already have closed or been aborted.
+        }
+        throw error;
+      } finally {
+        reader.releaseLock();
+      }
     },
     decideAgentApproval(sessionId, approvalId, approved, signal) {
       return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(approvalId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved }) }, signal);

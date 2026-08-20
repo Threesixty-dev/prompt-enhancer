@@ -426,7 +426,7 @@ class LocalApplication:
                     return item.record.alias
             return None
 
-        return LocalAgentService(chat=models.chat, active_model=active_model)
+        return LocalAgentService(chat=models.chat, open_chat=models.open_chat, active_model=active_model)
 
     def create_shared_folder_services(self):
         """ADR 0018: the folder-share registry, owner service and peer client."""

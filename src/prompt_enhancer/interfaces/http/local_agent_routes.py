@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
+from fastapi.responses import StreamingResponse
 
 from ...application.local_agent import (
     AgentEvents,
@@ -33,6 +34,29 @@ _SESSION_ID = r"^[0-9a-f]{32}$"
 
 def _failure(error: LocalAgentError) -> HTTPException:
     return HTTPException(status_code=_STATUS.get(error.code, 500), detail={"code": error.code})
+
+
+def _stream_event_pages(
+    service: LocalAgentService,
+    session_id: str,
+    after: int,
+    limit: int,
+) -> Iterator[bytes]:
+    """Relay bounded event pages until the current turn is fully drained."""
+
+    cursor = after
+    while True:
+        try:
+            page = service.wait_events(session_id, cursor, limit)
+        except LocalAgentError:
+            return
+        if page.events:
+            cursor = page.events[-1].seq
+            yield f"data: {page.model_dump_json()}\n\n".encode("utf-8")
+        else:
+            yield b": keepalive\n\n"
+        if not page.running and page.pending_approval_id is None and cursor >= page.last_seq:
+            return
 
 
 def create_local_agent_router(require_local_auth: Callable[..., None], service: LocalAgentService) -> APIRouter:
@@ -81,6 +105,30 @@ def create_local_agent_router(require_local_auth: Callable[..., None], service: 
             return service.events(session_id, after, limit)
         except LocalAgentError as error:
             raise _failure(error) from None
+
+    @router.get(
+        "/sessions/{session_id}/events/stream",
+        response_class=StreamingResponse,
+        responses={200: {"content": {"text/event-stream": {}}}},
+    )
+    def stream_events(
+        session_id: Annotated[str, Path(pattern=_SESSION_ID)],
+        after: Annotated[int, Query(ge=0)] = 0,
+        limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    ) -> StreamingResponse:
+        try:
+            service.get(session_id)
+        except LocalAgentError as error:
+            raise _failure(error) from None
+        return StreamingResponse(
+            _stream_event_pages(service, session_id, after, limit),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-store, private",
+                "Pragma": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @router.post("/sessions/{session_id}/approvals/{approval_id}", response_model=AgentSessionView)
     def decide(

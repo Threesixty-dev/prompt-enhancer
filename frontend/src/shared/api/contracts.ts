@@ -613,6 +613,7 @@ export interface PromptEnhancerTransport {
   deleteAgentSession(sessionId: string, signal?: AbortSignal): Promise<void>;
   sendAgentMessage(sessionId: string, text: string, signal?: AbortSignal): Promise<AgentSessionView>;
   getAgentEvents(sessionId: string, after: number, signal?: AbortSignal): Promise<AgentEvents>;
+  streamAgentEvents(sessionId: string, after: number, onPage: (page: AgentEvents) => void, signal?: AbortSignal): Promise<void>;
   decideAgentApproval(sessionId: string, approvalId: string, approved: boolean, signal?: AbortSignal): Promise<AgentSessionView>;
   stopAgentSession(sessionId: string, signal?: AbortSignal): Promise<AgentSessionView>;
   startModelJudgeSweep(signal?: AbortSignal, scope?: "sample" | "all"): Promise<JudgeSweepStatus>;

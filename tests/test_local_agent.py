@@ -14,6 +14,8 @@ from fastapi.testclient import TestClient
 
 from prompt_enhancer.api import API_TOKEN_HEADER
 from prompt_enhancer.application.local_agent import (
+    AgentStreamPhase,
+    AgentStreamStatus,
     AgentSettings,
     ApprovalDecision,
     LocalAgentError,
@@ -22,6 +24,7 @@ from prompt_enhancer.application.local_agent import (
     WorkspaceTools,
     tool_schemas,
 )
+from prompt_enhancer.application.local_models import ChatUpstream
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
 
@@ -137,6 +140,216 @@ def test_run_loop_executes_safe_tools_and_waits_for_approval_on_writes(tmp_path:
     assert raised.value.code == "approval_not_pending"
 
 
+def test_streamed_reasoning_content_and_tool_calls_are_reassembled(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    requests: list[dict] = []
+    replies = [
+        [
+            b'data: {"choices":[{"delta":{"reasoning_content":"Inspect "}}]}\n\n',
+            b'data: {"choices":[{"delta":{"reasoning_content":"first.","tool_calls":[{"function":{"name":"run_","arguments":"{\\"command\\":\\"echo "}}]}}]}\n\n',
+            b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"command","arguments":"hi\\"}"}}]}}]}\n\n',
+            b"data: [DONE]\n\n",
+        ],
+        [
+            b'data: {"choices":[{"delta":{"content":"The function "}}]}\n\n',
+            b'data: {"choices":[{"delta":{"content":"adds its inputs."}}]}\n\n',
+            b"data: [DONE]\n\n",
+        ],
+    ]
+
+    def open_chat(alias: str, body: bytes) -> ChatUpstream:
+        assert alias == "stream-model"
+        requests.append(json.loads(body))
+        return ChatUpstream(status_code=200, content_type="text/event-stream", lines=iter(replies.pop(0)))
+
+    def whole_chat(alias: str, body: bytes):
+        raise AssertionError("the whole-response fallback must not run")
+
+    service = LocalAgentService(
+        chat=whole_chat,
+        open_chat=open_chat,
+        active_model=lambda: "stream-model",
+        clock=lambda: T0,
+    )
+    view = service.create(AgentSettings(workspace=str(root), parameters={"enable_thinking": True}))
+    service.send(view.session_id, SendMessage(text="Explain src/app.py"))
+    assert _wait(lambda: service.events(view.session_id).pending_approval_id is not None)
+    live_page = service.events(view.session_id)
+    live_reasoning = [item for item in live_page.events if item.kind == "assistant_delta"]
+    assert {item.stream_phase for item in live_reasoning} == {AgentStreamPhase.REASONING}
+    assert "".join(item.text or "" for item in live_reasoning) == "Inspect first."
+    approval_id = live_page.pending_approval_id
+    assert approval_id is not None
+    service.approve(view.session_id, approval_id, ApprovalDecision(approved=False))
+    assert _wait(lambda: not service.get(view.session_id).running)
+
+    page = service.events(view.session_id)
+    deltas = [item for item in page.events if item.kind == "assistant_delta"]
+    assert {item.stream_phase for item in deltas} == {AgentStreamPhase.CONTENT}
+    assert "".join(item.text or "" for item in deltas) == "The function adds its inputs."
+    completed = [item for item in page.events if item.kind == "assistant"]
+    assert completed[0].reasoning == "Inspect first." and completed[0].text is None
+    assert completed[0].stream_id == live_reasoning[0].stream_id
+    assert completed[1].text == "The function adds its inputs."
+    assert completed[1].stream_id == deltas[0].stream_id
+    tool = next(item for item in page.events if item.kind == "tool_call")
+    assert tool.tool == "run_command" and tool.arguments == {"command": "echo hi"}
+    assert requests[0]["stream"] is True
+    assert requests[1]["messages"][-1]["role"] == "tool"
+    assert "denied by the person" in requests[1]["messages"][-1]["content"]
+    assert requests[1]["messages"][-2]["tool_calls"][0]["id"] == requests[1]["messages"][-1]["tool_call_id"]
+
+
+def test_wait_events_wakes_on_cursor_advance(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    chat, _ = _stub_model([{"content": "done"}])
+    service = LocalAgentService(chat=chat, active_model=lambda: "stub", clock=lambda: T0)
+    view = service.create(AgentSettings(workspace=str(root)))
+    result: list[object] = []
+    waiter = threading.Thread(
+        target=lambda: result.append(service.wait_events(view.session_id, after=1, timeout=1.0)),
+        daemon=True,
+    )
+    waiter.start()
+    service.send(view.session_id, SendMessage(text="wake up"))
+    waiter.join(timeout=2)
+    assert not waiter.is_alive() and result
+    assert result[0].events[0].kind == "user"  # type: ignore[union-attr]
+
+
+def test_live_delta_pressure_never_evicts_durable_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import prompt_enhancer.application.local_agent as local_agent_module
+
+    monkeypatch.setattr(local_agent_module, "MAX_EVENTS", 4)
+    root = _workspace(tmp_path)
+    chat, _ = _stub_model([{"content": "done"}])
+    service = LocalAgentService(chat=chat, active_model=lambda: "stub", clock=lambda: T0)
+    view = service.create(AgentSettings(workspace=str(root)))
+    session = service._session(view.session_id)  # noqa: SLF001 - bounded ring invariant
+    service._emit(session, "status", text="durable")  # noqa: SLF001
+    for index in range(4):
+        service._emit(  # noqa: SLF001
+            session,
+            "assistant_delta",
+            text=str(index),
+            stream_id="d" * 32,
+            stream_phase=AgentStreamPhase.CONTENT,
+        )
+    retained = service.events(view.session_id).events
+    assert [(item.kind, item.text) for item in retained if item.kind != "assistant_delta"] == [
+        ("status", "Session ready in project/ - reads are free; writes, commands and fetches wait for your approval."),
+        ("status", "durable"),
+    ]
+
+
+def test_incomplete_stream_is_failed_and_never_enters_model_history(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    requests: list[dict] = []
+    streams = [
+        [b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'],
+        [b'data: {"choices":[{"delta":{"content":"recovered"},"finish_reason":"stop"}]}\n\n'],
+    ]
+
+    def open_chat(alias: str, body: bytes) -> ChatUpstream:
+        requests.append(json.loads(body))
+        return ChatUpstream(200, "text/event-stream", lines=iter(streams.pop(0)))
+
+    service = LocalAgentService(
+        chat=lambda alias, body: (_ for _ in ()).throw(AssertionError("fallback called")),
+        open_chat=open_chat,
+        active_model=lambda: "stub",
+        clock=lambda: T0,
+    )
+    view = service.create(AgentSettings(workspace=str(root)))
+    service.send(view.session_id, SendMessage(text="first"))
+    assert _wait(lambda: not service.get(view.session_id).running)
+    first = service.events(view.session_id)
+    terminal = next(item for item in first.events if item.kind == "assistant")
+    assert terminal.text == "partial" and terminal.stream_status is AgentStreamStatus.FAILED
+    assert any(item.kind == "error" and item.text == "model stream ended before completion" for item in first.events)
+
+    service.send(view.session_id, SendMessage(text="retry"))
+    assert _wait(lambda: not service.get(view.session_id).running)
+    assert [message["role"] for message in requests[1]["messages"]] == ["system", "user", "user"]
+    assert all(message.get("content") != "partial" for message in requests[1]["messages"])
+
+
+def test_malformed_streamed_tool_arguments_never_reach_a_tool(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    streams = [
+        [
+            b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"bad","function":{"name":"write_file","arguments":"{"}}]}}]}\n\n',
+            b"data: [DONE]\n\n",
+        ],
+        [
+            b'data: {"choices":[{"delta":{"content":"I could not apply that change."},"finish_reason":"stop"}]}\n\n',
+        ],
+    ]
+
+    def open_chat(alias: str, body: bytes) -> ChatUpstream:
+        return ChatUpstream(200, "text/event-stream", lines=iter(streams.pop(0)))
+
+    service = LocalAgentService(
+        chat=lambda alias, body: (_ for _ in ()).throw(AssertionError("fallback called")),
+        open_chat=open_chat,
+        active_model=lambda: "stub",
+        clock=lambda: T0,
+    )
+    view = service.create(AgentSettings(workspace=str(root)))
+    before = (root / "src" / "app.py").read_text(encoding="utf-8")
+    service.send(view.session_id, SendMessage(text="change the file"))
+    assert _wait(lambda: not service.get(view.session_id).running)
+    page = service.events(view.session_id)
+    failed = next(item for item in page.events if item.kind == "tool_result")
+    assert failed.ok is False and failed.text == "model supplied invalid tool arguments"
+    assert not any(item.kind == "approval_required" for item in page.events)
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == before
+
+
+def test_stop_closes_stream_without_poisoning_history(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    first_chunk = threading.Event()
+    release = threading.Event()
+    closed = threading.Event()
+    cancelled = threading.Event()
+    initial = "started " * 30
+
+    def lines():
+        try:
+            first_chunk.set()
+            yield f'data: {json.dumps({"choices": [{"delta": {"content": initial}}]})}\n\n'.encode()
+            release.wait(timeout=2)
+            yield b'data: {"choices":[{"delta":{"content":" ignored"}}]}\n\n'
+        finally:
+            closed.set()
+
+    def open_chat(alias: str, body: bytes) -> ChatUpstream:
+        def cancel() -> None:
+            cancelled.set()
+            release.set()
+
+        return ChatUpstream(200, "text/event-stream", lines=lines(), cancel=cancel)
+
+    service = LocalAgentService(
+        chat=lambda alias, body: (_ for _ in ()).throw(AssertionError("fallback called")),
+        open_chat=open_chat,
+        active_model=lambda: "stub",
+        clock=lambda: T0,
+    )
+    view = service.create(AgentSettings(workspace=str(root)))
+    service.send(view.session_id, SendMessage(text="start"))
+    assert first_chunk.wait(timeout=2)
+    assert _wait(lambda: any(item.kind == "assistant_delta" for item in service.events(view.session_id).events))
+    service.stop(view.session_id)
+    assert cancelled.wait(timeout=1)
+    assert _wait(lambda: not service.get(view.session_id).running)
+    assert closed.is_set()
+    terminal = next(item for item in service.events(view.session_id).events if item.kind == "assistant")
+    assert terminal.text == initial.strip() and terminal.stream_status is AgentStreamStatus.STOPPED
+    session = service._session(view.session_id)  # noqa: SLF001 - exact history invariant
+    assert [message["role"] for message in session.messages] == ["system", "user"]
+
+
 def test_denied_command_is_reported_to_the_model_and_stop_ends_the_turn(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     ran: list[str] = []
@@ -173,6 +386,29 @@ def test_denied_command_is_reported_to_the_model_and_stop_ends_the_turn(tmp_path
     service2.stop(view2.session_id)
     assert _wait(lambda: not service2.get(view2.session_id).running)
     assert ran == []
+
+
+def test_stop_resolves_every_remaining_tool_call_in_history(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    chat, _ = _stub_model([{
+        "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "run_command", "arguments": json.dumps({"command": "echo one"})}},
+            {"id": "c2", "type": "function", "function": {"name": "run_command", "arguments": json.dumps({"command": "echo two"})}},
+        ],
+    }])
+    service = LocalAgentService(chat=chat, active_model=lambda: "stub", clock=lambda: T0, approval_wait_seconds=5)
+    view = service.create(AgentSettings(workspace=str(root)))
+    service.send(view.session_id, SendMessage(text="run both"))
+    assert _wait(lambda: service.events(view.session_id).pending_approval_id is not None)
+    service.stop(view.session_id)
+    assert _wait(lambda: not service.get(view.session_id).running)
+
+    session = service._session(view.session_id)  # noqa: SLF001 - history pairing invariant
+    assistant = next(message for message in session.messages if message["role"] == "assistant")
+    tool_messages = [message for message in session.messages if message["role"] == "tool"]
+    assert [call["id"] for call in assistant["tool_calls"]] == ["c1", "c2"]
+    assert [message["tool_call_id"] for message in tool_messages] == ["c1", "c2"]
+    assert tool_messages[-1]["content"] == "cancelled before execution"
 
 
 def test_session_guards(tmp_path: Path) -> None:
@@ -218,6 +454,14 @@ def test_http_routes(tmp_path: Path) -> None:
     assert _wait(lambda: not client.get(f"/v1/agent/sessions/{session_id}", headers=headers).json()["running"])
     events = client.get(f"/v1/agent/sessions/{session_id}/events?after=0", headers=headers).json()
     assert [e["kind"] for e in events["events"]] == ["status", "user", "assistant", "done"]
+    streamed = client.get(f"/v1/agent/sessions/{session_id}/events/stream?after=0", headers=headers)
+    assert streamed.status_code == 200
+    assert streamed.headers["cache-control"] == "no-store, private"
+    assert streamed.headers["pragma"] == "no-cache"
+    assert streamed.headers["content-type"].startswith("text/event-stream")
+    streamed_page = json.loads(next(line[6:] for line in streamed.text.splitlines() if line.startswith("data: ")))
+    assert streamed_page["contract_version"] == "local-agent.v2"
+    assert [event["kind"] for event in streamed_page["events"]] == ["status", "user", "assistant", "done"]
     assert client.get(f"/v1/agent/sessions/{session_id}/events?after={events['last_seq']}", headers=headers).json()["events"] == []
     assert client.post(f"/v1/agent/sessions/{session_id}/approvals/{'0' * 32}", headers=headers, json={"approved": True}).status_code == 409
     assert client.delete(f"/v1/agent/sessions/{session_id}", headers=headers).status_code == 204

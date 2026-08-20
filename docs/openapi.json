@@ -201,6 +201,7 @@
           "call_id": {
             "anyOf": [
               {
+                "maxLength": 256,
                 "type": "string"
               },
               {
@@ -213,6 +214,7 @@
             "enum": [
               "user",
               "assistant",
+              "assistant_delta",
               "tool_call",
               "tool_result",
               "approval_required",
@@ -246,13 +248,57 @@
             ],
             "title": "Preview"
           },
+          "reasoning": {
+            "anyOf": [
+              {
+                "maxLength": 120000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          },
           "seq": {
             "title": "Seq",
             "type": "integer"
           },
+          "stream_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Id"
+          },
+          "stream_phase": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentStreamPhase"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stream_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentStreamStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "text": {
             "anyOf": [
               {
+                "maxLength": 120000,
                 "type": "string"
               },
               {
@@ -264,6 +310,7 @@
           "tool": {
             "anyOf": [
               {
+                "maxLength": 128,
                 "type": "string"
               },
               {
@@ -285,8 +332,8 @@
         "additionalProperties": false,
         "properties": {
           "contract_version": {
-            "const": "local-agent.v1",
-            "default": "local-agent.v1",
+            "const": "local-agent.v2",
+            "default": "local-agent.v2",
             "title": "Contract Version",
             "type": "string"
           },
@@ -673,8 +720,8 @@
         "additionalProperties": false,
         "properties": {
           "contract_version": {
-            "const": "local-agent.v1",
-            "default": "local-agent.v1",
+            "const": "local-agent.v2",
+            "default": "local-agent.v2",
             "title": "Contract Version",
             "type": "string"
           },
@@ -825,6 +872,23 @@
         ],
         "title": "AgentSettings",
         "type": "object"
+      },
+      "AgentStreamPhase": {
+        "enum": [
+          "content",
+          "reasoning"
+        ],
+        "title": "AgentStreamPhase",
+        "type": "string"
+      },
+      "AgentStreamStatus": {
+        "enum": [
+          "complete",
+          "stopped",
+          "failed"
+        ],
+        "title": "AgentStreamStatus",
+        "type": "string"
       },
       "AllowanceState": {
         "additionalProperties": false,
@@ -19790,6 +19854,100 @@
           }
         },
         "summary": "Events",
+        "tags": [
+          "local-agent"
+        ]
+      }
+    },
+    "/v1/agent/sessions/{session_id}/events/stream": {
+      "get": {
+        "operationId": "stream_events_v1_agent_sessions__session_id__events_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Events",
         "tags": [
           "local-agent"
         ]
