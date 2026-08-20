@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentEvent, AgentEvents, AgentSessionView, AgentSettings, LocalModelsOverview, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { TeamFoldersPanel } from "./TeamFoldersPanel";
+import { AgentWorkspacePane } from "./AgentWorkspacePane";
 import "./AgentPage.css";
 
 const POLL_MS = 700;
@@ -39,7 +40,7 @@ function summarizeArguments(tool: string | null | undefined, args: Record<string
 
 type TransportSlice = Pick<
   PromptEnhancerTransport,
-  "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession"
+  "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
 > & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
 
 /**
@@ -78,6 +79,7 @@ export function AgentPage({
   const [streamNotice, setStreamNotice] = useState("");
   const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [historyGap, setHistoryGap] = useState(false);
+  const [workspaceDirty, setWorkspaceDirty] = useState(false);
   const lastSeq = useRef(0);
   const logRef = useRef<HTMLDivElement | null>(null);
   const approvalRef = useRef<HTMLDivElement | null>(null);
@@ -206,10 +208,16 @@ export function AgentPage({
 
   const runningModels = useMemo(() => (models?.models ?? []).filter((m) => m.runtime.state === "running"), [models]);
   const liveStreams = useMemo(() => coalesceLiveStreams(events), [events]);
+  const handleWorkspaceDirty = useCallback((value: boolean) => setWorkspaceDirty(value), []);
+
+  function mayLeaveWorkspace(): boolean {
+    return !workspaceDirty || window.confirm("Discard the unsaved manual workspace edit?");
+  }
 
   async function createSession() {
     const path = workspace.trim();
     if (!path) return;
+    if (!mayLeaveWorkspace()) return;
     setBusy(true);
     setMessage("");
     try {
@@ -274,6 +282,7 @@ export function AgentPage({
   }
 
   async function closeSession(id: string) {
+    if (current?.session_id === id && !mayLeaveWorkspace()) return;
     try {
       await transport.deleteAgentSession(id);
       if (current?.session_id === id) { setCurrent(null); setEvents([]); setHistoryGap(false); setStreamNotice(""); lastSeq.current = 0; }
@@ -356,11 +365,11 @@ export function AgentPage({
                 <ul>
                   {sessions.map((s) => (
                     <li key={s.session_id} data-current={s.session_id === current?.session_id ? "true" : undefined}>
-                      <button className="agent__session-pick" onClick={() => { setCurrent(s); setEvents([]); lastSeq.current = 0; }} type="button">
+                      <button className="agent__session-pick" onClick={() => { if (mayLeaveWorkspace()) { setCurrent(s); setEvents([]); setHistoryGap(false); setStreamNotice(""); lastSeq.current = 0; } }} type="button">
                         <strong>{s.settings.title || s.settings.workspace.split(/[\\/]/).filter(Boolean).pop()}</strong>
                         <small>{s.running ? "running" : s.pending_approval_id ? "waiting for you" : `${s.turns} turns`}{s.model_alias ? ` · ${s.model_alias}` : ""}</small>
                       </button>
-                      <button aria-label={`Close session ${s.settings.title || s.settings.workspace.split(/[\\/]/).filter(Boolean).pop()}`} className="agent__session-close" onClick={() => { if (window.confirm("Close this session? The conversation is not stored anywhere and cannot be reopened.")) void closeSession(s.session_id); }} title="Close session" type="button">×</button>
+                      <button aria-label={`Close session ${s.settings.title || s.settings.workspace.split(/[\\/]/).filter(Boolean).pop()}`} className="agent__session-close" onClick={() => { if (window.confirm("Close this session? The conversation and any unsaved manual edit are not stored and cannot be reopened.")) void closeSession(s.session_id); }} title="Close session" type="button">×</button>
                     </li>
                   ))}
                 </ul>
@@ -370,7 +379,17 @@ export function AgentPage({
           </aside>
         )}
 
-        <section className="agent__main" aria-label="Agent conversation">
+        <div className="agent__workbench" data-has-workspace={current ? "true" : "false"}>
+          {current && (
+            <AgentWorkspacePane
+              key={current.session_id}
+              onDirtyChange={handleWorkspaceDirty}
+              pendingWrite={pending}
+              sessionId={current.session_id}
+              transport={transport}
+            />
+          )}
+          <section className="agent__main" aria-label="Agent conversation">
           {!current ? (
             <p className="agent__note">{windowMode ? "This window has no session. Open one from the Agent page." : "Start a session on the left, then ask for something: explore the repo, fix a failing test, draft a document."}</p>
           ) : (
@@ -458,7 +477,8 @@ export function AgentPage({
             </>
           )}
           {message && <p className="agent__error" role="alert">{message}</p>}
-        </section>
+          </section>
+        </div>
       </div>
     </section>
   );

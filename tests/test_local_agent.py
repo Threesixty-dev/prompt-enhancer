@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+import platform
 import subprocess
 import threading
 import time
@@ -24,6 +25,12 @@ from prompt_enhancer.application.local_agent import (
     WorkspaceTools,
     tool_schemas,
 )
+from prompt_enhancer.application.local_agent_editor import (
+    WORKSPACE_APPLY_CONFIRMATION,
+    WorkspaceApplyCommand,
+    WorkspacePreviewCommand,
+)
+from prompt_enhancer.application.local_agent_workspace import WorkspacePathEntry
 from prompt_enhancer.application.local_models import ChatUpstream
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
@@ -55,12 +62,42 @@ def test_workspace_tools_never_leave_the_folder(tmp_path: Path) -> None:
         with pytest.raises(LocalAgentError) as raised:
             tools.resolve(escape)
         assert raised.value.code == "path_outside_workspace", escape
+    unsafe_paths = ["README.md:secret"]
+    if platform.system() == "Windows":
+        unsafe_paths.extend(("CON", "src/trailing.", "src/name?"))
+    for unsafe in unsafe_paths:
+        with pytest.raises(LocalAgentError) as raised:
+            tools.resolve(unsafe)
+        assert raised.value.code == "path_invalid", unsafe
+    for skipped_path in ("node_modules/big.js", ".git/config"):
+        with pytest.raises(LocalAgentError) as raised:
+            tools.resolve(skipped_path)
+        assert raised.value.code == "workspace_path_not_found", skipped_path
     assert tools.read_file("missing.txt").ok is False
     preview = tools.diff_preview("src/app.py", "def add(a, b):\n    return a - b\n")
     assert "-    return a + b" in preview and "+    return a - b" in preview
+    canonical_preview = tools.diff_preview("./src/app.py", "def add(a, b):\n    return a - b\n")
+    assert canonical_preview.startswith("--- a/src/app.py\n+++ b/src/app.py")
+    with pytest.raises(LocalAgentError) as skipped:
+        tools.list_entries("node_modules")
+    assert skipped.value.code == "workspace_path_not_found"
     assert "+++ b/new.md" in tools.diff_preview("new.md", "hello\n")
     written = tools.write_file("new.md", "hello\n")
     assert written.ok and (root / "new.md").read_text(encoding="utf-8") == "hello\n"
+
+
+def test_workspace_path_policy_keeps_platform_rules_consistent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from prompt_enhancer.application import local_agent_workspace as workspace_module
+
+    monkeypatch.setattr(workspace_module.platform, "system", lambda: "Linux")
+    assert workspace_module._relative_components_are_portable(PureWindowsPath("CON"))  # noqa: SLF001
+    assert workspace_module._relative_components_are_portable(PureWindowsPath("trailing."))  # noqa: SLF001
+    assert not workspace_module._relative_components_are_portable(PureWindowsPath("file:stream"))  # noqa: SLF001
+    monkeypatch.setattr(workspace_module.platform, "system", lambda: "Windows")
+    assert not workspace_module._relative_components_are_portable(PureWindowsPath("CON"))  # noqa: SLF001
+    assert not workspace_module._relative_components_are_portable(PureWindowsPath("trailing."))  # noqa: SLF001
 
 
 def test_prepared_writes_are_revision_bound_and_refuse_unsafe_files(tmp_path: Path) -> None:
@@ -90,6 +127,259 @@ def test_prepared_writes_are_revision_bound_and_refuse_unsafe_files(tmp_path: Pa
     with pytest.raises(LocalAgentError) as oversized:
         tools.prepare_write("new.md", "x" * 256_001)
     assert oversized.value.code == "workspace_file_too_large"
+
+
+def test_workspace_editor_tree_read_preview_apply_and_single_use(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    monotonic = [10.0]
+    service = LocalAgentService(
+        chat=lambda a, b: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        clock=lambda: T0,
+        monotonic=lambda: monotonic[0],
+    )
+    session = service.create(AgentSettings(workspace=str(root)))
+    tree = service.workspace_tree(session.session_id)
+    assert tree.contract_version == "local-agent-workspace.v1"
+    assert tree.complete is True
+    assert [(entry.name, entry.kind.value) for entry in tree.entries] == [
+        ("src", "directory"),
+        ("README.md", "file"),
+        ("node_modules", "unavailable"),
+    ]
+    assert all(not Path(entry.path).is_absolute() for entry in tree.entries)
+    nested = service.workspace_tree(session.session_id, "src")
+    assert [entry.path for entry in nested.entries] == ["src/app.py"]
+
+    opened = service.workspace_file(session.session_id, "src/app.py")
+    assert opened.content.endswith("return a + b\n")
+    assert opened.line_ending.value in {"lf", "crlf"} and opened.editable is True
+    command = WorkspacePreviewCommand(
+        path=opened.path,
+        content=opened.content.replace("a + b", "a - b"),
+        expected_revision=opened.revision,
+        line_ending=opened.line_ending,
+    )
+    preview = service.preview_workspace_edit(session.session_id, command)
+    assert "-    return a + b" in preview.diff
+    assert "+    return a - b" in preview.diff
+    capability = service._editor._capabilities[preview.preview_id]  # noqa: SLF001 - content-free authority invariant
+    assert "content" not in capability.__dataclass_fields__
+    apply_command = WorkspaceApplyCommand(
+        path=preview.path,
+        content=command.content,
+        expected_revision=preview.expected_revision,
+        proposed_revision=preview.proposed_revision,
+        line_ending=preview.line_ending,
+        confirmation=WORKSPACE_APPLY_CONFIRMATION,
+    )
+    other_session = service.create(AgentSettings(workspace=str(root)))
+    with pytest.raises(LocalAgentError) as cross_session:
+        service.apply_workspace_edit(
+            other_session.session_id,
+            preview.preview_id,
+            apply_command,
+        )
+    assert cross_session.value.code == "workspace_preview_not_found"
+    applied = service.apply_workspace_edit(
+        session.session_id,
+        preview.preview_id,
+        apply_command,
+    )
+    assert applied.applied is True and applied.revision == preview.proposed_revision
+    assert (root / "src" / "app.py").read_text(encoding="utf-8").endswith("a - b\n")
+    with pytest.raises(LocalAgentError) as replay:
+        service.apply_workspace_edit(
+            session.session_id,
+            preview.preview_id,
+            WorkspaceApplyCommand(
+                path=preview.path,
+                content=command.content,
+                expected_revision=preview.expected_revision,
+                proposed_revision=preview.proposed_revision,
+                line_ending=preview.line_ending,
+                confirmation=WORKSPACE_APPLY_CONFIRMATION,
+            ),
+        )
+    assert replay.value.code == "workspace_preview_not_found"
+
+
+def test_workspace_editor_rejects_stale_mismatched_expired_and_non_text_edits(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    monotonic = [20.0]
+    service = LocalAgentService(
+        chat=lambda a, b: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        clock=lambda: T0,
+        monotonic=lambda: monotonic[0],
+    )
+    session = service.create(AgentSettings(workspace=str(root)))
+    opened = service.workspace_file(session.session_id, "README.md")
+
+    def preview_for(content: str):
+        return service.preview_workspace_edit(
+            session.session_id,
+            WorkspacePreviewCommand(
+                path=opened.path,
+                content=content,
+                expected_revision=opened.revision,
+                line_ending=opened.line_ending,
+            ),
+        )
+
+    stale = preview_for(opened.content + "Changed.\n")
+    (root / "README.md").write_text("external\n", encoding="utf-8")
+    with pytest.raises(LocalAgentError) as changed:
+        service.apply_workspace_edit(
+            session.session_id,
+            stale.preview_id,
+            WorkspaceApplyCommand(
+                path=stale.path,
+                content=opened.content + "Changed.\n",
+                expected_revision=stale.expected_revision,
+                proposed_revision=stale.proposed_revision,
+                line_ending=stale.line_ending,
+                confirmation=WORKSPACE_APPLY_CONFIRMATION,
+            ),
+        )
+    assert changed.value.code == "workspace_revision_changed"
+    assert (root / "README.md").read_text(encoding="utf-8") == "external\n"
+
+    reopened = service.workspace_file(session.session_id, "README.md")
+    mismatch = service.preview_workspace_edit(
+        session.session_id,
+        WorkspacePreviewCommand(
+            path=reopened.path,
+            content="reviewed\n",
+            expected_revision=reopened.revision,
+            line_ending=reopened.line_ending,
+        ),
+    )
+    with pytest.raises(LocalAgentError) as forged:
+        service.apply_workspace_edit(
+            session.session_id,
+            mismatch.preview_id,
+            WorkspaceApplyCommand(
+                path=mismatch.path,
+                content="different\n",
+                expected_revision=mismatch.expected_revision,
+                proposed_revision=mismatch.proposed_revision,
+                line_ending=mismatch.line_ending,
+                confirmation=WORKSPACE_APPLY_CONFIRMATION,
+            ),
+        )
+    assert forged.value.code == "workspace_preview_mismatch"
+
+    expired = service.preview_workspace_edit(
+        session.session_id,
+        WorkspacePreviewCommand(
+            path=reopened.path,
+            content="expires\n",
+            expected_revision=reopened.revision,
+            line_ending=reopened.line_ending,
+        ),
+    )
+    monotonic[0] += 121
+    with pytest.raises(LocalAgentError) as timeout:
+        service.apply_workspace_edit(
+            session.session_id,
+            expired.preview_id,
+            WorkspaceApplyCommand(
+                path=expired.path,
+                content="expires\n",
+                expected_revision=expired.expected_revision,
+                proposed_revision=expired.proposed_revision,
+                line_ending=expired.line_ending,
+                confirmation=WORKSPACE_APPLY_CONFIRMATION,
+            ),
+        )
+    assert timeout.value.code == "workspace_preview_expired"
+
+    (root / "binary.bin").write_bytes(b"\x00\x01")
+    with pytest.raises(LocalAgentError) as binary:
+        service.workspace_file(session.session_id, "binary.bin")
+    assert binary.value.code == "workspace_binary_refused"
+    (root / "mixed.txt").write_bytes(b"one\r\ntwo\n")
+    with pytest.raises(LocalAgentError) as mixed:
+        service.workspace_file(session.session_id, "mixed.txt")
+    assert mixed.value.code == "workspace_line_endings_unsupported"
+
+
+def test_workspace_editor_diff_never_hides_byte_changes(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    service = LocalAgentService(
+        chat=lambda a, b: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        clock=lambda: T0,
+    )
+    session = service.create(AgentSettings(workspace=str(root)))
+
+    (root / "edge.txt").write_text("a\n", encoding="utf-8", newline="")
+    opened = service.workspace_file(session.session_id, "edge.txt")
+    removed_newline = service.preview_workspace_edit(
+        session.session_id,
+        WorkspacePreviewCommand(
+            path=opened.path,
+            content="a",
+            expected_revision=opened.revision,
+            line_ending=opened.line_ending,
+        ),
+    )
+    assert removed_newline.diff != "(no change)"
+    assert "@@" in removed_newline.diff and "\n-" in removed_newline.diff
+
+    separator = service.preview_workspace_edit(
+        session.session_id,
+        WorkspacePreviewCommand(
+            path=opened.path,
+            content="a\u2028b\n",
+            expected_revision=opened.revision,
+            line_ending=opened.line_ending,
+        ),
+    )
+    assert separator.diff != "(no change)" and "+a\u2028b" in separator.diff
+
+    vertical_tab = service.preview_workspace_edit(
+        session.session_id,
+        WorkspacePreviewCommand(
+            path=opened.path,
+            content="a\x0bb\n",
+            expected_revision=opened.revision,
+            line_ending=opened.line_ending,
+        ),
+    )
+    assert "+a\x0bb" in vertical_tab.diff and "\n+b" not in vertical_tab.diff
+
+
+def test_workspace_tree_omits_unrepresentable_entries_without_500(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _workspace(tmp_path)
+    service = LocalAgentService(
+        chat=lambda a, b: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+    )
+    session = service.create(AgentSettings(workspace=str(root)))
+    state = service._session(session.session_id)  # noqa: SLF001 - synthetic adapter boundary
+    monkeypatch.setattr(
+        state.tools,
+        "list_entries",
+        lambda _path: (
+            (
+                WorkspacePathEntry(
+                    path="x" * 1025,
+                    name="x",
+                    kind="file",
+                    byte_size=1,
+                    editable_candidate=True,
+                ),
+            ),
+            True,
+        ),
+    )
+    tree = service.workspace_tree(session.session_id)
+    assert tree.entries == () and tree.complete is False
 
 
 def test_run_command_uses_the_workspace_and_bounds_output(tmp_path: Path) -> None:
@@ -520,7 +810,7 @@ def test_session_guards(tmp_path: Path) -> None:
     assert forbidden.value.code == "workspace_not_allowed"
 
 
-def test_http_routes(tmp_path: Path) -> None:
+def test_http_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _workspace(tmp_path)
     settings = AppSettings(home=tmp_path / "home")
     application = bootstrap_local_application(settings)
@@ -538,6 +828,89 @@ def test_http_routes(tmp_path: Path) -> None:
     assert created.status_code == 201, created.text
     session_id = created.json()["session_id"]
     assert client.post("/v1/agent/sessions", headers=headers, json={"workspace": str(root / "missing")}).status_code == 422
+    tree_response = client.get(
+        f"/v1/agent/sessions/{session_id}/workspace/tree?path=.",
+        headers=headers,
+    )
+    assert tree_response.status_code == 200
+    assert tree_response.headers["cache-control"] == "no-store, private"
+    assert tree_response.headers["pragma"] == "no-cache"
+    assert [item["path"] for item in tree_response.json()["entries"]] == [
+        "src",
+        "README.md",
+        "node_modules",
+    ]
+    file_response = client.get(
+        f"/v1/agent/sessions/{session_id}/workspace/file?path=src%2Fapp.py",
+        headers=headers,
+    )
+    assert file_response.status_code == 200
+    assert file_response.headers["cache-control"] == "no-store, private"
+    assert file_response.headers["pragma"] == "no-cache"
+    opened = file_response.json()
+    original_workspace_file = service.workspace_file
+
+    def changed_during_read(_session_id: str, _path: str):
+        raise LocalAgentError("workspace_file_changed")
+
+    monkeypatch.setattr(service, "workspace_file", changed_during_read)
+    changed_response = client.get(
+        f"/v1/agent/sessions/{session_id}/workspace/file?path=src%2Fapp.py",
+        headers=headers,
+    )
+    assert changed_response.status_code == 409
+    assert changed_response.json() == {"detail": {"code": "workspace_file_changed"}}
+    assert changed_response.headers["cache-control"] == "no-store, private"
+    monkeypatch.setattr(service, "workspace_file", original_workspace_file)
+    preview_response = client.post(
+        f"/v1/agent/sessions/{session_id}/workspace/previews",
+        headers=headers,
+        json={
+            "path": opened["path"],
+            "content": opened["content"].replace("a + b", "a - b"),
+            "expected_revision": opened["revision"],
+            "line_ending": opened["line_ending"],
+        },
+    )
+    assert preview_response.status_code == 201, preview_response.text
+    assert preview_response.headers["cache-control"] == "no-store, private"
+    assert preview_response.headers["pragma"] == "no-cache"
+    preview = preview_response.json()
+    apply_payload = {
+        "path": preview["path"],
+        "content": opened["content"].replace("a + b", "a - b"),
+        "expected_revision": preview["expected_revision"],
+        "proposed_revision": preview["proposed_revision"],
+        "line_ending": preview["line_ending"],
+        "confirmation": WORKSPACE_APPLY_CONFIRMATION,
+    }
+    token_apply = client.post(
+        f"/v1/agent/sessions/{session_id}/workspace/previews/{preview['preview_id']}/apply",
+        headers=headers,
+        json=apply_payload,
+    )
+    assert token_apply.status_code == 403
+    assert token_apply.json() == {"detail": "browser confirmation required"}
+    assert token_apply.headers["cache-control"] == "no-store, private"
+    browser = client.get("/auth/session")
+    csrf = browser.json()["csrf_token"]
+    browser_headers = {CSRF_HEADER: csrf, "Origin": "http://127.0.0.1"}
+    mixed_apply = client.post(
+        f"/v1/agent/sessions/{session_id}/workspace/previews/{preview['preview_id']}/apply",
+        headers={**headers, **browser_headers},
+        json=apply_payload,
+    )
+    assert mixed_apply.status_code == 403
+    assert mixed_apply.json() == {"detail": "browser confirmation required"}
+    applied = client.post(
+        f"/v1/agent/sessions/{session_id}/workspace/previews/{preview['preview_id']}/apply",
+        headers=browser_headers,
+        json=apply_payload,
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["revision"] == preview["proposed_revision"]
+    assert applied.headers["cache-control"] == "no-store, private"
+    assert applied.headers["pragma"] == "no-cache"
     sent = client.post(f"/v1/agent/sessions/{session_id}/messages", headers=headers, json={"text": "what is here?"})
     assert sent.status_code == 202, sent.text
     assert _wait(lambda: not client.get(f"/v1/agent/sessions/{session_id}", headers=headers).json()["running"])
@@ -559,11 +932,9 @@ def test_http_routes(tmp_path: Path) -> None:
     )
     assert token_approval.status_code == 403
     assert token_approval.json() == {"detail": "browser confirmation required"}
-    browser = client.get("/auth/session")
-    csrf = browser.json()["csrf_token"]
     browser_approval = client.post(
         f"/v1/agent/sessions/{session_id}/approvals/{'0' * 32}",
-        headers={CSRF_HEADER: csrf, "Origin": "http://127.0.0.1"},
+        headers=browser_headers,
         json={"approved": True},
     )
     assert browser_approval.status_code == 409

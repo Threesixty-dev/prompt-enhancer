@@ -577,6 +577,10 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async streamAgentEvents() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async decideAgentApproval() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
     async stopAgentSession() { throw new TransportError("Local agent is unavailable in synthetic preview", 404); },
+    async getAgentWorkspaceTree() { throw new TransportError("Local agent workspace is unavailable in synthetic preview", 404); },
+    async getAgentWorkspaceFile() { throw new TransportError("Local agent workspace is unavailable in synthetic preview", 404); },
+    async previewAgentWorkspaceEdit() { throw new TransportError("Local agent workspace is unavailable in synthetic preview", 404); },
+    async applyAgentWorkspaceEdit() { throw new TransportError("Local agent workspace is unavailable in synthetic preview", 404); },
     async interpretSessionWithModel() {
       throw new TransportError("Model judge is unavailable in synthetic preview", 404);
     },

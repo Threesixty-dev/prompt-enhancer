@@ -109,6 +109,13 @@ import type {
   AgentEvents,
 } from "./contracts";
 import {
+  AgentWorkspacePayloadError,
+  parseAgentWorkspaceApplyResult,
+  parseAgentWorkspaceFile,
+  parseAgentWorkspacePreview,
+  parseAgentWorkspaceTree,
+} from "./agentWorkspaceContract";
+import {
   ModelEnsembleHeadPayloadError,
   parseModelEnsembleAttemptSnapshot,
   parseModelEnsembleCanonicalHead,
@@ -2538,6 +2545,77 @@ export function createHttpTransport(options: {
     },
     stopAgentSession(sessionId, signal) {
       return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" }, signal);
+    },
+    async getAgentWorkspaceTree(sessionId, path, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/tree?path=${encodeURIComponent(path)}`,
+        { method: "GET" },
+        signal,
+      );
+      try {
+        return parseAgentWorkspaceTree(value, sessionId, path);
+      } catch (error) {
+        if (error instanceof AgentWorkspacePayloadError) {
+          throw new TransportError("Local agent workspace tree response was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async getAgentWorkspaceFile(sessionId, path, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/file?path=${encodeURIComponent(path)}`,
+        { method: "GET" },
+        signal,
+      );
+      try {
+        return parseAgentWorkspaceFile(value, sessionId, path);
+      } catch (error) {
+        if (error instanceof AgentWorkspacePayloadError) {
+          throw new TransportError("Local agent workspace file response was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async previewAgentWorkspaceEdit(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/previews`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+      );
+      try {
+        return parseAgentWorkspacePreview(
+          value,
+          sessionId,
+          payload.path,
+          payload.expected_revision,
+          payload.line_ending,
+        );
+      } catch (error) {
+        if (error instanceof AgentWorkspacePayloadError) {
+          throw new TransportError("Local agent workspace preview response was invalid", 200);
+        }
+        throw error;
+      }
+    },
+    async applyAgentWorkspaceEdit(sessionId, previewId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/previews/${encodeURIComponent(previewId)}/apply`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        signal,
+      );
+      try {
+        return parseAgentWorkspaceApplyResult(
+          value,
+          sessionId,
+          payload.path,
+          payload.proposed_revision,
+        );
+      } catch (error) {
+        if (error instanceof AgentWorkspacePayloadError) {
+          throw new TransportError("Local agent workspace apply response was invalid", 200);
+        }
+        throw error;
+      }
     },
     interpretSessionWithModel(sessionId, signal) {
       return request<SessionInterpretation>(`/v1/model-judge/sessions/${encodeURIComponent(sessionId)}/interpret`, { method: "POST" }, signal);

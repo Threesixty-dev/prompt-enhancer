@@ -2258,3 +2258,95 @@ describe("local agent event streaming transport", () => {
     expect(fetchMock.mock.calls[1][1]?.headers).toEqual({ Accept: "text/event-stream" });
   });
 });
+
+describe("local agent workspace transport", () => {
+  it("uses relative session-bound routes and strict response parsing", async () => {
+    const sessionId = "a".repeat(32);
+    const base = "b".repeat(64);
+    const proposed = "c".repeat(64);
+    const previewId = "d".repeat(32);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({
+        contract_version: "local-agent-workspace.v1",
+        session_id: sessionId,
+        path: ".",
+        entries: [{ path: "src", name: "src", kind: "directory", byte_size: null, editable_candidate: false }],
+        complete: true,
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        contract_version: "local-agent-workspace.v1",
+        session_id: sessionId,
+        path: "src/app.py",
+        content: "one\ntwo\n",
+        revision: base,
+        byte_size: 8,
+        line_ending: "lf",
+        editable: true,
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        contract_version: "local-agent-workspace.v1",
+        session_id: sessionId,
+        preview_id: previewId,
+        path: "src/app.py",
+        expected_revision: base,
+        proposed_revision: proposed,
+        line_ending: "lf",
+        diff: "--- a/src/app.py\n+++ b/src/app.py\n@@ -1,2 +1,2 @@\n one\n-two\n+new",
+        expires_at: "2026-08-20T20:00:00Z",
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        contract_version: "local-agent-workspace.v1",
+        session_id: sessionId,
+        path: "src/app.py",
+        revision: proposed,
+        byte_size: 8,
+        applied: true,
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getAgentWorkspaceTree(sessionId, ".")).resolves.toMatchObject({ path: "." });
+    await expect(transport.getAgentWorkspaceFile(sessionId, "src/app.py")).resolves.toMatchObject({ revision: base });
+    const previewRequest = { path: "src/app.py", content: "one\nnew\n", expected_revision: base, line_ending: "lf" as const };
+    await expect(transport.previewAgentWorkspaceEdit(sessionId, previewRequest)).resolves.toMatchObject({ preview_id: previewId });
+    await expect(transport.applyAgentWorkspaceEdit(sessionId, previewId, {
+      path: "src/app.py",
+      content: "one\nnew\n",
+      expected_revision: base,
+      proposed_revision: proposed,
+      line_ending: "lf",
+      confirmation: "apply_reviewed_workspace_edit",
+    })).resolves.toMatchObject({ applied: true });
+
+    expect(fetchMock.mock.calls[1][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/tree?path=.`);
+    expect(fetchMock.mock.calls[2][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/file?path=src%2Fapp.py`);
+    expect(fetchMock.mock.calls[3][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/previews`);
+    expect(fetchMock.mock.calls[4][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/previews/${previewId}/apply`);
+    const apply = fetchMock.mock.calls[4][1] as RequestInit;
+    expect(apply.headers).toEqual(expect.objectContaining({
+      "Content-Type": "application/json",
+      "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+    }));
+  });
+
+  it("rejects a workspace tree that returns an absolute local path", async () => {
+    const sessionId = "a".repeat(32);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({
+        contract_version: "local-agent-workspace.v1",
+        session_id: sessionId,
+        path: ".",
+        entries: [{ path: "C:/private.txt", name: "private.txt", kind: "file", byte_size: 1, editable_candidate: true }],
+        complete: true,
+      }));
+    const transport = createHttpTransport({ fetch: fetchMock as unknown as typeof fetch, origin: "http://127.0.0.1:4173" });
+    await expect(transport.getAgentWorkspaceTree(sessionId, ".")).rejects.toMatchObject({
+      message: "Local agent workspace tree response was invalid",
+      status: 200,
+    });
+  });
+});

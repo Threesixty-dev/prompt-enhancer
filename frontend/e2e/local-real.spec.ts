@@ -94,6 +94,12 @@ function codexReadinessFixture(): typeof SYNTHETIC_SESSION_METRIC_READINESS {
 
 async function installLocalHttpFixture(page: Page): Promise<void> {
   const transport = createSyntheticTransport();
+  const agentSessionId = "a".repeat(32);
+  const initialAgentRevision = "b".repeat(64);
+  const proposedAgentRevision = "c".repeat(64);
+  const agentPreviewId = "d".repeat(32);
+  let agentContent = "export const value = 1;\n";
+  let agentRevision = initialAgentRevision;
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -141,6 +147,99 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
           integer(url.searchParams.get("offset"), 0),
         ),
       );
+      return;
+    }
+    if (path === "/v1/agent/sessions" && method === "GET") {
+      await json(route, [{
+        contract_version: "local-agent.v2",
+        session_id: agentSessionId,
+        settings: {
+          workspace: "D:\\example\\workspace",
+          model_alias: null,
+          parameters: { temperature: 0.2, top_p: 0.95, max_tokens: 1400, enable_thinking: false },
+          instructions: null,
+          allow_writes: false,
+          allow_commands: false,
+          allow_web: false,
+          max_steps: 10,
+          command_timeout_seconds: 120,
+          title: "Example workspace",
+        },
+        created_at: "2026-08-20T20:00:00Z",
+        running: false,
+        last_seq: 0,
+        pending_approval_id: null,
+        model_alias: null,
+        turns: 0,
+      }]);
+      return;
+    }
+    const agentTree = path.match(/^\/v1\/agent\/sessions\/([a-f0-9]{32})\/workspace\/tree$/);
+    if (agentTree && method === "GET") {
+      await json(route, {
+        contract_version: "local-agent-workspace.v1",
+        session_id: agentTree[1],
+        path: url.searchParams.get("path") ?? ".",
+        entries: [
+          { path: "src", name: "src", kind: "directory", byte_size: null, editable_candidate: false },
+          { path: "example.ts", name: "example.ts", kind: "file", byte_size: agentContent.length, editable_candidate: true },
+        ],
+        complete: true,
+      });
+      return;
+    }
+    const agentFile = path.match(/^\/v1\/agent\/sessions\/([a-f0-9]{32})\/workspace\/file$/);
+    if (agentFile && method === "GET") {
+      await json(route, {
+        contract_version: "local-agent-workspace.v1",
+        session_id: agentFile[1],
+        path: url.searchParams.get("path"),
+        content: agentContent,
+        revision: agentRevision,
+        byte_size: new TextEncoder().encode(agentContent).byteLength,
+        line_ending: "lf",
+        editable: true,
+      });
+      return;
+    }
+    const agentPreviews = path.match(/^\/v1\/agent\/sessions\/([a-f0-9]{32})\/workspace\/previews$/);
+    if (agentPreviews && method === "POST") {
+      const body = request.postDataJSON();
+      await json(route, {
+        contract_version: "local-agent-workspace.v1",
+        session_id: agentPreviews[1],
+        preview_id: agentPreviewId,
+        path: body.path,
+        expected_revision: body.expected_revision,
+        proposed_revision: proposedAgentRevision,
+        line_ending: body.line_ending,
+        diff: "--- a/example.ts\n+++ b/example.ts\n@@ -1 +1 @@\n-export const value = 1;\n+export const value = 2;",
+        expires_at: "2026-08-20T22:00:00Z",
+      }, 201);
+      return;
+    }
+    const agentApply = path.match(/^\/v1\/agent\/sessions\/([a-f0-9]{32})\/workspace\/previews\/([a-f0-9]{32})\/apply$/);
+    if (agentApply && method === "POST") {
+      const body = request.postDataJSON();
+      agentContent = body.content;
+      agentRevision = proposedAgentRevision;
+      await json(route, {
+        contract_version: "local-agent-workspace.v1",
+        session_id: agentApply[1],
+        path: body.path,
+        revision: proposedAgentRevision,
+        byte_size: new TextEncoder().encode(agentContent).byteLength,
+        applied: true,
+      });
+      return;
+    }
+    const agentEvents = path.match(/^\/v1\/agent\/sessions\/([a-f0-9]{32})\/events\/stream$/);
+    if (agentEvents && method === "GET") {
+      await route.fulfill({
+        body: `data: ${JSON.stringify({ contract_version: "local-agent.v2", session_id: agentEvents[1], events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })}\n\n`,
+        headers: { "Cache-Control": "no-store, private", "Content-Type": "text/event-stream; charset=utf-8", Pragma: "no-cache" },
+        status: 200,
+      });
       return;
     }
 
@@ -243,6 +342,14 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
       ));
       return;
     }
+    if (path === "/v1/task-lifecycles" && method === "GET") {
+      await json(route, {
+        lifecycles: [],
+        limit: integer(url.searchParams.get("limit"), 100),
+        offset: integer(url.searchParams.get("offset"), 0),
+      });
+      return;
+    }
     if (path === "/v1/analysis/runs" && method === "GET") {
       await json(route, await transport.listAnalysisRuns(
         url.searchParams.get("task_id") ?? undefined,
@@ -270,6 +377,38 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
 
 test.beforeEach(async ({ page }) => {
   await installLocalHttpFixture(page);
+});
+
+test("edits an existing workspace file beside the agent through a reviewed local diff", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 920 });
+  await page.goto("/agent");
+
+  await expect(page.getByRole("heading", { name: "Example workspace" })).toBeVisible();
+  const workspace = page.getByRole("region", { name: "Files and reviewed changes" });
+  const conversation = page.getByRole("region", { name: "Agent conversation" });
+  await expect(workspace).toContainText("manual edits use browser confirmation");
+  await page.getByRole("button", { name: /example\.ts/u }).click();
+  const editor = page.getByRole("textbox", { name: "Workspace file editor" });
+  await expect(editor).toHaveValue("export const value = 1;\n");
+  await editor.fill("export const value = 2;\n");
+  await page.getByRole("button", { name: "Review diff" }).click();
+  await expect(page.getByRole("region", { name: "Manual edit review" })).toContainText("+export const value = 2;");
+  await page.getByRole("button", { name: "Apply reviewed edit" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Applied the reviewed edit" })).toBeVisible();
+  await expect(editor).toHaveValue("export const value = 2;\n");
+
+  const [workspaceBox, conversationBox] = await Promise.all([workspace.boundingBox(), conversation.boundingBox()]);
+  expect(workspaceBox).not.toBeNull();
+  expect(conversationBox).not.toBeNull();
+  expect(workspaceBox!.x).toBeLessThan(conversationBox!.x);
+
+  await page.setViewportSize({ width: 420, height: 820 });
+  const dimensions = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    viewport: document.documentElement.clientWidth,
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
+  await expect(editor).toBeVisible();
 });
 
 test("keeps the canonical metric workspace truthful when the bounded source is unavailable", async ({ page }) => {
@@ -324,17 +463,28 @@ test("fails the social hub closed with exact zero local-real state", async ({ pa
   await expect(page.locator("input[type='file']")).toHaveCount(0);
 });
 
-test("keeps local task records local-only and work lifecycle unknown", async ({ page }) => {
+test("keeps local task records local-only without inferring work lifecycle", async ({ page }) => {
   await page.setViewportSize({ width: 620, height: 900 });
   await page.goto("/tasks/flow");
 
   await expect(page.getByRole("heading", { name: "Task flow" })).toBeVisible();
   const summary = page.getByRole("region", { name: "Task flow compact summary" });
-  await expect(summary).toContainText("Backlog unknown · in progress unknown · done unknown");
+  await expect(summary.getByText("Work state Unknown", { exact: true }).locator(".."))
+    .toContainText("0");
+  await expect(summary.getByText("Backlog", { exact: true }).locator(".."))
+    .toContainText("0");
+  await expect(summary.getByText("In progress", { exact: true }).locator(".."))
+    .toContainText("0");
+  await expect(summary.getByText("Done", { exact: true }).locator(".."))
+    .toContainText("0");
+  await expect(summary.getByText("Historical / unreconciled", { exact: true }).locator(".."))
+    .toContainText("0 / 1");
   await expect(summary).toContainText("0 team-sourced records · 0 remote-synced records");
   await expect(page.getByText("Local · this installation only")).toBeVisible();
   await expect(page.getByRole("note", { name: "Fictional synthetic demo" })).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "Confirmed revisions" })).toContainText("Start Unknown · finish Unknown");
+  const unreconciled = page.getByRole("region", { name: "State not reconciled" });
+  await expect(unreconciled).toContainText("No backlog, in-progress, or done state is fabricated");
+  await expect(unreconciled.getByText("Unknown", { exact: true })).toHaveCount(2);
 });
 
 test("requires an exact local project grant before background scheduling", async ({ page }) => {

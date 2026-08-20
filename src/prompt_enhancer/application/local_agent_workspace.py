@@ -19,7 +19,7 @@ import stat
 import subprocess
 import tempfile
 import threading
-from typing import Any
+from typing import Any, Literal
 
 from .local_agent_limits import (
     DEFAULT_COMMAND_SECONDS,
@@ -32,6 +32,7 @@ from .local_agent_limits import (
     MAX_REVIEWABLE_COMMAND_CHARS,
     MAX_SEARCH_RESULTS,
     MAX_TOOL_RESULT_CHARS,
+    MAX_TREE_SCAN_ENTRIES,
     SKIP_DIRS,
 )
 
@@ -40,6 +41,7 @@ from .local_agent_limits import (
 class ToolOutcome:
     ok: bool
     text: str
+    code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +57,24 @@ class PreparedWrite:
     proposed_sha256: str
     existed: bool
     mode: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspacePathEntry:
+    path: str
+    name: str
+    kind: Literal["directory", "file", "unavailable"]
+    byte_size: int | None
+    editable_candidate: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceTextSnapshot:
+    path: str
+    content: str
+    revision: str
+    byte_size: int
+    line_ending: Literal["lf", "crlf", "none"]
 
 
 def _is_link_or_reparse(metadata: os.stat_result) -> bool:
@@ -74,6 +94,31 @@ def _path_components_are_safe(value: Path) -> bool:
         except OSError:
             return False
         if _is_link_or_reparse(metadata):
+            return False
+    return True
+
+
+_WINDOWS_RESERVED_COMPONENTS = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{index}" for index in range(1, 10)}
+    | {f"LPT{index}" for index in range(1, 10)}
+)
+_SKIPPED_COMPONENTS = frozenset(component.casefold() for component in SKIP_DIRS)
+
+
+def _relative_components_are_portable(value: PureWindowsPath) -> bool:
+    """Reject Windows device/ADS spellings before any filesystem access."""
+
+    if value.drive or value.root:
+        return False
+    for component in value.parts:
+        if ":" in component or any(ord(character) < 32 for character in component):
+            return False
+        if platform.system() == "Windows" and (
+            component.rstrip(" .") != component
+            or any(character in component for character in '<>"|?*')
+            or component.split(".", 1)[0].upper() in _WINDOWS_RESERVED_COMPONENTS
+        ):
             return False
     return True
 
@@ -110,6 +155,15 @@ class WorkspaceTools:
             or ".." in windows.parts
         ):
             raise LocalAgentError("path_outside_workspace")
+        if any(
+            component.casefold() in _SKIPPED_COMPONENTS
+            for component in (*posix.parts, *windows.parts)
+        ):
+            raise LocalAgentError("workspace_path_not_found")
+        if not _relative_components_are_portable(windows):
+            raise LocalAgentError("path_invalid")
+        if platform.system() != "Windows" and "\\" in relative:
+            raise LocalAgentError("path_invalid")
         candidate = Path(os.path.abspath(os.fspath(self.root / Path(relative))))
         if candidate != self.root and self.root not in candidate.parents:
             raise LocalAgentError("path_outside_workspace")
@@ -138,6 +192,115 @@ class WorkspaceTools:
         return ToolOutcome(
             True,
             text + (f"\n… truncated ({len(data)} bytes total)" if truncated else ""),
+        )
+
+    def list_entries(
+        self, path: str = "."
+    ) -> tuple[tuple[WorkspacePathEntry, ...], bool]:
+        target = self.root if path in {"", "."} else self._lexical_candidate(path)
+        if target != self.root and target.name in SKIP_DIRS:
+            raise LocalAgentError("workspace_directory_unavailable")
+        if not _path_components_are_safe(target):
+            raise LocalAgentError("workspace_link_or_reparse_refused")
+        try:
+            metadata = target.lstat()
+        except FileNotFoundError as error:
+            raise LocalAgentError("workspace_path_not_found") from error
+        except OSError as error:
+            raise LocalAgentError("workspace_directory_unavailable") from error
+        if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+            raise LocalAgentError("workspace_not_a_directory")
+
+        candidates: list[Path] = []
+        scan_complete = True
+        try:
+            for candidate in target.iterdir():
+                if len(candidates) >= MAX_TREE_SCAN_ENTRIES:
+                    scan_complete = False
+                    break
+                candidates.append(candidate)
+        except OSError as error:
+            raise LocalAgentError("workspace_directory_unavailable") from error
+
+        entries: list[WorkspacePathEntry] = []
+        for candidate in candidates:
+            relative = candidate.relative_to(self.root).as_posix()
+            try:
+                item = candidate.lstat()
+            except OSError:
+                entries.append(
+                    WorkspacePathEntry(
+                        path=relative,
+                        name=candidate.name,
+                        kind="unavailable",
+                        byte_size=None,
+                        editable_candidate=False,
+                    )
+                )
+                continue
+            if (
+                candidate.name in SKIP_DIRS
+                or _is_link_or_reparse(item)
+                or not _path_components_are_safe(candidate)
+                or not _relative_components_are_portable(PureWindowsPath(relative))
+            ):
+                kind: Literal["directory", "file", "unavailable"] = "unavailable"
+                size = None
+                editable = False
+            elif stat.S_ISDIR(item.st_mode):
+                kind = "directory"
+                size = None
+                editable = False
+            elif stat.S_ISREG(item.st_mode):
+                kind = "file"
+                size = item.st_size
+                editable = item.st_nlink == 1 and item.st_size <= MAX_FILE_WRITE_BYTES
+            else:
+                kind = "unavailable"
+                size = None
+                editable = False
+            entries.append(
+                WorkspacePathEntry(
+                    path=relative,
+                    name=candidate.name,
+                    kind=kind,
+                    byte_size=size,
+                    editable_candidate=editable,
+                )
+            )
+        order = {"directory": 0, "file": 1, "unavailable": 2}
+        entries.sort(key=lambda entry: (order[entry.kind], entry.name.casefold(), entry.name))
+        complete = scan_complete and len(entries) <= MAX_LIST_ENTRIES
+        return tuple(entries[:MAX_LIST_ENTRIES]), complete
+
+    def read_text_snapshot(self, path: str) -> WorkspaceTextSnapshot:
+        target = self._lexical_candidate(path)
+        snapshot = self._snapshot_file(target)
+        if snapshot is None:
+            raise LocalAgentError("workspace_path_not_found")
+        payload = snapshot[0]
+        try:
+            content = payload.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise LocalAgentError("workspace_binary_refused") from error
+        if "\x00" in content:
+            raise LocalAgentError("workspace_binary_refused")
+        without_crlf = payload.replace(b"\r\n", b"")
+        if b"\r" in without_crlf or (b"\r\n" in payload and b"\n" in without_crlf):
+            raise LocalAgentError("workspace_line_endings_unsupported")
+        if b"\r\n" in payload:
+            line_ending: Literal["lf", "crlf", "none"] = "crlf"
+            content = content.replace("\r\n", "\n")
+        elif b"\n" in payload:
+            line_ending = "lf"
+        else:
+            line_ending = "none"
+        return WorkspaceTextSnapshot(
+            path=target.relative_to(self.root).as_posix(),
+            content=content,
+            revision=hashlib.sha256(payload).hexdigest(),
+            byte_size=len(payload),
+            line_ending=line_ending,
         )
 
     def list_dir(self, path: str = ".", depth: int = 1) -> ToolOutcome:
@@ -300,11 +463,12 @@ class WorkspaceTools:
             raise LocalAgentError("workspace_binary_refused") from error
         if "\x00" in before_text:
             raise LocalAgentError("workspace_binary_refused")
+        canonical_path = target.relative_to(self.root).as_posix()
         diff = difflib.unified_diff(
-            before_text.splitlines(),
-            content.splitlines(),
-            fromfile=f"a/{path}",
-            tofile=f"b/{path}",
+            before_text.split("\n"),
+            content.split("\n"),
+            fromfile=f"a/{canonical_path}",
+            tofile=f"b/{canonical_path}",
             lineterm="",
             n=2,
         )
@@ -336,13 +500,21 @@ class WorkspaceTools:
         target = self._lexical_candidate(prepared.path)
         proposed = prepared.content.encode("utf-8", errors="strict")
         if hashlib.sha256(proposed).hexdigest() != prepared.proposed_sha256:
-            return ToolOutcome(False, "change no longer matches its reviewed preview")
+            return ToolOutcome(
+                False,
+                "change no longer matches its reviewed preview",
+                "workspace_preview_mismatch",
+            )
         with self._write_lock:
             try:
                 parent_metadata = target.parent.lstat()
                 snapshot = self._snapshot_file(target)
             except (OSError, LocalAgentError):
-                return ToolOutcome(False, "file is no longer safe to write; inspect it again")
+                return ToolOutcome(
+                    False,
+                    "file is no longer safe to write; inspect it again",
+                    "workspace_file_unavailable",
+                )
             current_sha = hashlib.sha256(snapshot[0]).hexdigest() if snapshot else None
             current_identity = self._identity(snapshot[1]) if snapshot else None
             if (
@@ -351,7 +523,11 @@ class WorkspaceTools:
                 or current_identity != prepared.base_identity
                 or (snapshot is not None) != prepared.existed
             ):
-                return ToolOutcome(False, "file changed since preview; read it again and propose a new change")
+                return ToolOutcome(
+                    False,
+                    "file changed since preview; read it again and propose a new change",
+                    "workspace_revision_changed",
+                )
 
             temporary: str | None = None
             try:
@@ -376,7 +552,11 @@ class WorkspaceTools:
                         or hashlib.sha256(latest[0]).hexdigest() != prepared.base_sha256
                         or self._identity(latest_parent) != prepared.parent_identity
                     ):
-                        return ToolOutcome(False, "file changed since preview; read it again and propose a new change")
+                        return ToolOutcome(
+                            False,
+                            "file changed since preview; read it again and propose a new change",
+                            "workspace_revision_changed",
+                        )
                     os.replace(temporary, target)
                     temporary = None
                 else:
@@ -394,7 +574,11 @@ class WorkspaceTools:
                     finally:
                         os.close(descriptor)
             except (OSError, LocalAgentError):
-                return ToolOutcome(False, "file changed or became unsafe before it could be written")
+                return ToolOutcome(
+                    False,
+                    "file changed or became unsafe before it could be written",
+                    "workspace_revision_changed",
+                )
             finally:
                 if temporary is not None:
                     try:
@@ -404,9 +588,17 @@ class WorkspaceTools:
             try:
                 written = self._snapshot_file(target)
             except LocalAgentError:
-                return ToolOutcome(False, "write completed but the file could not be verified")
+                return ToolOutcome(
+                    False,
+                    "write completed but the file could not be verified",
+                    "workspace_verification_failed",
+                )
             if written is None or hashlib.sha256(written[0]).hexdigest() != prepared.proposed_sha256:
-                return ToolOutcome(False, "write completed but the file could not be verified")
+                return ToolOutcome(
+                    False,
+                    "write completed but the file could not be verified",
+                    "workspace_verification_failed",
+                )
             return ToolOutcome(True, f"wrote {prepared.path} ({len(prepared.content)} characters)")
 
     def write_file(self, path: str, content: str) -> ToolOutcome:
@@ -560,6 +752,8 @@ def _kill_tree(process: subprocess.Popen[Any]) -> None:
 __all__ = (
     "PreparedWrite",
     "ToolOutcome",
+    "WorkspacePathEntry",
+    "WorkspaceTextSnapshot",
     "WorkspaceTools",
     "minimal_environment",
     "run_with_tree_kill",

@@ -19029,6 +19029,352 @@
         "title": "WorkWindow",
         "type": "object"
       },
+      "WorkspaceApplyCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "apply_reviewed_workspace_edit",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "content": {
+            "maxLength": 256000,
+            "title": "Content",
+            "type": "string"
+          },
+          "expected_revision": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Revision",
+            "type": "string"
+          },
+          "line_ending": {
+            "$ref": "#/components/schemas/WorkspaceLineEnding"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "proposed_revision": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Proposed Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content",
+          "expected_revision",
+          "proposed_revision",
+          "line_ending",
+          "confirmation"
+        ],
+        "title": "WorkspaceApplyCommand",
+        "type": "object"
+      },
+      "WorkspaceApplyResult": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "const": true,
+            "default": true,
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "byte_size": {
+            "maximum": 256000.0,
+            "minimum": 0.0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "contract_version": {
+            "const": "local-agent-workspace.v1",
+            "default": "local-agent-workspace.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "path",
+          "revision",
+          "byte_size"
+        ],
+        "title": "WorkspaceApplyResult",
+        "type": "object"
+      },
+      "WorkspaceEditPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "local-agent-workspace.v1",
+            "default": "local-agent-workspace.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "diff": {
+            "maxLength": 60000,
+            "minLength": 1,
+            "title": "Diff",
+            "type": "string"
+          },
+          "expected_revision": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Revision",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "line_ending": {
+            "$ref": "#/components/schemas/WorkspaceLineEnding"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "preview_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Preview Id",
+            "type": "string"
+          },
+          "proposed_revision": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Proposed Revision",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "preview_id",
+          "path",
+          "expected_revision",
+          "proposed_revision",
+          "line_ending",
+          "diff",
+          "expires_at"
+        ],
+        "title": "WorkspaceEditPreview",
+        "type": "object"
+      },
+      "WorkspaceEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Byte Size"
+          },
+          "editable_candidate": {
+            "title": "Editable Candidate",
+            "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/WorkspaceEntryKind"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "kind",
+          "editable_candidate"
+        ],
+        "title": "WorkspaceEntry",
+        "type": "object"
+      },
+      "WorkspaceEntryKind": {
+        "enum": [
+          "directory",
+          "file",
+          "unavailable"
+        ],
+        "title": "WorkspaceEntryKind",
+        "type": "string"
+      },
+      "WorkspaceFile": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "maximum": 256000.0,
+            "minimum": 0.0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "content": {
+            "maxLength": 256000,
+            "title": "Content",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "local-agent-workspace.v1",
+            "default": "local-agent-workspace.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "editable": {
+            "const": true,
+            "default": true,
+            "title": "Editable",
+            "type": "boolean"
+          },
+          "line_ending": {
+            "$ref": "#/components/schemas/WorkspaceLineEnding"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Revision",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "path",
+          "content",
+          "revision",
+          "byte_size",
+          "line_ending"
+        ],
+        "title": "WorkspaceFile",
+        "type": "object"
+      },
+      "WorkspaceLineEnding": {
+        "enum": [
+          "lf",
+          "crlf",
+          "none"
+        ],
+        "title": "WorkspaceLineEnding",
+        "type": "string"
+      },
+      "WorkspacePreviewCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 256000,
+            "title": "Content",
+            "type": "string"
+          },
+          "expected_revision": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Revision",
+            "type": "string"
+          },
+          "line_ending": {
+            "$ref": "#/components/schemas/WorkspaceLineEnding"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content",
+          "expected_revision",
+          "line_ending"
+        ],
+        "title": "WorkspacePreviewCommand",
+        "type": "object"
+      },
+      "WorkspaceTree": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "local-agent-workspace.v1",
+            "default": "local-agent-workspace.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "path",
+          "entries",
+          "complete"
+        ],
+        "title": "WorkspaceTree",
+        "type": "object"
+      },
       "WriteFileRequest": {
         "additionalProperties": false,
         "properties": {
@@ -20108,6 +20454,359 @@
           }
         },
         "summary": "Stop",
+        "tags": [
+          "local-agent"
+        ]
+      }
+    },
+    "/v1/agent/sessions/{session_id}/workspace/file": {
+      "get": {
+        "operationId": "workspace_file_v1_agent_sessions__session_id__workspace_file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceFile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workspace File",
+        "tags": [
+          "local-agent"
+        ]
+      }
+    },
+    "/v1/agent/sessions/{session_id}/workspace/previews": {
+      "post": {
+        "operationId": "preview_workspace_edit_v1_agent_sessions__session_id__workspace_previews_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspacePreviewCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceEditPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Workspace Edit",
+        "tags": [
+          "local-agent"
+        ]
+      }
+    },
+    "/v1/agent/sessions/{session_id}/workspace/previews/{preview_id}/apply": {
+      "post": {
+        "operationId": "apply_workspace_edit_v1_agent_sessions__session_id__workspace_previews__preview_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "preview_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Preview Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceApplyCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceApplyResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Workspace Edit",
+        "tags": [
+          "local-agent"
+        ]
+      }
+    },
+    "/v1/agent/sessions/{session_id}/workspace/tree": {
+      "get": {
+        "operationId": "workspace_tree_v1_agent_sessions__session_id__workspace_tree_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "default": ".",
+              "maxLength": 1024,
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceTree"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workspace Tree",
         "tags": [
           "local-agent"
         ]

@@ -1431,8 +1431,12 @@ Local agent workspace (ADR 0016): `LocalAgentService` binds a session to one
 folder and lets the active local model use `read_file` / `list_dir` /
 `search_text` freely and `write_file` (diff first) / `run_command` /
 `fetch_url` only after the person approves that exact call; path containment,
-bounded outputs, step limit, stop; events are an in-memory, cursor-paged
-stream; `/v1/agent/*`; Agent page and `/agent/window/{id}` popup. The
+protected-root refusal, browser-only human approval, revision-bound atomic
+writes, bounded outputs, step limit, stop; events are an in-memory, cursor-paged
+stream. The session-bound workspace API and Agent page add an existing-file
+UTF-8 tree/editor, normalized line endings, server diff, and a short-lived
+single-use apply capability; no draft content is retained by that capability.
+The same surfaces remain under `/v1/agent/*` and `/agent/window/{id}`. The
 runtime now starts with `--jinja` (tool calls in the model's own format),
 flash attention and an 8-bit KV cache (about 2.4x prompt processing on the
 owner's GPU) with a plain retry; the API is gzip-compressed. Verified live:

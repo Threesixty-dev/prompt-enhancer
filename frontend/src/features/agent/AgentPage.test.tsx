@@ -25,12 +25,28 @@ function event(seq: number, kind: AgentEvent["kind"], extra: Partial<AgentEvent>
   return { seq, at: "2026-08-20T01:00:00Z", kind, text: null, tool: null, arguments: null, call_id: null, approval_id: null, ok: null, preview: null, ...extra };
 }
 
+function workspaceMethods() {
+  return {
+    getAgentWorkspaceTree: vi.fn(async (sessionId: string, path: string) => ({
+      contract_version: "local-agent-workspace.v1" as const,
+      session_id: sessionId,
+      path,
+      entries: [],
+      complete: true,
+    })),
+    getAgentWorkspaceFile: vi.fn(),
+    previewAgentWorkspaceEdit: vi.fn(),
+    applyAgentWorkspaceEdit: vi.fn(),
+  };
+}
+
 describe("AgentPage", () => {
   it("coalesces streamed deltas into one live bubble and replaces it with the terminal reply", async () => {
     const streamId = "c".repeat(32);
     let finishStream: (() => void) | undefined;
     const current = view({ running: true, turns: 1 });
     const transport = {
+      ...workspaceMethods(),
       listAgentSessions: vi.fn(async () => [current]),
       createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
       getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(async () => current),
@@ -84,6 +100,7 @@ describe("AgentPage", () => {
     let events: AgentEvent[] = [event(1, "status", { text: "Session ready in project/ - reads are free." })];
     let current = view();
     const transport = {
+      ...workspaceMethods(),
       listAgentSessions: vi.fn(async () => (current ? [current] : [])),
       createAgentSession: vi.fn(async () => { current = view(); return current; }),
       getAgentSession: vi.fn(async () => current),
@@ -127,6 +144,7 @@ describe("AgentPage", () => {
 
   it("explains when the agent is unavailable and lets a new session be created", async () => {
     const transport = {
+      ...workspaceMethods(),
       listAgentSessions: vi.fn(async () => []),
       createAgentSession: vi.fn(async (settings: { workspace: string; allow_web?: boolean }) => view({ settings: { ...view().settings, workspace: settings.workspace } })),
       getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
@@ -145,6 +163,7 @@ describe("AgentPage", () => {
 
   it("sends the chosen model parameters and standing instructions", async () => {
     const transport = {
+      ...workspaceMethods(),
       listAgentSessions: vi.fn(async () => []),
       createAgentSession: vi.fn(async () => view()),
       getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
@@ -174,6 +193,7 @@ describe("AgentPage", () => {
     vi.useFakeTimers();
     const current = view({ running: true, turns: 1 });
     const transport = {
+      ...workspaceMethods(),
       listAgentSessions: vi.fn(async () => [current]),
       createAgentSession: vi.fn(), getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
       getAgentEvents: vi.fn(), decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(async () => current),

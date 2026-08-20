@@ -17,6 +17,14 @@ from ...application.local_agent import (
     LocalAgentService,
     SendMessage,
 )
+from ...application.local_agent_editor import (
+    WorkspaceApplyCommand,
+    WorkspaceApplyResult,
+    WorkspaceEditPreview,
+    WorkspaceFile,
+    WorkspacePreviewCommand,
+    WorkspaceTree,
+)
 
 
 _STATUS = {
@@ -24,6 +32,29 @@ _STATUS = {
     "workspace_not_allowed": 403,
     "workspace_link_or_reparse_refused": 403,
     "workspace_is_a_drive_root": 422,
+    "workspace_path_not_found": 404,
+    "workspace_directory_unavailable": 422,
+    "workspace_not_a_directory": 422,
+    "workspace_file_unavailable": 422,
+    "workspace_file_changed": 409,
+    "workspace_binary_refused": 415,
+    "workspace_line_endings_unsupported": 422,
+    "workspace_revision_changed": 409,
+    "workspace_line_ending_changed": 409,
+    "workspace_existing_file_required": 422,
+    "workspace_no_change": 409,
+    "workspace_change_not_reviewable": 422,
+    "workspace_file_too_large": 413,
+    "workspace_text_invalid": 422,
+    "workspace_parent_unavailable": 422,
+    "change_too_large_to_review": 413,
+    "workspace_preview_not_found": 409,
+    "workspace_preview_expired": 409,
+    "workspace_preview_mismatch": 409,
+    "workspace_apply_failed": 409,
+    "workspace_verification_failed": 409,
+    "path_outside_workspace": 403,
+    "path_invalid": 422,
     "too_many_sessions": 409,
     "session_not_found": 404,
     "turn_in_progress": 409,
@@ -108,6 +139,61 @@ def create_local_agent_router(
     ) -> AgentEvents:
         try:
             return service.events(session_id, after, limit)
+        except LocalAgentError as error:
+            raise _failure(error) from None
+
+    @router.get(
+        "/sessions/{session_id}/workspace/tree",
+        response_model=WorkspaceTree,
+    )
+    def workspace_tree(
+        session_id: Annotated[str, Path(pattern=_SESSION_ID)],
+        path: Annotated[str, Query(min_length=1, max_length=1024)] = ".",
+    ) -> WorkspaceTree:
+        try:
+            return service.workspace_tree(session_id, path)
+        except LocalAgentError as error:
+            raise _failure(error) from None
+
+    @router.get(
+        "/sessions/{session_id}/workspace/file",
+        response_model=WorkspaceFile,
+    )
+    def workspace_file(
+        session_id: Annotated[str, Path(pattern=_SESSION_ID)],
+        path: Annotated[str, Query(min_length=1, max_length=1024)],
+    ) -> WorkspaceFile:
+        try:
+            return service.workspace_file(session_id, path)
+        except LocalAgentError as error:
+            raise _failure(error) from None
+
+    @router.post(
+        "/sessions/{session_id}/workspace/previews",
+        response_model=WorkspaceEditPreview,
+        status_code=201,
+    )
+    def preview_workspace_edit(
+        session_id: Annotated[str, Path(pattern=_SESSION_ID)],
+        payload: WorkspacePreviewCommand,
+    ) -> WorkspaceEditPreview:
+        try:
+            return service.preview_workspace_edit(session_id, payload)
+        except LocalAgentError as error:
+            raise _failure(error) from None
+
+    @router.post(
+        "/sessions/{session_id}/workspace/previews/{preview_id}/apply",
+        response_model=WorkspaceApplyResult,
+        dependencies=[Depends(require_browser_confirmation)],
+    )
+    def apply_workspace_edit(
+        session_id: Annotated[str, Path(pattern=_SESSION_ID)],
+        preview_id: Annotated[str, Path(pattern=_SESSION_ID)],
+        payload: WorkspaceApplyCommand,
+    ) -> WorkspaceApplyResult:
+        try:
+            return service.apply_workspace_edit(session_id, preview_id, payload)
         except LocalAgentError as error:
             raise _failure(error) from None
 

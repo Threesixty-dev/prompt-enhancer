@@ -28,6 +28,15 @@ import uuid
 from pydantic import Field, field_validator, model_validator
 
 from ..domain import StrictModel
+from .local_agent_editor import (
+    LocalAgentWorkspaceEditor,
+    WorkspaceApplyCommand,
+    WorkspaceApplyResult,
+    WorkspaceEditPreview,
+    WorkspaceFile,
+    WorkspacePreviewCommand,
+    WorkspaceTree,
+)
 from .local_agent_limits import (
     AGENT_CONTRACT_VERSION,
     APPROVAL_WAIT_SECONDS,
@@ -293,6 +302,7 @@ class LocalAgentService:
         fetcher: Callable[[str], str] | None = None,
         runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         clock: Callable[[], datetime] | None = None,
+        monotonic: Callable[[], float] | None = None,
         approval_wait_seconds: float = APPROVAL_WAIT_SECONDS,
     ) -> None:
         self._chat = chat
@@ -303,6 +313,10 @@ class LocalAgentService:
         self._fetcher = fetcher
         self._runner = runner
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._editor = LocalAgentWorkspaceEditor(
+            clock=self._clock,
+            monotonic=monotonic,
+        )
         self._approval_wait = approval_wait_seconds
         self._sessions: dict[str, AgentSession] = {}
         self._lock = threading.Lock()
@@ -362,6 +376,32 @@ class LocalAgentService:
             thread.join(timeout=15)
         with self._lock:
             self._sessions.pop(session_id, None)
+        self._editor.discard_session(session_id)
+
+    def workspace_tree(self, session_id: str, path: str = ".") -> WorkspaceTree:
+        session = self._session(session_id)
+        return self._editor.tree(session_id, session.tools, path)
+
+    def workspace_file(self, session_id: str, path: str) -> WorkspaceFile:
+        session = self._session(session_id)
+        return self._editor.read(session_id, session.tools, path)
+
+    def preview_workspace_edit(
+        self,
+        session_id: str,
+        command: WorkspacePreviewCommand,
+    ) -> WorkspaceEditPreview:
+        session = self._session(session_id)
+        return self._editor.preview(session_id, session.tools, command)
+
+    def apply_workspace_edit(
+        self,
+        session_id: str,
+        preview_id: str,
+        command: WorkspaceApplyCommand,
+    ) -> WorkspaceApplyResult:
+        session = self._session(session_id)
+        return self._editor.apply(session_id, preview_id, session.tools, command)
 
     def events(self, session_id: str, after: int = 0, limit: int = MAX_EVENT_PAGE) -> AgentEvents:
         session = self._session(session_id)

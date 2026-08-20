@@ -177,6 +177,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agent/sessions/{session_id}/workspace/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace File */
+        get: operations["workspace_file_v1_agent_sessions__session_id__workspace_file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Workspace Edit */
+        post: operations["preview_workspace_edit_v1_agent_sessions__session_id__workspace_previews_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/previews/{preview_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Workspace Edit */
+        post: operations["apply_workspace_edit_v1_agent_sessions__session_id__workspace_previews__preview_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agent/sessions/{session_id}/workspace/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace Tree */
+        get: operations["workspace_tree_v1_agent_sessions__session_id__workspace_tree_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analysis-jobs": {
         parameters: {
             query?: never;
@@ -9782,6 +9850,148 @@ export interface components {
             /** Window Fingerprint */
             window_fingerprint: string;
         };
+        /** WorkspaceApplyCommand */
+        WorkspaceApplyCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_reviewed_workspace_edit";
+            /** Content */
+            content: string;
+            /** Expected Revision */
+            expected_revision: string;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /** Path */
+            path: string;
+            /** Proposed Revision */
+            proposed_revision: string;
+        };
+        /** WorkspaceApplyResult */
+        WorkspaceApplyResult: {
+            /**
+             * Applied
+             * @default true
+             * @constant
+             */
+            applied: true;
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Contract Version
+             * @default local-agent-workspace.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace.v1";
+            /** Path */
+            path: string;
+            /** Revision */
+            revision: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkspaceEditPreview */
+        WorkspaceEditPreview: {
+            /**
+             * Contract Version
+             * @default local-agent-workspace.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace.v1";
+            /** Diff */
+            diff: string;
+            /** Expected Revision */
+            expected_revision: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /** Path */
+            path: string;
+            /** Preview Id */
+            preview_id: string;
+            /** Proposed Revision */
+            proposed_revision: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkspaceEntry */
+        WorkspaceEntry: {
+            /** Byte Size */
+            byte_size?: number | null;
+            /** Editable Candidate */
+            editable_candidate: boolean;
+            kind: components["schemas"]["WorkspaceEntryKind"];
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+        };
+        /**
+         * WorkspaceEntryKind
+         * @enum {string}
+         */
+        WorkspaceEntryKind: "directory" | "file" | "unavailable";
+        /** WorkspaceFile */
+        WorkspaceFile: {
+            /** Byte Size */
+            byte_size: number;
+            /** Content */
+            content: string;
+            /**
+             * Contract Version
+             * @default local-agent-workspace.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace.v1";
+            /**
+             * Editable
+             * @default true
+             * @constant
+             */
+            editable: true;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /** Path */
+            path: string;
+            /** Revision */
+            revision: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /**
+         * WorkspaceLineEnding
+         * @enum {string}
+         */
+        WorkspaceLineEnding: "lf" | "crlf" | "none";
+        /** WorkspacePreviewCommand */
+        WorkspacePreviewCommand: {
+            /** Content */
+            content: string;
+            /** Expected Revision */
+            expected_revision: string;
+            line_ending: components["schemas"]["WorkspaceLineEnding"];
+            /** Path */
+            path: string;
+        };
+        /** WorkspaceTree */
+        WorkspaceTree: {
+            /** Complete */
+            complete: boolean;
+            /**
+             * Contract Version
+             * @default local-agent-workspace.v1
+             * @constant
+             */
+            contract_version: "local-agent-workspace.v1";
+            /** Entries */
+            entries: components["schemas"]["WorkspaceEntry"][];
+            /** Path */
+            path: string;
+            /** Session Id */
+            session_id: string;
+        };
         /** WriteFileRequest */
         WriteFileRequest: {
             /** Base Sha256 */
@@ -10270,6 +10480,155 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentSessionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workspace_file_v1_agent_sessions__session_id__workspace_file_get: {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceFile"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_workspace_edit_v1_agent_sessions__session_id__workspace_previews_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspacePreviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceEditPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_workspace_edit_v1_agent_sessions__session_id__workspace_previews__preview_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+                preview_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceApplyCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workspace_tree_v1_agent_sessions__session_id__workspace_tree_get: {
+        parameters: {
+            query?: {
+                path?: string;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceTree"];
                 };
             };
             /** @description Validation Error */
