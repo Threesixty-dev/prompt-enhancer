@@ -287,3 +287,47 @@ def test_stale_approval_ids_and_event_paging(tmp_path: Path) -> None:
     assert ran == ["powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command echo one"] or ran == ["bash -c echo one"]
     page = service.events(view.session_id, 0, 3)
     assert len(page.events) == 3 and page.first_seq == 1 and page.last_seq > 3
+
+
+def test_session_parameters_and_instructions_reach_the_model(tmp_path) -> None:
+    """The chosen sampling parameters travel in every chat body; standing
+    instructions and the OS shell note are folded into the system prompt."""
+
+    import json as json_module
+
+    from prompt_enhancer.application.local_agent import (
+        AgentModelParameters,
+        AgentSettings,
+        LocalAgentService,
+        SendMessage,
+    )
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    bodies: list[dict] = []
+
+    def chat(alias: str, body: bytes):
+        bodies.append(json_module.loads(body.decode("utf-8")))
+        reply = {"choices": [{"message": {"role": "assistant", "content": "done"}}]}
+        return 200, json_module.dumps(reply).encode("utf-8"), "application/json"
+
+    service = LocalAgentService(chat=chat, active_model=lambda: "stub-model")
+    view = service.create(AgentSettings(
+        workspace=str(workspace),
+        parameters=AgentModelParameters(temperature=0.7, top_p=0.8, max_tokens=512, enable_thinking=True),
+        instructions="Prefer Polish in replies; write plans as Markdown files.",
+    ))
+    service.send(view.session_id, SendMessage(text="hello"))
+    deadline = __import__("time").time() + 10
+    while __import__("time").time() < deadline and not bodies:
+        __import__("time").sleep(0.05)
+    assert bodies, "model was never called"
+    body = bodies[0]
+    assert body["temperature"] == 0.7 and body["top_p"] == 0.8 and body["max_tokens"] == 512
+    assert body["chat_template_kwargs"] == {"enable_thinking": True}
+    system = body["messages"][0]
+    assert system["role"] == "system"
+    assert "Standing instructions from the person" in system["content"]
+    assert "Prefer Polish in replies" in system["content"]
+    assert ("PowerShell" in system["content"]) or ("bash" in system["content"])
+    assert "Markdown (.md)" in system["content"]

@@ -635,6 +635,40 @@
         "title": "AgentMetricEvidenceProducer",
         "type": "object"
       },
+      "AgentModelParameters": {
+        "additionalProperties": false,
+        "description": "Sampling and budget knobs for the chosen model - one preset per session.",
+        "properties": {
+          "enable_thinking": {
+            "default": false,
+            "title": "Enable Thinking",
+            "type": "boolean"
+          },
+          "max_tokens": {
+            "default": 1400,
+            "maximum": 8192.0,
+            "minimum": 64.0,
+            "title": "Max Tokens",
+            "type": "integer"
+          },
+          "temperature": {
+            "default": 0.2,
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "type": "number"
+          },
+          "top_p": {
+            "default": 0.95,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Top P",
+            "type": "number"
+          }
+        },
+        "title": "AgentModelParameters",
+        "type": "object"
+      },
       "AgentSessionView": {
         "additionalProperties": false,
         "properties": {
@@ -727,6 +761,18 @@
             "title": "Command Timeout Seconds",
             "type": "integer"
           },
+          "instructions": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions"
+          },
           "max_steps": {
             "default": 10,
             "maximum": 16.0,
@@ -745,6 +791,15 @@
               }
             ],
             "title": "Model Alias"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/AgentModelParameters",
+            "default": {
+              "enable_thinking": false,
+              "max_tokens": 1400,
+              "temperature": 0.2,
+              "top_p": 0.95
+            }
           },
           "title": {
             "anyOf": [

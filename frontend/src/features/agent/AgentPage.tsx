@@ -63,6 +63,11 @@ export function AgentPage({
   const [allowWrites, setAllowWrites] = useState(true);
   const [allowCommands, setAllowCommands] = useState(true);
   const [allowWeb, setAllowWeb] = useState(false);
+  const [temperature, setTemperature] = useState(0.2);
+  const [topP, setTopP] = useState(0.95);
+  const [maxTokens, setMaxTokens] = useState(1400);
+  const [thinking, setThinking] = useState(false);
+  const [instructions, setInstructions] = useState("");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -147,7 +152,17 @@ export function AgentPage({
     setBusy(true);
     setMessage("");
     try {
-      const settings: AgentSettings = { workspace: path, model_alias: modelAlias || null, allow_writes: allowWrites, allow_commands: allowCommands, allow_web: allowWeb, max_steps: 10, command_timeout_seconds: 120 };
+      const settings: AgentSettings = {
+        workspace: path,
+        model_alias: modelAlias || null,
+        parameters: { temperature, top_p: topP, max_tokens: maxTokens, enable_thinking: thinking },
+        instructions: instructions.trim() || null,
+        allow_writes: allowWrites,
+        allow_commands: allowCommands,
+        allow_web: allowWeb,
+        max_steps: 10,
+        command_timeout_seconds: 120,
+      };
       const created = await transport.createAgentSession(settings);
       await refreshSessions();
       setCurrent(created);
@@ -242,6 +257,28 @@ export function AgentPage({
                   {(models?.models ?? []).map((m) => <option key={m.record.alias} value={m.record.alias}>{m.record.display_name}{m.runtime.state === "running" ? " · running" : ""}</option>)}
                 </select>
               </label>
+              <details className="agent__parameters">
+                <summary>Model parameters</summary>
+                <div className="agent__parameters-grid">
+                  <label>
+                    <span>Temperature · {temperature.toFixed(2)}</span>
+                    <input aria-label="Temperature" max={2} min={0} onChange={(e) => setTemperature(Number(e.currentTarget.value))} step={0.05} type="range" value={temperature} />
+                  </label>
+                  <label>
+                    <span>Top-p · {topP.toFixed(2)}</span>
+                    <input aria-label="Top-p" max={1} min={0.05} onChange={(e) => setTopP(Number(e.currentTarget.value))} step={0.05} type="range" value={topP} />
+                  </label>
+                  <label>
+                    <span>Max tokens per step</span>
+                    <input aria-label="Max tokens" max={8192} min={64} onChange={(e) => setMaxTokens(Math.max(64, Math.min(8192, Number(e.currentTarget.value) || 1400)))} step={1} type="number" value={maxTokens} />
+                  </label>
+                  <label className="agent__toggle"><input checked={thinking} onChange={(e) => setThinking(e.currentTarget.checked)} type="checkbox" /><span>Thinking mode (models that support it reason before answering; slower)</span></label>
+                </div>
+                <label>
+                  <span>Standing instructions (optional, kept for the whole session)</span>
+                  <textarea aria-label="Standing instructions" onChange={(e) => setInstructions(e.currentTarget.value)} placeholder="e.g. Answer in Polish. Keep documents as Markdown in docs/." rows={2} value={instructions} />
+                </label>
+              </details>
               <label className="agent__toggle"><input checked={allowWrites} onChange={(e) => setAllowWrites(e.currentTarget.checked)} type="checkbox" /><span>May write files (each write needs approval, diff shown)</span></label>
               <label className="agent__toggle"><input checked={allowCommands} onChange={(e) => setAllowCommands(e.currentTarget.checked)} type="checkbox" /><span>May run commands (each command needs approval)</span></label>
               <label className="agent__toggle"><input checked={allowWeb} onChange={(e) => setAllowWeb(e.currentTarget.checked)} type="checkbox" /><span>May fetch web pages (each fetch needs approval)</span></label>
@@ -274,7 +311,11 @@ export function AgentPage({
             <>
               <div className="agent__meta">
                 <code>{current.settings.workspace}</code>
-                <span>{current.model_alias ?? "no model"} · {current.settings.allow_writes ? "writes" : "no writes"} · {current.settings.allow_commands ? "commands" : "no commands"} · {current.settings.allow_web ? "web" : "no web"}</span>
+                <span>
+                  {current.model_alias ?? "no model"}
+                  {current.settings.parameters ? " · t=" + current.settings.parameters.temperature.toFixed(2) + " · " + String(current.settings.parameters.max_tokens) + " tok" + (current.settings.parameters.enable_thinking ? " · thinking" : "") : ""}
+                  {" · "}{current.settings.allow_writes ? "writes" : "no writes"} · {current.settings.allow_commands ? "commands" : "no commands"} · {current.settings.allow_web ? "web" : "no web"}
+                </span>
               </div>
               <div className="agent__log" ref={logRef} role="log" aria-live="off">
                 {events.map((event) => <EventRow key={event.seq} event={event} />)}

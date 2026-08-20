@@ -10,7 +10,7 @@ function view(overrides: Partial<AgentSessionView> = {}): AgentSessionView {
   return {
     contract_version: "local-agent.v1" as const,
     session_id: SESSION,
-    settings: { workspace: "D:\\example\\project", model_alias: null, allow_writes: true, allow_commands: true, allow_web: false, max_steps: 10, command_timeout_seconds: 120, title: null },
+    settings: { workspace: "D:\\example\\project", model_alias: null, parameters: { temperature: 0.2, top_p: 0.95, max_tokens: 1400, enable_thinking: false }, instructions: null, allow_writes: true, allow_commands: true, allow_web: false, max_steps: 10, command_timeout_seconds: 120, title: null },
     created_at: "2026-08-20T01:00:00Z",
     running: false,
     last_seq: 0,
@@ -84,5 +84,32 @@ describe("AgentPage", () => {
     const settings = transport.createAgentSession.mock.calls[0][0];
     expect(settings.workspace).toBe("D:\\example\\project");
     expect(settings.allow_web).toBe(false);
+  });
+
+  it("sends the chosen model parameters and standing instructions", async () => {
+    const transport = {
+      listAgentSessions: vi.fn(async () => []),
+      createAgentSession: vi.fn(async () => view()),
+      getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v1" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
+      decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
+    };
+    render(<AgentPage transport={transport} />);
+    await screen.findByText(/No session yet/);
+    fireEvent.change(screen.getByLabelText("Workspace folder"), { target: { value: "D:\\example\\project" } });
+    fireEvent.change(screen.getByLabelText("Temperature"), { target: { value: "0.7" } });
+    fireEvent.change(screen.getByLabelText("Max tokens"), { target: { value: "2048" } });
+    fireEvent.click(screen.getByLabelText(/Thinking mode/));
+    fireEvent.change(screen.getByLabelText("Standing instructions"), { target: { value: "Answer in Polish." } });
+    fireEvent.click(screen.getByRole("button", { name: "Start session" }));
+    await waitFor(() => expect(transport.createAgentSession).toHaveBeenCalled());
+    const settings = (transport.createAgentSession.mock.calls[0] as unknown[])[0] as {
+      parameters: { temperature: number; max_tokens: number; enable_thinking: boolean };
+      instructions: string | null;
+    };
+    expect(settings.parameters.temperature).toBeCloseTo(0.7);
+    expect(settings.parameters.max_tokens).toBe(2048);
+    expect(settings.parameters.enable_thinking).toBe(true);
+    expect(settings.instructions).toBe("Answer in Polish.");
   });
 });

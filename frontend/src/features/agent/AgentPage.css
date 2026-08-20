@@ -49,3 +49,32 @@
   .agent__layout { grid-template-columns: minmax(0, 1fr); }
   .agent__compose { grid-template-columns: 1fr; }
 }
+
+.agent__parameters {
+  border: 1px solid var(--border-subtle, color-mix(in oklab, currentColor 14%, transparent));
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+}
+
+.agent__parameters summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.agent__parameters-grid {
+  display: grid;
+  gap: var(--space-2, 0.5rem);
+  margin-top: var(--space-2, 0.5rem);
+}
+
+.agent__parameters label span {
+  display: block;
+  font-size: 0.8rem;
+  margin-bottom: 2px;
+}
+
+.agent__parameters textarea {
+  width: 100%;
+  resize: vertical;
+}

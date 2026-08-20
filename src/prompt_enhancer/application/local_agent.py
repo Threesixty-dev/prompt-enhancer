@@ -73,9 +73,22 @@ SAFE_TOOLS = frozenset({ToolName.READ_FILE, ToolName.LIST_DIR, ToolName.SEARCH_T
 APPROVAL_TOOLS = frozenset({ToolName.WRITE_FILE, ToolName.RUN_COMMAND, ToolName.FETCH_URL})
 
 
+class AgentModelParameters(StrictModel):
+    """Sampling and budget knobs for the chosen model - one preset per session."""
+
+    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    top_p: float = Field(default=0.95, gt=0.0, le=1.0)
+    max_tokens: int = Field(default=1_400, ge=64, le=8_192)
+    #: Reasoning/thinking mode where the model's chat template supports it.
+    enable_thinking: bool = False
+
+
 class AgentSettings(StrictModel):
     workspace: str = Field(min_length=1, max_length=1024)
     model_alias: str | None = Field(default=None, max_length=64)
+    parameters: AgentModelParameters = AgentModelParameters()
+    #: Extra standing instructions folded into the system prompt for this session.
+    instructions: str | None = Field(default=None, max_length=4_000)
     allow_writes: bool = True
     allow_commands: bool = True
     #: Web access is off unless the person turns it on; each fetch still needs approval.
@@ -158,8 +171,21 @@ SYSTEM_PROMPT = (
     "Inspect before changing: list and read files, search, then make small verifiable changes and run the relevant tests or build. "
     "Use the tools for every file access and command; never invent file contents. Paths are relative to the workspace root. "
     "Writes, commands and web fetches pause for the person's approval - if a call is denied, adapt instead of retrying it. "
+    "Documents are ordinary files: write Markdown (.md), notes, plans and reports with write_file like any other change. "
     "When you are done, summarise what changed and how it was verified, briefly. Answer in the person's language."
 )
+
+
+def _system_prompt(settings: "AgentSettings", root: Path) -> str:
+    shell = (
+        "Commands run under PowerShell (Windows syntax: ; between commands, $env:VAR, backslash or forward-slash paths)."
+        if platform.system() == "Windows"
+        else "Commands run under bash."
+    )
+    parts = [SYSTEM_PROMPT, shell, f"Workspace root: {root.name}/"]
+    if settings.instructions:
+        parts.append("Standing instructions from the person for this session: " + settings.instructions.strip())
+    return " ".join(parts)
 
 
 # ----- workspace tools -----
@@ -450,7 +476,7 @@ class LocalAgentService:
                 settings=settings,
                 created_at=self._clock(),
                 tools=WorkspaceTools(root, command_timeout=settings.command_timeout_seconds, runner=self._runner, fetcher=self._fetcher if settings.allow_web else None),
-                messages=[{"role": "system", "content": SYSTEM_PROMPT + f" Workspace root: {root.name}/"}],
+                messages=[{"role": "system", "content": _system_prompt(settings, root)}],
             )
             self._sessions[session_id] = session
         self._emit(session, "status", text=f"Session ready in {root.name}/ - reads are free; writes, commands and fetches wait for your approval.")
@@ -568,13 +594,15 @@ class LocalAgentService:
                     self._emit(session, "status", text="Stopped.")
                     break
                 _trim_history(session.messages)
+                parameters = session.settings.parameters
                 body = json.dumps({
                     "messages": session.messages,
                     "tools": tool_schemas(session.settings),
                     "tool_choice": "auto",
-                    "temperature": 0.2,
-                    "max_tokens": 1_400,
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    "temperature": parameters.temperature,
+                    "top_p": parameters.top_p,
+                    "max_tokens": parameters.max_tokens,
+                    "chat_template_kwargs": {"enable_thinking": parameters.enable_thinking},
                 }).encode("utf-8")
                 try:
                     status, payload, _ = self._chat(alias, body)
@@ -707,6 +735,7 @@ __all__ = (
     "APPROVAL_TOOLS",
     "SAFE_TOOLS",
     "AgentEvent",
+    "AgentModelParameters",
     "AgentEvents",
     "AgentSessionView",
     "AgentSettings",

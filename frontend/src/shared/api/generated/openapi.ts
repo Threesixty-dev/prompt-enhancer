@@ -2537,6 +2537,32 @@ export interface components {
             /** Producer Version */
             producer_version: string;
         };
+        /**
+         * AgentModelParameters
+         * @description Sampling and budget knobs for the chosen model - one preset per session.
+         */
+        AgentModelParameters: {
+            /**
+             * Enable Thinking
+             * @default false
+             */
+            enable_thinking: boolean;
+            /**
+             * Max Tokens
+             * @default 1400
+             */
+            max_tokens: number;
+            /**
+             * Temperature
+             * @default 0.2
+             */
+            temperature: number;
+            /**
+             * Top P
+             * @default 0.95
+             */
+            top_p: number;
+        };
         /** AgentSessionView */
         AgentSessionView: {
             /**
@@ -2586,6 +2612,8 @@ export interface components {
              * @default 120
              */
             command_timeout_seconds: number;
+            /** Instructions */
+            instructions?: string | null;
             /**
              * Max Steps
              * @default 10
@@ -2593,6 +2621,15 @@ export interface components {
             max_steps: number;
             /** Model Alias */
             model_alias?: string | null;
+            /**
+             * @default {
+             *       "enable_thinking": false,
+             *       "max_tokens": 1400,
+             *       "temperature": 0.2,
+             *       "top_p": 0.95
+             *     }
+             */
+            parameters: components["schemas"]["AgentModelParameters"];
             /** Title */
             title?: string | null;
             /** Workspace */
