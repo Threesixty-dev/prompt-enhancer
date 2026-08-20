@@ -142,3 +142,11 @@
 .local-models__recommended li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
 .local-models__recommended li > div { display: grid; gap: 0.1rem; }
 .local-models__recommended small { color: var(--ink-500); font-size: 0.76rem; }
+
+.local-models__provenance { display: block; font-size: 0.72rem; color: var(--ink-650); }
+.local-models__provenance[data-verified="no"] { font-style: italic; }
+.local-models__provenance-card { margin: 0; display: grid; gap: 0.25rem; font-size: 0.78rem; }
+.local-models__provenance-card div { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.local-models__provenance-card dt { font-weight: 600; }
+.local-models__provenance-card dd { margin: 0; overflow-wrap: anywhere; }
+.local-models__hint[data-eligible="no"] { color: var(--red-700, var(--p-9e3a31)); }

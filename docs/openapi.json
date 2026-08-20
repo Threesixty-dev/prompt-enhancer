@@ -4473,11 +4473,27 @@
       },
       "DownloadRequest": {
         "additionalProperties": false,
-        "description": "A download the person confirmed after seeing the file name and size.",
+        "description": "A download the person confirmed after seeing the file, size, revision, digest and licence.\n\nEvery ``confirmed_*`` field is what the browser displayed. The service does not\ntrust any of them: it re-resolves the repository identity from the Hub and\nrefuses the download unless the server's answer matches the confirmation\nexactly, so a caller cannot substitute a repository, file, revision, digest,\nsize or licence, and a repository that moved since the person looked is\nrefused rather than silently fetched.",
         "properties": {
           "alias": {
             "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
             "title": "Alias",
+            "type": "string"
+          },
+          "confirmed_license": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Confirmed License",
+            "type": "string"
+          },
+          "confirmed_revision": {
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "Confirmed Revision",
+            "type": "string"
+          },
+          "confirmed_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Confirmed Sha256",
             "type": "string"
           },
           "confirmed_size_bytes": {
@@ -4519,6 +4535,9 @@
           "repo_id",
           "filename",
           "confirmed_size_bytes",
+          "confirmed_revision",
+          "confirmed_sha256",
+          "confirmed_license",
           "alias"
         ],
         "title": "DownloadRequest",
@@ -4575,6 +4594,30 @@
           "repo_id": {
             "title": "Repo Id",
             "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{40}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
           },
           "started_at": {
             "format": "date-time",
@@ -5169,6 +5212,17 @@
         "title": "LatestProfileRunCounts",
         "type": "object"
       },
+      "LicenseAdmission": {
+        "description": "Outcome of the frozen repository admission policy for one repository.",
+        "enum": [
+          "allowed",
+          "not_allowed",
+          "unreviewed",
+          "unavailable"
+        ],
+        "title": "LicenseAdmission",
+        "type": "string"
+      },
       "LocalModelRecord": {
         "additionalProperties": false,
         "properties": {
@@ -5235,6 +5289,11 @@
             "title": "Path",
             "type": "string"
           },
+          "provenance_verified": {
+            "default": false,
+            "title": "Provenance Verified",
+            "type": "boolean"
+          },
           "sha256": {
             "anyOf": [
               {
@@ -5271,6 +5330,30 @@
             ],
             "title": "Source File"
           },
+          "source_license": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source License"
+          },
+          "source_license_policy": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source License Policy"
+          },
           "source_repo": {
             "anyOf": [
               {
@@ -5282,6 +5365,18 @@
               }
             ],
             "title": "Source Repo"
+          },
+          "source_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{40}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Revision"
           }
         },
         "required": [
@@ -13745,9 +13840,37 @@
       "RemoteFile": {
         "additionalProperties": false,
         "properties": {
+          "eligible": {
+            "default": false,
+            "title": "Eligible",
+            "type": "boolean"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
+          },
+          "ineligible_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ineligible Reason"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
           },
           "size_bytes": {
             "anyOf": [
@@ -13771,6 +13894,7 @@
         "additionalProperties": false,
         "properties": {
           "files": {
+            "default": [],
             "items": {
               "$ref": "#/components/schemas/RemoteFile"
             },
@@ -13788,14 +13912,62 @@
             ],
             "title": "Gated"
           },
+          "license_admission": {
+            "$ref": "#/components/schemas/LicenseAdmission",
+            "default": "unavailable"
+          },
+          "license_id": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Id"
+          },
+          "license_policy_version": {
+            "default": "local-model-license-policy.v1",
+            "title": "License Policy Version",
+            "type": "string"
+          },
           "repo_id": {
             "title": "Repo Id",
             "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{40}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "revision_pinned": {
+            "default": false,
+            "title": "Revision Pinned",
+            "type": "boolean"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
           }
         },
         "required": [
-          "repo_id",
-          "files"
+          "repo_id"
         ],
         "title": "RemoteRepoFiles",
         "type": "object"

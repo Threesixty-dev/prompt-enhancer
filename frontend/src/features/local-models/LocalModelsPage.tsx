@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
   DeviceMode,
+  LocalModelRecord,
   LocalModelStatus,
   LocalModelsOverview,
   PromptEnhancerTransport,
@@ -12,12 +13,35 @@ import { LocalModelChatPanel } from "./LocalModelChatPanel";
 import "./LocalModelsPage.css";
 
 const RECOMMENDED_REPO = "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF";
-/** Verified on 2026-08-19: ungated imatrix quantizations of orcarouter's unrestricted Qwen3.8-27B; the first fits a 16 GB card entirely. */
-const RECOMMENDED: readonly { repo: string; file: string; alias: string; label: string; note: string; sizeGb: number; device: DeviceMode }[] = [
-  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ3_M.gguf", alias: "orca27b-iq3m", label: "Qwen3.8-27B uncensored · IQ3_M", note: "12.8 GB - fully on a 16 GB GPU, ~25 tok/s; the default judge and agent model", sizeGb: 12.8, device: "gpu" },
-  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ4_XS.gguf", alias: "orca27b-iq4xs", label: "Qwen3.8-27B uncensored · IQ4_XS", note: "15.3 GB - higher quality, needs a GPU/CPU split on 16 GB", sizeGb: 15.3, device: "split" },
-  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-Q4_K_M.gguf", alias: "orca27b-q4km", label: "Qwen3.8-27B uncensored · Q4_K_M", note: "16.8 GB - best quality of the three, split 62/65 layers ~14 tok/s", sizeGb: 16.8, device: "split" },
+/**
+ * Suggestions only: picking one just runs the same server-side lookup as typing the
+ * repository by hand. Sizes here are rough notes for choosing a quantization; nothing
+ * is downloaded until the server has resolved an immutable revision, digest and licence
+ * for the exact file and the person has confirmed all of them.
+ */
+const RECOMMENDED: readonly { repo: string; file: string; label: string; note: string; sizeGb: number }[] = [
+  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ3_M.gguf", label: "Qwen3.8-27B uncensored · IQ3_M", note: "about 12.8 GB - fully on a 16 GB GPU, ~25 tok/s", sizeGb: 12.8 },
+  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-IQ4_XS.gguf", label: "Qwen3.8-27B uncensored · IQ4_XS", note: "about 15.3 GB - higher quality, needs a GPU/CPU split on 16 GB", sizeGb: 15.3 },
+  { repo: "mradermacher/Qwen3.8-27B-Uncensored-FP8-i1-GGUF", file: "Qwen3.8-27B-Uncensored-FP8.i1-Q4_K_M.gguf", label: "Qwen3.8-27B uncensored · Q4_K_M", note: "about 16.8 GB - best quality of the three, split 62/65 layers ~14 tok/s", sizeGb: 16.8 },
 ];
+const LICENSE_ADMISSION_TEXT: Readonly<Record<string, string>> = {
+  allowed: "admitted by this app's frozen download policy",
+  not_allowed: "reviewed and refused by this app's frozen download policy",
+  unreviewed: "not reviewed for this app's automated download policy",
+  unavailable: "not declared, or the repository contradicts itself",
+};
+const INELIGIBLE_TEXT: Readonly<Record<string, string>> = {
+  license_not_allowed: "licence refused by the download policy",
+  license_unreviewed: "licence not reviewed - fetch these weights by hand",
+  license_unavailable: "no licence declared at this revision",
+  size_unavailable: "the Hub published no exact size for this file",
+  digest_unavailable: "the Hub published no sha256 for this file",
+  unsupported_file_path: "not a plain file at the repository root",
+};
+const IDENTITY_UNAVAILABLE_TEXT: Readonly<Record<string, string>> = {
+  revision_not_immutable: "the Hub did not name an immutable commit for this repository",
+  revision_contradicted: "the Hub answered the commit lookup with a different commit",
+};
 const DEVICES: readonly { value: DeviceMode; title: string; hint: string }[] = [
   { value: "gpu", title: "GPU", hint: "All layers on the GPU - only if the weights fit" },
   { value: "split", title: "GPU / CPU", hint: "Fits what it can on the GPU, rest on CPU" },
@@ -40,6 +64,18 @@ function gb(bytes: number | null | undefined): string {
 function mb(value: number | null | undefined): string {
   if (value === null || value === undefined) return "unknown";
   return `${(value / 1024).toFixed(1)} GB`;
+}
+
+function shortId(value: string | null | undefined, size = 12): string {
+  return value ? value.slice(0, size) : "unavailable";
+}
+
+/** Provenance recorded for an installed model, or an explicit "unavailable". */
+export function provenanceLine(record: LocalModelRecord): string {
+  if (!record.provenance_verified || !record.source_revision || !record.sha256) {
+    return "Provenance unavailable - registered without a verified Hugging Face revision, digest or licence.";
+  }
+  return `Verified · revision ${shortId(record.source_revision)} · sha256 ${shortId(record.sha256)} · licence ${record.source_license ?? "unavailable"}`;
 }
 
 function defaultAlias(filename: string): string {
@@ -108,22 +144,30 @@ export function LocalModelsPage({
           ? "The runtime started but never became healthy - try fewer GPU layers or CPU."
           : status === 422
             ? "That is not a usable GGUF file or folder."
-            : status === 409 ? "Hugging Face refused the download: accept the model's terms on its page while logged in, then retry."
+            : status === 409 ? "The download was refused and nothing was downloaded or registered: the repository's revision, digest or licence no longer matches what you confirmed, the file is not admitted by the download policy, or that alias already exists. Look the repository up again."
               : "That did not work. Nothing was changed.");
     } finally {
       setBusy("");
     }
   }
 
-  async function lookupRemote() {
+  async function lookupRemote(repo?: string, preferFile?: string) {
+    const target = (repo ?? repoId).trim();
+    setRepoId(target);
     setRemoteError("");
     setRemote(null);
     setChosenFile("");
     try {
-      const files = await transport.getLocalModelRemoteFiles(repoId.trim());
+      const files = await transport.getLocalModelRemoteFiles(target);
       setRemote(files);
-      const fourBit = files.files.find((f) => /q4_k_m/i.test(f.filename)) ?? files.files.find((f) => /iq4|q4/i.test(f.filename)) ?? files.files[0];
-      if (fourBit) { setChosenFile(fourBit.filename); setAlias(defaultAlias(fourBit.filename)); }
+      const eligible = files.files.filter((f) => f.eligible);
+      const preferred = preferFile ? files.files.find((f) => f.filename === preferFile) : undefined;
+      const pick = preferred
+        ?? eligible.find((f) => /q4_k_m/i.test(f.filename))
+        ?? eligible.find((f) => /iq4|q4/i.test(f.filename))
+        ?? eligible[0]
+        ?? files.files[0];
+      if (pick) { setChosenFile(pick.filename); setAlias(defaultAlias(pick.filename)); }
     } catch (caught) {
       setRemoteError(caught instanceof TransportError && caught.status === 409
         ? "huggingface_hub is not installed in this environment (pip install -e \".[models]\")."
@@ -132,6 +176,11 @@ export function LocalModelsPage({
   }
 
   const selectedRemote = remote?.files.find((f) => f.filename === chosenFile) ?? null;
+  const downloadable = Boolean(
+    remote?.revision_pinned && remote.revision && remote.license_id
+    && remote.license_admission === "allowed"
+    && selectedRemote?.eligible && selectedRemote.sha256 && selectedRemote.size_bytes,
+  );
 
   if (state === "loading") return <section className="local-models"><p className="local-models__note">Looking at this machine…</p></section>;
   if (state === "unavailable") return <section className="local-models"><p className="local-models__note">Local models are not available in this runtime.</p></section>;
@@ -196,6 +245,7 @@ export function LocalModelsPage({
                   <div>
                     <strong>{item.record.display_name}</strong>
                     <small>{item.record.alias} · {gb(item.record.size_bytes)}{item.record.source_repo ? ` · ${item.record.source_repo}` : ""}</small>
+                    <small className="local-models__provenance" data-verified={item.record.provenance_verified ? "yes" : "no"}>{provenanceLine(item.record)}</small>
                   </div>
                   <span className={`local-models__state local-models__state--${item.runtime.state}`}>
                     {item.runtime.state}{item.runtime.device ? ` · ${item.runtime.device}${item.runtime.gpu_layers !== null && item.runtime.gpu_layers !== undefined ? ` · ${item.runtime.gpu_layers} GPU layers` : ""}` : ""}
@@ -261,7 +311,7 @@ export function LocalModelsPage({
           <h3>Recommended for this machine</h3>
           <ul>
             {RECOMMENDED.map((item) => {
-              const installed = overview.models.some((m) => m.record.source_file === item.file || m.record.alias === item.alias);
+              const installed = overview.models.some((m) => m.record.source_file === item.file);
               return (
                 <li key={item.file}>
                   <div>
@@ -271,19 +321,20 @@ export function LocalModelsPage({
                   <button
                     className="button button--ghost"
                     disabled={installed || busy !== ""}
-                    onClick={() => {
-                      if (!window.confirm(`Download ${item.file} (${item.sizeGb.toFixed(1)} GB) from ${item.repo} into the app's model folder?`)) return;
-                      void run("download", () => transport.startLocalModelDownload({ repo_id: item.repo, filename: item.file, confirmed_size_bytes: Math.round(item.sizeGb * 1024 ** 3), alias: item.alias, default_device: item.device }), "Download started; it appears below and in the list when finished.");
-                    }}
+                    onClick={() => void lookupRemote(item.repo, item.file)}
                     type="button"
                   >
-                    {installed ? "Installed" : `Download ${item.sizeGb.toFixed(1)} GB`}
+                    {installed ? "Installed" : "Look up"}
                   </button>
                 </li>
               );
             })}
           </ul>
-          <p className="local-models__hint">Sizes are approximate; the exact byte count is confirmed server-side before the download completes. Other repositories: paste any GGUF repo id below.</p>
+          <p className="local-models__hint">
+            Sizes here are rough notes. Nothing downloads from this list: choosing one looks the repository up, and the
+            download button below only appears once the server has pinned an immutable revision, an exact size, a sha256
+            and an admitted licence for the file you picked. Other repositories: paste any GGUF repo id below.
+          </p>
         </div>
         <div className="local-models__add">
           <label>
@@ -294,14 +345,41 @@ export function LocalModelsPage({
             </span>
           </label>
           {remoteError && <p className="local-models__error" role="alert">{remoteError}</p>}
-          {remote && (
+          {remote && !remote.revision_pinned && (
+            <p className="local-models__error" role="alert">
+              This repository cannot be pinned, so nothing here can be downloaded:{" "}
+              {IDENTITY_UNAVAILABLE_TEXT[remote.unavailable_reason ?? ""] ?? "its identity could not be resolved"}.
+            </p>
+          )}
+          {remote && remote.revision_pinned && (
             <>
+              <dl className="local-models__provenance-card">
+                <div><dt>Revision</dt><dd><code>{remote.revision}</code> (immutable commit)</dd></div>
+                <div>
+                  <dt>Licence</dt>
+                  <dd>
+                    {remote.license_id ?? "not declared"} · {LICENSE_ADMISSION_TEXT[remote.license_admission] ?? remote.license_admission}
+                    {" "}(<code>{remote.license_policy_version}</code>)
+                  </dd>
+                </div>
+              </dl>
               <label>
                 <span>File (4-bit recommended on 16 GB)</span>
                 <select aria-label="Model file" onChange={(e) => { setChosenFile(e.currentTarget.value); setAlias(defaultAlias(e.currentTarget.value)); }} value={chosenFile}>
-                  {remote.files.map((f) => <option key={f.filename} value={f.filename}>{f.filename} · {gb(f.size_bytes)}</option>)}
+                  {remote.files.map((f) => (
+                    <option key={f.filename} value={f.filename}>
+                      {f.filename} · {gb(f.size_bytes)}{f.eligible ? "" : " · not downloadable"}
+                    </option>
+                  ))}
                 </select>
               </label>
+              {selectedRemote && (
+                <p className="local-models__hint" data-eligible={selectedRemote.eligible ? "yes" : "no"}>
+                  {selectedRemote.eligible
+                    ? `sha256 ${selectedRemote.sha256} · exactly ${selectedRemote.size_bytes} bytes at this revision; the file is verified against both after downloading.`
+                    : `This file cannot be downloaded by the app: ${INELIGIBLE_TEXT[selectedRemote.ineligible_reason ?? ""] ?? "its identity could not be bound to this revision"}.`}
+                </p>
+              )}
               <label>
                 <span>Alias (endpoint name)</span>
                 <input aria-label="Alias" onChange={(e) => setAlias(e.currentTarget.value)} type="text" value={alias} />
@@ -309,15 +387,31 @@ export function LocalModelsPage({
               {remote.gated && <p className="local-models__hint">This repository is gated: accept its terms on Hugging Face while logged in, or the download will be refused.</p>}
               <button
                 className="button button--primary"
-                disabled={!selectedRemote || !selectedRemote.size_bytes || !alias || busy !== ""}
+                disabled={!downloadable || !alias || busy !== ""}
                 onClick={() => {
-                  if (!selectedRemote?.size_bytes) return;
-                  if (!window.confirm(`Download ${selectedRemote.filename} (${gb(selectedRemote.size_bytes)}) from ${remote.repo_id} into the app's model folder?`)) return;
-                  void run("download", () => transport.startLocalModelDownload({ repo_id: remote.repo_id, filename: selectedRemote.filename, confirmed_size_bytes: selectedRemote.size_bytes ?? 0, alias, default_device: "split" }), "Download started; it appears below and in the list when finished.");
+                  if (!downloadable || !remote.revision || !remote.license_id || !selectedRemote?.sha256 || !selectedRemote.size_bytes) return;
+                  const confirmed = [
+                    `Download ${selectedRemote.filename} (${gb(selectedRemote.size_bytes)}, exactly ${selectedRemote.size_bytes} bytes) from ${remote.repo_id}?`,
+                    `Revision: ${remote.revision}`,
+                    `sha256: ${selectedRemote.sha256}`,
+                    `Licence: ${remote.license_id} (${remote.license_policy_version})`,
+                  ].join("
+");
+                  if (!window.confirm(confirmed)) return;
+                  void run("download", () => transport.startLocalModelDownload({
+                    repo_id: remote.repo_id,
+                    filename: selectedRemote.filename,
+                    confirmed_size_bytes: selectedRemote.size_bytes ?? 0,
+                    confirmed_revision: remote.revision ?? "",
+                    confirmed_sha256: selectedRemote.sha256 ?? "",
+                    confirmed_license: remote.license_id ?? "",
+                    alias,
+                    default_device: "split",
+                  }), "Download started; it appears below and in the list when finished.");
                 }}
                 type="button"
               >
-                Download {selectedRemote ? gb(selectedRemote.size_bytes) : ""}
+                {downloadable ? `Download ${gb(selectedRemote?.size_bytes)}` : "Download unavailable"}
               </button>
             </>
           )}
@@ -343,7 +437,10 @@ export function LocalModelsPage({
             {overview.downloads.map((d) => (
               <li key={d.download_id} data-state={d.state}>
                 <Icon name={d.state === "completed" ? "check" : d.state === "failed" ? "x" : "clock"} />
-                <span>{d.filename} · {d.state}{d.bytes_total ? ` · ${gb(d.bytes_done)} of ${gb(d.bytes_total)}` : ""}{d.error_code ? ` · ${d.error_code.replace(/_/g, " ")}` : ""}</span>
+                <span>
+                  {d.filename} · {d.state}{d.bytes_total ? ` · ${gb(d.bytes_done)} of ${gb(d.bytes_total)}` : ""}{d.error_code ? ` · ${d.error_code.replace(/_/g, " ")}` : ""}
+                  {d.revision ? ` · revision ${shortId(d.revision)}` : ""}{d.sha256 ? ` · sha256 ${shortId(d.sha256)}` : ""}
+                </span>
               </li>
             ))}
           </ul>

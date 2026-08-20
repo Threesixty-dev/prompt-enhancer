@@ -74,3 +74,58 @@ mode; that is exactly the device option the owner asked for.
 - The Models page offers a chat box for running models (thinking disabled by
   default, conversation kept in the browser tab only, never persisted).
 
+
+## Addendum (2026-08-20): download provenance and the licence admission policy
+
+The first-party Hugging Face path used to discover a mutable repository, download
+without a revision, accept any size within a percent, and register no digest,
+revision or licence. It now works only against an identity the server resolved
+for itself.
+
+- **Discovery pins a commit.** `GET /v1/local-models/remote-files` asks
+  `HfApi.model_info` twice: once to learn which commit the repository points at,
+  then again addressed to that 40-hex commit oid with `files_metadata=True`, so the
+  per-file size, the expected `lfs.sha256` and the repository licence all come from
+  the exact revision a download would fetch. A repository that will not name a
+  commit oid, or that answers the commit lookup with a different commit, returns a
+  fixed content-free unavailable state; a branch name such as `main` or `latest` is
+  never reported as pinned. Files without an exact size or an expected sha256 are
+  listed as ineligible with a closed reason code, never guessed at.
+- **Downloads are bound to that identity, not to the caller.** `POST
+  /v1/local-models/downloads` carries the revision, digest, licence and byte count
+  the person confirmed in the browser. The service re-resolves the repository and
+  refuses unless its own answer matches the confirmation exactly, so substituting a
+  repository, file, revision, digest, size or licence is refused, and a repository
+  that moved between browsing and confirming is refused rather than silently
+  fetched. `hf_hub_download` is called with the commit oid and `repo_type="model"`;
+  no repository code is fetched, nothing is unpickled and `trust_remote_code` is
+  never involved. Afterwards the file must be a regular non-symlink file inside the
+  weights folder, start with the GGUF magic, have exactly the published byte count,
+  and hash to the published digest under a constant-time comparison. Any failure
+  deletes the file, registers nothing, and reports one closed code; Hub exception
+  text is never read or returned.
+- **The record carries the provenance.** `LocalModelRecord` gains
+  `source_revision`, `source_license`, `source_license_policy` and
+  `provenance_verified` alongside the existing `sha256`. Manually registered files,
+  folder scans and registries written before this change stay readable and report
+  provenance as unavailable; nothing is back-filled or inferred. A download's
+  identity includes the commit and the digest, so two revisions of the same file
+  can never alias to one download.
+- **Repository admission policy (`local-model-license-policy.v1`).** A frozen
+  allow-list of licence identifiers this repository is willing to fetch
+  automatically, a frozen refuse-list of identifiers reviewed and rejected
+  (bespoke community terms, non-commercial and no-derivative clauses, and the Hub's
+  `other`/`unknown` placeholders), and everything else treated as unreviewed. Only
+  `allowed` permits a download. **Limits:** this is an operational gate for this
+  app's downloader, not a legal conclusion. It does not interpret licence text, does
+  not see a repository's own additional conditions, says nothing about how model
+  output may be used, and can be wrong about a repository that mislabels itself.
+  Anything it does not admit is fetched by hand or not at all; gated repositories
+  still require the person's own accepted terms and their own Hugging Face login,
+  which this app never reads.
+- **The Models page shows it.** The revision, licence with its admission outcome,
+  the policy version, the exact byte count and the sha256 are on screen before the
+  confirmation dialog, which repeats all of them. The download button is disabled
+  and labelled "Download unavailable" whenever eligibility is false. The
+  recommended list only looks a repository up; nothing downloads from it, and there
+  is no automatic "latest model" download anywhere.

@@ -4,6 +4,7 @@ chat proxy, downloads - against a stub llama-server, never a real model."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,12 +22,14 @@ from prompt_enhancer.application.local_models import (
     DeviceMode,
     DownloadRequest,
     HardwareSummary,
+    LICENSE_POLICY_VERSION,
     LocalModelError,
     LocalModelService,
     RuntimeState,
     detect_llama_server,
     estimate_gpu_layers,
 )
+from tests.local_model_hub_stubs import REVISION, stub_model_info, wait_for_download
 from prompt_enhancer.bootstrap import bootstrap_local_application
 from prompt_enhancer.config import AppSettings
 
@@ -226,40 +229,59 @@ def test_activation_fails_closed_without_runtime_or_weights(tmp_path: Path) -> N
         raise AssertionError("activated without weights")
 
 
-def test_download_requires_confirmed_size_and_registers_the_model(tmp_path: Path) -> None:
+def test_download_verifies_the_pinned_artifact_and_records_its_provenance(tmp_path: Path) -> None:
     calls: list[dict[str, object]] = []
+    body = b"GGUF" + b"\0" * 2044
+    digest = hashlib.sha256(body).hexdigest()
 
-    def fake_download(*, repo_id: str, filename: str, local_dir: Path) -> Path:
-        calls.append({"repo_id": repo_id, "filename": filename})
+    def fake_download(*, repo_id: str, filename: str, local_dir: Path, revision: str) -> Path:
+        calls.append({"repo_id": repo_id, "filename": filename, "revision": revision})
         path = Path(local_dir) / filename
-        path.write_bytes(b"GGUF" + b"\0" * 2044)
+        path.write_bytes(body)
         return path
 
-    service = LocalModelService(tmp_path / "local-models", llama_server=lambda: None, hardware=lambda _b: HardwareSummary(), clock=lambda: T0, downloader=fake_download)
-    status = service.start_download(DownloadRequest(repo_id="example-org/Example-GGUF", filename="example-q4_k_m.gguf", confirmed_size_bytes=2048, alias="example-q4"))
+    service = LocalModelService(
+        tmp_path / "local-models", llama_server=lambda: None, hardware=lambda _b: HardwareSummary(),
+        clock=lambda: T0, downloader=fake_download,
+        model_info=stub_model_info(files={"example-q4_k_m.gguf": (2048, digest)}),
+    )
+    status = service.start_download(DownloadRequest(
+        repo_id="example-org/Example-GGUF", filename="example-q4_k_m.gguf", confirmed_size_bytes=2048,
+        confirmed_revision=REVISION, confirmed_sha256=digest, confirmed_license="apache-2.0", alias="example-q4",
+    ))
     assert status.state in {"queued", "downloading", "completed"}
-    # The worker thread finishes quickly with the fake downloader.
-    import time
-    for _ in range(100):
-        current = service.overview().downloads[0]
-        if current.state in {"completed", "failed"}:
-            break
-        time.sleep(0.05)
+    assert status.revision == REVISION and status.sha256 == digest
+    current = wait_for_download(service, status.download_id)
     assert current.state == "completed" and current.bytes_done == 2048
-    assert calls == [{"repo_id": "example-org/Example-GGUF", "filename": "example-q4_k_m.gguf"}]
+    # The download is pinned to the immutable commit, never to a branch name.
+    assert calls == [{"repo_id": "example-org/Example-GGUF", "filename": "example-q4_k_m.gguf", "revision": REVISION}]
     record = service.registry.get("example-q4")
     assert record is not None and record.source_repo == "example-org/Example-GGUF" and record.size_bytes == 2048
+    assert record.source_revision == REVISION and record.sha256 == digest
+    assert record.source_license == "apache-2.0" and record.provenance_verified is True
+    assert record.source_license_policy == LICENSE_POLICY_VERSION
     assert Path(record.path).is_relative_to(service.registry.weights_dir)
 
-    # A size that does not match what the person confirmed is refused, not registered.
-    mismatch = service.start_download(DownloadRequest(repo_id="example-org/Example-GGUF", filename="other-q4_k_m.gguf", confirmed_size_bytes=50 * 1024 * 1024, alias="other-q4"))
-    for _ in range(100):
-        current = next(d for d in service.overview().downloads if d.download_id == mismatch.download_id)
-        if current.state in {"completed", "failed"}:
-            break
-        time.sleep(0.05)
-    assert current.state == "failed" and current.error_code == "size_mismatch"
+
+def test_download_refuses_a_size_the_hub_does_not_publish(tmp_path: Path) -> None:
+    digest = hashlib.sha256(b"GGUF" + b"\0" * 2044).hexdigest()
+    service = LocalModelService(
+        tmp_path / "local-models", llama_server=lambda: None, hardware=lambda _b: HardwareSummary(),
+        clock=lambda: T0, downloader=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("downloaded")),
+        model_info=stub_model_info(files={"other-q4_k_m.gguf": (2048, digest)}),
+    )
+    try:
+        service.start_download(DownloadRequest(
+            repo_id="example-org/Example-GGUF", filename="other-q4_k_m.gguf",
+            confirmed_size_bytes=50 * 1024 * 1024, confirmed_revision=REVISION,
+            confirmed_sha256=digest, confirmed_license="apache-2.0", alias="other-q4",
+        ))
+    except LocalModelError as error:
+        assert error.code == "provenance_mismatch"
+    else:
+        raise AssertionError("a size the Hub never published was accepted")
     assert service.registry.get("other-q4") is None
+    assert service.overview().downloads == ()
 
 
 def test_scan_folder_registers_every_gguf_once(tmp_path: Path) -> None:
@@ -290,7 +312,7 @@ def test_download_reports_partial_bytes_while_the_hub_writes(tmp_path: Path, mon
     monkeypatch.setattr(module, "DOWNLOAD_PROGRESS_INTERVAL_SECONDS", 0.05)
     seen: list[int] = []
 
-    def slow_downloader(*, repo_id: str, filename: str, local_dir: Path) -> Path:
+    def slow_downloader(*, repo_id: str, filename: str, local_dir: Path, revision: str) -> Path:
         partial_dir = local_dir / ".cache" / "huggingface" / "download"
         partial_dir.mkdir(parents=True, exist_ok=True)
         partial = partial_dir / f"{filename}.abc123.incomplete"
@@ -308,11 +330,16 @@ def test_download_reports_partial_bytes_while_the_hub_writes(tmp_path: Path, mon
         final.write_bytes(b"GGUF" + b"\0" * 4092)
         return final
 
+    digest = hashlib.sha256(b"GGUF" + b"\0" * 4092).hexdigest()
     service = LocalModelService(
         tmp_path / "local-models", llama_server=lambda: None, hardware=lambda _b: HardwareSummary(),
         clock=lambda: T0, downloader=slow_downloader,
+        model_info=stub_model_info(repo_id="example/repo", files={"example-q4.gguf": (4096, digest)}),
     )
-    status = service.start_download(DownloadRequest(repo_id="example/repo", filename="example-q4.gguf", confirmed_size_bytes=4096, alias="example-q4"))
+    status = service.start_download(DownloadRequest(
+        repo_id="example/repo", filename="example-q4.gguf", confirmed_size_bytes=4096,
+        confirmed_revision=REVISION, confirmed_sha256=digest, confirmed_license="apache-2.0", alias="example-q4",
+    ))
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline and service.overview().downloads[0].state in {"queued", "downloading"}:
         time.sleep(0.05)

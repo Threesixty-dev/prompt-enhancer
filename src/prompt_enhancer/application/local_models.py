@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -55,6 +56,56 @@ DOWNLOAD_PROGRESS_INTERVAL_SECONDS = 2.0
 #: Rough per-layer budget used to estimate a split: weight bytes / layers plus
 #: a fixed headroom for the KV cache and scratch buffers.
 SPLIT_VRAM_HEADROOM_BYTES = 2 * 1024 ** 3
+#: Chunk size for the post-download digest; the file is never held in memory.
+DIGEST_CHUNK_BYTES = 4 * 1024 * 1024
+
+#: A Hub commit oid: the only revision this app treats as immutable. Branch and
+#: tag names ("main", "latest") are mutable and are never recorded as pinned.
+COMMIT_REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+#: Frozen repository admission policy for downloadable weights, version tagged so a
+#: record says which revision of the policy admitted it. This is an operational
+#: allow-list for *this* repository's automated downloader, not a legal conclusion:
+#: it does not interpret licence terms, does not cover a repository's own extra
+#: conditions, and says nothing about how model output may be used. Anything not
+#: listed as admitted fails closed and needs a human to fetch the weights by hand.
+LICENSE_POLICY_VERSION = "local-model-license-policy.v1"
+#: Identifiers reviewed as permissive enough to fetch without a case-by-case decision.
+ADMITTED_LICENSE_IDS = frozenset({
+    "apache-2.0",
+    "bsd-2-clause",
+    "bsd-3-clause",
+    "cc0-1.0",
+    "cc-by-4.0",
+    "mit",
+    "mpl-2.0",
+    "unlicense",
+})
+#: Identifiers reviewed and refused for the automated path: bespoke community terms,
+#: non-commercial or no-derivative clauses, and the Hub's "no real identifier" values.
+REFUSED_LICENSE_IDS = frozenset({
+    "bigscience-openrail-m",
+    "cc-by-nc-2.0",
+    "cc-by-nc-4.0",
+    "cc-by-nc-nd-4.0",
+    "cc-by-nc-sa-4.0",
+    "cc-by-nd-4.0",
+    "creativeml-openrail-m",
+    "deepfloyd-if-license",
+    "gemma",
+    "llama2",
+    "llama3",
+    "llama3.1",
+    "llama3.2",
+    "llama3.3",
+    "llama4",
+    "openrail",
+    "openrail++",
+    "other",
+    "unknown",
+})
+_LICENSE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.+-]{0,39}$")
 
 
 class ModelFormat(StrEnum):
@@ -65,6 +116,19 @@ class DeviceMode(StrEnum):
     CPU = "cpu"
     GPU = "gpu"
     SPLIT = "split"
+
+
+class LicenseAdmission(StrEnum):
+    """Outcome of the frozen repository admission policy for one repository."""
+
+    #: The declared identifier is on the reviewed allow-list.
+    ALLOWED = "allowed"
+    #: The declared identifier was reviewed and refused for the automated path.
+    NOT_ALLOWED = "not_allowed"
+    #: A well-formed identifier nobody has reviewed for this repository yet.
+    UNREVIEWED = "unreviewed"
+    #: No identifier at all, or the repository contradicts itself about it.
+    UNAVAILABLE = "unavailable"
 
 
 class RuntimeState(StrEnum):
@@ -83,6 +147,17 @@ class LocalModelRecord(StrictModel):
     source_file: str | None = Field(default=None, max_length=300)
     size_bytes: int | None = Field(default=None, ge=0)
     sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    #: Immutable Hub commit the weights came from. None on a manually registered
+    #: file and on registry entries written before provenance was recorded: the
+    #: app shows those as "provenance unavailable" and never invents a value.
+    source_revision: str | None = Field(default=None, pattern=COMMIT_REVISION_PATTERN.pattern)
+    #: Repository licence identifier read from that same immutable revision.
+    source_license: str | None = Field(default=None, max_length=40)
+    #: Version of the frozen admission policy that admitted the download.
+    source_license_policy: str | None = Field(default=None, max_length=64)
+    #: True only when this app downloaded the file and matched digest, size and
+    #: GGUF identity against metadata bound to ``source_revision``.
+    provenance_verified: bool = False
     default_device: DeviceMode = DeviceMode.SPLIT
     #: Remembered split offload (layers on the GPU); None = estimate from free VRAM.
     default_gpu_layers: int | None = Field(default=None, ge=0, le=4096)
@@ -173,11 +248,22 @@ class ActivateLocalModel(StrictModel):
 
 
 class DownloadRequest(StrictModel):
-    """A download the person confirmed after seeing the file name and size."""
+    """A download the person confirmed after seeing the file, size, revision, digest and licence.
+
+    Every ``confirmed_*`` field is what the browser displayed. The service does not
+    trust any of them: it re-resolves the repository identity from the Hub and
+    refuses the download unless the server's answer matches the confirmation
+    exactly, so a caller cannot substitute a repository, file, revision, digest,
+    size or licence, and a repository that moved since the person looked is
+    refused rather than silently fetched.
+    """
 
     repo_id: str = Field(min_length=3, max_length=200, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
     filename: str = Field(min_length=1, max_length=300)
     confirmed_size_bytes: int = Field(ge=1)
+    confirmed_revision: str = Field(pattern=COMMIT_REVISION_PATTERN.pattern)
+    confirmed_sha256: str = Field(pattern=SHA256_PATTERN.pattern)
+    confirmed_license: str = Field(min_length=1, max_length=40)
     alias: str = Field(pattern=ALIAS_PATTERN.pattern)
     display_name: str | None = Field(default=None, max_length=120)
     default_device: DeviceMode = DeviceMode.SPLIT
@@ -203,17 +289,37 @@ class DownloadStatus(StrictModel):
     error_code: str | None = None
     started_at: datetime
     finished_at: datetime | None = None
+    #: The server-verified identity this download is bound to; two revisions or
+    #: two digests of the same repository/file/alias are different downloads.
+    revision: str | None = Field(default=None, pattern=COMMIT_REVISION_PATTERN.pattern)
+    sha256: str | None = Field(default=None, pattern=SHA256_PATTERN.pattern)
 
 
 class RemoteFile(StrictModel):
     filename: str
     size_bytes: int | None = None
+    #: Expected content digest published for this file at ``RemoteRepoFiles.revision``.
+    sha256: str | None = Field(default=None, pattern=SHA256_PATTERN.pattern)
+    #: This app is willing to download the file: pinned revision, exact size, an
+    #: expected digest bound to that revision, and an admitted licence.
+    eligible: bool = False
+    #: Closed code explaining an ineligible file; never repository text.
+    ineligible_reason: str | None = None
 
 
 class RemoteRepoFiles(StrictModel):
     repo_id: str
+    #: Immutable commit oid the whole response is bound to, never a branch name.
+    revision: str | None = Field(default=None, pattern=COMMIT_REVISION_PATTERN.pattern)
+    #: True only when ``revision`` is a commit oid the Hub confirmed for itself.
+    revision_pinned: bool = False
+    license_id: str | None = Field(default=None, max_length=40)
+    license_admission: LicenseAdmission = LicenseAdmission.UNAVAILABLE
+    license_policy_version: str = LICENSE_POLICY_VERSION
     gated: bool | None = None
-    files: tuple[RemoteFile, ...]
+    #: Closed code set when the repository identity could not be resolved at all.
+    unavailable_reason: str | None = None
+    files: tuple[RemoteFile, ...] = ()
 
 
 @dataclass(slots=True)
@@ -416,6 +522,174 @@ def read_gguf_layer_count(path: Path) -> int | None:
     return None
 
 
+def admit_license(license_id: str | None) -> LicenseAdmission:
+    """Apply the frozen repository admission policy to one declared identifier."""
+
+    if license_id is None:
+        return LicenseAdmission.UNAVAILABLE
+    if license_id in ADMITTED_LICENSE_IDS:
+        return LicenseAdmission.ALLOWED
+    if license_id in REFUSED_LICENSE_IDS:
+        return LicenseAdmission.NOT_ALLOWED
+    return LicenseAdmission.UNREVIEWED
+
+
+def _attribute(source: object, name: str) -> object:
+    """Read one field from a Hub dataclass or from the mapping it also behaves as."""
+
+    value = getattr(source, name, None)
+    if value is None and isinstance(source, dict):
+        value = source.get(name)
+    return value
+
+
+def _commit_oid(value: object) -> str | None:
+    """A 40-hex commit oid, or None for a branch name, a tag or anything malformed."""
+
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip().lower()
+    return candidate if COMMIT_REVISION_PATTERN.fullmatch(candidate) else None
+
+
+def _declared_license(info: object) -> str | None:
+    """The one licence identifier the repository declares, or None when it declares
+    none, several different ones, or something that is not an identifier."""
+
+    declared: set[str] = set()
+    card = _attribute(_attribute(info, "card_data") or {}, "license")
+    for raw in (card if isinstance(card, list) else [card]):
+        if isinstance(raw, str) and raw.strip():
+            declared.add(raw.strip().lower())
+    tags = _attribute(info, "tags")
+    if isinstance(tags, list):
+        for tag in tags:
+            if isinstance(tag, str) and tag.startswith("license:") and tag[8:].strip():
+                declared.add(tag[8:].strip().lower())
+    if len(declared) != 1:
+        return None  # nothing declared, or the repository contradicts itself
+    only = declared.pop()
+    return only if _LICENSE_ID_PATTERN.fullmatch(only) else None
+
+
+def _identity_unavailable(repo_id: str, reason: str) -> RemoteRepoFiles:
+    """The fixed state returned whenever a repository's identity cannot be pinned.
+
+    It is deliberately content-free: no revision, no files, one closed reason code.
+    """
+
+    return RemoteRepoFiles(
+        repo_id=repo_id,
+        revision=None,
+        revision_pinned=False,
+        license_id=None,
+        license_admission=LicenseAdmission.UNAVAILABLE,
+        gated=None,
+        unavailable_reason=reason,
+        files=(),
+    )
+
+
+def _plain_gguf_name(filename: str) -> bool:
+    return (
+        filename.endswith(".gguf")
+        and "/" not in filename
+        and "\\" not in filename
+        and not filename.startswith(".")
+        and len(filename) <= 300
+    )
+
+
+def resolve_repo_identity(repo_id: str, *, model_info: Callable[..., object]) -> RemoteRepoFiles:
+    """Bind a repository's GGUF files to one immutable commit, with size, digest and licence.
+
+    Two lookups: the first only to learn which commit the repository points at right
+    now, the second addressed to that commit oid so every size, digest and licence in
+    the answer comes from the exact revision a download would fetch. A repository that
+    will not name a commit oid, or that answers a commit lookup with a different
+    commit, yields the fixed unavailable state rather than a guess.
+    """
+
+    try:
+        head = model_info(repo_id, files_metadata=True)
+    except Exception:
+        raise LocalModelError("remote_repo_unavailable") from None
+    revision = _commit_oid(_attribute(head, "sha"))
+    if revision is None:
+        return _identity_unavailable(repo_id, "revision_not_immutable")
+    try:
+        pinned = model_info(repo_id, revision=revision, files_metadata=True)
+    except Exception:
+        raise LocalModelError("remote_repo_unavailable") from None
+    if _commit_oid(_attribute(pinned, "sha")) != revision:
+        return _identity_unavailable(repo_id, "revision_contradicted")
+
+    license_id = _declared_license(pinned)
+    admission = admit_license(license_id)
+    gated_raw = _attribute(pinned, "gated")
+    siblings = _attribute(pinned, "siblings")
+    files: list[RemoteFile] = []
+    for sibling in siblings if isinstance(siblings, list) else []:
+        name = _attribute(sibling, "rfilename")
+        if not isinstance(name, str) or not name.endswith(".gguf"):
+            continue
+        size = _attribute(sibling, "size")
+        digest = _attribute(_attribute(sibling, "lfs") or {}, "sha256")
+        digest = digest.strip().lower() if isinstance(digest, str) else None
+        if admission is not LicenseAdmission.ALLOWED:
+            reason = f"license_{admission.value}"
+        elif not _plain_gguf_name(name):
+            reason = "unsupported_file_path"
+        elif not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+            reason = "size_unavailable"
+        elif digest is None or SHA256_PATTERN.fullmatch(digest) is None:
+            reason = "digest_unavailable"
+        else:
+            reason = None
+        files.append(
+            RemoteFile(
+                filename=name[:300],
+                size_bytes=size if isinstance(size, int) and not isinstance(size, bool) and size >= 0 else None,
+                sha256=digest if digest is not None and SHA256_PATTERN.fullmatch(digest) else None,
+                eligible=reason is None,
+                ineligible_reason=reason,
+            )
+        )
+    return RemoteRepoFiles(
+        repo_id=repo_id,
+        revision=revision,
+        revision_pinned=True,
+        license_id=license_id,
+        license_admission=admission,
+        gated=bool(gated_raw) if gated_raw is not None else None,
+        unavailable_reason=None,
+        files=tuple(sorted(files, key=lambda item: item.filename)),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedArtifact:
+    """One Hub file the server itself resolved: the only thing a download may fetch."""
+
+    repo_id: str
+    filename: str
+    revision: str
+    sha256: str
+    size_bytes: int
+    license_id: str
+
+
+def _digest_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(DIGEST_CHUNK_BYTES)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 class LocalModelRegistry:
     """JSON registry under the app home; aliases are the only identity."""
 
@@ -503,6 +777,7 @@ class LocalModelService:
         clock: Callable[[], datetime] = _utc_now,
         health_timeout_seconds: float = HEALTH_TIMEOUT_SECONDS,
         downloader: Callable[..., Path] | None = None,
+        model_info: Callable[..., object] | None = None,
     ) -> None:
         self._registry = LocalModelRegistry(root)
         self._llama_server = llama_server
@@ -511,6 +786,7 @@ class LocalModelService:
         self._clock = clock
         self._health_timeout = health_timeout_seconds
         self._downloader = downloader
+        self._model_info = model_info
         self._processes: dict[str, LlamaServerProcess] = {}
         self._failures: dict[str, str] = {}
         self._downloads: dict[str, DownloadStatus] = {}
@@ -825,37 +1101,77 @@ class LocalModelService:
 
     # ----- downloads -----
 
-    def remote_files(self, repo_id: str) -> RemoteRepoFiles:
+    def _hub_model_info(self) -> Callable[..., object]:
+        if self._model_info is not None:
+            return self._model_info
         try:
             from huggingface_hub import HfApi
         except Exception:
             raise LocalModelError("huggingface_hub_unavailable") from None
-        try:
-            info = HfApi().model_info(repo_id, files_metadata=True)
-        except Exception:
-            raise LocalModelError("remote_repo_unavailable") from None
-        files = tuple(
-            RemoteFile(filename=sibling.rfilename, size_bytes=getattr(sibling, "size", None))
-            for sibling in (info.siblings or [])
-            if sibling.rfilename.endswith(".gguf")
+        return HfApi().model_info
+
+    def remote_files(self, repo_id: str) -> RemoteRepoFiles:
+        """Browse a repository's GGUF files bound to one immutable commit."""
+
+        return resolve_repo_identity(repo_id, model_info=self._hub_model_info())
+
+    def _verified_artifact(self, request: DownloadRequest) -> VerifiedArtifact:
+        """Re-resolve the repository server-side and accept only an exact match.
+
+        The confirmation the person gave is compared field by field with what the
+        Hub says now. Nothing the caller sent is carried into the download or the
+        registry: the values used are the server's own.
+        """
+
+        identity = resolve_repo_identity(request.repo_id, model_info=self._hub_model_info())
+        if not identity.revision_pinned or identity.revision is None:
+            raise LocalModelError("provenance_unavailable")
+        remote = next((item for item in identity.files if item.filename == request.filename), None)
+        if remote is None or not remote.eligible or remote.sha256 is None or remote.size_bytes is None:
+            raise LocalModelError("file_not_eligible")
+        if identity.license_admission is not LicenseAdmission.ALLOWED or identity.license_id is None:
+            raise LocalModelError("file_not_eligible")
+        confirmed = (
+            request.confirmed_revision.lower(),
+            request.confirmed_sha256.lower(),
+            request.confirmed_license.strip().lower(),
+            request.confirmed_size_bytes,
         )
-        gated = getattr(info, "gated", None)
-        return RemoteRepoFiles(repo_id=repo_id, gated=bool(gated) if gated is not None else None, files=files)
+        resolved = (identity.revision, remote.sha256, identity.license_id, remote.size_bytes)
+        if confirmed != resolved:
+            raise LocalModelError("provenance_mismatch")
+        return VerifiedArtifact(
+            repo_id=identity.repo_id,
+            filename=remote.filename,
+            revision=identity.revision,
+            sha256=remote.sha256,
+            size_bytes=remote.size_bytes,
+            license_id=identity.license_id,
+        )
 
     def start_download(self, request: DownloadRequest) -> DownloadStatus:
         if self._registry.get(request.alias) is not None:
             raise LocalModelError("alias_exists")
-        download_id = hashlib.sha256(f"{request.repo_id}/{request.filename}/{request.alias}".encode("utf-8")).hexdigest()
+        artifact = self._verified_artifact(request)
+        # The identity includes the immutable revision and digest, so two revisions
+        # or two digests of the same repository/file/alias never share a download.
+        download_id = hashlib.sha256(
+            "\0".join((artifact.repo_id, artifact.filename, request.alias, artifact.revision, artifact.sha256)).encode("utf-8")
+        ).hexdigest()
         with self._lock:
             existing = self._downloads.get(download_id)
             if existing is not None and existing.state in {"queued", "downloading"}:
                 return existing
             status = DownloadStatus(
-                download_id=download_id, repo_id=request.repo_id, filename=request.filename, alias=request.alias,
-                state="queued", bytes_total=request.confirmed_size_bytes, bytes_done=0, started_at=self._clock(),
+                download_id=download_id, repo_id=artifact.repo_id, filename=artifact.filename, alias=request.alias,
+                state="queued", bytes_total=artifact.size_bytes, bytes_done=0, started_at=self._clock(),
+                revision=artifact.revision, sha256=artifact.sha256,
             )
             self._downloads[download_id] = status
-        worker = threading.Thread(target=self._run_download, args=(download_id, request), name=f"local-model-download-{request.alias}", daemon=True)
+        worker = threading.Thread(
+            target=self._run_download, args=(download_id, request, artifact),
+            name=f"local-model-download-{request.alias}", daemon=True,
+        )
         worker.start()
         return status
 
@@ -883,48 +1199,121 @@ class LocalModelService:
             if best:
                 self._update_download(download_id, bytes_done=best)
 
-    def _run_download(self, download_id: str, request: DownloadRequest) -> None:
+    def _verify_downloaded_artifact(self, path: Path, artifact: VerifiedArtifact) -> Path:
+        """Check what actually landed on disk against the reviewed Hub identity.
+
+        Containment, regular-file and GGUF expectations first, then the exact byte
+        count, then the streamed digest compared in constant time. Every failure
+        raises a closed code; the caller deletes the file and registers nothing.
+        """
+
+        if path.is_symlink() or not path.is_file():
+            raise LocalModelError("artifact_rejected")
+        resolved = Path(os.path.realpath(path))
+        weights_root = Path(os.path.realpath(self._registry.weights_dir))
+        if not resolved.is_relative_to(weights_root) or resolved.name != artifact.filename:
+            raise LocalModelError("artifact_rejected")
+        if resolved.is_symlink() or not resolved.is_file():
+            raise LocalModelError("artifact_rejected")
+        size = resolved.stat().st_size
+        if size != artifact.size_bytes:
+            raise LocalModelError("size_mismatch")
+        with resolved.open("rb") as handle:
+            if handle.read(len(_GGUF_MAGIC)) != _GGUF_MAGIC:
+                raise LocalModelError("not_a_gguf_file")
+        if not hmac.compare_digest(_digest_file(resolved), artifact.sha256):
+            raise LocalModelError("hash_mismatch")
+        return resolved
+
+    @staticmethod
+    def _download_failure_code(error: BaseException) -> str:
+        """Map a downloader failure to a closed code by exception type only.
+
+        Hub exception messages can carry repository text, so they are never read.
+        """
+
+        names = {cls.__name__ for cls in type(error).__mro__}
+        if names & {"GatedRepoError", "RepositoryNotFoundError", "RevisionNotFoundError", "EntryNotFoundError"}:
+            return "gated_or_unauthorized"
+        return "download_failed"
+
+    def _run_download(self, download_id: str, request: DownloadRequest, artifact: VerifiedArtifact) -> None:
         self._update_download(download_id, state="downloading")
-        target_dir = self._registry.weights_dir / request.repo_id.replace("/", "__")
+        target_dir = self._registry.weights_dir / artifact.repo_id.replace("/", "__")
         finished = threading.Event()
         sampler = threading.Thread(
-            target=self._sample_download_progress, args=(download_id, target_dir, request.filename, finished),
+            target=self._sample_download_progress, args=(download_id, target_dir, artifact.filename, finished),
             name=f"local-model-download-progress-{request.alias}", daemon=True,
         )
+        landed: Path | None = None
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
             sampler.start()
             if self._downloader is not None:
-                path = self._downloader(repo_id=request.repo_id, filename=request.filename, local_dir=target_dir)
+                path = self._downloader(
+                    repo_id=artifact.repo_id, filename=artifact.filename,
+                    local_dir=target_dir, revision=artifact.revision,
+                )
             else:
                 from huggingface_hub import hf_hub_download
 
-                path = Path(hf_hub_download(repo_id=request.repo_id, filename=request.filename, local_dir=str(target_dir)))
-            size = Path(path).stat().st_size
-            if abs(size - request.confirmed_size_bytes) > max(1024 * 1024, request.confirmed_size_bytes // 100):
-                self._update_download(download_id, state="failed", error_code="size_mismatch", bytes_done=size, finished_at=self._clock())
-                return
+                # Pinned to the commit oid; weights only, so no repository code is
+                # fetched or executed and nothing is unpickled.
+                path = Path(hf_hub_download(
+                    repo_id=artifact.repo_id,
+                    filename=artifact.filename,
+                    revision=artifact.revision,
+                    repo_type="model",
+                    local_dir=str(target_dir),
+                ))
+            landed = Path(path)
+            verified_path = self._verify_downloaded_artifact(landed, artifact)
             record = LocalModelRecord(
                 alias=request.alias,
-                display_name=request.display_name or Path(request.filename).stem[:120],
-                path=str(path),
-                source_repo=request.repo_id,
-                source_file=request.filename,
-                size_bytes=size,
+                display_name=request.display_name or Path(artifact.filename).stem[:120],
+                path=str(verified_path),
+                source_repo=artifact.repo_id,
+                source_file=artifact.filename,
+                size_bytes=artifact.size_bytes,
+                sha256=artifact.sha256,
+                source_revision=artifact.revision,
+                source_license=artifact.license_id,
+                source_license_policy=LICENSE_POLICY_VERSION,
+                provenance_verified=True,
                 default_device=request.default_device,
-                layer_count=read_gguf_layer_count(Path(path)),
+                layer_count=read_gguf_layer_count(verified_path),
                 added_at=self._clock(),
             )
             self._registry.upsert(record)
-            self._update_download(download_id, state="completed", bytes_done=size, bytes_total=size, finished_at=self._clock())
+            self._update_download(
+                download_id, state="completed", bytes_done=artifact.size_bytes,
+                bytes_total=artifact.size_bytes, finished_at=self._clock(),
+            )
         except Exception as error:  # noqa: BLE001 - reported as a closed code, never as text
-            code = "gated_or_unauthorized" if "401" in str(error) or "403" in str(error) or "gated" in str(error).lower() else "download_failed"
+            code = error.code if isinstance(error, LocalModelError) else self._download_failure_code(error)
+            self._discard_unverified(landed)
             self._update_download(download_id, state="failed", error_code=code, finished_at=self._clock())
         finally:
             finished.set()
 
+    def _discard_unverified(self, path: Path | None) -> None:
+        """Delete a file that failed verification so nothing can later register it."""
+
+        if path is None:
+            return
+        try:
+            if path.is_symlink():
+                path.unlink(missing_ok=True)
+                return
+            resolved = Path(os.path.realpath(path))
+            if resolved.is_relative_to(Path(os.path.realpath(self._registry.weights_dir))):
+                resolved.unlink(missing_ok=True)
+        except OSError:
+            pass
+
 
 __all__ = (
+    "ADMITTED_LICENSE_IDS",
     "ALIAS_PATTERN",
     "ActivateLocalModel",
     "ChatUpstream",
@@ -935,9 +1324,11 @@ __all__ = (
     "DownloadRequest",
     "DownloadStatus",
     "HardwareSummary",
+    "LICENSE_POLICY_VERSION",
     "LLAMA_SERVER_ENV",
     "RUNTIME_DIR_NAME",
     "LOCAL_MODELS_CONTRACT_VERSION",
+    "LicenseAdmission",
     "LocalModelError",
     "LocalModelRecord",
     "LocalModelRegistry",
@@ -945,14 +1336,18 @@ __all__ = (
     "LocalModelStatus",
     "LocalModelsOverview",
     "ModelFormat",
+    "REFUSED_LICENSE_IDS",
     "RemoteFile",
     "RemoteRepoFiles",
     "ScanFolderRequest",
     "ScanFolderResult",
     "RuntimeState",
     "RuntimeStatus",
+    "VerifiedArtifact",
+    "admit_license",
     "detect_llama_server",
     "estimate_gpu_layers",
     "probe_hardware",
     "read_gguf_layer_count",
+    "resolve_repo_identity",
 )

@@ -4213,11 +4213,24 @@ export interface components {
         DeviceMode: "cpu" | "gpu" | "split";
         /**
          * DownloadRequest
-         * @description A download the person confirmed after seeing the file name and size.
+         * @description A download the person confirmed after seeing the file, size, revision, digest and licence.
+         *
+         *     Every ``confirmed_*`` field is what the browser displayed. The service does not
+         *     trust any of them: it re-resolves the repository identity from the Hub and
+         *     refuses the download unless the server's answer matches the confirmation
+         *     exactly, so a caller cannot substitute a repository, file, revision, digest,
+         *     size or licence, and a repository that moved since the person looked is
+         *     refused rather than silently fetched.
          */
         DownloadRequest: {
             /** Alias */
             alias: string;
+            /** Confirmed License */
+            confirmed_license: string;
+            /** Confirmed Revision */
+            confirmed_revision: string;
+            /** Confirmed Sha256 */
+            confirmed_sha256: string;
             /** Confirmed Size Bytes */
             confirmed_size_bytes: number;
             /** @default split */
@@ -4247,6 +4260,10 @@ export interface components {
             finished_at?: string | null;
             /** Repo Id */
             repo_id: string;
+            /** Revision */
+            revision?: string | null;
+            /** Sha256 */
+            sha256?: string | null;
             /**
              * Started At
              * Format: date-time
@@ -4542,6 +4559,12 @@ export interface components {
             /** Running */
             running: number;
         };
+        /**
+         * LicenseAdmission
+         * @description Outcome of the frozen repository admission policy for one repository.
+         * @enum {string}
+         */
+        LicenseAdmission: "allowed" | "not_allowed" | "unreviewed" | "unavailable";
         /** LocalModelRecord */
         LocalModelRecord: {
             /**
@@ -4568,14 +4591,25 @@ export interface components {
             layer_count?: number | null;
             /** Path */
             path: string;
+            /**
+             * Provenance Verified
+             * @default false
+             */
+            provenance_verified: boolean;
             /** Sha256 */
             sha256?: string | null;
             /** Size Bytes */
             size_bytes?: number | null;
             /** Source File */
             source_file?: string | null;
+            /** Source License */
+            source_license?: string | null;
+            /** Source License Policy */
+            source_license_policy?: string | null;
             /** Source Repo */
             source_repo?: string | null;
+            /** Source Revision */
+            source_revision?: string | null;
         };
         /** LocalModelStatus */
         LocalModelStatus: {
@@ -7824,19 +7858,49 @@ export interface components {
         RejectionReason: "not_a_task" | "wrong_grouping" | "duplicate" | "other";
         /** RemoteFile */
         RemoteFile: {
+            /**
+             * Eligible
+             * @default false
+             */
+            eligible: boolean;
             /** Filename */
             filename: string;
+            /** Ineligible Reason */
+            ineligible_reason?: string | null;
+            /** Sha256 */
+            sha256?: string | null;
             /** Size Bytes */
             size_bytes?: number | null;
         };
         /** RemoteRepoFiles */
         RemoteRepoFiles: {
-            /** Files */
+            /**
+             * Files
+             * @default []
+             */
             files: components["schemas"]["RemoteFile"][];
             /** Gated */
             gated?: boolean | null;
+            /** @default unavailable */
+            license_admission: components["schemas"]["LicenseAdmission"];
+            /** License Id */
+            license_id?: string | null;
+            /**
+             * License Policy Version
+             * @default local-model-license-policy.v1
+             */
+            license_policy_version: string;
             /** Repo Id */
             repo_id: string;
+            /** Revision */
+            revision?: string | null;
+            /**
+             * Revision Pinned
+             * @default false
+             */
+            revision_pinned: boolean;
+            /** Unavailable Reason */
+            unavailable_reason?: string | null;
         };
         /** RemoteSubmitRequest */
         RemoteSubmitRequest: {

@@ -42,6 +42,9 @@ _STATUS_FOR_CODE = {
     "huggingface_hub_unavailable": 409,
     "folder_not_found": 422,
     "remote_repo_unavailable": 502,
+    "provenance_unavailable": 409,
+    "provenance_mismatch": 409,
+    "file_not_eligible": 409,
 }
 
 
