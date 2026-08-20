@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { LocalModelRecord, LocalModelStatus, LocalModelsOverview, RemoteRepoFiles } from "../../shared/api/contracts";
+import type { LocalModelRecord, LocalModelStatus, LocalModelsOverview, PromptEnhancerTransport, RemoteRepoFiles } from "../../shared/api/contracts";
 import { LocalModelsPage, provenanceLine, safeOverview } from "./LocalModelsPage";
 
 const REVISION = "0123456789abcdef0123456789abcdef01234567";
@@ -93,7 +93,7 @@ describe("LocalModelsPage", () => {
   });
 
   it("passes the displayed revision, digest and licence back as the confirmation", async () => {
-    const startLocalModelDownload = vi.fn(async () => ({}) as never);
+    const startLocalModelDownload = vi.fn(async (_request: Parameters<PromptEnhancerTransport["startLocalModelDownload"]>[0]) => ({}) as never);
     const transport = {
       getLocalModels: vi.fn(async () => overview()),
       activateLocalModel: vi.fn(), deactivateLocalModel: vi.fn(), removeLocalModel: vi.fn(),
