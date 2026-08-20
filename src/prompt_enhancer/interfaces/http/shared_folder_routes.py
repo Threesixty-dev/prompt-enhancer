@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response
 from pydantic import BaseModel, Field
 
 from ...application.shared_folders import (
@@ -83,11 +83,12 @@ def create_shared_folder_router(
         return service.list()
 
     @router.delete("/{share_id}", status_code=204)
-    def revoke(share_id: Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]) -> None:
+    def revoke(share_id: Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]) -> Response:
         try:
             service.revoke(share_id)
         except SharedFolderError as error:
             raise _failure(error) from None
+        return Response(status_code=204)
 
     @router.post("/join", response_model=PeerLink, status_code=201)
     def join(body: JoinRequest) -> PeerLink:
@@ -103,11 +104,12 @@ def create_shared_folder_router(
         return client.list()
 
     @router.delete("/links/{link_id}", status_code=204)
-    def leave(link_id: Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]) -> None:
+    def leave(link_id: Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]) -> Response:
         try:
             client.leave(link_id)
         except SharedFolderError as error:
             raise _failure(error) from None
+        return Response(status_code=204)
 
     @router.post("/links/{link_id}/pull", response_model=SyncReport)
     def pull(link_id: Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")]) -> SyncReport:
