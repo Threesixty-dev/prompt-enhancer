@@ -106,6 +106,9 @@ export type DeviceMode = Schemas["DeviceMode"];
 export type JudgeOutcome = Schemas["JudgeOutcome"];
 export type JudgeSweepStatus = Schemas["JudgeSweepStatus"];
 export type JudgeAgreementReport = Schemas["JudgeAgreementReport"];
+export type AnnotationAllowance = Schemas["AllowanceState"];
+export type AnnotationMetaprompt = Schemas["Metaprompt"];
+export type RemoteAnnotationResult = Schemas["RemoteSubmitResult"];
 export type SessionJudgments = Schemas["SessionJudgments"];
 export type SessionInterpretation = Schemas["SessionInterpretation"];
 export type PromptCheckRequest = Schemas["PromptCheckRequest"];
@@ -608,6 +611,11 @@ export interface PromptEnhancerTransport {
   startModelJudgeSweep(signal?: AbortSignal, scope?: "sample" | "all"): Promise<JudgeSweepStatus>;
   getModelJudgeSweep(signal?: AbortSignal): Promise<JudgeSweepStatus>;
   getModelJudgeAgreement(signal?: AbortSignal): Promise<JudgeAgreementReport>;
+  /** Annotation paths (ADR 0017): agent allowance switch, metaprompt, and the explicit "annotate remotely" action. */
+  getAnnotationAllowance(signal?: AbortSignal): Promise<AnnotationAllowance>;
+  setAnnotationAllowance(agentAllowed: boolean, signal?: AbortSignal): Promise<AnnotationAllowance>;
+  getAnnotationMetaprompt(signal?: AbortSignal): Promise<AnnotationMetaprompt>;
+  annotateRemotely(limit: number, signal?: AbortSignal): Promise<RemoteAnnotationResult>;
   getOnboardingStatus(signal?: AbortSignal): Promise<OnboardingStatus>;
   acceptOnboarding(request: OnboardingAccept, signal?: AbortSignal): Promise<OnboardingResult>;
   /** Blind calibration ratings over a frozen sample of the owner's own sessions. */

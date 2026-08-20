@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/central/v1/annotations/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Annotate */
+        post: operations["annotate_central_v1_annotations_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/sessions": {
         parameters: {
             query?: never;
@@ -186,6 +203,112 @@ export interface paths {
         };
         /** Analysis Run Detail */
         get: operations["analysis_run_detail_v1_analysis_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/annotation/allowance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Allowance */
+        get: operations["get_allowance_v1_annotation_allowance_get"];
+        put?: never;
+        /** Set Allowance */
+        post: operations["set_allowance_v1_annotation_allowance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/annotation/annotations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit */
+        post: operations["submit_v1_annotation_annotations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/annotation/metaprompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Metaprompt */
+        get: operations["get_metaprompt_v1_annotation_metaprompt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/annotation/remote/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remote Submit
+         * @description Explicit 'annotate remotely': redacted windows + pseudonymous ids go to the central server.
+         */
+        post: operations["remote_submit_v1_annotation_remote_submit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/annotation/work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Work */
+        get: operations["work_v1_annotation_work_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/annotation/work/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Window */
+        get: operations["window_v1_annotation_work__session_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2475,6 +2598,38 @@ export interface components {
             /** Workspace */
             workspace: string;
         };
+        /** AllowanceState */
+        AllowanceState: {
+            /** Agent Allowed */
+            agent_allowed: boolean;
+            /**
+             * Contract Version
+             * @default annotation.v1
+             * @constant
+             */
+            contract_version: "annotation.v1";
+            /**
+             * Note
+             * @default While on, models you drive may read sessions' redacted windows through this API and write labels back. Whatever model the agent runs on will see that content.
+             */
+            note: string;
+        };
+        /** AllowanceUpdate */
+        AllowanceUpdate: {
+            /** Agent Allowed */
+            agent_allowed: boolean;
+            /**
+             * Contract Version
+             * @default annotation.v1
+             * @constant
+             */
+            contract_version: "annotation.v1";
+            /**
+             * Note
+             * @default While on, models you drive may read sessions' redacted windows through this API and write labels back. Whatever model the agent runs on will see that content.
+             */
+            note: string;
+        };
         /**
          * AnalysisDestination
          * @enum {string}
@@ -3158,6 +3313,11 @@ export interface components {
          */
         CapabilitiesDto: {
             /**
+             * Annotation
+             * @default false
+             */
+            annotation: boolean;
+            /**
              * Arbitrary Sql
              * @constant
              */
@@ -3253,6 +3413,53 @@ export interface components {
          * @enum {string}
          */
         CapabilityKey: "session_list" | "session_labels" | "operational_events" | "user_messages" | "agent_messages" | "plan_messages" | "tool_events" | "decision_events" | "feedback_messages" | "verification_events" | "event_timing" | "token_usage" | "live_updates" | "requirement_opportunities" | "hypothesis_opportunities" | "material_claim_opportunities" | "verification_task_opportunities" | "requirement_evidence_links" | "hypothesis_evidence_links" | "material_claim_evidence_links" | "verification_task_evidence_links";
+        /** CentralAnnotation */
+        CentralAnnotation: {
+            /** Labels */
+            labels: {
+                [key: string]: components["schemas"]["RatingLabel"];
+            };
+            /** Session Id */
+            session_id: string;
+        };
+        /** CentralBatch */
+        CentralBatch: {
+            /** Items */
+            items: components["schemas"]["CentralBatchItem"][];
+            /** User Label */
+            user_label: string;
+        };
+        /** CentralBatchItem */
+        CentralBatchItem: {
+            /** Project Id */
+            project_id?: string | null;
+            /** Provider */
+            provider: string;
+            /** Session Id */
+            session_id: string;
+            /** Window */
+            window: string;
+        };
+        /** CentralBatchResult */
+        CentralBatchResult: {
+            /** Annotations */
+            annotations: components["schemas"]["CentralAnnotation"][];
+            /**
+             * Contract Version
+             * @default annotation.v1
+             * @constant
+             */
+            contract_version: "annotation.v1";
+            /** Model Identity */
+            model_identity?: string | null;
+            /**
+             * Prompt Version
+             * @default judge-v1
+             */
+            prompt_version: string;
+            /** Stored */
+            stored: number;
+        };
         /**
          * ClaudeCodeLocalSourceStatus
          * @description Content-free state of the hook-based Claude Code source.
@@ -4172,6 +4379,27 @@ export interface components {
             expected_discovery_version: string;
             /** @default unknown */
             task_category: components["schemas"]["TaskCategory"];
+        };
+        /** Metaprompt */
+        Metaprompt: {
+            /**
+             * Contract Version
+             * @default annotation.v1
+             * @constant
+             */
+            contract_version: "annotation.v1";
+            /** Labels */
+            labels: string[];
+            /** Prompt Version */
+            prompt_version: string;
+            /** Questions */
+            questions: {
+                [key: string]: string;
+            };
+            /** Reply Format */
+            reply_format: string;
+            /** System Prompt */
+            system_prompt: string;
         };
         /** MetricAgreement */
         MetricAgreement: {
@@ -7302,6 +7530,33 @@ export interface components {
             /** Repo Id */
             repo_id: string;
         };
+        /** RemoteSubmitRequest */
+        RemoteSubmitRequest: {
+            /**
+             * Limit
+             * @default 5
+             */
+            limit: number;
+        };
+        /** RemoteSubmitResult */
+        RemoteSubmitResult: {
+            /** Annotated */
+            annotated: number;
+            /**
+             * Contract Version
+             * @default annotation.v1
+             * @constant
+             */
+            contract_version: "annotation.v1";
+            /** Destination */
+            destination: string;
+            /** Model Identity */
+            model_identity?: string | null;
+            /** Stored Locally As */
+            stored_locally_as?: string | null;
+            /** Submitted */
+            submitted: number;
+        };
         /** ResearchSourceDto */
         ResearchSourceDto: {
             /** Key */
@@ -8378,6 +8633,32 @@ export interface components {
              */
             task_categories: components["schemas"]["TaskCategory"][];
         };
+        /** SubmitAnnotation */
+        SubmitAnnotation: {
+            /** Labels */
+            labels: {
+                [key: string]: components["schemas"]["RatingLabel"];
+            };
+            /** Model Name */
+            model_name: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** SubmitResult */
+        SubmitResult: {
+            /**
+             * Contract Version
+             * @default annotation.v1
+             * @constant
+             */
+            contract_version: "annotation.v1";
+            /** Model Alias */
+            model_alias: string;
+            /** Session Id */
+            session_id: string;
+            /** Stored */
+            stored: number;
+        };
         /**
          * TaskAnalysisResponse
          * @description Public command result; deliberately excludes task evidence and content.
@@ -8844,6 +9125,51 @@ export interface components {
          * @enum {string}
          */
         VerificationKind: "test" | "build" | "lint" | "type_check" | "security" | "artifact_validation";
+        /** WorkItem */
+        WorkItem: {
+            /** Project Id */
+            project_id?: string | null;
+            /** Provider */
+            provider: string;
+            /** Session Id */
+            session_id: string;
+        };
+        /** WorkList */
+        WorkList: {
+            /**
+             * Contract Version
+             * @default annotation.v1
+             * @constant
+             */
+            contract_version: "annotation.v1";
+            /** Items */
+            items: components["schemas"]["WorkItem"][];
+            /** Model Name */
+            model_name: string;
+            /** Remaining */
+            remaining: number;
+        };
+        /** WorkWindow */
+        WorkWindow: {
+            /**
+             * Contract Version
+             * @default annotation.v1
+             * @constant
+             */
+            contract_version: "annotation.v1";
+            /** Prompt Version */
+            prompt_version: string;
+            /** Provider */
+            provider: string;
+            /** Questions */
+            questions: {
+                [key: string]: string;
+            };
+            /** Session Id */
+            session_id: string;
+            /** Window */
+            window: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -8853,6 +9179,42 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    annotate_central_v1_annotations_batch_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CentralBatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CentralBatchResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_sessions_v1_agent_sessions_get: {
         parameters: {
             query?: never;
@@ -9353,6 +9715,247 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnalysisRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_allowance_v1_annotation_allowance_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllowanceState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_allowance_v1_annotation_allowance_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AllowanceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllowanceState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_v1_annotation_annotations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitAnnotation"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_metaprompt_v1_annotation_metaprompt_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Metaprompt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remote_submit_v1_annotation_remote_submit_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoteSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteSubmitResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    work_v1_annotation_work_get: {
+        parameters: {
+            query: {
+                model: string;
+                limit?: number;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    window_v1_annotation_work__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkWindow"];
                 };
             };
             /** @description Validation Error */

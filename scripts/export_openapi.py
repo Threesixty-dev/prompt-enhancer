@@ -322,6 +322,16 @@ class _SchemaPromptCheckService:
         raise RuntimeError("schema-only service has no history")
 
 
+class _SchemaAnnotationSurface:
+    """Non-executing stand-in so the annotation + central routes are typed (ADR 0017)."""
+
+    def __getattr__(self, name):
+        def _fail(*args, **kwargs):
+            raise RuntimeError("schema-only service")
+
+        return _fail
+
+
 class _SchemaLocalAgentService:
     """Non-executing stand-in so the local-agent routes are typed."""
 
@@ -530,6 +540,9 @@ def _build_schema_app(*, include_control_plane: bool):
         model_judge_service=_SchemaModelJudgeService(),  # type: ignore[arg-type]
         prompt_check_service=_SchemaPromptCheckService(),  # type: ignore[arg-type]
         local_agent_service=_SchemaLocalAgentService(),  # type: ignore[arg-type]
+        annotation_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
+        central_annotation_server=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
+        remote_annotation_client=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         calibration_sample_session_ids=lambda: (),
         display_label_service=_SchemaManualDisplayLabelService(),
         model_evaluation_service=LocalTextModelEvaluationService(),

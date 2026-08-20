@@ -90,6 +90,9 @@ import type {
   JudgeOutcome,
   JudgeSweepStatus,
   JudgeAgreementReport,
+  AnnotationAllowance,
+  AnnotationMetaprompt,
+  RemoteAnnotationResult,
   SessionJudgments,
   SessionInterpretation,
   PromptCheckRequest,
@@ -2420,6 +2423,26 @@ export function createHttpTransport(options: {
     },
     getModelJudgeAgreement(signal) {
       return request<JudgeAgreementReport>("/v1/model-judge/agreement", { method: "GET" }, signal);
+    },
+    getAnnotationAllowance(signal) {
+      return request<AnnotationAllowance>("/v1/annotation/allowance", { method: "GET" }, signal);
+    },
+    setAnnotationAllowance(agentAllowed, signal) {
+      return request<AnnotationAllowance>(
+        "/v1/annotation/allowance",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent_allowed: agentAllowed }) },
+        signal,
+      );
+    },
+    getAnnotationMetaprompt(signal) {
+      return request<AnnotationMetaprompt>("/v1/annotation/metaprompt", { method: "GET" }, signal);
+    },
+    annotateRemotely(limit, signal) {
+      return request<RemoteAnnotationResult>(
+        "/v1/annotation/remote/submit",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit }) },
+        signal,
+      );
     },
     getLocalModels(signal) {
       return request<LocalModelsOverview>("/v1/local-models", { method: "GET" }, signal);

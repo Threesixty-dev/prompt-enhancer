@@ -4,7 +4,9 @@ import type {
   CalibrationRating,
   CalibrationSample,
   CalibrationSampleMember,
+  AnnotationAllowance,
   JudgeAgreementReport,
+  RemoteAnnotationResult,
   JudgeSweepStatus,
   PromptEnhancerTransport,
   RatingLabel,
@@ -74,11 +76,16 @@ export function CalibrationPage({
   transport: Pick<
     PromptEnhancerTransport,
     "getCalibrationSample" | "submitCalibrationRatings" | "getCalibrationRatings" | "getCalibrationProgress" | "getCalibrationExport" | "getSessionTranscript"
-  > & Partial<Pick<PromptEnhancerTransport, "judgeSessionWithModel" | "startModelJudgeSweep" | "getModelJudgeSweep" | "getModelJudgeAgreement">>;
+  > & Partial<Pick<PromptEnhancerTransport, "judgeSessionWithModel" | "startModelJudgeSweep" | "getModelJudgeSweep" | "getModelJudgeAgreement" | "getAnnotationAllowance" | "setAnnotationAllowance" | "getAnnotationMetaprompt" | "annotateRemotely">>;
 }) {
   const [agreement, setAgreement] = useState<JudgeAgreementReport | null>(null);
   const [sweep, setSweep] = useState<JudgeSweepStatus | null>(null);
   const [judgeMessage, setJudgeMessage] = useState("");
+  const [allowance, setAllowance] = useState<AnnotationAllowance | null>(null);
+  const [annotationMessage, setAnnotationMessage] = useState("");
+  const [remoteConfirm, setRemoteConfirm] = useState(false);
+  const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteResult, setRemoteResult] = useState<RemoteAnnotationResult | null>(null);
   const [rater, setRater] = useState<string>(() => {
     try { return localStorage.getItem(RATER_KEY) ?? ""; } catch { return ""; }
   });
@@ -127,6 +134,13 @@ export function CalibrationPage({
     if (!transport.getModelJudgeAgreement || !transport.getModelJudgeSweep) return;
     try {
       const [report, status] = await Promise.all([transport.getModelJudgeAgreement(signal), transport.getModelJudgeSweep(signal)]);
+      if (transport.getAnnotationAllowance) {
+        try {
+          setAllowance(await transport.getAnnotationAllowance(signal));
+        } catch {
+          setAllowance(null);
+        }
+      }
       if (signal?.aborted) return;
       setAgreement(report);
       setSweep(status);
@@ -224,6 +238,66 @@ export function CalibrationPage({
   }
 
   const ratedCount = members.filter((member) => member.rated_metric_keys.length >= metricKeys.length && metricKeys.length > 0).length;
+
+  const toggleAllowance = async () => {
+    if (!transport.setAnnotationAllowance || !allowance) return;
+    try {
+      setAllowance(await transport.setAnnotationAllowance(!allowance.agent_allowed));
+      setAnnotationMessage("");
+    } catch (error) {
+      setAnnotationMessage(error instanceof Error ? error.message : "Could not update the allowance.");
+    }
+  };
+
+  const copyAgentInstructions = async () => {
+    if (!transport.getAnnotationMetaprompt) return;
+    try {
+      const meta = await transport.getAnnotationMetaprompt();
+      const base = window.location.origin;
+      const text = [
+        "Annotate my coding-agent sessions through the Prompt Enhancer API.",
+        `Base URL: ${base} - send the app token from api.token (in the Prompt Enhancer home folder) as the X-Prompt-Enhancer-Token header on every request.`,
+        "",
+        "1. GET /v1/annotation/metaprompt - read the system prompt, the questions and the allowed labels.",
+        "2. GET /v1/annotation/work?model=<your-model-name> - session ids you have not annotated yet.",
+        "3. For each id: GET /v1/annotation/work/{session_id} - the redacted transcript window.",
+        "4. Judge only what the window shows, then POST /v1/annotation/annotations with",
+        '   {"session_id": "<id>", "model_name": "<your-model-name>", "labels": {"<metric_key>": "<label>"}}.',
+        "",
+        `System prompt to follow:\n${meta.system_prompt}`,
+        "",
+        "Questions:",
+        ...Object.entries(meta.questions).map(([key, question]) => `- ${key}: ${question}`),
+        "",
+        `Allowed labels: ${meta.labels.join(", ")}. ${meta.reply_format}`,
+      ].join("\n");
+      await navigator.clipboard.writeText(text);
+      setAnnotationMessage("Agent instructions copied - paste them into Codex, Claude Code, or any agent you drive.");
+    } catch (error) {
+      setAnnotationMessage(error instanceof Error ? error.message : "Could not copy the instructions.");
+    }
+  };
+
+  const annotateRemotely = async () => {
+    if (!transport.annotateRemotely) return;
+    setRemoteBusy(true);
+    setAnnotationMessage("");
+    try {
+      const result = await transport.annotateRemotely(5);
+      setRemoteResult(result);
+      setRemoteConfirm(false);
+      setAnnotationMessage(
+        result.submitted === 0
+          ? "Nothing left to submit - every session already has a central annotation."
+          : `Sent ${result.submitted} session${result.submitted === 1 ? "" : "s"} to ${result.destination}; ${result.annotated} annotated by ${result.model_identity ?? "the central model"}.`,
+      );
+      void loadJudge();
+    } catch (error) {
+      setAnnotationMessage(error instanceof Error ? error.message : "Remote annotation failed.");
+    } finally {
+      setRemoteBusy(false);
+    }
+  };
 
   return (
     <section aria-labelledby="calibration-title" className="calibration">
@@ -394,6 +468,65 @@ export function CalibrationPage({
           </table>
           <p className="calibration__note">{agreement.caveat}</p>
           {judgeMessage && <p className="calibration__message" aria-live="polite">{judgeMessage}</p>}
+        </section>
+      )}
+
+      {state === "ready" && allowance && (
+        <section aria-labelledby="annotation-paths-title" className="calibration__judge calibration__annotation">
+          <div className="calibration__judge-head">
+            <div>
+              <p className="eyebrow">More ways to annotate</p>
+              <h2 id="annotation-paths-title">Let a model you drive - or the central server - annotate for you</h2>
+            </div>
+          </div>
+          <div className="calibration__annotation-paths">
+            <div className="calibration__annotation-path">
+              <h3>Your own agents, through this app&apos;s endpoint</h3>
+              <p className="calibration__note">{allowance.note}</p>
+              <div className="calibration__actions">
+                <button className={allowance.agent_allowed ? "button" : "button button--ghost"} onClick={() => void toggleAllowance()} type="button">
+                  {allowance.agent_allowed ? "Agent annotation is ON - click to stop" : "Allow agent annotation"}
+                </button>
+                {allowance.agent_allowed && (
+                  <button className="button button--ghost" onClick={() => void copyAgentInstructions()} type="button">
+                    Copy agent instructions
+                  </button>
+                )}
+              </div>
+              {allowance.agent_allowed && (
+                <p className="calibration__note">
+                  Paste the instructions into Codex, Claude Code, or a local model chat. Labels come back as <code>agent:&lt;name&gt;</code> judgments in the table above.
+                </p>
+              )}
+            </div>
+            <div className="calibration__annotation-path">
+              <h3>Annotate remotely on the central server</h3>
+              <p className="calibration__note">
+                Sends up to 5 not-yet-submitted sessions - redacted windows plus pseudonymous session and project ids, never raw transcripts - to the central annotation server, which annotates them with its strongest model and keeps the submissions as the training dataset.
+              </p>
+              {!remoteConfirm ? (
+                <div className="calibration__actions">
+                  <button className="button button--ghost" disabled={remoteBusy} onClick={() => setRemoteConfirm(true)} type="button">
+                    Annotate remotely…
+                  </button>
+                </div>
+              ) : (
+                <div className="calibration__actions" role="alertdialog" aria-label="Confirm remote annotation">
+                  <span className="calibration__note">Destination: embedded central server (this machine). Send now?</span>
+                  <button className="button" disabled={remoteBusy} onClick={() => void annotateRemotely()} type="button">
+                    {remoteBusy ? "Sending…" : "Send"}
+                  </button>
+                  <button className="button button--ghost" disabled={remoteBusy} onClick={() => setRemoteConfirm(false)} type="button">
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {remoteResult && remoteResult.stored_locally_as && (
+                <p className="calibration__note">Central labels stored locally as <code>{remoteResult.stored_locally_as}</code>.</p>
+              )}
+            </div>
+          </div>
+          {annotationMessage && <p className="calibration__message" aria-live="polite">{annotationMessage}</p>}
         </section>
       )}
 

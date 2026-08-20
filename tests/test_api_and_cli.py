@@ -85,6 +85,7 @@ def test_health_is_minimal_and_only_v1_routes_require_authentication(tmp_path) -
         "local_models": False,
         "prompt_check": False,
         "local_agent": False,
+        "annotation": False,
         "manual_display_labels": False,
         "browser_session": True,
         "demo_provider": "synthetic",

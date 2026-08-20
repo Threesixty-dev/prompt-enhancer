@@ -585,6 +585,18 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async getModelJudgeAgreement() {
       throw new TransportError("Model judge is unavailable in synthetic preview", 404);
     },
+    async getAnnotationAllowance() {
+      throw new TransportError("Annotation is unavailable in synthetic preview", 404);
+    },
+    async setAnnotationAllowance() {
+      throw new TransportError("Annotation is unavailable in synthetic preview", 404);
+    },
+    async getAnnotationMetaprompt() {
+      throw new TransportError("Annotation is unavailable in synthetic preview", 404);
+    },
+    async annotateRemotely() {
+      throw new TransportError("Annotation is unavailable in synthetic preview", 404);
+    },
     async getLocalModels() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },

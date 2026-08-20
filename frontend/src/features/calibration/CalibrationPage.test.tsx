@@ -125,4 +125,61 @@ describe("CalibrationPage", () => {
     );
     await screen.findByText(/not available in this runtime/);
   });
+
+  it("gates the agent path on the allowance and confirms before annotating remotely", async () => {
+    const agreement = {
+      contract_version: "model-judge.v1",
+      model_alias: null,
+      judged_sessions: 0,
+      metrics: [],
+      caveat: "Judgments are opinions, never product metrics.",
+    };
+    let allowed = false;
+    const setAnnotationAllowance = vi.fn(async (next: boolean) => {
+      allowed = next;
+      return { contract_version: "annotation.v1" as const, agent_allowed: allowed, note: "Whatever model the agent runs on will see that content." };
+    });
+    const annotateRemotely = vi.fn(async (_limit: number) => ({
+      contract_version: "annotation.v1" as const,
+      destination: "embedded central server (this machine)",
+      submitted: 2,
+      annotated: 2,
+      model_identity: "orca27b-iq3m",
+      stored_locally_as: "central:orca27b-iq3m",
+    }));
+    const transport = {
+      getCalibrationSample: vi.fn(async () => sample()),
+      submitCalibrationRatings: vi.fn(),
+      getCalibrationRatings: vi.fn(async () => []),
+      getCalibrationProgress: vi.fn(async () => progress(0)),
+      getCalibrationExport: vi.fn(),
+      getSessionTranscript: vi.fn(async () => transcript),
+      getModelJudgeAgreement: vi.fn(async () => agreement),
+      getModelJudgeSweep: vi.fn(async () => ({ contract_version: "model-judge.v1", running: false, total: 0, done: 0, failed: 0 })),
+      getAnnotationAllowance: vi.fn(async () => ({ contract_version: "annotation.v1" as const, agent_allowed: allowed, note: "Whatever model the agent runs on will see that content." })),
+      setAnnotationAllowance,
+      getAnnotationMetaprompt: vi.fn(),
+      annotateRemotely,
+    } as never;
+
+    render(<CalibrationPage transport={transport} />);
+    await screen.findByText(/More ways to annotate/);
+
+    // Allowance off: the toggle invites, no copy button yet.
+    const toggle = screen.getByRole("button", { name: /Allow agent annotation/ });
+    expect(screen.queryByRole("button", { name: /Copy agent instructions/ })).toBeNull();
+    fireEvent.click(toggle);
+    await screen.findByRole("button", { name: /Agent annotation is ON/ });
+    expect(setAnnotationAllowance).toHaveBeenCalledWith(true);
+    expect(screen.getByRole("button", { name: /Copy agent instructions/ })).toBeTruthy();
+
+    // Annotate remotely: explicit confirm with the destination named before anything is sent.
+    fireEvent.click(screen.getByRole("button", { name: /Annotate remotely/ }));
+    expect(annotateRemotely).not.toHaveBeenCalled();
+    await screen.findByText(/Destination: embedded central server \(this machine\)/);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(annotateRemotely).toHaveBeenCalledWith(5));
+    await screen.findByText(/Sent 2 sessions to embedded central server/);
+    await screen.findByText("central:orca27b-iq3m");
+  });
 });

@@ -209,6 +209,21 @@ class ModelJudgeService:
 
     # ----- one session -----
 
+    @property
+    def repository(self):
+        """The judgment store (used by the annotation surfaces, ADR 0017)."""
+
+        return self._repository
+
+    @property
+    def session_lookup(self):
+        return self._session_lookup
+
+    def window_for(self, provider: Provider, session_id: str) -> P1TextAnalysisInput:
+        """Public window reader for the annotation surfaces."""
+
+        return self._window(provider, session_id)
+
     def _window(self, provider: Provider, session_id: str) -> P1TextAnalysisInput:
         if not self._access.has_active_consent(provider, DataTier.REDACTED_CONTENT):
             raise ModelJudgeError("consent_required")

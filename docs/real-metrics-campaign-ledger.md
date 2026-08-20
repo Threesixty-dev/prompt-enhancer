@@ -1489,6 +1489,7 @@ the application composes no control-plane service and exposes no route.
 | Claude Code telemetry capture | `claude-code-otlp.v1`; loopback OTLP/HTTP JSON receiver at `/otlp/v1/{logs,metrics}`; separate write-only ingest token | Per-request tokens, model, duration, and provider-reported cost; six documented cumulative counters; eleven allowlisted attributes; provider-reported facts, not calibration evidence |
 | Claude Opus review target | Exact requested and served model must be recorded by a reviewed BYOK/API runner | Not implemented; no private-session review is authorized |
 | Claude Fable review target | Exact requested and served model plus retention acknowledgement must be recorded | Not implemented; synthetic architecture review only until the remote approval boundary exists |
+| Annotation paths (ADR 0017) | `annotation.v1`; agent surface `/v1/annotation/*` behind a per-person allowance switch; central server `/central/v1/annotations/batch` with `central-annotations.sqlite3`; labels stored as `agent:<name>` / `central:<model>` judgments, prompt `judge-v1` | Judgments, never metric values; central submit is the one explicit place session windows cross a boundary; verified live on real sessions with orca27b-iq3m |
 
 Full local model revisions, weight digests, tokenizer pins, licenses, bounds,
 and gate results live in [the model manifest](model-manifests/wp-11-local-candidates.md).

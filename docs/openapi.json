@@ -771,6 +771,56 @@
         "title": "AgentSettings",
         "type": "object"
       },
+      "AllowanceState": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_allowed": {
+            "title": "Agent Allowed",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "annotation.v1",
+            "default": "annotation.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "note": {
+            "default": "While on, models you drive may read sessions' redacted windows through this API and write labels back. Whatever model the agent runs on will see that content.",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_allowed"
+        ],
+        "title": "AllowanceState",
+        "type": "object"
+      },
+      "AllowanceUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_allowed": {
+            "title": "Agent Allowed",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "annotation.v1",
+            "default": "annotation.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "note": {
+            "default": "While on, models you drive may read sessions' redacted windows through this API and write labels back. Whatever model the agent runs on will see that content.",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_allowed"
+        ],
+        "title": "AllowanceUpdate",
+        "type": "object"
+      },
       "AnalysisDestination": {
         "enum": [
           "local",
@@ -2714,6 +2764,11 @@
         "additionalProperties": false,
         "description": "Exact, content-free feature contract consumed by the dashboard.",
         "properties": {
+          "annotation": {
+            "default": false,
+            "title": "Annotation",
+            "type": "boolean"
+          },
           "arbitrary_sql": {
             "const": false,
             "title": "Arbitrary Sql",
@@ -2867,6 +2922,140 @@
         ],
         "title": "CapabilityKey",
         "type": "string"
+      },
+      "CentralAnnotation": {
+        "additionalProperties": false,
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RatingLabel"
+            },
+            "title": "Labels",
+            "type": "object"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "labels"
+        ],
+        "title": "CentralAnnotation",
+        "type": "object"
+      },
+      "CentralBatch": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CentralBatchItem"
+            },
+            "maxItems": 25,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "user_label": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "title": "User Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_label",
+          "items"
+        ],
+        "title": "CentralBatch",
+        "type": "object"
+      },
+      "CentralBatchItem": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "provider": {
+            "maxLength": 32,
+            "title": "Provider",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "window": {
+            "maxLength": 60000,
+            "minLength": 1,
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "provider",
+          "window"
+        ],
+        "title": "CentralBatchItem",
+        "type": "object"
+      },
+      "CentralBatchResult": {
+        "additionalProperties": false,
+        "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/CentralAnnotation"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
+          "contract_version": {
+            "const": "annotation.v1",
+            "default": "annotation.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "model_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Identity"
+          },
+          "prompt_version": {
+            "default": "judge-v1",
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "stored": {
+            "minimum": 0.0,
+            "title": "Stored",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stored",
+          "annotations"
+        ],
+        "title": "CentralBatchResult",
+        "type": "object"
       },
       "ClaudeCodeLocalSourceStatus": {
         "additionalProperties": false,
@@ -5085,6 +5274,52 @@
           "expected_discovery_version"
         ],
         "title": "MergeTasksRequest",
+        "type": "object"
+      },
+      "Metaprompt": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "annotation.v1",
+            "default": "annotation.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "questions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Questions",
+            "type": "object"
+          },
+          "reply_format": {
+            "title": "Reply Format",
+            "type": "string"
+          },
+          "system_prompt": {
+            "title": "System Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_prompt",
+          "questions",
+          "labels",
+          "prompt_version",
+          "reply_format"
+        ],
+        "title": "Metaprompt",
         "type": "object"
       },
       "MetricAgreement": {
@@ -13276,6 +13511,74 @@
         "title": "RemoteRepoFiles",
         "type": "object"
       },
+      "RemoteSubmitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 5,
+            "maximum": 25.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "RemoteSubmitRequest",
+        "type": "object"
+      },
+      "RemoteSubmitResult": {
+        "additionalProperties": false,
+        "properties": {
+          "annotated": {
+            "minimum": 0.0,
+            "title": "Annotated",
+            "type": "integer"
+          },
+          "contract_version": {
+            "const": "annotation.v1",
+            "default": "annotation.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "destination": {
+            "title": "Destination",
+            "type": "string"
+          },
+          "model_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Identity"
+          },
+          "stored_locally_as": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stored Locally As"
+          },
+          "submitted": {
+            "minimum": 0.0,
+            "title": "Submitted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "destination",
+          "submitted",
+          "annotated"
+        ],
+        "title": "RemoteSubmitResult",
+        "type": "object"
+      },
       "ResearchSourceDto": {
         "additionalProperties": false,
         "properties": {
@@ -16274,6 +16577,66 @@
         "title": "SplitTaskRequest",
         "type": "object"
       },
+      "SubmitAnnotation": {
+        "additionalProperties": false,
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RatingLabel"
+            },
+            "title": "Labels",
+            "type": "object"
+          },
+          "model_name": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:/+-]{0,119}$",
+            "title": "Model Name",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "model_name",
+          "labels"
+        ],
+        "title": "SubmitAnnotation",
+        "type": "object"
+      },
+      "SubmitResult": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "annotation.v1",
+            "default": "annotation.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "model_alias": {
+            "title": "Model Alias",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "stored": {
+            "minimum": 0.0,
+            "title": "Stored",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "model_alias",
+          "stored"
+        ],
+        "title": "SubmitResult",
+        "type": "object"
+      },
       "TaskAnalysisResponse": {
         "additionalProperties": false,
         "description": "Public command result; deliberately excludes task evidence and content.",
@@ -17673,6 +18036,113 @@
         ],
         "title": "VerificationKind",
         "type": "string"
+      },
+      "WorkItem": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "provider"
+        ],
+        "title": "WorkItem",
+        "type": "object"
+      },
+      "WorkList": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "annotation.v1",
+            "default": "annotation.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "model_name": {
+            "title": "Model Name",
+            "type": "string"
+          },
+          "remaining": {
+            "minimum": 0.0,
+            "title": "Remaining",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model_name",
+          "items",
+          "remaining"
+        ],
+        "title": "WorkList",
+        "type": "object"
+      },
+      "WorkWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "annotation.v1",
+            "default": "annotation.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "questions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Questions",
+            "type": "object"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "provider",
+          "window",
+          "questions",
+          "prompt_version"
+        ],
+        "title": "WorkWindow",
+        "type": "object"
       }
     }
   },
@@ -17682,6 +18152,81 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/central/v1/annotations/batch": {
+      "post": {
+        "operationId": "annotate_central_v1_annotations_batch_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CentralBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CentralBatchResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Annotate",
+        "tags": [
+          "central-annotation"
+        ]
+      }
+    },
     "/v1/agent/sessions": {
       "get": {
         "operationId": "list_sessions_v1_agent_sessions_get",
@@ -18831,6 +19376,523 @@
         "summary": "Analysis Run Detail",
         "tags": [
           "task-discovery"
+        ]
+      }
+    },
+    "/v1/annotation/allowance": {
+      "get": {
+        "operationId": "get_allowance_v1_annotation_allowance_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllowanceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Allowance",
+        "tags": [
+          "annotation"
+        ]
+      },
+      "post": {
+        "operationId": "set_allowance_v1_annotation_allowance_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllowanceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllowanceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Allowance",
+        "tags": [
+          "annotation"
+        ]
+      }
+    },
+    "/v1/annotation/annotations": {
+      "post": {
+        "operationId": "submit_v1_annotation_annotations_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitAnnotation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit",
+        "tags": [
+          "annotation"
+        ]
+      }
+    },
+    "/v1/annotation/metaprompt": {
+      "get": {
+        "operationId": "get_metaprompt_v1_annotation_metaprompt_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Metaprompt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Metaprompt",
+        "tags": [
+          "annotation"
+        ]
+      }
+    },
+    "/v1/annotation/remote/submit": {
+      "post": {
+        "description": "Explicit 'annotate remotely': redacted windows + pseudonymous ids go to the central server.",
+        "operationId": "remote_submit_v1_annotation_remote_submit_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteSubmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoteSubmitResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remote Submit",
+        "tags": [
+          "annotation"
+        ]
+      }
+    },
+    "/v1/annotation/work": {
+      "get": {
+        "operationId": "work_v1_annotation_work_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "model",
+            "required": true,
+            "schema": {
+              "maxLength": 120,
+              "minLength": 1,
+              "title": "Model",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Work",
+        "tags": [
+          "annotation"
+        ]
+      }
+    },
+    "/v1/annotation/work/{session_id}": {
+      "get": {
+        "operationId": "window_v1_annotation_work__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkWindow"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Window",
+        "tags": [
+          "annotation"
         ]
       }
     },

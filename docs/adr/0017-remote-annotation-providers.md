@@ -1,62 +1,72 @@
-# ADR 0017: Remote annotation providers - models the person already has access to annotate sessions
+# ADR 0017: Annotation paths - agents through the app's endpoint, and the central annotation server
 
-- Status: accepted direction (2026-08-20); Stage 1 scoped, not yet implemented
-- Owner direction: besides rating sessions manually, the person can point the
-  app at models they already have access to (Claude Opus / Fable, GPT-class
-  models, anything OpenAI-compatible) and have them annotate sessions
-  automatically - after an explicit allowance - so annotations, sessions and
-  projects together form a useful calibration dataset.
+- Status: accepted (2026-08-20); agent path and central path implemented locally
+- Owner direction: the person has multiple ways to annotate the dataset.
+  Besides rating manually and the built-in local judge, (a) after clicking an
+  allowance, any model the person drives - Codex, Claude Code, or a local
+  model - can call the app's endpoint, fetch sessions with a prepared
+  metaprompt, and write annotations back; and (b) a separate "annotate
+  remotely" action sends sessions and projects to the central server (the same
+  one that will handle login, run locally today and on a VPS later), which
+  spawns the most powerful model available to it, annotates, and stores the
+  submissions - building, over time, a dataset good enough to train our own
+  metric-prediction model.
 
 ## Context
 
-The judgment store is already model-neutral: `model_judgments` (migration 50)
-keys every annotation by `model_alias`, `model_identity` and `prompt_version`,
-and the Calibration page compares each model's labels against the person's
-blind ratings (agreement, Cohen's κ). Today the only annotators are local
-llama.cpp models. The repository's standing rules: no transcript text leaves
-the machine without explicit consent, redaction and a destination preview;
-model judgments stay visibly separate from measured evidence; no rankings.
+`model_judgments` (migration 50) already stores per-model labels beside the
+person's blind ratings, keyed by `model_alias` / `model_identity` /
+`prompt_version`, compared on the Calibration page. What was missing: a way
+for models *outside* the app to annotate, and a central store.
 
 ## Decision
 
-1. **Stage 1 - remote judges, local dataset.** A *remote annotation provider*
-   is an OpenAI-compatible chat endpoint plus the person's own credential
-   (BYOK): base URL, model name, key. Keys are stored only in the app home's
-   private inventory (never in the database, never logged, never in exports).
-   The judge lane gains a provider-backed chat callable; its judgments land in
-   the same `model_judgments` table with `model_alias = remote:<name>` and the
-   exact served model recorded as `model_identity` - one dataset, human and
-   model annotations side by side, per model, never merged into metrics.
-2. **The allowance.** Remote annotation is off until the person grants a
-   *remote annotation allowance* per provider: a consent record naming the
-   provider, the destination host, the redactor version, and the window bound.
-   Granting shows a destination preview (one representative redacted window
-   rendered exactly as it would be sent). The allowance is standing for the
-   sweep it starts but revocable at any time; each sweep logs, content-free,
-   how many windows were sent and to which host. Only the redacted analysis
-   window (the same one P1 and the local judge read) is ever sent - never raw
-   transcripts, paths, names, or metrics.
-3. **Dataset.** "Central" means the app's own store on this machine: sessions,
-   projects, human ratings and per-model judgments are already joined by
-   pseudonymous ids there, and the Calibration export (labels + pseudonyms
-   only) is the dataset artifact. Aggregation across people onto a shared
-   server stays gated on the identity and sharing decisions
-   (docs/pending-owner-decisions.md, Tracks 1 and 4); nothing in Stage 1
-   creates a remote store.
-4. **Boundaries.** The provider client lives in one module registered in the
-   egress registry as `APPROVED_PROVIDER_REQUEST` and in the hardening
-   allowlist; it refuses to run while the allowance is absent or revoked;
-   failures are closed codes. Agreement math treats every remote model like
-   any other judge; the activation gate for model-backed metrics is unchanged.
+1. **Agent annotation through the app's endpoint (local dataset).** A person
+   clicks *Allow agent annotation*; while the allowance is on, the app serves
+   under its token:
+   - `GET /v1/annotation/metaprompt` - the prepared metaprompt: the system
+     prompt, the three calibration questions, the closed label set, and the
+     exact reply format;
+   - `GET /v1/annotation/work?model=<name>&limit=N` - session ids (with
+     provider and project id) that this model has not yet annotated;
+   - `GET /v1/annotation/work/{session_id}` - the session's redacted analysis
+     window (the same window P1 and the local judge read - never the raw
+     transcript);
+   - `POST /v1/annotation/annotations` - `{session_id, model_name, labels}`,
+     stored as ordinary model judgments with `model_alias = "agent:<name>"`.
+   The allowance is a switch the person can flip off at any time; with it off
+   every route answers 403. Reading the window hands session content to
+   whatever model the agent runs on - the allowance text says so.
+2. **Central annotation server (central dataset).** The app embeds the
+   central server's annotation routes under `/central/v1/*` with their own
+   store (`central-annotations.sqlite3` in the app home) - the same code that
+   will run on the VPS beside login; today the app token stands in for the
+   login credential. *Annotate remotely* (a separate, explicit action naming
+   the destination) submits redacted windows plus pseudonymous session and
+   project ids in batches: `POST /central/v1/annotations/batch`. The central
+   server annotates each window with the strongest model configured on it
+   (locally: the app's own active runtime) using the same metaprompt, stores
+   submission + labels + model identity + prompt version centrally, and
+   returns the labels, which the app also records locally as
+   `central:<model>` judgments - so central annotations join the same
+   agreement table.
+3. **The dataset.** Central rows are `(user_label, session_id, project_id,
+   provider, window_fingerprint, redacted_window, labels, model_identity,
+   prompt_version, submitted_at)` - enough to train a metric predictor later;
+   windows are stored only on the central side and only through this explicit
+   action. Locally nothing changes: metrics-only tables stay metrics-only.
+4. **Boundaries.** Both paths are off by default and per-person switchable;
+   the central submit is the one place session text crosses a boundary and it
+   says where it goes before the first batch; judgments never become metric
+   values; the activation gate is unchanged; no rankings.
 
 ## Consequences
 
-- The person can annotate the whole history with any model they can call -
-  and see, per model, how well it matches their own blind ratings before
-  trusting it with anything.
-- Sending redacted windows to a provider places them under that provider's
-  terms; the allowance text says so plainly, which is why it is per provider
-  and revocable.
-- Stage 1 needs: the provider registry + key inventory entry, the allowance
-  consent + preview UI, the remote chat adapter, sweep wiring, and tests that
-  prove nothing leaves without an allowance. Estimated one focused session.
+- Four annotation paths (manual, local judge, own agents, central) all land
+  in one comparable store; the Calibration page shows per-model agreement
+  with the person for every path.
+- Running the same central routes on a VPS later is a deployment change, not
+  a design change: swap the base URL and put real login in front.
+- Verified locally end to end on real sessions: an "agent" (scripted client)
+  annotated through the endpoint, and a remote batch was annotated by the
+  27B model through the central routes and stored centrally.
