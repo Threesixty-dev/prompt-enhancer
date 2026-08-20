@@ -59,10 +59,12 @@ function readingValue(reading: Reading): number | null {
 export function PromptCheckPage({
   checkId,
   navigate,
+  sessionId,
   transport,
 }: {
   checkId?: string;
   navigate: (route: AppRoute) => void;
+  sessionId?: string;
   transport: Pick<PromptEnhancerTransport, "checkPrompt" | "getPromptCheckHistory" | "getPromptCheck">;
 }) {
   const [prompt, setPrompt] = useState("");
@@ -111,7 +113,8 @@ export function PromptCheckPage({
     try {
       const value = await transport.checkPrompt({
         prompt: text,
-        prior_messages: parsePriorMessages(prior),
+        prior_messages: sessionId ? [] : parsePriorMessages(prior),
+        session_id: sessionId ?? null,
         provider: "other",
         want_commentary: wantCommentary,
       });
@@ -150,11 +153,17 @@ export function PromptCheckPage({
         className="prompt-check__form"
         onSubmit={(event) => { event.preventDefault(); void run(); }}
       >
+        {sessionId && (
+          <p className="prompt-check__session-banner">
+            Using the last turns of the selected session as context - the model sees where that conversation stands.
+            <button className="link-button" onClick={() => navigate({ name: "prompt_checks" })} type="button">Check without session context instead</button>
+          </p>
+        )}
         <label>
           <span>Prompt</span>
           <textarea aria-label="Prompt to check" maxLength={20000} onChange={(e) => setPrompt(e.currentTarget.value)} placeholder="The prompt you are about to send…" rows={6} value={prompt} />
         </label>
-        <label>
+        <label hidden={Boolean(sessionId)}>
           <span>Earlier turns (optional - one per line as <code>user: …</code> / <code>assistant: …</code>; the check reads them as context)</span>
           <textarea aria-label="Earlier turns" maxLength={40000} onChange={(e) => setPrior(e.currentTarget.value)} placeholder={"user: We looked at the uploader yesterday\nassistant: The retry loop is in client.py"} rows={3} value={prior} />
         </label>

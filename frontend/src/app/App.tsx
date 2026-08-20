@@ -570,7 +570,7 @@ export function App({
               ) : route.name === "models" ? (
                 <LocalModelsScreen transport={transport} />
               ) : route.name === "prompt_checks" ? (
-                <PromptChecksScreen checkId={route.checkId} navigate={navigate} transport={transport} />
+                <PromptChecksScreen checkId={route.checkId} navigate={navigate} sessionId={route.sessionId} transport={transport} />
               ) : route.name === "overview" ? (
                 <OverviewScreen navigate={navigate} transport={transport} />
               ) : route.name === "agent" ? (

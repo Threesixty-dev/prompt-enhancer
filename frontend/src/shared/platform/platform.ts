@@ -10,7 +10,7 @@ export type AppRoute =
   | { name: "sessions" }
   | { name: "calibration" }
   | { name: "models" }
-  | { name: "prompt_checks"; checkId?: string }
+  | { name: "prompt_checks"; checkId?: string; sessionId?: string }
   | { name: "overview" }
   | { name: "agent"; sessionId?: string; window?: boolean }
   | { name: "project_overview"; projectId: string }
@@ -73,6 +73,8 @@ export function parseRoute(pathname: string): AppRoute {
   if (/^\/agent\/?$/.test(pathname)) return { name: "agent" };
   const agentWindow = pathname.match(/^\/agent\/window(?:\/([0-9a-f]{32}))?\/?$/);
   if (agentWindow) return agentWindow[1] ? { name: "agent", sessionId: agentWindow[1], window: true } : { name: "agent", window: true };
+  const promptCheckSessionMatch = pathname.match(/^\/prompt-checks\/for\/([a-f0-9]{64})\/?$/);
+  if (promptCheckSessionMatch && isPseudonym(promptCheckSessionMatch[1])) return { name: "prompt_checks", sessionId: promptCheckSessionMatch[1] };
   const promptCheckMatch = pathname.match(/^\/prompt-checks\/([a-f0-9]{64})\/?$/);
   if (promptCheckMatch && isPseudonym(promptCheckMatch[1])) return { name: "prompt_checks", checkId: promptCheckMatch[1] };
 
@@ -150,7 +152,7 @@ export function routePath(route: AppRoute): string {
   if (route.name === "sessions") return "/sessions";
   if (route.name === "calibration") return "/calibration";
   if (route.name === "models") return "/models";
-  if (route.name === "prompt_checks") return route.checkId ? `/prompt-checks/${route.checkId}` : "/prompt-checks";
+  if (route.name === "prompt_checks") return route.checkId ? `/prompt-checks/${route.checkId}` : route.sessionId ? `/prompt-checks/for/${route.sessionId}` : "/prompt-checks";
   if (route.name === "overview") return "/overview";
   if (route.name === "agent") return route.window ? (route.sessionId ? `/agent/window/${route.sessionId}` : "/agent/window") : "/agent";
   if (route.name === "project_overview") {

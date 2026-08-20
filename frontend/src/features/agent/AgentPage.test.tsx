@@ -45,7 +45,7 @@ describe("AgentPage", () => {
         current = view({ running: true, pending_approval_id: APPROVAL, last_seq: 5, turns: 1 });
         return current;
       }),
-      getAgentEvents: vi.fn(async (_id: string, after: number) => ({ contract_version: "local-agent.v1" as const, session_id: SESSION, events: events.filter((e) => e.seq > after), running: current.running, pending_approval_id: current.pending_approval_id, last_seq: events.length ? events[events.length - 1].seq : 0 })),
+      getAgentEvents: vi.fn(async (_id: string, after: number) => ({ contract_version: "local-agent.v1" as const, session_id: SESSION, events: events.filter((e) => e.seq > after), running: current.running, pending_approval_id: current.pending_approval_id, last_seq: events.length ? events[events.length - 1].seq : 0, first_seq: events.length ? events[0].seq : 0 })),
       decideAgentApproval: vi.fn(async () => {
         events = [...events, event(6, "approval_resolved", { tool: "write_file", approval_id: APPROVAL, ok: true }), event(7, "tool_result", { tool: "write_file", ok: true, text: "wrote src/app.py" }), event(8, "assistant", { text: "Done - comment added." }), event(9, "done")];
         current = view({ running: false, pending_approval_id: null, last_seq: 9, turns: 1 });
@@ -73,7 +73,7 @@ describe("AgentPage", () => {
       listAgentSessions: vi.fn(async () => []),
       createAgentSession: vi.fn(async (settings: { workspace: string; allow_web?: boolean }) => view({ settings: { ...view().settings, workspace: settings.workspace } })),
       getAgentSession: vi.fn(), deleteAgentSession: vi.fn(), sendAgentMessage: vi.fn(),
-      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v1" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0 })),
+      getAgentEvents: vi.fn(async () => ({ contract_version: "local-agent.v1" as const, session_id: SESSION, events: [], running: false, pending_approval_id: null, last_seq: 0, first_seq: 0 })),
       decideAgentApproval: vi.fn(), stopAgentSession: vi.fn(),
     };
     render(<AgentPage transport={transport} />);

@@ -297,6 +297,11 @@
             "title": "Events",
             "type": "array"
           },
+          "first_seq": {
+            "default": 0,
+            "title": "First Seq",
+            "type": "integer"
+          },
           "last_seq": {
             "title": "Last Seq",
             "type": "integer"
@@ -12243,6 +12248,18 @@
             "title": "Provider",
             "type": "string"
           },
+          "session_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
           "want_commentary": {
             "default": true,
             "title": "Want Commentary",
@@ -18065,6 +18082,18 @@
               "default": 0,
               "minimum": 0,
               "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
               "type": "integer"
             }
           },

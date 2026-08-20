@@ -2238,6 +2238,11 @@ export interface components {
             contract_version: "local-agent.v1";
             /** Events */
             events: components["schemas"]["AgentEvent"][];
+            /**
+             * First Seq
+             * @default 0
+             */
+            first_seq: number;
             /** Last Seq */
             last_seq: number;
             /** Pending Approval Id */
@@ -6940,6 +6945,8 @@ export interface components {
              * @enum {string}
              */
             provider: "codex" | "claude_code" | "other";
+            /** Session Id */
+            session_id?: string | null;
             /**
              * Want Commentary
              * @default true
@@ -9023,6 +9030,7 @@ export interface operations {
         parameters: {
             query?: {
                 after?: number;
+                limit?: number;
             };
             header?: {
                 "X-Prompt-Enhancer-Token"?: string | null;

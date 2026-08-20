@@ -1,6 +1,7 @@
 import { SessionTranscriptPane } from "../session-reader/SessionTranscriptPane";
 import { SessionTimelinePane } from "../session-timeline/SessionTimelinePane";
 import { ModelJudgePane } from "../model-judge/ModelJudgePane";
+import { SessionRadarCard } from "../session-radar/SessionRadarCard";
 import { ProjectTimelinePane } from "../project-timeline/ProjectTimelinePane";
 import { openLiveWindow } from "../live-window/LiveMiniWindow";
 import { isLocalProvider } from "../../shared/api/contracts";
@@ -1462,6 +1463,21 @@ export function ProjectWorkspace({
             >
               <Icon name="layers" />
               <span>Open live window for this session</span>
+            </button>
+          </p>
+          <SessionRadarCard
+            key={`radar-${currentSession.session_id}`}
+            sessionId={currentSession.session_id}
+            transport={transport}
+          />
+          <p className="session-live-actions">
+            <button
+              className="button button--primary"
+              onClick={() => { navigate({ name: "prompt_checks", sessionId: currentSession.session_id }); }}
+              title="Write the next prompt for this session with the model seeing the conversation so far"
+              type="button"
+            >
+              Draft the next prompt with this session's context
             </button>
           </p>
           <SessionTimelinePane

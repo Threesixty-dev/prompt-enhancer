@@ -359,11 +359,53 @@ class LocalApplication:
                     return item.record.alias
             return None
 
+        def session_context(session_id: str):
+            """The session's redacted tail as prior context (metrics-only storage still applies)."""
+
+            from .application.analysis.text_contracts import TextRole, TextTaskProfile
+            from .application.analysis.text_source import (
+                TextAnalysisPurpose,
+                TextAnalysisSelection,
+                TextSourceAccessGrant,
+            )
+            from .application.prompt_check import MAX_CONTEXT_MESSAGE_CHARS, PromptCheckMessage
+            from .domain import DataTier, Provider
+
+            session = self.database.get_session(session_id)
+            if session is None:
+                return ()
+            provider = Provider(getattr(session, "provider"))
+            if not self.database.has_active_consent(provider, DataTier.REDACTED_CONTENT):
+                return ()
+            source = self.create_text_analysis_source(provider)
+            grant = TextSourceAccessGrant(
+                purpose=TextAnalysisPurpose.TEXT_ANALYSIS,
+                provider=provider,
+                session_id=session_id,
+                data_tier=DataTier.REDACTED_CONTENT,
+                per_run_confirmation_active=True,
+                local_only=True,
+                content_persistence_allowed=False,
+            )
+            window = source.read(
+                selection=TextAnalysisSelection(provider=provider, session_id=session_id),
+                grant=grant,
+                task_profile=TextTaskProfile(applicability=()),
+            )
+            out = []
+            for message in window.messages[-12:]:
+                text = message.text.get_secret_value()[:MAX_CONTEXT_MESSAGE_CHARS]
+                if not text.strip():
+                    continue
+                out.append(PromptCheckMessage(role="user" if message.role is TextRole.USER else "assistant", content=text))
+            return tuple(out)
+
         return PromptCheckService(
             self.database.prompt_check_repository(),
             pseudonymize=self.pseudonymizer.pseudonymize,
             chat=models.chat,
             active_model=active_model,
+            session_context=session_context,
         )
 
     def create_local_agent_service(self, local_model_service=None):

@@ -982,7 +982,7 @@ describe("ProjectWorkspace", () => {
     expect(screen.getByText("0 assessable · 11 unavailable")).toBeVisible();
     expect(screen.getByText(/no placeholder values are generated/i)).toBeVisible();
     expect(document.title).toMatch(/^Prompt & collaboration signals ·/);
-    expect(getSessionMetrics).not.toHaveBeenCalled();
+    expect(getSessionMetrics).toHaveBeenCalledTimes(1); // the session radar card is the one legitimate consumer
     expect(getLatestSessionQualityAnalysis).toHaveBeenCalledWith(
       sessionId,
       expect.any(AbortSignal),
@@ -1103,7 +1103,7 @@ describe("ProjectWorkspace", () => {
         hidden: true,
       }),
     ).not.toBeVisible();
-    expect(getSessionMetrics).not.toHaveBeenCalled();
+    expect(getSessionMetrics).toHaveBeenCalledTimes(1); // the session radar card is the one legitimate consumer
   });
 
   it("loads cached provider status without checking until the explicit action", async () => {

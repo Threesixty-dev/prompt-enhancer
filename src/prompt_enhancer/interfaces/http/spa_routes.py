@@ -34,8 +34,9 @@ _SESSION_METRICS = re.compile(
     rf"projects/({_PSEUDONYM})/sessions/({_PSEUDONYM})/metrics/([a-z-]+)/?"
 )
 _TASK_REVISION = re.compile(rf"tasks/({_PSEUDONYM})/revisions/([0-9]+)/?")
-_PROMPT_CHECK = re.compile(rf"prompt-checks/({_PSEUDONYM})/?")
+_PROMPT_CHECK = re.compile(rf"prompt-checks/(?:for/)?({_PSEUDONYM})/?")
 _AGENT_WINDOW = re.compile(r"agent/window(?:/([0-9a-f]{32}))?/?")
+_LIVE_WINDOW = re.compile(rf"live/projects/({_PSEUDONYM})(?:/sessions/({_PSEUDONYM}))?/?")
 
 
 def is_spa_navigation_path(path: str) -> bool:
@@ -81,6 +82,8 @@ def is_spa_navigation_path(path: str) -> bool:
     if _PROMPT_CHECK.fullmatch(path) is not None:
         return True
     if _AGENT_WINDOW.fullmatch(path) is not None:
+        return True
+    if _LIVE_WINDOW.fullmatch(path) is not None:
         return True
 
     project_metrics = _PROJECT_METRICS.fullmatch(path)

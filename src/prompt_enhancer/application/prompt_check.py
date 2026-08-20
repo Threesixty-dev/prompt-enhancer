@@ -151,6 +151,8 @@ class PromptCheckRequest(StrictModel):
 
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
     prior_messages: tuple[PromptCheckMessage, ...] = Field(default=(), max_length=MAX_CONTEXT_MESSAGES)
+    #: When set, the session's own redacted tail becomes the prior context (server-side, consent-gated).
+    session_id: str | None = Field(default=None, pattern=PSEUDONYM_PATTERN.pattern)
     provider: Literal["codex", "claude_code", "other"] = "other"
     agent_model: str | None = Field(default=None, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._:/+-]*$")
     want_commentary: bool = True
@@ -328,6 +330,7 @@ class PromptCheckService:
         language_detector: LanguageDetector | None = None,
         chat: Callable[[str, bytes], tuple[int, bytes, str]] | None = None,
         active_model: Callable[[], str | None] | None = None,
+        session_context: Callable[[str], tuple[PromptCheckMessage, ...]] | None = None,
         clock: Callable[[], datetime] | None = None,
         dashboard_path: str = "/prompt-checks",
     ) -> None:
@@ -346,6 +349,7 @@ class PromptCheckService:
         self._language = language_detector
         self._chat = chat
         self._active_model = active_model or (lambda: None)
+        self._session_context = session_context
         self._clock = clock or (lambda: datetime.now(UTC))
         self._dashboard_path = dashboard_path
 
@@ -353,6 +357,13 @@ class PromptCheckService:
 
     def check(self, request: PromptCheckRequest) -> PromptCheckResult:
         created_at = self._clock()
+        if request.session_id and not request.prior_messages and self._session_context is not None:
+            try:
+                context_messages = self._session_context(request.session_id)[-MAX_CONTEXT_MESSAGES:]
+            except Exception:
+                context_messages = ()
+            if context_messages:
+                request = request.model_copy(update={"prior_messages": context_messages})
         prompt_text = request.prompt.strip()
         check_id = hashlib.sha256(
             f"{created_at.isoformat()}|{len(prompt_text)}|{hashlib.sha256(prompt_text.encode('utf-8')).hexdigest()}".encode("utf-8")
