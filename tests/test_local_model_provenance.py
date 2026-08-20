@@ -14,9 +14,11 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path
+import threading
 
 from fastapi.testclient import TestClient
 import pytest
+from pydantic import ValidationError
 
 from prompt_enhancer.api import API_TOKEN_HEADER
 from prompt_enhancer.application.local_models import (
@@ -27,9 +29,12 @@ from prompt_enhancer.application.local_models import (
     LICENSE_POLICY_VERSION,
     LicenseAdmission,
     LocalModelError,
+    LocalModelRecord,
     LocalModelRegistry,
     LocalModelService,
     REFUSED_LICENSE_IDS,
+    RemoteFile,
+    RemoteRepoFiles,
     admit_license,
     resolve_repo_identity,
 )
@@ -193,6 +198,58 @@ def test_a_file_outside_the_repository_root_is_listed_but_not_downloadable() -> 
     assert identity.files[0].ineligible_reason == "unsupported_file_path"
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "nested/model.gguf",
+        "..model.gguf",
+        "model..q4.gguf",
+        "model\nq4.gguf",
+        "model q4.gguf",
+        "CON.gguf",
+        "LPT1.gguf",
+        "éxample.gguf",
+    ],
+)
+def test_nonportable_hub_file_names_are_never_downloadable(filename: str) -> None:
+    identity = resolve_repo_identity(
+        REPO_ID,
+        model_info=stub_model_info(files={filename: (2048, DIGEST)}),
+    )
+    assert identity.files[0].eligible is False
+    assert identity.files[0].ineligible_reason == "unsupported_file_path"
+
+
+def test_gated_repository_metadata_never_enables_the_public_downloader(tmp_path: Path) -> None:
+    model_info = stub_model_info(files=FILES, gated=True)
+    identity = resolve_repo_identity(REPO_ID, model_info=model_info)
+    assert identity.gated is True
+    assert identity.files[0].eligible is False
+    assert identity.files[0].ineligible_reason == "repository_gated"
+
+    service = _service(tmp_path, model_info=model_info)
+    with pytest.raises(LocalModelError) as caught:
+        service.start_download(_request())
+    assert caught.value.code == "file_not_eligible"
+    assert service.registry.list() == ()
+
+
+def test_provenance_dtos_reject_incoherent_verified_claims() -> None:
+    with pytest.raises(ValidationError):
+        LocalModelRecord(
+            alias="forged",
+            display_name="Forged",
+            path="D:/example/forged.gguf",
+            size_bytes=2048,
+            provenance_verified=True,
+            added_at=T0,
+        )
+    with pytest.raises(ValidationError):
+        RemoteFile(filename=FILENAME, size_bytes=2048, sha256=DIGEST, eligible=True, ineligible_reason="blocked")
+    with pytest.raises(ValidationError):
+        RemoteRepoFiles(repo_id=REPO_ID, revision_pinned=True, revision=None)
+
+
 def test_an_unreadable_repository_raises_a_closed_code() -> None:
     def exploding(*_args, **_kwargs):
         raise RuntimeError("connection to example-org failed: token 'example-secret'")
@@ -280,6 +337,105 @@ def test_the_download_identity_separates_two_revisions_and_two_digests(tmp_path:
         _request(confirmed_revision=OTHER_REVISION, confirmed_sha256=other_digest, confirmed_size_bytes=2049)
     )
     assert first.download_id != second.download_id
+
+
+def test_distinct_revisions_use_distinct_managed_directories(tmp_path: Path) -> None:
+    directories: list[Path] = []
+
+    def recording(body: bytes):
+        def download(*, repo_id: str, filename: str, local_dir: Path, revision: str) -> Path:
+            directories.append(Path(local_dir))
+            path = Path(local_dir) / filename
+            path.write_bytes(body)
+            return path
+
+        return download
+
+    first = _service(tmp_path / "first", downloader=recording(BODY))
+    assert wait_for_download(first, first.start_download(_request(alias="first")).download_id).state == "completed"
+
+    other_body = b"GGUF" + bytes(2044) + b"x"
+    other_digest = hashlib.sha256(other_body).hexdigest()
+    second = _service(
+        tmp_path / "second",
+        model_info=stub_model_info(
+            files={FILENAME: (len(other_body), other_digest)},
+            head_revision=OTHER_REVISION,
+            pinned_revision=OTHER_REVISION,
+        ),
+        downloader=recording(other_body),
+    )
+    request = _request(
+        alias="second",
+        confirmed_revision=OTHER_REVISION,
+        confirmed_sha256=other_digest,
+        confirmed_size_bytes=len(other_body),
+    )
+    assert wait_for_download(second, second.start_download(request).download_id).state == "completed"
+    assert len(directories) == 2 and directories[0].name != directories[1].name
+    assert all(directory.name.startswith("hf-") and len(directory.name) == 67 for directory in directories)
+
+
+def test_default_hub_clients_are_public_only(tmp_path: Path, monkeypatch) -> None:
+    import huggingface_hub
+
+    seen: dict[str, object] = {}
+
+    class PublicApi:
+        def __init__(self, *, token=None, **_kwargs) -> None:
+            seen["api_token"] = token
+
+        def model_info(self, *_args, **_kwargs):  # pragma: no cover - identity lookup is separately tested
+            raise AssertionError("not called")
+
+    monkeypatch.setattr(huggingface_hub, "HfApi", PublicApi)
+    service = LocalModelService(tmp_path / "public", llama_server=lambda: None)
+    service._hub_model_info()  # noqa: SLF001 - verify the production composition boundary
+    assert seen["api_token"] is False
+
+    def public_download(*, repo_id, filename, revision, local_dir, token, **_kwargs):
+        seen["download_token"] = token
+        path = Path(local_dir) / filename
+        path.write_bytes(BODY)
+        return str(path)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", public_download)
+    download_service = LocalModelService(
+        tmp_path / "download",
+        llama_server=lambda: None,
+        hardware=lambda _binary: HardwareSummary(),
+        clock=lambda: T0,
+        model_info=stub_model_info(files=FILES),
+    )
+    status = wait_for_download(download_service, download_service.start_download(_request()).download_id)
+    assert status.state == "completed"
+    assert seen["download_token"] is False
+
+
+def test_one_alias_cannot_be_reserved_by_two_artifacts_concurrently(tmp_path: Path) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocked(*, repo_id: str, filename: str, local_dir: Path, revision: str) -> Path:
+        entered.set()
+        assert release.wait(5), "test did not release the synthetic downloader"
+        path = Path(local_dir) / filename
+        path.write_bytes(BODY)
+        return path
+
+    service = _service(tmp_path, downloader=blocked)
+    first = service.start_download(_request(alias="shared-alias"))
+    assert entered.wait(5), "synthetic downloader did not start"
+    service._model_info = stub_model_info(  # noqa: SLF001 - simulate a second immutable artifact
+        files={FILENAME: (2048, DIGEST)},
+        head_revision=OTHER_REVISION,
+        pinned_revision=OTHER_REVISION,
+    )
+    with pytest.raises(LocalModelError) as caught:
+        service.start_download(_request(alias="shared-alias", confirmed_revision=OTHER_REVISION))
+    assert caught.value.code == "alias_exists"
+    release.set()
+    assert wait_for_download(service, first.download_id).state == "completed"
 
 
 # ----- what actually landed on disk -----

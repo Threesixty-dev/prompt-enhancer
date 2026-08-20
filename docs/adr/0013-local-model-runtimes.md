@@ -30,14 +30,16 @@ mode; that is exactly the device option the owner asked for.
    format, size, sha256 when known, default device, context size) live in
    `local-models/registry.json` under the app home (registered in the private
    path inventory). Weights live under `local-models/weights/`. Downloads go
-   through `huggingface_hub`, which uses the person's own Hugging Face login;
-   the app never reads or stores the token, and every download is confirmed
-   with its size first.
+   through `huggingface_hub` in public-only mode (`token=False`); the app never
+   reads a cached login, and every download is confirmed with its exact pinned
+   revision, digest, licence identifier, and byte count first.
 3. **Endpoints.** Under the authenticated local API: list, add, activate
    (device, gpu layers, context), deactivate, status, and an OpenAI-compatible
    `POST /v1/local-models/{alias}/chat/completions` that proxies to the model's
-   loopback runtime. Nothing leaves the machine; the runtime port is never
-   exposed beyond loopback; the app's token guards the proxy.
+   loopback runtime. Inference prompts and responses stay on the machine; the
+   explicit Hub discovery/download flow is the only network exception in this
+   slice. The runtime port is never exposed beyond loopback; the app's token
+   guards the proxy.
 4. **Metrics use (model-judge lane, second slice).** The local model rates the
    redacted analysis window on the same three calibration questions and scale
    as the Calibration page (low / medium / high / cannot judge). Those are
@@ -102,8 +104,8 @@ for itself.
   never involved. Afterwards the file must be a regular non-symlink file inside the
   weights folder, start with the GGUF magic, have exactly the published byte count,
   and hash to the published digest under a constant-time comparison. Any failure
-  deletes the file, registers nothing, and reports one closed code; Hub exception
-  text is never read or returned.
+  registers nothing, reports one closed code, and makes a best-effort removal of
+  the unverified file; Hub exception text is never read or returned.
 - **The record carries the provenance.** `LocalModelRecord` gains
   `source_revision`, `source_license`, `source_license_policy` and
   `provenance_verified` alongside the existing `sha256`. Manually registered files,
@@ -120,9 +122,11 @@ for itself.
   app's downloader, not a legal conclusion. It does not interpret licence text, does
   not see a repository's own additional conditions, says nothing about how model
   output may be used, and can be wrong about a repository that mislabels itself.
-  Anything it does not admit is fetched by hand or not at all; gated repositories
-  still require the person's own accepted terms and their own Hugging Face login,
-  which this app never reads.
+  Anything it does not admit is fetched by hand or not at all. The automated
+  path is public-only (`token=False`) and never reads a cached Hugging Face
+  login; gated repositories therefore remain ineligible. A person may accept
+  the provider's terms and download a file outside the app, then register that
+  local GGUF with provenance explicitly unavailable.
 - **The Models page shows it.** The revision, licence with its admission outcome,
   the policy version, the exact byte count and the sha256 are on screen before the
   confirmation dialog, which repeats all of them. The download button is disabled

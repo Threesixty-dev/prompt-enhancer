@@ -5334,6 +5334,7 @@
             "anyOf": [
               {
                 "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9.+-]{0,39}$",
                 "type": "string"
               },
               {
@@ -5346,6 +5347,7 @@
             "anyOf": [
               {
                 "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
                 "type": "string"
               },
               {

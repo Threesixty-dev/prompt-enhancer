@@ -37,6 +37,7 @@ const INELIGIBLE_TEXT: Readonly<Record<string, string>> = {
   size_unavailable: "the Hub published no exact size for this file",
   digest_unavailable: "the Hub published no sha256 for this file",
   unsupported_file_path: "not a plain file at the repository root",
+  repository_gated: "the public-only downloader does not use a cached Hugging Face login",
 };
 const IDENTITY_UNAVAILABLE_TEXT: Readonly<Record<string, string>> = {
   revision_not_immutable: "the Hub did not name an immutable commit for this repository",
@@ -72,10 +73,16 @@ function shortId(value: string | null | undefined, size = 12): string {
 
 /** Provenance recorded for an installed model, or an explicit "unavailable". */
 export function provenanceLine(record: LocalModelRecord): string {
-  if (!record.provenance_verified || !record.source_revision || !record.sha256) {
+  if (
+    !record.provenance_verified
+    || !record.source_revision
+    || !record.sha256
+    || !record.source_license
+    || !record.source_license_policy
+  ) {
     return "Provenance unavailable - registered without a verified Hugging Face revision, digest or licence.";
   }
-  return `Verified · revision ${shortId(record.source_revision)} · sha256 ${shortId(record.sha256)} · licence ${record.source_license ?? "unavailable"}`;
+  return `Verified when downloaded · revision ${shortId(record.source_revision)} · sha256 ${shortId(record.sha256)} · licence ${record.source_license} · policy ${record.source_license_policy}`;
 }
 
 function defaultAlias(filename: string): string {
@@ -178,6 +185,7 @@ export function LocalModelsPage({
   const selectedRemote = remote?.files.find((f) => f.filename === chosenFile) ?? null;
   const downloadable = Boolean(
     remote?.revision_pinned && remote.revision && remote.license_id
+    && remote.gated !== true
     && remote.license_admission === "allowed"
     && selectedRemote?.eligible && selectedRemote.sha256 && selectedRemote.size_bytes,
   );
@@ -195,7 +203,8 @@ export function LocalModelsPage({
           <h1 id="local-models-title">Models</h1>
           <p className="local-models__lede">
             Install a model once, activate it on the GPU, CPU, or split between them, and it gets its own local
-            endpoint: usable as a regular LLM for small tasks and by the metric judge. Nothing leaves this machine.
+            endpoint: usable as a regular LLM for small tasks and by the metric judge. Once installed, prompts and
+            responses stay on this machine; looking up or downloading a Hub model is an explicit Hugging Face request.
           </p>
         </div>
       </header>
@@ -384,7 +393,7 @@ export function LocalModelsPage({
                 <span>Alias (endpoint name)</span>
                 <input aria-label="Alias" onChange={(e) => setAlias(e.currentTarget.value)} type="text" value={alias} />
               </label>
-              {remote.gated && <p className="local-models__hint">This repository is gated: accept its terms on Hugging Face while logged in, or the download will be refused.</p>}
+              {remote.gated && <p className="local-models__hint">This repository is gated. The app's automated downloader is public-only and will not use a cached login. If you accept the provider's terms, download the GGUF yourself and register the local file below.</p>}
               <button
                 className="button button--primary"
                 disabled={!downloadable || !alias || busy !== ""}
@@ -395,8 +404,7 @@ export function LocalModelsPage({
                     `Revision: ${remote.revision}`,
                     `sha256: ${selectedRemote.sha256}`,
                     `Licence: ${remote.license_id} (${remote.license_policy_version})`,
-                  ].join("
-");
+                  ].join("\n");
                   if (!window.confirm(confirmed)) return;
                   void run("download", () => transport.startLocalModelDownload({
                     repo_id: remote.repo_id,

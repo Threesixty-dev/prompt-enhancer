@@ -5,9 +5,10 @@ A person installs a model (GGUF weights), activates it on ``cpu``, ``gpu`` or
 ``llama-server`` per active model on a loopback port. The app's authenticated
 API proxies an OpenAI-compatible chat endpoint to it, so every installed
 model is usable as a regular local LLM for small tasks and by the
-model-judge lane. Nothing leaves the machine; no runtime port is exposed
-beyond loopback; the Hugging Face token, when a download needs one, is used by
-``huggingface_hub`` from the person's own login and never read by this code.
+model-judge lane. Inference stays on the machine and no runtime port is exposed
+beyond loopback. Repository discovery and a user-confirmed model download are
+explicit Hugging Face network operations. The automated path is public-only;
+it passes ``token=False`` and never reads a cached Hugging Face login.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from typing import Literal
 import urllib.error
 import urllib.request
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from ..domain import StrictModel
 
@@ -63,6 +64,13 @@ DIGEST_CHUNK_BYTES = 4 * 1024 * 1024
 #: tag names ("main", "latest") are mutable and are never recorded as pinned.
 COMMIT_REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+REPO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+PORTABLE_GGUF_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,294}\.gguf$")
+_WINDOWS_RESERVED_FILE_STEMS = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{index}" for index in range(1, 10)}
+    | {f"LPT{index}" for index in range(1, 10)}
+)
 
 #: Frozen repository admission policy for downloadable weights, version tagged so a
 #: record says which revision of the policy admitted it. This is an operational
@@ -152,9 +160,13 @@ class LocalModelRecord(StrictModel):
     #: app shows those as "provenance unavailable" and never invents a value.
     source_revision: str | None = Field(default=None, pattern=COMMIT_REVISION_PATTERN.pattern)
     #: Repository licence identifier read from that same immutable revision.
-    source_license: str | None = Field(default=None, max_length=40)
+    source_license: str | None = Field(default=None, max_length=40, pattern=_LICENSE_ID_PATTERN.pattern)
     #: Version of the frozen admission policy that admitted the download.
-    source_license_policy: str | None = Field(default=None, max_length=64)
+    source_license_policy: str | None = Field(
+        default=None,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$",
+    )
     #: True only when this app downloaded the file and matched digest, size and
     #: GGUF identity against metadata bound to ``source_revision``.
     provenance_verified: bool = False
@@ -164,6 +176,33 @@ class LocalModelRecord(StrictModel):
     context_size: int = Field(default=DEFAULT_CONTEXT_SIZE, ge=512, le=MAX_CONTEXT_SIZE)
     layer_count: int | None = Field(default=None, ge=1, le=4096)
     added_at: datetime
+
+    @model_validator(mode="after")
+    def verified_provenance_is_complete(self) -> LocalModelRecord:
+        """A verified flag is never accepted without the complete receipt.
+
+        Older and manually registered rows may legitimately contain a partial
+        source hint while ``provenance_verified`` is false. They remain
+        readable, but cannot be relabelled as verified by editing one boolean.
+        """
+
+        if not self.provenance_verified:
+            return self
+        required = (
+            self.source_repo,
+            self.source_file,
+            self.sha256,
+            self.source_revision,
+            self.source_license,
+            self.source_license_policy,
+        )
+        if any(value is None for value in required) or self.size_bytes is None or self.size_bytes <= 0:
+            raise ValueError("verified model provenance requires the complete artifact receipt")
+        if REPO_ID_PATTERN.fullmatch(self.source_repo or "") is None:
+            raise ValueError("verified model provenance requires a valid source repository")
+        if not _plain_gguf_name(self.source_file or ""):
+            raise ValueError("verified model provenance requires a portable GGUF file name")
+        return self
 
 
 class HardwareSummary(StrictModel):
@@ -258,7 +297,7 @@ class DownloadRequest(StrictModel):
     refused rather than silently fetched.
     """
 
-    repo_id: str = Field(min_length=3, max_length=200, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    repo_id: str = Field(min_length=3, max_length=200, pattern=REPO_ID_PATTERN.pattern)
     filename: str = Field(min_length=1, max_length=300)
     confirmed_size_bytes: int = Field(ge=1)
     confirmed_revision: str = Field(pattern=COMMIT_REVISION_PATTERN.pattern)
@@ -273,8 +312,8 @@ class DownloadRequest(StrictModel):
     @field_validator("filename")
     @classmethod
     def plain_file_name(cls, value: str) -> str:
-        if "/" in value or "\\" in value or value.startswith(".") or not value.endswith(".gguf"):
-            raise ValueError("download must name a single .gguf file")
+        if not _plain_gguf_name(value):
+            raise ValueError("download must name one portable root-level .gguf file")
         return value
 
 
@@ -306,6 +345,15 @@ class RemoteFile(StrictModel):
     #: Closed code explaining an ineligible file; never repository text.
     ineligible_reason: str | None = None
 
+    @model_validator(mode="after")
+    def eligibility_is_coherent(self) -> RemoteFile:
+        complete = self.size_bytes is not None and self.size_bytes > 0 and self.sha256 is not None
+        if self.eligible != (complete and self.ineligible_reason is None):
+            raise ValueError("remote file eligibility is inconsistent")
+        if not self.eligible and self.ineligible_reason is None:
+            raise ValueError("an ineligible remote file requires a closed reason")
+        return self
+
 
 class RemoteRepoFiles(StrictModel):
     repo_id: str
@@ -320,6 +368,20 @@ class RemoteRepoFiles(StrictModel):
     #: Closed code set when the repository identity could not be resolved at all.
     unavailable_reason: str | None = None
     files: tuple[RemoteFile, ...] = ()
+
+    @model_validator(mode="after")
+    def repository_identity_is_coherent(self) -> RemoteRepoFiles:
+        if self.revision_pinned:
+            if self.revision is None or self.unavailable_reason is not None:
+                raise ValueError("pinned repository identity is incomplete")
+        elif self.revision is not None or self.files:
+            raise ValueError("an unpinned repository cannot expose revision-bound files")
+        if self.license_admission is LicenseAdmission.ALLOWED and self.license_id is None:
+            raise ValueError("an admitted repository requires a license identifier")
+        if any(file.eligible for file in self.files):
+            if self.license_admission is not LicenseAdmission.ALLOWED or self.gated is True:
+                raise ValueError("eligible files require an admitted, public repository")
+        return self
 
 
 @dataclass(slots=True)
@@ -591,13 +653,9 @@ def _identity_unavailable(repo_id: str, reason: str) -> RemoteRepoFiles:
 
 
 def _plain_gguf_name(filename: str) -> bool:
-    return (
-        filename.endswith(".gguf")
-        and "/" not in filename
-        and "\\" not in filename
-        and not filename.startswith(".")
-        and len(filename) <= 300
-    )
+    if PORTABLE_GGUF_NAME_PATTERN.fullmatch(filename) is None or ".." in filename:
+        return False
+    return filename.split(".", 1)[0].upper() not in _WINDOWS_RESERVED_FILE_STEMS
 
 
 def resolve_repo_identity(repo_id: str, *, model_info: Callable[..., object]) -> RemoteRepoFiles:
@@ -627,6 +685,7 @@ def resolve_repo_identity(repo_id: str, *, model_info: Callable[..., object]) ->
     license_id = _declared_license(pinned)
     admission = admit_license(license_id)
     gated_raw = _attribute(pinned, "gated")
+    gated = bool(gated_raw) if gated_raw is not None else None
     siblings = _attribute(pinned, "siblings")
     files: list[RemoteFile] = []
     for sibling in siblings if isinstance(siblings, list) else []:
@@ -636,7 +695,9 @@ def resolve_repo_identity(repo_id: str, *, model_info: Callable[..., object]) ->
         size = _attribute(sibling, "size")
         digest = _attribute(_attribute(sibling, "lfs") or {}, "sha256")
         digest = digest.strip().lower() if isinstance(digest, str) else None
-        if admission is not LicenseAdmission.ALLOWED:
+        if gated is True:
+            reason = "repository_gated"
+        elif admission is not LicenseAdmission.ALLOWED:
             reason = f"license_{admission.value}"
         elif not _plain_gguf_name(name):
             reason = "unsupported_file_path"
@@ -661,7 +722,7 @@ def resolve_repo_identity(repo_id: str, *, model_info: Callable[..., object]) ->
         revision_pinned=True,
         license_id=license_id,
         license_admission=admission,
-        gated=bool(gated_raw) if gated_raw is not None else None,
+        gated=gated,
         unavailable_reason=None,
         files=tuple(sorted(files, key=lambda item: item.filename)),
     )
@@ -677,6 +738,13 @@ class VerifiedArtifact:
     sha256: str
     size_bytes: int
     license_id: str
+
+
+def _artifact_storage_directory(artifact: VerifiedArtifact) -> str:
+    """A bounded directory identity that keeps mutable revisions apart."""
+
+    identity = "\0".join((artifact.repo_id, artifact.revision)).encode("utf-8")
+    return f"hf-{hashlib.sha256(identity).hexdigest()}"
 
 
 def _digest_file(path: Path) -> str:
@@ -1108,7 +1176,9 @@ class LocalModelService:
             from huggingface_hub import HfApi
         except Exception:
             raise LocalModelError("huggingface_hub_unavailable") from None
-        return HfApi().model_info
+        # Public-only until a separately reviewed, explicit token workflow
+        # exists. Merely opening the Models page never reads a cached login.
+        return HfApi(token=False).model_info
 
     def remote_files(self, repo_id: str) -> RemoteRepoFiles:
         """Browse a repository's GGUF files bound to one immutable commit."""
@@ -1156,12 +1226,27 @@ class LocalModelService:
         # The identity includes the immutable revision and digest, so two revisions
         # or two digests of the same repository/file/alias never share a download.
         download_id = hashlib.sha256(
-            "\0".join((artifact.repo_id, artifact.filename, request.alias, artifact.revision, artifact.sha256)).encode("utf-8")
+            "\0".join(
+                (
+                    artifact.repo_id,
+                    artifact.filename,
+                    request.alias,
+                    artifact.revision,
+                    artifact.sha256,
+                    artifact.license_id,
+                    LICENSE_POLICY_VERSION,
+                )
+            ).encode("utf-8")
         ).hexdigest()
         with self._lock:
             existing = self._downloads.get(download_id)
             if existing is not None and existing.state in {"queued", "downloading"}:
                 return existing
+            if self._registry.get(request.alias) is not None or any(
+                item.alias == request.alias and item.state in {"queued", "downloading"}
+                for item in self._downloads.values()
+            ):
+                raise LocalModelError("alias_exists")
             status = DownloadStatus(
                 download_id=download_id, repo_id=artifact.repo_id, filename=artifact.filename, alias=request.alias,
                 state="queued", bytes_total=artifact.size_bytes, bytes_done=0, started_at=self._clock(),
@@ -1239,7 +1324,7 @@ class LocalModelService:
 
     def _run_download(self, download_id: str, request: DownloadRequest, artifact: VerifiedArtifact) -> None:
         self._update_download(download_id, state="downloading")
-        target_dir = self._registry.weights_dir / artifact.repo_id.replace("/", "__")
+        target_dir = self._registry.weights_dir / _artifact_storage_directory(artifact)
         finished = threading.Event()
         sampler = threading.Thread(
             target=self._sample_download_progress, args=(download_id, target_dir, artifact.filename, finished),
@@ -1265,6 +1350,7 @@ class LocalModelService:
                     revision=artifact.revision,
                     repo_type="model",
                     local_dir=str(target_dir),
+                    token=False,
                 ))
             landed = Path(path)
             verified_path = self._verify_downloaded_artifact(landed, artifact)

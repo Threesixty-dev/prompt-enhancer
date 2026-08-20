@@ -38,7 +38,7 @@ function remoteFiles(overrides: Partial<RemoteRepoFiles> = {}): RemoteRepoFiles 
     license_id: "apache-2.0",
     license_admission: "allowed",
     license_policy_version: "local-model-license-policy.v1",
-    gated: true,
+    gated: false,
     unavailable_reason: null,
     files: [
       { filename: "qwen-q4_k_m.gguf", size_bytes: 16 * 1024 ** 3, sha256: DIGEST, eligible: true, ineligible_reason: null },
@@ -84,7 +84,6 @@ describe("LocalModelsPage", () => {
     await screen.findByLabelText("Model file");
     expect((screen.getByLabelText("Model file") as HTMLSelectElement).value).toBe("qwen-q4_k_m.gguf");
     expect(screen.getByRole("button", { name: /Download 16.0 GB/ })).toBeTruthy();
-    expect(screen.getByText(/This repository is gated/)).toBeTruthy();
     // The immutable revision, digest and licence the person is confirming are all on screen.
     expect(screen.getByText(REVISION)).toBeTruthy();
     expect(screen.getByText(new RegExp(DIGEST))).toBeTruthy();
@@ -139,6 +138,24 @@ describe("LocalModelsPage", () => {
     expect(button.disabled).toBe(true);
   });
 
+  it("keeps gated repositories on the manual registration path", async () => {
+    const transport = {
+      getLocalModels: vi.fn(async () => overview()),
+      activateLocalModel: vi.fn(), deactivateLocalModel: vi.fn(), removeLocalModel: vi.fn(),
+      getLocalModelRemoteFiles: vi.fn(async () => remoteFiles({
+        gated: true,
+        files: [{ filename: "qwen-q4_k_m.gguf", size_bytes: 16 * 1024 ** 3, sha256: DIGEST, eligible: false, ineligible_reason: "repository_gated" }],
+      })),
+      startLocalModelDownload: vi.fn(), addLocalModel: vi.fn(), streamLocalModelChat: vi.fn(),
+    };
+    render(<LocalModelsPage transport={transport} />);
+    await screen.findByText("Example GPU");
+    fireEvent.click(screen.getByRole("button", { name: "Show files" }));
+    await screen.findByText(/automated downloader is public-only/);
+    expect((screen.getByRole("button", { name: "Download unavailable" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/cached Hugging Face login/)).toBeTruthy();
+  });
+
   it("shows a repository that cannot be pinned as undownloadable", async () => {
     const transport = {
       getLocalModels: vi.fn(async () => overview()),
@@ -162,8 +179,8 @@ describe("LocalModelsPage", () => {
     expect(provenanceLine(base)).toMatch(/Provenance unavailable/);
     // A record carrying a digest but no verification is still unavailable, never "verified".
     expect(provenanceLine({ ...base, sha256: DIGEST, source_revision: REVISION } as LocalModelRecord)).toMatch(/Provenance unavailable/);
-    const verified = { ...base, sha256: DIGEST, source_revision: REVISION, source_license: "apache-2.0", provenance_verified: true } as LocalModelRecord;
-    expect(provenanceLine(verified)).toBe("Verified · revision 0123456789ab · sha256 0123456789ab · licence apache-2.0");
+    const verified = { ...base, sha256: DIGEST, source_revision: REVISION, source_license: "apache-2.0", source_license_policy: "local-model-license-policy.v1", provenance_verified: true } as LocalModelRecord;
+    expect(provenanceLine(verified)).toBe("Verified when downloaded · revision 0123456789ab · sha256 0123456789ab · licence apache-2.0 · policy local-model-license-policy.v1");
   });
 
   it("explains a missing runtime", async () => {
