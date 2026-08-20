@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FocusEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { MetricContextFactList } from "./MetricContextFactList";
 import type { MetricContextFacts } from "./metricContextFacts";
 import { metricHelpV2, type MetricInspectorSentences } from "./metricHelpV2";
@@ -19,13 +28,22 @@ export type MetricKnowledgeSurface =
   | "team-members";
 export interface MetricKnowledgeTarget { surface: MetricKnowledgeSurface; metricKey: string }
 
+export interface MetricKnowledgeAnchor {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+}
+
 export interface MetricKnowledgeCardController {
   idPrefix: string;
   target: MetricKnowledgeTarget | null;
   pinned: boolean;
-  preview: (target: MetricKnowledgeTarget) => void;
+  /** Plain viewport coordinates only; never retain the originating DOM node. */
+  anchor?: MetricKnowledgeAnchor | null;
+  preview: (target: MetricKnowledgeTarget, anchor?: MetricKnowledgeAnchor) => void;
   unpreview: (target: MetricKnowledgeTarget) => void;
-  togglePin: (target: MetricKnowledgeTarget) => void;
+  togglePin: (target: MetricKnowledgeTarget, anchor?: MetricKnowledgeAnchor) => void;
   dismiss: () => void;
 }
 
@@ -42,9 +60,47 @@ export const METRIC_CARD_ROLE = "region" as const;
 const same = (left: MetricKnowledgeTarget | null, right: MetricKnowledgeTarget): boolean =>
   left !== null && left.surface === right.surface && left.metricKey === right.metricKey;
 
+const anchorFromElement = (element: Element): MetricKnowledgeAnchor => {
+  const rect = element.getBoundingClientRect();
+  return { bottom: rect.bottom, left: rect.left, right: rect.right, top: rect.top };
+};
+
+/**
+ * Position the card outside its trigger row. The earlier fixed bottom-right
+ * placement could cover later axis controls, making valid metrics impossible
+ * to select with a pointer even though keyboard/unit tests still passed.
+ */
+export function metricKnowledgeCardViewportStyle(
+  controller: Pick<MetricKnowledgeCardController, "anchor">,
+  preferredWidth = 360,
+): CSSProperties | undefined {
+  const anchor = controller.anchor;
+  if (anchor == null || typeof window === "undefined") return undefined;
+  const margin = 12;
+  const gap = 8;
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const width = Math.max(0, Math.min(preferredWidth, viewportWidth - margin * 2));
+  const left = Math.max(margin, Math.min(anchor.left, viewportWidth - margin - width));
+  const below = Math.max(0, viewportHeight - anchor.bottom - gap - margin);
+  const above = Math.max(0, anchor.top - gap - margin);
+  const placeBelow = below >= Math.min(240, viewportHeight * 0.45) || below >= above;
+  return {
+    bottom: placeBelow ? "auto" : viewportHeight - anchor.top + gap,
+    left,
+    maxHeight: Math.max(96, placeBelow ? below : above),
+    right: "auto",
+    top: placeBelow ? anchor.bottom + gap : "auto",
+  };
+}
+
 export function useMetricKnowledgeCardController(): MetricKnowledgeCardController {
   const idPrefix = useId();
-  const [state, setState] = useState<{ target: MetricKnowledgeTarget | null; pinned: boolean }>({ target: null, pinned: false });
+  const [state, setState] = useState<{
+    target: MetricKnowledgeTarget | null;
+    pinned: boolean;
+    anchor: MetricKnowledgeAnchor | null;
+  }>({ target: null, pinned: false, anchor: null });
   const leaveTimer = useRef<number | null>(null);
   const clearLeave = () => {
     if (leaveTimer.current !== null) {
@@ -52,25 +108,35 @@ export function useMetricKnowledgeCardController(): MetricKnowledgeCardControlle
       leaveTimer.current = null;
     }
   };
-  const preview = useCallback((target: MetricKnowledgeTarget) => {
+  const preview = useCallback((target: MetricKnowledgeTarget, anchor?: MetricKnowledgeAnchor) => {
     clearLeave();
-    setState((current) => current.pinned ? current : { target, pinned: false });
+    setState((current) => current.pinned ? current : {
+      target,
+      pinned: false,
+      anchor: anchor ?? (same(current.target, target) ? current.anchor : null),
+    });
   }, []);
   const unpreview = useCallback((target: MetricKnowledgeTarget) => {
     clearLeave();
     leaveTimer.current = window.setTimeout(() => {
-      setState((current) => current.pinned || !same(current.target, target) ? current : { target: null, pinned: false });
+      setState((current) => current.pinned || !same(current.target, target)
+        ? current
+        : { target: null, pinned: false, anchor: null });
     }, METRIC_KNOWLEDGE_CARD_LEAVE_DELAY_MS);
   }, []);
-  const togglePin = useCallback((target: MetricKnowledgeTarget) => {
+  const togglePin = useCallback((target: MetricKnowledgeTarget, anchor?: MetricKnowledgeAnchor) => {
     clearLeave();
     setState((current) => current.pinned && same(current.target, target)
-      ? { target: null, pinned: false }
-      : { target, pinned: true });
+      ? { target: null, pinned: false, anchor: null }
+      : {
+        target,
+        pinned: true,
+        anchor: anchor ?? (same(current.target, target) ? current.anchor : null),
+      });
   }, []);
   const dismiss = useCallback(() => {
     clearLeave();
-    setState({ target: null, pinned: false });
+    setState({ target: null, pinned: false, anchor: null });
   }, []);
   useEffect(() => {
     if (state.target === null) return undefined;
@@ -81,7 +147,16 @@ export function useMetricKnowledgeCardController(): MetricKnowledgeCardControlle
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [dismiss, state.target]);
   useEffect(() => () => clearLeave(), []);
-  return { idPrefix, target: state.target, pinned: state.pinned, preview, unpreview, togglePin, dismiss };
+  return {
+    idPrefix,
+    target: state.target,
+    pinned: state.pinned,
+    anchor: state.anchor,
+    preview,
+    unpreview,
+    togglePin,
+    dismiss,
+  };
 }
 
 export function metricKnowledgeDescriptionId(controller: Pick<MetricKnowledgeCardController, "idPrefix">, metricKey: string): string {
@@ -99,9 +174,11 @@ export function metricKnowledgeCardTriggerProps(
   return {
     "aria-describedby": metricKnowledgeDescriptionId(controller, metricKey),
     "data-help-open": open ? (controller.pinned ? "pinned" : "preview") : undefined,
-    onPointerEnter: () => controller.preview(target),
+    onPointerEnter: (event: ReactPointerEvent<HTMLElement>) =>
+      controller.preview(target, anchorFromElement(event.currentTarget)),
     onPointerLeave: () => controller.unpreview(target),
-    onFocus: () => controller.preview(target),
+    onFocus: (event: FocusEvent<HTMLElement>) =>
+      controller.preview(target, anchorFromElement(event.currentTarget)),
     onBlur: () => controller.unpreview(target),
   } as const;
 }
@@ -168,6 +245,7 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
         onPointerEnter={() => controller.preview({ surface, metricKey: entry.key })}
         onPointerLeave={() => controller.unpreview({ surface, metricKey: entry.key })}
         role={METRIC_CARD_ROLE}
+        style={metricKnowledgeCardViewportStyle(controller, compact ? 320 : 360)}
       >
         <header>
           <strong>{entry.label}</strong>

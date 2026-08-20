@@ -542,6 +542,36 @@ def create_app(
             if not sessions.verify_csrf(cookie_value, supplied_csrf):
                 raise HTTPException(status_code=403, detail="CSRF validation failed")
 
+    def require_browser_user_confirmation(
+        request: Request,
+        supplied_csrf: Annotated[str | None, Header(alias=CSRF_HEADER)] = None,
+    ) -> None:
+        """Reserve measurement-authority decisions for the same-origin UI.
+
+        API-token clients may submit inert proposals, but the token is not a
+        human-decision credential.  A decision therefore requires the
+        ephemeral browser session, same-origin mutation proof, and its CSRF
+        token even when an API token is also supplied.
+        """
+
+        if request.headers.get(API_TOKEN_HEADER) is not None or request.headers.get(
+            "authorization"
+        ) is not None:
+            raise HTTPException(
+                status_code=403, detail="browser confirmation required"
+            )
+        cookie_value = request.cookies.get(BROWSER_SESSION_COOKIE)
+        sessions = request.app.state.browser_sessions
+        if not sessions.authenticate(cookie_value):
+            raise HTTPException(status_code=401, detail="browser session required")
+        origin = request.headers.get("origin")
+        if origin is None or not _origin_matches_request(origin, request):
+            raise HTTPException(
+                status_code=403, detail="same-origin confirmation required"
+            )
+        if not sessions.verify_csrf(cookie_value, supplied_csrf):
+            raise HTTPException(status_code=403, detail="CSRF validation failed")
+
     authenticated = Depends(require_local_token)
 
     @app.get("/health", include_in_schema=False)
@@ -741,6 +771,7 @@ def create_app(
         app.include_router(
             create_metric_lifecycle_evidence_router(
                 require_local_token,
+                require_browser_user_confirmation,
                 metric_lifecycle_evidence_service,
             )
         )

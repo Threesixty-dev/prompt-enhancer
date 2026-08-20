@@ -6858,6 +6858,11 @@
       "MetricLifecycleDecisionCommand": {
         "additionalProperties": false,
         "properties": {
+          "confirmation": {
+            "const": "apply_local_user_metric_lifecycle_decision",
+            "title": "Confirmation",
+            "type": "string"
+          },
           "decision": {
             "$ref": "#/components/schemas/MetricLifecycleDecisionKind"
           },
@@ -6875,7 +6880,8 @@
         },
         "required": [
           "expected_source_run_id",
-          "decision"
+          "decision",
+          "confirmation"
         ],
         "title": "MetricLifecycleDecisionCommand",
         "type": "object"

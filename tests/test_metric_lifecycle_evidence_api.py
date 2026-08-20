@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from prompt_enhancer.api import API_TOKEN_HEADER, create_app
 from prompt_enhancer.application.analysis.metric_lifecycle_evidence import (
+    METRIC_LIFECYCLE_DECISION_CONFIRMATION,
     MetricLifecycleDecisionCommand,
     MetricLifecycleDecisionKind,
     MetricLifecycleFamily,
@@ -51,24 +52,73 @@ def test_authenticated_propose_replay_decide_and_list_are_content_free(tmp_path)
         proposed = client.post(base, headers=headers, json=proposal_payload)
         replay = client.post(base, headers=headers, json=proposal_payload)
         proposal = proposed.json()["proposal"]
-        decided = client.post(
+        decision_payload = MetricLifecycleDecisionCommand(
+            expected_source_run_id=proposal["source_run_id"],
+            decision=MetricLifecycleDecisionKind.CONFIRM,
+            confirmation=METRIC_LIFECYCLE_DECISION_CONFIRMATION,
+        ).model_dump(mode="json")
+        token_decision = client.post(
             f"{base}/{proposal['proposal_id']}/decision",
             headers={
                 API_TOKEN_HEADER: TOKEN,
-                "Idempotency-Key": "metric-lifecycle-decision-example",
+                "Idempotency-Key": "metric-lifecycle-token-decision-denied",
             },
-            json=MetricLifecycleDecisionCommand(
-                expected_source_run_id=proposal["source_run_id"],
-                decision=MetricLifecycleDecisionKind.CONFIRM,
-            ).model_dump(mode="json"),
+            json=decision_payload,
+        )
+        browser = client.get("/auth/session")
+        csrf = browser.json()["csrf_token"]
+        missing_confirmation = client.post(
+            f"{base}/{proposal['proposal_id']}/decision",
+            headers={
+                "Idempotency-Key": "metric-lifecycle-missing-confirmation",
+                CSRF_HEADER: csrf,
+                "Origin": "http://127.0.0.1",
+            },
+            json={
+                "expected_source_run_id": proposal["source_run_id"],
+                "decision": "confirm",
+            },
+        )
+        mixed_credentials = client.post(
+            f"{base}/{proposal['proposal_id']}/decision",
+            headers={
+                API_TOKEN_HEADER: TOKEN,
+                "Idempotency-Key": "metric-lifecycle-mixed-credentials",
+                CSRF_HEADER: csrf,
+                "Origin": "http://127.0.0.1",
+            },
+            json=decision_payload,
+        )
+        decided = client.post(
+            f"{base}/{proposal['proposal_id']}/decision",
+            headers={
+                "Idempotency-Key": "metric-lifecycle-decision-example",
+                CSRF_HEADER: csrf,
+                "Origin": "http://127.0.0.1",
+            },
+            json=decision_payload,
         )
         listing = client.get(base, headers={API_TOKEN_HEADER: TOKEN})
 
-    for response in (proposed, replay, decided, listing):
+    for response in (
+        proposed,
+        replay,
+        token_decision,
+        missing_confirmation,
+        mixed_credentials,
+        decided,
+        listing,
+    ):
         _private(response)
     assert proposed.status_code == 201
     assert replay.status_code == 200
     assert replay.json() == {**proposed.json(), "applied": False}
+    assert token_decision.status_code == 403
+    assert token_decision.json() == {"detail": "browser confirmation required"}
+    assert missing_confirmation.status_code == 422
+    assert missing_confirmation.json() == {"detail": "request validation failed"}
+    assert mixed_credentials.status_code == 403
+    assert mixed_credentials.json() == {"detail": "browser confirmation required"}
     assert decided.status_code == 201
     assert decided.json()["proposal"]["status"] == "confirmed"
     assert listing.status_code == 200

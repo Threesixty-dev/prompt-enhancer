@@ -104,9 +104,21 @@ describe("MetricEvidenceFilePanel", () => {
     expect(await screen.findByRole("button", { name: "Confirm evidence" })).toBeInTheDocument();
     expect(screen.getByText(/Confirmation records typed evidence only/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Confirm evidence" }));
+    expect(local.decideMetricLifecycleProposal).not.toHaveBeenCalled();
+    expect(screen.getByText(/admits the typed lifecycle receipt into the next sealed metric denominator/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply confirmation" }));
     await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
     expect(local.previewAgentMetricEvidence).toHaveBeenCalledTimes(1);
     expect(local.importAgentMetricEvidence).toHaveBeenCalledTimes(1);
     expect(local.decideMetricLifecycleProposal).toHaveBeenCalledTimes(1);
+    expect(local.decideMetricLifecycleProposal).toHaveBeenCalledWith(
+      sessionId,
+      proposal.proposal_id,
+      expect.objectContaining({
+        decision: "confirm",
+        confirmation: "apply_local_user_metric_lifecycle_decision",
+      }),
+      expect.any(String),
+    );
   });
 });

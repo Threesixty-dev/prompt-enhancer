@@ -5275,6 +5275,11 @@ export interface components {
         MetricImplementationState: "live_measured" | "compatibility_projected" | "method_only_withheld" | "objective_capability_missing" | "objective_evidence_unresolved" | "pending" | "no_opportunity" | "abstained" | "error";
         /** MetricLifecycleDecisionCommand */
         MetricLifecycleDecisionCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_local_user_metric_lifecycle_decision";
             decision: components["schemas"]["MetricLifecycleDecisionKind"];
             /**
              * Expected Proposal Revision

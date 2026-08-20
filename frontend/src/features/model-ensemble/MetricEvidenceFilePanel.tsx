@@ -7,7 +7,13 @@ import type {
 import "./MetricEvidenceFilePanel.css";
 
 const IMPORT_CONFIRMATION = "import_agent_metric_evidence_as_unconfirmed_proposal";
+const DECISION_CONFIRMATION = "apply_local_user_metric_lifecycle_decision";
 const MAX_FILE_BYTES = 64 * 1024;
+
+type PendingDecision = {
+  proposalId: string;
+  decision: "confirm" | "reject";
+};
 
 type EvidenceTransport = Pick<PromptEnhancerTransport,
   | "previewAgentMetricEvidence"
@@ -41,6 +47,7 @@ export function MetricEvidenceFilePanel({
   const [payload, setPayload] = useState<ArrayBuffer | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [pendingDecision, setPendingDecision] = useState<PendingDecision | null>(null);
   const capabilities = transport.previewAgentMetricEvidence !== undefined
     && transport.importAgentMetricEvidence !== undefined
     && transport.listMetricLifecycleProposals !== undefined
@@ -50,6 +57,7 @@ export function MetricEvidenceFilePanel({
     setPreview(null);
     setPayload(null);
     setError("");
+    setPendingDecision(null);
     if (!capabilities) {
       setProposals([]);
       return;
@@ -121,7 +129,7 @@ export function MetricEvidenceFilePanel({
     }
   }
 
-  async function decide(proposal: MetricLifecycleProposal, decision: "confirm" | "reject") {
+  async function applyDecision(proposal: MetricLifecycleProposal, decision: "confirm" | "reject") {
     if (transport.decideMetricLifecycleProposal === undefined) return;
     setBusy(true);
     setError("");
@@ -133,12 +141,14 @@ export function MetricEvidenceFilePanel({
           expected_source_run_id: proposal.source_run_id,
           expected_proposal_revision: proposal.proposal_revision,
           decision,
+          confirmation: DECISION_CONFIRMATION,
         },
         idempotency(`agent-evidence-${decision}`),
       );
       setProposals((current) => current.map((item) => (
         item.proposal_id === result.proposal.proposal_id ? result.proposal : item
       )));
+      setPendingDecision(null);
       onEvidenceChanged?.();
     } catch {
       setError("The source window or proposal authority changed; refresh before deciding.");
@@ -188,10 +198,34 @@ export function MetricEvidenceFilePanel({
               {undecided.map((proposal) => (
                 <li key={proposal.proposal_id}>
                   <span><strong>{proposalLabel(proposal)}</strong><small>Bound to run {proposal.source_run_id.slice(0, 8)}…</small></span>
-                  <div>
-                    <button disabled={busy} onClick={() => void decide(proposal, "reject")} type="button">Reject</button>
-                    <button disabled={busy} onClick={() => void decide(proposal, "confirm")} type="button">Confirm evidence</button>
-                  </div>
+                  {pendingDecision?.proposalId === proposal.proposal_id ? (
+                    <div
+                      aria-label={`${pendingDecision.decision === "confirm" ? "Confirm" : "Reject"} ${proposalLabel(proposal)}`}
+                      className="metric-evidence-file__decision-confirmation"
+                      role="group"
+                    >
+                      <p>
+                        {pendingDecision.decision === "confirm"
+                          ? "This browser-session decision admits the typed lifecycle receipt into the next sealed metric denominator."
+                          : "This browser-session decision permanently rejects this proposal revision."}
+                      </p>
+                      <div>
+                        <button disabled={busy} onClick={() => setPendingDecision(null)} type="button">Cancel</button>
+                        <button
+                          disabled={busy}
+                          onClick={() => void applyDecision(proposal, pendingDecision.decision)}
+                          type="button"
+                        >
+                          {pendingDecision.decision === "confirm" ? "Apply confirmation" : "Apply rejection"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <button disabled={busy} onClick={() => setPendingDecision({ proposalId: proposal.proposal_id, decision: "reject" })} type="button">Reject</button>
+                      <button disabled={busy} onClick={() => setPendingDecision({ proposalId: proposal.proposal_id, decision: "confirm" })} type="button">Confirm evidence</button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

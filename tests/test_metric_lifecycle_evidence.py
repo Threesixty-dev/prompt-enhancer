@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from prompt_enhancer.application.analysis.metric_lifecycle_evidence import (
+    METRIC_LIFECYCLE_DECISION_CONFIRMATION,
     MetricLifecycleConflictError,
     MetricLifecycleDecisionCommand,
     MetricLifecycleDecisionKind,
@@ -139,6 +140,7 @@ def _decision(
     return MetricLifecycleDecisionCommand(
         expected_source_run_id=RUN_1,
         decision=decision,
+        confirmation=METRIC_LIFECYCLE_DECISION_CONFIRMATION,
     )
 
 

@@ -195,8 +195,9 @@ describe("metric guidance receipt sentences", () => {
     expect(missingEvidence.kind).toBe("unknown");
     expect(missingEvidence.meaning).toMatch(/^Objective evidence missing: the adapter exposes the required evidence family/u);
     expect(missingEvidence.meaning).toMatch(/no authoritative opportunity set or typed receipt/u);
-    expect(missingEvidence.action).toMatch(/^Keep this metric unknown while the adapter reconciles/u);
-    expect(missingEvidence.action).toMatch(/user wording cannot supply them/u);
+    expect(missingEvidence.action).toBe(
+      `${metricGuidanceTemplateText("action.collect_objective_receipt.v1")} — verify: adapter readiness — a supported adapter produces a fresh sealed receipt scoped to this metric; collecting more prose is not verification.`,
+    );
   });
 
   it("maps every non-value state class to an unplotted inspector state", () => {

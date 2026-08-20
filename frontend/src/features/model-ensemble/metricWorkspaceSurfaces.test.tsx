@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ModelEnsembleRun } from "../../shared/api/contracts";
 import { MetricWorkspace } from "./MetricWorkspace";
@@ -43,6 +43,18 @@ const run: ModelEnsembleRadarData = {
 const transport = { getModelPredictiveMetricDetail: vi.fn(() => new Promise<never>(() => undefined)) };
 
 describe("metric workspace surfaces share one axis presentation", () => {
+  it("lets the compact axis strip select every metric, including state-only axes", () => {
+    render(
+      <MetricWorkspace lensId="collaboration-flow" mode="compact" onLensChange={vi.fn()} run={run} runId={"e".repeat(64)} snapshotLabel="Synthetic" transport={transport} />,
+    );
+    const strip = within(screen.getByRole("navigation", { name: "Collaboration flow metric axes" })).getAllByRole("button");
+
+    for (const button of strip) {
+      fireEvent.click(button);
+      expect(button).toHaveAttribute("aria-pressed", "true");
+    }
+  });
+
   it("renders identical status and raw-rate captions on the axis strip and the exact-value board", () => {
     render(
       <MetricWorkspace lensId="collaboration-flow" mode="full" onLensChange={vi.fn()} run={run} runId={"e".repeat(64)} snapshotLabel="Synthetic" transport={transport} />,

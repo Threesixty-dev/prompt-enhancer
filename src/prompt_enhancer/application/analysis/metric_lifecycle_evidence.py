@@ -23,7 +23,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import Field, field_validator, model_validator
 
@@ -33,6 +33,9 @@ from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider, StrictM
 METRIC_LIFECYCLE_EVIDENCE_SCHEMA_VERSION = "metric-lifecycle-evidence-v1"
 METRIC_LIFECYCLE_EVIDENCE_POLICY_VERSION = "explicit-local-confirmation-v1"
 METRIC_LIFECYCLE_PROPOSAL_REVISION = 1
+METRIC_LIFECYCLE_DECISION_CONFIRMATION = (
+    "apply_local_user_metric_lifecycle_decision"
+)
 MAX_LIFECYCLE_ENUMERATION_SIZE = 1_000
 
 
@@ -265,6 +268,7 @@ class MetricLifecycleDecisionCommand(StrictModel):
         le=METRIC_LIFECYCLE_PROPOSAL_REVISION,
     )
     decision: MetricLifecycleDecisionKind
+    confirmation: Literal[METRIC_LIFECYCLE_DECISION_CONFIRMATION]
 
     _run = field_validator("expected_source_run_id")(_pseudonym)
 
@@ -713,6 +717,7 @@ class MetricLifecycleEvidenceService:
                 proposal_id,
                 str(command.expected_proposal_revision),
                 command.decision.value,
+                command.confirmation,
             ),
         )
         decision_id = self._identifiers.fingerprint(
@@ -889,6 +894,7 @@ __all__ = [
     "METRIC_LIFECYCLE_EVIDENCE_POLICY_VERSION",
     "METRIC_LIFECYCLE_EVIDENCE_SCHEMA_VERSION",
     "METRIC_LIFECYCLE_PROPOSAL_REVISION",
+    "METRIC_LIFECYCLE_DECISION_CONFIRMATION",
     "ConfirmedMetricLifecycleOpportunity",
     "ConfirmedMetricLifecycleOutcome",
     "MetricLifecycleConflictError",

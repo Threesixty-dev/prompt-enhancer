@@ -1189,6 +1189,16 @@ embedding challenger, while the BGE reranker reduced ranking quality; the sample
 is too small for activation. These results prohibit interpreting model count or
 agreement as metric correctness and are not a calibration or promotion report.
 
+The later local-authority hardening separates proposal and decision
+credentials. A loopback API token may still fetch the contract, preview a
+canonical file, and import an inert proposal, but the decision route refuses
+that token and requires the ephemeral same-origin browser session, CSRF proof,
+an exact decision literal, and a second visible confirmation step. This is an
+application authorization boundary, not a claim of physical user presence
+against software that controls the desktop. The exact workflow and current
+five-family limit are documented in
+[`local-agent-metric-evidence-api.md`](local-agent-metric-evidence-api.md).
+
 ## Claude Code hook-capture evidence
 
 The checkpoint at `2b4d506` closed the untrusted agent-evidence import boundary,

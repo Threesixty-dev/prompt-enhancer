@@ -158,6 +158,7 @@ def _failure(error: Exception) -> HTTPException:
 
 def create_metric_lifecycle_evidence_router(
     require_local_auth: Callable[..., None],
+    require_user_confirmation: Callable[..., None],
     service: MetricLifecycleEvidenceCommand,
 ) -> APIRouter:
     router = APIRouter(
@@ -203,6 +204,7 @@ def create_metric_lifecycle_evidence_router(
     @router.post(
         "/sessions/{session_id}/metric-lifecycle-evidence/proposals/{proposal_id}/decision",
         response_model=MetricLifecycleProposalOutcomeDto,
+        dependencies=[Depends(require_user_confirmation)],
     )
     def decide(
         payload: MetricLifecycleDecisionCommand,

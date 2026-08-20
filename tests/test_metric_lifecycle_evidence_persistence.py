@@ -13,6 +13,7 @@ import sqlite3
 import pytest
 
 from prompt_enhancer.application.analysis.metric_lifecycle_evidence import (
+    METRIC_LIFECYCLE_DECISION_CONFIRMATION,
     MetricLifecycleConflictError,
     MetricLifecycleDecisionCommand,
     MetricLifecycleDecisionKind,
@@ -135,6 +136,7 @@ def _decision(run_id: str, decision=MetricLifecycleDecisionKind.CONFIRM):
     return MetricLifecycleDecisionCommand(
         expected_source_run_id=run_id,
         decision=decision,
+        confirmation=METRIC_LIFECYCLE_DECISION_CONFIRMATION,
     )
 
 

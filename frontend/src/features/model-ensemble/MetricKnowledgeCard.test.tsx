@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelEnsembleRun, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { MetricWorkspace } from "./MetricWorkspace";
 import { ModelEnsembleRadar, type ModelEnsembleRadarData } from "./ModelEnsembleRadar";
+import { metricKnowledgeCardViewportStyle } from "./MetricKnowledgeCard";
 
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
 
@@ -56,6 +57,7 @@ function renderWorkspace(mode: "full" | "compact") {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("personal metric explainers", () => {
@@ -162,6 +164,20 @@ describe("personal metric explainers", () => {
     expect(slot?.getAttribute("data-surface")).toBe("strip");
     expect(card.classList.contains("metric-knowledge-card--viewport")).toBe(true);
     expect(card.classList.contains("metric-knowledge-card--compact")).toBe(true);
+  });
+
+  it("anchors the overlay outside the entire triggering axis row", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1280);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(720);
+    const row = { top: 360, bottom: 430, left: 740, right: 860 };
+    const below = metricKnowledgeCardViewportStyle({ anchor: row });
+    expect(below).toMatchObject({ top: 438, bottom: "auto", maxHeight: 270 });
+    expect(Number(below?.top)).toBeGreaterThan(row.bottom);
+
+    const lowRow = { top: 650, bottom: 700, left: 740, right: 860 };
+    const above = metricKnowledgeCardViewportStyle({ anchor: lowRow });
+    expect(above).toMatchObject({ top: "auto", bottom: 78, maxHeight: 630 });
+    expect(720 - Number(above?.bottom)).toBeLessThan(lowRow.top);
   });
 
   it("dismisses a pinned key when a lens change makes that target unavailable", () => {

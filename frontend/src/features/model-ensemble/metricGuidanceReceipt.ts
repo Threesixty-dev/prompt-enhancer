@@ -261,7 +261,6 @@ export function metricGuidanceReceiptSentences(input: MetricGuidanceReceiptInput
         meaning = `Adapter capability missing: the current adapter cannot measure ${label}, and no user wording or agent action can fix that; no typed receipt exists for this window (reason: ${reason}), so this is missing capability, not a low value — ${lowerFirst(diagnosis)}.`;
       } else {
         meaning = `Objective evidence missing: the adapter exposes the required evidence family for ${label}, but this sealed window has no authoritative opportunity set or typed receipt to classify (reason: ${reason}), so no value exists and this is not a low value — ${lowerFirst(diagnosis)}.`;
-        action = "Keep this metric unknown while the adapter reconciles its authoritative opportunity and evidence links; user wording cannot supply them — verify: a fresh sealed receipt proves the complete denominator and typed outcome authority before any value is read.";
       }
       break;
     case "objective_evidence_unresolved":
