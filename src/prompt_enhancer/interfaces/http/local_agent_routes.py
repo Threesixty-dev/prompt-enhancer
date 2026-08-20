@@ -22,6 +22,7 @@ from ...application.local_agent import (
 _STATUS = {
     "workspace_not_a_folder": 422,
     "workspace_not_allowed": 403,
+    "workspace_link_or_reparse_refused": 403,
     "workspace_is_a_drive_root": 422,
     "too_many_sessions": 409,
     "session_not_found": 404,
@@ -59,7 +60,11 @@ def _stream_event_pages(
             return
 
 
-def create_local_agent_router(require_local_auth: Callable[..., None], service: LocalAgentService) -> APIRouter:
+def create_local_agent_router(
+    require_local_auth: Callable[..., None],
+    require_browser_confirmation: Callable[..., None],
+    service: LocalAgentService,
+) -> APIRouter:
     router = APIRouter(prefix="/v1/agent", tags=["local-agent"], dependencies=[Depends(require_local_auth)])
 
     @router.get("/sessions", response_model=tuple[AgentSessionView, ...])
@@ -130,7 +135,11 @@ def create_local_agent_router(require_local_auth: Callable[..., None], service: 
             },
         )
 
-    @router.post("/sessions/{session_id}/approvals/{approval_id}", response_model=AgentSessionView)
+    @router.post(
+        "/sessions/{session_id}/approvals/{approval_id}",
+        response_model=AgentSessionView,
+        dependencies=[Depends(require_browser_confirmation)],
+    )
     def decide(
         session_id: Annotated[str, Path(pattern=_SESSION_ID)],
         approval_id: Annotated[str, Path(pattern=_SESSION_ID)],

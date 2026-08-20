@@ -7,14 +7,18 @@ authority in the orchestration layer.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 import difflib
+import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import platform
 import re
+import stat
 import subprocess
+import tempfile
+import threading
 from typing import Any
 
 from .local_agent_limits import (
@@ -23,6 +27,7 @@ from .local_agent_limits import (
     MAX_COMMAND_SECONDS,
     MAX_DIFF_CHARS,
     MAX_FILE_READ_BYTES,
+    MAX_FILE_WRITE_BYTES,
     MAX_LIST_ENTRIES,
     MAX_REVIEWABLE_COMMAND_CHARS,
     MAX_SEARCH_RESULTS,
@@ -37,6 +42,42 @@ class ToolOutcome:
     text: str
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedWrite:
+    """A reviewable write bound to the exact file and parent seen in preview."""
+
+    path: str
+    content: str
+    preview: str
+    base_sha256: str | None
+    base_identity: tuple[int, int] | None
+    parent_identity: tuple[int, int]
+    proposed_sha256: str
+    existed: bool
+    mode: int | None
+
+
+def _is_link_or_reparse(metadata: os.stat_result) -> bool:
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        getattr(metadata, "st_file_attributes", 0) & 0x400
+    )
+
+
+def _path_components_are_safe(value: Path) -> bool:
+    """Fail closed when any existing component is a link/reparse or unreadable."""
+
+    for candidate in (value, *value.parents):
+        try:
+            metadata = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return False
+        if _is_link_or_reparse(metadata):
+            return False
+    return True
+
+
 class WorkspaceTools:
     """Tool implementations scoped to one folder. No path may escape the root."""
 
@@ -48,13 +89,37 @@ class WorkspaceTools:
         runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         fetcher: Callable[[str], str] | None = None,
     ) -> None:
-        self.root = root.resolve()
+        lexical_root = Path(os.path.abspath(os.fspath(root.expanduser())))
+        if not lexical_root.is_dir() or not _path_components_are_safe(lexical_root):
+            raise LocalAgentError("workspace_link_or_reparse_refused")
+        self.root = lexical_root.resolve()
         self._command_timeout = command_timeout
         self._runner = runner or run_with_tree_kill
         self._fetcher = fetcher
+        self._write_lock = threading.RLock()
+
+    def _lexical_candidate(self, relative: str) -> Path:
+        if not relative or "\x00" in relative:
+            raise LocalAgentError("path_invalid")
+        posix = PurePosixPath(relative)
+        windows = PureWindowsPath(relative)
+        if (
+            posix.is_absolute()
+            or windows.is_absolute()
+            or ".." in posix.parts
+            or ".." in windows.parts
+        ):
+            raise LocalAgentError("path_outside_workspace")
+        candidate = Path(os.path.abspath(os.fspath(self.root / Path(relative))))
+        if candidate != self.root and self.root not in candidate.parents:
+            raise LocalAgentError("path_outside_workspace")
+        return candidate
 
     def resolve(self, relative: str) -> Path:
-        candidate = (self.root / (relative or ".")).resolve()
+        if relative in {"", "."}:
+            candidate = self.root
+        else:
+            candidate = self._lexical_candidate(relative).resolve()
         if candidate != self.root and self.root not in candidate.parents:
             raise LocalAgentError("path_outside_workspace")
         return candidate
@@ -162,15 +227,81 @@ class WorkspaceTools:
                         break
         return ToolOutcome(True, "\n".join(results) or "no matches")
 
-    def diff_preview(self, path: str, content: str) -> str:
-        target = self.resolve(path)
-        before = (
-            target.read_text(encoding="utf-8", errors="replace").splitlines()
-            if target.is_file()
-            else []
-        )
+    @staticmethod
+    def _identity(metadata: os.stat_result) -> tuple[int, int]:
+        return metadata.st_dev, metadata.st_ino
+
+    @staticmethod
+    def _write_all(descriptor: int, payload: bytes) -> None:
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                raise OSError("short local write")
+            offset += written
+
+    def _snapshot_file(
+        self, target: Path
+    ) -> tuple[bytes, os.stat_result] | None:
+        if not _path_components_are_safe(target):
+            raise LocalAgentError("workspace_link_or_reparse_refused")
+        try:
+            before = target.lstat()
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise LocalAgentError("workspace_file_unavailable") from error
+        if (
+            _is_link_or_reparse(before)
+            or not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size > MAX_FILE_WRITE_BYTES
+        ):
+            raise LocalAgentError("workspace_file_unavailable")
+        try:
+            payload = target.read_bytes()
+            after = target.lstat()
+        except OSError as error:
+            raise LocalAgentError("workspace_file_unavailable") from error
+        if (
+            self._identity(before) != self._identity(after)
+            or before.st_size != after.st_size
+            or before.st_mtime_ns != after.st_mtime_ns
+            or _is_link_or_reparse(after)
+            or after.st_nlink != 1
+        ):
+            raise LocalAgentError("workspace_file_changed")
+        return payload, after
+
+    def prepare_write(self, path: str, content: str) -> PreparedWrite:
+        try:
+            proposed = content.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as error:
+            raise LocalAgentError("workspace_text_invalid") from error
+        if len(proposed) > MAX_FILE_WRITE_BYTES:
+            raise LocalAgentError("workspace_file_too_large")
+        if b"\x00" in proposed:
+            raise LocalAgentError("workspace_binary_refused")
+        target = self._lexical_candidate(path)
+        parent = target.parent
+        if not _path_components_are_safe(parent):
+            raise LocalAgentError("workspace_link_or_reparse_refused")
+        try:
+            parent_metadata = parent.lstat()
+        except OSError as error:
+            raise LocalAgentError("workspace_parent_unavailable") from error
+        if _is_link_or_reparse(parent_metadata) or not stat.S_ISDIR(parent_metadata.st_mode):
+            raise LocalAgentError("workspace_parent_unavailable")
+        snapshot = self._snapshot_file(target)
+        before_bytes = snapshot[0] if snapshot is not None else b""
+        try:
+            before_text = before_bytes.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise LocalAgentError("workspace_binary_refused") from error
+        if "\x00" in before_text:
+            raise LocalAgentError("workspace_binary_refused")
         diff = difflib.unified_diff(
-            before,
+            before_text.splitlines(),
             content.splitlines(),
             fromfile=f"a/{path}",
             tofile=f"b/{path}",
@@ -179,16 +310,107 @@ class WorkspaceTools:
         )
         text = "\n".join(diff)
         if not text:
-            text = "(no change)" if target.is_file() else f"(new file, {len(content.splitlines())} lines)"
-        return text[:MAX_DIFF_CHARS] + ("\n… diff truncated" if len(text) > MAX_DIFF_CHARS else "")
+            text = (
+                "(no change)"
+                if snapshot is not None
+                else f"(new file, {len(content.splitlines())} lines)"
+            )
+        if len(text) > MAX_DIFF_CHARS:
+            raise LocalAgentError("change_too_large_to_review")
+        return PreparedWrite(
+            path=target.relative_to(self.root).as_posix(),
+            content=content,
+            preview=text,
+            base_sha256=(hashlib.sha256(before_bytes).hexdigest() if snapshot else None),
+            base_identity=(self._identity(snapshot[1]) if snapshot else None),
+            parent_identity=self._identity(parent_metadata),
+            proposed_sha256=hashlib.sha256(proposed).hexdigest(),
+            existed=snapshot is not None,
+            mode=(stat.S_IMODE(snapshot[1].st_mode) if snapshot else None),
+        )
+
+    def diff_preview(self, path: str, content: str) -> str:
+        return self.prepare_write(path, content).preview
+
+    def apply_prepared_write(self, prepared: PreparedWrite) -> ToolOutcome:
+        target = self._lexical_candidate(prepared.path)
+        proposed = prepared.content.encode("utf-8", errors="strict")
+        if hashlib.sha256(proposed).hexdigest() != prepared.proposed_sha256:
+            return ToolOutcome(False, "change no longer matches its reviewed preview")
+        with self._write_lock:
+            try:
+                parent_metadata = target.parent.lstat()
+                snapshot = self._snapshot_file(target)
+            except (OSError, LocalAgentError):
+                return ToolOutcome(False, "file is no longer safe to write; inspect it again")
+            current_sha = hashlib.sha256(snapshot[0]).hexdigest() if snapshot else None
+            current_identity = self._identity(snapshot[1]) if snapshot else None
+            if (
+                self._identity(parent_metadata) != prepared.parent_identity
+                or current_sha != prepared.base_sha256
+                or current_identity != prepared.base_identity
+                or (snapshot is not None) != prepared.existed
+            ):
+                return ToolOutcome(False, "file changed since preview; read it again and propose a new change")
+
+            temporary: str | None = None
+            try:
+                if prepared.existed:
+                    descriptor, temporary = tempfile.mkstemp(
+                        prefix=".prompt-enhancer-edit-",
+                        suffix=".tmp",
+                        dir=target.parent,
+                    )
+                    try:
+                        self._write_all(descriptor, proposed)
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                    if prepared.mode is not None:
+                        os.chmod(temporary, prepared.mode)
+                    latest = self._snapshot_file(target)
+                    latest_parent = target.parent.lstat()
+                    if (
+                        latest is None
+                        or self._identity(latest[1]) != prepared.base_identity
+                        or hashlib.sha256(latest[0]).hexdigest() != prepared.base_sha256
+                        or self._identity(latest_parent) != prepared.parent_identity
+                    ):
+                        return ToolOutcome(False, "file changed since preview; read it again and propose a new change")
+                    os.replace(temporary, target)
+                    temporary = None
+                else:
+                    flags = (
+                        os.O_WRONLY
+                        | os.O_CREAT
+                        | os.O_EXCL
+                        | getattr(os, "O_BINARY", 0)
+                        | getattr(os, "O_NOFOLLOW", 0)
+                    )
+                    descriptor = os.open(target, flags, 0o600)
+                    try:
+                        self._write_all(descriptor, proposed)
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+            except (OSError, LocalAgentError):
+                return ToolOutcome(False, "file changed or became unsafe before it could be written")
+            finally:
+                if temporary is not None:
+                    try:
+                        os.unlink(temporary)
+                    except OSError:
+                        pass
+            try:
+                written = self._snapshot_file(target)
+            except LocalAgentError:
+                return ToolOutcome(False, "write completed but the file could not be verified")
+            if written is None or hashlib.sha256(written[0]).hexdigest() != prepared.proposed_sha256:
+                return ToolOutcome(False, "write completed but the file could not be verified")
+            return ToolOutcome(True, f"wrote {prepared.path} ({len(prepared.content)} characters)")
 
     def write_file(self, path: str, content: str) -> ToolOutcome:
-        target = self.resolve(path)
-        if target.is_dir():
-            return ToolOutcome(False, f"is a folder: {path}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        return ToolOutcome(True, f"wrote {path} ({len(content)} characters)")
+        return self.apply_prepared_write(self.prepare_write(path, content))
 
     def run_command(self, command: str, timeout_seconds: int | None = None) -> ToolOutcome:
         requested = int(timeout_seconds) if timeout_seconds else self._command_timeout
@@ -336,6 +558,7 @@ def _kill_tree(process: subprocess.Popen[Any]) -> None:
 
 
 __all__ = (
+    "PreparedWrite",
     "ToolOutcome",
     "WorkspaceTools",
     "minimal_environment",

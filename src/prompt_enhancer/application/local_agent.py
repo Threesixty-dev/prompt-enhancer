@@ -53,6 +53,7 @@ from .local_agent_limits import (
     STREAM_WAIT_SECONDS,
 )
 from .local_agent_workspace import (
+    PreparedWrite,
     ToolOutcome,
     WorkspaceTools,
     minimal_environment,
@@ -288,6 +289,7 @@ class LocalAgentService:
         open_chat: Callable[[str, bytes], AgentChatUpstream] | None = None,
         active_model: Callable[[], str | None],
         allowed_roots: tuple[Path, ...] | None = None,
+        forbidden_roots: tuple[Path, ...] = (),
         fetcher: Callable[[str], str] | None = None,
         runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -297,6 +299,7 @@ class LocalAgentService:
         self._open_chat = open_chat
         self._active_model = active_model
         self._allowed_roots = tuple(root.resolve() for root in allowed_roots) if allowed_roots else None
+        self._forbidden_roots = tuple(root.expanduser().resolve() for root in forbidden_roots)
         self._fetcher = fetcher
         self._runner = runner
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -310,8 +313,21 @@ class LocalAgentService:
         root = Path(settings.workspace).expanduser()
         if not root.is_absolute() or not root.is_dir():
             raise LocalAgentError("workspace_not_a_folder")
-        root = root.resolve()
+        tools = WorkspaceTools(
+            root,
+            command_timeout=settings.command_timeout_seconds,
+            runner=self._runner,
+            fetcher=self._fetcher if settings.allow_web else None,
+        )
+        root = tools.root
         if self._allowed_roots is not None and not any(root == allowed or allowed in root.parents for allowed in self._allowed_roots):
+            raise LocalAgentError("workspace_not_allowed")
+        if any(
+            root == forbidden
+            or forbidden in root.parents
+            or root in forbidden.parents
+            for forbidden in self._forbidden_roots
+        ):
             raise LocalAgentError("workspace_not_allowed")
         if root.anchor == str(root):
             raise LocalAgentError("workspace_is_a_drive_root")
@@ -323,7 +339,7 @@ class LocalAgentService:
                 session_id=session_id,
                 settings=settings,
                 created_at=self._clock(),
-                tools=WorkspaceTools(root, command_timeout=settings.command_timeout_seconds, runner=self._runner, fetcher=self._fetcher if settings.allow_web else None),
+                tools=tools,
                 messages=[{"role": "system", "content": _system_prompt(settings, root)}],
             )
             self._sessions[session_id] = session
@@ -858,16 +874,21 @@ class LocalAgentService:
             if tool is ToolName.FETCH_URL and not session.settings.allow_web:
                 return ToolOutcome(False, "web access is disabled in this session")
             preview = None
+            prepared_write: PreparedWrite | None = None
             if tool is ToolName.WRITE_FILE:
-                preview = tools.diff_preview(str(arguments.get("path") or ""), str(arguments.get("content") or ""))
-                if preview.endswith("… diff truncated"):
-                    return ToolOutcome(False, "change too large to review in one step; write it in smaller pieces")
+                prepared_write = tools.prepare_write(
+                    str(arguments.get("path") or ""),
+                    str(arguments.get("content") or ""),
+                )
+                preview = prepared_write.preview
             if tool is ToolName.RUN_COMMAND and len(str(arguments.get("command") or "")) > MAX_REVIEWABLE_COMMAND_CHARS:
                 return ToolOutcome(False, "command too long to review; split it into smaller commands")
             if not self._await_approval(session, tool, arguments, preview):
                 return ToolOutcome(False, "denied by the person - do not retry this call; explain or choose another approach")
             if tool is ToolName.WRITE_FILE:
-                return tools.write_file(str(arguments.get("path") or ""), str(arguments.get("content") or ""))
+                if prepared_write is None:
+                    return ToolOutcome(False, "write preview was unavailable")
+                return tools.apply_prepared_write(prepared_write)
             if tool is ToolName.RUN_COMMAND:
                 return tools.run_command(str(arguments.get("command") or ""), arguments.get("timeout_seconds"))
             return tools.fetch_url(str(arguments.get("url") or ""))

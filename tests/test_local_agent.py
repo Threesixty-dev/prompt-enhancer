@@ -12,7 +12,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from prompt_enhancer.api import API_TOKEN_HEADER
+from prompt_enhancer.api import API_TOKEN_HEADER, CSRF_HEADER
 from prompt_enhancer.application.local_agent import (
     AgentStreamPhase,
     AgentStreamStatus,
@@ -58,9 +58,38 @@ def test_workspace_tools_never_leave_the_folder(tmp_path: Path) -> None:
     assert tools.read_file("missing.txt").ok is False
     preview = tools.diff_preview("src/app.py", "def add(a, b):\n    return a - b\n")
     assert "-    return a + b" in preview and "+    return a - b" in preview
-    assert "+++ b/docs/new.md" in tools.diff_preview("docs/new.md", "hello\n")
-    written = tools.write_file("docs/new.md", "hello\n")
-    assert written.ok and (root / "docs" / "new.md").read_text(encoding="utf-8") == "hello\n"
+    assert "+++ b/new.md" in tools.diff_preview("new.md", "hello\n")
+    written = tools.write_file("new.md", "hello\n")
+    assert written.ok and (root / "new.md").read_text(encoding="utf-8") == "hello\n"
+
+
+def test_prepared_writes_are_revision_bound_and_refuse_unsafe_files(tmp_path: Path) -> None:
+    import os
+
+    root = _workspace(tmp_path)
+    tools = WorkspaceTools(root)
+    prepared = tools.prepare_write("src/app.py", "def add(a, b):\n    return a - b\n")
+    (root / "src" / "app.py").write_text("external change\n", encoding="utf-8")
+    stale = tools.apply_prepared_write(prepared)
+    assert stale.ok is False and stale.text == "file changed since preview; read it again and propose a new change"
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == "external change\n"
+
+    hard_link = root / "hard-link.py"
+    try:
+        os.link(root / "src" / "app.py", hard_link)
+    except OSError:
+        pass
+    else:
+        with pytest.raises(LocalAgentError) as linked:
+            tools.prepare_write("hard-link.py", "replacement\n")
+        assert linked.value.code == "workspace_file_unavailable"
+
+    with pytest.raises(LocalAgentError) as missing_parent:
+        tools.prepare_write("missing/new.md", "hello\n")
+    assert missing_parent.value.code == "workspace_parent_unavailable"
+    with pytest.raises(LocalAgentError) as oversized:
+        tools.prepare_write("new.md", "x" * 256_001)
+    assert oversized.value.code == "workspace_file_too_large"
 
 
 def test_run_command_uses_the_workspace_and_bounds_output(tmp_path: Path) -> None:
@@ -138,6 +167,54 @@ def test_run_loop_executes_safe_tools_and_waits_for_approval_on_writes(tmp_path:
     with pytest.raises(LocalAgentError) as raised:
         service.approve(view.session_id, pending.approval_id, ApprovalDecision(approved=True))
     assert raised.value.code == "approval_not_pending"
+
+
+def test_agent_write_refuses_a_file_changed_during_approval(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    chat, _ = _stub_model(
+        [
+            {
+                "tool_calls": [
+                    {
+                        "id": "stale-write",
+                        "type": "function",
+                        "function": {
+                            "name": "write_file",
+                            "arguments": json.dumps(
+                                {
+                                    "path": "src/app.py",
+                                    "content": "def add(a, b):\n    return a - b\n",
+                                }
+                            ),
+                        },
+                    }
+                ]
+            },
+            {"content": "The reviewed change was stale, so I did not overwrite the file."},
+        ]
+    )
+    service = LocalAgentService(
+        chat=chat,
+        active_model=lambda: "stub-model",
+        clock=lambda: T0,
+        approval_wait_seconds=5,
+    )
+    view = service.create(AgentSettings(workspace=str(root)))
+    service.send(view.session_id, SendMessage(text="Change the operation."))
+    assert _wait(lambda: service.events(view.session_id).pending_approval_id is not None)
+    page = service.events(view.session_id)
+    approval = next(event for event in page.events if event.kind == "approval_required")
+    (root / "src" / "app.py").write_text("external change\n", encoding="utf-8")
+    service.approve(view.session_id, approval.approval_id or "", ApprovalDecision(approved=True))
+    assert _wait(lambda: not service.get(view.session_id).running)
+    final = service.events(view.session_id)
+    result = next(
+        event
+        for event in final.events
+        if event.kind == "tool_result" and event.call_id == "stale-write"
+    )
+    assert result.ok is False and result.text == "file changed since preview; read it again and propose a new change"
+    assert (root / "src" / "app.py").read_text(encoding="utf-8") == "external change\n"
 
 
 def test_streamed_reasoning_content_and_tool_calls_are_reassembled(tmp_path: Path) -> None:
@@ -430,6 +507,18 @@ def test_session_guards(tmp_path: Path) -> None:
     service.delete(view.session_id)
     assert service.list() == ()
 
+    protected = tmp_path / "protected"
+    nested = protected / "project"
+    nested.mkdir(parents=True)
+    guarded = LocalAgentService(
+        chat=lambda a, b: (200, b"{}", "application/json"),
+        active_model=lambda: None,
+        forbidden_roots=(protected,),
+    )
+    with pytest.raises(LocalAgentError) as forbidden:
+        guarded.create(AgentSettings(workspace=str(nested)))
+    assert forbidden.value.code == "workspace_not_allowed"
+
 
 def test_http_routes(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
@@ -463,7 +552,21 @@ def test_http_routes(tmp_path: Path) -> None:
     assert streamed_page["contract_version"] == "local-agent.v2"
     assert [event["kind"] for event in streamed_page["events"]] == ["status", "user", "assistant", "done"]
     assert client.get(f"/v1/agent/sessions/{session_id}/events?after={events['last_seq']}", headers=headers).json()["events"] == []
-    assert client.post(f"/v1/agent/sessions/{session_id}/approvals/{'0' * 32}", headers=headers, json={"approved": True}).status_code == 409
+    token_approval = client.post(
+        f"/v1/agent/sessions/{session_id}/approvals/{'0' * 32}",
+        headers=headers,
+        json={"approved": True},
+    )
+    assert token_approval.status_code == 403
+    assert token_approval.json() == {"detail": "browser confirmation required"}
+    browser = client.get("/auth/session")
+    csrf = browser.json()["csrf_token"]
+    browser_approval = client.post(
+        f"/v1/agent/sessions/{session_id}/approvals/{'0' * 32}",
+        headers={CSRF_HEADER: csrf, "Origin": "http://127.0.0.1"},
+        json={"approved": True},
+    )
+    assert browser_approval.status_code == 409
     assert client.delete(f"/v1/agent/sessions/{session_id}", headers=headers).status_code == 204
     assert client.get(f"/v1/agent/sessions/{session_id}", headers=headers).status_code == 404
 

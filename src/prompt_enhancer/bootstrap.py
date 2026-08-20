@@ -411,6 +411,9 @@ class LocalApplication:
     def create_local_agent_service(self, local_model_service=None):
         """Local agent workspace (ADR 0016): one folder, tools with approval, the active local model."""
 
+        import os
+        from pathlib import Path
+
         from .application.local_agent import LocalAgentService
         from .application.local_models import RuntimeState
 
@@ -426,7 +429,31 @@ class LocalApplication:
                     return item.record.alias
             return None
 
-        return LocalAgentService(chat=models.chat, open_chat=models.open_chat, active_model=active_model)
+        user_home = Path.home()
+        codex_home = Path(os.environ.get("CODEX_HOME", user_home / ".codex")).expanduser()
+        protected_roots = (
+            self.settings.home,
+            self.settings.local_models_dir,
+            self.claude_home(),
+            codex_home,
+            user_home / ".claude.json",
+            user_home / ".ssh",
+            user_home / ".gnupg",
+            user_home / ".aws",
+            user_home / ".azure",
+            user_home / ".kube",
+            user_home / ".docker",
+            user_home / ".npmrc",
+            user_home / ".pypirc",
+            user_home / ".git-credentials",
+            user_home / ".netrc",
+        )
+        return LocalAgentService(
+            chat=models.chat,
+            open_chat=models.open_chat,
+            active_model=active_model,
+            forbidden_roots=protected_roots,
+        )
 
     def create_shared_folder_services(self):
         """ADR 0018: the folder-share registry, owner service and peer client."""

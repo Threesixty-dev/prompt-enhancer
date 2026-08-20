@@ -957,7 +957,13 @@ def create_app(
     if local_agent_service is not None:
         from .interfaces.http.local_agent_routes import create_local_agent_router
 
-        app.include_router(create_local_agent_router(require_local_token, local_agent_service))
+        app.include_router(
+            create_local_agent_router(
+                require_local_token,
+                require_browser_user_confirmation,
+                local_agent_service,
+            )
+        )
     if annotation_service is not None:
         from .interfaces.http.annotation_routes import create_annotation_router, create_central_router
 
