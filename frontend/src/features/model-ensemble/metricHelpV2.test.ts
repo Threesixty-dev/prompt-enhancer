@@ -166,6 +166,29 @@ describe("metricInspectorSentences", () => {
     expect(objective.meaning).toMatch(/prose and model estimates cannot substitute/i);
   });
 
+  it("names the missing confirmed task-profile workflow instead of coaching user wording", () => {
+    for (const [metricKey, label] of [
+      ["prompt.constraint_precision", "Constraint precision candidates"],
+      ["prompt.acceptance_testability", "Acceptance testability"],
+      ["prompt.deliverable_contract", "Deliverable contract"],
+    ] as const) {
+      const result = metricInspectorSentences({
+        metricKey,
+        label,
+        direction: "higher_is_better",
+        state: "unknown",
+        numericValue: null,
+        numerator: null,
+        denominator: null,
+        explanationCode: "opportunity_set_undetermined",
+      });
+      expect(result.meaning).toMatch(/task profile did not declare/i);
+      expect(result.action).toMatch(/cannot be repaired with extra wording/i);
+      expect(result.action).toMatch(/separately confirmed task profile/i);
+      expect(result.action).toMatch(/fresh analysis.*new sealed receipt/i);
+    }
+  });
+
   it("explains lower-is-better values and the radar-quality center truthfully", () => {
     const rework = metricInspectorSentences({
       metricKey: "collaboration.rework_candidate_rate", label: "Rework-candidate rate",

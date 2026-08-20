@@ -19,6 +19,12 @@ import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile"
 export const METRIC_HELP_V2_VERSION = "metric-help-v2.1.0";
 export const METRIC_HELP_V2_SHIPPED_LOCALES = ["en"] as const;
 
+const DECLARED_TASK_PROFILE_METRIC_KEYS = new Set([
+  "prompt.constraint_precision",
+  "prompt.acceptance_testability",
+  "prompt.deliverable_contract",
+]);
+
 export type MetricHelpLocale = "en" | "pl";
 export type MetricHelpDirection = "higher_is_better" | "lower_is_better";
 
@@ -442,6 +448,9 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
         meaning = `Unknown: semantic-unit reconciliation was not complete for this exact analyzed window, so ${input.label} was withheld instead of scoring a partial source as complete.`;
       } else if (input.explanationCode === "opportunity_set_undetermined") {
         meaning = `Unknown: the task profile did not declare the expected ${unitSingular} set, so ${input.label} has no defensible denominator and was not converted to zero.`;
+        if (DECLARED_TASK_PROFILE_METRIC_KEYS.has(input.metricKey)) {
+          action = `This analyzed window cannot be repaired with extra wording: the app still needs a separately confirmed task profile declaring its expected ${unitSingular} set — verify: configure that reviewed profile workflow, bind it to a fresh analysis, and confirm the new sealed receipt before interpreting a value.`;
+        }
       } else if (input.explanationCode === "diagnostic_task_not_detected") {
         meaning = `Unknown: this window did not establish that the request was diagnostic, so ${input.label} cannot assume that problem-evidence opportunities applied.`;
       } else {

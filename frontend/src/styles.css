@@ -3777,7 +3777,7 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .metric-workspace__snapshot dl > div { min-width: 0; display: grid; align-content: center; gap: 2px; padding: 7px 9px; border-radius: 9px; background: var(--p-f1f6f4); }
 .metric-workspace__snapshot dt { color: var(--ink-500); font-size: .68rem; }
 .metric-workspace__snapshot dd { margin: 0; overflow: hidden; color: var(--teal-800); font-size: .82rem; font-weight: 820; text-overflow: ellipsis; white-space: nowrap; }
-.metric-workspace__lenses { min-height: 52px; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; padding: 5px; border: 1px solid var(--p-c8d8d4); border-radius: 13px; background: var(--pa-255-255-255-720); }
+.metric-workspace__lenses { position: relative; z-index: 121; min-height: 52px; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; padding: 5px; border: 1px solid var(--p-c8d8d4); border-radius: 13px; background: var(--pa-255-255-255-720); }
 .metric-workspace__lenses button { min-width: 0; display: grid; place-content: center; gap: 2px; padding: 7px 9px; border: 0; border-radius: 9px; color: var(--ink-650); background: transparent; font: inherit; cursor: pointer; }
 .metric-workspace__lenses button span { font-size: .78rem; font-weight: 780; }
 .metric-workspace__lenses button small { color: var(--ink-500); font-size: .65rem; }
