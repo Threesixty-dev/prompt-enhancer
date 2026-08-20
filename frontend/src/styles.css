@@ -5337,3 +5337,10 @@ canvas { max-width: 100%; }
 
 /* session view: one compact action row under the radar */
 .session-live-actions--row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+
+/* session view folds: heavy panels collapsed until wanted */
+.session-fold { margin: 10px 0; border: 1px solid var(--line); border-radius: var(--radius-md, 12px); background: var(--surface); }
+.session-fold > summary { cursor: pointer; padding: 10px 14px; font-size: 0.85rem; font-weight: 650; color: var(--ink-800); list-style-position: inside; }
+.session-fold > summary:hover { color: var(--accent-primary); }
+.session-fold[open] > summary { border-bottom: 1px solid var(--line); }
+.session-fold > *:not(summary) { margin: 0; border: 0; border-radius: 0; }

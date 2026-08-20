@@ -53,8 +53,18 @@ switch; the inventory lists it as a secret-bearing path. Decision needed:
 whether to hold any content copy at all, and who reviews the design before it
 ships (the owner asked for a security review).
 
+## 5. Remote annotation providers (ADR 0017, Stage 1)
+
+Scoped and ready to build: your own model access (Opus/Fable/GPT-class,
+anything OpenAI-compatible) annotates sessions after a per-provider allowance
+with a destination preview; only redacted windows travel; judgments land in
+the same local dataset beside your ratings. Decision needed to start: which
+provider(s) and the confirmation that redacted windows may go to them under
+their terms.
+
 ## What does not wait
 
 Ratings on the Calibration page are the one input only the owner can give;
 the model judge has already labelled every indexed session, so each human
 rating immediately yields an agreement pair.
+

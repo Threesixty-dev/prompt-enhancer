@@ -1483,16 +1483,22 @@ export function ProjectWorkspace({
             sessionId={currentSession.session_id}
             transport={transport}
           />
-          <ModelJudgePane
-            key={`judge-${currentSession.session_id}`}
-            sessionId={currentSession.session_id}
-            transport={transport}
-          />
-          <SessionTranscriptPane
-            key={`reader-${currentSession.session_id}`}
-            sessionId={currentSession.session_id}
-            transport={transport}
-          />
+          <details className="session-fold" key={`judge-fold-${currentSession.session_id}`}>
+            <summary>Model judge - what the local model thinks (experimental, not a metric)</summary>
+            <ModelJudgePane
+              key={`judge-${currentSession.session_id}`}
+              sessionId={currentSession.session_id}
+              transport={transport}
+            />
+          </details>
+          <details className="session-fold" key={`reader-fold-${currentSession.session_id}`}>
+            <summary>Read this session - the transcript, on demand</summary>
+            <SessionTranscriptPane
+              key={`reader-${currentSession.session_id}`}
+              sessionId={currentSession.session_id}
+              transport={transport}
+            />
+          </details>
           <details
             className="project-model-ensemble project-model-ensemble--legacy"
             onToggle={(event) => setLegacyQualityExpanded(event.currentTarget.open)}
