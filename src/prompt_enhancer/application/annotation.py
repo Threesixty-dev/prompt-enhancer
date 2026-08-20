@@ -30,6 +30,7 @@ from ..domain import PSEUDONYM_PATTERN, Provider, StrictModel
 from .analysis.calibration_ratings import CALIBRATION_METRIC_KEYS, RatingLabel
 from .analysis.model_judge import (
     JUDGE_PROMPT_VERSION,
+    ZERO_WINDOW_FINGERPRINT,
     ModelJudgeError,
     ModelJudgeService,
     ModelJudgment,
@@ -88,6 +89,9 @@ class WorkWindow(StrictModel):
     session_id: str
     provider: str
     window: str
+    #: Identity of the exact analysis window sealed by the source and rendered
+    #: above. The agent must echo it back when it submits labels.
+    window_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     questions: dict[str, str]
     prompt_version: str
 
@@ -95,6 +99,9 @@ class WorkWindow(StrictModel):
 class SubmitAnnotation(StrictModel):
     session_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     model_name: str = Field(pattern=_MODEL_NAME.pattern)
+    #: The ``window_fingerprint`` handed out with the window that was judged.
+    #: Labels for a window that has since changed are rejected, not re-pointed.
+    window_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     labels: dict[str, RatingLabel]
 
 
@@ -116,6 +123,30 @@ class RemoteSubmitResult(StrictModel):
     annotated: int = Field(ge=0)
     model_identity: str | None = None
     stored_locally_as: str | None = None
+
+
+def _sealed_window_fingerprint(context: object, *, session_id: str, provider: Provider) -> str:
+    """The authoritative window identity, taken from the sealed source's own context.
+
+    It is never recomputed from the rendered text: the source seals the window
+    it read, and a judgment may only name that. The context must also own the
+    session and provider it was requested for, so labels cannot be bound to a
+    window belonging to some other session or run.
+    """
+
+    if getattr(context, "session_id", None) != session_id:
+        raise AnnotationError("window_session_mismatch")
+    try:
+        if Provider(getattr(context, "provider")) is not provider:
+            raise AnnotationError("window_provider_mismatch")
+    except ValueError:
+        raise AnnotationError("window_provider_mismatch") from None
+    fingerprint = getattr(context, "analysis_window_fingerprint", None)
+    if not isinstance(fingerprint, str) or PSEUDONYM_PATTERN.fullmatch(fingerprint) is None:
+        raise AnnotationError("window_fingerprint_unavailable")
+    if fingerprint == ZERO_WINDOW_FINGERPRINT:
+        raise AnnotationError("window_fingerprint_unavailable")
+    return fingerprint
 
 
 def metaprompt() -> Metaprompt:
@@ -193,6 +224,7 @@ class AnnotationService:
             session_id=session_id,
             provider=provider.value,
             window=render_window(context),
+            window_fingerprint=_sealed_window_fingerprint(context, session_id=session_id, provider=provider),
             questions=dict(_QUESTIONS),
             prompt_version=JUDGE_PROMPT_VERSION,
         )
@@ -205,6 +237,20 @@ class AnnotationService:
         unknown = set(request.labels) - set(CALIBRATION_METRIC_KEYS)
         if unknown or not request.labels:
             raise AnnotationError("labels_invalid")
+        if request.window_fingerprint == ZERO_WINDOW_FINGERPRINT:
+            raise AnnotationError("window_fingerprint_invalid")
+        provider = Provider(getattr(session, "provider"))
+        try:
+            context = self._judge.window_for(provider, request.session_id)
+        except ModelJudgeError as error:
+            raise AnnotationError(error.code) from None
+        except Exception:  # noqa: BLE001 - an unreadable window cannot be annotated
+            raise AnnotationError("window_unavailable") from None
+        fingerprint = _sealed_window_fingerprint(context, session_id=request.session_id, provider=provider)
+        if fingerprint != request.window_fingerprint:
+            # The session grew, or was re-read under a different run, since the
+            # agent read it. Its labels describe a window that no longer exists.
+            raise AnnotationError("window_fingerprint_mismatch")
         alias = f"agent:{request.model_name}"[:64]
         now = self._clock()
         stored = 0
@@ -217,7 +263,7 @@ class AnnotationService:
                     model_alias=alias,
                     model_identity=request.model_name[:200],
                     prompt_version=JUDGE_PROMPT_VERSION,
-                    window_fingerprint="0" * 64,
+                    window_fingerprint=fingerprint,
                     judged_at=now,
                 )
             )
@@ -377,6 +423,9 @@ class RemoteAnnotationClient:
         judge = self._service._judge  # noqa: SLF001 - same composition unit
         central_done = {j.session_id for j in judge.repository.list() if j.model_alias.startswith("central:")}
         items: list[CentralBatchItem] = []
+        # Window identity of each window this run actually sealed and sent, so the
+        # labels that come back are recorded against that window and no other.
+        sealed: dict[str, str] = {}
         offset = 0
         while len(items) < request.limit:
             rows = self._list_sessions(limit=100, offset=offset)
@@ -391,9 +440,14 @@ class RemoteAnnotationClient:
                 session = judge.session_lookup(sid)
                 if session is None:
                     continue
+                provider = Provider(getattr(session, "provider"))
                 try:
-                    context = judge.window_for(Provider(getattr(session, "provider")), sid)
+                    context = judge.window_for(provider, sid)
                 except Exception:  # noqa: BLE001 - unreadable windows are skipped
+                    continue
+                try:
+                    sealed[sid] = _sealed_window_fingerprint(context, session_id=sid, provider=provider)
+                except AnnotationError:  # a window without provable identity is not submitted
                     continue
                 items.append(CentralBatchItem(session_id=sid, project_id=str(row.get("project_id")) if row.get("project_id") else None, provider=str(row.get("provider")), window=render_window(context)))
             offset += len(rows)
@@ -404,7 +458,14 @@ class RemoteAnnotationClient:
         result = self._submit(CentralBatch(user_label=self._user_label, items=tuple(items)))
         alias = f"central:{result.model_identity}"[:64] if result.model_identity else "central:unknown"
         now = self._clock()
+        recorded = 0
         for annotation in result.annotations:
+            fingerprint = sealed.get(annotation.session_id)
+            if fingerprint is None:
+                # Labels for a session this run did not seal and send. Nothing
+                # local can vouch for which window they describe, so they are
+                # dropped rather than stored against a guessed one.
+                continue
             for key, label in annotation.labels.items():
                 if key not in CALIBRATION_METRIC_KEYS:
                     continue
@@ -412,10 +473,11 @@ class RemoteAnnotationClient:
                     ModelJudgment(
                         session_id=annotation.session_id, metric_key=key, label=label, model_alias=alias,
                         model_identity=result.model_identity or "unknown", prompt_version=result.prompt_version,
-                        window_fingerprint="0" * 64, judged_at=now,
+                        window_fingerprint=fingerprint, judged_at=now,
                     )
                 )
-        return RemoteSubmitResult(destination=self._destination, submitted=len(items), annotated=result.stored, model_identity=result.model_identity, stored_locally_as=alias if result.annotations else None)
+                recorded += 1
+        return RemoteSubmitResult(destination=self._destination, submitted=len(items), annotated=result.stored, model_identity=result.model_identity, stored_locally_as=alias if recorded else None)
 
 
 __all__ = (

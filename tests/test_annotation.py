@@ -95,19 +95,23 @@ def test_agent_annotation_path_behind_allowance(tmp_path: Path, monkeypatch) -> 
     window = client.get(f"/v1/annotation/work/{session_id}", headers=headers)
     assert window.status_code == 200, window.text
     assert "USER:" in window.json()["window"] and set(window.json()["questions"]) == set(CALIBRATION_METRIC_KEYS)
+    fingerprint = window.json()["window_fingerprint"]
+    assert len(fingerprint) == 64 and fingerprint != "0" * 64
 
     # Submit labels; stored as ordinary model judgments under agent:<name>.
     labels = {CALIBRATION_METRIC_KEYS[0]: "high", CALIBRATION_METRIC_KEYS[1]: "medium", CALIBRATION_METRIC_KEYS[2]: "cannot_judge"}
-    submitted = client.post("/v1/annotation/annotations", headers=headers, json={"session_id": session_id, "model_name": "codex-gpt", "labels": labels})
+    submitted = client.post("/v1/annotation/annotations", headers=headers, json={"session_id": session_id, "model_name": "codex-gpt", "window_fingerprint": fingerprint, "labels": labels})
     assert submitted.status_code == 201, submitted.text
     assert submitted.json() == {"contract_version": "annotation.v1", "session_id": session_id, "model_alias": "agent:codex-gpt", "stored": 3}
     stored = application.database.model_judgment_repository().list(session_id=session_id, model_alias="agent:codex-gpt")
     assert len(stored) == 3 and all(j.model_identity == "codex-gpt" for j in stored)
+    # Provenance: every judgment names the window the source actually sealed.
+    assert {j.window_fingerprint for j in stored} == {fingerprint}
 
     # The annotated session leaves this agent's work list; unknown metric keys are rejected.
     again = client.get("/v1/annotation/work?model=codex-gpt", headers=headers).json()
     assert session_id not in {item["session_id"] for item in again["items"]} and again["remaining"] == 1
-    bad = client.post("/v1/annotation/annotations", headers=headers, json={"session_id": session_id, "model_name": "codex-gpt", "labels": {"made.up_key": "high"}})
+    bad = client.post("/v1/annotation/annotations", headers=headers, json={"session_id": session_id, "model_name": "codex-gpt", "window_fingerprint": fingerprint, "labels": {"made.up_key": "high"}})
     assert bad.status_code == 422 and bad.json()["detail"]["code"] == "labels_invalid"
 
     # Flip the allowance off again - the surface closes immediately.

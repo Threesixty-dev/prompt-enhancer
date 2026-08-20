@@ -8993,6 +8993,8 @@ export interface components {
             model_name: string;
             /** Session Id */
             session_id: string;
+            /** Window Fingerprint */
+            window_fingerprint: string;
         };
         /** SubmitResult */
         SubmitResult: {
@@ -9550,6 +9552,8 @@ export interface components {
             session_id: string;
             /** Window */
             window: string;
+            /** Window Fingerprint */
+            window_fingerprint: string;
         };
         /** WriteFileRequest */
         WriteFileRequest: {

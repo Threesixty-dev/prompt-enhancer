@@ -16989,11 +16989,17 @@
             "pattern": "^[a-f0-9]{64}$",
             "title": "Session Id",
             "type": "string"
+          },
+          "window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Window Fingerprint",
+            "type": "string"
           }
         },
         "required": [
           "session_id",
           "model_name",
+          "window_fingerprint",
           "labels"
         ],
         "title": "SubmitAnnotation",
@@ -18569,12 +18575,18 @@
           "window": {
             "title": "Window",
             "type": "string"
+          },
+          "window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Window Fingerprint",
+            "type": "string"
           }
         },
         "required": [
           "session_id",
           "provider",
           "window",
+          "window_fingerprint",
           "questions",
           "prompt_version"
         ],

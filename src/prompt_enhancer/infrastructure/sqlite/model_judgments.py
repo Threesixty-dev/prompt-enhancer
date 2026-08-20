@@ -7,7 +7,11 @@ from contextlib import AbstractContextManager
 import sqlite3
 
 from ...application.analysis.calibration_ratings import RatingLabel
-from ...application.analysis.model_judge import ModelJudgment
+from ...application.analysis.model_judge import (
+    ZERO_WINDOW_FINGERPRINT,
+    ModelJudgment,
+    rehydrate_persisted_judgment,
+)
 from ._common import from_iso, require_utc, to_iso
 
 
@@ -21,6 +25,11 @@ class SqliteModelJudgmentRepository:
         self._ensure_initialized = ensure_initialized
 
     def upsert(self, judgment: ModelJudgment) -> None:
+        # A legacy row rehydrated through the read path can still carry the
+        # reserved fingerprint; it must never be written back out as if it were
+        # provenance a source had sealed.
+        if judgment.window_fingerprint == ZERO_WINDOW_FINGERPRINT:
+            raise ValueError("refusing to persist the reserved all-zero window_fingerprint")
         self._ensure_initialized()
         with self._connection_scope() as connection:
             try:
@@ -63,11 +72,16 @@ class SqliteModelJudgmentRepository:
                 f"SELECT session_id, metric_key, model_alias, label, model_identity, prompt_version, window_fingerprint, judged_at FROM model_judgments {where} ORDER BY judged_at, session_id, metric_key",
                 tuple(parameters),
             ).fetchall()
+        # Rows written before the annotation surfaces recorded the sealed
+        # fingerprint hold the reserved all-zero value; they stay readable and
+        # keep that value, so absent provenance stays visible instead of healed.
         return tuple(
-            ModelJudgment(
-                session_id=row["session_id"], metric_key=row["metric_key"], model_alias=row["model_alias"],
-                label=RatingLabel(row["label"]), model_identity=row["model_identity"], prompt_version=row["prompt_version"],
-                window_fingerprint=row["window_fingerprint"], judged_at=require_utc(from_iso(row["judged_at"])),
+            rehydrate_persisted_judgment(
+                {
+                    "session_id": row["session_id"], "metric_key": row["metric_key"], "model_alias": row["model_alias"],
+                    "label": RatingLabel(row["label"]), "model_identity": row["model_identity"], "prompt_version": row["prompt_version"],
+                    "window_fingerprint": row["window_fingerprint"], "judged_at": require_utc(from_iso(row["judged_at"])),
+                }
             )
             for row in rows
         )

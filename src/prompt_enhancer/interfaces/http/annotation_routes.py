@@ -34,6 +34,13 @@ _STATUS = {
     "labels_invalid": 422,
     "consent_required": 403,
     "window_unavailable": 409,
+    "window_fingerprint_invalid": 422,
+    # The window moved on (session grew, or was re-read under a different run),
+    # so labels describing the old one are refused rather than re-pointed.
+    "window_fingerprint_mismatch": 409,
+    "window_fingerprint_unavailable": 409,
+    "window_session_mismatch": 409,
+    "window_provider_mismatch": 409,
     "no_central_model": 409,
 }
 

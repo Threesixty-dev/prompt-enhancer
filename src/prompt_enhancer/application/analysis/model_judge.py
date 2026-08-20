@@ -19,7 +19,7 @@ import re
 import threading
 from typing import Literal, Protocol
 
-from pydantic import Field
+from pydantic import Field, ValidationInfo, field_validator
 
 from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, StrictModel
 from ..estimators.calibration import AgreementObservation, EvaluationState, model_human_agreement
@@ -34,6 +34,12 @@ JUDGE_PROMPT_VERSION = "judge-v1"
 MAX_WINDOW_CHARACTERS = 15_000
 MAX_WINDOW_MESSAGES = 120
 JUDGE_MAX_TOKENS = 220
+#: Reserved fingerprint value. A judgment carrying it would claim to have read a
+#: window that no source ever sealed, so first-party writers must never mint it.
+ZERO_WINDOW_FINGERPRINT = "0" * 64
+#: Validation-context key that admits the reserved value on **read only**, for
+#: rows persisted before the annotation surfaces recorded the sealed fingerprint.
+LEGACY_WINDOW_FINGERPRINT_CONTEXT = "allow_legacy_zero_window_fingerprint"
 
 _QUESTIONS: dict[str, str] = {
     "prompt.task_definition_coverage": "Did the person say clearly what they wanted done - scope, deliverable, done-when?",
@@ -57,6 +63,36 @@ class ModelJudgment(StrictModel):
     prompt_version: str = Field(min_length=1, max_length=64)
     window_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     judged_at: datetime
+
+    @field_validator("window_fingerprint")
+    @classmethod
+    def _reject_reserved_fingerprint(cls, value: str, info: ValidationInfo) -> str:
+        """A new judgment must name the window the sealed source actually handed out.
+
+        The all-zero value is fabricated provenance, so constructing a judgment
+        with it fails closed. Rehydrating a row written before this rule is the
+        one exception and must ask for it explicitly - see
+        :func:`rehydrate_persisted_judgment`.
+        """
+
+        if value != ZERO_WINDOW_FINGERPRINT:
+            return value
+        context = info.context
+        if isinstance(context, Mapping) and context.get(LEGACY_WINDOW_FINGERPRINT_CONTEXT) is True:
+            return value
+        raise ValueError("window_fingerprint must name a sealed analysis window, not the reserved all-zero value")
+
+
+def rehydrate_persisted_judgment(row: Mapping[str, object]) -> ModelJudgment:
+    """Read one stored judgment, tolerating the all-zero fingerprint of legacy rows.
+
+    Judgments written by the annotation surfaces before the sealed fingerprint
+    was recorded carry ``ZERO_WINDOW_FINGERPRINT``. They stay readable - deleting
+    a person's local rows is not this code's call - but the value is preserved
+    as-is rather than back-filled, so their provenance stays visibly absent.
+    """
+
+    return ModelJudgment.model_validate(dict(row), context={LEGACY_WINDOW_FINGERPRINT_CONTEXT: True})
 
 
 class JudgeOutcome(StrictModel):
@@ -497,6 +533,8 @@ class ModelJudgeService:
 
 __all__ = (
     "JUDGE_PROMPT_VERSION",
+    "LEGACY_WINDOW_FINGERPRINT_CONTEXT",
+    "ZERO_WINDOW_FINGERPRINT",
     "JudgeAgreementReport",
     "JudgeOutcome",
     "JudgeSweepStatus",
@@ -509,5 +547,6 @@ __all__ = (
     "SessionJudgments",
     "ModelJudgmentRepository",
     "parse_judge_reply",
+    "rehydrate_persisted_judgment",
     "render_window",
 )
