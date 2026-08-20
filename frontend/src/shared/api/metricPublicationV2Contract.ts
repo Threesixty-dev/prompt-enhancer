@@ -589,7 +589,10 @@ export function parseMetricPublicationV2(value: unknown): MetricPublicationV2 {
       throw new MetricPublicationV2PayloadError();
     }
     const expectedUnknownImplementation = parsedState.authority === "objective_receipt"
-      ? (parsedState.parsed.statistics.capability_available && parsedState.parsed.eligible > 0
+      // Implementation state deliberately keys on capability alone: an eligible
+      // count of zero is not itself a capability failure (the projection may
+      // withhold cardinality). The guidance state class above keys on both.
+      ? (parsedState.parsed.statistics.capability_available
         ? "objective_evidence_unresolved"
         : "objective_capability_missing")
       : "method_only_withheld";

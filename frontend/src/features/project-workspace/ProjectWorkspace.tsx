@@ -1612,6 +1612,11 @@ export function ProjectWorkspace({
               <p>{metricCategoryDefinition(category).question}</p>
             </div>
           </div>
+          <SessionRadarCard
+            key={`radar-${currentSession.session_id}-${category}`}
+            sessionId={currentSession.session_id}
+            transport={transport}
+          />
           {metricsLoading ? (
             <LoadingState label="Loading one stored session metric response..." />
           ) : metricsError ? (

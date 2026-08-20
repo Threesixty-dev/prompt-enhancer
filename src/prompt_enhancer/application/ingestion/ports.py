@@ -59,6 +59,10 @@ class IngestionRepository(Protocol):
 
     def get_session(self, session_id: str) -> SafeSession | None: ...
 
+    def supersede_session_events(
+        self, session_id: str, *, only_source_schema_version: str
+    ) -> int: ...
+
     def get_session_events(self, session_id: str) -> tuple[SafeEvent, ...]: ...
 
     def replace_session_metrics(

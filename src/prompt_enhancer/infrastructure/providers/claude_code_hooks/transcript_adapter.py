@@ -344,6 +344,12 @@ class ClaudeTranscriptAdapter(ProviderAdapter):
     """Lists and reads the owner's transcript files; construction reads nothing."""
 
     provider = Provider.CLAUDE_CODE
+    # Every read is a full re-parse of the file, so a newer snapshot is the
+    # authority on the whole event set. A still-running session legitimately
+    # re-derives event identities (a provisional trailing turn_end moves once
+    # the next prompt closes the turn), so ingestion may replace this
+    # adapter's stored events instead of failing the sequence invariant.
+    snapshot_authoritative = True
 
     def __init__(self, pseudonymizer: Pseudonymizer, claude_home: Path | None = None) -> None:
         self._pseudonymizer = pseudonymizer

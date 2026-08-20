@@ -226,3 +226,61 @@ def test_shell_commands_classify_as_test_or_build_without_keeping_text() -> None
     assert classify_command(None) is ToolCategory.COMMAND
     # Only the leading part of a long command is examined.
     assert classify_command("echo " + "x" * 1000 + " && pytest") is ToolCategory.COMMAND
+
+
+def test_reindex_of_a_growing_session_supersedes_the_provisional_tail(env) -> None:
+    """A still-running session is re-indexed as it grows: the provisional
+    trailing turn_end from the first parse moves once real events extend the
+    file, and the full re-parse replaces the stored event set instead of
+    failing the sequence-identity invariant (the bug behind 'last refresh
+    reported an error')."""
+
+    settings, claude_home = env
+    project_dir = claude_home / "projects" / "-srv-example-workspaces-transcript-demo"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    session = "cccc3333-example-growing"
+    start = T0
+
+    # Snapshot 1: mid-turn - the assistant answered and started a tool that
+    # has not finished yet. The parser closes the open turn provisionally.
+    lines = [
+        _rec("user", "Please fix the flaky retry test", start, session),
+        json.dumps({"type": "assistant", "timestamp": (start + timedelta(seconds=5)).isoformat().replace("+00:00", "Z"), "sessionId": session, "cwd": CWD, "version": "2.1.0",
+                    "message": {"role": "assistant", "model": "claude-opus-5", "usage": {"input_tokens": 100, "output_tokens": 20},
+                                "content": [{"type": "text", "text": "On it."}, {"type": "tool_use", "id": "toolu_g1", "name": "Bash", "input": {"command": "pytest -q"}}]}}),
+    ]
+    path = project_dir / f"{session}.jsonl"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    application = bootstrap_local_application(settings)
+    service = application.create_claude_local_source_service()
+    first = service.index(max_sessions=10)
+    assert first.sessions_inserted >= 1
+    database = Database(settings.database_path)
+    # find our session by matching event shape instead of private ids
+    sessions = [str(row["session_id"]) for row in database.list_sessions(limit=50, offset=0)]
+    target = None
+    for sid in sessions:
+        kinds = [e.kind for e in database.get_session_events(sid)]
+        if EventKind.TOOL_START in kinds and EventKind.TOOL_END not in kinds:
+            target = sid
+            break
+    assert target is not None, "growing session not found after first index"
+    first_kinds = [e.kind for e in database.get_session_events(target)]
+    assert EventKind.TURN_END in first_kinds  # provisional closure of the open turn
+
+    # Snapshot 2: the session continued - the tool finished and a new prompt
+    # arrived, so the real turn_end lands at a different position than the
+    # provisional one. Re-indexing must supersede, not crash.
+    lines += [
+        _rec("user", [{"type": "tool_result", "tool_use_id": "toolu_g1", "content": "3 passed", "is_error": False}], start + timedelta(seconds=30), session),
+        json.dumps({"type": "assistant", "timestamp": (start + timedelta(seconds=40)).isoformat().replace("+00:00", "Z"), "sessionId": session, "cwd": CWD, "version": "2.1.0",
+                    "message": {"role": "assistant", "model": "claude-opus-5", "usage": {"input_tokens": 200, "output_tokens": 40}, "content": [{"type": "text", "text": "Fixed."}]}}),
+        _rec("user", "Great, now update the docs", start + timedelta(seconds=60), session),
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    second = service.index(max_sessions=10)  # raised IngestionError before the fix
+    assert second.sessions_updated >= 1 or second.sessions_inserted >= 1
+    kinds = [e.kind for e in database.get_session_events(target)]
+    assert EventKind.TOOL_END in kinds  # the real tool completion is stored

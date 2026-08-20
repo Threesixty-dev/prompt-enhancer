@@ -889,7 +889,7 @@ describe("ProjectWorkspace", () => {
       0,
       expect.any(AbortSignal),
     );
-    expect(getSessionMetrics).toHaveBeenCalledTimes(1);
+    expect(getSessionMetrics).toHaveBeenCalledTimes(2); // category metrics + the radar card
     expect(getSessionMetrics).toHaveBeenCalledWith(sessionId, expect.any(AbortSignal));
   });
 

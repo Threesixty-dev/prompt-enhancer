@@ -11,6 +11,7 @@ from .application.ingestion import (
     SessionMetricPlan,
     SourceIdentifierProtector,
 )
+from .application.persistence.errors import PersistenceConflictError
 from .display_labels import (
     PROJECT_DISPLAY_NAME_MAX_LENGTH,
     SESSION_DISPLAY_NAME_MAX_LENGTH,
@@ -298,9 +299,28 @@ class IngestionService:
                         for source_event in snapshot.events
                     )
                     events_seen += len(safe_events)
-                    persisted = self._database.persist_session(
-                        safe_session, safe_events
-                    )
+                    try:
+                        persisted = self._database.persist_session(
+                            safe_session, safe_events
+                        )
+                    except PersistenceConflictError:
+                        # A full-snapshot adapter re-parses the whole source on
+                        # every read; a still-growing session can re-derive
+                        # event identities (a provisional trailing turn end
+                        # moves once the next prompt closes the turn). The new
+                        # parse supersedes the stored event set - guarded so it
+                        # only ever replaces this adapter's own schema.
+                        if not getattr(adapter, "snapshot_authoritative", False):
+                            raise
+                        self._database.supersede_session_events(
+                            safe_session.session_id,
+                            only_source_schema_version=str(
+                                probe.source_schema_version
+                            ),
+                        )
+                        persisted = self._database.persist_session(
+                            safe_session, safe_events
+                        )
                     sessions_inserted += persisted.session_inserted
                     sessions_updated += persisted.session_updated
                     events_inserted += persisted.events_inserted
