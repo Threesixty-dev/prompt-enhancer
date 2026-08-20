@@ -5334,3 +5334,6 @@ canvas { max-width: 100%; }
 .project-catalog-card__live { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-650); font-size: 0.72rem; font-weight: 600; cursor: pointer; }
 .project-catalog-card__live:hover { color: var(--accent-primary); border-color: var(--accent-primary); background: var(--teal-50); }
 .project-catalog-card__live svg { width: 14px; height: 14px; }
+
+/* session view: one compact action row under the radar */
+.session-live-actions--row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }

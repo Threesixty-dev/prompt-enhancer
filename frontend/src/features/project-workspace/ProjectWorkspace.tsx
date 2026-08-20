@@ -1442,6 +1442,30 @@ export function ProjectWorkspace({
         <ErrorState message="The selected session is not part of this indexed project." />
       ) : qualityCategory ? (
         <>
+          <SessionRadarCard
+            key={`radar-${currentSession.session_id}`}
+            sessionId={currentSession.session_id}
+            transport={transport}
+          />
+          <p className="session-live-actions session-live-actions--row">
+            <button
+              className="button button--primary"
+              onClick={() => { navigate({ name: "prompt_checks", sessionId: currentSession.session_id }); }}
+              title="Write the next prompt for this session with the model seeing the conversation so far"
+              type="button"
+            >
+              Draft the next prompt
+            </button>
+            <button
+              className="button button--ghost"
+              onClick={() => { openLiveWindow({ name: "live", projectId: route.projectId, sessionId: currentSession.session_id }); }}
+              title="Opens a small window that follows this session and refreshes itself"
+              type="button"
+            >
+              <Icon name="layers" />
+              <span>Live window</span>
+            </button>
+          </p>
           <section aria-label="Canonical session metric workspace" className="project-canonical-metrics">
             <ModelEnsemblePanel
               analysisCapability={analysisCapability}
@@ -1454,32 +1478,6 @@ export function ProjectWorkspace({
               transport={transport}
             />
           </section>
-          <p className="session-live-actions">
-            <button
-              className="button button--ghost"
-              onClick={() => { openLiveWindow({ name: "live", projectId: route.projectId, sessionId: currentSession.session_id }); }}
-              title="Opens a small window that follows this session and refreshes itself"
-              type="button"
-            >
-              <Icon name="layers" />
-              <span>Open live window for this session</span>
-            </button>
-          </p>
-          <SessionRadarCard
-            key={`radar-${currentSession.session_id}`}
-            sessionId={currentSession.session_id}
-            transport={transport}
-          />
-          <p className="session-live-actions">
-            <button
-              className="button button--primary"
-              onClick={() => { navigate({ name: "prompt_checks", sessionId: currentSession.session_id }); }}
-              title="Write the next prompt for this session with the model seeing the conversation so far"
-              type="button"
-            >
-              Draft the next prompt with this session's context
-            </button>
-          </p>
           <SessionTimelinePane
             key={`timeline-${currentSession.session_id}`}
             sessionId={currentSession.session_id}
