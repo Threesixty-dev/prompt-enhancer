@@ -65,6 +65,20 @@ SUPPORTED_SAFE_EVENT_EVIDENCE_DECODER_VERSIONS = (
     SAFE_EVENT_EVIDENCE_DECODER_VERSION_4,
 )
 
+#: The exact evidence authority the default local composition grants to the
+#: current decoder.  Keep this in the application contract rather than hiding
+#: an equivalent tuple in ``bootstrap`` so readiness/operability reporting and
+#: the actual composed descriptor cannot drift.  A tool/verification event is
+#: still not a requirement, hypothesis, or material-claim registry.
+CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES = frozenset(
+    {
+        CapabilityKey.TOOL_EVENTS,
+        CapabilityKey.VERIFICATION_EVENTS,
+        CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES,
+        CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
+    }
+)
+
 
 class SafeEventEvidenceSource(Protocol):
     """Read an already-pseudonymized local metadata snapshot."""
@@ -526,6 +540,7 @@ def bind_semantic_unit_opportunities(
 
 
 __all__ = [
+    "CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES",
     "SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION",
     "SAFE_EVENT_EVIDENCE_DECODER_KEY",
     "SAFE_EVENT_EVIDENCE_DECODER_VERSION",

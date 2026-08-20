@@ -841,12 +841,12 @@ class LocalApplication:
         """
 
         from .application.analysis.provider_evidence import (
+            CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES,
             SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION,
             SAFE_EVENT_EVIDENCE_DECODER_KEY,
             SafeEventTypedEvidenceProjector,
         )
         from .application.providers import (
-            CapabilityKey,
             DecoderDescriptor,
             ProviderIdentity,
             ProviderSurface,
@@ -860,12 +860,7 @@ class LocalApplication:
             SOURCE_SCHEMA_VERSION,
         )
 
-        safe_event_capabilities = (
-            CapabilityKey.TOOL_EVENTS,
-            CapabilityKey.VERIFICATION_EVENTS,
-            CapabilityKey.VERIFICATION_TASK_OPPORTUNITIES,
-            CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
-        )
+        safe_event_capabilities = CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES
         safe_event_descriptor = DecoderDescriptor(
             provider=ProviderIdentity(key="codex"),
             surface=ProviderSurface.OPERATIONAL_EVENTS,

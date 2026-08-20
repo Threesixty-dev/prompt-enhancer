@@ -59,6 +59,7 @@ NOW = datetime(2040, 5, 6, 8, 0, tzinfo=UTC)
 EXAMPLE_TOKEN = "example_metric_publication_token_123456"
 RUN_ID = "a" * 64
 CATALOG_PATH = "/v1/metric-contracts/v2/guidance-catalog"
+OPERABILITY_CATALOG_PATH = "/v1/metric-contracts/v2/operability-catalog"
 
 
 def _database_and_session(tmp_path) -> tuple[Database, str]:
@@ -169,6 +170,41 @@ def test_guidance_catalog_route_requires_a_token_and_carries_no_session_data(
         contract.metric_key for contract in METRIC_CONTRACTS_V2
     ]
     assert len(body["entries"][0]["templates"]) == len(GuidanceStateClass)
+    lowered = response.text.casefold()
+    for prohibited in ("prompt_text", "excerpt", "filesystem_path", "raw_content"):
+        assert prohibited not in lowered
+
+
+def test_operability_catalog_is_authenticated_private_and_content_free(
+    tmp_path,
+) -> None:
+    database, _ = _database_and_session(tmp_path)
+
+    with TestClient(_app(tmp_path, database), base_url="http://127.0.0.1") as client:
+        unauthorized = client.get(OPERABILITY_CATALOG_PATH)
+        response = client.get(
+            OPERABILITY_CATALOG_PATH,
+            headers={API_TOKEN_HEADER: EXAMPLE_TOKEN},
+        )
+
+    assert unauthorized.status_code == 401
+    assert response.status_code == 200, response.text
+    assert "no-store" in response.headers["Cache-Control"]
+    assert response.headers["Pragma"] == "no-cache"
+    body = response.json()
+    assert body["total_metric_count"] == 20
+    assert body["shipped_path_count"] == 12
+    assert body["task_profile_configuration_gap_count"] == 3
+    assert body["provider_adapter_gap_count"] == 5
+    assert body["experimental_model_path_count"] == 8
+    assert body["model_authoritative_metric_count"] == 0
+    assert [entry["metric_key"] for entry in body["entries"]] == [
+        contract.metric_key for contract in METRIC_CONTRACTS_V2
+    ]
+    assert all(
+        entry["measured_value_may_use_model_output"] is False
+        for entry in body["entries"]
+    )
     lowered = response.text.casefold()
     for prohibited in ("prompt_text", "excerpt", "filesystem_path", "raw_content"):
         assert prohibited not in lowered
@@ -350,6 +386,7 @@ def test_guidance_catalog_matches_the_openapi_documented_response(tmp_path) -> N
     schema = app.openapi()
 
     assert CATALOG_PATH in schema["paths"]
+    assert OPERABILITY_CATALOG_PATH in schema["paths"]
     publication_path = (
         "/v1/quality-analysis/runs/{run_id}/metric-v2-compatibility-preview"
     )

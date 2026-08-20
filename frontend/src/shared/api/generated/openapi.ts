@@ -1030,6 +1030,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metric-contracts/v2/operability-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Metric Operability Catalog Route
+         * @description Expose the current all-twenty measurement-path release gate.
+         *
+         *     This static response never describes whether a particular session has
+         *     evidence.  It only identifies which reviewed local authority could
+         *     resolve each metric, the still-missing adapter/configuration seam, and
+         *     whether an experimental model path exists without measurement power.
+         */
+        get: operations["metric_operability_catalog_route_v1_metric_contracts_v2_operability_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/metric-coverage": {
         parameters: {
             query?: never;
@@ -5417,6 +5442,101 @@ export interface components {
          */
         MetricLifecycleProposalStatus: "proposed" | "confirmed" | "rejected";
         /**
+         * MetricMeasuredPath
+         * @enum {string}
+         */
+        MetricMeasuredPath: "focus_rubric" | "declared_task_profile" | "confirmed_lifecycle" | "documented_semantic_unit" | "explicit_plan_link" | "task_scoped_verification" | "typed_objective" | "semantic_unit_extractor";
+        /**
+         * MetricNextStepCode
+         * @enum {string}
+         */
+        MetricNextStepCode: "analyze_focus_request" | "declare_task_profile" | "confirm_lifecycle_evidence" | "record_documented_decision" | "link_plan_supersession" | "record_task_scoped_verification" | "add_objective_opportunity_link_adapter" | "add_requirement_plan_extractor";
+        /** MetricOperabilityCatalog */
+        MetricOperabilityCatalog: {
+            /**
+             * Catalog Version
+             * @default metric-operability-v1
+             * @constant
+             */
+            catalog_version: "metric-operability-v1";
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /** Contract Set Fingerprint */
+            contract_set_fingerprint: string;
+            /** Entries */
+            entries: components["schemas"]["MetricOperabilityEntry"][];
+            /** Experimental Model Path Count */
+            experimental_model_path_count: number;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Model Authoritative Metric Count
+             * @default 0
+             * @constant
+             */
+            model_authoritative_metric_count: 0;
+            /**
+             * Projection Version
+             * @default metric-contract-v2-projection-4
+             * @constant
+             */
+            projection_version: "metric-contract-v2-projection-4";
+            /** Provider Adapter Gap Count */
+            provider_adapter_gap_count: number;
+            /**
+             * Readiness Catalog Version
+             * @default metric-evidence-readiness-v2-3
+             * @constant
+             */
+            readiness_catalog_version: "metric-evidence-readiness-v2-3";
+            /**
+             * Registry Version
+             * @default all-20-factor-contracts-v2
+             * @constant
+             */
+            registry_version: "all-20-factor-contracts-v2";
+            /** Shipped Path Count */
+            shipped_path_count: number;
+            /** Task Profile Configuration Gap Count */
+            task_profile_configuration_gap_count: number;
+            /**
+             * Total Metric Count
+             * @default 20
+             * @constant
+             */
+            total_metric_count: 20;
+        };
+        /** MetricOperabilityEntry */
+        MetricOperabilityEntry: {
+            /** Contract Fingerprint */
+            contract_fingerprint: string;
+            /** Contract Version */
+            contract_version: string;
+            denominator_basis: components["schemas"]["DenominatorBasis"];
+            evidence_authority: components["schemas"]["EvidenceAuthority"];
+            /** Experimental Model Path */
+            experimental_model_path: boolean;
+            measured_path: components["schemas"]["MetricMeasuredPath"];
+            /**
+             * Measured Value May Use Model Output
+             * @default false
+             * @constant
+             */
+            measured_value_may_use_model_output: false;
+            /** Metric Key */
+            metric_key: string;
+            next_step_code: components["schemas"]["MetricNextStepCode"];
+            shipped_path_state: components["schemas"]["MetricShippedPathState"];
+        };
+        /**
          * MetricPublicationSource
          * @description Where the published states came from; never mixed within one bundle.
          * @enum {string}
@@ -5610,6 +5730,11 @@ export interface components {
              */
             state: "baseline_available" | "research" | "needs_objective_evidence";
         };
+        /**
+         * MetricShippedPathState
+         * @enum {string}
+         */
+        MetricShippedPathState: "available_when_evidence_exists" | "task_profile_configuration_required" | "provider_adapter_required";
         /**
          * MetricSource
          * @enum {string}
@@ -12162,6 +12287,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MetricGuidanceCatalogResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    metric_operability_catalog_route_v1_metric_contracts_v2_operability_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricOperabilityCatalog"];
                 };
             };
             /** @description Validation Error */

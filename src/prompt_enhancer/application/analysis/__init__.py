@@ -283,6 +283,15 @@ from .metric_evidence_readiness_v2 import (
     MetricEvidenceReadinessV2,
     project_metric_evidence_readiness_v2,
 )
+from .metric_operability import (
+    METRIC_OPERABILITY_CATALOG_VERSION,
+    MetricMeasuredPath,
+    MetricNextStepCode,
+    MetricOperabilityCatalog,
+    MetricOperabilityEntry,
+    MetricShippedPathState,
+    metric_operability_catalog,
+)
 from .session_metric_publication_service import (
     SESSION_METRIC_PUBLICATION_KEY,
     SESSION_METRIC_PUBLICATION_LIMITS,
@@ -313,6 +322,7 @@ __all__ = [
     "METRIC_EVIDENCE_READINESS_V2_VERSION",
     "METRIC_EVIDENCE_REQUIREMENTS_V2",
     "METRIC_GUIDANCE_TEMPLATE_CATALOG_VERSION",
+    "METRIC_OPERABILITY_CATALOG_VERSION",
     "METRIC_PUBLICATION_V2_KEY",
     "METRIC_PUBLICATION_V2_VERSION",
     "METRIC_PROJECTION_V3_ALGORITHM_ID",
@@ -331,6 +341,11 @@ __all__ = [
     "MetricGuidanceCatalogEntry",
     "MetricGuidanceReceipt",
     "MetricGuidanceTemplateSet",
+    "MetricMeasuredPath",
+    "MetricNextStepCode",
+    "MetricOperabilityCatalog",
+    "MetricOperabilityEntry",
+    "MetricShippedPathState",
     "MetricEvidenceAvailabilityState",
     "MetricEvidenceContributor",
     "MetricEvidenceReadinessProjectionV2",
@@ -346,6 +361,7 @@ __all__ = [
     "SessionMetricPublicationService",
     "build_metric_guidance",
     "metric_guidance_catalog",
+    "metric_operability_catalog",
     "objective_metric_state",
     "publish_metric_states_v2",
     "publish_v1_compatibility_preview",

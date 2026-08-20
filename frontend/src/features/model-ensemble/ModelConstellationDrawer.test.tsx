@@ -67,6 +67,19 @@ function attemptStages(): ModelEnsembleAttemptStage[] {
 }
 
 describe("ModelConstellationDrawer", () => {
+  it("states that model stages cannot author measured metric values", () => {
+    render(<ModelConstellationDrawer attemptStages={[]} compact={false} run={sealedRun()} />);
+
+    expect(screen.getByRole("note")).toHaveTextContent(
+      /experimental evidence helpers, not metric authorities/i,
+    );
+    expect(screen.getByRole("note")).toHaveTextContent(
+      /sealed measured publication.*never from model agreement/i,
+    );
+    expect(screen.getByText("Measured-metric authority").nextElementSibling)
+      .toHaveTextContent("none");
+  });
+
   it("groups sealed stages, keeps a single pressed node, and inspects receipts without inventing counts", () => {
     render(<ModelConstellationDrawer attemptStages={[]} compact={false} run={sealedRun()} />);
     expect(screen.getByText("Models").parentElement).toHaveTextContent("Sealed snapshot · 2/3 stages completed");
@@ -88,8 +101,8 @@ describe("ModelConstellationDrawer", () => {
     expect(inspector).toHaveAttribute("aria-live", "polite");
     expect(within(inspector as HTMLElement).getByText("Peak VRAM").parentElement).toHaveTextContent("not recorded");
     expect(within(inspector as HTMLElement).getByText("Peak RAM").parentElement).toHaveTextContent("256 MiB");
-    expect(within(inspector as HTMLElement).getByText("Evaluated").parentElement).toHaveTextContent("unavailable");
-    expect(within(inspector as HTMLElement).getByText("Contributed").parentElement).toHaveTextContent("unavailable");
+    expect(within(inspector as HTMLElement).getByText("Experimental cases evaluated").parentElement).toHaveTextContent("unavailable");
+    expect(within(inspector as HTMLElement).getByText("Experimental cases contributed").parentElement).toHaveTextContent("unavailable");
     expect(inspector).toHaveTextContent(/they are not zero/i);
 
     fireEvent.click(within(deepGroup).getByRole("button"));
@@ -105,8 +118,8 @@ describe("ModelConstellationDrawer", () => {
 
     expect(screen.queryByText("Peak VRAM")).not.toBeInTheDocument();
     expect(screen.queryByText("Peak RAM")).not.toBeInTheDocument();
-    expect(screen.getByText("Evaluated").parentElement).toHaveTextContent("20");
-    expect(screen.getByText("Contributed").parentElement).toHaveTextContent("0");
+    expect(screen.getByText("Experimental cases evaluated").parentElement).toHaveTextContent("20");
+    expect(screen.getByText("Experimental cases contributed").parentElement).toHaveTextContent("0");
     expect(screen.queryByText(/they are not zero/i)).not.toBeInTheDocument();
 
     fireEvent.click(document.querySelector('.model-constellation__nodes button[data-status="cancelled"]')!);
@@ -116,7 +129,7 @@ describe("ModelConstellationDrawer", () => {
     expect(screen.getByText("Released").parentElement).toHaveTextContent("not confirmed");
     expect(screen.getByText("Device").parentElement).toHaveTextContent("none");
     expect(screen.getByText("Quantization").parentElement).toHaveTextContent("bitsandbytes nf4");
-    expect(screen.getByText("Evaluated").parentElement).toHaveTextContent("unavailable");
+    expect(screen.getByText("Experimental cases evaluated").parentElement).toHaveTextContent("unavailable");
     expect(screen.getByText(/they are not zero/i)).toBeInTheDocument();
   });
 

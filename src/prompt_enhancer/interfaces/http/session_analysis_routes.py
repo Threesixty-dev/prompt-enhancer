@@ -26,6 +26,10 @@ from ...application.analysis.metric_guidance import (
     MetricGuidanceCatalogEntry,
     metric_guidance_catalog,
 )
+from ...application.analysis.metric_operability import (
+    MetricOperabilityCatalog,
+    metric_operability_catalog,
+)
 from ...application.analysis.session_coaching_service import (
     SessionCoachingProjection,
     SessionCoachingProjectionError,
@@ -286,6 +290,24 @@ def create_session_analysis_query_router(
             contract_set_fingerprint=metric_contract_v2_set_fingerprint(),
             entries=metric_guidance_catalog(),
         )
+
+    @router.get(
+        "/metric-contracts/v2/operability-catalog",
+        response_model=MetricOperabilityCatalog,
+    )
+    def metric_operability_catalog_route(
+        response: Response,
+    ) -> MetricOperabilityCatalog:
+        """Expose the current all-twenty measurement-path release gate.
+
+        This static response never describes whether a particular session has
+        evidence.  It only identifies which reviewed local authority could
+        resolve each metric, the still-missing adapter/configuration seam, and
+        whether an experimental model path exists without measurement power.
+        """
+
+        response.headers.update(_PRIVATE_HEADERS)
+        return metric_operability_catalog()
 
     @router.get(
         "/quality-analysis/runs/{run_id}/metric-v2-compatibility-preview",

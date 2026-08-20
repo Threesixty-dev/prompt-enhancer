@@ -39,6 +39,12 @@ export function ModelConstellationDrawer({ run, attemptStages, compact }: {
         <small>{modelEnsembleStageSummaryLabel(stageSet)}</small>
       </summary>
       <div className="model-constellation__body">
+        <p className="model-constellation__authority" role="note">
+          Model stages are experimental evidence helpers, not metric authorities. Small
+          models estimate factor evidence and the deep judge only resolves selected
+          disagreements; the sealed measured publication is computed from deterministic
+          or typed receipts and never from model agreement.
+        </p>
         {stages.length === 0 && <p>Model stage details are not exposed for this sealed receipt.</p>}
         {MODEL_ENSEMBLE_STAGE_GROUPS.map((group) => {
           const groupStages = stages.filter((stage) => stage.group === group);
@@ -81,8 +87,9 @@ export function ModelConstellationDrawer({ run, attemptStages, compact }: {
               {!compact && <div><dt>Peak RAM</dt><dd>{formatStageResource(selected.rss)}</dd></div>}
               <div><dt>Released</dt><dd>{selected.unloaded ? "yes" : "not confirmed"}</dd></div>
               <div><dt>Revision</dt><dd>{shortIdentity(selected.revision)}</dd></div>
-              <div><dt>Evaluated</dt><dd>{selected.evaluatedCases ?? "unavailable"}</dd></div>
-              <div><dt>Contributed</dt><dd>{selected.contributedCases ?? "unavailable"}</dd></div>
+              <div><dt>Experimental cases evaluated</dt><dd>{selected.evaluatedCases ?? "unavailable"}</dd></div>
+              <div><dt>Experimental cases contributed</dt><dd>{selected.contributedCases ?? "unavailable"}</dd></div>
+              <div><dt>Measured-metric authority</dt><dd>none</dd></div>
             </dl>
             {selected.errorCode !== null && <p role="alert">{selected.errorCode.replaceAll("_", " ")}</p>}
             {(selected.evaluatedCases === null || selected.contributedCases === null) && <p>Case counts are unavailable for this stage receipt; they are not zero. Current v1 receipts identify the stage without trustworthy per-metric contribution counts.</p>}

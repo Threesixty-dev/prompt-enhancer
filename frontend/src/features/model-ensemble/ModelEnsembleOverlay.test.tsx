@@ -530,8 +530,8 @@ describe("ModelEnsembleOverlay", () => {
     expect(await screen.findByText("0% signal")).toBeVisible();
     expect(getModelEnsembleSnapshot).toHaveBeenCalledWith(cancellationHeadRun.run_id);
     fireEvent.click(screen.getByText("Models"));
-    expect(screen.getByText("Evaluated").parentElement).toHaveTextContent("20");
-    expect(screen.getByText("Contributed").parentElement).toHaveTextContent("14");
+    expect(screen.getByText("Experimental cases evaluated").parentElement).toHaveTextContent("20");
+    expect(screen.getByText("Experimental cases contributed").parentElement).toHaveTextContent("14");
     expect((await screen.findAllByText(/Analysis cancelled · last valid snapshot retained/i)).length).toBeGreaterThanOrEqual(1);
   });
 

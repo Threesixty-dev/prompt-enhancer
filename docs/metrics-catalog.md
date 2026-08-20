@@ -512,16 +512,17 @@ content-free publication is sealed with the canonical model-ensemble run; model
 stages remain a separate experimental diagnostic and cannot change its values.
 
 **A twenty-state publication is not a promise of twenty numeric values.** The
-built-in provider-neutral extractor owns only documented message structure. In
-projection r3, `logic.open_loop_closure` has one narrow structural path described
-below. Contracts whose denominator needs ambiguity, clarification, hypothesis,
-scope-change, or requirement units remain `unknown` until a provider supplies
-that typed family. The five objective contracts remain `unknown` until an
-authorized adapter supplies linked eligible opportunities and objective
-receipts. Declared-profile slot contracts remain `unknown` when the task profile
-does not declare the slot set. These states are deliberate authority boundaries;
-adding a larger language model cannot turn an absent opportunity registry or
-receipt link into measured evidence.
+built-in provider-neutral extractor owns only documented message structure.
+Current projection r4 inherits r3's explicit-plan path and gives the five
+collaboration contracts a separate browser-confirmed lifecycle-receipt path.
+Three declared-profile contracts remain `unknown` until a task profile declares
+their slot sets. Four objective families still need provider-owned opportunity
+enumeration and links; first-pass verification has one narrow path through an
+exactly reviewed task plus a task-scoped verification receipt. These states are
+deliberate authority boundaries; adding a larger language model cannot turn an
+absent opportunity registry or receipt link into measured evidence. The exact
+current 12/3/5 path partition is published in
+[`metric-operability.md`](metric-operability.md).
 
 ### Rubric fractions must be focus-owned
 
@@ -570,6 +571,25 @@ rehydrate r1, r2, and r3, while every new canonical write is r3. Bidirectional
 database guards reject every mixed-identity pair even before a seal exists, a
 seal requires exactly twenty rows of its own identity, and privacy deletion
 cascades through all three sidecars. A run may carry exactly one identity.
+
+### Confirmed collaboration lifecycle and projection identity r4
+
+Projection `metric-contract-v2-projection-4` replaces exactly the five
+collaboration rows with confirmed lifecycle evidence and otherwise preserves r3
+semantics. An imported local-agent file creates an inert proposal only. A
+separate same-origin browser session, CSRF proof, exact confirmation literal,
+and visible second action are required to confirm or reject it. Only confirmed
+opportunities in a browser-confirmed complete family enumeration form a
+denominator. A confirmed opportunity without a confirmed outcome is pending and
+right-censored; a proposal alone is never evidence.
+
+Schema v43 adds the immutable r4 state/seal sidecar and the content-free
+lifecycle proposal/decision ledger without rewriting r1-r3. New canonical model
+ensemble writes use r4; historical identities remain readable, mixed identities
+are rejected, exactly twenty rows are required for a seal, and privacy deletion
+cascades through the r4 sidecar and lifecycle records. The local file contract
+and authority split are documented in
+[`local-agent-metric-evidence-api.md`](local-agent-metric-evidence-api.md).
 
 `publish_v1_compatibility_preview` reads an already persisted V1 run and states
 its own limits in the payload (`preview_limits`):
@@ -624,18 +644,19 @@ capabilities for every declared opportunity kind, including an observed empty
 link set: without negative-link observability, absence could be mistaken for a
 measured zero. Each objective algorithm then separately requires the action,
 decision, and/or verification outcome kinds it reads. The shipped Codex
-safe-event descriptor declares only `tool_events`, so it can declare none of the
-opportunity families and all five objective contracts stay `unknown`.
+safe-event descriptor declares `tool_events`, `verification_events`,
+`verification_task_opportunities`, and
+`verification_task_evidence_links`. It declares no requirement, hypothesis, or
+material-claim family, so those four objective contracts stay `unknown`;
+first-pass verification is conditional on the reviewed-task ownership below.
 
 Historical safe-event decoder v2 could mint one `verification_task` identity
-from one explicit `EventKind.VERIFICATION` when outcome, enumeration, and link
-capabilities were jointly declared. That mapping made an event its own task and
-could make first-pass verification tautological. Current decoder v3 therefore
-emits the same verification receipt but no task identity and declares no
-verification-task denominator. A future adapter may declare that family only
-when the provider supplies a genuine task registry and exact receipt-to-task
-links. A `TOOL_END` categorised as test or build also never receives a task
-identity: it says a check ran, not which eligible task it belonged to.
+from one explicit `EventKind.VERIFICATION`; decoder v3 removed that tautological
+event-as-task mapping. Current decoder v4 instead accepts a verification-task
+denominator only when exactly one current reviewed task revision owns the
+session and links the explicit verification receipt to that reviewed task. A
+`TOOL_END` categorised as test or build never receives task identity: it says a
+check ran, not which eligible task it belonged to.
 
 Requirement and hypothesis denominators can enter a projection only through
 `bind_semantic_unit_opportunities`, and only when the descriptor authorizes that
@@ -662,7 +683,7 @@ it may claim: `live_measured`, `compatibility_projected`, `method_only_withheld`
 The full-run API also serves `metric_evidence_readiness_v2`, derived on read from
 the sealed publication plus the run's provider, provider version, adapter
 version, and source schema version. It introduces **no independent datum** and so
-has no schema of its own: it is recomputed from the sealed v40/v41/v42 sidecar rows
+has no schema of its own: it is recomputed from the sealed v40-v43 sidecar rows
 and disappears with the run.
 
 Each row carries closed enums only — evidence authority, denominator basis and
@@ -691,8 +712,9 @@ capability, completeness, counts, denominator basis — never by parsing a
 producer-authored explanation string, so a future projection identity cannot
 silently change what a readiness reason means.
 
-Catalog `metric-evidence-readiness-v2-2` keeps the original row shape and adds a
-projection-keyed evidence overlay. R3 open-loop rows require
+Catalog `metric-evidence-readiness-v2-3` keeps the original row shape and adds
+the r4 confirmed-lifecycle contributor vocabulary to the projection-keyed
+evidence overlay. R3/r4 open-loop rows require
 `documented_plan_message` and `explicit_plan_supersession_link`, and report
 `explicit_plan_episode_required` when that denominator is not available. An r1
 rubric number remains readable but reports
@@ -712,7 +734,10 @@ the semantic-unit extractor it needs (`ambiguity_episode_extraction_required`,
 `scope_change_episode_extraction_required`,
 `requirement_unit_extraction_required`; r1/r2 open-loop rows retain
 `open_loop_episode_extraction_required` because those producers used the frozen
-semantic-unit path).
+semantic-unit path). R4 collaboration rows separately require the confirmed
+lifecycle service and, when present but incomplete, a confirmed enumeration;
+confirmed opportunity and outcome-link contributors are reported only when the
+sealed row proves them.
 Each objective contract has its own adapter reason and exact capability set:
 the relevant opportunity enumeration, the matching evidence-link authority, and
 the action / decision / verification outcome kinds its algorithm reads. Missing

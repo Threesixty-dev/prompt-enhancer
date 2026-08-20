@@ -209,6 +209,8 @@ export type MetricEvidenceReadinessV2 = Schemas["MetricEvidenceReadinessV2"];
 export type MetricEvidenceContributor = Schemas["MetricEvidenceContributor"];
 export type MetricEvidenceAvailabilityState =
   Schemas["MetricEvidenceAvailabilityState"];
+export type MetricOperabilityCatalog = Schemas["MetricOperabilityCatalog"];
+export type MetricOperabilityEntry = Schemas["MetricOperabilityEntry"];
 export type AgentMetricEvidencePreview = Schemas["AgentMetricEvidencePreviewDto"];
 export type AgentMetricEvidenceImport = Schemas["AgentMetricEvidenceImportDto"];
 export type MetricLifecycleProposal = Schemas["MetricLifecycleProposalDto"];

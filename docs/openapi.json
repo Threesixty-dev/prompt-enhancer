@@ -7284,6 +7284,189 @@
         "title": "MetricLifecycleProposalStatus",
         "type": "string"
       },
+      "MetricMeasuredPath": {
+        "enum": [
+          "focus_rubric",
+          "declared_task_profile",
+          "confirmed_lifecycle",
+          "documented_semantic_unit",
+          "explicit_plan_link",
+          "task_scoped_verification",
+          "typed_objective",
+          "semantic_unit_extractor"
+        ],
+        "title": "MetricMeasuredPath",
+        "type": "string"
+      },
+      "MetricNextStepCode": {
+        "enum": [
+          "analyze_focus_request",
+          "declare_task_profile",
+          "confirm_lifecycle_evidence",
+          "record_documented_decision",
+          "link_plan_supersession",
+          "record_task_scoped_verification",
+          "add_objective_opportunity_link_adapter",
+          "add_requirement_plan_extractor"
+        ],
+        "title": "MetricNextStepCode",
+        "type": "string"
+      },
+      "MetricOperabilityCatalog": {
+        "additionalProperties": false,
+        "properties": {
+          "catalog_version": {
+            "const": "metric-operability-v1",
+            "default": "metric-operability-v1",
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "contract_set_fingerprint": {
+            "title": "Contract Set Fingerprint",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/MetricOperabilityEntry"
+            },
+            "maxItems": 20,
+            "minItems": 20,
+            "title": "Entries",
+            "type": "array"
+          },
+          "experimental_model_path_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Experimental Model Path Count",
+            "type": "integer"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "model_authoritative_metric_count": {
+            "const": 0,
+            "default": 0,
+            "title": "Model Authoritative Metric Count",
+            "type": "integer"
+          },
+          "projection_version": {
+            "const": "metric-contract-v2-projection-4",
+            "default": "metric-contract-v2-projection-4",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "provider_adapter_gap_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Provider Adapter Gap Count",
+            "type": "integer"
+          },
+          "readiness_catalog_version": {
+            "const": "metric-evidence-readiness-v2-3",
+            "default": "metric-evidence-readiness-v2-3",
+            "title": "Readiness Catalog Version",
+            "type": "string"
+          },
+          "registry_version": {
+            "const": "all-20-factor-contracts-v2",
+            "default": "all-20-factor-contracts-v2",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "shipped_path_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Shipped Path Count",
+            "type": "integer"
+          },
+          "task_profile_configuration_gap_count": {
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Task Profile Configuration Gap Count",
+            "type": "integer"
+          },
+          "total_metric_count": {
+            "const": 20,
+            "default": 20,
+            "title": "Total Metric Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contract_set_fingerprint",
+          "shipped_path_count",
+          "task_profile_configuration_gap_count",
+          "provider_adapter_gap_count",
+          "experimental_model_path_count",
+          "entries"
+        ],
+        "title": "MetricOperabilityCatalog",
+        "type": "object"
+      },
+      "MetricOperabilityEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_fingerprint": {
+            "title": "Contract Fingerprint",
+            "type": "string"
+          },
+          "contract_version": {
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "denominator_basis": {
+            "$ref": "#/components/schemas/DenominatorBasis"
+          },
+          "evidence_authority": {
+            "$ref": "#/components/schemas/EvidenceAuthority"
+          },
+          "experimental_model_path": {
+            "title": "Experimental Model Path",
+            "type": "boolean"
+          },
+          "measured_path": {
+            "$ref": "#/components/schemas/MetricMeasuredPath"
+          },
+          "measured_value_may_use_model_output": {
+            "const": false,
+            "default": false,
+            "title": "Measured Value May Use Model Output",
+            "type": "boolean"
+          },
+          "metric_key": {
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "next_step_code": {
+            "$ref": "#/components/schemas/MetricNextStepCode"
+          },
+          "shipped_path_state": {
+            "$ref": "#/components/schemas/MetricShippedPathState"
+          }
+        },
+        "required": [
+          "metric_key",
+          "contract_version",
+          "contract_fingerprint",
+          "evidence_authority",
+          "denominator_basis",
+          "measured_path",
+          "shipped_path_state",
+          "next_step_code",
+          "experimental_model_path"
+        ],
+        "title": "MetricOperabilityEntry",
+        "type": "object"
+      },
       "MetricPublicationSource": {
         "description": "Where the published states came from; never mixed within one bundle.",
         "enum": [
@@ -7757,6 +7940,15 @@
         ],
         "title": "MetricRoadmapItemDto",
         "type": "object"
+      },
+      "MetricShippedPathState": {
+        "enum": [
+          "available_when_evidence_exists",
+          "task_profile_configuration_required",
+          "provider_adapter_required"
+        ],
+        "title": "MetricShippedPathState",
+        "type": "string"
       },
       "MetricSource": {
         "enum": [
@@ -24201,6 +24393,72 @@
           }
         },
         "summary": "Metric Guidance Catalog Route",
+        "tags": [
+          "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/metric-contracts/v2/operability-catalog": {
+      "get": {
+        "description": "Expose the current all-twenty measurement-path release gate.\n\nThis static response never describes whether a particular session has\nevidence.  It only identifies which reviewed local authority could\nresolve each metric, the still-missing adapter/configuration seam, and\nwhether an experimental model path exists without measurement power.",
+        "operationId": "metric_operability_catalog_route_v1_metric_contracts_v2_operability_catalog_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricOperabilityCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Metric Operability Catalog Route",
         "tags": [
           "session-quality-analysis"
         ]

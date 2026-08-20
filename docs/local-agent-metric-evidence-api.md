@@ -22,6 +22,11 @@ file format must not be presented as support for those metrics.
 
 ## Safe workflow
 
+Before writing a file, the client may read the content-free all-twenty release
+map from `GET /v1/metric-contracts/v2/operability-catalog`. This distinguishes a
+currently supported evidence path from a task-profile or provider-adapter gap;
+it does not disclose session data or authorize a measured value.
+
 1. The authenticated loopback client reads
    `GET /v1/sessions/{session_id}/agent-metric-evidence/contract`. The response
    binds the current sealed run, source-window fingerprint, all contract
