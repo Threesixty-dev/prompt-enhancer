@@ -597,6 +597,30 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     async annotateRemotely() {
       throw new TransportError("Annotation is unavailable in synthetic preview", 404);
     },
+    async shareFolder() {
+      throw new TransportError("Shared folders are unavailable in synthetic preview", 404);
+    },
+    async listSharedFolders() {
+      throw new TransportError("Shared folders are unavailable in synthetic preview", 404);
+    },
+    async revokeSharedFolder() {
+      throw new TransportError("Shared folders are unavailable in synthetic preview", 404);
+    },
+    async joinSharedFolder() {
+      throw new TransportError("Shared folders are unavailable in synthetic preview", 404);
+    },
+    async listPeerLinks() {
+      throw new TransportError("Shared folders are unavailable in synthetic preview", 404);
+    },
+    async leavePeerLink() {
+      throw new TransportError("Shared folders are unavailable in synthetic preview", 404);
+    },
+    async pullPeerLink() {
+      throw new TransportError("Shared folders are unavailable in synthetic preview", 404);
+    },
+    async pushPeerLink() {
+      throw new TransportError("Shared folders are unavailable in synthetic preview", 404);
+    },
     async getLocalModels() {
       throw new TransportError("Local models are unavailable in synthetic preview", 404);
     },

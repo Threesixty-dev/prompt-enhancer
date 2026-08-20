@@ -21,6 +21,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/p2p/v1/{share_id}/files/{relative}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read File */
+        get: operations["read_file_p2p_v1__share_id__files__relative__get"];
+        /** Write File */
+        put: operations["write_file_p2p_v1__share_id__files__relative__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/p2p/v1/{share_id}/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Manifest */
+        get: operations["manifest_p2p_v1__share_id__manifest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agent/sessions": {
         parameters: {
             query?: never;
@@ -1930,6 +1965,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/shared-folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Shares */
+        get: operations["list_shares_v1_shared_folders_get"];
+        put?: never;
+        /**
+         * Share
+         * @description Share one folder; the share token appears once in this response and is stored only as a hash.
+         */
+        post: operations["share_v1_shared_folders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/shared-folders/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join
+         * @description Join a teammate's shared folder: the URL named here is exactly where file bytes will travel.
+         */
+        post: operations["join_v1_shared_folders_join_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/shared-folders/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Links */
+        get: operations["links_v1_shared_folders_links_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/shared-folders/links/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Leave */
+        delete: operations["leave_v1_shared_folders_links__link_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/shared-folders/links/{link_id}/pull": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pull */
+        post: operations["pull_v1_shared_folders_links__link_id__pull_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/shared-folders/links/{link_id}/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Push */
+        post: operations["push_v1_shared_folders_links__link_id__push_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/shared-folders/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke */
+        delete: operations["revoke_v1_shared_folders__share_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/task-decisions/accept": {
         parameters: {
             query?: never;
@@ -3424,6 +3585,11 @@ export interface components {
              * @constant
              */
             session_text_content_persistence: false;
+            /**
+             * Shared Folders
+             * @default false
+             */
+            shared_folders: boolean;
             /** Task Analysis */
             task_analysis: boolean;
             /** Task Lifecycle */
@@ -4102,6 +4268,43 @@ export interface components {
          * @enum {string}
          */
         EvidenceAuthority: "conversation" | "objective_receipt";
+        /** FileContent */
+        FileContent: {
+            /** Content B64 */
+            content_b64: string;
+            /**
+             * Contract Version
+             * @default shared-folders.v1
+             * @constant
+             */
+            contract_version: "shared-folders.v1";
+            /** Path */
+            path: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+        };
+        /** FolderManifest */
+        FolderManifest: {
+            /**
+             * Contract Version
+             * @default shared-folders.v1
+             * @constant
+             */
+            contract_version: "shared-folders.v1";
+            /** Files */
+            files: components["schemas"]["ManifestEntry"][];
+            /** Name */
+            name: string;
+            /** Share Id */
+            share_id: string;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
         /**
          * GuidanceAudience
          * @description Who can act on the guidance without inventing evidence.
@@ -4209,6 +4412,17 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+        };
+        /** JoinRequest */
+        JoinRequest: {
+            /** Share Id */
+            share_id: string;
+            /** Share Token */
+            share_token: string;
+            /** Target */
+            target: string;
+            /** Url */
+            url: string;
         };
         /** JudgeAgreementReport */
         JudgeAgreementReport: {
@@ -4387,6 +4601,20 @@ export interface components {
             runtime_available: boolean;
             /** Storage Root */
             storage_root: string;
+        };
+        /** ManifestEntry */
+        ManifestEntry: {
+            /**
+             * Modified At
+             * Format: date-time
+             */
+            modified_at: string;
+            /** Path */
+            path: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
         };
         /** ManualDisplayLabelRequest */
         ManualDisplayLabelRequest: {
@@ -6922,6 +7150,41 @@ export interface components {
             /** Task Id */
             task_id: string;
         };
+        /** PeerLink */
+        PeerLink: {
+            /**
+             * Contract Version
+             * @default shared-folders.v1
+             * @constant
+             */
+            contract_version: "shared-folders.v1";
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+            /** Link Id */
+            link_id: string;
+            /** Name */
+            name?: string | null;
+            /** Share Id */
+            share_id: string;
+            /** Target */
+            target: string;
+            /** Url */
+            url: string;
+        };
+        /** PeerLinkList */
+        PeerLinkList: {
+            /**
+             * Contract Version
+             * @default shared-folders.v1
+             * @constant
+             */
+            contract_version: "shared-folders.v1";
+            /** Links */
+            links: components["schemas"]["PeerLink"][];
+        };
         /**
          * PredictiveMetricState
          * @enum {string}
@@ -7448,6 +7711,14 @@ export interface components {
             guidance: components["schemas"]["MetricGuidanceReceipt"];
             implementation_state: components["schemas"]["MetricImplementationState"];
             state: components["schemas"]["MetricStateV2"];
+        };
+        /** PushBody */
+        PushBody: {
+            /**
+             * Peer Name
+             * @default peer
+             */
+            peer_name: string;
         };
         /**
          * RatingLabel
@@ -8645,6 +8916,48 @@ export interface components {
             /** Turns */
             turns: components["schemas"]["ReaderTurn"][];
         };
+        /** ShareFolderBody */
+        ShareFolderBody: {
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+        };
+        /** SharedFolder */
+        SharedFolder: {
+            /**
+             * Contract Version
+             * @default shared-folders.v1
+             * @constant
+             */
+            contract_version: "shared-folders.v1";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Share Id */
+            share_id: string;
+            /** Share Token */
+            share_token?: string | null;
+        };
+        /** SharedFolderList */
+        SharedFolderList: {
+            /**
+             * Contract Version
+             * @default shared-folders.v1
+             * @constant
+             */
+            contract_version: "shared-folders.v1";
+            /** Shares */
+            shares: components["schemas"]["SharedFolder"][];
+        };
         /**
          * SignalDirection
          * @description Whether safe discovery evidence supports joining or separating items.
@@ -8695,6 +9008,37 @@ export interface components {
             session_id: string;
             /** Stored */
             stored: number;
+        };
+        /** SyncReport */
+        SyncReport: {
+            /**
+             * Conflicts
+             * @default 0
+             */
+            conflicts: number;
+            /**
+             * Contract Version
+             * @default shared-folders.v1
+             * @constant
+             */
+            contract_version: "shared-folders.v1";
+            /** Link Id */
+            link_id: string;
+            /**
+             * Pulled
+             * @default 0
+             */
+            pulled: number;
+            /**
+             * Pushed
+             * @default 0
+             */
+            pushed: number;
+            /**
+             * Skipped
+             * @default 0
+             */
+            skipped: number;
         };
         /**
          * TaskAnalysisResponse
@@ -9207,6 +9551,38 @@ export interface components {
             /** Window */
             window: string;
         };
+        /** WriteFileRequest */
+        WriteFileRequest: {
+            /** Base Sha256 */
+            base_sha256?: string | null;
+            /** Content B64 */
+            content_b64: string;
+            /**
+             * Peer Name
+             * @default peer
+             */
+            peer_name: string;
+        };
+        /** WriteFileResult */
+        WriteFileResult: {
+            /**
+             * Conflict
+             * @default false
+             */
+            conflict: boolean;
+            /**
+             * Contract Version
+             * @default shared-folders.v1
+             * @constant
+             */
+            contract_version: "shared-folders.v1";
+            /** Path */
+            path: string;
+            /** Sha256 */
+            sha256: string;
+            /** Stored As */
+            stored_as: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -9239,6 +9615,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CentralBatchResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_file_p2p_v1__share_id__files__relative__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Share-Token"?: string | null;
+            };
+            path: {
+                share_id: string;
+                relative: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileContent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    write_file_p2p_v1__share_id__files__relative__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Share-Token"?: string | null;
+            };
+            path: {
+                share_id: string;
+                relative: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteFileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WriteFileResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    manifest_p2p_v1__share_id__manifest_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Share-Token"?: string | null;
+            };
+            path: {
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderManifest"];
                 };
             };
             /** @description Validation Error */
@@ -13961,6 +14442,278 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionTranscript"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_shares_v1_shared_folders_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedFolderList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    share_v1_shared_folders_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareFolderBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedFolder"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    join_v1_shared_folders_join_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeerLink"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    links_v1_shared_folders_links_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeerLinkList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    leave_v1_shared_folders_links__link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pull_v1_shared_folders_links__link_id__pull_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    push_v1_shared_folders_links__link_id__push_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PushBody"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_v1_shared_folders__share_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

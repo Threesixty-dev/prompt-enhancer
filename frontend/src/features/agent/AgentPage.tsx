@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentEvent, AgentSessionView, AgentSettings, LocalModelsOverview, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { TeamFoldersPanel } from "./TeamFoldersPanel";
 import "./AgentPage.css";
 
 const POLL_MS = 700;
@@ -36,7 +37,7 @@ function summarizeArguments(tool: string | null | undefined, args: Record<string
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession"
-> & Partial<Pick<PromptEnhancerTransport, "getLocalModels">>;
+> & Partial<Pick<PromptEnhancerTransport, "getLocalModels" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
 
 /**
  * Agent workspace: a local model works inside one folder through tools. Reads
@@ -301,6 +302,7 @@ export function AgentPage({
                 </ul>
               )}
             </section>
+            <TeamFoldersPanel onUseAsWorkspace={(path) => setWorkspace(path)} transport={transport} />
           </aside>
         )}
 

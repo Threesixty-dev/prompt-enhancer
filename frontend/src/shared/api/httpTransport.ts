@@ -91,6 +91,11 @@ import type {
   JudgeSweepStatus,
   JudgeAgreementReport,
   AnnotationAllowance,
+  FolderSyncReport,
+  PeerLink,
+  PeerLinkList,
+  SharedFolder,
+  SharedFolderList,
   AnnotationMetaprompt,
   RemoteAnnotationResult,
   SessionJudgments,
@@ -2441,6 +2446,42 @@ export function createHttpTransport(options: {
       return request<RemoteAnnotationResult>(
         "/v1/annotation/remote/submit",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ limit }) },
+        signal,
+      );
+    },
+    shareFolder(path, name, signal) {
+      return request<SharedFolder>(
+        "/v1/shared-folders",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, name }) },
+        signal,
+      );
+    },
+    listSharedFolders(signal) {
+      return request<SharedFolderList>("/v1/shared-folders", { method: "GET" }, signal);
+    },
+    async revokeSharedFolder(shareId, signal) {
+      await request<unknown>("/v1/shared-folders/" + encodeURIComponent(shareId), { method: "DELETE" }, signal);
+    },
+    joinSharedFolder(url, shareId, shareToken, target, signal) {
+      return request<PeerLink>(
+        "/v1/shared-folders/join",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, share_id: shareId, share_token: shareToken, target }) },
+        signal,
+      );
+    },
+    listPeerLinks(signal) {
+      return request<PeerLinkList>("/v1/shared-folders/links", { method: "GET" }, signal);
+    },
+    async leavePeerLink(linkId, signal) {
+      await request<unknown>("/v1/shared-folders/links/" + encodeURIComponent(linkId), { method: "DELETE" }, signal);
+    },
+    pullPeerLink(linkId, signal) {
+      return request<FolderSyncReport>("/v1/shared-folders/links/" + encodeURIComponent(linkId) + "/pull", { method: "POST" }, signal);
+    },
+    pushPeerLink(linkId, peerName, signal) {
+      return request<FolderSyncReport>(
+        "/v1/shared-folders/links/" + encodeURIComponent(linkId) + "/push",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ peer_name: peerName }) },
         signal,
       );
     },

@@ -2912,6 +2912,11 @@
             "title": "Session Text Content Persistence",
             "type": "boolean"
           },
+          "shared_folders": {
+            "default": false,
+            "title": "Shared Folders",
+            "type": "boolean"
+          },
           "task_analysis": {
             "title": "Task Analysis",
             "type": "boolean"
@@ -4609,6 +4614,80 @@
         "title": "EvidenceAuthority",
         "type": "string"
       },
+      "FileContent": {
+        "additionalProperties": false,
+        "properties": {
+          "content_b64": {
+            "title": "Content B64",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "shared-folders.v1",
+            "default": "shared-folders.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0.0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "content_b64",
+          "sha256",
+          "size"
+        ],
+        "title": "FileContent",
+        "type": "object"
+      },
+      "FolderManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "shared-folders.v1",
+            "default": "shared-folders.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestEntry"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "share_id": {
+            "title": "Share Id",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "share_id",
+          "name",
+          "files"
+        ],
+        "title": "FolderManifest",
+        "type": "object"
+      },
       "GuidanceAudience": {
         "description": "Who can act on the guidance without inventing evidence.",
         "enum": [
@@ -4814,6 +4893,42 @@
           "provider"
         ],
         "title": "IngestionReport",
+        "type": "object"
+      },
+      "JoinRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "share_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Share Id",
+            "type": "string"
+          },
+          "share_token": {
+            "maxLength": 128,
+            "minLength": 16,
+            "title": "Share Token",
+            "type": "string"
+          },
+          "target": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Target",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "share_id",
+          "share_token",
+          "target"
+        ],
+        "title": "JoinRequest",
         "type": "object"
       },
       "JudgeAgreementReport": {
@@ -5243,6 +5358,37 @@
           "downloads"
         ],
         "title": "LocalModelsOverview",
+        "type": "object"
+      },
+      "ManifestEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "modified_at": {
+            "format": "date-time",
+            "title": "Modified At",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0.0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "size",
+          "sha256",
+          "modified_at"
+        ],
+        "title": "ManifestEntry",
         "type": "object"
       },
       "ManualDisplayLabelRequest": {
@@ -11742,6 +11888,81 @@
         "title": "OutputRevisionDto",
         "type": "object"
       },
+      "PeerLink": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "shared-folders.v1",
+            "default": "shared-folders.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "joined_at": {
+            "format": "date-time",
+            "title": "Joined At",
+            "type": "string"
+          },
+          "link_id": {
+            "title": "Link Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "share_id": {
+            "title": "Share Id",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link_id",
+          "url",
+          "share_id",
+          "target",
+          "joined_at"
+        ],
+        "title": "PeerLink",
+        "type": "object"
+      },
+      "PeerLinkList": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "shared-folders.v1",
+            "default": "shared-folders.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/PeerLink"
+            },
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "links"
+        ],
+        "title": "PeerLinkList",
+        "type": "object"
+      },
       "PredictiveMetricState": {
         "enum": [
           "unavailable",
@@ -13197,6 +13418,19 @@
           "implementation_state"
         ],
         "title": "PublishedMetricV2",
+        "type": "object"
+      },
+      "PushBody": {
+        "properties": {
+          "peer_name": {
+            "default": "peer",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Peer Name",
+            "type": "string"
+          }
+        },
+        "title": "PushBody",
         "type": "object"
       },
       "RatingLabel": {
@@ -16563,6 +16797,110 @@
         "title": "SessionTranscript",
         "type": "object"
       },
+      "ShareFolderBody": {
+        "properties": {
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "name"
+        ],
+        "title": "ShareFolderBody",
+        "type": "object"
+      },
+      "SharedFolder": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "shared-folders.v1",
+            "default": "shared-folders.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "share_id": {
+            "title": "Share Id",
+            "type": "string"
+          },
+          "share_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share Token"
+          }
+        },
+        "required": [
+          "share_id",
+          "name",
+          "path",
+          "created_at"
+        ],
+        "title": "SharedFolder",
+        "type": "object"
+      },
+      "SharedFolderList": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "shared-folders.v1",
+            "default": "shared-folders.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "shares": {
+            "items": {
+              "$ref": "#/components/schemas/SharedFolder"
+            },
+            "title": "Shares",
+            "type": "array"
+          }
+        },
+        "required": [
+          "shares"
+        ],
+        "title": "SharedFolderList",
+        "type": "object"
+      },
       "SignalDirection": {
         "description": "Whether safe discovery evidence supports joining or separating items.",
         "enum": [
@@ -16690,6 +17028,50 @@
           "stored"
         ],
         "title": "SubmitResult",
+        "type": "object"
+      },
+      "SyncReport": {
+        "additionalProperties": false,
+        "properties": {
+          "conflicts": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Conflicts",
+            "type": "integer"
+          },
+          "contract_version": {
+            "const": "shared-folders.v1",
+            "default": "shared-folders.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "link_id": {
+            "title": "Link Id",
+            "type": "string"
+          },
+          "pulled": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Pulled",
+            "type": "integer"
+          },
+          "pushed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Pushed",
+            "type": "integer"
+          },
+          "skipped": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "link_id"
+        ],
+        "title": "SyncReport",
         "type": "object"
       },
       "TaskAnalysisResponse": {
@@ -18198,6 +18580,74 @@
         ],
         "title": "WorkWindow",
         "type": "object"
+      },
+      "WriteFileRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "base_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Sha256"
+          },
+          "content_b64": {
+            "maxLength": 5333349,
+            "title": "Content B64",
+            "type": "string"
+          },
+          "peer_name": {
+            "default": "peer",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$",
+            "title": "Peer Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_b64"
+        ],
+        "title": "WriteFileRequest",
+        "type": "object"
+      },
+      "WriteFileResult": {
+        "additionalProperties": false,
+        "properties": {
+          "conflict": {
+            "default": false,
+            "title": "Conflict",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "shared-folders.v1",
+            "default": "shared-folders.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "stored_as": {
+            "title": "Stored As",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "stored_as",
+          "sha256"
+        ],
+        "title": "WriteFileResult",
+        "type": "object"
       }
     }
   },
@@ -18279,6 +18729,209 @@
         "summary": "Annotate",
         "tags": [
           "central-annotation"
+        ]
+      }
+    },
+    "/p2p/v1/{share_id}/files/{relative}": {
+      "get": {
+        "operationId": "read_file_p2p_v1__share_id__files__relative__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Share Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "relative",
+            "required": true,
+            "schema": {
+              "title": "Relative",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileContent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read File",
+        "tags": [
+          "p2p"
+        ]
+      },
+      "put": {
+        "operationId": "write_file_p2p_v1__share_id__files__relative__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Share Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "relative",
+            "required": true,
+            "schema": {
+              "title": "Relative",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteFileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteFileResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Write File",
+        "tags": [
+          "p2p"
+        ]
+      }
+    },
+    "/p2p/v1/{share_id}/manifest": {
+      "get": {
+        "operationId": "manifest_p2p_v1__share_id__manifest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Share Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Share-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderManifest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Manifest",
+        "tags": [
+          "p2p"
         ]
       }
     },
@@ -28414,6 +29067,589 @@
         "summary": "Read Transcript",
         "tags": [
           "session-reader"
+        ]
+      }
+    },
+    "/v1/shared-folders": {
+      "get": {
+        "operationId": "list_shares_v1_shared_folders_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedFolderList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Shares",
+        "tags": [
+          "shared-folders"
+        ]
+      },
+      "post": {
+        "description": "Share one folder; the share token appears once in this response and is stored only as a hash.",
+        "operationId": "share_v1_shared_folders_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareFolderBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedFolder"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Share",
+        "tags": [
+          "shared-folders"
+        ]
+      }
+    },
+    "/v1/shared-folders/join": {
+      "post": {
+        "description": "Join a teammate's shared folder: the URL named here is exactly where file bytes will travel.",
+        "operationId": "join_v1_shared_folders_join_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerLink"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Join",
+        "tags": [
+          "shared-folders"
+        ]
+      }
+    },
+    "/v1/shared-folders/links": {
+      "get": {
+        "operationId": "links_v1_shared_folders_links_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerLinkList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Links",
+        "tags": [
+          "shared-folders"
+        ]
+      }
+    },
+    "/v1/shared-folders/links/{link_id}": {
+      "delete": {
+        "operationId": "leave_v1_shared_folders_links__link_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Link Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Leave",
+        "tags": [
+          "shared-folders"
+        ]
+      }
+    },
+    "/v1/shared-folders/links/{link_id}/pull": {
+      "post": {
+        "operationId": "pull_v1_shared_folders_links__link_id__pull_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Link Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pull",
+        "tags": [
+          "shared-folders"
+        ]
+      }
+    },
+    "/v1/shared-folders/links/{link_id}/push": {
+      "post": {
+        "operationId": "push_v1_shared_folders_links__link_id__push_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Link Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PushBody"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Push",
+        "tags": [
+          "shared-folders"
+        ]
+      }
+    },
+    "/v1/shared-folders/{share_id}": {
+      "delete": {
+        "operationId": "revoke_v1_shared_folders__share_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "title": "Share Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke",
+        "tags": [
+          "shared-folders"
         ]
       }
     },

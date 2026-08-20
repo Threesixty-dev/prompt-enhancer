@@ -848,24 +848,37 @@ def test_every_network_capable_source_module_is_egress_classified() -> None:
                     "prompt_enhancer."
                     + source_path.relative_to(_SOURCE_ROOT).with_suffix("").as_posix().replace("/", ".")
                 )
-    # Exactly three modules may touch network primitives directly, and all are
+    # Exactly four modules may touch network primitives directly. Three are
     # owned-loopback services: the desktop overlay (probe + open), the local
     # model runtime manager (free-port bind, health, chat proxy to its child),
     # and the Claude Code prompt-check hook (posts to this app's loopback API).
-    allowed_direct = {
+    # One is an explicit-approval peer request: the shared-folder client
+    # (ADR 0018) dials exactly the URL the person typed when joining a
+    # teammate's folder.
+    allowed_loopback = {
         "prompt_enhancer.desktop_overlay",
         "prompt_enhancer.application.local_models",
         "prompt_enhancer.interfaces.hooks.prompt_check_hook",
     }
-    registered_direct = {
+    allowed_approved = {
+        "prompt_enhancer.application.shared_folders",
+    }
+    registered_loopback = {
         entry.module
         for entry in EGRESS_REGISTRY
-        if entry.module in allowed_direct
+        if entry.module in allowed_loopback
         and entry.egress_class is EgressClass.LOOPBACK_OWNED_SERVICE
         and entry.state is FutureEgressState.ACTIVE_LOCAL_ONLY
     }
+    registered_approved = {
+        entry.module
+        for entry in EGRESS_REGISTRY
+        if entry.module in allowed_approved
+        and entry.egress_class is EgressClass.APPROVED_PROVIDER_REQUEST
+        and entry.state is FutureEgressState.ACTIVE_EXPLICIT_APPROVAL
+    }
 
-    assert capable == registered_direct == allowed_direct
+    assert capable == registered_loopback | registered_approved == allowed_loopback | allowed_approved
 
 
 def test_suite_guard_fails_before_non_loopback_connection() -> None:

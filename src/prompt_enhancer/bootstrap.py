@@ -428,6 +428,20 @@ class LocalApplication:
 
         return LocalAgentService(chat=models.chat, active_model=active_model)
 
+    def create_shared_folder_services(self):
+        """ADR 0018: the folder-share registry, owner service and peer client."""
+
+        from .application.shared_folders import (
+            PeerFolderClient,
+            SharedFolderService,
+            SharedFolderStore,
+        )
+
+        store = SharedFolderStore(self.settings.home / "shared-folders.sqlite3")
+        service = SharedFolderService(store, forbidden_roots=(self.settings.home,))
+        client = PeerFolderClient(store)
+        return service, client
+
     def create_annotation_services(self, local_model_service=None, model_judge_service=None):
         """ADR 0017: agent annotation surface + the embedded central annotation server + remote client."""
 
@@ -1192,6 +1206,7 @@ class LocalApplication:
         prompt_check_service = self.create_prompt_check_service(local_model_service)
         local_agent_service = self.create_local_agent_service(local_model_service)
         annotation_service, central_annotation_server, remote_annotation_client = self.create_annotation_services(local_model_service, model_judge_service)
+        shared_folder_service, peer_folder_client = self.create_shared_folder_services()
 
         def judge_new_sessions(provider: Provider) -> None:
             # Judge the newest indexed sessions with the active local model, one
@@ -1263,6 +1278,8 @@ class LocalApplication:
             annotation_service=annotation_service,
             central_annotation_server=central_annotation_server,
             remote_annotation_client=remote_annotation_client,
+            shared_folder_service=shared_folder_service,
+            peer_folder_client=peer_folder_client,
             calibration_sample_session_ids=lambda: tuple(m.session_id for m in calibration_rating_service.sample().members),
             all_session_ids=every_session_id,
             objective_overrides_provider=self.create_objective_overrides_provider(),

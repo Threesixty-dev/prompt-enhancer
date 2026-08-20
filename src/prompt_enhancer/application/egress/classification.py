@@ -64,6 +64,10 @@ EGRESS_REGISTRY: tuple[EgressRegistration, ...] = (
     # person's prompt to this app's own loopback API and printing the advice.
     EgressRegistration(module="prompt_enhancer.interfaces.hooks.prompt_check_hook", egress_class=EgressClass.LOOPBACK_OWNED_SERVICE, state=FutureEgressState.ACTIVE_LOCAL_ONLY, reason_code="owned_loopback_prompt_check_hook"),
     EgressRegistration(module="prompt_enhancer.infrastructure.estimator_runners.codex", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.IMPLEMENTED_UNCOMPOSED, reason_code="bounded_child_cli_runner_uncomposed"),
+    # Shared team folders (ADR 0018): the peer client dials exactly the URL the
+    # person typed when joining a teammate's folder; the share action on the
+    # serving side is the consent to answer that token. No other destination.
+    EgressRegistration(module="prompt_enhancer.application.shared_folders", egress_class=EgressClass.APPROVED_PROVIDER_REQUEST, state=FutureEgressState.ACTIVE_EXPLICIT_APPROVAL, reason_code="joined_peer_folder_sync_opt_in"),
 )
 
 FUTURE_EGRESS_STATES: dict[EgressClass, FutureEgressState] = {

@@ -541,6 +541,8 @@ def _build_schema_app(*, include_control_plane: bool):
         prompt_check_service=_SchemaPromptCheckService(),  # type: ignore[arg-type]
         local_agent_service=_SchemaLocalAgentService(),  # type: ignore[arg-type]
         annotation_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
+        shared_folder_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
+        peer_folder_client=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         central_annotation_server=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         remote_annotation_client=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         calibration_sample_session_ids=lambda: (),

@@ -107,6 +107,11 @@ export type JudgeOutcome = Schemas["JudgeOutcome"];
 export type JudgeSweepStatus = Schemas["JudgeSweepStatus"];
 export type JudgeAgreementReport = Schemas["JudgeAgreementReport"];
 export type AnnotationAllowance = Schemas["AllowanceState"];
+export type SharedFolder = Schemas["SharedFolder"];
+export type SharedFolderList = Schemas["SharedFolderList"];
+export type PeerLink = Schemas["PeerLink"];
+export type PeerLinkList = Schemas["PeerLinkList"];
+export type FolderSyncReport = Schemas["SyncReport"];
 export type AnnotationMetaprompt = Schemas["Metaprompt"];
 export type RemoteAnnotationResult = Schemas["RemoteSubmitResult"];
 export type SessionJudgments = Schemas["SessionJudgments"];
@@ -616,6 +621,15 @@ export interface PromptEnhancerTransport {
   setAnnotationAllowance(agentAllowed: boolean, signal?: AbortSignal): Promise<AnnotationAllowance>;
   getAnnotationMetaprompt(signal?: AbortSignal): Promise<AnnotationMetaprompt>;
   annotateRemotely(limit: number, signal?: AbortSignal): Promise<RemoteAnnotationResult>;
+  /** Shared team folders (ADR 0018): share, revoke, join a peer's folder, pull/push. */
+  shareFolder(path: string, name: string, signal?: AbortSignal): Promise<SharedFolder>;
+  listSharedFolders(signal?: AbortSignal): Promise<SharedFolderList>;
+  revokeSharedFolder(shareId: string, signal?: AbortSignal): Promise<void>;
+  joinSharedFolder(url: string, shareId: string, shareToken: string, target: string, signal?: AbortSignal): Promise<PeerLink>;
+  listPeerLinks(signal?: AbortSignal): Promise<PeerLinkList>;
+  leavePeerLink(linkId: string, signal?: AbortSignal): Promise<void>;
+  pullPeerLink(linkId: string, signal?: AbortSignal): Promise<FolderSyncReport>;
+  pushPeerLink(linkId: string, peerName: string, signal?: AbortSignal): Promise<FolderSyncReport>;
   getOnboardingStatus(signal?: AbortSignal): Promise<OnboardingStatus>;
   acceptOnboarding(request: OnboardingAccept, signal?: AbortSignal): Promise<OnboardingResult>;
   /** Blind calibration ratings over a frozen sample of the owner's own sessions. */

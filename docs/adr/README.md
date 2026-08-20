@@ -27,3 +27,4 @@ weaken the repository's privacy or safety rules.
 
 Changes that reverse an accepted decision should add a superseding ADR rather
 than silently rewriting the original rationale.
+| [0018](0018-shared-team-folders.md) | Accepted, first slice implemented | Shared team folders: a person explicitly shares one folder (token shown once, stored hashed); peers join it directly over `/p2p/v1/*` (no central server in the data path), pull it into a local copy that agents use as an ordinary workspace, and push edits back with last-synced-hash conflict detection - simultaneous edits survive as conflict copies. LAN listener and background sync deferred |

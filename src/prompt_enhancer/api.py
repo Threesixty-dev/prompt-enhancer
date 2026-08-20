@@ -346,6 +346,8 @@ def create_app(
     prompt_check_service=None,
     local_agent_service=None,
     annotation_service=None,
+    shared_folder_service=None,
+    peer_folder_client=None,
     central_annotation_server=None,
     remote_annotation_client=None,
     local_source_refresh_worker=None,
@@ -653,6 +655,7 @@ def create_app(
             prompt_check=prompt_check_service is not None,
             local_agent=local_agent_service is not None,
             annotation=annotation_service is not None,
+            shared_folders=shared_folder_service is not None,
             manual_display_labels=display_label_service is not None,
             browser_session=True,
             demo_provider="synthetic",
@@ -929,6 +932,11 @@ def create_app(
         app.include_router(create_annotation_router(require_local_token, annotation_service, remote_annotation_client))
         if central_annotation_server is not None:
             app.include_router(create_central_router(require_local_token, central_annotation_server))
+    if shared_folder_service is not None and peer_folder_client is not None:
+        from .interfaces.http.shared_folder_routes import create_p2p_router, create_shared_folder_router
+
+        app.include_router(create_shared_folder_router(require_local_token, shared_folder_service, peer_folder_client))
+        app.include_router(create_p2p_router(shared_folder_service))
     if model_judge_service is not None:
         from .interfaces.http.model_judge_routes import create_model_judge_router
 

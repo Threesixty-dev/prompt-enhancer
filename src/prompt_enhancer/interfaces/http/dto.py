@@ -96,6 +96,7 @@ class CapabilitiesDto(HttpDto):
     prompt_check: bool = False
     local_agent: bool = False
     annotation: bool = False
+    shared_folders: bool = False
     manual_display_labels: bool
     browser_session: Literal[True]
     demo_provider: Literal["synthetic"]
