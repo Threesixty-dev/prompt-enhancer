@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentEvent, AgentEvents, AgentSessionView, AgentSettings, LocalModelsOverview, PromptEnhancerTransport } from "../../shared/api/contracts";
+import type { AgentEvent, AgentEvents, AgentSessionView, AgentSettings, LocalModelsOverview, PromptCheckResult, PromptEnhancerTransport } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { TeamFoldersPanel } from "./TeamFoldersPanel";
 import { AgentWorkspacePane } from "./AgentWorkspacePane";
+import { AgentPromptCheckResult, agentPromptContext } from "./AgentPromptCheck";
 import "./AgentPage.css";
 
 const POLL_MS = 700;
@@ -41,7 +42,7 @@ function summarizeArguments(tool: string | null | undefined, args: Record<string
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
-> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
+> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "checkPrompt" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
 
 /**
  * Agent workspace: a local model works inside one folder through tools. Reads
@@ -74,6 +75,10 @@ export function AgentPage({
   const [thinking, setThinking] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [draft, setDraft] = useState("");
+  const [promptCheckBusy, setPromptCheckBusy] = useState(false);
+  const [promptCheckError, setPromptCheckError] = useState("");
+  const [promptCheckNotice, setPromptCheckNotice] = useState("");
+  const [promptCheckResult, setPromptCheckResult] = useState<PromptCheckResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [streamNotice, setStreamNotice] = useState("");
@@ -84,6 +89,16 @@ export function AgentPage({
   const logRef = useRef<HTMLDivElement | null>(null);
   const approvalRef = useRef<HTMLDivElement | null>(null);
   const followOutput = useRef(true);
+  const promptCheckController = useRef<AbortController | null>(null);
+
+  const clearPromptCheck = useCallback((notice = "") => {
+    promptCheckController.current?.abort();
+    promptCheckController.current = null;
+    setPromptCheckBusy(false);
+    setPromptCheckError("");
+    setPromptCheckNotice(notice);
+    setPromptCheckResult(null);
+  }, []);
 
   const refreshSessions = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -104,6 +119,12 @@ export function AgentPage({
     transport.getLocalModels?.(controller.signal).then((value) => { if (!controller.signal.aborted) setModels(value); }).catch(() => undefined);
     return () => controller.abort();
   }, [refreshSessions, transport]);
+
+  useEffect(() => () => promptCheckController.current?.abort(), []);
+
+  useEffect(() => {
+    clearPromptCheck();
+  }, [clearPromptCheck, current?.session_id]);
 
   // Pick the session from the route, or the newest one.
   useEffect(() => {
@@ -250,7 +271,7 @@ export function AgentPage({
 
   async function send() {
     const text = draft.trim();
-    if (!current || !text || busy) return;
+    if (!current || !text || busy || promptCheckBusy) return;
     setBusy(true);
     setMessage("");
     followOutput.current = true;
@@ -258,12 +279,63 @@ export function AgentPage({
       const view = await transport.sendAgentMessage(current.session_id, text);
       setCurrent(view);
       setDraft("");
+      clearPromptCheck();
     } catch (caught) {
       const status = caught instanceof TransportError ? caught.status : null;
       setMessage(status === 409 ? "No local model is active (activate one on the Models page), or a turn is still running." : "The message could not be sent.");
     } finally {
       setBusy(false);
     }
+  }
+
+  function changeDraft(value: string) {
+    clearPromptCheck();
+    setDraft(value);
+  }
+
+  async function runPromptCheck() {
+    const text = draft.trim();
+    const checkPrompt = transport.checkPrompt;
+    if (!current || !checkPrompt || !text || busy || promptCheckBusy || current.running) return;
+
+    const controller = new AbortController();
+    promptCheckController.current?.abort();
+    promptCheckController.current = controller;
+    setPromptCheckBusy(true);
+    setPromptCheckError("");
+    setPromptCheckNotice("");
+    setPromptCheckResult(null);
+
+    try {
+      const result = await checkPrompt({
+        prompt: text,
+        prior_messages: agentPromptContext(events),
+        session_id: null,
+        provider: "other",
+        agent_model: current.model_alias,
+        want_commentary: true,
+      }, controller.signal);
+      if (!controller.signal.aborted) setPromptCheckResult(result);
+    } catch (caught) {
+      if (controller.signal.aborted) return;
+      const status = caught instanceof TransportError ? caught.status : null;
+      setPromptCheckError(status === 404
+        ? "Prompt Check is not available in this runtime. Your draft was not changed."
+        : status === 422
+          ? "The draft or available conversation context exceeded the local check limits."
+          : "The prompt check did not run. Your draft was not changed.");
+    } finally {
+      if (promptCheckController.current === controller) {
+        promptCheckController.current = null;
+        setPromptCheckBusy(false);
+      }
+    }
+  }
+
+  function usePromptRewrite(value: string) {
+    if (!value.trim()) return;
+    setDraft(value);
+    clearPromptCheck("Suggested prompt applied. Check it again to validate the revised draft before sending.");
   }
 
   async function decide(approved: boolean) {
@@ -466,13 +538,31 @@ export function AgentPage({
                 <textarea
                   aria-label="Message to the agent"
                   disabled={current.running}
-                  onChange={(e) => setDraft(e.currentTarget.value)}
+                  onChange={(e) => changeDraft(e.currentTarget.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }}
                   placeholder={current.running ? "The agent is working…" : "What should the agent do? Ctrl+Enter sends"}
                   rows={3}
                   value={draft}
                 />
-                <button className="button button--primary" disabled={busy || current.running || !draft.trim()} type="submit">Send</button>
+                <div className="agent__compose-actions">
+                  {transport.checkPrompt && (
+                    <button
+                      aria-expanded={Boolean(promptCheckResult)}
+                      className="button button--ghost"
+                      disabled={busy || promptCheckBusy || current.running || !draft.trim()}
+                      onClick={() => void runPromptCheck()}
+                      type="button"
+                    >
+                      {promptCheckBusy ? "Checking…" : "Check & improve"}
+                    </button>
+                  )}
+                  <button className="button button--primary" disabled={busy || promptCheckBusy || current.running || !draft.trim()} type="submit">Send</button>
+                </div>
+                <div aria-live="polite" className="agent__prompt-check-status">
+                  {promptCheckError && <p className="agent__error" role="alert">{promptCheckError}</p>}
+                  {promptCheckNotice && <p className="agent__status">{promptCheckNotice}</p>}
+                </div>
+                {promptCheckResult && <AgentPromptCheckResult onUseRewrite={usePromptRewrite} result={promptCheckResult} />}
               </form>
             </>
           )}

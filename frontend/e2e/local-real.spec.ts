@@ -32,6 +32,59 @@ function integer(value: string | null, fallback: number): number {
   return Number.isSafeInteger(parsed) ? parsed : fallback;
 }
 
+function promptCheckFixture() {
+  return {
+    contract_version: "prompt-check.v1",
+    check_id: "e".repeat(32),
+    created_at: "2026-08-20T20:01:00Z",
+    provider: "other",
+    agent_model: null,
+    metrics: [{
+      key: "prompt.acceptance_testability",
+      display_name: "Acceptance testability",
+      description: "Checkable acceptance requirements",
+      state: "known",
+      value: 0.5,
+      numerator: 1,
+      denominator: 2,
+      higher_is_better: true,
+      explanation_code: "observed",
+      cues: [],
+    }],
+    context: {
+      task_type: "implement",
+      language: "en",
+      prompt_chars: 30,
+      prompt_words: 5,
+      sentence_count: 1,
+      bullet_count: 0,
+      question_count: 0,
+      file_references: 1,
+      code_identifiers: 0,
+      urls: 0,
+      prior_context_supplied: 0,
+      depends_on_prior_context: false,
+      verification_requested: false,
+      missing_elements: ["a checkable pass condition"],
+    },
+    commentary: {
+      state: "ok",
+      model_alias: "example-local-model",
+      prompt_version: "prompt-check-commentary-v1",
+      findings: [{ aspect: "verification", severity: "high", why: "No check is named.", suggestion: "Name the focused test command." }],
+      reformulated_prompt: "Update example.ts, run the focused test, and report the changed files and result.",
+      reformulated_elements: [],
+      notes: null,
+      caveat: "Local-model suggestion; not measured evidence.",
+    },
+    summary: "The target is visible, but verification needs a concrete pass condition.",
+    engine_version: "engine-v1",
+    rubric_version: "rubric-v1",
+    dashboard_path: `/prompt-checks/${"e".repeat(32)}`,
+    other_metric_families_note: "Collaboration and outcome metrics require later session evidence.",
+  };
+}
+
 const CODEX_UNSUPPORTED_METRICS = new Map<string, string>([
   ["collaboration.rework_candidate_rate", "feedback_text"],
   ["logic.hypothesis_test_linkage", "objective_verification"],
@@ -180,6 +233,10 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
         model_alias: null,
         turns: 0,
       }]);
+      return;
+    }
+    if (path === "/v1/prompt-checks" && method === "POST") {
+      await json(route, promptCheckFixture());
       return;
     }
     const agentTree = path.match(/^\/v1\/agent\/sessions\/([a-f0-9]{32})\/workspace\/tree$/);
@@ -417,6 +474,32 @@ test("edits an existing workspace file beside the agent through a reviewed local
   }));
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
   await expect(editor).toBeVisible();
+});
+
+test("checks and improves an agent draft through the local Prompt Check endpoint without sending it", async ({ page }) => {
+  await page.setViewportSize({ width: 420, height: 820 });
+  await page.goto("/agent");
+
+  const draft = page.getByRole("textbox", { name: "Message to the agent" });
+  await draft.fill("Update example.ts");
+  await page.getByRole("button", { name: "Check & improve" }).click();
+
+  await expect(page.getByRole("heading", { name: "Before the agent acts" })).toBeVisible();
+  await expect(page.getByText("a checkable pass condition")).toBeVisible();
+  await expect(page.getByText(/Name the focused test command/)).toBeVisible();
+  await expect(page.getByText(/model output, not measured evidence/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Use suggested prompt" }).click();
+  await expect(draft).toHaveValue("Update example.ts, run the focused test, and report the changed files and result.");
+  await expect(page.getByRole("heading", { name: "Before the agent acts" })).toHaveCount(0);
+  await expect(page.getByText(/Check it again to validate/)).toBeVisible();
+  await expect(page.getByText("Update example.ts", { exact: true })).toHaveCount(0);
+
+  const dimensions = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    viewport: document.documentElement.clientWidth,
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
 });
 
 test("keeps the canonical metric workspace truthful when the bounded source is unavailable", async ({ page }) => {

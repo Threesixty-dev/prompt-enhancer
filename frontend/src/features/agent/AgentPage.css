@@ -53,6 +53,26 @@
 .agent__approval-actions { display: flex; gap: 0.5rem; }
 .agent__compose { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.5rem; align-items: end; }
 .agent__compose textarea { width: 100%; resize: vertical; font: inherit; padding: 0.5rem 0.65rem; border-radius: 0.5rem; border: 1px solid var(--line-strong); }
+.agent__compose-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
+.agent__compose-actions .button { min-height: 2.75rem; }
+.agent__prompt-check-status { grid-column: 1 / -1; min-height: 0; }
+.agent-prompt-check { grid-column: 1 / -1; display: grid; gap: 0.65rem; padding: 0.75rem 0.85rem; border: 1px solid var(--accent-primary); border-radius: 0.65rem; background: var(--surface-soft); }
+.agent-prompt-check__head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.5rem 1rem; }
+.agent-prompt-check__head h2 { margin: 0.1rem 0 0; font-size: 1rem; }
+.agent-prompt-check__head > span { color: var(--ink-500); font-size: 0.74rem; }
+.agent-prompt-check__summary, .agent-prompt-check__scope, .agent-prompt-check__note { margin: 0; color: var(--ink-650); font-size: 0.8rem; line-height: 1.45; }
+.agent-prompt-check__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+.agent-prompt-check__grid h3, .agent-prompt-check__commentary h3 { margin: 0 0 0.35rem; font-size: 0.84rem; }
+.agent-prompt-check__commentary h3 small { color: var(--ink-500); font-weight: 500; }
+.agent-prompt-check__metrics, .agent-prompt-check__missing, .agent-prompt-check__findings { display: grid; gap: 0.3rem; margin: 0; padding: 0; list-style: none; }
+.agent-prompt-check__metrics li { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; padding: 0.28rem 0.4rem; border-radius: 0.35rem; background: var(--surface); font-size: 0.76rem; }
+.agent-prompt-check__metrics li[data-state="unknown"], .agent-prompt-check__metrics li[data-state="not_applicable"] { color: var(--ink-500); }
+.agent-prompt-check__missing li, .agent-prompt-check__findings li { position: relative; padding-left: 0.9rem; font-size: 0.78rem; line-height: 1.4; }
+.agent-prompt-check__missing li::before, .agent-prompt-check__findings li::before { content: "•"; position: absolute; left: 0.1rem; color: var(--accent-primary); }
+.agent-prompt-check__commentary { display: grid; gap: 0.4rem; padding-top: 0.55rem; border-top: 1px solid var(--line); }
+.agent-prompt-check__rewrite { display: grid; gap: 0.45rem; justify-items: start; }
+.agent-prompt-check__rewrite pre { width: 100%; max-height: 14rem; box-sizing: border-box; overflow: auto; margin: 0; padding: 0.55rem 0.65rem; border: 1px solid var(--line); border-radius: 0.45rem; background: var(--surface); white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 0.78rem; line-height: 1.45; }
+.agent-prompt-check__scope { padding-top: 0.5rem; border-top: 1px solid var(--line); }
 .agent__error { margin: 0; color: var(--status-negative); font-size: 0.84rem; }
 .agent-workspace { display: grid; grid-template-rows: auto auto minmax(8rem, auto) minmax(0, 1fr) auto; align-content: start; gap: 0.65rem; min-width: 0; min-height: 32rem; padding: 0.9rem 1rem; border: 1px solid var(--line); border-radius: var(--radius-lg, 14px); background: var(--surface); }
 .agent-workspace__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
@@ -84,6 +104,9 @@
 @media (max-width: 900px) {
   .agent__layout { grid-template-columns: minmax(0, 1fr); }
   .agent__compose { grid-template-columns: 1fr; }
+  .agent__compose-actions { justify-content: stretch; }
+  .agent__compose-actions .button { flex: 1 1 9rem; }
+  .agent-prompt-check__grid { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   .agent__thinking::after { animation: none; }
@@ -95,7 +118,9 @@
   .agent-workspace__review,
   .agent-workspace__agent-diff,
   .agent-workspace__review pre,
-  .agent-workspace__agent-diff pre { border-color: CanvasText; }
+  .agent-workspace__agent-diff pre,
+  .agent-prompt-check,
+  .agent-prompt-check__rewrite pre { border-color: CanvasText; }
   .agent-workspace__tree li > button:focus-visible { outline: 3px solid Highlight; }
 }
 
