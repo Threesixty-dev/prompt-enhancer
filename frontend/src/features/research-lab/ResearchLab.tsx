@@ -7,6 +7,7 @@ import type {
 } from "../../shared/api/contracts";
 import { ModelLabInventoryPanel } from "./ModelLabInventoryPanel";
 import { ModelCompatibilityPanel } from "./ModelCompatibilityPanel";
+import { MetricOperabilityPanel } from "./MetricOperabilityPanel";
 
 type LabView = "metrics" | "methods" | "models";
 type Metric = TextAnalysisResearchCatalog["metric_roadmap"][number];
@@ -91,7 +92,7 @@ function StatusBadge({ label, tone }: { label: string; tone: string }) {
   return <span className={`research-status research-status--${tone}`}>{label}</span>;
 }
 
-function MetricsView({ catalog }: { catalog: TextAnalysisResearchCatalog }) {
+function MetricsView({ catalog, transport }: { catalog: TextAnalysisResearchCatalog; transport: PromptEnhancerTransport }) {
   const grouped = useMemo(
     () =>
       PROFILE_ORDER.map((profile) => ({
@@ -103,6 +104,7 @@ function MetricsView({ catalog }: { catalog: TextAnalysisResearchCatalog }) {
 
   return (
     <div className="research-roadmap">
+      <MetricOperabilityPanel transport={transport} />
       {grouped.map((group) => (
         <section className="research-profile" key={group.profile}>
           <header className="research-profile__header">
@@ -517,7 +519,7 @@ export function ResearchLab({ transport }: { transport: PromptEnhancerTransport 
 
       <div id={`research-${view}`} role="tabpanel">
         {view === "metrics" ? (
-          <MetricsView catalog={catalog} />
+          <MetricsView catalog={catalog} transport={transport} />
         ) : view === "methods" ? (
           <MethodsView catalog={catalog} />
         ) : (

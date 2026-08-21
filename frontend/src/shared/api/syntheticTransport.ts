@@ -45,6 +45,7 @@ import {
 } from "./modelCompatibilityContract";
 import { SYNTHETIC_TEXT_ANALYSIS_RESEARCH } from "./syntheticResearchFixture";
 import { SYNTHETIC_MODEL_LAB_INVENTORY } from "./syntheticModelLabFixture";
+import { createSyntheticMetricOperabilityCatalog } from "./metricOperabilityContract";
 
 function copy<T>(value: T): T {
   return structuredClone(value);
@@ -451,6 +452,9 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
     },
     async getTextAnalysisResearch() {
       return copy(SYNTHETIC_TEXT_ANALYSIS_RESEARCH);
+    },
+    async getMetricOperabilityCatalog() {
+      return copy(createSyntheticMetricOperabilityCatalog());
     },
     async getTextModelRuntime() {
       return copy(SYNTHETIC_MODEL_RUNTIME_INVENTORY);

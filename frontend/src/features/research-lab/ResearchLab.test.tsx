@@ -10,6 +10,7 @@ describe("ResearchLab", () => {
     const transport = createSyntheticTransport();
     const inventorySpy = vi.spyOn(transport, "getModelLabInventory");
     const catalogSpy = vi.spyOn(transport, "getTextAnalysisResearch");
+    const operabilitySpy = vi.spyOn(transport, "getMetricOperabilityCatalog");
     const sessionSpy = vi.spyOn(transport, "listCodexSessions");
     const analysisSpy = vi.spyOn(transport, "startSessionQualityAnalysis");
 
@@ -19,8 +20,11 @@ describe("ResearchLab", () => {
     expect(screen.getByText("One profile, not one developer score")).toBeVisible();
     expect(screen.getByText("Task definition")).toBeVisible();
     expect(screen.getByText("Clarification value")).toBeVisible();
-    expect(screen.getByText("0").closest("div")).toHaveTextContent("neural models activated");
+    expect(await screen.findByRole("heading", { name: "What can produce measured evidence today" })).toBeVisible();
+    const summary = screen.getByLabelText("Research catalog summary");
+    expect(within(summary).getByText("0").closest("div")).toHaveTextContent("neural models activated");
     expect(catalogSpy).toHaveBeenCalledTimes(1);
+    expect(operabilitySpy).toHaveBeenCalledTimes(1);
     expect(sessionSpy).not.toHaveBeenCalled();
     expect(analysisSpy).not.toHaveBeenCalled();
     expect(inventorySpy).not.toHaveBeenCalled();

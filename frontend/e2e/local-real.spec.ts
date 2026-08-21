@@ -131,6 +131,14 @@ async function installLocalHttpFixture(page: Page): Promise<void> {
       await json(route, await transport.getSessionTextAnalysisCapability());
       return;
     }
+    if (path === "/v1/research/text-analysis-methods" && method === "GET") {
+      await json(route, await transport.getTextAnalysisResearch!());
+      return;
+    }
+    if (path === "/v1/metric-contracts/v2/operability-catalog" && method === "GET") {
+      await json(route, await transport.getMetricOperabilityCatalog!());
+      return;
+    }
     if (path === "/v1/local-sources/claude-code" && method === "GET") {
       await json(route, await transport.getClaudeLocalSourceStatus());
       return;
@@ -485,6 +493,25 @@ test("keeps local task records local-only without inferring work lifecycle", asy
   const unreconciled = page.getByRole("region", { name: "State not reconciled" });
   await expect(unreconciled).toContainText("No backlog, in-progress, or done state is fabricated");
   await expect(unreconciled.getByText("Unknown", { exact: true })).toHaveCount(2);
+});
+
+test("renders the server-bound all-twenty operability gate without a session read", async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 900 });
+  await page.goto("/research/methods");
+
+  await expect(page.getByLabel("Runtime status: Local loopback service available")).toHaveAttribute(
+    "data-service-state",
+    "available",
+  );
+  await expect(page.getByRole("heading", {
+    name: "What can produce measured evidence today",
+  })).toBeVisible();
+  const summary = page.getByLabel("Metric operability summary");
+  await expect(summary.getByText("Measured paths shipped").locator("..")).toContainText("12");
+  await expect(summary.getByText("Need project profile").locator("..")).toContainText("3");
+  await expect(summary.getByText("Need source adapter").locator("..")).toContainText("5");
+  await expect(summary.getByText("Model-authored metrics").locator("..")).toContainText("0");
+  await expect(page.locator("[data-operability-state]")).toHaveCount(20);
 });
 
 test("requires an exact local project grant before background scheduling", async ({ page }) => {

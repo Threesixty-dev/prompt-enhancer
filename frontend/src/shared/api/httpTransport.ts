@@ -141,6 +141,11 @@ import {
   ModelCompatibilityPayloadError,
   parseModelCompatibilityCatalog,
 } from "./modelCompatibilityContract";
+import {
+  MetricOperabilityDefinitionsOutOfDateError,
+  MetricOperabilityPayloadError,
+  parseMetricOperabilityCatalog,
+} from "./metricOperabilityContract";
 import { parseControlPlaneReadiness } from "./controlPlaneReadiness";
 import { parseCandidateDecisionsResponse } from "./taskDecisionContract";
 import {
@@ -2243,6 +2248,26 @@ export function createHttpTransport(options: {
         { method: "GET" },
         signal,
       );
+    },
+    async getMetricOperabilityCatalog(signal) {
+      const value = await request<unknown>(
+        "/v1/metric-contracts/v2/operability-catalog",
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseMetricOperabilityCatalog(value);
+      } catch (error) {
+        if (error instanceof MetricOperabilityDefinitionsOutOfDateError) {
+          throw error;
+        }
+        if (error instanceof MetricOperabilityPayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
     },
     getTextModelRuntime(signal) {
       return request(

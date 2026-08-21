@@ -499,6 +499,46 @@ describe("same-origin HTTP transport", () => {
     );
   });
 
+  it("validates the private all-twenty metric operability catalog", async () => {
+    const payload = await createSyntheticTransport().getMetricOperabilityCatalog!();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(payload));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getMetricOperabilityCatalog?.()).resolves.toEqual(payload);
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/v1/metric-contracts/v2/operability-catalog",
+    );
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({ method: "GET" }));
+    expect(fetchMock.mock.calls[1][1]?.headers).not.toEqual(
+      expect.objectContaining({ "X-Prompt-Enhancer-CSRF": expect.anything() }),
+    );
+  });
+
+  it("rejects a forged metric operability partition without exposing the response", async () => {
+    const payload = await createSyntheticTransport().getMetricOperabilityCatalog!();
+    const forged = {
+      ...payload,
+      shipped_path_count: 20,
+      private_detail: "SYNTHETIC_PRIVATE_CANARY",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(privateJsonResponse(forged));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    const error = await transport.getMetricOperabilityCatalog?.().catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(TransportError);
+    expect(String(error)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+  });
+
   it("validates and reads the private model compatibility catalog with GET", async () => {
     const payload = await createSyntheticTransport().getTextModelCompatibility!();
     const fetchMock = vi.fn()

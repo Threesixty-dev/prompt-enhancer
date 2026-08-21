@@ -539,6 +539,10 @@ export interface PromptEnhancerTransport {
   getTextModelCompatibility?(
     signal?: AbortSignal,
   ): Promise<ModelCompatibilityCatalog>;
+  /** Content-free all-twenty release map; never reads a project or session. */
+  getMetricOperabilityCatalog?(
+    signal?: AbortSignal,
+  ): Promise<MetricOperabilityCatalog>;
   getModelLabInventory?(signal?: AbortSignal): Promise<ModelLabInventory>;
   startTextModelEvaluation?(
     request: ModelEvaluationRequest,

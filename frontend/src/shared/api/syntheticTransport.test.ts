@@ -30,6 +30,27 @@ describe("synthetic transport vertical slice", () => {
     });
   });
 
+  it("serves an isolated exact all-twenty operability fixture", async () => {
+    const transport = createSyntheticTransport();
+    const first = await transport.getMetricOperabilityCatalog!();
+
+    expect(first).toMatchObject({
+      total_metric_count: 20,
+      shipped_path_count: 12,
+      task_profile_configuration_gap_count: 3,
+      provider_adapter_gap_count: 5,
+      experimental_model_path_count: 8,
+      model_authoritative_metric_count: 0,
+      local_only: true,
+      content_persisted: false,
+    });
+    first.entries.pop();
+    await expect(transport.getMetricOperabilityCatalog!()).resolves.toHaveProperty(
+      "entries.length",
+      20,
+    );
+  });
+
   it("pages fixture indexes with the same explicit bounds as the local transport", async () => {
     const transport = createSyntheticTransport();
 
