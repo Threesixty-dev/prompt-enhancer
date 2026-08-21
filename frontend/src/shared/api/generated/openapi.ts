@@ -2059,6 +2059,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/requirement-plan-evidence/contract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Contract */
+        get: operations["contract_v1_sessions__session_id__requirement_plan_evidence_contract_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-plan-evidence/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import File */
+        post: operations["import_file_v1_sessions__session_id__requirement_plan_evidence_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-plan-evidence/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview */
+        post: operations["preview_v1_sessions__session_id__requirement_plan_evidence_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-plan-evidence/proposal-page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Proposal Page */
+        get: operations["proposal_page_v1_sessions__session_id__requirement_plan_evidence_proposal_page_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-plan-evidence/proposals/{proposal_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide */
+        post: operations["decide_v1_sessions__session_id__requirement_plan_evidence_proposals__proposal_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/requirement-plan-evidence/proposals/{proposal_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Proposal */
+        post: operations["review_proposal_v1_sessions__session_id__requirement_plan_evidence_proposals__proposal_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/timeline": {
         parameters: {
             query?: never;
@@ -4607,6 +4709,12 @@ export interface components {
          * @enum {string}
          */
         EvidenceAuthority: "conversation" | "objective_receipt";
+        /** ExcludedRequirementClause */
+        ExcludedRequirementClause: {
+            basis_coordinate?: components["schemas"]["RequirementCoordinate"] | null;
+            coordinate: components["schemas"]["RequirementCoordinate"];
+            reason: components["schemas"]["RequirementPlanExclusionReason"];
+        };
         /** FileContent */
         FileContent: {
             /** Content B64 */
@@ -5242,7 +5350,7 @@ export interface components {
          *     A contributor is a *kind of proof*, never a provider, a model, or a person.
          * @enum {string}
          */
-        MetricEvidenceContributor: "focus_owned_request_revision" | "canonical_request_text" | "declared_task_profile" | "rubric_factor_calculator" | "semantic_unit_heads" | "agent_response_text" | "feedback_classification" | "declared_objective_opportunity_set" | "documented_plan_message" | "explicit_plan_supersession_link" | "confirmed_lifecycle_enumeration" | "confirmed_lifecycle_opportunity" | "confirmed_lifecycle_outcome_link" | "typed_action_evidence" | "typed_decision_evidence" | "typed_verification_receipt";
+        MetricEvidenceContributor: "focus_owned_request_revision" | "canonical_request_text" | "declared_task_profile" | "rubric_factor_calculator" | "semantic_unit_heads" | "agent_response_text" | "feedback_classification" | "declared_objective_opportunity_set" | "documented_plan_message" | "explicit_plan_supersession_link" | "confirmed_lifecycle_enumeration" | "confirmed_lifecycle_opportunity" | "confirmed_lifecycle_outcome_link" | "reviewed_requirement_enumeration" | "reviewed_requirement_plan_disposition" | "typed_action_evidence" | "typed_decision_evidence" | "typed_verification_receipt";
         /**
          * MetricEvidenceReadinessProjectionV2
          * @description The twenty readiness rows plus the identity they were derived from.
@@ -5264,10 +5372,10 @@ export interface components {
             capability_missing_count: number;
             /**
              * Catalog Version
-             * @default metric-evidence-readiness-v2-4
+             * @default metric-evidence-readiness-v2-5
              * @constant
              */
-            catalog_version: "metric-evidence-readiness-v2-4";
+            catalog_version: "metric-evidence-readiness-v2-5";
             /** Compatibility Preview */
             compatibility_preview: boolean;
             /**
@@ -5294,7 +5402,7 @@ export interface components {
              * Metric Projection Version
              * @enum {string}
              */
-            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5";
+            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6";
             /** Metrics */
             metrics: components["schemas"]["MetricEvidenceReadinessV2"][];
             /** No Opportunity Count */
@@ -5359,7 +5467,7 @@ export interface components {
          *     evidence contract that would have to exist first.
          * @enum {string}
          */
-        MetricEvidenceReadinessReason: "measured_from_owned_opportunities" | "opportunity_right_censored" | "no_eligible_opportunity_observed" | "opportunity_set_undetermined" | "opportunity_set_exceeds_receipt_bound" | "declared_profile_slots_absent" | "opportunity_classification_unresolved" | "source_reconciliation_incomplete" | "calculator_abstained" | "execution_error_reported" | "measured_under_superseded_projection_identity" | "focus_owned_request_revision_required" | "owned_canonical_request_text_required" | "request_revision_unit_extraction_required" | "feedback_unit_extraction_required" | "decision_unit_extraction_required" | "ambiguity_episode_extraction_required" | "clarification_episode_extraction_required" | "hypothesis_episode_extraction_required" | "scope_change_episode_extraction_required" | "requirement_unit_extraction_required" | "open_loop_episode_extraction_required" | "explicit_plan_episode_required" | "confirmed_lifecycle_service_required" | "confirmed_lifecycle_enumeration_required" | "hypothesis_chain_adapter_capabilities_required" | "requirement_action_adapter_capabilities_required" | "material_claim_verification_adapter_capabilities_required" | "verification_task_outcome_adapter_capabilities_required" | "requirement_verification_adapter_capabilities_required";
+        MetricEvidenceReadinessReason: "measured_from_owned_opportunities" | "opportunity_right_censored" | "no_eligible_opportunity_observed" | "opportunity_set_undetermined" | "opportunity_set_exceeds_receipt_bound" | "declared_profile_slots_absent" | "opportunity_classification_unresolved" | "source_reconciliation_incomplete" | "calculator_abstained" | "execution_error_reported" | "measured_under_superseded_projection_identity" | "focus_owned_request_revision_required" | "owned_canonical_request_text_required" | "request_revision_unit_extraction_required" | "feedback_unit_extraction_required" | "decision_unit_extraction_required" | "ambiguity_episode_extraction_required" | "clarification_episode_extraction_required" | "hypothesis_episode_extraction_required" | "scope_change_episode_extraction_required" | "requirement_unit_extraction_required" | "open_loop_episode_extraction_required" | "explicit_plan_episode_required" | "confirmed_lifecycle_service_required" | "confirmed_lifecycle_enumeration_required" | "reviewed_requirement_plan_service_required" | "reviewed_requirement_plan_confirmation_required" | "reviewed_requirement_plan_binding_invalid" | "hypothesis_chain_adapter_capabilities_required" | "requirement_action_adapter_capabilities_required" | "material_claim_verification_adapter_capabilities_required" | "verification_task_outcome_adapter_capabilities_required" | "requirement_verification_adapter_capabilities_required";
         /**
          * MetricEvidenceReadinessV2
          * @description One metric's readiness, provenance, and sufficient statistics.
@@ -5742,20 +5850,20 @@ export interface components {
          * MetricMeasuredPath
          * @enum {string}
          */
-        MetricMeasuredPath: "focus_rubric" | "declared_task_profile" | "confirmed_lifecycle" | "documented_semantic_unit" | "explicit_plan_link" | "task_scoped_verification" | "typed_objective" | "semantic_unit_extractor";
+        MetricMeasuredPath: "focus_rubric" | "declared_task_profile" | "confirmed_lifecycle" | "documented_semantic_unit" | "explicit_plan_link" | "task_scoped_verification" | "typed_objective" | "semantic_unit_extractor" | "reviewed_requirement_plan";
         /**
          * MetricNextStepCode
          * @enum {string}
          */
-        MetricNextStepCode: "analyze_focus_request" | "declare_task_profile" | "confirm_lifecycle_evidence" | "record_documented_decision" | "link_plan_supersession" | "record_task_scoped_verification" | "add_objective_opportunity_link_adapter" | "add_requirement_plan_extractor";
+        MetricNextStepCode: "analyze_focus_request" | "declare_task_profile" | "confirm_lifecycle_evidence" | "record_documented_decision" | "link_plan_supersession" | "record_task_scoped_verification" | "add_objective_opportunity_link_adapter" | "add_requirement_plan_extractor" | "confirm_requirement_plan_evidence";
         /** MetricOperabilityCatalog */
         MetricOperabilityCatalog: {
             /**
              * Catalog Version
-             * @default metric-operability-v2
+             * @default metric-operability-v3
              * @constant
              */
-            catalog_version: "metric-operability-v2";
+            catalog_version: "metric-operability-v3";
             /**
              * Content Persisted
              * @default false
@@ -5782,18 +5890,18 @@ export interface components {
             model_authoritative_metric_count: 0;
             /**
              * Projection Version
-             * @default metric-contract-v2-projection-5
+             * @default metric-contract-v2-projection-6
              * @constant
              */
-            projection_version: "metric-contract-v2-projection-5";
+            projection_version: "metric-contract-v2-projection-6";
             /** Provider Adapter Gap Count */
             provider_adapter_gap_count: number;
             /**
              * Readiness Catalog Version
-             * @default metric-evidence-readiness-v2-4
+             * @default metric-evidence-readiness-v2-5
              * @constant
              */
-            readiness_catalog_version: "metric-evidence-readiness-v2-4";
+            readiness_catalog_version: "metric-evidence-readiness-v2-5";
             /**
              * Registry Version
              * @default all-20-factor-contracts-v2
@@ -5898,7 +6006,7 @@ export interface components {
              * Projection Version
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6";
             /**
              * Publication Key
              * @default metric.contract-v2.publication
@@ -6077,7 +6185,7 @@ export interface components {
              * Projection Version
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6";
             /**
              * Registry Version
              * @default all-20-factor-contracts-v2
@@ -6712,6 +6820,7 @@ export interface components {
              * @constant
              */
             product_metric_eligible: false;
+            requirement_plan_evidence_binding: components["schemas"]["ModelRequirementPlanEvidenceBindingDto"] | null;
             /** Run Id */
             run_id: string;
             /**
@@ -7455,6 +7564,39 @@ export interface components {
              */
             unloaded_after_stage: true;
         };
+        /**
+         * ModelRequirementPlanEvidenceBindingDto
+         * @description Minimized reviewed decomposition authority bound to one sealed run.
+         */
+        ModelRequirementPlanEvidenceBindingDto: {
+            /** Confirmation Id */
+            confirmation_id?: string | null;
+            /**
+             * Content Persisted
+             * @constant
+             */
+            content_persisted: false;
+            /** Evidence Fingerprint */
+            evidence_fingerprint: string;
+            /**
+             * Evidence Policy Version
+             * @constant
+             */
+            evidence_policy_version: "reviewed-requirement-plan-v1";
+            /**
+             * Evidence Schema Version
+             * @enum {string}
+             */
+            evidence_schema_version: "requirement-plan-unavailable-v1" | "requirement-plan-awaiting-review-v1" | "requirement-plan-evidence-v1";
+            evidence_source: components["schemas"]["RequirementPlanEvidenceSource"];
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            /** Proposal Id */
+            proposal_id?: string | null;
+        };
         /** ModelRuntimeInventoryDto */
         ModelRuntimeInventoryDto: {
             /** Cpu Architecture Bucket */
@@ -7685,6 +7827,13 @@ export interface components {
             contract_version: "shared-folders.v1";
             /** Links */
             links: components["schemas"]["PeerLink"][];
+        };
+        /** PlanCoordinate */
+        PlanCoordinate: {
+            /** Clause Index */
+            clause_index: number;
+            /** Message Sequence */
+            message_sequence: number;
         };
         /**
          * PredictiveMetricState
@@ -8395,6 +8544,970 @@ export interface components {
             stored_locally_as?: string | null;
             /** Submitted */
             submitted: number;
+        };
+        /** RequirementCoordinate */
+        RequirementCoordinate: {
+            /** Clause Index */
+            clause_index: number;
+            /** Message Sequence */
+            message_sequence: number;
+        };
+        /**
+         * RequirementDisposition
+         * @enum {string}
+         */
+        RequirementDisposition: "linked" | "not_linked" | "pending";
+        /** RequirementEvidenceEntry */
+        RequirementEvidenceEntry: {
+            coordinate: components["schemas"]["RequirementCoordinate"];
+            disposition: components["schemas"]["RequirementDisposition"];
+            /**
+             * Plan Indexes
+             * @default []
+             */
+            plan_indexes: number[];
+        };
+        /**
+         * RequirementPlanClauseAlgorithmContract
+         * @description Machine-readable reproduction recipe for source clause coordinates.
+         */
+        RequirementPlanClauseAlgorithmContract: {
+            /**
+             * Algorithm
+             * @default message-clause-coordinates-en-pl-v1
+             * @constant
+             */
+            algorithm: "message-clause-coordinates-en-pl-v1";
+            /**
+             * Clause Indexes Are Zero Based
+             * @default true
+             * @constant
+             */
+            clause_indexes_are_zero_based: true;
+            /**
+             * Implementation Semantics
+             * @default python-3.12-re-unicode
+             * @constant
+             */
+            implementation_semantics: "python-3.12-re-unicode";
+            /**
+             * Max Clauses Per Message
+             * @default 128
+             * @constant
+             */
+            max_clauses_per_message: 128;
+            /**
+             * Nul Replacement
+             * @default ascii_space
+             * @constant
+             */
+            nul_replacement: "ascii_space";
+            /**
+             * Omit Empty Parts
+             * @default true
+             * @constant
+             */
+            omit_empty_parts: true;
+            /**
+             * Operation Order
+             * @default [
+             *       "replace_nul",
+             *       "split",
+             *       "normalize_whitespace",
+             *       "trim",
+             *       "omit_empty",
+             *       "overflow_check"
+             *     ]
+             */
+            operation_order: [
+                "replace_nul",
+                "split",
+                "normalize_whitespace",
+                "trim",
+                "omit_empty",
+                "overflow_check"
+            ];
+            /**
+             * Overflow Policy
+             * @default fail_closed_above_128_normalized_clauses
+             * @constant
+             */
+            overflow_policy: "fail_closed_above_128_normalized_clauses";
+            /**
+             * Split Regex
+             * @default (?:\r?\n)+|(?<=[.!?;])\s+
+             * @constant
+             */
+            split_regex: "(?:\\r?\\n)+|(?<=[.!?;])\\s+";
+            /**
+             * Split Regex Flags
+             * @default unicode
+             * @constant
+             */
+            split_regex_flags: "unicode";
+            /**
+             * Trim Each Part
+             * @default true
+             * @constant
+             */
+            trim_each_part: true;
+            /**
+             * Whitespace Regex
+             * @default \s+
+             * @constant
+             */
+            whitespace_regex: "\\s+";
+            /**
+             * Whitespace Replacement
+             * @default ascii_space
+             * @constant
+             */
+            whitespace_replacement: "ascii_space";
+        };
+        /** RequirementPlanDecisionCommand */
+        RequirementPlanDecisionCommand: {
+            /**
+             * Complete Review Acknowledged
+             * @default false
+             */
+            complete_review_acknowledged: boolean;
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "apply_local_user_requirement_plan_evidence_decision";
+            decision: components["schemas"]["RequirementPlanDecisionKind"];
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /** Manifest Fingerprint */
+            manifest_fingerprint?: string | null;
+            /** Review Receipt Id */
+            review_receipt_id?: string | null;
+            /** Reviewed Candidate Set Fingerprint */
+            reviewed_candidate_set_fingerprint?: string | null;
+            /** Reviewed Graph Fingerprint */
+            reviewed_graph_fingerprint?: string | null;
+        };
+        /**
+         * RequirementPlanDecisionKind
+         * @enum {string}
+         */
+        RequirementPlanDecisionKind: "confirm" | "reject";
+        /**
+         * RequirementPlanEvidenceContract
+         * @description Exact content-free recipe an agent may use to prepare one file.
+         */
+        RequirementPlanEvidenceContract: {
+            /**
+             * Allowed Dispositions
+             * @default [
+             *       "linked",
+             *       "not_linked",
+             *       "pending"
+             *     ]
+             */
+            allowed_dispositions: ("linked" | "not_linked" | "pending")[];
+            /**
+             * Allowed Exclusion Reasons
+             * @default [
+             *       "not_requirement",
+             *       "superseded",
+             *       "withdrawn",
+             *       "duplicate",
+             *       "out_of_scope",
+             *       "already_satisfied_or_closed"
+             *     ]
+             */
+            allowed_exclusion_reasons: ("not_requirement" | "superseded" | "withdrawn" | "duplicate" | "out_of_scope" | "already_satisfied_or_closed")[];
+            /**
+             * Allowed User Clause Classifications
+             * @default [
+             *       "active_requirement",
+             *       "excluded_from_active_requirement_denominator"
+             *     ]
+             */
+            allowed_user_clause_classifications: ("active_requirement" | "excluded_from_active_requirement_denominator")[];
+            /**
+             * Authoritative Model Judgment Claims Allowed
+             * @default false
+             * @constant
+             */
+            authoritative_model_judgment_claims_allowed: false;
+            /**
+             * Candidate Unit
+             * @default reviewable_user_request_or_feedback_clause
+             * @constant
+             */
+            candidate_unit: "reviewable_user_request_or_feedback_clause";
+            /**
+             * Canonical Json Required
+             * @default true
+             * @constant
+             */
+            canonical_json_required: true;
+            /**
+             * Canonicalization
+             * @default json-sort-keys-compact-ensure-ascii-v1
+             * @constant
+             */
+            canonicalization: "json-sort-keys-compact-ensure-ascii-v1";
+            /**
+             * Clause Algorithm
+             * @default message-clause-coordinates-en-pl-v1
+             * @constant
+             */
+            clause_algorithm: "message-clause-coordinates-en-pl-v1";
+            clause_algorithm_spec: components["schemas"]["RequirementPlanClauseAlgorithmContract"];
+            /**
+             * Complete User Clause Classification Required
+             * @default true
+             * @constant
+             */
+            complete_user_clause_classification_required: true;
+            /**
+             * Compound Clause Coarsening Disclosed
+             * @default true
+             * @constant
+             */
+            compound_clause_coarsening_disclosed: true;
+            /** Contract Set Fingerprint */
+            contract_set_fingerprint: string;
+            /**
+             * Duplicate Keys Allowed
+             * @default false
+             * @constant
+             */
+            duplicate_keys_allowed: false;
+            /**
+             * Durable Producer Claim Shape
+             * @default installation_keyed_opaque_commitment_only
+             * @constant
+             */
+            durable_producer_claim_shape: "installation_keyed_opaque_commitment_only";
+            /**
+             * Excluded User Clauses Are Excluded From Metric
+             * @default true
+             * @constant
+             */
+            excluded_user_clauses_are_excluded_from_metric: true;
+            /** Expected Predecessor Confirmation Id */
+            expected_predecessor_confirmation_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /**
+             * File Constraint Codes
+             * @default [
+             *       "identifiers_match_current_contract",
+             *       "producer_codes_match_safe_version_pattern",
+             *       "expires_at_is_utc_after_validation_and_within_86400_seconds",
+             *       "requirement_coordinates_are_sorted_unique",
+             *       "plan_coordinates_are_sorted_unique",
+             *       "plan_indexes_are_sorted_unique_non_negative",
+             *       "linked_requires_nonempty_plan_indexes",
+             *       "nonlinked_and_pending_require_empty_plan_indexes",
+             *       "plan_indexes_reference_existing_plan_items",
+             *       "total_plan_indexes_lte_4000",
+             *       "requirement_coordinates_reference_user_request_or_feedback_clauses",
+             *       "excluded_user_clause_coordinates_are_sorted_unique",
+             *       "excluded_user_clause_reasons_use_closed_rubric",
+             *       "exclusion_basis_coordinates_follow_reason_rules",
+             *       "user_clauses_exactly_classified_as_active_or_excluded",
+             *       "active_and_excluded_user_clause_coordinates_are_disjoint",
+             *       "source_messages_fail_closed_above_128_normalized_clauses",
+             *       "plan_coordinates_reference_agent_plan_clauses",
+             *       "linked_plan_sequence_gte_requirement_sequence"
+             *     ]
+             */
+            file_constraint_codes: ("identifiers_match_current_contract" | "producer_codes_match_safe_version_pattern" | "expires_at_is_utc_after_validation_and_within_86400_seconds" | "requirement_coordinates_are_sorted_unique" | "plan_coordinates_are_sorted_unique" | "plan_indexes_are_sorted_unique_non_negative" | "linked_requires_nonempty_plan_indexes" | "nonlinked_and_pending_require_empty_plan_indexes" | "plan_indexes_reference_existing_plan_items" | "total_plan_indexes_lte_4000" | "requirement_coordinates_reference_user_request_or_feedback_clauses" | "excluded_user_clause_coordinates_are_sorted_unique" | "excluded_user_clause_reasons_use_closed_rubric" | "exclusion_basis_coordinates_follow_reason_rules" | "user_clauses_exactly_classified_as_active_or_excluded" | "active_and_excluded_user_clause_coordinates_are_disjoint" | "source_messages_fail_closed_above_128_normalized_clauses" | "plan_coordinates_reference_agent_plan_clauses" | "linked_plan_sequence_gte_requirement_sequence")[];
+            /**
+             * File Constraint Contract Version
+             * @default requirement-plan-file-constraints-v1
+             * @constant
+             */
+            file_constraint_contract_version: "requirement-plan-file-constraints-v1";
+            /** File Json Schema */
+            file_json_schema: {
+                [key: string]: unknown;
+            };
+            /** File Json Schema Sha256 */
+            file_json_schema_sha256: string;
+            /**
+             * Floating Point Values Allowed
+             * @default false
+             * @constant
+             */
+            floating_point_values_allowed: false;
+            /**
+             * Import Confirmation
+             * @default import_requirement_plan_evidence_as_unconfirmed_proposal
+             * @constant
+             */
+            import_confirmation: "import_requirement_plan_evidence_as_unconfirmed_proposal";
+            /**
+             * Import Creates Unconfirmed Proposal Only
+             * @default true
+             * @constant
+             */
+            import_creates_unconfirmed_proposal_only: true;
+            /**
+             * Max Active Requirement Count
+             * @default 1000
+             * @constant
+             */
+            max_active_requirement_count: 1000;
+            /**
+             * Max Clauses Per Message
+             * @default 128
+             * @constant
+             */
+            max_clauses_per_message: 128;
+            /**
+             * Max Excluded User Clause Count
+             * @default 1000
+             * @constant
+             */
+            max_excluded_user_clause_count: 1000;
+            /**
+             * Max File Bytes
+             * @default 65536
+             * @constant
+             */
+            max_file_bytes: 65536;
+            /**
+             * Max Json Depth
+             * @default 8
+             * @constant
+             */
+            max_json_depth: 8;
+            /**
+             * Max Json Items
+             * @default 6000
+             * @constant
+             */
+            max_json_items: 6000;
+            /**
+             * Max Lifetime Seconds
+             * @default 86400
+             * @constant
+             */
+            max_lifetime_seconds: 86400;
+            /**
+             * Max Link Count
+             * @default 4000
+             * @constant
+             */
+            max_link_count: 4000;
+            /**
+             * Max Plan Item Count
+             * @default 1000
+             * @constant
+             */
+            max_plan_item_count: 1000;
+            /**
+             * Max Reviewed User Clause Count
+             * @default 1000
+             * @constant
+             */
+            max_reviewed_user_clause_count: 1000;
+            /** Metric Contract Fingerprint */
+            metric_contract_fingerprint: string;
+            /**
+             * Metric Key
+             * @default logic.decomposition_coverage
+             * @constant
+             */
+            metric_key: "logic.decomposition_coverage";
+            /**
+             * Native Confirmation Required For Metric Authority
+             * @default true
+             * @constant
+             */
+            native_confirmation_required_for_metric_authority: true;
+            /**
+             * Objective Receipt Claims Allowed
+             * @default false
+             * @constant
+             */
+            objective_receipt_claims_allowed: false;
+            /**
+             * One Active Requirement Coordinate Is One Opportunity
+             * @default true
+             * @constant
+             */
+            one_active_requirement_coordinate_is_one_opportunity: true;
+            /**
+             * Opportunity Unit
+             * @default reviewed_active_requirement_clause
+             * @constant
+             */
+            opportunity_unit: "reviewed_active_requirement_clause";
+            /**
+             * Payload Digest
+             * @default sha256
+             * @constant
+             */
+            payload_digest: "sha256";
+            /**
+             * Prose Allowed
+             * @default false
+             * @constant
+             */
+            prose_allowed: false;
+            /**
+             * Raw Payload Persisted
+             * @default false
+             * @constant
+             */
+            raw_payload_persisted: false;
+            /**
+             * Raw Producer Claim Persisted
+             * @default false
+             * @constant
+             */
+            raw_producer_claim_persisted: false;
+            /**
+             * Registry Version
+             * @default all-20-factor-contracts-v2
+             * @constant
+             */
+            registry_version: "all-20-factor-contracts-v2";
+            review_rubric?: components["schemas"]["RequirementPlanReviewRubric"];
+            /**
+             * Review Rubric Version
+             * @default active-requirement-plan-review-rubric-v1
+             * @constant
+             */
+            review_rubric_version: "active-requirement-plan-review-rubric-v1";
+            /**
+             * Schema Version
+             * @default requirement-plan-evidence-file-v1
+             * @constant
+             */
+            schema_version: "requirement-plan-evidence-file-v1";
+            /**
+             * Scores Allowed
+             * @default false
+             * @constant
+             */
+            scores_allowed: false;
+            /** Session Id */
+            session_id: string;
+            source_manifest: components["schemas"]["RequirementPlanSourceManifest"];
+            /**
+             * Source Projection Version
+             * @enum {string}
+             */
+            source_projection_version: "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6";
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+            /**
+             * Uncertain Classification Policy
+             * @default reject_or_leave_proposal_unconfirmed
+             * @constant
+             */
+            uncertain_classification_policy: "reject_or_leave_proposal_unconfirmed";
+            /**
+             * Untrusted Structured Classification Proposals Allowed
+             * @default true
+             * @constant
+             */
+            untrusted_structured_classification_proposals_allowed: true;
+            /**
+             * Utf8 Without Bom Required
+             * @default true
+             * @constant
+             */
+            utf8_without_bom_required: true;
+        };
+        /** RequirementPlanEvidencePreview */
+        RequirementPlanEvidencePreview: {
+            /** Active Requirement Count */
+            active_requirement_count: number;
+            /**
+             * Can Set Numeric Metric On Import
+             * @default false
+             * @constant
+             */
+            can_set_numeric_metric_on_import: false;
+            /**
+             * Creates Unconfirmed Proposal Only
+             * @default true
+             * @constant
+             */
+            creates_unconfirmed_proposal_only: true;
+            /** Excluded User Clause Count */
+            excluded_user_clause_count: number;
+            /** Expected Predecessor Confirmation Id */
+            expected_predecessor_confirmation_id?: string | null;
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Link Count */
+            link_count: number;
+            /** Linked Active Requirement Count */
+            linked_active_requirement_count: number;
+            /**
+             * Native Confirmation Required For Metric Authority
+             * @default true
+             * @constant
+             */
+            native_confirmation_required_for_metric_authority: true;
+            /** Not Linked Active Requirement Count */
+            not_linked_active_requirement_count: number;
+            /** Payload Sha256 */
+            payload_sha256: string;
+            /** Pending Active Requirement Count */
+            pending_active_requirement_count: number;
+            /** Plan Item Count */
+            plan_item_count: number;
+            producer: components["schemas"]["RequirementPlanProducer"];
+            /**
+             * Raw Payload Persisted
+             * @default false
+             * @constant
+             */
+            raw_payload_persisted: false;
+            /**
+             * Raw Producer Claim Persisted
+             * @default false
+             * @constant
+             */
+            raw_producer_claim_persisted: false;
+            /** Reviewed User Clause Count */
+            reviewed_user_clause_count: number;
+            /** Session Id */
+            session_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /**
+         * RequirementPlanEvidenceSource
+         * @enum {string}
+         */
+        RequirementPlanEvidenceSource: "unavailable" | "awaiting_review" | "reviewed_requirement_plan";
+        /**
+         * RequirementPlanExclusionReason
+         * @enum {string}
+         */
+        RequirementPlanExclusionReason: "not_requirement" | "superseded" | "withdrawn" | "duplicate" | "out_of_scope" | "already_satisfied_or_closed";
+        /** RequirementPlanImportDto */
+        RequirementPlanImportDto: {
+            /** Applied */
+            applied: boolean;
+            /**
+             * Creates Unconfirmed Proposal Only
+             * @default true
+             */
+            creates_unconfirmed_proposal_only: boolean;
+            /**
+             * Native Confirmation Required For Metric Authority
+             * @default true
+             */
+            native_confirmation_required_for_metric_authority: boolean;
+            /** Payload Sha256 */
+            payload_sha256: string;
+            proposal: components["schemas"]["RequirementPlanProposalDto"];
+            /**
+             * Raw Payload Persisted
+             * @default false
+             */
+            raw_payload_persisted: boolean;
+        };
+        /**
+         * RequirementPlanProducer
+         * @description Ephemeral, explicitly untrusted producer claim from the submitted file.
+         */
+        RequirementPlanProducer: {
+            /**
+             * Authority
+             * @constant
+             */
+            authority: "untrusted_provenance_claim";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "local_coding_agent";
+            /** Model Id */
+            model_id: string;
+            /** Producer Id */
+            producer_id: string;
+            /** Producer Version */
+            producer_version: string;
+        };
+        /**
+         * RequirementPlanProducerReceipt
+         * @description Content-free durable commitment to an ephemeral producer claim.
+         */
+        RequirementPlanProducerReceipt: {
+            /**
+             * Authority
+             * @default untrusted_provenance_claim_commitment
+             * @constant
+             */
+            authority: "untrusted_provenance_claim_commitment";
+            /** Claim Fingerprint */
+            claim_fingerprint: string;
+            /**
+             * Kind
+             * @default local_coding_agent
+             * @constant
+             */
+            kind: "local_coding_agent";
+            /**
+             * Raw Claim Persisted
+             * @default false
+             * @constant
+             */
+            raw_claim_persisted: false;
+        };
+        /** RequirementPlanProposalDto */
+        RequirementPlanProposalDto: {
+            /** Confirmation Authority */
+            confirmation_authority?: "owned_native_user_presence" | null;
+            /** Content Persisted */
+            content_persisted: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at?: string | null;
+            decision?: components["schemas"]["RequirementPlanDecisionKind"] | null;
+            /** Decision Id */
+            decision_id?: string | null;
+            /** Excluded User Clauses */
+            excluded_user_clauses: components["schemas"]["ExcludedRequirementClause"][];
+            /** Expected Predecessor Confirmation Id */
+            expected_predecessor_confirmation_id?: string | null;
+            /** Local Only */
+            local_only: boolean;
+            /** Payload Sha256 */
+            payload_sha256: string;
+            /** Plan Items */
+            plan_items: components["schemas"]["PlanCoordinate"][];
+            /** Policy Version */
+            policy_version: string;
+            producer_receipt: components["schemas"]["RequirementPlanProducerReceipt"];
+            /** Proposal Id */
+            proposal_id: string;
+            /** Requirements */
+            requirements: components["schemas"]["RequirementEvidenceEntry"][];
+            /**
+             * Review Rubric Version
+             * @constant
+             */
+            review_rubric_version: "active-requirement-plan-review-rubric-v1";
+            /** Schema Version */
+            schema_version: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+            status: components["schemas"]["RequirementPlanProposalStatus"];
+        };
+        /** RequirementPlanProposalOutcomeDto */
+        RequirementPlanProposalOutcomeDto: {
+            /** Applied */
+            applied: boolean;
+            proposal: components["schemas"]["RequirementPlanProposalDto"];
+        };
+        /** RequirementPlanProposalPageDto */
+        RequirementPlanProposalPageDto: {
+            /** Complete */
+            complete: boolean;
+            /** Limit */
+            limit: number;
+            /** Next Offset */
+            next_offset?: number | null;
+            /** Offset */
+            offset: number;
+            /** Proposals */
+            proposals: components["schemas"]["RequirementPlanProposalDto"][];
+            /** Session Id */
+            session_id: string;
+            snapshot: components["schemas"]["RequirementPlanProposalPageSnapshot"];
+            /** Total */
+            total: number;
+        };
+        /**
+         * RequirementPlanProposalPageSnapshot
+         * @description Server-issued high-water boundary for one stable multi-page listing.
+         */
+        RequirementPlanProposalPageSnapshot: {
+            /** Decision Count */
+            decision_count: number;
+            /** High Water Created At */
+            high_water_created_at?: string | null;
+            /** High Water Proposal Id */
+            high_water_proposal_id?: string | null;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /** Total */
+            total: number;
+        };
+        /**
+         * RequirementPlanProposalReview
+         * @description Ephemeral clause text for a person reviewing one immutable proposal.
+         */
+        RequirementPlanProposalReview: {
+            /**
+             * All Coordinates Structurally Valid
+             * @default true
+             * @constant
+             */
+            all_coordinates_structurally_valid: true;
+            /** Candidate Clauses */
+            candidate_clauses: components["schemas"]["RequirementPlanReviewClause"][];
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /** Payload Sha256 */
+            payload_sha256: string;
+            /** Proposal Id */
+            proposal_id: string;
+            /**
+             * Raw Text Persisted
+             * @default false
+             * @constant
+             */
+            raw_text_persisted: false;
+            /**
+             * Review Context Expires At
+             * Format: date-time
+             */
+            review_context_expires_at: string;
+            /**
+             * Review Receipt Expires At
+             * Format: date-time
+             */
+            review_receipt_expires_at: string;
+            /** Review Receipt Id */
+            review_receipt_id: string;
+            /** Reviewed Candidate Set Fingerprint */
+            reviewed_candidate_set_fingerprint: string;
+            /** Reviewed Graph Fingerprint */
+            reviewed_graph_fingerprint: string;
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /**
+         * RequirementPlanProposalStatus
+         * @enum {string}
+         */
+        RequirementPlanProposalStatus: "proposed" | "confirmed" | "rejected";
+        /** RequirementPlanReviewClause */
+        RequirementPlanReviewClause: {
+            basis_coordinate?: components["schemas"]["RequirementCoordinate"] | null;
+            /**
+             * Candidate Kind
+             * @enum {string}
+             */
+            candidate_kind: "user_clause" | "plan";
+            /** Classification */
+            classification?: ("active_requirement" | "excluded_from_active_requirement_denominator") | null;
+            /** Clause Index */
+            clause_index: number;
+            disposition?: components["schemas"]["RequirementDisposition"] | null;
+            exclusion_reason?: components["schemas"]["RequirementPlanExclusionReason"] | null;
+            /** Included In Proposal */
+            included_in_proposal: boolean;
+            kind: components["schemas"]["TextMessageKind"];
+            /**
+             * Linked Plan Coordinates
+             * @default []
+             */
+            linked_plan_coordinates: components["schemas"]["PlanCoordinate"][];
+            /** Message Sequence */
+            message_sequence: number;
+            role: components["schemas"]["TextRole"];
+            /** Text */
+            text: string;
+        };
+        /** RequirementPlanReviewCommand */
+        RequirementPlanReviewCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "open_exact_local_requirement_plan_clause_review";
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+        };
+        /**
+         * RequirementPlanReviewRubric
+         * @description Closed operational meaning of the reviewed denominator and outcomes.
+         */
+        RequirementPlanReviewRubric: {
+            /**
+             * Active Requirement Rule
+             * @default current_in_scope_user_owned_work_at_the_sealed_window
+             * @constant
+             */
+            active_requirement_rule: "current_in_scope_user_owned_work_at_the_sealed_window";
+            /**
+             * Already Satisfied Or Closed Rule
+             * @default work_was_already_satisfied_or_explicitly_closed_before_this_snapshot
+             * @constant
+             */
+            already_satisfied_or_closed_rule: "work_was_already_satisfied_or_explicitly_closed_before_this_snapshot";
+            /**
+             * Duplicate Rule
+             * @default same_active_work_is_owned_by_another_reviewed_clause
+             * @constant
+             */
+            duplicate_rule: "same_active_work_is_owned_by_another_reviewed_clause";
+            /**
+             * Exclusion Basis Policy
+             * @default superseded_and_withdrawn_point_to_a_later_user_clause_duplicate_points_to_its_active_owner
+             * @constant
+             */
+            exclusion_basis_policy: "superseded_and_withdrawn_point_to_a_later_user_clause_duplicate_points_to_its_active_owner";
+            /**
+             * Linked Rule
+             * @default one_or_more_reviewed_concrete_plan_clauses_address_the_active_requirement
+             * @constant
+             */
+            linked_rule: "one_or_more_reviewed_concrete_plan_clauses_address_the_active_requirement";
+            /**
+             * Not Linked Rule
+             * @default no_reviewed_plan_clause_addresses_the_requirement_and_the_person_confirms_the_planning_horizon_closed
+             * @constant
+             */
+            not_linked_rule: "no_reviewed_plan_clause_addresses_the_requirement_and_the_person_confirms_the_planning_horizon_closed";
+            /**
+             * Not Requirement Rule
+             * @default clause_does_not_express_work_to_be_performed
+             * @constant
+             */
+            not_requirement_rule: "clause_does_not_express_work_to_be_performed";
+            /**
+             * Out Of Scope Rule
+             * @default person_explicitly_excludes_this_work_from_the_current_scope
+             * @constant
+             */
+            out_of_scope_rule: "person_explicitly_excludes_this_work_from_the_current_scope";
+            /**
+             * Pending Rule
+             * @default no_reviewed_plan_clause_yet_addresses_the_requirement_and_the_planning_horizon_is_not_confirmed_closed
+             * @constant
+             */
+            pending_rule: "no_reviewed_plan_clause_yet_addresses_the_requirement_and_the_planning_horizon_is_not_confirmed_closed";
+            /**
+             * Superseded Rule
+             * @default later_user_clause_explicitly_replaces_this_work
+             * @constant
+             */
+            superseded_rule: "later_user_clause_explicitly_replaces_this_work";
+            /**
+             * Uncertain Policy
+             * @default reject_or_leave_proposal_unconfirmed
+             * @constant
+             */
+            uncertain_policy: "reject_or_leave_proposal_unconfirmed";
+            /**
+             * Version
+             * @default active-requirement-plan-review-rubric-v1
+             * @constant
+             */
+            version: "active-requirement-plan-review-rubric-v1";
+            /**
+             * Withdrawn Rule
+             * @default later_user_clause_explicitly_cancels_this_work
+             * @constant
+             */
+            withdrawn_rule: "later_user_clause_explicitly_cancels_this_work";
+        };
+        /**
+         * RequirementPlanSourceManifest
+         * @description Bounded content-free manifest used by external file producers.
+         */
+        RequirementPlanSourceManifest: {
+            /** Candidate Clause Count */
+            candidate_clause_count: number;
+            /**
+             * Clause Algorithm
+             * @default message-clause-coordinates-en-pl-v1
+             * @constant
+             */
+            clause_algorithm: "message-clause-coordinates-en-pl-v1";
+            clause_algorithm_spec: components["schemas"]["RequirementPlanClauseAlgorithmContract"];
+            /**
+             * Contains Text
+             * @default false
+             * @constant
+             */
+            contains_text: false;
+            /**
+             * Content Persisted
+             * @default false
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Local Only
+             * @default true
+             * @constant
+             */
+            local_only: true;
+            /** Manifest Fingerprint */
+            manifest_fingerprint: string;
+            /** Message Count */
+            message_count: number;
+            /** Messages */
+            messages: components["schemas"]["RequirementPlanSourceMessageManifest"][];
+            /**
+             * Review Context Expires At
+             * Format: date-time
+             */
+            review_context_expires_at: string;
+            review_rubric?: components["schemas"]["RequirementPlanReviewRubric"];
+            /**
+             * Review Rubric Version
+             * @default active-requirement-plan-review-rubric-v1
+             * @constant
+             */
+            review_rubric_version: "active-requirement-plan-review-rubric-v1";
+            /**
+             * Schema Version
+             * @default requirement-plan-source-manifest-v1
+             * @constant
+             */
+            schema_version: "requirement-plan-source-manifest-v1";
+            /** Session Id */
+            session_id: string;
+            /** Source Run Id */
+            source_run_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /**
+         * RequirementPlanSourceMessageManifest
+         * @description Content-free addressability for one message in the exact sealed window.
+         */
+        RequirementPlanSourceMessageManifest: {
+            /** Clause Count */
+            clause_count: number;
+            kind: components["schemas"]["TextMessageKind"];
+            /** Message Sequence */
+            message_sequence: number;
+            role: components["schemas"]["TextRole"];
         };
         /** ResearchSourceDto */
         ResearchSourceDto: {
@@ -15345,6 +16458,260 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionAnalysisRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    contract_v1_sessions__session_id__requirement_plan_evidence_contract_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanEvidenceContract"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_file_v1_sessions__session_id__requirement_plan_evidence_import_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Requirement-Plan-Payload-SHA256": string;
+                "X-Requirement-Plan-Confirmation": string;
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.prompt-enhancer.requirement-plan-evidence+json": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanImportDto"];
+                };
+            };
+            /** @description A new inert requirement-plan proposal was created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanImportDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_v1_sessions__session_id__requirement_plan_evidence_preview_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.prompt-enhancer.requirement-plan-evidence+json": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanEvidencePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    proposal_page_v1_sessions__session_id__requirement_plan_evidence_proposal_page_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                snapshot_id?: string | null;
+                snapshot_total?: number | null;
+                snapshot_decision_count?: number | null;
+                snapshot_high_water_created_at?: string | null;
+                snapshot_high_water_proposal_id?: string | null;
+            };
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanProposalPageDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_v1_sessions__session_id__requirement_plan_evidence_proposals__proposal_id__decision_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequirementPlanDecisionCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanProposalOutcomeDto"];
+                };
+            };
+            /** @description A new owned-native decision was recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanProposalOutcomeDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_proposal_v1_sessions__session_id__requirement_plan_evidence_proposals__proposal_id__review_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequirementPlanReviewCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementPlanProposalReview"];
                 };
             };
             /** @description Validation Error */

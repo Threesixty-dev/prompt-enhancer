@@ -37,6 +37,23 @@ _SAFE_ACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/requirement-plan-evidence/"
+            r"proposals/[a-f0-9]{64}/review$"
+        ),
+        "Open exact local clauses for one requirement-plan review",
+    ),
+    (
+        re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/requirement-plan-evidence/"
+            r"proposals/[a-f0-9]{64}/decision$"
+        ),
+        (
+            "Confirm or reject one reviewed active-requirement "
+            "classification and plan-link proposal"
+        ),
+    ),
+    (
+        re.compile(
             r"^/v1/agent/sessions/[a-f0-9]{32,64}/approvals/"
             r"[a-f0-9]{32,64}$"
         ),

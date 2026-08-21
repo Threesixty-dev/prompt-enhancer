@@ -34,7 +34,7 @@ from .metric_evidence_readiness_v2 import (
     METRIC_EVIDENCE_REQUIREMENTS_V2,
 )
 from .metric_lifecycle_evidence import MetricLifecycleFamily
-from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_5
+from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_6
 from .metric_projection_v3 import OPEN_LOOP_METRIC_KEY
 from .probabilistic_metrics import (
     EVIDENCE_LANE_METRIC_KEYS,
@@ -44,7 +44,7 @@ from .provider_evidence import CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES
 from .semantic_units import EXTRACTABLE_SEMANTIC_UNIT_KINDS
 
 
-METRIC_OPERABILITY_CATALOG_VERSION = "metric-operability-v2"
+METRIC_OPERABILITY_CATALOG_VERSION = "metric-operability-v3"
 
 
 class MetricMeasuredPath(StrEnum):
@@ -56,6 +56,7 @@ class MetricMeasuredPath(StrEnum):
     TASK_SCOPED_VERIFICATION = "task_scoped_verification"
     TYPED_OBJECTIVE = "typed_objective"
     SEMANTIC_UNIT_EXTRACTOR = "semantic_unit_extractor"
+    REVIEWED_REQUIREMENT_PLAN = "reviewed_requirement_plan"
 
 
 class MetricShippedPathState(StrEnum):
@@ -75,6 +76,7 @@ class MetricNextStepCode(StrEnum):
         "add_objective_opportunity_link_adapter"
     )
     ADD_REQUIREMENT_PLAN_EXTRACTOR = "add_requirement_plan_extractor"
+    CONFIRM_REQUIREMENT_PLAN_EVIDENCE = "confirm_requirement_plan_evidence"
 
 
 class MetricOperabilityEntry(StrictModel):
@@ -98,8 +100,8 @@ class MetricOperabilityCatalog(StrictModel):
         METRIC_CONTRACT_REGISTRY_VERSION_V2
     )
     contract_set_fingerprint: str
-    projection_version: Literal[METRIC_PROJECTION_V2_VERSION_5] = (
-        METRIC_PROJECTION_V2_VERSION_5
+    projection_version: Literal[METRIC_PROJECTION_V2_VERSION_6] = (
+        METRIC_PROJECTION_V2_VERSION_6
     )
     readiness_catalog_version: Literal[
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION
@@ -169,6 +171,10 @@ def _entry(contract: MetricContractV2) -> MetricOperabilityEntry:
         measured_path = MetricMeasuredPath.EXPLICIT_PLAN_LINK
         state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
         next_step = MetricNextStepCode.LINK_PLAN_SUPERSESSION
+    elif key == "logic.decomposition_coverage":
+        measured_path = MetricMeasuredPath.REVIEWED_REQUIREMENT_PLAN
+        state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
+        next_step = MetricNextStepCode.CONFIRM_REQUIREMENT_PLAN_EVIDENCE
     elif contract.denominator_basis is DenominatorBasis.RUBRIC_FACTORS:
         measured_path = MetricMeasuredPath.FOCUS_RUBRIC
         state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS

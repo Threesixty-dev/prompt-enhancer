@@ -34,6 +34,7 @@ from ...application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_3,
     METRIC_PROJECTION_V2_VERSION_4,
     METRIC_PROJECTION_V2_VERSION_5,
+    METRIC_PROJECTION_V2_VERSION_6,
     MetricStateV2,
     OpportunityStatistics,
     _issue_metric_state_projection,
@@ -48,10 +49,12 @@ from ...application.analysis.metric_publication_v2 import (
 )
 from ...application.analysis.session_model_ensemble import (
     MetricProfileSource,
+    RequirementPlanEvidenceSource,
     SessionModelEnsemblePersistenceAuthority,
     SessionModelEnsembleRepository,
     SessionModelEnsembleRunRecord,
     SessionMetricProfileBinding,
+    SessionRequirementPlanEvidenceBinding,
 )
 from ...application.analysis.semantic_units import (
     SEMANTIC_UNIT_CONTRACT_VERSION,
@@ -81,6 +84,7 @@ def _graph_fingerprint(run: SessionModelEnsembleRunRecord) -> str:
     # This append-only adjunct has its own seal and is not part of the frozen
     # base-run graph commitment.
     payload.pop("metric_profile_binding", None)
+    payload.pop("requirement_plan_evidence_binding", None)
     receipt = payload["receipt"]
     # The typed projection is an append-only adjunct with its own seal.  Keep
     # the original v26 graph commitment byte-compatible for legacy runs.
@@ -182,6 +186,11 @@ def _predictive_projection_fingerprint(
 #: readable, and a run carries at most one pair.
 METRIC_V2_SIDECARS = (
     (
+        METRIC_PROJECTION_V2_VERSION_6,
+        "session_model_ensemble_metric_states_v2_r6",
+        "session_model_ensemble_metric_publication_v2_seals_r6",
+    ),
+    (
         METRIC_PROJECTION_V2_VERSION_5,
         "session_model_ensemble_metric_states_v2_r5",
         "session_model_ensemble_metric_publication_v2_seals_r5",
@@ -246,6 +255,40 @@ def _metric_publication_profile_fingerprint(
             {
                 "profile_binding_fingerprint": (
                     _metric_profile_binding_fingerprint(binding)
+                ),
+                "projection_fingerprint": (
+                    _metric_publication_v2_fingerprint(publication)
+                ),
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _requirement_plan_binding_fingerprint(
+    binding: SessionRequirementPlanEvidenceBinding,
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            binding.model_dump(mode="json"),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _metric_publication_requirement_plan_fingerprint(
+    publication: MetricPublicationV2,
+    binding: SessionRequirementPlanEvidenceBinding,
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "requirement_plan_binding_fingerprint": (
+                    _requirement_plan_binding_fingerprint(binding)
                 ),
                 "projection_fingerprint": (
                     _metric_publication_v2_fingerprint(publication)
@@ -544,6 +587,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     ),
                 )
                 self._insert_metric_profile_binding(connection, run)
+                self._insert_requirement_plan_binding(connection, run)
                 self._insert_metric_projection(connection, run)
                 self._insert_metric_publication_v2(connection, run)
                 self._insert_predictive_projection(connection, run)
@@ -560,6 +604,8 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     != run.receipt.metric_publication_v2
                     or hydrated.metric_profile_binding
                     != run.metric_profile_binding
+                    or hydrated.requirement_plan_evidence_binding
+                    != run.requirement_plan_evidence_binding
                 ):
                     raise DatabaseInvariantError(
                         "stored model ensemble graph failed exact rehydration"
@@ -623,7 +669,16 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     raise DatabaseInvariantError(
                         "metric profile binding does not match the sealed ensemble run"
                     )
+                if (
+                    stored.requirement_plan_evidence_binding is not None
+                    and stored.requirement_plan_evidence_binding
+                    != run.requirement_plan_evidence_binding
+                ):
+                    raise DatabaseInvariantError(
+                        "requirement-plan binding does not match the sealed run"
+                    )
                 self._insert_metric_profile_binding(connection, run)
+                self._insert_requirement_plan_binding(connection, run)
                 self._insert_metric_projection(connection, run)
                 self._insert_metric_publication_v2(connection, run)
                 self._insert_predictive_projection(connection, run)
@@ -639,6 +694,8 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     != run.receipt.metric_publication_v2
                     or hydrated.metric_profile_binding
                     != run.metric_profile_binding
+                    or hydrated.requirement_plan_evidence_binding
+                    != run.requirement_plan_evidence_binding
                 ):
                     raise DatabaseInvariantError(
                         "typed metric projection failed exact rehydration"
@@ -740,6 +797,107 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             binding
         ):
             raise DatabaseInvariantError("metric profile binding seal is invalid")
+        return binding
+
+    @staticmethod
+    def _insert_requirement_plan_binding(
+        connection,
+        run: SessionModelEnsembleRunRecord,
+    ) -> None:
+        binding = run.requirement_plan_evidence_binding
+        existing = (
+            SqliteSessionModelEnsembleRepository._hydrate_requirement_plan_binding(
+                connection,
+                run.run_id,
+            )
+        )
+        if binding is None:
+            if existing is not None:
+                raise DatabaseInvariantError(
+                    "stored requirement-plan binding is missing from the run"
+                )
+            return
+        if existing is not None:
+            if existing != binding:
+                raise DatabaseInvariantError(
+                    "requirement-plan binding is immutable"
+                )
+            return
+        connection.execute(
+            """INSERT INTO session_model_ensemble_requirement_plan_bindings(
+                   run_id,evidence_source,session_id,source_window_fingerprint,
+                   confirmation_id,proposal_id,evidence_fingerprint,
+                   evidence_schema_version,evidence_policy_version,bound_at,
+                   binding_fingerprint,local_only,content_persisted
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,0)""",
+            (
+                run.run_id,
+                binding.evidence_source.value,
+                binding.session_id,
+                binding.source_window_fingerprint,
+                binding.confirmation_id,
+                binding.proposal_id,
+                binding.evidence_fingerprint,
+                binding.evidence_schema_version,
+                binding.evidence_policy_version,
+                to_iso(binding.bound_at),
+                _requirement_plan_binding_fingerprint(binding),
+            ),
+        )
+        stored = (
+            SqliteSessionModelEnsembleRepository._hydrate_requirement_plan_binding(
+                connection,
+                run.run_id,
+            )
+        )
+        if stored != binding:
+            raise DatabaseInvariantError(
+                "requirement-plan binding failed exact rehydration"
+            )
+
+    @staticmethod
+    def _hydrate_requirement_plan_binding(
+        connection,
+        run_id: str,
+    ) -> SessionRequirementPlanEvidenceBinding | None:
+        present = connection.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='table'
+                 AND name='session_model_ensemble_requirement_plan_bindings'"""
+        ).fetchone()
+        if present is None:
+            return None
+        row = connection.execute(
+            """SELECT * FROM session_model_ensemble_requirement_plan_bindings
+               WHERE run_id=?""",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        bound_at = from_iso(row["bound_at"])
+        if bound_at is None:
+            raise DatabaseInvariantError(
+                "requirement-plan binding time is missing"
+            )
+        binding = SessionRequirementPlanEvidenceBinding(
+            evidence_source=RequirementPlanEvidenceSource(row["evidence_source"]),
+            session_id=row["session_id"],
+            source_window_fingerprint=row["source_window_fingerprint"],
+            confirmation_id=row["confirmation_id"],
+            proposal_id=row["proposal_id"],
+            evidence_fingerprint=row["evidence_fingerprint"],
+            evidence_schema_version=row["evidence_schema_version"],
+            evidence_policy_version=row["evidence_policy_version"],
+            bound_at=bound_at,
+            local_only=bool(row["local_only"]),
+            content_persisted=bool(row["content_persisted"]),
+        )
+        if row["binding_fingerprint"] != _requirement_plan_binding_fingerprint(
+            binding
+        ):
+            raise DatabaseInvariantError(
+                "requirement-plan binding seal is invalid"
+            )
         return binding
 
     @staticmethod
@@ -969,18 +1127,20 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
         # Historical r1-r4 rows are read-only.  Accepting a superseded
         # model here would let current code mint a fresh value under a frozen
         # producer identity, defeating the append-only correction even if the
-        # SQL sidecars stayed separate.  Every current write must use r5 and
-        # carry the exact content-free profile identity used by projection.
+        # SQL sidecars stayed separate.  Every current write must use r6 and
+        # carry both exact content-free input authorities used by projection.
         binding = run.metric_profile_binding
+        evidence_binding = run.requirement_plan_evidence_binding
         if (
-            publication.projection_version != METRIC_PROJECTION_V2_VERSION_5
+            publication.projection_version != METRIC_PROJECTION_V2_VERSION_6
             or binding is None
+            or evidence_binding is None
         ):
             raise DatabaseInvariantError(
                 "new metric V2 publications require the current projection identity"
             )
         states_table, seals_table = _metric_v2_tables(
-            METRIC_PROJECTION_V2_VERSION_5
+            METRIC_PROJECTION_V2_VERSION_6
         )
         connection.executemany(
             f"""
@@ -1049,9 +1209,15 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 projection_fingerprint,profile_source,profile_id,
                 profile_revision,profile_fingerprint,profile_schema_version,
                 profile_policy_version,profile_binding_fingerprint,
-                publication_profile_fingerprint,projected_at,local_only,
+                publication_profile_fingerprint,requirement_plan_source,
+                requirement_plan_confirmation_id,requirement_plan_proposal_id,
+                requirement_plan_evidence_fingerprint,
+                requirement_plan_schema_version,requirement_plan_policy_version,
+                requirement_plan_binding_fingerprint,
+                publication_requirement_plan_fingerprint,
+                projected_at,local_only,
                 content_persisted,product_metric_eligible
-            ) VALUES(?,?,?,?,?,?,?,?,?,1,0,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0,0)
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 run.run_id,
@@ -1063,6 +1229,9 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 publication.guidance_contract_version,
                 publication.guidance_template_catalog_version,
                 publication.source.value,
+                1,
+                0,
+                0,
                 len(publication.metrics),
                 publication.known_count,
                 publication.pending_count,
@@ -1080,7 +1249,21 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 binding.profile_policy_version,
                 _metric_profile_binding_fingerprint(binding),
                 _metric_publication_profile_fingerprint(publication, binding),
+                evidence_binding.evidence_source.value,
+                evidence_binding.confirmation_id,
+                evidence_binding.proposal_id,
+                evidence_binding.evidence_fingerprint,
+                evidence_binding.evidence_schema_version,
+                evidence_binding.evidence_policy_version,
+                _requirement_plan_binding_fingerprint(evidence_binding),
+                _metric_publication_requirement_plan_fingerprint(
+                    publication,
+                    evidence_binding,
+                ),
                 to_iso(projected_at),
+                1,
+                0,
+                0,
             ),
         )
 
@@ -1855,6 +2038,9 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             connection,
             run_id,
         )
+        requirement_plan_evidence_binding = (
+            self._hydrate_requirement_plan_binding(connection, run_id)
+        )
         record = SessionModelEnsembleRunRecord(
             run_id=row["run_id"],
             session_id=row["session_id"],
@@ -1868,6 +2054,9 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             redactor_version=row["redactor_version"],
             consent_policy_version=row["consent_policy_version"],
             metric_profile_binding=metric_profile_binding,
+            requirement_plan_evidence_binding=(
+                requirement_plan_evidence_binding
+            ),
             receipt=receipt,
         )
         seal = connection.execute(
@@ -1923,7 +2112,10 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             != _metric_publication_v2_fingerprint(metric_publication_v2)
             or (
                 metric_publication_v2.projection_version
-                == METRIC_PROJECTION_V2_VERSION_5
+                in {
+                    METRIC_PROJECTION_V2_VERSION_5,
+                    METRIC_PROJECTION_V2_VERSION_6,
+                }
                 and (
                     metric_profile_binding is None
                     or metric_publication_v2_seal["profile_source"]
@@ -1950,6 +2142,48 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     != _metric_publication_profile_fingerprint(
                         metric_publication_v2,
                         metric_profile_binding,
+                    )
+                )
+            )
+            or (
+                metric_publication_v2.projection_version
+                == METRIC_PROJECTION_V2_VERSION_6
+                and (
+                    requirement_plan_evidence_binding is None
+                    or metric_publication_v2_seal["requirement_plan_source"]
+                    != requirement_plan_evidence_binding.evidence_source.value
+                    or metric_publication_v2_seal[
+                        "requirement_plan_confirmation_id"
+                    ]
+                    != requirement_plan_evidence_binding.confirmation_id
+                    or metric_publication_v2_seal[
+                        "requirement_plan_proposal_id"
+                    ]
+                    != requirement_plan_evidence_binding.proposal_id
+                    or metric_publication_v2_seal[
+                        "requirement_plan_evidence_fingerprint"
+                    ]
+                    != requirement_plan_evidence_binding.evidence_fingerprint
+                    or metric_publication_v2_seal[
+                        "requirement_plan_schema_version"
+                    ]
+                    != requirement_plan_evidence_binding.evidence_schema_version
+                    or metric_publication_v2_seal[
+                        "requirement_plan_policy_version"
+                    ]
+                    != requirement_plan_evidence_binding.evidence_policy_version
+                    or metric_publication_v2_seal[
+                        "requirement_plan_binding_fingerprint"
+                    ]
+                    != _requirement_plan_binding_fingerprint(
+                        requirement_plan_evidence_binding
+                    )
+                    or metric_publication_v2_seal[
+                        "publication_requirement_plan_fingerprint"
+                    ]
+                    != _metric_publication_requirement_plan_fingerprint(
+                        metric_publication_v2,
+                        requirement_plan_evidence_binding,
                     )
                 )
             )

@@ -750,7 +750,7 @@ export interface ModelEnsembleKnowledgeEntry {
   key: string;
   label: string;
   status: string;
-  /** Projection identity selecting frozen historical or current r5 help copy. */
+  /** Projection identity selecting frozen historical or current help copy. */
   projectionVersion: MetricHelpProjectionVersion | null;
   guidance: MetricInspectorSentences;
   context: MetricContextFacts;

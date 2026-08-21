@@ -130,6 +130,7 @@ describe("canonical metric V2 publication contract", () => {
       "metric-contract-v2-projection-3",
       "metric-contract-v2-projection-4",
       "metric-contract-v2-projection-5",
+      "metric-contract-v2-projection-6",
     ]) {
       const readable = structuredClone(legacy) as any;
       readable.projection_version = version;
@@ -139,9 +140,9 @@ describe("canonical metric V2 publication contract", () => {
       expect(parseMetricPublicationV2(structuredClone(readable))).toEqual(readable);
     }
     const future = structuredClone(legacy) as any;
-    future.projection_version = "metric-contract-v2-projection-6";
+    future.projection_version = "metric-contract-v2-projection-7";
     future.metrics.forEach((item: any) => {
-      item.state.projection_version = "metric-contract-v2-projection-6";
+      item.state.projection_version = "metric-contract-v2-projection-7";
     });
     let caught: unknown;
     try { parseMetricPublicationV2(future); } catch (error) { caught = error; }

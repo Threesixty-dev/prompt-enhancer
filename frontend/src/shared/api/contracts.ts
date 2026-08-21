@@ -209,7 +209,51 @@ export type ModelLinkExperimentOutcome =
 export type ModelLinkAnnotation = Schemas["ModelLinkAnnotationDto"];
 export type ModelLinkAnnotationRequest = Schemas["ModelLinkAnnotationRequest"];
 export type ModelEnsembleRequest = Schemas["ModelEnsembleRequest"];
-export type ModelEnsembleRun = Schemas["ModelEnsembleRunDto"];
+
+/**
+ * Handwritten strict-narrowing seam over the generated r6 client. It preserves
+ * historical projection unions while making the current receipt fields that
+ * the runtime always serializes explicit to presentation code.
+ */
+export type MetricProjectionV2Version =
+  | Schemas["MetricStateV2"]["projection_version"]
+  | "metric-contract-v2-projection-6";
+export type MetricStateV2 = Omit<Schemas["MetricStateV2"], "projection_version"> & {
+  projection_version: MetricProjectionV2Version;
+};
+export type PublishedMetricV2 = Omit<Schemas["PublishedMetricV2"], "state"> & {
+  state: MetricStateV2;
+};
+export type MetricPublicationV2Contract = Omit<
+  Schemas["MetricPublicationV2"],
+  "projection_version" | "metrics"
+> & {
+  projection_version: MetricProjectionV2Version;
+  metrics: PublishedMetricV2[];
+};
+
+export interface ModelRequirementPlanEvidenceBinding {
+  evidence_source: "unavailable" | "awaiting_review" | "reviewed_requirement_plan";
+  confirmation_id: string | null;
+  proposal_id: string | null;
+  evidence_fingerprint: string;
+  evidence_schema_version:
+    | "requirement-plan-unavailable-v1"
+    | "requirement-plan-awaiting-review-v1"
+    | "requirement-plan-evidence-v1";
+  evidence_policy_version: "reviewed-requirement-plan-v1";
+  local_only: true;
+  content_persisted: false;
+}
+
+export type ModelEnsembleRun = Omit<
+  Schemas["ModelEnsembleRunDto"],
+  "metric_publication_v2" | "metric_evidence_readiness_v2" | "requirement_plan_evidence_binding"
+> & {
+  metric_publication_v2: MetricPublicationV2Contract | null;
+  metric_evidence_readiness_v2: MetricEvidenceReadinessProjectionV2 | null;
+  requirement_plan_evidence_binding: ModelRequirementPlanEvidenceBinding | null;
+};
 
 /** Manual bridge until the generated OpenAPI client includes the reviewed profile route. */
 export type DeclaredTaskProfileConstraintKind =
@@ -262,14 +306,281 @@ export interface DeclaredTaskProfileOutcome {
   profile: DeclaredTaskProfile;
   applied: boolean;
 }
-export type MetricEvidenceReadinessProjectionV2 =
-  Schemas["MetricEvidenceReadinessProjectionV2"];
-export type MetricEvidenceReadinessV2 = Schemas["MetricEvidenceReadinessV2"];
-export type MetricEvidenceContributor = Schemas["MetricEvidenceContributor"];
+export type MetricEvidenceContributor =
+  | Schemas["MetricEvidenceContributor"]
+  | "reviewed_requirement_enumeration"
+  | "reviewed_requirement_plan_disposition";
+export type MetricEvidenceReadinessReason =
+  | Schemas["MetricEvidenceReadinessReason"]
+  | "reviewed_requirement_plan_service_required"
+  | "reviewed_requirement_plan_confirmation_required"
+  | "reviewed_requirement_plan_binding_invalid";
+export type MetricEvidenceReadinessV2 = Omit<
+  Schemas["MetricEvidenceReadinessV2"],
+  "required_contributors" | "observed_contributors" | "missing_contributors" | "reason_code"
+> & {
+  required_contributors: MetricEvidenceContributor[];
+  observed_contributors: MetricEvidenceContributor[];
+  missing_contributors: MetricEvidenceContributor[];
+  reason_code: MetricEvidenceReadinessReason;
+};
+export type MetricEvidenceReadinessProjectionV2 = Omit<
+  Schemas["MetricEvidenceReadinessProjectionV2"],
+  "catalog_version" | "metric_projection_version" | "metrics"
+> & {
+  catalog_version:
+    | "metric-evidence-readiness-v2-2"
+    | "metric-evidence-readiness-v2-3"
+    | "metric-evidence-readiness-v2-4"
+    | "metric-evidence-readiness-v2-5";
+  metric_projection_version: MetricProjectionV2Version;
+  metrics: MetricEvidenceReadinessV2[];
+};
 export type MetricEvidenceAvailabilityState =
   Schemas["MetricEvidenceAvailabilityState"];
-export type MetricOperabilityCatalog = Schemas["MetricOperabilityCatalog"];
-export type MetricOperabilityEntry = Schemas["MetricOperabilityEntry"];
+export type MetricOperabilityEntry = Omit<
+  Schemas["MetricOperabilityEntry"],
+  "measured_path" | "next_step_code"
+> & {
+  measured_path: Schemas["MetricOperabilityEntry"]["measured_path"] | "reviewed_requirement_plan";
+  next_step_code: Schemas["MetricOperabilityEntry"]["next_step_code"] | "confirm_requirement_plan_evidence";
+};
+export type MetricOperabilityCatalog = Omit<
+  Schemas["MetricOperabilityCatalog"],
+  "catalog_version" | "projection_version" | "readiness_catalog_version" | "entries"
+> & {
+  catalog_version: "metric-operability-v3";
+  projection_version: "metric-contract-v2-projection-6";
+  readiness_catalog_version: "metric-evidence-readiness-v2-5";
+  entries: MetricOperabilityEntry[];
+};
+
+export interface RequirementPlanCoordinate {
+  message_sequence: number;
+  clause_index: number;
+}
+export interface RequirementPlanEvidenceEntry {
+  coordinate: RequirementPlanCoordinate;
+  disposition: "linked" | "not_linked" | "pending";
+  plan_indexes: number[];
+}
+export interface RequirementPlanProducer {
+  kind: "local_coding_agent";
+  producer_id: string;
+  producer_version: string;
+  model_id: string;
+  authority: "untrusted_provenance_claim";
+}
+export type RequirementPlanClauseAlgorithmContract = Schemas["RequirementPlanClauseAlgorithmContract"];
+export type RequirementPlanReviewRubric = Schemas["RequirementPlanReviewRubric"];
+export type RequirementPlanExclusionReason = Schemas["RequirementPlanExclusionReason"];
+export type RequirementPlanProducerReceipt = Schemas["RequirementPlanProducerReceipt"];
+export type ExcludedRequirementClause = Omit<
+  Schemas["ExcludedRequirementClause"],
+  "basis_coordinate"
+> & { basis_coordinate: RequirementPlanCoordinate | null };
+export type RequirementPlanSourceManifest = Omit<
+  Schemas["RequirementPlanSourceManifest"],
+  "clause_algorithm_spec" | "review_rubric"
+> & {
+  clause_algorithm_spec: RequirementPlanClauseAlgorithmContract;
+  review_rubric: RequirementPlanReviewRubric;
+};
+export interface RequirementPlanEvidenceContract {
+  schema_version: "requirement-plan-evidence-file-v1";
+  session_id: string;
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  expected_predecessor_confirmation_id: string | null;
+  registry_version: "all-20-factor-contracts-v2";
+  contract_set_fingerprint: string;
+  metric_key: "logic.decomposition_coverage";
+  metric_contract_fingerprint: string;
+  source_projection_version:
+    | "metric-contract-v2-projection-5"
+    | "metric-contract-v2-projection-6";
+  clause_algorithm: "message-clause-coordinates-en-pl-v1";
+  clause_algorithm_spec: RequirementPlanClauseAlgorithmContract;
+  review_rubric_version: "active-requirement-plan-review-rubric-v1";
+  review_rubric: RequirementPlanReviewRubric;
+  allowed_dispositions: ["linked", "not_linked", "pending"];
+  allowed_user_clause_classifications: [
+    "active_requirement", "excluded_from_active_requirement_denominator",
+  ];
+  allowed_exclusion_reasons: [
+    "not_requirement", "superseded", "withdrawn", "duplicate", "out_of_scope",
+    "already_satisfied_or_closed",
+  ];
+  max_reviewed_user_clause_count: 1000;
+  max_active_requirement_count: 1000;
+  max_excluded_user_clause_count: 1000;
+  max_plan_item_count: 1000;
+  max_link_count: 4000;
+  max_file_bytes: 65536;
+  max_json_depth: 8;
+  max_json_items: 6000;
+  max_clauses_per_message: 128;
+  max_lifetime_seconds: 86400;
+  canonical_json_required: true;
+  canonicalization: "json-sort-keys-compact-ensure-ascii-v1";
+  payload_digest: "sha256";
+  utf8_without_bom_required: true;
+  duplicate_keys_allowed: false;
+  floating_point_values_allowed: false;
+  candidate_unit: "reviewable_user_request_or_feedback_clause";
+  opportunity_unit: "reviewed_active_requirement_clause";
+  complete_user_clause_classification_required: true;
+  compound_clause_coarsening_disclosed: true;
+  one_active_requirement_coordinate_is_one_opportunity: true;
+  excluded_user_clauses_are_excluded_from_metric: true;
+  uncertain_classification_policy: "reject_or_leave_proposal_unconfirmed";
+  import_creates_unconfirmed_proposal_only: true;
+  native_confirmation_required_for_metric_authority: true;
+  raw_payload_persisted: false;
+  prose_allowed: false;
+  scores_allowed: false;
+  untrusted_structured_classification_proposals_allowed: true;
+  authoritative_model_judgment_claims_allowed: false;
+  raw_producer_claim_persisted: false;
+  durable_producer_claim_shape: "installation_keyed_opaque_commitment_only";
+  objective_receipt_claims_allowed: false;
+  import_confirmation: "import_requirement_plan_evidence_as_unconfirmed_proposal";
+  file_json_schema_sha256: string;
+  file_json_schema: Record<string, unknown>;
+  source_manifest: RequirementPlanSourceManifest;
+  file_constraint_contract_version: "requirement-plan-file-constraints-v1";
+  file_constraint_codes: readonly [
+    "identifiers_match_current_contract",
+    "producer_codes_match_safe_version_pattern",
+    "expires_at_is_utc_after_validation_and_within_86400_seconds",
+    "requirement_coordinates_are_sorted_unique",
+    "plan_coordinates_are_sorted_unique",
+    "plan_indexes_are_sorted_unique_non_negative",
+    "linked_requires_nonempty_plan_indexes",
+    "nonlinked_and_pending_require_empty_plan_indexes",
+    "plan_indexes_reference_existing_plan_items",
+    "total_plan_indexes_lte_4000",
+    "requirement_coordinates_reference_user_request_or_feedback_clauses",
+    "excluded_user_clause_coordinates_are_sorted_unique",
+    "excluded_user_clause_reasons_use_closed_rubric",
+    "exclusion_basis_coordinates_follow_reason_rules",
+    "user_clauses_exactly_classified_as_active_or_excluded",
+    "active_and_excluded_user_clause_coordinates_are_disjoint",
+    "source_messages_fail_closed_above_128_normalized_clauses",
+    "plan_coordinates_reference_agent_plan_clauses",
+    "linked_plan_sequence_gte_requirement_sequence",
+  ];
+}
+export interface RequirementPlanEvidencePreview {
+  payload_sha256: string;
+  session_id: string;
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  expected_predecessor_confirmation_id: string | null;
+  reviewed_user_clause_count: number;
+  active_requirement_count: number;
+  excluded_user_clause_count: number;
+  plan_item_count: number;
+  linked_active_requirement_count: number;
+  not_linked_active_requirement_count: number;
+  pending_active_requirement_count: number;
+  link_count: number;
+  expires_at: string;
+  producer: RequirementPlanProducer;
+  creates_unconfirmed_proposal_only: true;
+  native_confirmation_required_for_metric_authority: true;
+  can_set_numeric_metric_on_import: false;
+  raw_payload_persisted: false;
+  raw_producer_claim_persisted: false;
+}
+export interface RequirementPlanProposal {
+  proposal_id: string;
+  session_id: string;
+  source_run_id: string;
+  source_window_fingerprint: string;
+  expected_predecessor_confirmation_id: string | null;
+  payload_sha256: string;
+  producer_receipt: RequirementPlanProducerReceipt;
+  review_rubric_version: "active-requirement-plan-review-rubric-v1";
+  requirements: RequirementPlanEvidenceEntry[];
+  excluded_user_clauses: ExcludedRequirementClause[];
+  plan_items: RequirementPlanCoordinate[];
+  created_at: string;
+  schema_version: "requirement-plan-evidence-v1";
+  policy_version: "reviewed-requirement-plan-v1";
+  status: "proposed" | "confirmed" | "rejected";
+  decision_id: string | null;
+  decision: "confirm" | "reject" | null;
+  decided_at: string | null;
+  confirmation_authority: "owned_native_user_presence" | null;
+  local_only: true;
+  content_persisted: false;
+}
+export interface RequirementPlanImport {
+  payload_sha256: string;
+  proposal: RequirementPlanProposal;
+  applied: boolean;
+  creates_unconfirmed_proposal_only: true;
+  native_confirmation_required_for_metric_authority: true;
+  raw_payload_persisted: false;
+}
+export interface RequirementPlanProposalOutcome {
+  proposal: RequirementPlanProposal;
+  applied: boolean;
+}
+export type RequirementPlanProposalPageSnapshot = Schemas["RequirementPlanProposalPageSnapshot"];
+export type RequirementPlanReviewClause = Omit<
+  Schemas["RequirementPlanReviewClause"],
+  "basis_coordinate" | "classification" | "disposition" | "exclusion_reason"
+> & {
+  basis_coordinate: RequirementPlanCoordinate | null;
+  classification: "active_requirement" | "excluded_from_active_requirement_denominator" | null;
+  disposition: "linked" | "not_linked" | "pending" | null;
+  exclusion_reason: RequirementPlanExclusionReason | null;
+};
+export type RequirementPlanProposalReview = Omit<
+  Schemas["RequirementPlanProposalReview"],
+  "candidate_clauses"
+> & { candidate_clauses: RequirementPlanReviewClause[] };
+export interface RequirementPlanReviewRequest {
+  expected_source_run_id: string;
+  confirmation: "open_exact_local_requirement_plan_clause_review";
+}
+export interface RequirementPlanProposalPage {
+  session_id: string;
+  proposals: RequirementPlanProposal[];
+  limit: number;
+  offset: number;
+  total: number;
+  next_offset: number | null;
+  complete: boolean;
+  snapshot: RequirementPlanProposalPageSnapshot;
+}
+export interface RequirementPlanProposalCollection {
+  session_id: string;
+  proposals: RequirementPlanProposal[];
+  total: number;
+  complete: true;
+  snapshot: RequirementPlanProposalPageSnapshot;
+}
+export interface RequirementPlanConfirmDecisionRequest {
+  expected_source_run_id: string;
+  decision: "confirm";
+  confirmation: "apply_local_user_requirement_plan_evidence_decision";
+  review_receipt_id: string;
+  manifest_fingerprint: string;
+  reviewed_graph_fingerprint: string;
+  reviewed_candidate_set_fingerprint: string;
+  complete_review_acknowledged: true;
+}
+export interface RequirementPlanRejectDecisionRequest {
+  expected_source_run_id: string;
+  decision: "reject";
+  confirmation: "apply_local_user_requirement_plan_evidence_decision";
+}
+export type RequirementPlanDecisionRequest =
+  | RequirementPlanConfirmDecisionRequest
+  | RequirementPlanRejectDecisionRequest;
 export type AgentMetricEvidencePreview = Schemas["AgentMetricEvidencePreviewDto"];
 export type AgentMetricEvidenceImport = Schemas["AgentMetricEvidenceImportDto"];
 export type MetricLifecycleProposal = Schemas["MetricLifecycleProposalDto"];
@@ -284,12 +595,20 @@ export interface MetricLifecycleProposalCollection {
   complete: boolean;
 }
 export type CapabilityKey = Schemas["CapabilityKey"];
-export type ModelEnsembleOutcome = Schemas["ModelEnsembleOutcomeDto"];
+export type ModelEnsembleOutcome = Omit<Schemas["ModelEnsembleOutcomeDto"], "run"> & {
+  run: ModelEnsembleRun;
+};
 export type ModelEnsembleWatchRequest = Schemas["ModelEnsembleWatchRequest"];
 export type ModelEnsembleWatch = Schemas["ModelEnsembleWatchDto"];
-export type ModelEnsembleWatchSnapshot = Schemas["ModelEnsembleWatchSnapshotDto"];
-export type ModelEnsembleTrajectoryPage = Schemas["ModelEnsembleTrajectoryPage"];
-export type ModelEnsembleTrajectoryPoint = Schemas["ModelEnsembleTrajectoryPoint"];
+export type ModelEnsembleWatchSnapshot = Omit<Schemas["ModelEnsembleWatchSnapshotDto"], "latest_run"> & {
+  latest_run: ModelEnsembleRun | null;
+};
+export type ModelEnsembleTrajectoryPoint = Omit<Schemas["ModelEnsembleTrajectoryPoint"], "metric_states_v2"> & {
+  metric_states_v2: MetricStateV2[];
+};
+export type ModelEnsembleTrajectoryPage = Omit<Schemas["ModelEnsembleTrajectoryPage"], "points"> & {
+  points: ModelEnsembleTrajectoryPoint[];
+};
 export type ModelPredictiveMetricDetail = Schemas["ModelPredictiveMetricDetailDto"];
 
 export interface ModelEnsembleAttempt {
@@ -959,6 +1278,42 @@ export interface PromptEnhancerTransport {
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<MetricLifecycleProposalOutcome>;
+  /** Content-free, native-reviewed requirement-to-plan denominator for r6. */
+  getRequirementPlanEvidenceContract?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementPlanEvidenceContract>;
+  previewRequirementPlanEvidence?(
+    sessionId: string,
+    payload: ArrayBuffer,
+    signal?: AbortSignal,
+  ): Promise<RequirementPlanEvidencePreview>;
+  importRequirementPlanEvidence?(
+    sessionId: string,
+    payload: ArrayBuffer,
+    preview: RequirementPlanEvidencePreview,
+    confirmation: RequirementPlanEvidenceContract["import_confirmation"],
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementPlanImport>;
+  listRequirementPlanProposals?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementPlanProposalCollection>;
+  reviewRequirementPlanProposal?(
+    sessionId: string,
+    proposal: RequirementPlanProposal,
+    contract: RequirementPlanEvidenceContract,
+    request: RequirementPlanReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<RequirementPlanProposalReview>;
+  decideRequirementPlanProposal?(
+    sessionId: string,
+    proposalId: string,
+    request: RequirementPlanDecisionRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementPlanProposalOutcome>;
   listCandidates(
     status?: CandidateStatusFilter,
     signal?: AbortSignal,

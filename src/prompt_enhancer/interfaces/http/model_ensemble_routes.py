@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Annotated, Literal, Protocol
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Response
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ...application.analysis.model_ensemble import (
     MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION,
@@ -30,7 +30,11 @@ from ...application.analysis.session_model_ensemble import (
     ModelEnsembleSelectionError,
     ModelEnsembleSourceError,
     MetricProfileSource,
+    REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT,
+    REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT,
+    RequirementPlanEvidenceSource,
     SessionMetricProfileBinding,
+    SessionRequirementPlanEvidenceBinding,
     SessionModelEnsembleOutcome,
     SessionModelEnsembleRunRecord,
 )
@@ -284,6 +288,83 @@ class ModelMetricProfileBindingDto(StrictModel):
         )
 
 
+class ModelRequirementPlanEvidenceBindingDto(StrictModel):
+    """Minimized reviewed decomposition authority bound to one sealed run."""
+
+    evidence_source: RequirementPlanEvidenceSource
+    confirmation_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    proposal_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    evidence_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    evidence_schema_version: Literal[
+        "requirement-plan-unavailable-v1",
+        "requirement-plan-awaiting-review-v1",
+        "requirement-plan-evidence-v1",
+    ]
+    evidence_policy_version: Literal["reviewed-requirement-plan-v1"]
+    local_only: Literal[True]
+    content_persisted: Literal[False]
+
+    @model_validator(mode="after")
+    def exact_source_shape(self) -> "ModelRequirementPlanEvidenceBindingDto":
+        reviewed = self.evidence_source is (
+            RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+        )
+        awaiting = self.evidence_source is RequirementPlanEvidenceSource.AWAITING_REVIEW
+        if reviewed != (self.confirmation_id is not None):
+            raise ValueError("reviewed decomposition authority requires confirmation")
+        if reviewed != (self.proposal_id is not None):
+            raise ValueError("reviewed decomposition authority requires its proposal")
+        if reviewed != (
+            self.evidence_schema_version == "requirement-plan-evidence-v1"
+        ):
+            raise ValueError("decomposition authority source and schema disagree")
+        expected_fingerprint = (
+            None
+            if reviewed
+            else REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT
+            if awaiting
+            else REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT
+        )
+        expected_schema = (
+            "requirement-plan-evidence-v1"
+            if reviewed
+            else "requirement-plan-awaiting-review-v1"
+            if awaiting
+            else "requirement-plan-unavailable-v1"
+        )
+        if self.evidence_schema_version != expected_schema:
+            raise ValueError("decomposition authority source and schema disagree")
+        if expected_fingerprint is not None and (
+            self.evidence_fingerprint != expected_fingerprint
+        ):
+            raise ValueError("decomposition authority fingerprint and source disagree")
+        if reviewed and self.evidence_fingerprint in {
+            REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT,
+            REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT,
+        }:
+            raise ValueError("decomposition authority fingerprint and source disagree")
+        return self
+
+    @classmethod
+    def from_binding(
+        cls,
+        binding: SessionRequirementPlanEvidenceBinding,
+    ) -> "ModelRequirementPlanEvidenceBindingDto":
+        return cls.model_validate(
+            binding.model_dump(
+                exclude={
+                    "session_id",
+                    "source_window_fingerprint",
+                    "bound_at",
+                }
+            )
+        )
+
+
 class ModelEnsembleRunDto(StrictModel):
     run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     plan_version: Literal["local-shadow-ensemble-v1"]
@@ -315,6 +396,9 @@ class ModelEnsembleRunDto(StrictModel):
     typed_metrics: tuple[ModelEnsembleTypedMetricDto, ...] = Field(max_length=20)
     metric_publication_v2: MetricPublicationV2 | None
     metric_profile_binding: ModelMetricProfileBindingDto | None
+    requirement_plan_evidence_binding: (
+        ModelRequirementPlanEvidenceBindingDto | None
+    )
     #: Derived from the sealed publication above plus this run's provenance.
     #: It stores nothing of its own, so it is absent exactly when the sealed
     #: publication is absent.
@@ -412,6 +496,13 @@ class ModelEnsembleRunDto(StrictModel):
                 if record.metric_profile_binding is None
                 else ModelMetricProfileBindingDto.from_binding(
                     record.metric_profile_binding
+                )
+            ),
+            requirement_plan_evidence_binding=(
+                None
+                if record.requirement_plan_evidence_binding is None
+                else ModelRequirementPlanEvidenceBindingDto.from_binding(
+                    record.requirement_plan_evidence_binding
                 )
             ),
             metric_evidence_readiness_v2=(

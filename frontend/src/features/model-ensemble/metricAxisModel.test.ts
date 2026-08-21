@@ -355,6 +355,7 @@ describe("metricAxisModel receipt resolver", () => {
     ).find((axis) => axis.key === key)!;
     const r4 = modelEnsembleKnowledgeEntries([axisFor("metric-contract-v2-projection-4")])[0];
     const r5 = modelEnsembleKnowledgeEntries([axisFor("metric-contract-v2-projection-5")])[0];
+    const r6 = modelEnsembleKnowledgeEntries([axisFor("metric-contract-v2-projection-6")])[0];
 
     expect(r4.projectionVersion).toBe("metric-contract-v2-projection-4");
     expect(r4.guidance.meaning).toContain("one per detected requirement clause");
@@ -364,6 +365,10 @@ describe("metricAxisModel receipt resolver", () => {
     expect(r5.guidance.meaning).toContain("one per expected-outcome slot in the reviewed task profile");
     expect(r5.guidance.meaning).toContain("sealed r5 reviewed-profile contract");
     expect(r5.guidance.meaning).not.toContain("detected requirement clause");
+    expect(r6.projectionVersion).toBe("metric-contract-v2-projection-6");
+    expect(r6.guidance.meaning).toContain("one per expected-outcome slot in the reviewed task profile");
+    expect(r6.guidance.meaning).toContain("sealed r6 reviewed-profile contract");
+    expect(r6.guidance.meaning).not.toContain("detected requirement clause");
   });
 
   it("keeps compact r2/r3 and r3/r4 lifecycle boundaries exact", () => {

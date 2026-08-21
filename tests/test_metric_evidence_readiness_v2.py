@@ -14,8 +14,10 @@ from prompt_enhancer.application.analysis.metric_evidence_readiness_v2 import (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5,
     METRIC_EVIDENCE_REQUIREMENTS_V2,
     METRIC_EVIDENCE_REQUIREMENTS_V2_R4,
+    METRIC_EVIDENCE_REQUIREMENTS_V2_R6,
     SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS,
     MetricEvidenceAvailabilityState,
     MetricEvidenceContributor,
@@ -36,6 +38,9 @@ from prompt_enhancer.application.analysis.metric_projection_v4 import (
 from prompt_enhancer.application.analysis.metric_projection_v5 import (
     project_metric_states_v5,
 )
+from prompt_enhancer.application.analysis.metric_projection_v6 import (
+    project_metric_states_v6,
+)
 from prompt_enhancer.application.analysis.metric_publication_v2 import (
     metric_publication_v2_fingerprint,
     publish_metric_states_v2,
@@ -43,6 +48,9 @@ from prompt_enhancer.application.analysis.metric_publication_v2 import (
 from prompt_enhancer.application.analysis.objective_metric_projection import (
     ObjectiveMetricOverride,
     ObjectiveWithholdingCause,
+)
+from prompt_enhancer.application.analysis.requirement_plan_evidence import (
+    RequirementPlanEvidenceSnapshot,
 )
 from prompt_enhancer.application.analysis.semantic_units import (
     SemanticUnitReconciler,
@@ -205,6 +213,23 @@ def _readiness_v5(
             reconciliation=reconciliation,
             id_factory=IDS,
             objective_overrides=objective,
+        )
+    )
+    return project_metric_evidence_readiness_v2(publication, **PROVENANCE)
+
+
+def _readiness_v6(
+    context: P1TextAnalysisInput,
+    *,
+    evidence: RequirementPlanEvidenceSnapshot | None = None,
+) -> MetricEvidenceReadinessProjectionV2:
+    reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
+    publication = publish_metric_states_v2(
+        project_metric_states_v6(
+            context=context,
+            reconciliation=reconciliation,
+            id_factory=IDS,
+            requirement_plan_evidence=evidence,
         )
     )
     return project_metric_evidence_readiness_v2(publication, **PROVENANCE)
@@ -628,15 +653,16 @@ def test_declared_profile_absence_has_its_own_reason() -> None:
     )
 
 
-def test_r5_readiness_catalog_is_append_only_and_covers_exactly_twenty_rows() -> None:
+def test_current_readiness_catalog_is_append_only_and_reads_r5_twenty_rows() -> None:
     projection = _readiness_v5(_single_request_context())
 
     assert METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION == (
-        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4
+        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5
     )
-    assert SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS[-2:] == (
+    assert SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS[-3:] == (
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
+        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5,
     )
     assert projection.metric_projection_version == "metric-contract-v2-projection-5"
     assert len(projection.metrics) == 20
@@ -655,6 +681,52 @@ def test_r5_readiness_catalog_is_append_only_and_covers_exactly_twenty_rows() ->
             projection.execution_error_count,
         )
     ) == 20
+
+
+def test_r6_decomposition_names_reviewed_enumeration_and_disposition_authority() -> None:
+    item = _by_key(_readiness_v6(_single_request_context()))[
+        "logic.decomposition_coverage"
+    ]
+    requirement = METRIC_EVIDENCE_REQUIREMENTS_V2_R6[
+        "logic.decomposition_coverage"
+    ]
+
+    assert item.availability_state is MetricEvidenceAvailabilityState.CAPABILITY_MISSING
+    assert item.reason_code is (
+        MetricEvidenceReadinessReason.REVIEWED_REQUIREMENT_PLAN_SERVICE_REQUIRED
+    )
+    assert item.required_contributors == requirement.required_contributors
+    assert item.required_contributors == (
+        MetricEvidenceContributor.REVIEWED_REQUIREMENT_ENUMERATION,
+        MetricEvidenceContributor.REVIEWED_REQUIREMENT_PLAN_DISPOSITION,
+    )
+    assert item.observed_contributors == ()
+
+
+def test_r6_service_without_confirmation_names_the_exact_user_action() -> None:
+    context = _single_request_context()
+    item = _by_key(
+        _readiness_v6(
+            context,
+            evidence=RequirementPlanEvidenceSnapshot(
+                session_id=context.session_id,
+                source_window_fingerprint=context.analysis_window_fingerprint,
+            ),
+        )
+    )["logic.decomposition_coverage"]
+
+    assert item.value_state is MetricValueStateV2.UNKNOWN
+    assert item.capability_available is True
+    assert item.source_complete is True
+    assert item.availability_state is (
+        MetricEvidenceAvailabilityState.EVIDENCE_UNRESOLVED
+    )
+    assert item.reason_code is (
+        MetricEvidenceReadinessReason
+        .REVIEWED_REQUIREMENT_PLAN_CONFIRMATION_REQUIRED
+    )
+    assert item.observed_contributors == ()
+    assert item.missing_contributors == item.required_contributors
 
 
 def test_r5_inherits_r4_lifecycle_and_r3_open_loop_contributor_contracts() -> None:

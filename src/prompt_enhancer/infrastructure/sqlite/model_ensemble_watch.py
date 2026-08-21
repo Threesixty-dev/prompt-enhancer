@@ -197,7 +197,17 @@ def _metric_v2_seal(connection, run_id: str) -> tuple[object, str] | None:
         profile_columns = (
             ",profile_source,profile_id,profile_revision,profile_fingerprint,"
             "profile_schema_version,profile_policy_version"
-            if version == "metric-contract-v2-projection-5"
+            if version in {
+                "metric-contract-v2-projection-5",
+                "metric-contract-v2-projection-6",
+            }
+            else ""
+        )
+        evidence_columns = (
+            ",requirement_plan_source,requirement_plan_confirmation_id,"
+            "requirement_plan_proposal_id,requirement_plan_evidence_fingerprint,"
+            "requirement_plan_schema_version,requirement_plan_policy_version"
+            if version == "metric-contract-v2-projection-6"
             else ""
         )
         seal = connection.execute(
@@ -205,7 +215,7 @@ def _metric_v2_seal(connection, run_id: str) -> tuple[object, str] | None:
                        contract_set_fingerprint,projection_version,
                        guidance_contract_version,guidance_template_catalog_version,
                        source,canonical_live_snapshot,model_stage_consumed,
-                       compatibility_preview{profile_columns}
+                       compatibility_preview{profile_columns}{evidence_columns}
                 FROM {seals_table} WHERE run_id=?""",
             (run_id,),
         ).fetchone()
@@ -245,9 +255,12 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
         int(seal["model_stage_consumed"]),
         int(seal["compatibility_preview"]),
     )
-    if seal["projection_version"] != "metric-contract-v2-projection-5":
-        return (*identity, None, None, None, None, None, None)
-    return (
+    if seal["projection_version"] not in {
+        "metric-contract-v2-projection-5",
+        "metric-contract-v2-projection-6",
+    }:
+        return (*identity, *(None for _ in range(12)))
+    profile_identity = (
         *identity,
         seal["profile_source"],
         seal["profile_id"],
@@ -255,6 +268,17 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
         seal["profile_fingerprint"],
         seal["profile_schema_version"],
         seal["profile_policy_version"],
+    )
+    if seal["projection_version"] != "metric-contract-v2-projection-6":
+        return (*profile_identity, *(None for _ in range(6)))
+    return (
+        *profile_identity,
+        seal["requirement_plan_source"],
+        seal["requirement_plan_confirmation_id"],
+        seal["requirement_plan_proposal_id"],
+        seal["requirement_plan_evidence_fingerprint"],
+        seal["requirement_plan_schema_version"],
+        seal["requirement_plan_policy_version"],
     )
 
 

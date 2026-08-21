@@ -45,6 +45,7 @@ from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_3,
     METRIC_PROJECTION_V2_VERSION_4,
     METRIC_PROJECTION_V2_VERSION_5,
+    METRIC_PROJECTION_V2_VERSION_6,
     MetricProjectionV2Version,
     MetricStateV2,
 )
@@ -74,14 +75,16 @@ METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3 = "metric-evidence-readiness-v2-3
 #: profile contributor when the sealed denominator contains no profile slots.
 #: Earlier projection identities retain their exact requirement routing.
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4 = "metric-evidence-readiness-v2-4"
+METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5 = "metric-evidence-readiness-v2-5"
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION = (
-    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5
 )
 SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS = (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5,
 )
 
 
@@ -109,6 +112,10 @@ class MetricEvidenceContributor(StrEnum):
     CONFIRMED_LIFECYCLE_OPPORTUNITY = "confirmed_lifecycle_opportunity"
     #: An authenticated user confirmed a typed terminal outcome link.
     CONFIRMED_LIFECYCLE_OUTCOME_LINK = "confirmed_lifecycle_outcome_link"
+    REVIEWED_REQUIREMENT_ENUMERATION = "reviewed_requirement_enumeration"
+    REVIEWED_REQUIREMENT_PLAN_DISPOSITION = (
+        "reviewed_requirement_plan_disposition"
+    )
     TYPED_ACTION_EVIDENCE = "typed_action_evidence"
     TYPED_DECISION_EVIDENCE = "typed_decision_evidence"
     TYPED_VERIFICATION_RECEIPT = "typed_verification_receipt"
@@ -178,6 +185,15 @@ class MetricEvidenceReadinessReason(StrEnum):
     )
     CONFIRMED_LIFECYCLE_ENUMERATION_REQUIRED = (
         "confirmed_lifecycle_enumeration_required"
+    )
+    REVIEWED_REQUIREMENT_PLAN_SERVICE_REQUIRED = (
+        "reviewed_requirement_plan_service_required"
+    )
+    REVIEWED_REQUIREMENT_PLAN_CONFIRMATION_REQUIRED = (
+        "reviewed_requirement_plan_confirmation_required"
+    )
+    REVIEWED_REQUIREMENT_PLAN_BINDING_INVALID = (
+        "reviewed_requirement_plan_binding_invalid"
     )
     HYPOTHESIS_CHAIN_ADAPTER_CAPABILITIES_REQUIRED = (
         "hypothesis_chain_adapter_capabilities_required"
@@ -410,17 +426,35 @@ _REQUIREMENTS_V4: dict[str, _EvidenceRequirement] = {
 }
 METRIC_EVIDENCE_REQUIREMENTS_V2_R4 = MappingProxyType(_REQUIREMENTS_V4)
 
+_REQUIREMENTS_V6: dict[str, _EvidenceRequirement] = {
+    "logic.decomposition_coverage": _EvidenceRequirement(
+        denominator_contributor=(
+            MetricEvidenceContributor.REVIEWED_REQUIREMENT_ENUMERATION
+        ),
+        outcome_contributors=(
+            MetricEvidenceContributor.REVIEWED_REQUIREMENT_PLAN_DISPOSITION,
+        ),
+        capability_missing_reason=(
+            MetricEvidenceReadinessReason
+            .REVIEWED_REQUIREMENT_PLAN_SERVICE_REQUIRED
+        ),
+    ),
+}
+METRIC_EVIDENCE_REQUIREMENTS_V2_R6 = MappingProxyType(_REQUIREMENTS_V6)
+
 _R3_REQUIREMENT_PROJECTIONS = frozenset(
     {
         METRIC_PROJECTION_V2_VERSION_3,
         METRIC_PROJECTION_V2_VERSION_4,
         METRIC_PROJECTION_V2_VERSION_5,
+        METRIC_PROJECTION_V2_VERSION_6,
     }
 )
 _R4_LIFECYCLE_PROJECTIONS = frozenset(
     {
         METRIC_PROJECTION_V2_VERSION_4,
         METRIC_PROJECTION_V2_VERSION_5,
+        METRIC_PROJECTION_V2_VERSION_6,
     }
 )
 
@@ -432,6 +466,8 @@ if not set(METRIC_EVIDENCE_REQUIREMENTS_V2_R3) <= set(METRIC_EVIDENCE_REQUIREMEN
     raise RuntimeError("the r3 readiness overlay must refine known metrics only")
 if not set(METRIC_EVIDENCE_REQUIREMENTS_V2_R4) <= set(METRIC_EVIDENCE_REQUIREMENTS_V2):
     raise RuntimeError("the r4 readiness overlay must refine known metrics only")
+if not set(METRIC_EVIDENCE_REQUIREMENTS_V2_R6) <= set(METRIC_EVIDENCE_REQUIREMENTS_V2):
+    raise RuntimeError("the r6 readiness overlay must refine known metrics only")
 
 
 def metric_evidence_requirement(
@@ -439,6 +475,11 @@ def metric_evidence_requirement(
     projection_version: str,
 ) -> _EvidenceRequirement:
     """The evidence one metric needed *under the identity that produced it*."""
+
+    if projection_version == METRIC_PROJECTION_V2_VERSION_6:
+        overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R6.get(metric_key)
+        if overlay is not None:
+            return overlay
 
     if projection_version in _R4_LIFECYCLE_PROJECTIONS:
         overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R4.get(metric_key)
@@ -526,6 +567,28 @@ def _availability(
             requirement.capability_missing_reason,
         )
     if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_6
+        and state.metric_key == "logic.decomposition_coverage"
+        and statistics.capability_available
+        and not statistics.source_complete
+    ):
+        return (
+            MetricEvidenceAvailabilityState.SOURCE_INCOMPLETE,
+            MetricEvidenceReadinessReason.REVIEWED_REQUIREMENT_PLAN_BINDING_INVALID,
+        )
+    if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_6
+        and state.metric_key == "logic.decomposition_coverage"
+        and statistics.capability_available
+        and statistics.source_complete
+        and statistics.eligible_count == 0
+    ):
+        return (
+            MetricEvidenceAvailabilityState.EVIDENCE_UNRESOLVED,
+            MetricEvidenceReadinessReason
+            .REVIEWED_REQUIREMENT_PLAN_CONFIRMATION_REQUIRED,
+        )
+    if (
         state.projection_version in _R4_LIFECYCLE_PROJECTIONS
         and state.metric_key in METRIC_EVIDENCE_REQUIREMENTS_V2_R4
         and not statistics.source_complete
@@ -591,6 +654,23 @@ def _observed_contributors(
         return ()
     resolved = statistics.met_count + statistics.not_met_count
     if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_6
+        and state.metric_key == "logic.decomposition_coverage"
+    ):
+        observed: list[MetricEvidenceContributor] = []
+        if statistics.source_complete and (
+            state.value_state is MetricValueStateV2.NOT_APPLICABLE
+            or statistics.eligible_count > 0
+        ):
+            observed.append(
+                MetricEvidenceContributor.REVIEWED_REQUIREMENT_ENUMERATION
+            )
+        if statistics.eligible_count:
+            observed.append(
+                MetricEvidenceContributor.REVIEWED_REQUIREMENT_PLAN_DISPOSITION
+            )
+        return tuple(observed)
+    if (
         state.projection_version in _R4_LIFECYCLE_PROJECTIONS
         and state.metric_key in METRIC_EVIDENCE_REQUIREMENTS_V2_R4
     ):
@@ -609,7 +689,8 @@ def _observed_contributors(
             )
         return tuple(observed)
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_5
+        state.projection_version
+        in {METRIC_PROJECTION_V2_VERSION_5, METRIC_PROJECTION_V2_VERSION_6}
         and statistics.denominator_basis is DenominatorBasis.DECLARED_PROFILE_SLOTS
         and statistics.eligible_count == 0
     ):
@@ -869,6 +950,14 @@ def metric_evidence_readiness_row(
     observed = _observed_contributors(state, requirement)
     required = requirement.required_contributors
     if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_6
+        and state.metric_key == "logic.decomposition_coverage"
+        and state.value_state is MetricValueStateV2.NOT_APPLICABLE
+    ):
+        required = (
+            MetricEvidenceContributor.REVIEWED_REQUIREMENT_ENUMERATION,
+        )
+    if (
         state.projection_version in _R4_LIFECYCLE_PROJECTIONS
         and state.metric_key in METRIC_EVIDENCE_REQUIREMENTS_V2_R4
         and state.value_state is MetricValueStateV2.NOT_APPLICABLE
@@ -985,11 +1074,13 @@ __all__ = [
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4",
+    "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5",
     "METRIC_EVIDENCE_READINESS_V2_KEY",
     "METRIC_EVIDENCE_READINESS_V2_VERSION",
     "METRIC_EVIDENCE_REQUIREMENTS_V2",
     "METRIC_EVIDENCE_REQUIREMENTS_V2_R3",
     "METRIC_EVIDENCE_REQUIREMENTS_V2_R4",
+    "METRIC_EVIDENCE_REQUIREMENTS_V2_R6",
     "SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS",
     "metric_evidence_requirement",
     "MetricEvidenceAvailabilityState",

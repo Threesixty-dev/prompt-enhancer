@@ -13,6 +13,7 @@ import type {
 import {
   ModelEnsemblePayloadError,
   parseModelMetricProfileBinding,
+  parseModelRequirementPlanEvidenceBinding,
   parseModelEnsembleOutcome,
   parseModelEnsembleRun,
 } from "../../shared/api/modelEnsembleContract";
@@ -145,6 +146,7 @@ function runFixture(): ModelEnsembleRun {
     metric_projection_completed_at: "2040-01-02T10:00:01Z",
     metric_publication_v2: null,
     metric_profile_binding: null,
+    requirement_plan_evidence_binding: null,
     metric_evidence_readiness_v2: null,
     typed_metrics: metricKeys.map((metric_key, index) => ({
       metric_key,
@@ -232,6 +234,40 @@ function r5RunFixture(
   run.votes = metricKeys.flatMap((metric_key) => votes.map((vote) => ({ ...vote, metric_key })));
   run.metric_publication_v2 = publication;
   run.metric_profile_binding = binding;
+  return run;
+}
+
+function r6RunFixture(
+  requirementPlanBinding: NonNullable<ModelEnsembleRun["requirement_plan_evidence_binding"]>,
+): ModelEnsembleRun {
+  const profile = parseModelMetricProfileBinding({
+    profile_source: "coaching_profile_v1_unconfigured",
+    profile_id: null,
+    profile_revision: null,
+    profile_fingerprint: "4cf952d189fd817c3959540a18538b76b161aa3a03d810cb967cafc7f284be71",
+    profile_schema_version: "coaching-profile-v1-unconfigured",
+    profile_policy_version: "server-preset-v1",
+    local_only: true,
+    content_persisted: false,
+  });
+  const run = r5RunFixture(profile);
+  const publication = run.metric_publication_v2!;
+  publication.projection_version = "metric-contract-v2-projection-6";
+  for (const item of publication.metrics) {
+    item.state.projection_version = "metric-contract-v2-projection-6";
+  }
+  const index = publication.metrics.findIndex(
+    (item) => item.state.metric_key === "logic.decomposition_coverage",
+  );
+  const unavailable = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+    value_state: "unknown",
+    capability_available: false,
+    source_complete: true,
+    explanation_code: "requirement_plan_evidence_unavailable",
+  });
+  unavailable.state.projection_version = "metric-contract-v2-projection-6";
+  publication.metrics[index] = unavailable as typeof publication.metrics[number];
+  run.requirement_plan_evidence_binding = requirementPlanBinding;
   return run;
 }
 
@@ -528,6 +564,127 @@ describe("model ensemble response contract", () => {
       ...binding,
       profile_fingerprint: "0".repeat(64),
     })).toThrow(ModelEnsemblePayloadError);
+  });
+
+  it("strictly binds every r6 decomposition state to its minimized requirement-plan authority", () => {
+    const unavailable = parseModelRequirementPlanEvidenceBinding({
+      evidence_source: "unavailable",
+      confirmation_id: null,
+      proposal_id: null,
+      evidence_fingerprint: "30f6b309825c563a881ed1b7587072222e3cb33ca70f7bff274ba968cb067641",
+      evidence_schema_version: "requirement-plan-unavailable-v1",
+      evidence_policy_version: "reviewed-requirement-plan-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    const absent = r6RunFixture(unavailable);
+    expect(parseModelEnsembleRun(structuredClone(absent))).toEqual(absent);
+
+    const awaiting = parseModelRequirementPlanEvidenceBinding({
+      evidence_source: "awaiting_review",
+      confirmation_id: null,
+      proposal_id: null,
+      evidence_fingerprint: "843a2a5154affde7f7cddc19137dfcdfa8253d9f541c98b6e2cdabd930401ff2",
+      evidence_schema_version: "requirement-plan-awaiting-review-v1",
+      evidence_policy_version: "reviewed-requirement-plan-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    const awaitingRun = r6RunFixture(awaiting);
+    const awaitingIndex = awaitingRun.metric_publication_v2!.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    );
+    const confirmationRequired = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "unknown",
+      capability_available: true,
+      source_complete: true,
+      explanation_code: "requirement_plan_evidence_confirmation_required",
+    });
+    confirmationRequired.state.projection_version = "metric-contract-v2-projection-6";
+    awaitingRun.metric_publication_v2!.metrics[awaitingIndex] = confirmationRequired as NonNullable<
+      typeof awaitingRun.metric_publication_v2
+    >["metrics"][number];
+    expect(parseModelEnsembleRun(structuredClone(awaitingRun))).toEqual(awaitingRun);
+    expect(() => parseModelRequirementPlanEvidenceBinding({
+      ...awaiting,
+      evidence_fingerprint: "0".repeat(64),
+    })).toThrow(ModelEnsemblePayloadError);
+    const awaitingWrongReceipt = structuredClone(awaitingRun);
+    awaitingWrongReceipt.metric_publication_v2!.metrics[awaitingIndex].state.statistics
+      .capability_available = false;
+    expect(() => parseModelEnsembleRun(awaitingWrongReceipt)).toThrow(ModelEnsemblePayloadError);
+
+    const missing = structuredClone(absent);
+    missing.requirement_plan_evidence_binding = null;
+    expect(() => parseModelEnsembleRun(missing)).toThrow(ModelEnsemblePayloadError);
+    const falseNumber = structuredClone(absent);
+    const absentState = falseNumber.metric_publication_v2!.metrics.find(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    )!.state;
+    absentState.statistics.capability_available = true;
+    expect(() => parseModelEnsembleRun(falseNumber)).toThrow(ModelEnsemblePayloadError);
+
+    expect(() => parseModelRequirementPlanEvidenceBinding({
+      ...unavailable,
+      evidence_fingerprint: "0".repeat(64),
+    })).toThrow(ModelEnsemblePayloadError);
+    let future: unknown;
+    try {
+      parseModelRequirementPlanEvidenceBinding({
+        ...unavailable,
+        evidence_schema_version: "requirement-plan-evidence-v2",
+      });
+    } catch (error) { future = error; }
+    expect(future).toBeInstanceOf(MetricDefinitionsOutOfDateError);
+    expect((future as MetricDefinitionsOutOfDateError).mismatch).toBe(
+      "requirement_plan_evidence_binding",
+    );
+
+    const reviewed = parseModelRequirementPlanEvidenceBinding({
+      evidence_source: "reviewed_requirement_plan",
+      confirmation_id: "8".repeat(64),
+      proposal_id: "9".repeat(64),
+      evidence_fingerprint: "7".repeat(64),
+      evidence_schema_version: "requirement-plan-evidence-v1",
+      evidence_policy_version: "reviewed-requirement-plan-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    const measured = r6RunFixture(reviewed);
+    const publication = measured.metric_publication_v2!;
+    const index = publication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    );
+    const state = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "known",
+      numerator: 1,
+      denominator: 2,
+      explanation_code: "reviewed_requirement_plan_links",
+    });
+    state.state.projection_version = "metric-contract-v2-projection-6";
+    publication.metrics[index] = state as typeof publication.metrics[number];
+    publication.unknown_count -= 1;
+    publication.known_count += 1;
+    expect(parseModelEnsembleRun(structuredClone(measured))).toEqual(measured);
+
+    const invalidCoordinates = r6RunFixture(reviewed);
+    const invalidPublication = invalidCoordinates.metric_publication_v2!;
+    const invalidIndex = invalidPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    );
+    const invalid = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "unknown",
+      capability_available: true,
+      source_complete: false,
+      explanation_code: "requirement_plan_evidence_invalid",
+    });
+    invalid.state.projection_version = "metric-contract-v2-projection-6";
+    invalidPublication.metrics[invalidIndex] = invalid as typeof invalidPublication.metrics[number];
+    expect(parseModelEnsembleRun(structuredClone(invalidCoordinates))).toEqual(invalidCoordinates);
+
+    const legacy = r5RunFixture(measured.metric_profile_binding!);
+    legacy.requirement_plan_evidence_binding = reviewed;
+    expect(() => parseModelEnsembleRun(legacy)).toThrow(ModelEnsemblePayloadError);
   });
 
   it("keeps unconfigured declared-profile metrics entirely nonnumeric and count-free", () => {
@@ -1416,7 +1573,7 @@ describe("ModelEnsemblePanel", () => {
       expect.any(AbortSignal),
     ));
     const historicalStatus = await screen.findByText(
-      /selected historical seal cccccccc…cccc has no exact r5 binding/i,
+      /selected historical seal cccccccc…cccc has no exact reviewed-profile binding/i,
     );
     expect(historicalStatus).toHaveAttribute("data-profile-publication-status", "unverified");
     expect(screen.queryByText(/exactly bound to latest sealed head/i)).not.toBeInTheDocument();

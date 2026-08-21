@@ -946,9 +946,33 @@ class LocalApplication:
             LocalArtifactIdFactory(self.pseudonymizer),
         )
 
+    def create_requirement_plan_evidence_service(self, review_contexts=None):
+        """Construct inert import plus native-confirmed decomposition evidence."""
+
+        from .application.analysis.requirement_plan_evidence import (
+            InMemoryRequirementPlanReviewContextStore,
+            RequirementPlanEvidenceService,
+            SealedRunRequirementPlanSource,
+        )
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+
+        models = self.database.model_ensemble_repository()
+        contexts = (
+            InMemoryRequirementPlanReviewContextStore()
+            if review_contexts is None
+            else review_contexts
+        )
+        return RequirementPlanEvidenceService(
+            self.database.requirement_plan_evidence_repository(),
+            SealedRunRequirementPlanSource(models, contexts),
+            LocalArtifactIdFactory(self.pseudonymizer),
+            review_contexts=contexts,
+        )
+
     def create_session_model_ensemble_service(
         self,
         compatibility_policy: ProviderSurfaceCompatibilityPolicy,
+        requirement_plan_review_contexts=None,
     ) -> SessionModelEnsembleService:
         """Compose the serial, process-isolated all-metric live pipeline."""
 
@@ -978,6 +1002,10 @@ class LocalApplication:
             declared_task_profile_reader=(
                 self.database.declared_task_profile_repository()
             ),
+            requirement_plan_evidence_reader=(
+                self.database.requirement_plan_evidence_repository()
+            ),
+            requirement_plan_review_contexts=requirement_plan_review_contexts,
         )
 
     def create_project_quality_aggregation_service(
@@ -1199,8 +1227,16 @@ class LocalApplication:
         metric_coverage_service = self.create_metric_coverage_service(
             metric_readiness_service
         )
+        from .application.analysis.requirement_plan_evidence import (
+            InMemoryRequirementPlanReviewContextStore,
+        )
+
+        requirement_plan_review_contexts = (
+            InMemoryRequirementPlanReviewContextStore()
+        )
         session_model_ensemble_service = self.create_session_model_ensemble_service(
-            compatibility_policy
+            compatibility_policy,
+            requirement_plan_review_contexts,
         )
         metric_lifecycle_evidence_service = (
             self.create_metric_lifecycle_evidence_service()
@@ -1217,6 +1253,11 @@ class LocalApplication:
             ),
         )
         declared_task_profile_service = self.create_declared_task_profile_service()
+        requirement_plan_evidence_service = (
+            self.create_requirement_plan_evidence_service(
+                requirement_plan_review_contexts
+            )
+        )
         from .application.analysis.model_ensemble_watch import (
             ModelEnsembleWatchService,
             ModelEnsembleWatchWorker,
@@ -1307,6 +1348,7 @@ class LocalApplication:
             ),
             agent_metric_evidence_service=agent_metric_evidence_service,
             declared_task_profile_service=declared_task_profile_service,
+            requirement_plan_evidence_service=requirement_plan_evidence_service,
             task_analysis_service=self.create_task_analysis_service(),
             session_text_analysis_service=session_text_analysis_service,
             session_model_link_experiment_service=(

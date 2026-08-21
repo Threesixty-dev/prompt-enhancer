@@ -513,15 +513,19 @@ stages remain a separate experimental diagnostic and cannot change its values.
 
 **A twenty-state publication is not a promise of twenty numeric values.** The
 built-in provider-neutral extractor owns only documented message structure.
-Current projection r5 preserves r4's owned-native-confirmed collaboration lifecycle
-path and r3's explicit-plan path, and adds an immutable reviewed task-profile
-path for the three profile contracts. An unconfigured profile family remains
+Current projection r6 preserves r5's reviewed task-profile path, r4's
+owned-native-confirmed collaboration lifecycle path, and r3's explicit-plan
+ path. It additionally gives decomposition coverage an immutable, complete,
+ native-confirmed classification of every reviewable user request/feedback
+ clause plus active-requirement-to-plan evidence. Only a clause confirmed as an
+ active requirement becomes one deliberately coarse opportunity; compound
+ active clauses are never split by a model. An unconfigured profile family remains
 `unknown`; it is never zero or not-applicable. Four objective families still
 need provider-owned opportunity enumeration and links; first-pass verification
 has one narrow path through an exactly reviewed task plus a task-scoped
 verification receipt. These states are deliberate authority boundaries; adding
 a larger language model cannot turn an absent opportunity registry or receipt
-link into measured evidence. The exact current 15/0/5 path partition is
+link into measured evidence. The exact current 16/0/4 path partition is
 published in
 [`metric-operability.md`](metric-operability.md).
 
@@ -620,10 +624,62 @@ outcome count. Superseded revisions, questions, duplicate cues, and assistant
 claims cannot inflate the result. The other nineteen rows preserve r4
 semantics. Schema v54 appends the profile ledger plus immutable r5 binding,
 state, and seal sidecars; r1-r4 remain readable, reciprocal guards reject mixed
-identities, and a seal still requires exactly twenty rows. Current new writes
-use r5. The current local-agent file is append-only v2/r5 and binds the exact
+identities, and a seal still requires exactly twenty rows. At that identity
+checkpoint, new writes used r5. The current lifecycle-agent file is append-only v2/r5 and binds the exact
 sealed source window; historical v1/r4 files remain parseable only against
 their own source identity.
+
+### Reviewed requirement-to-plan evidence and projection identity r6
+
+Projection `metric-contract-v2-projection-6` preserves nineteen r5 rows and
+ replaces only `logic.decomposition_coverage`. Its denominator is the set of
+ active requirements from a complete native-confirmed classification of every
+ reviewable user request/feedback clause in the exact sealed window. Each user
+ clause is classified as `active_requirement` or
+ `excluded_from_active_requirement_denominator`. Excluded clauses carry the
+ closed reason `not_requirement`, `superseded`, `withdrawn`, `duplicate`,
+ `out_of_scope`, or `already_satisfied_or_closed`. Superseded and withdrawn
+ exclusions point to a later user clause; duplicates point to a distinct active
+ owner. Uncertain classifications must be rejected or left unconfirmed. Only
+ active requirements carry `linked`, `not_linked`, or `pending`: linked rows
+ reference one or more reviewed agent plan coordinates, `not_linked` requires
+ explicit confirmation that the planning horizon is closed, and otherwise an
+ unlinked active requirement is pending. The projector reopens the exact ephemeral
+source window and verifies that requirement coordinates address user request or
+feedback clauses, plan coordinates address agent plan clauses, and no linked
+ plan precedes its clause opportunity. The splitter/normalizer is published as
+ a machine-readable Python 3.12 Unicode-regex recipe and fails closed rather
+ than truncating any message above 128 normalized clauses. Invalid bindings fail closed as `unknown` and
+cannot leak a partial number.
+
+The local API publishes a content-free `requirement-plan-evidence-file-v1`
+contract bound to the latest sealed run, source-window fingerprint, contract
+fingerprints, projection, and predecessor confirmation. An agent may construct,
+ preview, and import canonical JSON, but import creates an inert proposal only.
+  Preview rejects missing or multiply classified user-clause coordinates,
+  invalid exclusion reasons or bases, and every wrong role, kind, range,
+  ordering, or link before anything can be reviewed. A first
+ origin/body/path-bound native one-shot action opens a private, non-cacheable,
+ process-memory-only review containing every eligible user clause and every
+ agent plan clause, including plan clauses omitted by the proposal. A second
+ one-shot native action can confirm only the exact graph, complete rendered
+ candidate set, and unexpired review receipt after explicit acknowledgement.
+ API-token clients, standard `serve`, and attached windows cannot perform
+ either native action. The format can carry explicitly untrusted structured
+  classification, exclusion, and disposition proposals plus bounded untrusted
+  producer/model claims. It has no prose, score, authoritative-model-judgment,
+  path, or objective-receipt field. A raw producer/model label is syntactically
+  bounded but may still be content-like, so it remains ephemeral; durable
+  rows and proposal responses contain only an application-keyed opaque claim
+  commitment. A complete confirmed classification with zero active
+ requirements means no opportunity; pending active rows are right-censored;
+absence of confirmed authority remains `unknown`, never zero.
+
+Schema v55 appends the proposal/decision ledger, exact requirement-plan run
+binding, and r6 state/seal sidecars. R1-r5 remain readable, reciprocal triggers
+reject mixed identities in either insertion order, a seal requires the exact
+twenty r6 rows and both profile/evidence bindings, and parent privacy deletion
+cascades through the content-free graph. Current new writes use r6.
 
 `publish_v1_compatibility_preview` reads an already persisted V1 run and states
 its own limits in the payload (`preview_limits`):
@@ -717,7 +773,7 @@ it may claim: `live_measured`, `compatibility_projected`, `method_only_withheld`
 The full-run API also serves `metric_evidence_readiness_v2`, derived on read from
 the sealed publication plus the run's provider, provider version, adapter
 version, and source schema version. It introduces **no independent datum** and so
-has no schema of its own: it is recomputed from the run's sealed r1-r5 sidecar
+has no schema of its own: it is recomputed from the run's sealed r1-r6 sidecar
 rows and disappears with the run.
 
 Each row carries closed enums only — evidence authority, denominator basis and
@@ -758,7 +814,7 @@ reports `source_reconciliation_incomplete`; a complete authoritative set larger
 than the bounded receipt reports `opportunity_set_exceeds_receipt_bound`, not a
 missing capability or an empty set.
 
-Current catalog `metric-evidence-readiness-v2-4` adds projection-r5 routing
+Catalog `metric-evidence-readiness-v2-4` adds projection-r5 routing
 without reinterpreting historical rows. R5 retains r4 collaboration and r3
 open-loop contributor semantics. For a profile metric, a configured and sealed
 denominator proves the reviewed declared-profile contributor; an empty
@@ -766,6 +822,19 @@ denominator proves no such contributor and stays `unknown` with
 `declared_profile_slots_absent`. The readiness projection is still derived from
 the sealed publication rather than a caller assertion, and exposes neither the
 profile identifier nor source text.
+
+ Current catalog `metric-evidence-readiness-v2-5` adds projection-r6 routing.
+ For decomposition it requires `reviewed_requirement_enumeration`—the durable
+  native-reviewed active-or-excluded classification of all eligible user
+  clauses, including exclusion reasons and required basis coordinates—and, when active
+ requirement opportunities exist, `reviewed_requirement_plan_disposition`. An absent service
+ reports `reviewed_requirement_plan_service_required`; a composed service with
+ no current native-confirmed graph reports
+ `reviewed_requirement_plan_confirmation_required`; a present but incoherent
+ run/window/coordinate binding reports
+`reviewed_requirement_plan_binding_invalid`. A confirmed complete classification
+with zero active requirements requires only the enumeration contributor and is
+truthfully no-opportunity.
 
 `capability_missing` reasons are **metric-specific**, replacing the generic
 "family unobservable": a rubric metric reports
@@ -844,10 +913,16 @@ Both require the local token and send `Cache-Control: no-store` with
   verification receipt. Capability keys exist, but enabling them is a reviewed
   composition-root decision, not a runtime inference; prose and neural
   estimates can never substitute.
-- `logic.decomposition_coverage` still lacks the reviewed provider/extractor
-  adapter needed to own its requirement/plan units. A lexical fallback would
-  manufacture a denominator, so the row stays `unknown` and readiness names the
-  missing extraction requirement explicitly.
+- `logic.decomposition_coverage` uses native-reviewed active-or-excluded user
+  clause classifications and counts only active-requirement clauses; it is not
+  an atomic requirement splitter. A compound active
+  clause such as two requested actions is one opportunity, and the UI discloses
+  that coarsening. The app will not let a model silently split it. The measured
+  path also requires a live process-memory source context, exact classification
+  of every eligible user request/feedback clause, review of every eligible agent
+  plan clause, two owned-native actions, and a
+  fresh sealed r6 run; expiry, restart, overflow, or binding drift stays
+  nonnumeric.
 - Per-factor measured sufficient statistics are not yet emitted by every live
   projection, so guidance names a focus factor only when the receipt actually
   proves one.

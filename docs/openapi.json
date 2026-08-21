@@ -5102,6 +5102,33 @@
         "title": "EvidenceAuthority",
         "type": "string"
       },
+      "ExcludedRequirementClause": {
+        "additionalProperties": false,
+        "properties": {
+          "basis_coordinate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementCoordinate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coordinate": {
+            "$ref": "#/components/schemas/RequirementCoordinate"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/RequirementPlanExclusionReason"
+          }
+        },
+        "required": [
+          "coordinate",
+          "reason"
+        ],
+        "title": "ExcludedRequirementClause",
+        "type": "object"
+      },
       "FileContent": {
         "additionalProperties": false,
         "properties": {
@@ -6477,6 +6504,8 @@
           "confirmed_lifecycle_enumeration",
           "confirmed_lifecycle_opportunity",
           "confirmed_lifecycle_outcome_link",
+          "reviewed_requirement_enumeration",
+          "reviewed_requirement_plan_disposition",
           "typed_action_evidence",
           "typed_decision_evidence",
           "typed_verification_receipt"
@@ -6515,8 +6544,8 @@
             "type": "integer"
           },
           "catalog_version": {
-            "const": "metric-evidence-readiness-v2-4",
-            "default": "metric-evidence-readiness-v2-4",
+            "const": "metric-evidence-readiness-v2-5",
+            "default": "metric-evidence-readiness-v2-5",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -6564,7 +6593,8 @@
               "metric-contract-v2-projection-2",
               "metric-contract-v2-projection-3",
               "metric-contract-v2-projection-4",
-              "metric-contract-v2-projection-5"
+              "metric-contract-v2-projection-5",
+              "metric-contract-v2-projection-6"
             ],
             "title": "Metric Projection Version",
             "type": "string"
@@ -6722,6 +6752,9 @@
           "explicit_plan_episode_required",
           "confirmed_lifecycle_service_required",
           "confirmed_lifecycle_enumeration_required",
+          "reviewed_requirement_plan_service_required",
+          "reviewed_requirement_plan_confirmation_required",
+          "reviewed_requirement_plan_binding_invalid",
           "hypothesis_chain_adapter_capabilities_required",
           "requirement_action_adapter_capabilities_required",
           "material_claim_verification_adapter_capabilities_required",
@@ -6863,7 +6896,7 @@
             "items": {
               "$ref": "#/components/schemas/MetricEvidenceContributor"
             },
-            "maxItems": 16,
+            "maxItems": 18,
             "minItems": 1,
             "title": "Required Contributors",
             "type": "array"
@@ -7739,7 +7772,8 @@
           "explicit_plan_link",
           "task_scoped_verification",
           "typed_objective",
-          "semantic_unit_extractor"
+          "semantic_unit_extractor",
+          "reviewed_requirement_plan"
         ],
         "title": "MetricMeasuredPath",
         "type": "string"
@@ -7753,7 +7787,8 @@
           "link_plan_supersession",
           "record_task_scoped_verification",
           "add_objective_opportunity_link_adapter",
-          "add_requirement_plan_extractor"
+          "add_requirement_plan_extractor",
+          "confirm_requirement_plan_evidence"
         ],
         "title": "MetricNextStepCode",
         "type": "string"
@@ -7762,8 +7797,8 @@
         "additionalProperties": false,
         "properties": {
           "catalog_version": {
-            "const": "metric-operability-v2",
-            "default": "metric-operability-v2",
+            "const": "metric-operability-v3",
+            "default": "metric-operability-v3",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -7805,8 +7840,8 @@
             "type": "integer"
           },
           "projection_version": {
-            "const": "metric-contract-v2-projection-5",
-            "default": "metric-contract-v2-projection-5",
+            "const": "metric-contract-v2-projection-6",
+            "default": "metric-contract-v2-projection-6",
             "title": "Projection Version",
             "type": "string"
           },
@@ -7817,8 +7852,8 @@
             "type": "integer"
           },
           "readiness_catalog_version": {
-            "const": "metric-evidence-readiness-v2-4",
-            "default": "metric-evidence-readiness-v2-4",
+            "const": "metric-evidence-readiness-v2-5",
+            "default": "metric-evidence-readiness-v2-5",
             "title": "Readiness Catalog Version",
             "type": "string"
           },
@@ -8016,7 +8051,8 @@
               "metric-contract-v2-projection-2",
               "metric-contract-v2-projection-3",
               "metric-contract-v2-projection-4",
-              "metric-contract-v2-projection-5"
+              "metric-contract-v2-projection-5",
+              "metric-contract-v2-projection-6"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -8516,7 +8552,8 @@
               "metric-contract-v2-projection-2",
               "metric-contract-v2-projection-3",
               "metric-contract-v2-projection-4",
-              "metric-contract-v2-projection-5"
+              "metric-contract-v2-projection-5",
+              "metric-contract-v2-projection-6"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -10250,6 +10287,16 @@
             "title": "Product Metric Eligible",
             "type": "boolean"
           },
+          "requirement_plan_evidence_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelRequirementPlanEvidenceBindingDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "run_id": {
             "pattern": "^[a-f0-9]{64}$",
             "title": "Run Id",
@@ -10297,6 +10344,7 @@
           "typed_metrics",
           "metric_publication_v2",
           "metric_profile_binding",
+          "requirement_plan_evidence_binding",
           "metric_evidence_readiness_v2",
           "predictive_projection_version",
           "predictive_projected_at",
@@ -12237,6 +12285,78 @@
         "title": "ModelPredictiveStageDto",
         "type": "object"
       },
+      "ModelRequirementPlanEvidenceBindingDto": {
+        "additionalProperties": false,
+        "description": "Minimized reviewed decomposition authority bound to one sealed run.",
+        "properties": {
+          "confirmation_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Id"
+          },
+          "content_persisted": {
+            "const": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "evidence_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Evidence Fingerprint",
+            "type": "string"
+          },
+          "evidence_policy_version": {
+            "const": "reviewed-requirement-plan-v1",
+            "title": "Evidence Policy Version",
+            "type": "string"
+          },
+          "evidence_schema_version": {
+            "enum": [
+              "requirement-plan-unavailable-v1",
+              "requirement-plan-awaiting-review-v1",
+              "requirement-plan-evidence-v1"
+            ],
+            "title": "Evidence Schema Version",
+            "type": "string"
+          },
+          "evidence_source": {
+            "$ref": "#/components/schemas/RequirementPlanEvidenceSource"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          }
+        },
+        "required": [
+          "evidence_source",
+          "evidence_fingerprint",
+          "evidence_schema_version",
+          "evidence_policy_version",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "ModelRequirementPlanEvidenceBindingDto",
+        "type": "object"
+      },
       "ModelRuntimeInventoryDto": {
         "additionalProperties": false,
         "properties": {
@@ -12799,6 +12919,29 @@
           "links"
         ],
         "title": "PeerLinkList",
+        "type": "object"
+      },
+      "PlanCoordinate": {
+        "additionalProperties": false,
+        "properties": {
+          "clause_index": {
+            "exclusiveMaximum": 128.0,
+            "minimum": 0.0,
+            "title": "Clause Index",
+            "type": "integer"
+          },
+          "message_sequence": {
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Message Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message_sequence",
+          "clause_index"
+        ],
+        "title": "PlanCoordinate",
         "type": "object"
       },
       "PredictiveMetricState": {
@@ -14781,6 +14924,1699 @@
           "annotated"
         ],
         "title": "RemoteSubmitResult",
+        "type": "object"
+      },
+      "RequirementCoordinate": {
+        "additionalProperties": false,
+        "properties": {
+          "clause_index": {
+            "exclusiveMaximum": 128.0,
+            "minimum": 0.0,
+            "title": "Clause Index",
+            "type": "integer"
+          },
+          "message_sequence": {
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Message Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "message_sequence",
+          "clause_index"
+        ],
+        "title": "RequirementCoordinate",
+        "type": "object"
+      },
+      "RequirementDisposition": {
+        "enum": [
+          "linked",
+          "not_linked",
+          "pending"
+        ],
+        "title": "RequirementDisposition",
+        "type": "string"
+      },
+      "RequirementEvidenceEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "coordinate": {
+            "$ref": "#/components/schemas/RequirementCoordinate"
+          },
+          "disposition": {
+            "$ref": "#/components/schemas/RequirementDisposition"
+          },
+          "plan_indexes": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 1000,
+            "title": "Plan Indexes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "coordinate",
+          "disposition"
+        ],
+        "title": "RequirementEvidenceEntry",
+        "type": "object"
+      },
+      "RequirementPlanClauseAlgorithmContract": {
+        "additionalProperties": false,
+        "description": "Machine-readable reproduction recipe for source clause coordinates.",
+        "properties": {
+          "algorithm": {
+            "const": "message-clause-coordinates-en-pl-v1",
+            "default": "message-clause-coordinates-en-pl-v1",
+            "title": "Algorithm",
+            "type": "string"
+          },
+          "clause_indexes_are_zero_based": {
+            "const": true,
+            "default": true,
+            "title": "Clause Indexes Are Zero Based",
+            "type": "boolean"
+          },
+          "implementation_semantics": {
+            "const": "python-3.12-re-unicode",
+            "default": "python-3.12-re-unicode",
+            "title": "Implementation Semantics",
+            "type": "string"
+          },
+          "max_clauses_per_message": {
+            "const": 128,
+            "default": 128,
+            "title": "Max Clauses Per Message",
+            "type": "integer"
+          },
+          "nul_replacement": {
+            "const": "ascii_space",
+            "default": "ascii_space",
+            "title": "Nul Replacement",
+            "type": "string"
+          },
+          "omit_empty_parts": {
+            "const": true,
+            "default": true,
+            "title": "Omit Empty Parts",
+            "type": "boolean"
+          },
+          "operation_order": {
+            "default": [
+              "replace_nul",
+              "split",
+              "normalize_whitespace",
+              "trim",
+              "omit_empty",
+              "overflow_check"
+            ],
+            "maxItems": 6,
+            "minItems": 6,
+            "prefixItems": [
+              {
+                "const": "replace_nul",
+                "type": "string"
+              },
+              {
+                "const": "split",
+                "type": "string"
+              },
+              {
+                "const": "normalize_whitespace",
+                "type": "string"
+              },
+              {
+                "const": "trim",
+                "type": "string"
+              },
+              {
+                "const": "omit_empty",
+                "type": "string"
+              },
+              {
+                "const": "overflow_check",
+                "type": "string"
+              }
+            ],
+            "title": "Operation Order",
+            "type": "array"
+          },
+          "overflow_policy": {
+            "const": "fail_closed_above_128_normalized_clauses",
+            "default": "fail_closed_above_128_normalized_clauses",
+            "title": "Overflow Policy",
+            "type": "string"
+          },
+          "split_regex": {
+            "const": "(?:\\r?\\n)+|(?<=[.!?;])\\s+",
+            "default": "(?:\\r?\\n)+|(?<=[.!?;])\\s+",
+            "title": "Split Regex",
+            "type": "string"
+          },
+          "split_regex_flags": {
+            "const": "unicode",
+            "default": "unicode",
+            "title": "Split Regex Flags",
+            "type": "string"
+          },
+          "trim_each_part": {
+            "const": true,
+            "default": true,
+            "title": "Trim Each Part",
+            "type": "boolean"
+          },
+          "whitespace_regex": {
+            "const": "\\s+",
+            "default": "\\s+",
+            "title": "Whitespace Regex",
+            "type": "string"
+          },
+          "whitespace_replacement": {
+            "const": "ascii_space",
+            "default": "ascii_space",
+            "title": "Whitespace Replacement",
+            "type": "string"
+          }
+        },
+        "title": "RequirementPlanClauseAlgorithmContract",
+        "type": "object"
+      },
+      "RequirementPlanDecisionCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "complete_review_acknowledged": {
+            "default": false,
+            "title": "Complete Review Acknowledged",
+            "type": "boolean"
+          },
+          "confirmation": {
+            "const": "apply_local_user_requirement_plan_evidence_decision",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/RequirementPlanDecisionKind"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "manifest_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Fingerprint"
+          },
+          "review_receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Receipt Id"
+          },
+          "reviewed_candidate_set_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Candidate Set Fingerprint"
+          },
+          "reviewed_graph_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Graph Fingerprint"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "decision",
+          "confirmation"
+        ],
+        "title": "RequirementPlanDecisionCommand",
+        "type": "object"
+      },
+      "RequirementPlanDecisionKind": {
+        "enum": [
+          "confirm",
+          "reject"
+        ],
+        "title": "RequirementPlanDecisionKind",
+        "type": "string"
+      },
+      "RequirementPlanEvidenceContract": {
+        "additionalProperties": false,
+        "description": "Exact content-free recipe an agent may use to prepare one file.",
+        "properties": {
+          "allowed_dispositions": {
+            "default": [
+              "linked",
+              "not_linked",
+              "pending"
+            ],
+            "items": {
+              "enum": [
+                "linked",
+                "not_linked",
+                "pending"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Dispositions",
+            "type": "array"
+          },
+          "allowed_exclusion_reasons": {
+            "default": [
+              "not_requirement",
+              "superseded",
+              "withdrawn",
+              "duplicate",
+              "out_of_scope",
+              "already_satisfied_or_closed"
+            ],
+            "items": {
+              "enum": [
+                "not_requirement",
+                "superseded",
+                "withdrawn",
+                "duplicate",
+                "out_of_scope",
+                "already_satisfied_or_closed"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Exclusion Reasons",
+            "type": "array"
+          },
+          "allowed_user_clause_classifications": {
+            "default": [
+              "active_requirement",
+              "excluded_from_active_requirement_denominator"
+            ],
+            "items": {
+              "enum": [
+                "active_requirement",
+                "excluded_from_active_requirement_denominator"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed User Clause Classifications",
+            "type": "array"
+          },
+          "authoritative_model_judgment_claims_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Authoritative Model Judgment Claims Allowed",
+            "type": "boolean"
+          },
+          "candidate_unit": {
+            "const": "reviewable_user_request_or_feedback_clause",
+            "default": "reviewable_user_request_or_feedback_clause",
+            "title": "Candidate Unit",
+            "type": "string"
+          },
+          "canonical_json_required": {
+            "const": true,
+            "default": true,
+            "title": "Canonical Json Required",
+            "type": "boolean"
+          },
+          "canonicalization": {
+            "const": "json-sort-keys-compact-ensure-ascii-v1",
+            "default": "json-sort-keys-compact-ensure-ascii-v1",
+            "title": "Canonicalization",
+            "type": "string"
+          },
+          "clause_algorithm": {
+            "const": "message-clause-coordinates-en-pl-v1",
+            "default": "message-clause-coordinates-en-pl-v1",
+            "title": "Clause Algorithm",
+            "type": "string"
+          },
+          "clause_algorithm_spec": {
+            "$ref": "#/components/schemas/RequirementPlanClauseAlgorithmContract"
+          },
+          "complete_user_clause_classification_required": {
+            "const": true,
+            "default": true,
+            "title": "Complete User Clause Classification Required",
+            "type": "boolean"
+          },
+          "compound_clause_coarsening_disclosed": {
+            "const": true,
+            "default": true,
+            "title": "Compound Clause Coarsening Disclosed",
+            "type": "boolean"
+          },
+          "contract_set_fingerprint": {
+            "title": "Contract Set Fingerprint",
+            "type": "string"
+          },
+          "duplicate_keys_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Duplicate Keys Allowed",
+            "type": "boolean"
+          },
+          "durable_producer_claim_shape": {
+            "const": "installation_keyed_opaque_commitment_only",
+            "default": "installation_keyed_opaque_commitment_only",
+            "title": "Durable Producer Claim Shape",
+            "type": "string"
+          },
+          "excluded_user_clauses_are_excluded_from_metric": {
+            "const": true,
+            "default": true,
+            "title": "Excluded User Clauses Are Excluded From Metric",
+            "type": "boolean"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "file_constraint_codes": {
+            "default": [
+              "identifiers_match_current_contract",
+              "producer_codes_match_safe_version_pattern",
+              "expires_at_is_utc_after_validation_and_within_86400_seconds",
+              "requirement_coordinates_are_sorted_unique",
+              "plan_coordinates_are_sorted_unique",
+              "plan_indexes_are_sorted_unique_non_negative",
+              "linked_requires_nonempty_plan_indexes",
+              "nonlinked_and_pending_require_empty_plan_indexes",
+              "plan_indexes_reference_existing_plan_items",
+              "total_plan_indexes_lte_4000",
+              "requirement_coordinates_reference_user_request_or_feedback_clauses",
+              "excluded_user_clause_coordinates_are_sorted_unique",
+              "excluded_user_clause_reasons_use_closed_rubric",
+              "exclusion_basis_coordinates_follow_reason_rules",
+              "user_clauses_exactly_classified_as_active_or_excluded",
+              "active_and_excluded_user_clause_coordinates_are_disjoint",
+              "source_messages_fail_closed_above_128_normalized_clauses",
+              "plan_coordinates_reference_agent_plan_clauses",
+              "linked_plan_sequence_gte_requirement_sequence"
+            ],
+            "items": {
+              "enum": [
+                "identifiers_match_current_contract",
+                "producer_codes_match_safe_version_pattern",
+                "expires_at_is_utc_after_validation_and_within_86400_seconds",
+                "requirement_coordinates_are_sorted_unique",
+                "plan_coordinates_are_sorted_unique",
+                "plan_indexes_are_sorted_unique_non_negative",
+                "linked_requires_nonempty_plan_indexes",
+                "nonlinked_and_pending_require_empty_plan_indexes",
+                "plan_indexes_reference_existing_plan_items",
+                "total_plan_indexes_lte_4000",
+                "requirement_coordinates_reference_user_request_or_feedback_clauses",
+                "excluded_user_clause_coordinates_are_sorted_unique",
+                "excluded_user_clause_reasons_use_closed_rubric",
+                "exclusion_basis_coordinates_follow_reason_rules",
+                "user_clauses_exactly_classified_as_active_or_excluded",
+                "active_and_excluded_user_clause_coordinates_are_disjoint",
+                "source_messages_fail_closed_above_128_normalized_clauses",
+                "plan_coordinates_reference_agent_plan_clauses",
+                "linked_plan_sequence_gte_requirement_sequence"
+              ],
+              "type": "string"
+            },
+            "title": "File Constraint Codes",
+            "type": "array"
+          },
+          "file_constraint_contract_version": {
+            "const": "requirement-plan-file-constraints-v1",
+            "default": "requirement-plan-file-constraints-v1",
+            "title": "File Constraint Contract Version",
+            "type": "string"
+          },
+          "file_json_schema": {
+            "additionalProperties": true,
+            "title": "File Json Schema",
+            "type": "object"
+          },
+          "file_json_schema_sha256": {
+            "title": "File Json Schema Sha256",
+            "type": "string"
+          },
+          "floating_point_values_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Floating Point Values Allowed",
+            "type": "boolean"
+          },
+          "import_confirmation": {
+            "const": "import_requirement_plan_evidence_as_unconfirmed_proposal",
+            "default": "import_requirement_plan_evidence_as_unconfirmed_proposal",
+            "title": "Import Confirmation",
+            "type": "string"
+          },
+          "import_creates_unconfirmed_proposal_only": {
+            "const": true,
+            "default": true,
+            "title": "Import Creates Unconfirmed Proposal Only",
+            "type": "boolean"
+          },
+          "max_active_requirement_count": {
+            "const": 1000,
+            "default": 1000,
+            "title": "Max Active Requirement Count",
+            "type": "integer"
+          },
+          "max_clauses_per_message": {
+            "const": 128,
+            "default": 128,
+            "title": "Max Clauses Per Message",
+            "type": "integer"
+          },
+          "max_excluded_user_clause_count": {
+            "const": 1000,
+            "default": 1000,
+            "title": "Max Excluded User Clause Count",
+            "type": "integer"
+          },
+          "max_file_bytes": {
+            "const": 65536,
+            "default": 65536,
+            "title": "Max File Bytes",
+            "type": "integer"
+          },
+          "max_json_depth": {
+            "const": 8,
+            "default": 8,
+            "title": "Max Json Depth",
+            "type": "integer"
+          },
+          "max_json_items": {
+            "const": 6000,
+            "default": 6000,
+            "title": "Max Json Items",
+            "type": "integer"
+          },
+          "max_lifetime_seconds": {
+            "const": 86400,
+            "default": 86400,
+            "title": "Max Lifetime Seconds",
+            "type": "integer"
+          },
+          "max_link_count": {
+            "const": 4000,
+            "default": 4000,
+            "title": "Max Link Count",
+            "type": "integer"
+          },
+          "max_plan_item_count": {
+            "const": 1000,
+            "default": 1000,
+            "title": "Max Plan Item Count",
+            "type": "integer"
+          },
+          "max_reviewed_user_clause_count": {
+            "const": 1000,
+            "default": 1000,
+            "title": "Max Reviewed User Clause Count",
+            "type": "integer"
+          },
+          "metric_contract_fingerprint": {
+            "title": "Metric Contract Fingerprint",
+            "type": "string"
+          },
+          "metric_key": {
+            "const": "logic.decomposition_coverage",
+            "default": "logic.decomposition_coverage",
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "native_confirmation_required_for_metric_authority": {
+            "const": true,
+            "default": true,
+            "title": "Native Confirmation Required For Metric Authority",
+            "type": "boolean"
+          },
+          "objective_receipt_claims_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Objective Receipt Claims Allowed",
+            "type": "boolean"
+          },
+          "one_active_requirement_coordinate_is_one_opportunity": {
+            "const": true,
+            "default": true,
+            "title": "One Active Requirement Coordinate Is One Opportunity",
+            "type": "boolean"
+          },
+          "opportunity_unit": {
+            "const": "reviewed_active_requirement_clause",
+            "default": "reviewed_active_requirement_clause",
+            "title": "Opportunity Unit",
+            "type": "string"
+          },
+          "payload_digest": {
+            "const": "sha256",
+            "default": "sha256",
+            "title": "Payload Digest",
+            "type": "string"
+          },
+          "prose_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Prose Allowed",
+            "type": "boolean"
+          },
+          "raw_payload_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Payload Persisted",
+            "type": "boolean"
+          },
+          "raw_producer_claim_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Producer Claim Persisted",
+            "type": "boolean"
+          },
+          "registry_version": {
+            "const": "all-20-factor-contracts-v2",
+            "default": "all-20-factor-contracts-v2",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "review_rubric": {
+            "$ref": "#/components/schemas/RequirementPlanReviewRubric"
+          },
+          "review_rubric_version": {
+            "const": "active-requirement-plan-review-rubric-v1",
+            "default": "active-requirement-plan-review-rubric-v1",
+            "title": "Review Rubric Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "requirement-plan-evidence-file-v1",
+            "default": "requirement-plan-evidence-file-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scores_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Scores Allowed",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_manifest": {
+            "$ref": "#/components/schemas/RequirementPlanSourceManifest"
+          },
+          "source_projection_version": {
+            "enum": [
+              "metric-contract-v2-projection-5",
+              "metric-contract-v2-projection-6"
+            ],
+            "title": "Source Projection Version",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "uncertain_classification_policy": {
+            "const": "reject_or_leave_proposal_unconfirmed",
+            "default": "reject_or_leave_proposal_unconfirmed",
+            "title": "Uncertain Classification Policy",
+            "type": "string"
+          },
+          "untrusted_structured_classification_proposals_allowed": {
+            "const": true,
+            "default": true,
+            "title": "Untrusted Structured Classification Proposals Allowed",
+            "type": "boolean"
+          },
+          "utf8_without_bom_required": {
+            "const": true,
+            "default": true,
+            "title": "Utf8 Without Bom Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session_id",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "contract_set_fingerprint",
+          "metric_contract_fingerprint",
+          "source_projection_version",
+          "clause_algorithm_spec",
+          "file_json_schema_sha256",
+          "file_json_schema",
+          "source_manifest"
+        ],
+        "title": "RequirementPlanEvidenceContract",
+        "type": "object"
+      },
+      "RequirementPlanEvidencePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "active_requirement_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Active Requirement Count",
+            "type": "integer"
+          },
+          "can_set_numeric_metric_on_import": {
+            "const": false,
+            "default": false,
+            "title": "Can Set Numeric Metric On Import",
+            "type": "boolean"
+          },
+          "creates_unconfirmed_proposal_only": {
+            "const": true,
+            "default": true,
+            "title": "Creates Unconfirmed Proposal Only",
+            "type": "boolean"
+          },
+          "excluded_user_clause_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Excluded User Clause Count",
+            "type": "integer"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "link_count": {
+            "maximum": 4000.0,
+            "minimum": 0.0,
+            "title": "Link Count",
+            "type": "integer"
+          },
+          "linked_active_requirement_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Linked Active Requirement Count",
+            "type": "integer"
+          },
+          "native_confirmation_required_for_metric_authority": {
+            "const": true,
+            "default": true,
+            "title": "Native Confirmation Required For Metric Authority",
+            "type": "boolean"
+          },
+          "not_linked_active_requirement_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Not Linked Active Requirement Count",
+            "type": "integer"
+          },
+          "payload_sha256": {
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "pending_active_requirement_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Pending Active Requirement Count",
+            "type": "integer"
+          },
+          "plan_item_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Plan Item Count",
+            "type": "integer"
+          },
+          "producer": {
+            "$ref": "#/components/schemas/RequirementPlanProducer"
+          },
+          "raw_payload_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Payload Persisted",
+            "type": "boolean"
+          },
+          "raw_producer_claim_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Producer Claim Persisted",
+            "type": "boolean"
+          },
+          "reviewed_user_clause_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Reviewed User Clause Count",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload_sha256",
+          "session_id",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "reviewed_user_clause_count",
+          "active_requirement_count",
+          "excluded_user_clause_count",
+          "plan_item_count",
+          "linked_active_requirement_count",
+          "not_linked_active_requirement_count",
+          "pending_active_requirement_count",
+          "link_count",
+          "expires_at",
+          "producer"
+        ],
+        "title": "RequirementPlanEvidencePreview",
+        "type": "object"
+      },
+      "RequirementPlanEvidenceSource": {
+        "enum": [
+          "unavailable",
+          "awaiting_review",
+          "reviewed_requirement_plan"
+        ],
+        "title": "RequirementPlanEvidenceSource",
+        "type": "string"
+      },
+      "RequirementPlanExclusionReason": {
+        "enum": [
+          "not_requirement",
+          "superseded",
+          "withdrawn",
+          "duplicate",
+          "out_of_scope",
+          "already_satisfied_or_closed"
+        ],
+        "title": "RequirementPlanExclusionReason",
+        "type": "string"
+      },
+      "RequirementPlanImportDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "creates_unconfirmed_proposal_only": {
+            "default": true,
+            "title": "Creates Unconfirmed Proposal Only",
+            "type": "boolean"
+          },
+          "native_confirmation_required_for_metric_authority": {
+            "default": true,
+            "title": "Native Confirmation Required For Metric Authority",
+            "type": "boolean"
+          },
+          "payload_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/RequirementPlanProposalDto"
+          },
+          "raw_payload_persisted": {
+            "default": false,
+            "title": "Raw Payload Persisted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "payload_sha256",
+          "proposal",
+          "applied"
+        ],
+        "title": "RequirementPlanImportDto",
+        "type": "object"
+      },
+      "RequirementPlanProducer": {
+        "additionalProperties": false,
+        "description": "Ephemeral, explicitly untrusted producer claim from the submitted file.",
+        "properties": {
+          "authority": {
+            "const": "untrusted_provenance_claim",
+            "title": "Authority",
+            "type": "string"
+          },
+          "kind": {
+            "const": "local_coding_agent",
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "producer_id": {
+            "title": "Producer Id",
+            "type": "string"
+          },
+          "producer_version": {
+            "title": "Producer Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "producer_id",
+          "producer_version",
+          "model_id",
+          "authority"
+        ],
+        "title": "RequirementPlanProducer",
+        "type": "object"
+      },
+      "RequirementPlanProducerReceipt": {
+        "additionalProperties": false,
+        "description": "Content-free durable commitment to an ephemeral producer claim.",
+        "properties": {
+          "authority": {
+            "const": "untrusted_provenance_claim_commitment",
+            "default": "untrusted_provenance_claim_commitment",
+            "title": "Authority",
+            "type": "string"
+          },
+          "claim_fingerprint": {
+            "title": "Claim Fingerprint",
+            "type": "string"
+          },
+          "kind": {
+            "const": "local_coding_agent",
+            "default": "local_coding_agent",
+            "title": "Kind",
+            "type": "string"
+          },
+          "raw_claim_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Claim Persisted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "claim_fingerprint"
+        ],
+        "title": "RequirementPlanProducerReceipt",
+        "type": "object"
+      },
+      "RequirementPlanProposalDto": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation_authority": {
+            "anyOf": [
+              {
+                "const": "owned_native_user_presence",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Authority"
+          },
+          "content_persisted": {
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementPlanDecisionKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "excluded_user_clauses": {
+            "items": {
+              "$ref": "#/components/schemas/ExcludedRequirementClause"
+            },
+            "title": "Excluded User Clauses",
+            "type": "array"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "local_only": {
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "payload_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "plan_items": {
+            "items": {
+              "$ref": "#/components/schemas/PlanCoordinate"
+            },
+            "title": "Plan Items",
+            "type": "array"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "producer_receipt": {
+            "$ref": "#/components/schemas/RequirementPlanProducerReceipt"
+          },
+          "proposal_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementEvidenceEntry"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "review_rubric_version": {
+            "const": "active-requirement-plan-review-rubric-v1",
+            "title": "Review Rubric Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequirementPlanProposalStatus"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "payload_sha256",
+          "producer_receipt",
+          "review_rubric_version",
+          "requirements",
+          "excluded_user_clauses",
+          "plan_items",
+          "created_at",
+          "schema_version",
+          "policy_version",
+          "status",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "RequirementPlanProposalDto",
+        "type": "object"
+      },
+      "RequirementPlanProposalOutcomeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/RequirementPlanProposalDto"
+          }
+        },
+        "required": [
+          "proposal",
+          "applied"
+        ],
+        "title": "RequirementPlanProposalOutcomeDto",
+        "type": "object"
+      },
+      "RequirementPlanProposalPageDto": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "limit": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementPlanProposalDto"
+            },
+            "maxItems": 200,
+            "title": "Proposals",
+            "type": "array"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/RequirementPlanProposalPageSnapshot"
+          },
+          "total": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "proposals",
+          "limit",
+          "offset",
+          "total",
+          "snapshot",
+          "complete"
+        ],
+        "title": "RequirementPlanProposalPageDto",
+        "type": "object"
+      },
+      "RequirementPlanProposalPageSnapshot": {
+        "additionalProperties": false,
+        "description": "Server-issued high-water boundary for one stable multi-page listing.",
+        "properties": {
+          "decision_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Decision Count",
+            "type": "integer"
+          },
+          "high_water_created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Water Created At"
+          },
+          "high_water_proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Water Proposal Id"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "total": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "total",
+          "decision_count"
+        ],
+        "title": "RequirementPlanProposalPageSnapshot",
+        "type": "object"
+      },
+      "RequirementPlanProposalReview": {
+        "additionalProperties": false,
+        "description": "Ephemeral clause text for a person reviewing one immutable proposal.",
+        "properties": {
+          "all_coordinates_structurally_valid": {
+            "const": true,
+            "default": true,
+            "title": "All Coordinates Structurally Valid",
+            "type": "boolean"
+          },
+          "candidate_clauses": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementPlanReviewClause"
+            },
+            "maxItems": 12800,
+            "title": "Candidate Clauses",
+            "type": "array"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "manifest_fingerprint": {
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "payload_sha256": {
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "raw_text_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Text Persisted",
+            "type": "boolean"
+          },
+          "review_context_expires_at": {
+            "format": "date-time",
+            "title": "Review Context Expires At",
+            "type": "string"
+          },
+          "review_receipt_expires_at": {
+            "format": "date-time",
+            "title": "Review Receipt Expires At",
+            "type": "string"
+          },
+          "review_receipt_id": {
+            "title": "Review Receipt Id",
+            "type": "string"
+          },
+          "reviewed_candidate_set_fingerprint": {
+            "title": "Reviewed Candidate Set Fingerprint",
+            "type": "string"
+          },
+          "reviewed_graph_fingerprint": {
+            "title": "Reviewed Graph Fingerprint",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "review_receipt_id",
+          "payload_sha256",
+          "manifest_fingerprint",
+          "reviewed_graph_fingerprint",
+          "reviewed_candidate_set_fingerprint",
+          "candidate_clauses",
+          "review_context_expires_at",
+          "review_receipt_expires_at"
+        ],
+        "title": "RequirementPlanProposalReview",
+        "type": "object"
+      },
+      "RequirementPlanProposalStatus": {
+        "enum": [
+          "proposed",
+          "confirmed",
+          "rejected"
+        ],
+        "title": "RequirementPlanProposalStatus",
+        "type": "string"
+      },
+      "RequirementPlanReviewClause": {
+        "additionalProperties": false,
+        "properties": {
+          "basis_coordinate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementCoordinate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candidate_kind": {
+            "enum": [
+              "user_clause",
+              "plan"
+            ],
+            "title": "Candidate Kind",
+            "type": "string"
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active_requirement",
+                  "excluded_from_active_requirement_denominator"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classification"
+          },
+          "clause_index": {
+            "exclusiveMaximum": 128.0,
+            "minimum": 0.0,
+            "title": "Clause Index",
+            "type": "integer"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementDisposition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementPlanExclusionReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "included_in_proposal": {
+            "title": "Included In Proposal",
+            "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TextMessageKind"
+          },
+          "linked_plan_coordinates": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanCoordinate"
+            },
+            "maxItems": 1000,
+            "title": "Linked Plan Coordinates",
+            "type": "array"
+          },
+          "message_sequence": {
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Message Sequence",
+            "type": "integer"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TextRole"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_sequence",
+          "clause_index",
+          "role",
+          "kind",
+          "text",
+          "candidate_kind",
+          "included_in_proposal"
+        ],
+        "title": "RequirementPlanReviewClause",
+        "type": "object"
+      },
+      "RequirementPlanReviewCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "open_exact_local_requirement_plan_clause_review",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "expected_source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Source Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "confirmation"
+        ],
+        "title": "RequirementPlanReviewCommand",
+        "type": "object"
+      },
+      "RequirementPlanReviewRubric": {
+        "additionalProperties": false,
+        "description": "Closed operational meaning of the reviewed denominator and outcomes.",
+        "properties": {
+          "active_requirement_rule": {
+            "const": "current_in_scope_user_owned_work_at_the_sealed_window",
+            "default": "current_in_scope_user_owned_work_at_the_sealed_window",
+            "title": "Active Requirement Rule",
+            "type": "string"
+          },
+          "already_satisfied_or_closed_rule": {
+            "const": "work_was_already_satisfied_or_explicitly_closed_before_this_snapshot",
+            "default": "work_was_already_satisfied_or_explicitly_closed_before_this_snapshot",
+            "title": "Already Satisfied Or Closed Rule",
+            "type": "string"
+          },
+          "duplicate_rule": {
+            "const": "same_active_work_is_owned_by_another_reviewed_clause",
+            "default": "same_active_work_is_owned_by_another_reviewed_clause",
+            "title": "Duplicate Rule",
+            "type": "string"
+          },
+          "exclusion_basis_policy": {
+            "const": "superseded_and_withdrawn_point_to_a_later_user_clause_duplicate_points_to_its_active_owner",
+            "default": "superseded_and_withdrawn_point_to_a_later_user_clause_duplicate_points_to_its_active_owner",
+            "title": "Exclusion Basis Policy",
+            "type": "string"
+          },
+          "linked_rule": {
+            "const": "one_or_more_reviewed_concrete_plan_clauses_address_the_active_requirement",
+            "default": "one_or_more_reviewed_concrete_plan_clauses_address_the_active_requirement",
+            "title": "Linked Rule",
+            "type": "string"
+          },
+          "not_linked_rule": {
+            "const": "no_reviewed_plan_clause_addresses_the_requirement_and_the_person_confirms_the_planning_horizon_closed",
+            "default": "no_reviewed_plan_clause_addresses_the_requirement_and_the_person_confirms_the_planning_horizon_closed",
+            "title": "Not Linked Rule",
+            "type": "string"
+          },
+          "not_requirement_rule": {
+            "const": "clause_does_not_express_work_to_be_performed",
+            "default": "clause_does_not_express_work_to_be_performed",
+            "title": "Not Requirement Rule",
+            "type": "string"
+          },
+          "out_of_scope_rule": {
+            "const": "person_explicitly_excludes_this_work_from_the_current_scope",
+            "default": "person_explicitly_excludes_this_work_from_the_current_scope",
+            "title": "Out Of Scope Rule",
+            "type": "string"
+          },
+          "pending_rule": {
+            "const": "no_reviewed_plan_clause_yet_addresses_the_requirement_and_the_planning_horizon_is_not_confirmed_closed",
+            "default": "no_reviewed_plan_clause_yet_addresses_the_requirement_and_the_planning_horizon_is_not_confirmed_closed",
+            "title": "Pending Rule",
+            "type": "string"
+          },
+          "superseded_rule": {
+            "const": "later_user_clause_explicitly_replaces_this_work",
+            "default": "later_user_clause_explicitly_replaces_this_work",
+            "title": "Superseded Rule",
+            "type": "string"
+          },
+          "uncertain_policy": {
+            "const": "reject_or_leave_proposal_unconfirmed",
+            "default": "reject_or_leave_proposal_unconfirmed",
+            "title": "Uncertain Policy",
+            "type": "string"
+          },
+          "version": {
+            "const": "active-requirement-plan-review-rubric-v1",
+            "default": "active-requirement-plan-review-rubric-v1",
+            "title": "Version",
+            "type": "string"
+          },
+          "withdrawn_rule": {
+            "const": "later_user_clause_explicitly_cancels_this_work",
+            "default": "later_user_clause_explicitly_cancels_this_work",
+            "title": "Withdrawn Rule",
+            "type": "string"
+          }
+        },
+        "title": "RequirementPlanReviewRubric",
+        "type": "object"
+      },
+      "RequirementPlanSourceManifest": {
+        "additionalProperties": false,
+        "description": "Bounded content-free manifest used by external file producers.",
+        "properties": {
+          "candidate_clause_count": {
+            "maximum": 12800.0,
+            "minimum": 0.0,
+            "title": "Candidate Clause Count",
+            "type": "integer"
+          },
+          "clause_algorithm": {
+            "const": "message-clause-coordinates-en-pl-v1",
+            "default": "message-clause-coordinates-en-pl-v1",
+            "title": "Clause Algorithm",
+            "type": "string"
+          },
+          "clause_algorithm_spec": {
+            "$ref": "#/components/schemas/RequirementPlanClauseAlgorithmContract"
+          },
+          "contains_text": {
+            "const": false,
+            "default": false,
+            "title": "Contains Text",
+            "type": "boolean"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "manifest_fingerprint": {
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "message_count": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementPlanSourceMessageManifest"
+            },
+            "maxItems": 100,
+            "title": "Messages",
+            "type": "array"
+          },
+          "review_context_expires_at": {
+            "format": "date-time",
+            "title": "Review Context Expires At",
+            "type": "string"
+          },
+          "review_rubric": {
+            "$ref": "#/components/schemas/RequirementPlanReviewRubric"
+          },
+          "review_rubric_version": {
+            "const": "active-requirement-plan-review-rubric-v1",
+            "default": "active-requirement-plan-review-rubric-v1",
+            "title": "Review Rubric Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "requirement-plan-source-manifest-v1",
+            "default": "requirement-plan-source-manifest-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "clause_algorithm_spec",
+          "messages",
+          "message_count",
+          "candidate_clause_count",
+          "manifest_fingerprint",
+          "review_context_expires_at"
+        ],
+        "title": "RequirementPlanSourceManifest",
+        "type": "object"
+      },
+      "RequirementPlanSourceMessageManifest": {
+        "additionalProperties": false,
+        "description": "Content-free addressability for one message in the exact sealed window.",
+        "properties": {
+          "clause_count": {
+            "maximum": 128.0,
+            "minimum": 0.0,
+            "title": "Clause Count",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TextMessageKind"
+          },
+          "message_sequence": {
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Message Sequence",
+            "type": "integer"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TextRole"
+          }
+        },
+        "required": [
+          "message_sequence",
+          "role",
+          "kind",
+          "clause_count"
+        ],
+        "title": "RequirementPlanSourceMessageManifest",
         "type": "object"
       },
       "ResearchSourceDto": {
@@ -30943,6 +32779,723 @@
         "summary": "Latest Session Analysis Run",
         "tags": [
           "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-plan-evidence/contract": {
+      "get": {
+        "operationId": "contract_v1_sessions__session_id__requirement_plan_evidence_contract_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanEvidenceContract"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Contract",
+        "tags": [
+          "requirement-plan-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-plan-evidence/import": {
+      "post": {
+        "operationId": "import_file_v1_sessions__session_id__requirement_plan_evidence_import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Requirement-Plan-Payload-SHA256",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "X-Requirement-Plan-Payload-Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Requirement-Plan-Confirmation",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "X-Requirement-Plan-Confirmation",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.prompt-enhancer.requirement-plan-evidence+json": {
+              "schema": {
+                "format": "binary",
+                "maxLength": 65536,
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanImportDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanImportDto"
+                }
+              }
+            },
+            "description": "A new inert requirement-plan proposal was created."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import File",
+        "tags": [
+          "requirement-plan-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-plan-evidence/preview": {
+      "post": {
+        "operationId": "preview_v1_sessions__session_id__requirement_plan_evidence_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.prompt-enhancer.requirement-plan-evidence+json": {
+              "schema": {
+                "format": "binary",
+                "maxLength": 65536,
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanEvidencePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "requirement-plan-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-plan-evidence/proposal-page": {
+      "get": {
+        "operationId": "proposal_page_v1_sessions__session_id__requirement_plan_evidence_proposal_page_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_total",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot Total"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_decision_count",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot Decision Count"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_high_water_created_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot High Water Created At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_high_water_proposal_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot High Water Proposal Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanProposalPageDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Proposal Page",
+        "tags": [
+          "requirement-plan-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-plan-evidence/proposals/{proposal_id}/decision": {
+      "post": {
+        "operationId": "decide_v1_sessions__session_id__requirement_plan_evidence_proposals__proposal_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementPlanDecisionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "A new owned-native decision was recorded."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide",
+        "tags": [
+          "requirement-plan-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-plan-evidence/proposals/{proposal_id}/review": {
+      "post": {
+        "operationId": "review_proposal_v1_sessions__session_id__requirement_plan_evidence_proposals__proposal_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementPlanReviewCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementPlanProposalReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review Proposal",
+        "tags": [
+          "requirement-plan-evidence"
         ]
       }
     },

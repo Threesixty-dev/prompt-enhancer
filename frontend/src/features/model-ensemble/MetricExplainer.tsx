@@ -29,7 +29,7 @@ import "./MetricExplainer.css";
 export interface MetricExplainerEntry {
   key: string;
   label: string;
-  /** Exact sealed projection selecting frozen historical or current r5 explainer units. */
+  /** Exact sealed projection selecting frozen historical or current explainer units. */
   projectionVersion?: MetricHelpProjectionVersion | null;
   provenance: MetricExplainerProvenance;
   /** Raw fraction in the metric's own direction, when a value exists. */

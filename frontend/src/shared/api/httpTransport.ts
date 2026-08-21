@@ -45,6 +45,7 @@ import type {
   MetricEvidenceCapability,
   MetricLifecycleDecisionRequest,
   MetricLifecycleProposal,
+  RequirementPlanProposal,
   MetricReadiness,
   MetricReadinessAction,
   ReviewCommand,
@@ -163,6 +164,16 @@ import {
   parseMetricLifecycleProposalOutcome,
 } from "./agentMetricEvidenceContract";
 import {
+  REQUIREMENT_PLAN_MEDIA_TYPE,
+  RequirementPlanEvidencePayloadError,
+  parseRequirementPlanEvidenceContract,
+  parseRequirementPlanEvidencePreview,
+  parseRequirementPlanImport,
+  parseRequirementPlanProposalOutcome,
+  parseRequirementPlanProposalPage,
+  parseRequirementPlanProposalReview,
+} from "./requirementPlanEvidenceContract";
+import {
   DeclaredTaskProfilePayloadError,
   parseDeclaredTaskProfileCurrent,
   parseDeclaredTaskProfileOutcome,
@@ -174,6 +185,16 @@ import type {
 } from "../platform/runtimeMode";
 
 type FetchLike = typeof globalThis.fetch;
+
+const REQUIREMENT_PLAN_UTC_MICROSECOND_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(?:Z|\+00:00)$/;
+
+function requirementPlanUtcMicrosecondKey(value: string): string {
+  const match = REQUIREMENT_PLAN_UTC_MICROSECOND_PATTERN.exec(value);
+  if (match === null) throw new RequirementPlanEvidencePayloadError();
+  return `${match[1]}${match[2]}${match[3]}${match[4]}${match[5]}${match[6]}`
+    + (match[7] ?? "").padEnd(6, "0");
+}
 
 export class TransportError extends Error {
   readonly status: number;
@@ -3708,6 +3729,214 @@ export function createHttpTransport(options: {
       try { return parseMetricLifecycleProposalOutcome(value); }
       catch (error) {
         if (error instanceof AgentMetricEvidencePayloadError) throw new TransportError(error.message, 200);
+        throw error;
+      }
+    },
+    async getRequirementPlanEvidenceContract(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-plan-evidence/contract`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try { return parseRequirementPlanEvidenceContract(value, sessionId); }
+      catch (error) {
+        if (error instanceof RequirementPlanEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async previewRequirementPlanEvidence(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-plan-evidence/preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": REQUIREMENT_PLAN_MEDIA_TYPE },
+          body: payload,
+        },
+        signal,
+        true,
+        true,
+      );
+      try { return parseRequirementPlanEvidencePreview(value, sessionId); }
+      catch (error) {
+        if (error instanceof RequirementPlanEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async importRequirementPlanEvidence(
+      sessionId,
+      payload,
+      preview,
+      confirmation,
+      idempotencyKey,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-plan-evidence/import`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": REQUIREMENT_PLAN_MEDIA_TYPE,
+            "Idempotency-Key": idempotencyKey,
+            "X-Requirement-Plan-Confirmation": confirmation,
+            "X-Requirement-Plan-Payload-SHA256": preview.payload_sha256,
+          },
+          body: payload,
+        },
+        signal,
+        true,
+        true,
+      );
+      try { return parseRequirementPlanImport(value, preview); }
+      catch (error) {
+        if (error instanceof RequirementPlanEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async listRequirementPlanProposals(sessionId, signal) {
+      const limit = 200;
+      let offset = 0;
+      let total: number | null = null;
+      let snapshot: import("./contracts").RequirementPlanProposalPageSnapshot | null = null;
+      const proposals: RequirementPlanProposal[] = [];
+      const identities = new Set<string>();
+      let previousCreatedAtKey: string | null = null;
+      let previousProposalId = "";
+      for (let pageIndex = 0; pageIndex < 120; pageIndex += 1) {
+        const snapshotQuery = snapshot === null ? "" : [
+          `&snapshot_id=${encodeURIComponent(snapshot.snapshot_id)}`,
+          `&snapshot_total=${snapshot.total}`,
+          `&snapshot_decision_count=${snapshot.decision_count}`,
+          `&snapshot_high_water_created_at=${encodeURIComponent(snapshot.high_water_created_at!)}`,
+          `&snapshot_high_water_proposal_id=${encodeURIComponent(snapshot.high_water_proposal_id!)}`,
+        ].join("");
+        const value = await request<unknown>(
+          `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-plan-evidence/proposal-page?limit=${limit}&offset=${offset}${snapshotQuery}`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const page = parseRequirementPlanProposalPage(
+            value, sessionId, limit, offset, snapshot,
+          );
+          if (total !== null && page.total !== total) throw new RequirementPlanEvidencePayloadError();
+          total = page.total;
+          snapshot = page.snapshot;
+          for (const proposal of page.proposals) {
+            if (identities.has(proposal.proposal_id)) throw new RequirementPlanEvidencePayloadError();
+            const createdAtKey = requirementPlanUtcMicrosecondKey(proposal.created_at);
+            if (
+              previousCreatedAtKey !== null
+              && (
+                createdAtKey < previousCreatedAtKey
+                || (createdAtKey === previousCreatedAtKey
+                  && proposal.proposal_id <= previousProposalId)
+              )
+            ) throw new RequirementPlanEvidencePayloadError();
+            identities.add(proposal.proposal_id);
+            proposals.push(proposal);
+            previousCreatedAtKey = createdAtKey;
+            previousProposalId = proposal.proposal_id;
+          }
+          if (page.complete) {
+            const boundary = proposals.at(-1);
+            if (
+              proposals.length !== total
+              || snapshot.decision_count !== proposals.filter(
+                (proposal) => proposal.status !== "proposed",
+              ).length
+              || (boundary === undefined) !== (snapshot.total === 0)
+              || (boundary !== undefined && (
+                requirementPlanUtcMicrosecondKey(snapshot.high_water_created_at!)
+                  !== requirementPlanUtcMicrosecondKey(boundary.created_at)
+                || snapshot.high_water_proposal_id !== boundary.proposal_id
+              ))
+            ) throw new RequirementPlanEvidencePayloadError();
+            return { session_id: sessionId, proposals, total, complete: true, snapshot };
+          }
+          if (typeof page.next_offset !== "number") throw new RequirementPlanEvidencePayloadError();
+          offset = page.next_offset;
+        } catch (error) {
+          if (error instanceof RequirementPlanEvidencePayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      }
+      throw new TransportError("Requirement-plan proposal list exceeded the reviewed page budget", 200);
+    },
+    async reviewRequirementPlanProposal(
+      sessionId,
+      proposal,
+      contract,
+      reviewRequest,
+      signal,
+    ) {
+      const path = `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-plan-evidence/proposals/${encodeURIComponent(proposal.proposal_id)}/review`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(reviewRequest),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseRequirementPlanProposalReview(value, { sessionId, proposal, contract });
+      } catch (error) {
+        if (error instanceof RequirementPlanEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async decideRequirementPlanProposal(
+      sessionId,
+      proposalId,
+      decisionRequest,
+      idempotencyKey,
+      signal,
+    ) {
+      const path = `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-plan-evidence/proposals/${encodeURIComponent(proposalId)}/decision`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(decisionRequest),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseRequirementPlanProposalOutcome(value, {
+          sessionId,
+          proposalId,
+          sourceRunId: decisionRequest.expected_source_run_id,
+          decision: decisionRequest.decision,
+        });
+      } catch (error) {
+        if (error instanceof RequirementPlanEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
         throw error;
       }
     },

@@ -3,6 +3,7 @@ import type {
   ModelEnsembleRun,
   ModelEnsembleAttemptStage,
   PromptEnhancerTransport,
+  RequirementPlanEvidenceContract,
 } from "../../shared/api/contracts";
 import { moveRovingFocus } from "../../shared/ui/rovingFocus";
 import {
@@ -36,6 +37,7 @@ import { ME_SCOPE_CONTEXT, type MetricScopeContext } from "./metricContextFacts"
 import { shortIdentity } from "./modelStages";
 import { metricEvidenceReadinessForPublication } from "./metricEvidenceReadiness";
 import { MetricEvidenceFilePanel } from "./MetricEvidenceFilePanel";
+import { RequirementPlanEvidencePanel } from "./RequirementPlanEvidencePanel";
 
 /**
  * The trajectory helpers and the history contract used to live in this file.
@@ -55,7 +57,8 @@ export function metricEvidenceFileProjectionSupported(
   projectionVersion: string | undefined,
 ): boolean {
   return projectionVersion === "metric-contract-v2-projection-4"
-    || projectionVersion === "metric-contract-v2-projection-5";
+    || projectionVersion === "metric-contract-v2-projection-5"
+    || projectionVersion === "metric-contract-v2-projection-6";
 }
 
 export function MetricWorkspace({
@@ -246,6 +249,22 @@ export function MetricWorkspace({
             compact={mode === "compact"}
             onEvidenceChanged={onEvidenceChanged}
             sessionId={evidenceSessionId}
+            sourceRunId={runId}
+            transport={transport}
+          />
+        )}
+      {evidenceEnabled
+        && evidenceSessionId !== undefined
+        && [
+          "metric-contract-v2-projection-5",
+          "metric-contract-v2-projection-6",
+        ].includes(run.metric_publication_v2?.projection_version ?? "")
+        && (
+          <RequirementPlanEvidencePanel
+            compact={mode === "compact"}
+            onEvidenceChanged={onEvidenceChanged}
+            sessionId={evidenceSessionId}
+            sourceProjectionVersion={run.metric_publication_v2!.projection_version as RequirementPlanEvidenceContract["source_projection_version"]}
             sourceRunId={runId}
             transport={transport}
           />

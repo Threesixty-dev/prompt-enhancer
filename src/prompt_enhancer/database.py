@@ -122,10 +122,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_52,
     MIGRATION_53,
     MIGRATION_54,
+    MIGRATION_55,
 )
 
 
-SCHEMA_VERSION = 54
+SCHEMA_VERSION = 55
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1659,6 +1660,7 @@ class Database:
                 (52, MIGRATION_52),
                 (53, MIGRATION_53),
                 (54, MIGRATION_54),
+                (55, MIGRATION_55),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1897,6 +1899,25 @@ class Database:
         return SqliteDeclaredTaskProfileRepository(
             self._connection,
             self._ensure_initialized,
+        )
+
+    def requirement_plan_evidence_repository(self):
+        """Return reviewed, content-free requirement-plan evidence storage."""
+
+        from .infrastructure.sqlite.requirement_plan_evidence import (
+            SqliteRequirementPlanEvidenceRepository,
+        )
+
+        self._ensure_initialized()
+        identifiers = self._local_artifact_id_factory
+        if identifiers is None:
+            raise DatabaseInvariantError(
+                "requirement-plan persistence requires local keyed ID issuance"
+            )
+        return SqliteRequirementPlanEvidenceRepository(
+            self._connection,
+            self._ensure_initialized,
+            identifiers=identifiers,
         )
 
     def analysis_run_repository(self):

@@ -64,7 +64,7 @@ describe("metricHelpV2 registry", () => {
     expect(METRIC_HELP_V2.en["outcome.agent_claim_grounding"].observationUnit).toMatch(/every such clause/i);
   });
 
-  it("keeps exact r1-r4 clause copy frozen and selects exact reviewed-profile copy only for r5", () => {
+  it("keeps exact r1-r4 clause copy frozen and selects exact reviewed-profile copy from r5 onward", () => {
     const historical = {
       "prompt.constraint_precision": {
         meaning: "Share of detected constraint clauses that also match the shipped concrete-detail vocabulary or a numeric bound.",
@@ -174,13 +174,15 @@ describe("metricHelpV2 registry", () => {
         );
       }
     }
-    for (const [key, entry] of Object.entries(r5)) {
-      const resolved = metricHelpV2(key, "en", "metric-contract-v2-projection-5");
-      expect(resolved?.definitionScope).toBe("r5_reviewed_profile");
-      expect(resolved?.entry).toEqual(entry);
-      expect(resolved?.measurement).toEqual(
-        r5Measurement[key as keyof typeof r5Measurement],
-      );
+    for (const projection of [5, 6] as const) {
+      for (const [key, entry] of Object.entries(r5)) {
+        const resolved = metricHelpV2(key, "en", `metric-contract-v2-projection-${projection}`);
+        expect(resolved?.definitionScope).toBe("r5_reviewed_profile");
+        expect(resolved?.entry).toEqual(entry);
+        expect(resolved?.measurement).toEqual(
+          r5Measurement[key as keyof typeof r5Measurement],
+        );
+      }
     }
   });
 
@@ -222,7 +224,7 @@ describe("metricHelpV2 registry", () => {
       expect(resolved?.entry).toEqual(historical);
       expect(resolved?.measurement).toEqual(historicalMeasurement);
     }
-    for (const projection of [3, 4, 5] as const) {
+    for (const projection of [3, 4, 5, 6] as const) {
       const resolved = metricHelpV2("logic.open_loop_closure", "en", `metric-contract-v2-projection-${projection}`);
       expect(resolved?.definitionScope).toBe("r3_explicit_plan_lifecycle");
       expect(resolved?.entry).toEqual(explicitPlan);
@@ -230,7 +232,7 @@ describe("metricHelpV2 registry", () => {
     }
   });
 
-  it("keeps r1-r3 collaboration copy frozen and selects exact confirmed lifecycle receipts for r4-r5", () => {
+  it("keeps r1-r3 collaboration copy frozen and selects exact confirmed lifecycle receipts from r4 onward", () => {
     const expected = {
       "collaboration.ambiguity_resolution": {
         historicalMeaning: "Share of detected ambiguity markers that were followed by a related clarification or explicit replacement.",
@@ -297,7 +299,7 @@ describe("metricHelpV2 registry", () => {
         expect(historical.entry.observationUnit).toBe(copy.historicalUnit);
         expect(historical.measurement?.method).toBe(copy.historicalMethod);
       }
-      for (const projection of [4, 5] as const) {
+      for (const projection of [4, 5, 6] as const) {
         const lifecycle = metricHelpV2(key, "en", `metric-contract-v2-projection-${projection}`)!;
         expect(lifecycle.definitionScope).toBe("r4_confirmed_lifecycle");
         expect(lifecycle.entry.meaning).toBe(copy.meaning);
@@ -313,6 +315,44 @@ describe("metricHelpV2 registry", () => {
         });
       }
     }
+  });
+
+  it("keeps r1-r5 decomposition copy frozen and selects the exact r6 reviewed requirement-plan receipt", () => {
+    for (const projection of [1, 2, 3, 4, 5] as const) {
+      const historical = metricHelpV2(
+        "logic.decomposition_coverage",
+        "en",
+        `metric-contract-v2-projection-${projection}`,
+      );
+      expect(historical?.definitionScope).toBe("historical_candidate");
+      expect(historical?.entry.meaning).toBe(
+        "Share of detected requirements that could be linked to an explicit plan item.",
+      );
+      expect(historical?.measurement?.method).toBe(
+        "Requirements with conservative lexical plan links divided by detected requirements.",
+      );
+    }
+    const r6 = metricHelpV2(
+      "logic.decomposition_coverage",
+      "en",
+      "metric-contract-v2-projection-6",
+    );
+    expect(r6?.definitionScope).toBe("r6_reviewed_requirement_plan");
+    expect(r6?.entry).toEqual({
+      meaning: "Share of the exact active requirement clauses in the native-confirmed complete user-clause classification whose disposition links them to at least one valid later agent PLAN clause.",
+      question: "For each native-reviewed active requirement clause, does its reviewed disposition link it to at least one valid later agent PLAN clause?",
+      observationUnit: "one native-reviewed active requirement clause",
+      direction: "Higher is better (radar plots the raw share).",
+      counts: "Numerator: one native-reviewed active requirement clause with disposition linked and at least one reviewed plan index whose coordinate resolves to an agent PLAN clause at or after that clause.",
+      doesNotCount: "Denominator: exactly the active_requirement clauses from the complete native-confirmed classification of every reviewable user request/feedback clause, not every candidate clause, excluded clauses, atomic requirements, or lexically detected requirements. One active coordinate is one opportunity: a compound active clause remains one opportunity and may coarsen multiple atomic requirements. not_linked is resolved not-met; pending stays right-censored. Proposed, rejected, unconfirmed, out-of-window, wrong-role, or invalid coordinates do not count. No confirmed active requirements yields Not applicable; missing or invalid review authority stays Unknown, never zero.",
+      objectiveEvidence: "Only a complete native review that classifies every reviewable user request/feedback clause as active or excluded can establish the opportunity set; only active requirement clauses supply this denominator and its dispositions. One active coordinate is one opportunity: a compound active clause remains one opportunity and may coarsen multiple atomic requirements. Exclusions use the closed reason-and-basis rubric and never enter the metric. Coordinates are revalidated against the exact local source window; proposals, model judgments, transcript wording, and owned-native confirmation alone are not objective proof that a plan is adequate.",
+    });
+    expect(r6?.measurement).toEqual({
+      definitionVersion: 2,
+      method: "Native-reviewed active requirement clauses with disposition linked to one or more revalidated later agent PLAN coordinates divided by the exact active_requirement subset of the complete native-confirmed user-clause classification.",
+      limitation: "The opportunity unit is an active clause, not an atomic requirement: a compound active clause remains one opportunity and may coarsen multiple atomic requirements, while closed-rubric exclusions never enter the denominator. A pending disposition is right-censored, not failed. Missing confirmation stays Unknown, no active requirements is Not applicable, invalid coordinates fail closed as Unknown, and a valid structural link does not prove that the plan is sufficient or that the task succeeded.",
+      objective: false,
+    });
   });
 });
 
@@ -417,6 +457,41 @@ describe("metricInspectorSentences", () => {
     expect(objective.meaning).toMatch(/prose and model estimates cannot substitute/i);
   });
 
+  it("distinguishes an unavailable r6 evidence service from evidence awaiting native review", () => {
+    const unavailable = metricInspectorSentences({
+      metricKey: "logic.decomposition_coverage",
+      label: "Requirement-to-plan coverage",
+      projectionVersion: "metric-contract-v2-projection-6",
+      direction: "higher_is_better",
+      state: "unknown",
+      numericValue: null,
+      numerator: null,
+      denominator: null,
+      explanationCode: "requirement_plan_evidence_unavailable",
+    });
+    const awaitingReview = metricInspectorSentences({
+      metricKey: "logic.decomposition_coverage",
+      label: "Requirement-to-plan coverage",
+      projectionVersion: "metric-contract-v2-projection-6",
+      direction: "higher_is_better",
+      state: "unknown",
+      numericValue: null,
+      numerator: null,
+      denominator: null,
+      explanationCode: "requirement_plan_evidence_confirmation_required",
+    });
+
+    expect(unavailable.meaning).toMatch(/runtime does not expose the reviewed requirement-plan service/i);
+    expect(unavailable.action).toMatch(/Enable a runtime/i);
+    expect(awaitingReview.meaning).toMatch(/service is available/i);
+    expect(awaitingReview.meaning).toMatch(/no owned-native complete classification/i);
+    expect(awaitingReview.meaning).toMatch(/exclusions never enter the metric/i);
+    expect(awaitingReview.action).toMatch(/open the exact local clause review/i);
+    expect(awaitingReview.action).toMatch(/every user and PLAN clause including omitted PLAN candidates/i);
+    expect(awaitingReview.action).toMatch(/every exclusion reason\/basis/i);
+    expect(awaitingReview.action).not.toMatch(/Enable a runtime/i);
+  });
+
   it("routes missing profile denominators to the shipped reviewed workflow", () => {
     for (const [metricKey, label] of [
       ["prompt.constraint_precision", "Constraint precision candidates"],
@@ -440,6 +515,19 @@ describe("metricInspectorSentences", () => {
       expect(result.action).toMatch(/fresh analysis/i);
       expect(result.action).toMatch(/selected sealed r5 receipt exactly binds/i);
     }
+    const r6 = metricInspectorSentences({
+      metricKey: "prompt.acceptance_testability",
+      label: "Acceptance testability",
+      projectionVersion: "metric-contract-v2-projection-6",
+      direction: "higher_is_better",
+      state: "unknown",
+      numericValue: null,
+      numerator: null,
+      denominator: null,
+      explanationCode: "opportunity_set_undetermined",
+    });
+    expect(r6.action).toMatch(/selected sealed r6 receipt exactly binds/i);
+    expect(r6.action).not.toMatch(/sealed r5 receipt/i);
     const historical = metricInspectorSentences({
       metricKey: "prompt.acceptance_testability",
       label: "Acceptance testability",

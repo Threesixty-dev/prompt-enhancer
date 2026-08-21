@@ -269,9 +269,11 @@ export function DeclaredTaskProfilePanel({
     }
   }
 
+  const reviewedProfileProjection = sealedMetricProjectionVersion === "metric-contract-v2-projection-5"
+    || sealedMetricProjectionVersion === "metric-contract-v2-projection-6";
   const verifiedCurrent = loadReady
     && sealedRunId !== null
-    && sealedMetricProjectionVersion === "metric-contract-v2-projection-5"
+    && reviewedProfileProjection
     && sealedBindingMatchesProfile(sealedMetricProfileBinding, profile);
   const sealedReceipt = sealedRunId === null ? null : sealedRunLabel(sealedRunContext, sealedRunId);
 
@@ -430,9 +432,9 @@ export function DeclaredTaskProfilePanel({
             : `Reviewed revision ${profile!.revision} is exactly bound to ${sealedReceipt}. Its three profile-backed metrics are verified for this exact profile identity.`
           : savedRevision !== null
           ? sealedRunId === null
-            ? `Revision ${savedRevision} is saved. No sealed analysis exists yet; run analysis to create a profile-bound r5 snapshot.`
-            : sealedMetricProjectionVersion !== "metric-contract-v2-projection-5"
-              ? `Revision ${savedRevision} is saved. ${sealedReceipt} has no exact r5 binding for this profile; run analysis again and wait for a profile-bound r5 seal.`
+            ? `Revision ${savedRevision} is saved. No sealed analysis exists yet; run analysis to create a profile-bound r5/r6 snapshot.`
+            : !reviewedProfileProjection
+              ? `Revision ${savedRevision} is saved. ${sealedReceipt} has no exact reviewed-profile binding for this profile; run analysis again and wait for a current profile-bound seal.`
               : `Revision ${savedRevision} is saved, but ${sealedReceipt} does not exactly bind its source, schema, revision, and fingerprint. Its three profile-backed metrics remain unverified.`
           : !loadReady
             ? "Profile authority is not loaded. No configuration or metric state is inferred."
@@ -442,8 +444,8 @@ export function DeclaredTaskProfilePanel({
             ? "No profile is configured. Constraint, acceptance, and deliverable denominators remain unknown."
             : sealedRunId === null
               ? `Reviewed revision ${profile.revision} is loaded. No sealed analysis exists yet, so its three profile-backed metrics remain unverified.`
-              : sealedMetricProjectionVersion !== "metric-contract-v2-projection-5"
-                ? `Reviewed revision ${profile.revision} is loaded. ${sealedReceipt} has no exact r5 binding for this profile, so its three profile-backed metrics remain unverified.`
+              : !reviewedProfileProjection
+                ? `Reviewed revision ${profile.revision} is loaded. ${sealedReceipt} has no exact reviewed-profile binding for this profile, so its three profile-backed metrics remain unverified.`
                 : `Reviewed revision ${profile.revision} is loaded, but ${sealedReceipt} does not exactly bind its source, schema, revision, and fingerprint. Its three profile-backed metrics remain unverified.`}
       </p>
     </section>

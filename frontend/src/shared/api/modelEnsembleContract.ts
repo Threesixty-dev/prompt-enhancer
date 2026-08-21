@@ -16,9 +16,14 @@ type EnsembleMetric = ModelEnsembleRun["metrics"][number];
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
 type PredictiveMetric = ModelEnsembleRun["predictive_metrics"][number];
 export type ModelMetricProfileBinding = NonNullable<ModelEnsembleRun["metric_profile_binding"]>;
+export type ModelRequirementPlanEvidenceBinding = NonNullable<
+  ModelEnsembleRun["requirement_plan_evidence_binding"]
+>;
 
 const HEX_64 = /^[0-9a-f]{64}$/;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const AWAITING_REVIEW_REQUIREMENT_PLAN_FINGERPRINT =
+  "843a2a5154affde7f7cddc19137dfcdfa8253d9f541c98b6e2cdabd930401ff2";
 
 function record(value: unknown): Row {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -100,9 +105,11 @@ const PREDICTIVE_STATES = [
 ] as const;
 const UNCONFIGURED_PROFILE_FINGERPRINT =
   "4cf952d189fd817c3959540a18538b76b161aa3a03d810cb967cafc7f284be71";
+const UNAVAILABLE_REQUIREMENT_PLAN_FINGERPRINT =
+  "30f6b309825c563a881ed1b7587072222e3cb33ca70f7bff274ba968cb067641";
 
 /**
- * Parse the deliberately minimized profile identity exposed by a sealed r5
+ * Parse the deliberately minimized profile identity exposed by a sealed r5/r6
  * run. The full declaration and source-window identity stay behind the local
  * API boundary; this receipt is sufficient to bind the visible metric values
  * to the exact reviewed revision without exposing session content.
@@ -160,6 +167,78 @@ export function parseModelMetricProfileBinding(value: unknown): ModelMetricProfi
     throw new ModelEnsemblePayloadError();
   }
   return value as ModelMetricProfileBinding;
+}
+
+/** Parse the minimized r6 requirement-plan authority bound to one sealed run. */
+export function parseModelRequirementPlanEvidenceBinding(
+  value: unknown,
+): ModelRequirementPlanEvidenceBinding {
+  const binding = record(value);
+  exact(binding, [
+    "evidence_source", "confirmation_id", "proposal_id", "evidence_fingerprint",
+    "evidence_schema_version", "evidence_policy_version", "local_only",
+    "content_persisted",
+  ]);
+  const knownSources = ["unavailable", "awaiting_review", "reviewed_requirement_plan"] as const;
+  const knownSchemas = [
+    "requirement-plan-unavailable-v1", "requirement-plan-awaiting-review-v1",
+    "requirement-plan-evidence-v1",
+  ] as const;
+  if (
+    (typeof binding.evidence_source === "string"
+      && !knownSources.includes(binding.evidence_source as never))
+    || (typeof binding.evidence_schema_version === "string"
+      && !knownSchemas.includes(binding.evidence_schema_version as never))
+    || (typeof binding.evidence_policy_version === "string"
+      && binding.evidence_policy_version !== "reviewed-requirement-plan-v1")
+  ) {
+    throw new MetricDefinitionsOutOfDateError("requirement_plan_evidence_binding");
+  }
+  const source = oneOf(binding.evidence_source, knownSources);
+  const schema = oneOf(binding.evidence_schema_version, knownSchemas);
+  const confirmationId = binding.confirmation_id === null ? null : binding.confirmation_id;
+  const proposalId = binding.proposal_id === null ? null : binding.proposal_id;
+  if (
+    binding.evidence_policy_version !== "reviewed-requirement-plan-v1"
+    || binding.local_only !== true
+    || binding.content_persisted !== false
+    || typeof binding.evidence_fingerprint !== "string"
+    || !HEX_64.test(binding.evidence_fingerprint)
+    || (confirmationId !== null
+      && (typeof confirmationId !== "string" || !HEX_64.test(confirmationId)))
+    || (proposalId !== null
+      && (typeof proposalId !== "string" || !HEX_64.test(proposalId)))
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (source === "reviewed_requirement_plan") {
+    if (
+      confirmationId === null
+      || proposalId === null
+      || schema !== "requirement-plan-evidence-v1"
+      || binding.evidence_fingerprint === UNAVAILABLE_REQUIREMENT_PLAN_FINGERPRINT
+      || binding.evidence_fingerprint === AWAITING_REVIEW_REQUIREMENT_PLAN_FINGERPRINT
+    ) {
+      throw new ModelEnsemblePayloadError();
+    }
+  } else if (source === "awaiting_review") {
+    if (
+      confirmationId !== null
+      || proposalId !== null
+      || schema !== "requirement-plan-awaiting-review-v1"
+      || binding.evidence_fingerprint !== AWAITING_REVIEW_REQUIREMENT_PLAN_FINGERPRINT
+    ) {
+      throw new ModelEnsemblePayloadError();
+    }
+  } else if (
+    confirmationId !== null
+    || proposalId !== null
+    || schema !== "requirement-plan-unavailable-v1"
+    || binding.evidence_fingerprint !== UNAVAILABLE_REQUIREMENT_PLAN_FINGERPRINT
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  return value as ModelRequirementPlanEvidenceBinding;
 }
 
 /**
@@ -319,7 +398,7 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
     "chunk_count", "model_count", "chunks", "experts", "votes", "chunk_metrics",
     "metrics", "metric_projection_version", "metric_projection_completed_at",
     "typed_metrics", "metric_publication_v2", "metric_profile_binding",
-    "metric_evidence_readiness_v2",
+    "requirement_plan_evidence_binding", "metric_evidence_readiness_v2",
     "predictive_projection_version", "predictive_projected_at",
     "predictive_metrics", "predictive_model_stages", "completed_at", "local_only", "content_persisted",
     "calibration_state", "product_metric_eligible",
@@ -450,13 +529,14 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
   const profileBinding = run.metric_profile_binding === null
     ? null
     : parseModelMetricProfileBinding(run.metric_profile_binding);
+  const currentProfileProjection = publication !== null && [
+    "metric-contract-v2-projection-5",
+    "metric-contract-v2-projection-6",
+  ].includes(publication.projection_version);
   if (
     (publication === null && profileBinding !== null)
-    || (publication?.projection_version === "metric-contract-v2-projection-5"
-      && profileBinding === null)
-    || (publication !== null
-      && publication.projection_version !== "metric-contract-v2-projection-5"
-      && profileBinding !== null)
+    || (currentProfileProjection && profileBinding === null)
+    || (publication !== null && !currentProfileProjection && profileBinding !== null)
   ) {
     throw new ModelEnsemblePayloadError();
   }
@@ -481,6 +561,68 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
       ))
     ) {
       throw new ModelEnsemblePayloadError();
+    }
+  }
+  const requirementPlanBinding = run.requirement_plan_evidence_binding === null
+    ? null
+    : parseModelRequirementPlanEvidenceBinding(run.requirement_plan_evidence_binding);
+  if (
+    (publication?.projection_version === "metric-contract-v2-projection-6")
+      !== (requirementPlanBinding !== null)
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (requirementPlanBinding !== null && publication !== null) {
+    const decomposition = publication.metrics.find(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    )?.state;
+    if (decomposition === undefined) throw new ModelEnsemblePayloadError();
+    const statistics = decomposition.statistics;
+    const empty = statistics.eligible_count === 0
+      && statistics.met_count === 0
+      && statistics.not_met_count === 0
+      && statistics.pending_count === 0
+      && statistics.unknown_count === 0;
+    if (requirementPlanBinding.evidence_source === "unavailable") {
+      if (
+        decomposition.value_state !== "unknown"
+        || decomposition.explanation_code !== "requirement_plan_evidence_unavailable"
+        || decomposition.numerator !== null
+        || decomposition.denominator !== null
+        || decomposition.numeric_value !== null
+        || decomposition.censoring_lower_bound !== null
+        || decomposition.censoring_upper_bound !== null
+        || statistics.capability_available !== false
+        || statistics.source_complete !== true
+        || !empty
+      ) throw new ModelEnsemblePayloadError();
+    } else if (requirementPlanBinding.evidence_source === "awaiting_review") {
+      if (
+        decomposition.value_state !== "unknown"
+        || decomposition.explanation_code !== "requirement_plan_evidence_confirmation_required"
+        || decomposition.numerator !== null
+        || decomposition.denominator !== null
+        || decomposition.numeric_value !== null
+        || decomposition.censoring_lower_bound !== null
+        || decomposition.censoring_upper_bound !== null
+        || statistics.capability_available !== true
+        || statistics.source_complete !== true
+        || !empty
+      ) throw new ModelEnsemblePayloadError();
+    } else {
+      const invalid = decomposition.value_state === "unknown"
+        && decomposition.explanation_code === "requirement_plan_evidence_invalid"
+        && statistics.capability_available === true
+        && statistics.source_complete === false
+        && empty;
+      const reviewed = ["known", "pending", "not_applicable"].includes(
+        decomposition.value_state,
+      )
+        && decomposition.explanation_code === "reviewed_requirement_plan_links"
+        && statistics.capability_available === true
+        && statistics.source_complete === true
+        && statistics.unknown_count === 0;
+      if (!invalid && !reviewed) throw new ModelEnsemblePayloadError();
     }
   }
   if (

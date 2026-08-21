@@ -222,7 +222,7 @@ def test_family_receipt_cannot_be_borrowed_by_another_metric() -> None:
         )
 
 
-def test_r4_readiness_names_service_and_enumeration_actions_exactly() -> None:
+def test_current_readiness_preserves_r4_service_and_enumeration_actions() -> None:
     family = MetricLifecycleFamily.AMBIGUITY_RESOLUTION
     contract = metric_contract_v2(family.value)
 
@@ -237,7 +237,7 @@ def test_r4_readiness_names_service_and_enumeration_actions_exactly() -> None:
     )
 
     assert METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION == (
-        "metric-evidence-readiness-v2-4"
+        "metric-evidence-readiness-v2-5"
     )
     assert absent.availability_state is (
         MetricEvidenceAvailabilityState.CAPABILITY_MISSING

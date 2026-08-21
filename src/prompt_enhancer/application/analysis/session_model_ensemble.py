@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from datetime import UTC, datetime, timedelta
 from threading import Lock
-from typing import Callable, Protocol
+from typing import Callable, Literal, Protocol
 
 from pydantic import field_validator, model_validator
 
@@ -35,10 +35,17 @@ from .model_ensemble import (
 )
 from .objective_metric_projection import project_objective_metric_overrides_v3
 from .metric_lifecycle_evidence import MetricLifecycleEvidenceSnapshot
-from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_5
-from .metric_projection_v5 import project_metric_states_v5
+from .metric_projection_v2 import (
+    METRIC_PROJECTION_V2_VERSION_5,
+    METRIC_PROJECTION_V2_VERSION_6,
+)
+from .metric_projection_v6 import project_metric_states_v6
 from .metric_publication_v2 import MetricPublicationV2, publish_metric_states_v2
 from .provider_evidence import bind_semantic_unit_opportunities
+from .requirement_plan_evidence import (
+    InMemoryRequirementPlanReviewContextStore,
+    RequirementPlanEvidenceSnapshot,
+)
 from .semantic_units import (
     SemanticUnitProjection,
     SemanticUnitReconciliation,
@@ -76,6 +83,64 @@ COACHING_PROFILE_V1_UNCONFIGURED_SCHEMA_VERSION = (
     "coaching-profile-v1-unconfigured"
 )
 COACHING_PROFILE_V1_UNCONFIGURED_POLICY_VERSION = "server-preset-v1"
+REQUIREMENT_PLAN_UNAVAILABLE_SCHEMA_VERSION = "requirement-plan-unavailable-v1"
+REQUIREMENT_PLAN_AWAITING_REVIEW_SCHEMA_VERSION = (
+    "requirement-plan-awaiting-review-v1"
+)
+REQUIREMENT_PLAN_UNAVAILABLE_POLICY_VERSION = "reviewed-requirement-plan-v1"
+
+
+def requirement_plan_unavailable_fingerprint() -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "binding_contract": "requirement-plan-binding-v1",
+                "source": "unavailable",
+                "schema_version": REQUIREMENT_PLAN_UNAVAILABLE_SCHEMA_VERSION,
+                "policy_version": REQUIREMENT_PLAN_UNAVAILABLE_POLICY_VERSION,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT = (
+    "30f6b309825c563a881ed1b7587072222e3cb33ca70f7bff274ba968cb067641"
+)
+if requirement_plan_unavailable_fingerprint() != REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT:
+    raise RuntimeError(
+        "requirement-plan unavailable marker changed without a new identity"
+    )
+
+
+def requirement_plan_awaiting_review_fingerprint() -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "binding_contract": "requirement-plan-binding-v1",
+                "source": "awaiting_review",
+                "schema_version": REQUIREMENT_PLAN_AWAITING_REVIEW_SCHEMA_VERSION,
+                "policy_version": REQUIREMENT_PLAN_UNAVAILABLE_POLICY_VERSION,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT = (
+    "843a2a5154affde7f7cddc19137dfcdfa8253d9f541c98b6e2cdabd930401ff2"
+)
+if (
+    requirement_plan_awaiting_review_fingerprint()
+    != REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT
+):
+    raise RuntimeError(
+        "requirement-plan awaiting-review marker changed without a new identity"
+    )
 
 
 def coaching_profile_v1_unconfigured_fingerprint() -> str:
@@ -242,6 +307,132 @@ class SessionMetricProfileBinding(StrictModel):
         return self
 
 
+class RequirementPlanEvidenceSource(StrEnum):
+    UNAVAILABLE = "unavailable"
+    AWAITING_REVIEW = "awaiting_review"
+    REVIEWED_REQUIREMENT_PLAN = "reviewed_requirement_plan"
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedRequirementPlanEvidence:
+    snapshot: RequirementPlanEvidenceSnapshot | None
+    evidence_source: RequirementPlanEvidenceSource
+    evidence_fingerprint: str
+
+    def request_identity(self) -> tuple[str, ...]:
+        snapshot = self.snapshot
+        if (
+            self.evidence_source
+            is not RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+        ):
+            awaiting = (
+                self.evidence_source
+                is RequirementPlanEvidenceSource.AWAITING_REVIEW
+            )
+            return (
+                self.evidence_source.value,
+                "none",
+                "none",
+                (
+                    REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT
+                    if awaiting
+                    else REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT
+                ),
+                (
+                    REQUIREMENT_PLAN_AWAITING_REVIEW_SCHEMA_VERSION
+                    if awaiting
+                    else REQUIREMENT_PLAN_UNAVAILABLE_SCHEMA_VERSION
+                ),
+                REQUIREMENT_PLAN_UNAVAILABLE_POLICY_VERSION,
+            )
+        if snapshot is None or snapshot.confirmation_id is None:
+            raise AssertionError("reviewed requirement-plan evidence is absent")
+        return (
+            RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN.value,
+            snapshot.confirmation_id,
+            snapshot.proposal_id or "none",
+            self.evidence_fingerprint,
+            snapshot.schema_version,
+            snapshot.policy_version,
+            snapshot.source_window_fingerprint,
+        )
+
+
+class SessionRequirementPlanEvidenceBinding(StrictModel):
+    """Exact content-free requirement-plan authority used by one r6 run."""
+
+    evidence_source: RequirementPlanEvidenceSource
+    session_id: str
+    source_window_fingerprint: str
+    confirmation_id: str | None = None
+    proposal_id: str | None = None
+    evidence_fingerprint: str
+    evidence_schema_version: str
+    evidence_policy_version: str
+    bound_at: datetime
+    local_only: Literal[True] = True
+    content_persisted: Literal[False] = False
+
+    _ids = field_validator(
+        "session_id", "source_window_fingerprint", "evidence_fingerprint"
+    )(_pseudonym)
+    _codes = field_validator(
+        "evidence_schema_version", "evidence_policy_version"
+    )(_safe_code)
+
+    @field_validator("confirmation_id", "proposal_id")
+    @classmethod
+    def optional_authority_id(cls, value: str | None) -> str | None:
+        return None if value is None else _pseudonym(value)
+
+    @field_validator("bound_at")
+    @classmethod
+    def utc_bound_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("requirement-plan binding timestamp must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def exact_authority(self) -> "SessionRequirementPlanEvidenceBinding":
+        if self.evidence_source is RequirementPlanEvidenceSource.UNAVAILABLE:
+            if (
+                self.confirmation_id is not None
+                or self.proposal_id is not None
+                or self.evidence_fingerprint
+                != REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT
+                or self.evidence_schema_version
+                != REQUIREMENT_PLAN_UNAVAILABLE_SCHEMA_VERSION
+                or self.evidence_policy_version
+                != REQUIREMENT_PLAN_UNAVAILABLE_POLICY_VERSION
+            ):
+                raise ValueError("unavailable requirement-plan marker is invalid")
+        elif self.evidence_source is RequirementPlanEvidenceSource.AWAITING_REVIEW:
+            if (
+                self.confirmation_id is not None
+                or self.proposal_id is not None
+                or self.evidence_fingerprint
+                != REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT
+                or self.evidence_schema_version
+                != REQUIREMENT_PLAN_AWAITING_REVIEW_SCHEMA_VERSION
+                or self.evidence_policy_version
+                != REQUIREMENT_PLAN_UNAVAILABLE_POLICY_VERSION
+            ):
+                raise ValueError("awaiting-review requirement-plan marker is invalid")
+        elif (
+            self.confirmation_id is None
+            or self.proposal_id is None
+            or self.evidence_fingerprint
+            in {
+                REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT,
+                REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT,
+            }
+            or self.evidence_schema_version != "requirement-plan-evidence-v1"
+            or self.evidence_policy_version != "reviewed-requirement-plan-v1"
+        ):
+            raise ValueError("reviewed requirement-plan authority is incomplete")
+        return self
+
+
 class SessionModelEnsembleRunRecord(StrictModel):
     run_id: str
     session_id: str
@@ -255,6 +446,9 @@ class SessionModelEnsembleRunRecord(StrictModel):
     redactor_version: str
     consent_policy_version: str = MODEL_ENSEMBLE_POLICY_VERSION
     metric_profile_binding: SessionMetricProfileBinding | None = None
+    requirement_plan_evidence_binding: (
+        SessionRequirementPlanEvidenceBinding | None
+    ) = None
     receipt: SessionModelEnsembleReceipt
 
     _ids = field_validator(
@@ -282,11 +476,34 @@ class SessionModelEnsembleRunRecord(StrictModel):
             raise ValueError("metric profile is bound to another source window")
         publication = self.receipt.metric_publication_v2
         if publication is not None:
-            if publication.projection_version == METRIC_PROJECTION_V2_VERSION_5:
+            if publication.projection_version in {
+                METRIC_PROJECTION_V2_VERSION_5,
+                METRIC_PROJECTION_V2_VERSION_6,
+            }:
                 if binding is None:
-                    raise ValueError("r5 metric publication requires a profile binding")
+                    raise ValueError("current metric publication requires a profile binding")
             elif binding is not None:
                 raise ValueError("legacy metric publication cannot carry an r5 profile")
+            evidence_binding = self.requirement_plan_evidence_binding
+            if publication.projection_version == METRIC_PROJECTION_V2_VERSION_6:
+                if evidence_binding is None:
+                    raise ValueError(
+                        "r6 metric publication requires a requirement-plan binding"
+                    )
+                if (
+                    evidence_binding.session_id != self.session_id
+                    or evidence_binding.source_window_fingerprint
+                    != self.input_fingerprint
+                ):
+                    raise ValueError(
+                        "requirement-plan evidence is bound to another source window"
+                    )
+            elif evidence_binding is not None:
+                raise ValueError(
+                    "legacy metric publication cannot carry requirement-plan authority"
+                )
+        elif self.requirement_plan_evidence_binding is not None:
+            raise ValueError("a run without a metric publication has no evidence binding")
         return self
 
 
@@ -366,6 +583,12 @@ class SessionMetricLifecycleEvidenceReader(Protocol):
         session_id: str,
         source_window_fingerprint: str,
     ) -> MetricLifecycleEvidenceSnapshot: ...
+
+
+class SessionRequirementPlanEvidenceReader(Protocol):
+    """Latest content-free reviewed requirement-plan authority for a session."""
+
+    def latest_snapshot(self, session_id: str) -> RequirementPlanEvidenceSnapshot: ...
 
 
 class SessionModelEnsembleRepository(Protocol):
@@ -452,6 +675,12 @@ class SessionModelEnsembleService:
         semantic_unit_reconciler: SemanticUnitReconciler | None = None,
         lifecycle_evidence_reader: SessionMetricLifecycleEvidenceReader | None = None,
         declared_task_profile_reader: DeclaredTaskProfileRepository | None = None,
+        requirement_plan_evidence_reader: (
+            SessionRequirementPlanEvidenceReader | None
+        ) = None,
+        requirement_plan_review_contexts: (
+            InMemoryRequirementPlanReviewContextStore | None
+        ) = None,
     ) -> None:
         self._access_policy = access_policy
         self._repository = repository
@@ -465,6 +694,8 @@ class SessionModelEnsembleService:
         self._semantic_unit_reconciler = semantic_unit_reconciler
         self._lifecycle_evidence_reader = lifecycle_evidence_reader
         self._declared_task_profile_reader = declared_task_profile_reader
+        self._requirement_plan_evidence_reader = requirement_plan_evidence_reader
+        self._requirement_plan_review_contexts = requirement_plan_review_contexts
         self._lock = Lock()
 
     def run(
@@ -506,8 +737,11 @@ class SessionModelEnsembleService:
         with self._lock:
             self._enforce_access(provider, session_id)
             resolved_profile = self._resolve_metric_profile(provider, session_id)
+            resolved_requirement_plan = self._resolve_requirement_plan_evidence(
+                session_id
+            )
             request_fingerprint = self._identifiers.fingerprint(
-                "session-model-ensemble-request-v3",
+                "session-model-ensemble-request-v4",
                 (
                     provider.value,
                     session_id,
@@ -515,6 +749,7 @@ class SessionModelEnsembleService:
                     MODEL_ENSEMBLE_POLICY_VERSION,
                     str(max_messages),
                     *resolved_profile.request_identity(),
+                    *resolved_requirement_plan.request_identity(),
                 ),
             )
             run_id = self._identifiers.fingerprint(
@@ -532,6 +767,13 @@ class SessionModelEnsembleService:
             )
             metric_profile_binding = self._bind_metric_profile(
                 resolved_profile,
+                context,
+            )
+            (
+                requirement_plan_binding,
+                requirement_plan_evidence,
+            ) = self._bind_requirement_plan_evidence(
+                resolved_requirement_plan,
                 context,
             )
             typed_evidence = self._project_typed_evidence(provider, session_id)
@@ -571,6 +813,10 @@ class SessionModelEnsembleService:
                         latest.metric_profile_binding,
                         metric_profile_binding,
                     )
+                    and self._requirement_plan_identity_matches(
+                        latest.requirement_plan_evidence_binding,
+                        requirement_plan_binding,
+                    )
                 )
                 if latest is not None and not compatible:
                     latest = None
@@ -589,6 +835,7 @@ class SessionModelEnsembleService:
                     context,
                     semantic_projection,
                     typed_evidence,
+                    requirement_plan_evidence,
                 )
                 semantic_units_reusable = (
                     semantic_projection is None
@@ -614,6 +861,9 @@ class SessionModelEnsembleService:
                     ):
                         if progress_callback is not None:
                             progress_callback(10, 10)
+                        self._publish_requirement_plan_review_context(
+                            latest.run_id, context
+                        )
                         return SessionModelEnsembleOutcome(run=latest, applied=False)
                     if latest.receipt.metric_projection_version is None:
                         projected = self._with_metric_projection(
@@ -621,6 +871,8 @@ class SessionModelEnsembleService:
                             typed_metrics,
                             metric_publication_v2,
                             projection_completed_at,
+                            metric_profile_binding,
+                            requirement_plan_binding,
                         )
                         try:
                             self._repository.save_metric_projection(
@@ -647,6 +899,9 @@ class SessionModelEnsembleService:
                             projected = race
                         if progress_callback is not None:
                             progress_callback(10, 10)
+                        self._publish_requirement_plan_review_context(
+                            projected.run_id, context
+                        )
                         return SessionModelEnsembleOutcome(
                             run=projected,
                             applied=False,
@@ -676,6 +931,7 @@ class SessionModelEnsembleService:
                     context,
                     semantic_projection,
                     typed_evidence,
+                    requirement_plan_evidence,
                 )
             plan = build_ensemble_chunks(context)
             try:
@@ -709,6 +965,9 @@ class SessionModelEnsembleService:
                     content_schema_version=context.content_schema_version,
                     redactor_version=context.redactor_version,
                     metric_profile_binding=metric_profile_binding,
+                    requirement_plan_evidence_binding=(
+                        requirement_plan_binding
+                    ),
                     receipt=projected_receipt,
                 )
             except SessionModelEnsembleError:
@@ -742,11 +1001,28 @@ class SessionModelEnsembleService:
                             raise ModelEnsemblePersistenceError(
                                 "semantic-unit sidecar could not be stored"
                             ) from None
+                    self._publish_requirement_plan_review_context(
+                        race.run_id, context
+                    )
                     return SessionModelEnsembleOutcome(run=race, applied=False)
                 raise ModelEnsemblePersistenceError(
                     "model ensemble result could not be stored"
                 ) from None
+            self._publish_requirement_plan_review_context(record.run_id, context)
             return SessionModelEnsembleOutcome(run=record, applied=True)
+
+    def _publish_requirement_plan_review_context(
+        self, run_id: str, context: P1TextAnalysisInput
+    ) -> None:
+        store = self._requirement_plan_review_contexts
+        if store is None:
+            return
+        try:
+            store.publish(run_id, context)
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "ephemeral requirement-plan review context could not be prepared"
+            ) from None
 
     def latest(self, session_id: str) -> SessionModelEnsembleRunRecord | None:
         if PSEUDONYM_PATTERN.fullmatch(session_id) is None:
@@ -893,10 +1169,184 @@ class SessionModelEnsembleService:
                 "metric profile binding could not be issued"
             ) from None
 
+    def _resolve_requirement_plan_evidence(
+        self,
+        session_id: str,
+    ) -> _ResolvedRequirementPlanEvidence:
+        reader = self._requirement_plan_evidence_reader
+        if reader is None:
+            return _ResolvedRequirementPlanEvidence(
+                snapshot=None,
+                evidence_source=RequirementPlanEvidenceSource.UNAVAILABLE,
+                evidence_fingerprint=REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT,
+            )
+        try:
+            snapshot = reader.latest_snapshot(session_id)
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "reviewed requirement-plan evidence is unavailable"
+            ) from None
+        if snapshot.session_id != session_id:
+            raise ModelEnsemblePersistenceError(
+                "reviewed requirement-plan evidence belongs elsewhere"
+            )
+        if not snapshot.complete_user_clause_classification:
+            return _ResolvedRequirementPlanEvidence(
+                snapshot=snapshot,
+                evidence_source=RequirementPlanEvidenceSource.AWAITING_REVIEW,
+                evidence_fingerprint=(
+                    REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT
+                ),
+            )
+        try:
+            fingerprint = self._identifiers.fingerprint(
+                "requirement-plan-evidence-snapshot-v1",
+                (
+                    snapshot.session_id,
+                    snapshot.source_window_fingerprint,
+                    snapshot.confirmation_id or "none",
+                    snapshot.proposal_id or "none",
+                    snapshot.schema_version,
+                    snapshot.policy_version,
+                    snapshot.review_rubric_version or "none",
+                    *(
+                        ()
+                        if snapshot.producer_receipt is None
+                        else (
+                            f"producer-kind:{snapshot.producer_receipt.kind}",
+                            "producer-claim:"
+                            f"{snapshot.producer_receipt.claim_fingerprint}",
+                            "producer-authority:"
+                            f"{snapshot.producer_receipt.authority}",
+                            "producer-raw-claim-persisted:"
+                            f"{str(snapshot.producer_receipt.raw_claim_persisted).lower()}",
+                        )
+                    ),
+                    *(
+                        f"plan:{item.plan_id}:{item.coordinate.message_sequence}:"
+                        f"{item.coordinate.clause_index}"
+                        for item in snapshot.plan_items
+                    ),
+                    *(
+                        f"requirement:{item.requirement_id}:"
+                        f"{item.coordinate.message_sequence}:"
+                        f"{item.coordinate.clause_index}:{item.disposition.value}:"
+                        f"{','.join(item.linked_plan_ids)}"
+                        for item in snapshot.requirements
+                    ),
+                    *(
+                        "excluded-user-clause:"
+                        f"{item.coordinate.message_sequence}:"
+                        f"{item.coordinate.clause_index}:{item.reason.value}:"
+                        f"{('none' if item.basis_coordinate is None else f'{item.basis_coordinate.message_sequence}:{item.basis_coordinate.clause_index}')}"
+                        for item in snapshot.excluded_user_clauses
+                    ),
+                ),
+            )
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "reviewed requirement-plan evidence is invalid"
+            ) from None
+        return _ResolvedRequirementPlanEvidence(
+            snapshot=snapshot,
+            evidence_source=RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN,
+            evidence_fingerprint=fingerprint,
+        )
+
+    def _bind_requirement_plan_evidence(
+        self,
+        resolved: _ResolvedRequirementPlanEvidence,
+        context: P1TextAnalysisInput,
+    ) -> tuple[
+        SessionRequirementPlanEvidenceBinding,
+        RequirementPlanEvidenceSnapshot | None,
+    ]:
+        snapshot = resolved.snapshot
+        reviewed = (
+            snapshot
+            if snapshot is not None
+            and snapshot.complete_user_clause_classification
+            and snapshot.source_window_fingerprint
+            == context.analysis_window_fingerprint
+            else None
+        )
+        try:
+            if reviewed is None:
+                service_available = (
+                    resolved.evidence_source
+                    is not RequirementPlanEvidenceSource.UNAVAILABLE
+                )
+                return (
+                    SessionRequirementPlanEvidenceBinding(
+                        evidence_source=(
+                            RequirementPlanEvidenceSource.AWAITING_REVIEW
+                            if service_available
+                            else RequirementPlanEvidenceSource.UNAVAILABLE
+                        ),
+                        session_id=context.session_id,
+                        source_window_fingerprint=(
+                            context.analysis_window_fingerprint
+                        ),
+                        evidence_fingerprint=(
+                            REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT
+                            if service_available
+                            else REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT
+                        ),
+                        evidence_schema_version=(
+                            REQUIREMENT_PLAN_AWAITING_REVIEW_SCHEMA_VERSION
+                            if service_available
+                            else REQUIREMENT_PLAN_UNAVAILABLE_SCHEMA_VERSION
+                        ),
+                        evidence_policy_version=(
+                            REQUIREMENT_PLAN_UNAVAILABLE_POLICY_VERSION
+                        ),
+                        bound_at=self._clock(),
+                    ),
+                    (
+                        RequirementPlanEvidenceSnapshot(
+                            session_id=context.session_id,
+                            source_window_fingerprint=(
+                                context.analysis_window_fingerprint
+                            ),
+                        )
+                        if service_available
+                        else None
+                    ),
+                )
+            return (
+                SessionRequirementPlanEvidenceBinding(
+                    evidence_source=(
+                        RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+                    ),
+                    session_id=context.session_id,
+                    source_window_fingerprint=context.analysis_window_fingerprint,
+                    confirmation_id=reviewed.confirmation_id,
+                    proposal_id=reviewed.proposal_id,
+                    evidence_fingerprint=resolved.evidence_fingerprint,
+                    evidence_schema_version=reviewed.schema_version,
+                    evidence_policy_version=reviewed.policy_version,
+                    bound_at=self._clock(),
+                ),
+                reviewed,
+            )
+        except (TypeError, ValueError):
+            raise ModelEnsemblePersistenceError(
+                "requirement-plan binding could not be issued"
+            ) from None
+
     @staticmethod
     def _metric_profile_identity_matches(
         stored: SessionMetricProfileBinding | None,
         current: SessionMetricProfileBinding,
+    ) -> bool:
+        return stored is not None and stored.model_dump(
+            exclude={"bound_at"}
+        ) == current.model_dump(exclude={"bound_at"})
+
+    @staticmethod
+    def _requirement_plan_identity_matches(
+        stored: SessionRequirementPlanEvidenceBinding | None,
+        current: SessionRequirementPlanEvidenceBinding,
     ) -> bool:
         return stored is not None and stored.model_dump(
             exclude={"bound_at"}
@@ -977,6 +1427,7 @@ class SessionModelEnsembleService:
         context: P1TextAnalysisInput,
         semantic_projection: SemanticUnitProjection | None,
         typed_evidence: EphemeralTypedEvidenceProjection | None = None,
+        requirement_plan_evidence: RequirementPlanEvidenceSnapshot | None = None,
     ) -> tuple[
         tuple[SessionModelEnsembleTypedMetricReceipt, ...],
         MetricPublicationV2,
@@ -1001,14 +1452,14 @@ class SessionModelEnsembleService:
             projected_at = self._clock()
             if projected_at.tzinfo is None or projected_at.utcoffset() != timedelta(0):
                 raise ValueError("metric projection clock must return UTC")
-            # Current code writes projection identity r5 only. Frozen earlier
+            # Current code writes projection identity r6 only. Frozen earlier
             # producers remain importable so historical rows retain the exact
             # meaning of the algorithm that wrote them.
             objective_overrides = project_objective_metric_overrides_v3(
                 typed_evidence,
                 self._objective_evidence_descriptor(context.provider),
             )
-            live_states = project_metric_states_v5(
+            live_states = project_metric_states_v6(
                 context=context,
                 reconciliation=(
                     None
@@ -1021,6 +1472,7 @@ class SessionModelEnsembleService:
                 },
                 objective_overrides=objective_overrides,
                 lifecycle_evidence=self._read_lifecycle_evidence(context),
+                requirement_plan_evidence=requirement_plan_evidence,
             )
             metric_publication_v2 = publish_metric_states_v2(live_states)
             projected_items: list[SessionModelEnsembleTypedMetricReceipt] = []
@@ -1272,6 +1724,8 @@ class SessionModelEnsembleService:
         metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...],
         metric_publication_v2: MetricPublicationV2,
         completed_at: datetime,
+        metric_profile_binding: SessionMetricProfileBinding,
+        requirement_plan_evidence_binding: SessionRequirementPlanEvidenceBinding,
     ) -> SessionModelEnsembleRunRecord:
         receipt = SessionModelEnsembleReceipt.model_validate(
             {
@@ -1283,7 +1737,14 @@ class SessionModelEnsembleService:
             }
         )
         return SessionModelEnsembleRunRecord.model_validate(
-            {**run.model_dump(), "receipt": receipt}
+            {
+                **run.model_dump(),
+                "metric_profile_binding": metric_profile_binding,
+                "requirement_plan_evidence_binding": (
+                    requirement_plan_evidence_binding
+                ),
+                "receipt": receipt,
+            }
         )
 
 
@@ -1295,6 +1756,13 @@ __all__ = [
     "LEGACY_MODEL_ENSEMBLE_CONFIRMATION",
     "MODEL_ENSEMBLE_CONFIRMATION",
     "MetricProfileSource",
+    "RequirementPlanEvidenceSource",
+    "REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT",
+    "REQUIREMENT_PLAN_AWAITING_REVIEW_SCHEMA_VERSION",
+    "REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT",
+    "REQUIREMENT_PLAN_UNAVAILABLE_POLICY_VERSION",
+    "REQUIREMENT_PLAN_UNAVAILABLE_SCHEMA_VERSION",
+    "requirement_plan_awaiting_review_fingerprint",
     "ModelEnsembleCompatibilityError",
     "ModelEnsembleConfirmationError",
     "ModelEnsembleConsentError",
@@ -1307,6 +1775,7 @@ __all__ = [
     "SessionModelEnsembleOutcome",
     "SessionModelEnsemblePersistenceAuthority",
     "SessionMetricProfileBinding",
+    "SessionRequirementPlanEvidenceBinding",
     "SessionModelEnsembleRepository",
     "SessionModelEnsembleRunRecord",
     "SessionModelEnsembleRunner",

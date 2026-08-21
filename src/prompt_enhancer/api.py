@@ -41,6 +41,9 @@ from .application.analysis.metric_lifecycle_evidence import (
 )
 from .application.analysis.declared_task_profiles import DeclaredTaskProfileService
 from .application.analysis.agent_metric_evidence import AgentMetricEvidenceService
+from .application.analysis.requirement_plan_evidence import (
+    RequirementPlanEvidenceService,
+)
 from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
@@ -97,6 +100,9 @@ from .interfaces.http import (
 )
 from .interfaces.http.declared_task_profile_routes import (
     create_declared_task_profile_router,
+)
+from .interfaces.http.requirement_plan_evidence_routes import (
+    create_requirement_plan_evidence_router,
 )
 from .interfaces.http.browser_session import (
     BROWSER_SESSION_COOKIE,
@@ -328,6 +334,7 @@ def create_app(
     metric_lifecycle_evidence_service: MetricLifecycleEvidenceService | None = None,
     agent_metric_evidence_service: AgentMetricEvidenceService | None = None,
     declared_task_profile_service: DeclaredTaskProfileService | None = None,
+    requirement_plan_evidence_service: RequirementPlanEvidenceService | None = None,
     task_analysis_service: TaskAnalysisCommandService | None = None,
     session_text_analysis_service: SessionTextAnalysisService | None = None,
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
@@ -503,6 +510,7 @@ def create_app(
                 "/task-lifecycles",
                 "/lifecycle",
                 "/agent-metric-evidence",
+                "/requirement-plan-evidence",
                 "/declared-task-profile",
                 "/agent/sessions",
             )
@@ -999,6 +1007,14 @@ def create_app(
                 require_local_token,
                 require_browser_user_confirmation,
                 local_agent_service,
+            )
+        )
+    if requirement_plan_evidence_service is not None:
+        app.include_router(
+            create_requirement_plan_evidence_router(
+                require_local_token,
+                require_browser_user_confirmation,
+                requirement_plan_evidence_service,
             )
         )
     if declared_task_profile_service is not None:

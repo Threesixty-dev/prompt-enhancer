@@ -133,8 +133,8 @@ describe("DeclaredTaskProfilePanel", () => {
       expect.stringMatching(/^dashboard-declared-task-profile-/),
       expect.any(AbortSignal),
     );
-    expect(await screen.findByText(/latest sealed head ffffffff…ffff has no exact r5 binding/i)).toBeVisible();
-    expect(screen.getByText(/profile-bound r5 seal/i)).toBeVisible();
+    expect(await screen.findByText(/latest sealed head ffffffff…ffff has no exact reviewed-profile binding/i)).toBeVisible();
+    expect(screen.getByText(/current profile-bound seal/i)).toBeVisible();
 
     view.rerender(
       <DeclaredTaskProfilePanel
@@ -162,6 +162,22 @@ describe("DeclaredTaskProfilePanel", () => {
     expect(screen.getByText(/exactly bound to latest sealed head 66666666…6666/i)).toBeVisible();
     expect(screen.getByText(/metrics are verified current/i)).toBeVisible();
     expect(screen.getByText(/verified current/i)).toHaveAttribute(
+      "data-profile-publication-status",
+      "verified_current",
+    );
+
+    view.rerender(
+      <DeclaredTaskProfilePanel
+        sealedMetricProfileBinding={bindingFixture(saved)}
+        sealedMetricProjectionVersion="metric-contract-v2-projection-6"
+        sealedRunContext="latest_head"
+        sealedRunId={"5".repeat(64)}
+        sessionId={SESSION_ID}
+        transport={transport}
+      />,
+    );
+    expect(screen.getByText(/exactly bound to latest sealed head 55555555…5555/i)).toBeVisible();
+    expect(screen.getByText(/metrics are verified current/i)).toHaveAttribute(
       "data-profile-publication-status",
       "verified_current",
     );

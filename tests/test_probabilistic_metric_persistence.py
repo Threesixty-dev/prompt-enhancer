@@ -109,8 +109,11 @@ from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
 from prompt_enhancer.infrastructure.sqlite import migrations
 from prompt_enhancer.infrastructure.sqlite.model_ensemble import (
     SqliteSessionModelEnsembleRepository,
+    _metric_profile_binding_fingerprint,
+    _metric_publication_profile_fingerprint,
     _metric_publication_v2_fingerprint,
     _predictive_projection_fingerprint,
+    to_iso,
 )
 from prompt_enhancer.privacy import Pseudonymizer
 
@@ -583,7 +586,7 @@ def test_metric_v2_publication_round_trips_is_immutable_and_privacy_cascades(
         receipt=receipt,
     )
     repository = database.model_ensemble_repository()
-    repository.save_completed(record)
+    _save_historical_r5_fixture(database, record)
 
     loaded = repository.get(record.run_id)
     assert loaded is not None
@@ -603,7 +606,7 @@ def test_metric_v2_publication_round_trips_is_immutable_and_privacy_cascades(
             ),
         }
     )
-    repository.save_completed(second)
+    _save_historical_r5_fixture(database, second)
     second_loaded = repository.get(second.run_id)
     assert second_loaded is not None
     assert second_loaded.receipt.metric_publication_v2 == publication
@@ -613,7 +616,7 @@ def test_metric_v2_publication_round_trips_is_immutable_and_privacy_cascades(
             "request_fingerprint": "9" * 64,
         }
     )
-    repository.save_completed(third)
+    _save_historical_r5_fixture(database, third)
 
     legacy = second.model_copy(
         update={
@@ -849,7 +852,7 @@ def test_unowned_rubric_focus_stays_withheld_through_storage_and_the_api(
         ),
     )
     repository = database.model_ensemble_repository()
-    repository.save_completed(record)
+    _save_historical_r5_fixture(database, record)
     loaded = repository.get(record.run_id)
 
     assert loaded is not None
@@ -1007,7 +1010,7 @@ def test_r5_objective_withholding_dimension_survives_persistence_and_api(
         receipt=receipt.model_copy(update={"metric_publication_v2": publication}),
     )
     repository = database.model_ensemble_repository()
-    repository.save_completed(record)
+    _save_historical_r5_fixture(database, record)
     loaded = repository.get(record.run_id)
 
     assert loaded is not None
@@ -1285,6 +1288,134 @@ _METRIC_V2_SEAL_COLUMNS = (
     "execution_error_count,objective_measured_count,projection_fingerprint,"
     "projected_at,local_only,content_persisted,product_metric_eligible"
 )
+
+
+def _save_historical_r5_fixture(database, record) -> None:  # type: ignore[no-untyped-def]
+    """Persist frozen r5 rows without reopening the current production writer."""
+
+    publication = record.receipt.metric_publication_v2
+    binding = record.metric_profile_binding
+    assert publication is not None
+    assert publication.projection_version == "metric-contract-v2-projection-5"
+    assert binding is not None
+    bare = record.model_copy(
+        update={
+            "metric_profile_binding": None,
+            "requirement_plan_evidence_binding": None,
+            "receipt": record.receipt.model_copy(
+                update={"metric_publication_v2": None}
+            ),
+        }
+    )
+    repository = database.model_ensemble_repository()
+    repository.save_completed(bare)
+    with database._connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        SqliteSessionModelEnsembleRepository._insert_metric_profile_binding(
+            connection,
+            record,
+        )
+        connection.executemany(
+            f"""INSERT INTO session_model_ensemble_metric_states_v2_r5(
+                   {_METRIC_V2_STATE_COLUMNS}
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+            tuple(
+                (
+                    record.run_id,
+                    ordinal,
+                    publication.registry_version,
+                    publication.projection_version,
+                    item.state.metric_key,
+                    item.state.contract_version,
+                    item.state.contract_fingerprint,
+                    item.state.evidence_authority.value,
+                    item.state.value_state.value,
+                    item.state.explanation_code,
+                    item.state.numerator,
+                    item.state.denominator,
+                    item.state.numeric_value,
+                    item.state.censoring_lower_bound,
+                    item.state.censoring_upper_bound,
+                    item.state.statistics.denominator_basis.value,
+                    (
+                        None
+                        if item.state.statistics.opportunity_unit_kind is None
+                        else item.state.statistics.opportunity_unit_kind.value
+                    ),
+                    int(item.state.statistics.capability_available),
+                    int(item.state.statistics.source_complete),
+                    item.state.statistics.eligible_count,
+                    item.state.statistics.met_count,
+                    item.state.statistics.not_met_count,
+                    item.state.statistics.pending_count,
+                    item.state.statistics.unknown_count,
+                    item.state.statistics.superseded_excluded_count,
+                    item.state.statistics.distinct_owner_count,
+                )
+                for ordinal, item in enumerate(publication.metrics)
+            ),
+        )
+        projected_at = (
+            record.receipt.metric_projection_completed_at
+            or record.receipt.completed_at
+        )
+        connection.execute(
+            """INSERT INTO session_model_ensemble_metric_publication_v2_seals_r5(
+                   run_id,publication_key,publication_version,registry_version,
+                   contract_set_fingerprint,projection_version,
+                   guidance_contract_version,guidance_template_catalog_version,
+                   source,canonical_live_snapshot,model_stage_consumed,
+                   compatibility_preview,metric_count,known_count,pending_count,
+                   unknown_count,not_applicable_count,abstained_count,
+                   execution_error_count,objective_measured_count,
+                   projection_fingerprint,profile_source,profile_id,
+                   profile_revision,profile_fingerprint,profile_schema_version,
+                   profile_policy_version,profile_binding_fingerprint,
+                   publication_profile_fingerprint,projected_at,local_only,
+                   content_persisted,product_metric_eligible
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                record.run_id,
+                publication.publication_key,
+                publication.publication_version,
+                publication.registry_version,
+                publication.contract_set_fingerprint,
+                publication.projection_version,
+                publication.guidance_contract_version,
+                publication.guidance_template_catalog_version,
+                publication.source.value,
+                1,
+                0,
+                0,
+                len(publication.metrics),
+                publication.known_count,
+                publication.pending_count,
+                publication.unknown_count,
+                publication.not_applicable_count,
+                publication.abstained_count,
+                publication.execution_error_count,
+                publication.objective_measured_count,
+                _metric_publication_v2_fingerprint(publication),
+                binding.profile_source.value,
+                binding.profile_id,
+                binding.profile_revision,
+                binding.profile_fingerprint,
+                binding.profile_schema_version,
+                binding.profile_policy_version,
+                _metric_profile_binding_fingerprint(binding),
+                _metric_publication_profile_fingerprint(publication, binding),
+                to_iso(projected_at),
+                1,
+                0,
+                0,
+            ),
+        )
+        connection.commit()
+
+    loaded = repository.get(record.run_id)
+    assert loaded is not None
+    assert loaded.metric_profile_binding == binding
+    assert loaded.receipt.metric_publication_v2 == publication
 
 
 def _copy_seal_with_identity(
@@ -1750,7 +1881,7 @@ def test_projection_identity_rows_are_mutually_exclusive_before_and_after_seal(
         for (version, _table), character in zip(IDENTITIES, "def0", strict=True)
     }
     repository = database.model_ensemble_repository()
-    repository.save_completed(source)
+    _save_historical_r5_fixture(database, source)
     for index, (version, _table) in enumerate(IDENTITIES):
         repository.save_completed(
             source.model_copy(
@@ -1896,7 +2027,7 @@ def test_a_partial_r4_child_set_cannot_be_sealed(tmp_path) -> None:
         }
     )
     repository = database.model_ensemble_repository()
-    repository.save_completed(source)
+    _save_historical_r5_fixture(database, source)
     repository.save_completed(partial)
 
     with sqlite3.connect(database.path) as connection:
@@ -2046,7 +2177,7 @@ def test_optional_deep_timeout_publishes_partial_head_and_clears_watch_failure(
 def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
     tmp_path,
 ) -> None:
-    assert SCHEMA_VERSION == 54
+    assert SCHEMA_VERSION == 55
     assert LIVE_PROBABILISTIC_PLAN_VERSION == "small-factor-router-v5"
     assert PROBABILISTIC_MODEL_SET_VERSION == "local-factor-router-v3"
 
@@ -2185,7 +2316,7 @@ def test_v39_preserves_v2_writes_v3_and_breaks_trajectory_comparability(
     }
     with sqlite3.connect(database.path) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 54
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 55
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute(

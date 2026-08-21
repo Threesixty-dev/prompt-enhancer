@@ -192,7 +192,7 @@ export interface MetricKnowledgeEntry {
   key: string;
   label: string;
   status: string;
-  /** Exact sealed projection selecting frozen historical or current r5 help. */
+  /** Exact sealed projection selecting frozen historical or current help. */
   projectionVersion?: MetricHelpProjectionVersion | null;
   /** Exact receipt state and authority projected by metricAxisModel. */
   guidance?: MetricInspectorSentences;

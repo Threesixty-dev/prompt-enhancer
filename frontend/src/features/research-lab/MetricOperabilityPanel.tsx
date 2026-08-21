@@ -46,6 +46,7 @@ const NEXT_STEP_LABELS: Record<MetricOperabilityEntry["next_step_code"], string>
   record_task_scoped_verification: "Attach a task-scoped verification receipt",
   add_objective_opportunity_link_adapter: "Add typed opportunity, link and outcome capture",
   add_requirement_plan_extractor: "Add a reviewed requirement-to-plan extractor",
+  confirm_requirement_plan_evidence: "Confirm reviewed requirement-to-plan evidence",
 };
 
 function metricLabel(metricKey: string): string {

@@ -15,6 +15,7 @@ const MISMATCH_COPY: Readonly<Record<MetricDefinitionMismatch, string>> = {
   guidance_template_identity: "a guidance template identity outside this client's reviewed catalog",
   projection_version: "a newer metric projection identity this client has not reviewed",
   metric_profile_binding: "a newer reviewed-profile binding identity this client has not reviewed",
+  requirement_plan_evidence_binding: "a newer requirement-plan evidence binding this client has not reviewed",
 };
 
 /** Pure copy for the distinct definitions-out-of-date state (no reconnect wording, no stale values). */

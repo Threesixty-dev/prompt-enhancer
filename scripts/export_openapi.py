@@ -448,6 +448,12 @@ class _SchemaDeclaredTaskProfileService:
     pass
 
 
+class _SchemaRequirementPlanEvidenceService:
+    """Non-executing stand-in for reviewed requirement-plan routes."""
+
+    pass
+
+
 _BROWSER_CONTROL_PLANE_PATH = "/v1/control-plane/readiness"
 _COMPONENT_SCHEMA_PREFIX = "#/components/schemas/"
 
@@ -547,6 +553,7 @@ def _build_schema_app(*, include_control_plane: bool):
         prompt_check_service=_SchemaPromptCheckService(),  # type: ignore[arg-type]
         local_agent_service=_SchemaLocalAgentService(),  # type: ignore[arg-type]
         declared_task_profile_service=_SchemaDeclaredTaskProfileService(),  # type: ignore[arg-type]
+        requirement_plan_evidence_service=_SchemaRequirementPlanEvidenceService(),  # type: ignore[arg-type]
         annotation_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         shared_folder_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         peer_folder_client=_SchemaAnnotationSurface(),  # type: ignore[arg-type]

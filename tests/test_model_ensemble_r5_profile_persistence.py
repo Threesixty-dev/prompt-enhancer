@@ -54,6 +54,13 @@ from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
     LocalProbabilisticMetricRunner,
 )
 from prompt_enhancer.infrastructure.sqlite import migrations
+from prompt_enhancer.infrastructure.sqlite.model_ensemble import (
+    SqliteSessionModelEnsembleRepository,
+    _metric_profile_binding_fingerprint,
+    _metric_publication_profile_fingerprint,
+    _metric_publication_v2_fingerprint,
+    to_iso,
+)
 from prompt_enhancer.privacy import Pseudonymizer
 
 from test_probabilistic_metric_persistence import (
@@ -85,6 +92,22 @@ def test_unconfigured_preset_fingerprint_is_derived_and_schema_pinned() -> None:
         == COACHING_PROFILE_V1_UNCONFIGURED_FINGERPRINT
     )
     assert COACHING_PROFILE_V1_UNCONFIGURED_FINGERPRINT in migrations.MIGRATION_54
+
+
+def test_current_writer_rejects_frozen_r5_publications(tmp_path) -> None:
+    database, session_id = _database_and_session(tmp_path)
+    record = _record(
+        session_id,
+        run_character="f",
+        request_character="e",
+        binding=_preset_binding(session_id),
+    )
+    repository = database.model_ensemble_repository()
+
+    with pytest.raises(DatabaseInvariantError, match="current projection identity"):
+        repository.save_completed(record)
+
+    assert repository.get(record.run_id) is None
 
 
 def _preset_binding(session_id: str) -> SessionMetricProfileBinding:
@@ -190,6 +213,131 @@ def _without_predictive(
     )
 
 
+def _save_historical_r5_fixture(database, record) -> None:  # type: ignore[no-untyped-def]
+    """Persist one frozen r5 fixture without reopening the production writer."""
+
+    publication = record.receipt.metric_publication_v2
+    binding = record.metric_profile_binding
+    assert publication is not None
+    assert publication.projection_version == "metric-contract-v2-projection-5"
+    assert binding is not None
+    bare = record.model_copy(
+        update={
+            "metric_profile_binding": None,
+            "requirement_plan_evidence_binding": None,
+            "receipt": record.receipt.model_copy(
+                update={"metric_publication_v2": None}
+            ),
+        }
+    )
+    repository = database.model_ensemble_repository()
+    repository.save_completed(bare)
+    with database._connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        SqliteSessionModelEnsembleRepository._insert_metric_profile_binding(
+            connection, record
+        )
+        connection.executemany(
+            f"""INSERT INTO session_model_ensemble_metric_states_v2_r5({_STATE_COLUMNS})
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+            tuple(
+                (
+                    record.run_id,
+                    ordinal,
+                    publication.registry_version,
+                    publication.projection_version,
+                    item.state.metric_key,
+                    item.state.contract_version,
+                    item.state.contract_fingerprint,
+                    item.state.evidence_authority.value,
+                    item.state.value_state.value,
+                    item.state.explanation_code,
+                    item.state.numerator,
+                    item.state.denominator,
+                    item.state.numeric_value,
+                    item.state.censoring_lower_bound,
+                    item.state.censoring_upper_bound,
+                    item.state.statistics.denominator_basis.value,
+                    (
+                        None
+                        if item.state.statistics.opportunity_unit_kind is None
+                        else item.state.statistics.opportunity_unit_kind.value
+                    ),
+                    int(item.state.statistics.capability_available),
+                    int(item.state.statistics.source_complete),
+                    item.state.statistics.eligible_count,
+                    item.state.statistics.met_count,
+                    item.state.statistics.not_met_count,
+                    item.state.statistics.pending_count,
+                    item.state.statistics.unknown_count,
+                    item.state.statistics.superseded_excluded_count,
+                    item.state.statistics.distinct_owner_count,
+                )
+                for ordinal, item in enumerate(publication.metrics)
+            ),
+        )
+        projected_at = (
+            record.receipt.metric_projection_completed_at
+            or record.receipt.completed_at
+        )
+        connection.execute(
+            """INSERT INTO session_model_ensemble_metric_publication_v2_seals_r5(
+                   run_id,publication_key,publication_version,registry_version,
+                   contract_set_fingerprint,projection_version,
+                   guidance_contract_version,guidance_template_catalog_version,
+                   source,canonical_live_snapshot,model_stage_consumed,
+                   compatibility_preview,metric_count,known_count,pending_count,
+                   unknown_count,not_applicable_count,abstained_count,
+                   execution_error_count,objective_measured_count,
+                   projection_fingerprint,profile_source,profile_id,
+                   profile_revision,profile_fingerprint,profile_schema_version,
+                   profile_policy_version,profile_binding_fingerprint,
+                   publication_profile_fingerprint,projected_at,local_only,
+                   content_persisted,product_metric_eligible
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                record.run_id,
+                publication.publication_key,
+                publication.publication_version,
+                publication.registry_version,
+                publication.contract_set_fingerprint,
+                publication.projection_version,
+                publication.guidance_contract_version,
+                publication.guidance_template_catalog_version,
+                publication.source.value,
+                1,
+                0,
+                0,
+                len(publication.metrics),
+                publication.known_count,
+                publication.pending_count,
+                publication.unknown_count,
+                publication.not_applicable_count,
+                publication.abstained_count,
+                publication.execution_error_count,
+                publication.objective_measured_count,
+                _metric_publication_v2_fingerprint(publication),
+                binding.profile_source.value,
+                binding.profile_id,
+                binding.profile_revision,
+                binding.profile_fingerprint,
+                binding.profile_schema_version,
+                binding.profile_policy_version,
+                _metric_profile_binding_fingerprint(binding),
+                _metric_publication_profile_fingerprint(publication, binding),
+                to_iso(projected_at),
+                1,
+                0,
+                0,
+            ),
+        )
+        connection.commit()
+    loaded = repository.get(record.run_id)
+    assert loaded is not None
+    assert loaded.metric_profile_binding == binding
+    assert loaded.receipt.metric_publication_v2 == publication
+
+
 def _profile_service(database) -> DeclaredTaskProfileService:  # type: ignore[no-untyped-def]
     return DeclaredTaskProfileService(
         database.declared_task_profile_repository(),
@@ -232,8 +380,8 @@ def _two_run_trajectory(
 ):  # type: ignore[no-untyped-def]
     runs = database.model_ensemble_repository()
     if persist:
-        runs.save_completed(first)
-        runs.save_completed(second)
+        _save_historical_r5_fixture(database, first)
+        _save_historical_r5_fixture(database, second)
     project_id = database.list_sessions(provider=Provider.CODEX, limit=1)[0][
         "project_id"
     ]
@@ -292,7 +440,7 @@ def test_r5_preset_binding_round_trips_is_immutable_and_privacy_cascades(
     )
     repository = database.model_ensemble_repository()
 
-    repository.save_completed(record)
+    _save_historical_r5_fixture(database, record)
 
     loaded = repository.get(record.run_id)
     assert loaded is not None
@@ -366,7 +514,7 @@ def test_r5_declared_profile_is_relationally_bound_and_tamper_evident(
         profile=profile,
     )
     repository = database.model_ensemble_repository()
-    repository.save_completed(record)
+    _save_historical_r5_fixture(database, record)
 
     bare = record.model_copy(
         update={
@@ -442,7 +590,7 @@ def test_r5_binding_and_declared_profile_follow_session_privacy_cascade(
         binding=_declared_binding(profile),
         profile=profile,
     )
-    database.model_ensemble_repository().save_completed(record)
+    _save_historical_r5_fixture(database, record)
 
     with database._connection() as connection:
         connection.execute("PRAGMA trusted_schema=ON")
@@ -486,7 +634,7 @@ def test_r5_reciprocal_legacy_guards_and_partial_seal(
         binding=_preset_binding(session_id),
     )
     repository = database.model_ensemble_repository()
-    repository.save_completed(source)
+    _save_historical_r5_fixture(database, source)
     sidecar_free = source.receipt.model_copy(
         update={"metric_publication_v2": None, "predictive_projection": None}
     )
@@ -741,7 +889,7 @@ def test_projection_identity_change_remains_incomparable_with_same_window(
     )
     runs = database.model_ensemble_repository()
     runs.save_completed(historical)
-    runs.save_completed(current)
+    _save_historical_r5_fixture(database, current)
     _insert_legacy_r4_sidecar(
         database,
         historical.run_id,

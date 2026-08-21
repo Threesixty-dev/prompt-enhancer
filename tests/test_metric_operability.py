@@ -13,7 +13,7 @@ from prompt_enhancer.application.analysis.metric_operability import (
     metric_operability_catalog,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
-    METRIC_PROJECTION_V2_VERSION_5,
+    METRIC_PROJECTION_V2_VERSION_6,
 )
 from prompt_enhancer.application.analysis.provider_evidence import (
     CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES,
@@ -35,7 +35,6 @@ PROFILE_PATHS = {
 }
 
 ADAPTER_GAPS = {
-    "logic.decomposition_coverage",
     "logic.hypothesis_test_linkage",
     "logic.requirement_action_traceability",
     "outcome.agent_claim_grounding",
@@ -58,12 +57,12 @@ def test_operability_catalog_is_an_exact_all_twenty_partition() -> None:
     catalog = metric_operability_catalog()
 
     assert catalog.catalog_version == METRIC_OPERABILITY_CATALOG_VERSION
-    assert catalog.projection_version == METRIC_PROJECTION_V2_VERSION_5
+    assert catalog.projection_version == METRIC_PROJECTION_V2_VERSION_6
     assert catalog.contract_set_fingerprint == metric_contract_v2_set_fingerprint()
     assert catalog.total_metric_count == 20
-    assert catalog.shipped_path_count == 15
+    assert catalog.shipped_path_count == 16
     assert catalog.task_profile_configuration_gap_count == 0
-    assert catalog.provider_adapter_gap_count == 5
+    assert catalog.provider_adapter_gap_count == 4
     assert catalog.experimental_model_path_count == 8
     assert catalog.model_authoritative_metric_count == 0
     assert [entry.metric_key for entry in catalog.entries] == [
@@ -106,6 +105,11 @@ def test_operability_catalog_names_every_configuration_and_adapter_gap() -> None
         is MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
     )
     assert first_pass.experimental_model_path is False
+    decomposition = by_key["logic.decomposition_coverage"]
+    assert decomposition.measured_path is MetricMeasuredPath.REVIEWED_REQUIREMENT_PLAN
+    assert decomposition.shipped_path_state is (
+        MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
+    )
 
 
 def test_default_safe_event_authority_is_explicit_and_minimal() -> None:

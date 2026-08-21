@@ -133,9 +133,9 @@ function expectedOperability(metricKey: MetricKey): ExpectedOperability {
   }
   if (metricKey === "logic.decomposition_coverage") {
     return {
-      measured_path: "semantic_unit_extractor",
-      shipped_path_state: "provider_adapter_required",
-      next_step_code: "add_requirement_plan_extractor",
+      measured_path: "reviewed_requirement_plan",
+      shipped_path_state: "available_when_evidence_exists",
+      next_step_code: "confirm_requirement_plan_evidence",
       experimental_model_path: true,
     };
   }
@@ -201,19 +201,19 @@ export function parseMetricOperabilityCatalog(value: unknown): MetricOperability
   const rawEntries = catalog.entries;
   exactKeys(catalog, CATALOG_KEYS);
   if (
-    catalog.catalog_version !== "metric-operability-v2"
+    catalog.catalog_version !== "metric-operability-v3"
     || catalog.registry_version !== METRIC_CONTRACT_V2_REGISTRY_VERSION
     || catalog.contract_set_fingerprint !== METRIC_CONTRACT_V2_SET_FINGERPRINT
-    || catalog.projection_version !== "metric-contract-v2-projection-5"
-    || catalog.readiness_catalog_version !== "metric-evidence-readiness-v2-4"
+    || catalog.projection_version !== "metric-contract-v2-projection-6"
+    || catalog.readiness_catalog_version !== "metric-evidence-readiness-v2-5"
   ) {
     throw new MetricOperabilityDefinitionsOutOfDateError();
   }
   if (
     catalog.total_metric_count !== 20
-    || catalog.shipped_path_count !== 15
+    || catalog.shipped_path_count !== 16
     || catalog.task_profile_configuration_gap_count !== 0
-    || catalog.provider_adapter_gap_count !== 5
+    || catalog.provider_adapter_gap_count !== 4
     || catalog.experimental_model_path_count !== 8
     || catalog.model_authoritative_metric_count !== 0
     || catalog.local_only !== true
@@ -243,15 +243,15 @@ export function createSyntheticMetricOperabilityCatalog(): MetricOperabilityCata
     } satisfies MetricOperabilityEntry;
   });
   return {
-    catalog_version: "metric-operability-v2",
+    catalog_version: "metric-operability-v3",
     registry_version: METRIC_CONTRACT_V2_REGISTRY_VERSION,
     contract_set_fingerprint: METRIC_CONTRACT_V2_SET_FINGERPRINT,
-    projection_version: "metric-contract-v2-projection-5",
-    readiness_catalog_version: "metric-evidence-readiness-v2-4",
+    projection_version: "metric-contract-v2-projection-6",
+    readiness_catalog_version: "metric-evidence-readiness-v2-5",
     total_metric_count: 20,
-    shipped_path_count: 15,
+    shipped_path_count: 16,
     task_profile_configuration_gap_count: 0,
-    provider_adapter_gap_count: 5,
+    provider_adapter_gap_count: 4,
     experimental_model_path_count: 8,
     model_authoritative_metric_count: 0,
     entries,

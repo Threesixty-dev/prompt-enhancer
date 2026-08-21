@@ -59,6 +59,8 @@ describe("metric evidence readiness presentation binding", () => {
     const publication = syntheticMetricPublicationV2();
     const readiness = syntheticMetricEvidenceReadinessV2(publication);
     const mutations: Array<(value: any) => void> = [
+      (value) => { value.unexpected_projection_detail = false; },
+      (value) => { value.metrics[0].unexpected_row_detail = false; },
       (value) => { value.contract_set_fingerprint = "0".repeat(64); },
       (value) => { value.metric_projection_version = "metric-contract-v2-projection-3"; },
       (value) => { [value.metrics[0], value.metrics[1]] = [value.metrics[1], value.metrics[0]]; },
@@ -144,7 +146,7 @@ describe("metric evidence readiness presentation binding", () => {
     }
     const readiness = syntheticMetricEvidenceReadinessV2(publication);
 
-    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-4");
+    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-5");
     expect(readiness.metrics.find((row) => row.metric_key === "collaboration.ambiguity_resolution")?.required_contributors)
       .toEqual([
         "confirmed_lifecycle_enumeration",
@@ -164,7 +166,7 @@ describe("metric evidence readiness presentation binding", () => {
     expect(metricEvidenceReadinessForPublication(historical, publication)).toBeNull();
   });
 
-  it("binds current readiness v2-4 to r5 without rewriting r1-r4 history", () => {
+  it("binds current readiness v2-5 to r5 without rewriting r1-r4 history", () => {
     const publication = structuredClone(syntheticMetricPublicationV2({
       "prompt.constraint_precision": {
         value_state: "unknown",
@@ -187,7 +189,7 @@ describe("metric evidence readiness presentation binding", () => {
     const profile = readiness.metrics.find((row) => row.metric_key === "prompt.constraint_precision");
     const lifecycle = readiness.metrics.find((row) => row.metric_key === "collaboration.clarification_yield");
 
-    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-4");
+    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-5");
     expect(profile?.reason_code).toBe("declared_profile_slots_absent");
     expect(profile?.observed_contributors).toEqual([]);
     expect(profile?.missing_contributors).toEqual(["declared_task_profile", "canonical_request_text"]);
@@ -195,8 +197,104 @@ describe("metric evidence readiness presentation binding", () => {
     expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
 
     const staleCatalog = structuredClone(readiness) as any;
+    staleCatalog.catalog_version = "metric-evidence-readiness-v2-4";
+    expect(metricEvidenceReadinessForPublication(staleCatalog, publication)).toEqual(staleCatalog);
     staleCatalog.catalog_version = "metric-evidence-readiness-v2-3";
     expect(metricEvidenceReadinessForPublication(staleCatalog, publication)).toBeNull();
+  });
+
+  it("binds r6 decomposition readiness to reviewed requirement-plan evidence only", () => {
+    const publication = publicationFor("metric-contract-v2-projection-6", {
+      "logic.decomposition_coverage": {
+        value_state: "known",
+        numerator: 2,
+        denominator: 3,
+        explanation_code: "reviewed_requirement_plan_links",
+      },
+    });
+    const readiness = syntheticMetricEvidenceReadinessV2(publication);
+    const decomposition = readiness.metrics.find(
+      (row) => row.metric_key === "logic.decomposition_coverage",
+    );
+    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-5");
+    expect(decomposition).toMatchObject({
+      availability_state: "measured",
+      reason_code: "measured_from_owned_opportunities",
+      required_contributors: [
+        "reviewed_requirement_enumeration",
+        "reviewed_requirement_plan_disposition",
+      ],
+      observed_contributors: [
+        "reviewed_requirement_enumeration",
+        "reviewed_requirement_plan_disposition",
+      ],
+    });
+    expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
+    const stale = structuredClone(readiness) as any;
+    stale.catalog_version = "metric-evidence-readiness-v2-4";
+    expect(metricEvidenceReadinessForPublication(stale, publication)).toBeNull();
+
+    const invalidPublication = publicationFor("metric-contract-v2-projection-6", {
+      "logic.decomposition_coverage": {
+        value_state: "unknown",
+        capability_available: true,
+        source_complete: false,
+        eligible: 0,
+        explanation_code: "requirement_plan_evidence_invalid",
+      },
+    });
+    expectReasonBound(
+      invalidPublication,
+      "logic.decomposition_coverage",
+      "reviewed_requirement_plan_binding_invalid",
+    );
+
+    const awaitingReview = publicationFor("metric-contract-v2-projection-6", {
+      "logic.decomposition_coverage": {
+        value_state: "unknown",
+        capability_available: true,
+        source_complete: true,
+        eligible: 0,
+        explanation_code: "requirement_plan_evidence_confirmation_required",
+      },
+    });
+    expectReasonBound(
+      awaitingReview,
+      "logic.decomposition_coverage",
+      "reviewed_requirement_plan_confirmation_required",
+    );
+    const awaitingReadiness = syntheticMetricEvidenceReadinessV2(awaitingReview).metrics.find(
+      (row) => row.metric_key === "logic.decomposition_coverage",
+    );
+    expect(awaitingReadiness?.observed_contributors).toEqual([]);
+    expect(awaitingReadiness?.missing_contributors).toEqual([
+      "reviewed_requirement_enumeration",
+      "reviewed_requirement_plan_disposition",
+    ]);
+
+    const emptyReviewedEnumeration = publicationFor("metric-contract-v2-projection-6", {
+      "logic.decomposition_coverage": {
+        value_state: "not_applicable",
+        capability_available: true,
+        source_complete: true,
+        eligible: 0,
+        explanation_code: "reviewed_requirement_plan_links",
+      },
+    });
+    const emptyReadiness = syntheticMetricEvidenceReadinessV2(
+      emptyReviewedEnumeration,
+    ).metrics.find((row) => row.metric_key === "logic.decomposition_coverage");
+    expect(emptyReadiness).toMatchObject({
+      availability_state: "no_opportunity",
+      reason_code: "no_eligible_opportunity_observed",
+      required_contributors: ["reviewed_requirement_enumeration"],
+      observed_contributors: ["reviewed_requirement_enumeration"],
+      missing_contributors: [],
+    });
+    expect(metricEvidenceReadinessForPublication(
+      syntheticMetricEvidenceReadinessV2(emptyReviewedEnumeration),
+      emptyReviewedEnumeration,
+    )).not.toBeNull();
   });
 
   it.each([
@@ -245,6 +343,7 @@ describe("metric evidence readiness presentation binding", () => {
     for (const projection of [
       "metric-contract-v2-projection-4",
       "metric-contract-v2-projection-5",
+      "metric-contract-v2-projection-6",
     ] as const) {
       const publication = publicationFor(projection);
       expectReasonBound(publication, "logic.open_loop_closure", "explicit_plan_episode_required");
@@ -257,6 +356,13 @@ describe("metric evidence readiness presentation binding", () => {
       ] as const) {
         expectReasonBound(publication, metricKey, "confirmed_lifecycle_service_required");
       }
+      if (projection === "metric-contract-v2-projection-6") {
+        expectReasonBound(
+          publication,
+          "logic.decomposition_coverage",
+          "reviewed_requirement_plan_service_required",
+        );
+      }
     }
   });
 
@@ -266,6 +372,15 @@ describe("metric evidence readiness presentation binding", () => {
       metricKey: MetricKeyV2;
       reason: string;
     }> = [
+      {
+        publication: publicationFor("metric-contract-v2-projection-6", {
+          "logic.decomposition_coverage": {
+            value_state: "unknown", capability_available: true, source_complete: false, eligible: 0,
+          },
+        }),
+        metricKey: "logic.decomposition_coverage",
+        reason: "reviewed_requirement_plan_binding_invalid",
+      },
       {
         publication: publicationFor("metric-contract-v2-projection-1", {
           "prompt.constraint_precision": { value_state: "known", numerator: 1, denominator: 2 },

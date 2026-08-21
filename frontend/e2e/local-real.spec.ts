@@ -444,22 +444,24 @@ test.beforeEach(async ({ page }) => {
   await installLocalHttpFixture(page);
 });
 
-test("edits an existing workspace file beside the agent through a reviewed local diff", async ({ page }) => {
+test("keeps a reviewed workspace edit fail-closed without native user presence", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 920 });
   await page.goto("/agent");
 
   await expect(page.getByRole("heading", { name: "Example workspace" })).toBeVisible();
   const workspace = page.getByRole("region", { name: "Files and reviewed changes" });
   const conversation = page.getByRole("region", { name: "Agent conversation" });
-  await expect(workspace).toContainText("manual edits use browser confirmation");
+  await expect(workspace).toContainText("manual edits require native user-presence confirmation");
   await page.getByRole("button", { name: /example\.ts/u }).click();
   const editor = page.getByRole("textbox", { name: "Workspace file editor" });
   await expect(editor).toHaveValue("export const value = 1;\n");
   await editor.fill("export const value = 2;\n");
   await page.getByRole("button", { name: "Review diff" }).click();
   await expect(page.getByRole("region", { name: "Manual edit review" })).toContainText("+export const value = 2;");
-  await page.getByRole("button", { name: "Apply reviewed edit" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Applied the reviewed edit" })).toBeVisible();
+  await expect(page.getByRole("status").filter({
+    hasText: "native user-presence confirmation is unavailable",
+  })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply reviewed edit" })).toBeDisabled();
   await expect(editor).toHaveValue("export const value = 2;\n");
 
   const [workspaceBox, conversationBox] = await Promise.all([workspace.boundingBox(), conversation.boundingBox()]);
@@ -590,9 +592,9 @@ test("renders the server-bound all-twenty operability gate without a session rea
     name: "What can produce measured evidence today",
   })).toBeVisible();
   const summary = page.getByLabel("Metric operability summary");
-  await expect(summary.getByText("Measured paths shipped").locator("..")).toContainText("12");
-  await expect(summary.getByText("Need project profile").locator("..")).toContainText("3");
-  await expect(summary.getByText("Need source adapter").locator("..")).toContainText("5");
+  await expect(summary.getByText("Measured paths shipped").locator("..")).toContainText("16");
+  await expect(summary.getByText("Need project profile").locator("..")).toContainText("0");
+  await expect(summary.getByText("Need source adapter").locator("..")).toContainText("4");
   await expect(summary.getByText("Model-authored metrics").locator("..")).toContainText("0");
   await expect(page.locator("[data-operability-state]")).toHaveCount(20);
 });

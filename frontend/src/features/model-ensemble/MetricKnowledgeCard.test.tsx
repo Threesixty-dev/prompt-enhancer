@@ -293,6 +293,46 @@ describe("personal metric explainers", () => {
     expect(copies[1]).toBe(copies[0]);
   });
 
+  it("renders the exact r6 reviewed requirement-plan denominator in full and compact knowledge surfaces", () => {
+    const data = projectedRun("metric-contract-v2-projection-6", {
+      "logic.decomposition_coverage": {
+        value_state: "known",
+        numerator: 1,
+        denominator: 3,
+        explanation_code: "reviewed_requirement_plan_links",
+      },
+    });
+    const copies: string[] = [];
+    for (const mode of ["full", "compact"] as const) {
+      const view = render(
+        <MetricWorkspace
+          lensId="reasoning-trace"
+          mode={mode}
+          onLensChange={() => undefined}
+          run={data}
+          runId="example-run-requirement-plan"
+          snapshotLabel="Synthetic requirement-plan snapshot"
+          transport={transport}
+        />,
+      );
+      const trigger = screen.getByRole("navigation", { name: /metric axes/ }).querySelectorAll("button")[0];
+      const description = document.getElementById(trigger.getAttribute("aria-describedby")!)!;
+      expect(description.textContent).toContain("one per native-reviewed active requirement clause");
+      expect(description.textContent).not.toContain("one per detected requirement");
+      fireEvent.pointerEnter(trigger);
+      const card = document.querySelector('[role="region"][data-metric-key="logic.decomposition_coverage"]')!;
+      expect(card).toHaveAttribute("data-projection-version", "metric-contract-v2-projection-6");
+      expect(card.textContent).toContain("Sealed r6 reviewed requirement-plan definition");
+      expect(card.textContent).toContain("Numerator: one native-reviewed active requirement clause with disposition linked");
+      expect(card.textContent).toContain("Denominator: exactly the active_requirement clauses from the complete native-confirmed classification");
+      expect(card.textContent).toContain("excluded clauses, atomic requirements, or lexically detected requirements");
+      expect(card.textContent).toContain("Native-reviewed active requirement clauses with disposition linked to one or more revalidated later agent PLAN coordinates divided by the exact active_requirement subset");
+      copies.push(card.textContent ?? "");
+      view.unmount();
+    }
+    expect(copies[1]).toBe(copies[0]);
+  });
+
   it("anchors the overlay outside the entire triggering axis row", () => {
     vi.spyOn(window, "innerWidth", "get").mockReturnValue(1280);
     vi.spyOn(window, "innerHeight", "get").mockReturnValue(720);
