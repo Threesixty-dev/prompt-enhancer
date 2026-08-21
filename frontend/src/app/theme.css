@@ -136,7 +136,10 @@
 :root[data-theme="dark"] select:focus-visible,
 :root[data-theme="dark"] button:focus-visible,
 :root[data-theme="dark"] a:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  /* Keep the shell rule at the same accessible width as feature-specific
+     forced-colors focus rules.  This selector has higher specificity than
+     many component rules, so a 2px ring here would otherwise win. */
+  outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--focus-halo);
 }

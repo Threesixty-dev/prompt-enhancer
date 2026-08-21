@@ -12,7 +12,7 @@ test("renders one keyboard skip link", async ({ page }) => {
 test("reviews synthetic discovery and inspects generic metrics", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Discovery inbox" })).toBeVisible();
-  await expect(page.getByText("Local - synthetic data")).toBeVisible();
+  await expect(page.getByText("Synthetic demo · Fixture ready")).toBeVisible();
   await expect(page.getByRole("button", { name: /Candidate aaaaaa/ })).toBeVisible();
   await expect(page.getByLabel("2 candidates need review")).toBeVisible();
 
