@@ -7,7 +7,7 @@ import hmac
 import re
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Annotated, Any, Mapping, Protocol, Sequence
+from typing import Annotated, Any, Callable, Literal, Mapping, Protocol, Sequence
 from urllib.parse import urlsplit
 
 from fastapi import (
@@ -39,6 +39,7 @@ from .application.analysis.metric_coverage import MetricCoverageService
 from .application.analysis.metric_lifecycle_evidence import (
     MetricLifecycleEvidenceService,
 )
+from .application.analysis.declared_task_profiles import DeclaredTaskProfileService
 from .application.analysis.agent_metric_evidence import AgentMetricEvidenceService
 from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
@@ -94,11 +95,15 @@ from .interfaces.http import (
     create_social_mutation_router,
     create_social_readiness_router,
 )
+from .interfaces.http.declared_task_profile_routes import (
+    create_declared_task_profile_router,
+)
 from .interfaces.http.browser_session import (
     BROWSER_SESSION_COOKIE,
     CSRF_HEADER,
     BrowserSessionManager,
 )
+from .interfaces.http.user_presence import USER_PRESENCE_HEADER
 from .interfaces.http.desktop_identity import (
     DESKTOP_CHALLENGE_HEADER,
     DESKTOP_IDENTITY_PATH,
@@ -321,6 +326,8 @@ def create_app(
     task_review_service: ReviewCommandService | None = None,
     task_lifecycle_service: TaskLifecycleService | None = None,
     metric_lifecycle_evidence_service: MetricLifecycleEvidenceService | None = None,
+    agent_metric_evidence_service: AgentMetricEvidenceService | None = None,
+    declared_task_profile_service: DeclaredTaskProfileService | None = None,
     task_analysis_service: TaskAnalysisCommandService | None = None,
     session_text_analysis_service: SessionTextAnalysisService | None = None,
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
@@ -366,10 +373,22 @@ def create_app(
     estimator_repository: EstimatorRepository | None = None,
     static_directory: Path | None = None,
     browser_session_manager: BrowserSessionManager | None = None,
+    user_presence_confirmation: Callable[[Request, bytes], None] | None = None,
+    user_presence_confirmation_mode: Literal["native_bridge_bound_token"] | None = None,
 ) -> FastAPI:
     """Build the local API without enabling CORS or any remote integrations."""
 
     resolved_settings = settings or AppSettings.from_env()
+    if user_presence_confirmation_mode not in {None, "native_bridge_bound_token"}:
+        raise ValueError("unsupported user-presence confirmation mode")
+    if user_presence_confirmation is None:
+        if user_presence_confirmation_mode is not None:
+            raise ValueError("user-presence mode requires an adapter")
+        resolved_user_presence_mode = "unavailable"
+    else:
+        resolved_user_presence_mode = (
+            user_presence_confirmation_mode or "native_bridge_bound_token"
+        )
     if database is None or api_token is None:
         prepare_app_home(resolved_settings)
 
@@ -484,6 +503,7 @@ def create_app(
                 "/task-lifecycles",
                 "/lifecycle",
                 "/agent-metric-evidence",
+                "/declared-task-profile",
                 "/agent/sessions",
             )
         ):
@@ -543,23 +563,27 @@ def create_app(
             if not sessions.verify_csrf(cookie_value, supplied_csrf):
                 raise HTTPException(status_code=403, detail="CSRF validation failed")
 
-    def require_browser_user_confirmation(
+    async def require_browser_user_confirmation(
         request: Request,
         supplied_csrf: Annotated[str | None, Header(alias=CSRF_HEADER)] = None,
+        _supplied_user_presence: Annotated[
+            str | None, Header(alias=USER_PRESENCE_HEADER)
+        ] = None,
     ) -> None:
-        """Reserve measurement-authority decisions for the same-origin UI.
+        """Reserve measurement-authority decisions for an owned native UI.
 
         API-token clients may submit inert proposals, but the token is not a
         human-decision credential.  A decision therefore requires the
-        ephemeral browser session, same-origin mutation proof, and its CSRF
-        token even when an API token is also supplied.
+        ephemeral browser session, same-origin mutation proof, its CSRF token,
+        and an independently injected, non-self-issuable user-presence
+        adapter. The default local server has no such adapter and fails closed.
         """
 
         if request.headers.get(API_TOKEN_HEADER) is not None or request.headers.get(
             "authorization"
         ) is not None:
             raise HTTPException(
-                status_code=403, detail="browser confirmation required"
+                status_code=403, detail="owned native confirmation required"
             )
         cookie_value = request.cookies.get(BROWSER_SESSION_COOKIE)
         sessions = request.app.state.browser_sessions
@@ -572,6 +596,12 @@ def create_app(
             )
         if not sessions.verify_csrf(cookie_value, supplied_csrf):
             raise HTTPException(status_code=403, detail="CSRF validation failed")
+        if user_presence_confirmation is None:
+            raise HTTPException(
+                status_code=503,
+                detail="user-presence confirmation is unavailable",
+            )
+        user_presence_confirmation(request, await request.body())
 
     authenticated = Depends(require_local_token)
 
@@ -603,6 +633,10 @@ def create_app(
         return {
             "csrf_token": grant.csrf_token,
             "expires_in_seconds": grant.expires_in_seconds,
+            "user_presence_confirmation_available": (
+                user_presence_confirmation is not None
+            ),
+            "user_presence_confirmation_mode": resolved_user_presence_mode,
         }
 
     @app.get(DESKTOP_IDENTITY_PATH, include_in_schema=False)
@@ -779,7 +813,10 @@ def create_app(
         app.include_router(
             create_agent_metric_evidence_router(
                 require_local_token,
-                AgentMetricEvidenceService(metric_lifecycle_evidence_service),
+                (
+                    agent_metric_evidence_service
+                    or AgentMetricEvidenceService(metric_lifecycle_evidence_service)
+                ),
             )
         )
     app.include_router(
@@ -962,6 +999,16 @@ def create_app(
                 require_local_token,
                 require_browser_user_confirmation,
                 local_agent_service,
+            )
+        )
+    if declared_task_profile_service is not None:
+        app.include_router(
+            create_declared_task_profile_router(
+                require_local_token,
+                require_browser_user_confirmation,
+                declared_task_profile_service,
+                provider_resolver=_session_provider,
+                confirmation_available=(user_presence_confirmation is not None),
             )
         )
     if annotation_service is not None:

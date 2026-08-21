@@ -12,7 +12,11 @@ from prompt_enhancer.application.analysis.metric_contract_v2 import (
 )
 from prompt_enhancer.application.analysis.metric_evidence_readiness_v2 import (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
     METRIC_EVIDENCE_REQUIREMENTS_V2,
+    METRIC_EVIDENCE_REQUIREMENTS_V2_R4,
+    SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS,
     MetricEvidenceAvailabilityState,
     MetricEvidenceContributor,
     MetricEvidenceReadinessProjectionV2,
@@ -26,6 +30,12 @@ from prompt_enhancer.application.analysis.metric_projection_v2 import (
 from prompt_enhancer.application.analysis.metric_projection_v3 import (
     project_metric_states_v3,
 )
+from prompt_enhancer.application.analysis.metric_projection_v4 import (
+    project_metric_states_v4,
+)
+from prompt_enhancer.application.analysis.metric_projection_v5 import (
+    project_metric_states_v5,
+)
 from prompt_enhancer.application.analysis.metric_publication_v2 import (
     metric_publication_v2_fingerprint,
     publish_metric_states_v2,
@@ -38,6 +48,8 @@ from prompt_enhancer.application.analysis.semantic_units import (
     SemanticUnitReconciler,
 )
 from prompt_enhancer.application.analysis.text_contracts import (
+    ConstraintKind,
+    DeliverableSlot,
     EphemeralRedactedMessage,
     MetricFraction,
     P1TextAnalysisInput,
@@ -104,6 +116,7 @@ def _context(
     *,
     label: str,
     complete: bool = True,
+    task_profile: TextTaskProfile | None = None,
 ) -> P1TextAnalysisInput:
     focus = next(
         message
@@ -126,7 +139,7 @@ def _context(
         observed_message_count=len(messages),
         eligible_message_count=len(messages) if complete else len(messages) + 5,
         messages=messages,
-        task_profile=TextTaskProfile(applicability=()),
+        task_profile=task_profile or TextTaskProfile(applicability=()),
     )
 
 
@@ -157,6 +170,37 @@ def _readiness_v3(
     reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
     publication = publish_metric_states_v2(
         project_metric_states_v3(
+            context=context,
+            reconciliation=reconciliation,
+            id_factory=IDS,
+            objective_overrides=objective,
+        )
+    )
+    return project_metric_evidence_readiness_v2(publication, **PROVENANCE)
+
+
+def _readiness_v4(
+    context: P1TextAnalysisInput,
+) -> MetricEvidenceReadinessProjectionV2:
+    reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
+    publication = publish_metric_states_v2(
+        project_metric_states_v4(
+            context=context,
+            reconciliation=reconciliation,
+            id_factory=IDS,
+        )
+    )
+    return project_metric_evidence_readiness_v2(publication, **PROVENANCE)
+
+
+def _readiness_v5(
+    context: P1TextAnalysisInput,
+    *,
+    objective: dict[str, ObjectiveMetricOverride] | None = None,
+) -> MetricEvidenceReadinessProjectionV2:
+    reconciliation = SemanticUnitReconciler(IDS).reconcile(context).reconciliation
+    publication = publish_metric_states_v2(
+        project_metric_states_v5(
             context=context,
             reconciliation=reconciliation,
             id_factory=IDS,
@@ -581,6 +625,198 @@ def test_declared_profile_absence_has_its_own_reason() -> None:
     )
     assert item.reason_code is (
         MetricEvidenceReadinessReason.DECLARED_PROFILE_SLOTS_ABSENT
+    )
+
+
+def test_r5_readiness_catalog_is_append_only_and_covers_exactly_twenty_rows() -> None:
+    projection = _readiness_v5(_single_request_context())
+
+    assert METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION == (
+        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4
+    )
+    assert SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS[-2:] == (
+        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
+        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
+    )
+    assert projection.metric_projection_version == "metric-contract-v2-projection-5"
+    assert len(projection.metrics) == 20
+    assert tuple(item.metric_key for item in projection.metrics) == tuple(
+        item.metric_key for item in METRIC_CONTRACTS_V2
+    )
+    assert sum(
+        (
+            projection.measured_count,
+            projection.pending_count,
+            projection.no_opportunity_count,
+            projection.capability_missing_count,
+            projection.source_incomplete_count,
+            projection.evidence_unresolved_count,
+            projection.abstained_count,
+            projection.execution_error_count,
+        )
+    ) == 20
+
+
+def test_r5_inherits_r4_lifecycle_and_r3_open_loop_contributor_contracts() -> None:
+    by_key = _by_key(_readiness_v5(_single_request_context()))
+
+    for metric_key, requirement in METRIC_EVIDENCE_REQUIREMENTS_V2_R4.items():
+        item = by_key[metric_key]
+        assert item.availability_state is (
+            MetricEvidenceAvailabilityState.CAPABILITY_MISSING
+        )
+        assert item.reason_code is (
+            MetricEvidenceReadinessReason.CONFIRMED_LIFECYCLE_SERVICE_REQUIRED
+        )
+        assert item.required_contributors == requirement.required_contributors
+        assert item.observed_contributors == ()
+        assert item.missing_contributors == item.required_contributors
+
+    open_loop = by_key["logic.open_loop_closure"]
+    assert open_loop.reason_code is (
+        MetricEvidenceReadinessReason.EXPLICIT_PLAN_EPISODE_REQUIRED
+    )
+    assert open_loop.required_contributors == (
+        MetricEvidenceContributor.DOCUMENTED_PLAN_MESSAGE,
+        MetricEvidenceContributor.EXPLICIT_PLAN_SUPERSESSION_LINK,
+    )
+
+
+def test_r4_rows_remain_frozen_while_r5_stops_claiming_empty_profile_input() -> None:
+    context = _single_request_context()
+    r4 = _by_key(_readiness_v4(context))
+    r5 = _by_key(_readiness_v5(context))
+    profile_metrics = {
+        "prompt.constraint_precision",
+        "prompt.acceptance_testability",
+        "prompt.deliverable_contract",
+    }
+
+    for metric_key in set(r4) - profile_metrics:
+        assert r5[metric_key] == r4[metric_key]
+    for metric_key in profile_metrics:
+        assert r4[metric_key].observed_contributors == (
+            MetricEvidenceContributor.DECLARED_TASK_PROFILE,
+        )
+        assert r5[metric_key].observed_contributors == ()
+        assert r5[metric_key].missing_contributors == (
+            MetricEvidenceContributor.DECLARED_TASK_PROFILE,
+            MetricEvidenceContributor.CANONICAL_REQUEST_TEXT,
+        )
+        assert r5[metric_key].value_state is MetricValueStateV2.UNKNOWN
+        assert r5[metric_key].reason_code is (
+            MetricEvidenceReadinessReason.DECLARED_PROFILE_SLOTS_ABSENT
+        )
+
+
+def test_r5_configured_profile_families_are_known_with_exact_contributors() -> None:
+    profile = TextTaskProfile(
+        applicability=(),
+        expected_constraint_kinds=(ConstraintKind.PRIVACY, ConstraintKind.COST),
+        expected_outcome_count=3,
+        expected_deliverable_slots=(
+            DeliverableSlot.ARTIFACT,
+            DeliverableSlot.FORMAT,
+        ),
+    )
+    context = _context(
+        (
+            _message(
+                "r5-configured-profile-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                (
+                    "Create a private report. "
+                    "The report must return exactly three rows. "
+                    "Validate that the report exists without errors."
+                ),
+            ),
+        ),
+        label="r5-configured-profile",
+        task_profile=profile,
+    )
+    by_key = _by_key(_readiness_v5(context))
+    expected_counts = {
+        "prompt.constraint_precision": (1, 2),
+        "prompt.acceptance_testability": (2, 3),
+        "prompt.deliverable_contract": (1, 2),
+    }
+
+    for metric_key, (met, eligible) in expected_counts.items():
+        item = by_key[metric_key]
+        assert item.value_state is MetricValueStateV2.KNOWN
+        assert item.availability_state is MetricEvidenceAvailabilityState.MEASURED
+        assert (item.met_count, item.eligible_count) == (met, eligible)
+        assert item.observed_contributors == (
+            MetricEvidenceContributor.DECLARED_TASK_PROFILE,
+            MetricEvidenceContributor.CANONICAL_REQUEST_TEXT,
+        )
+        assert item.missing_contributors == ()
+
+
+def test_r5_partial_profile_keeps_unconfigured_families_unknown_not_na() -> None:
+    context = _context(
+        (
+            _message(
+                "r5-partial-profile-request",
+                1,
+                TextRole.USER,
+                TextMessageKind.REQUEST,
+                "Create a private report.",
+            ),
+        ),
+        label="r5-partial-profile",
+        task_profile=TextTaskProfile(
+            applicability=(),
+            expected_constraint_kinds=(ConstraintKind.PRIVACY,),
+        ),
+    )
+    by_key = _by_key(_readiness_v5(context))
+
+    configured = by_key["prompt.constraint_precision"]
+    assert configured.value_state is MetricValueStateV2.KNOWN
+    assert (configured.met_count, configured.eligible_count) == (1, 1)
+    for metric_key in (
+        "prompt.acceptance_testability",
+        "prompt.deliverable_contract",
+    ):
+        item = by_key[metric_key]
+        assert item.value_state is MetricValueStateV2.UNKNOWN
+        assert item.value_state is not MetricValueStateV2.NOT_APPLICABLE
+        assert item.availability_state is (
+            MetricEvidenceAvailabilityState.EVIDENCE_UNRESOLVED
+        )
+        assert item.reason_code is (
+            MetricEvidenceReadinessReason.DECLARED_PROFILE_SLOTS_ABSENT
+        )
+        assert item.eligible_count == 0
+        assert item.observed_contributors == ()
+
+
+def test_r5_inherits_objective_receipt_bound_withholding_reason() -> None:
+    item = _by_key(
+        _readiness_v5(
+            _single_request_context(),
+            objective={
+                "outcome.agent_claim_grounding": ObjectiveMetricOverride(
+                    value_state=MetricValueState.UNKNOWN,
+                    explanation_code=(
+                        "typed_objective_opportunity_count_exceeds_receipt_bound"
+                    ),
+                    withholding_cause=(
+                        ObjectiveWithholdingCause.OPPORTUNITY_BOUND_EXCEEDED
+                    ),
+                )
+            },
+        )
+    )["outcome.agent_claim_grounding"]
+
+    assert item.availability_state is (
+        MetricEvidenceAvailabilityState.EVIDENCE_UNRESOLVED
+    )
+    assert item.reason_code is (
+        MetricEvidenceReadinessReason.OPPORTUNITY_SET_EXCEEDS_RECEIPT_BOUND
     )
 
 

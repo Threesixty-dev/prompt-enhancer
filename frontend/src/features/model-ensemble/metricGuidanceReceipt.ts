@@ -12,6 +12,7 @@ import {
   metricHelpV2,
   observationUnitCounted,
   observationUnitSingular,
+  type MetricHelpProjectionVersion,
   type MetricInspectorKind,
   type MetricInspectorSentences,
 } from "./metricHelpV2";
@@ -88,7 +89,10 @@ const GENERIC_TEMPLATE_TEXT: Readonly<Record<string, string>> = {
  * decision-guidance registry (diagnosis = why it matters, improve = try next,
  * verification = confirm with); retain wording is metric-scoped.
  */
-export function metricGuidanceTemplateText(templateIdentity: string): string | null {
+export function metricGuidanceTemplateText(
+  templateIdentity: string,
+  projectionVersion: MetricHelpProjectionVersion | null = null,
+): string | null {
   const match = /^(diagnosis|action\.retain|action\.improve|verification|action\.[a-z_]+|verification\.[a-z_]+)(?:\.([a-z]+\.[a-z_]+))?\.v(\d+)$/u.exec(templateIdentity);
   if (match === null) return null;
   const [, family, metricKey, version] = match;
@@ -98,7 +102,7 @@ export function metricGuidanceTemplateText(templateIdentity: string): string | n
   }
   if (!METRIC_V2_KEYS.includes(metricKey as typeof METRIC_V2_KEYS[number])) return null;
   const decision = metricDecisionGuidance(metricKey);
-  const help = metricHelpV2(metricKey, "en")?.entry;
+  const help = metricHelpV2(metricKey, "en", projectionVersion)?.entry;
   switch (family) {
     case "diagnosis":
       return stripEnd(decision.whyItMatters);
@@ -135,6 +139,8 @@ export interface MetricGuidanceReceiptInput {
   metricKey: string;
   label: string;
   direction: MetricGuidanceDirection;
+  /** Projection identity carried by the exact sealed state beside this guidance. */
+  projectionVersion: MetricHelpProjectionVersion;
   guidance: MetricGuidanceReceipt;
   /** Authority declared by the exact V2 state receipt (never inferred). */
   evidenceAuthority: string | null;
@@ -201,7 +207,11 @@ export function metricGuidanceFocusFactors(
  */
 export function metricGuidanceReceiptSentences(input: MetricGuidanceReceiptInput): MetricInspectorSentences {
   const { guidance, label, direction } = input;
-  const observationUnit = metricHelpV2(input.metricKey, "en")?.entry.observationUnit ?? "observation";
+  const observationUnit = metricHelpV2(
+    input.metricKey,
+    "en",
+    input.projectionVersion,
+  )?.entry.observationUnit ?? "observation";
   /** "opportunities (one per agent question)" for counts and fractions. */
   const unit = observationUnitCounted(observationUnit);
   /** "agent question" for "no eligible … was observed". */
@@ -209,11 +219,11 @@ export function metricGuidanceReceiptSentences(input: MetricGuidanceReceiptInput
   const diagnosisId = guidance.diagnosis_template_id;
   const actionId = guidance.action_template_id;
   const verificationId = guidance.verification_template_id;
-  const diagnosis = metricGuidanceTemplateText(diagnosisId)
+  const diagnosis = metricGuidanceTemplateText(diagnosisId, input.projectionVersion)
     ?? `this client has no reviewed wording for template ${diagnosisId}`;
-  const actionText = metricGuidanceTemplateText(actionId)
+  const actionText = metricGuidanceTemplateText(actionId, input.projectionVersion)
     ?? `No reviewed action wording for template ${actionId}; treat the state class “${readableCode(guidance.state_class)}” as the decision`;
-  const verificationText = metricGuidanceTemplateText(verificationId)
+  const verificationText = metricGuidanceTemplateText(verificationId, input.projectionVersion)
     ?? `no reviewed verification wording for template ${verificationId}`;
   const numerator = guidance.numerator ?? null;
   const denominator = guidance.denominator ?? null;

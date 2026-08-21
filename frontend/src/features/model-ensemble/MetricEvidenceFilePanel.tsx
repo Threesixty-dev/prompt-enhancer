@@ -19,7 +19,8 @@ type EvidenceTransport = Pick<PromptEnhancerTransport,
   | "previewAgentMetricEvidence"
   | "importAgentMetricEvidence"
   | "listMetricLifecycleProposals"
-  | "decideMetricLifecycleProposal">;
+  | "decideMetricLifecycleProposal">
+  & Partial<Pick<PromptEnhancerTransport, "getUserPresenceCapability">>;
 
 function idempotency(prefix: string): string {
   return `${prefix}-${crypto.randomUUID().replaceAll("-", "")}`;
@@ -48,6 +49,9 @@ export function MetricEvidenceFilePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pendingDecision, setPendingDecision] = useState<PendingDecision | null>(null);
+  const [confirmationAvailable, setConfirmationAvailable] = useState(
+    transport.getUserPresenceCapability === undefined,
+  );
   const capabilities = transport.previewAgentMetricEvidence !== undefined
     && transport.importAgentMetricEvidence !== undefined
     && transport.listMetricLifecycleProposals !== undefined
@@ -63,6 +67,18 @@ export function MetricEvidenceFilePanel({
       return;
     }
     const controller = new AbortController();
+    if (transport.getUserPresenceCapability === undefined) {
+      setConfirmationAvailable(true);
+    } else {
+      setConfirmationAvailable(false);
+      transport.getUserPresenceCapability(controller.signal)
+        .then((value) => {
+          if (!controller.signal.aborted) setConfirmationAvailable(value.confirmation_available);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setConfirmationAvailable(false);
+        });
+    }
     transport.listMetricLifecycleProposals?.(sessionId, controller.signal)
       .then((page) => {
         if (!controller.signal.aborted) setProposals(page.proposals);
@@ -130,7 +146,7 @@ export function MetricEvidenceFilePanel({
   }
 
   async function applyDecision(proposal: MetricLifecycleProposal, decision: "confirm" | "reject") {
-    if (transport.decideMetricLifecycleProposal === undefined) return;
+    if (transport.decideMetricLifecycleProposal === undefined || !confirmationAvailable) return;
     setBusy(true);
     setError("");
     try {
@@ -162,7 +178,9 @@ export function MetricEvidenceFilePanel({
       <section aria-label="Confirmed metric evidence" className="metric-evidence-file metric-evidence-file--compact">
         <strong>Confirmed evidence</strong>
         <span>{capabilities ? `${undecided.length} proposal${undecided.length === 1 ? "" : "s"} awaiting review` : "Local evidence import unavailable"}</span>
-        <small>Review and confirm typed agent files in the dashboard; this compact view never auto-approves evidence.</small>
+        <small>{confirmationAvailable
+          ? "Review and natively confirm typed agent files in the dashboard; this compact view never auto-approves evidence."
+          : "Review is available, but this server/window composition cannot natively confirm evidence decisions."}</small>
       </section>
     );
   }
@@ -206,13 +224,13 @@ export function MetricEvidenceFilePanel({
                     >
                       <p>
                         {pendingDecision.decision === "confirm"
-                          ? "This browser-session decision admits the typed lifecycle receipt into the next sealed metric denominator."
-                          : "This browser-session decision permanently rejects this proposal revision."}
+                          ? "A native user-presence decision admits the typed lifecycle receipt into the next sealed metric denominator."
+                          : "A native user-presence decision permanently rejects this proposal revision."}
                       </p>
                       <div>
                         <button disabled={busy} onClick={() => setPendingDecision(null)} type="button">Cancel</button>
                         <button
-                          disabled={busy}
+                          disabled={busy || !confirmationAvailable}
                           onClick={() => void applyDecision(proposal, pendingDecision.decision)}
                           type="button"
                         >
@@ -222,13 +240,16 @@ export function MetricEvidenceFilePanel({
                     </div>
                   ) : (
                     <div>
-                      <button disabled={busy} onClick={() => setPendingDecision({ proposalId: proposal.proposal_id, decision: "reject" })} type="button">Reject</button>
-                      <button disabled={busy} onClick={() => setPendingDecision({ proposalId: proposal.proposal_id, decision: "confirm" })} type="button">Confirm evidence</button>
+                      <button disabled={busy || !confirmationAvailable} onClick={() => setPendingDecision({ proposalId: proposal.proposal_id, decision: "reject" })} type="button">Reject</button>
+                      <button disabled={busy || !confirmationAvailable} onClick={() => setPendingDecision({ proposalId: proposal.proposal_id, decision: "confirm" })} type="button">Confirm evidence</button>
                     </div>
                   )}
                 </li>
               ))}
             </ul>
+          )}
+          {!confirmationAvailable && undecided.length > 0 && (
+            <p role="status">Native user-presence confirmation is unavailable in this server/window composition. Proposals remain unconfirmed.</p>
           )}
           {error !== "" && <p className="metric-evidence-file__error" role="alert">{error}</p>}
           <p>Confirmation records typed evidence only. Re-run the local metric analysis to publish the updated sealed snapshot.</p>

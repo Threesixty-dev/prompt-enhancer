@@ -5,9 +5,12 @@ that Prompt Enhancer can validate and turn into an **unconfirmed** metric
 proposal. It does not let the agent assign a score, declare task success, or
 confirm its own evidence.
 
-## Current coverage
+## Current coverage and identities
 
-The v1 file contract covers the five collaboration lifecycle families:
+The historical `agent-metric-evidence-file-v1` contract is bound to projection
+r4. The current append-only `agent-metric-evidence-file-v2` contract is bound to
+projection r5 and additionally carries the exact sealed source-window
+fingerprint. Both cover only the five collaboration lifecycle families:
 
 - ambiguity resolution;
 - clarification yield;
@@ -15,10 +18,11 @@ The v1 file contract covers the five collaboration lifecycle families:
 - scope-change discipline;
 - rework-candidate rate.
 
-It does not accept prose, transcript excerpts, paths, model rationale, numeric
-scores, or objective-verification claims. Prompt-profile denominators and the
-five objective-receipt metrics need separate reviewed evidence adapters; this
-file format must not be presented as support for those metrics.
+Neither version accepts prose, transcript excerpts, paths, model rationale,
+numeric scores, or objective-verification claims. The reviewed task-profile
+editor is a separate same-origin workflow for the three prompt denominators;
+the five objective-receipt metrics still need their own reviewed evidence
+adapters. This file format must not be presented as support for either boundary.
 
 ## Safe workflow
 
@@ -29,8 +33,11 @@ it does not disclose session data or authorize a measured value.
 
 1. The authenticated loopback client reads
    `GET /v1/sessions/{session_id}/agent-metric-evidence/contract`. The response
-   binds the current sealed run, source-window fingerprint, all contract
-   fingerprints, accepted closed enums, size limit, and expiry policy.
+   returns the contract matching the current sealed projection. The current v2
+   response binds the exact sealed run, source-window fingerprint, all contract
+   fingerprints, accepted closed enums, size limit, and expiry policy. A future
+   projection identity fails with `agent_metric_evidence_definitions_out_of_date`
+   instead of being misclassified as malformed input.
 2. The agent writes canonical UTF-8 JSON using that exact contract. The body is
    at most 64 KiB, expires within 24 hours, contains no floating-point values,
    and uses sorted keys with no insignificant whitespace or duplicate keys.
@@ -44,10 +51,13 @@ it does not disclose session data or authorize a measured value.
    Import creates only an inert proposal; raw bytes and producer claims are not
    persisted as evidence authority.
 5. A person reviews the proposal in the same-origin dashboard. Confirming or
-   rejecting it is a separate two-step browser action protected by the
-   ephemeral browser session and CSRF token. The decision endpoint refuses the
-   general API token, and the command requires the exact decision-confirmation
-   literal.
+   rejecting it is a separate two-step action protected by the ephemeral
+   browser session, CSRF token, exact decision-confirmation literal, and an
+   origin- and body-bound one-shot capability issued after an owned native
+   window displays fixed content-free confirmation copy. The decision endpoint
+   refuses the general API token. Standard `serve`, attached windows, and
+   unsupported hosts advertise the decision as unavailable and keep the
+   proposal inert.
 6. A new local analysis publishes any effect in a fresh sealed snapshot. The
    previous snapshot is never mutated.
 
@@ -55,11 +65,35 @@ Every response on these routes is private and non-cacheable. All identifiers
 are installation-local pseudonyms, and stale run, window, revision, digest, or
 contract bindings fail closed.
 
+## Reviewed task-profile API
+
+The profile denominator workflow is intentionally not an agent-evidence file.
+An authenticated client may read
+`GET /v1/sessions/{session_id}/declared-task-profile`, but saving a revision at
+the same path requires the ephemeral same-origin browser session, CSRF and
+Origin checks, an idempotency key, the exact predecessor revision, the literal
+`save_reviewed_declared_task_profile` confirmation, and the same owned-window
+native capability. The closed payload
+can contain only sorted constraint kinds, an expected outcome count from 1 to
+100, and sorted deliverable slots. `null` means unconfigured/unknown; empty
+configured collections are invalid.
+
+The service persists no request text. A new analysis resolves the latest
+immutable profile before reading the provider window, includes its revision and
+fingerprint in request identity, and seals that binding beside the r5
+publication. Acceptance testability counts distinct checkable clauses owned by
+the canonical active request, capped by the reviewed expected-outcome count;
+superseded text and repeated cues cannot inflate the numerator. Changing the
+profile therefore creates a different run even if the final numeric states
+happen to match.
+
 ## Threat boundary
 
-The API-token/browser-session split prevents the same application credential
-from both proposing and admitting evidence. It is not proof of physical human
-presence against malware that can control the local desktop or browser. A
+The API-token/browser-session/native-capability split prevents the same HTTP
+credential from both proposing and admitting evidence. The native dialog copy
+contains no identifiers, paths, request body, or provider content. It is not
+proof of physical human presence against malware that can control the local
+desktop or automate native dialogs. A
 future commercial remote API must add account entitlements, scoped API clients,
 revocation, audit, rate limits, and a reviewed user-presence mechanism; it must
 not weaken this local confirmation boundary.

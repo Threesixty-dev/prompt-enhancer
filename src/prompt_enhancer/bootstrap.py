@@ -873,6 +873,7 @@ class LocalApplication:
             SAFE_EVENT_EVIDENCE_DECODER_KEY,
             SafeEventTypedEvidenceProjector,
         )
+
         from .application.providers import (
             DecoderDescriptor,
             ProviderIdentity,
@@ -932,6 +933,19 @@ class LocalApplication:
             descriptors={Provider.CLAUDE_CODE: claude_safe_event_descriptor},
         )
 
+    def create_declared_task_profile_service(self):
+        """Construct authenticated, content-free per-session profile revisions."""
+
+        from .application.analysis.declared_task_profiles import (
+            DeclaredTaskProfileService,
+        )
+        from .infrastructure.identifiers import LocalArtifactIdFactory
+
+        return DeclaredTaskProfileService(
+            self.database.declared_task_profile_repository(),
+            LocalArtifactIdFactory(self.pseudonymizer),
+        )
+
     def create_session_model_ensemble_service(
         self,
         compatibility_policy: ProviderSurfaceCompatibilityPolicy,
@@ -960,6 +974,9 @@ class LocalApplication:
             ),
             lifecycle_evidence_reader=(
                 self.database.metric_lifecycle_evidence_repository()
+            ),
+            declared_task_profile_reader=(
+                self.database.declared_task_profile_repository()
             ),
         )
 
@@ -1125,7 +1142,12 @@ class LocalApplication:
 
         return create_development_control_plane(lambda: datetime.now(UTC))
 
-    def create_http_app(self) -> FastAPI:
+    def create_http_app(
+        self,
+        *,
+        user_presence_confirmation=None,
+        user_presence_confirmation_mode=None,
+    ) -> FastAPI:
         """Construct the authenticated HTTP adapter without exposing its token."""
 
         from .api import create_app
@@ -1183,6 +1205,18 @@ class LocalApplication:
         metric_lifecycle_evidence_service = (
             self.create_metric_lifecycle_evidence_service()
         )
+        from .application.analysis.agent_metric_evidence import (
+            AgentMetricEvidenceService,
+            SealedRunAgentMetricEvidenceSource,
+        )
+
+        agent_metric_evidence_service = AgentMetricEvidenceService(
+            metric_lifecycle_evidence_service,
+            SealedRunAgentMetricEvidenceSource(
+                self.database.model_ensemble_repository()
+            ),
+        )
+        declared_task_profile_service = self.create_declared_task_profile_service()
         from .application.analysis.model_ensemble_watch import (
             ModelEnsembleWatchService,
             ModelEnsembleWatchWorker,
@@ -1271,6 +1305,8 @@ class LocalApplication:
             metric_lifecycle_evidence_service=(
                 metric_lifecycle_evidence_service
             ),
+            agent_metric_evidence_service=agent_metric_evidence_service,
+            declared_task_profile_service=declared_task_profile_service,
             task_analysis_service=self.create_task_analysis_service(),
             session_text_analysis_service=session_text_analysis_service,
             session_model_link_experiment_service=(
@@ -1321,6 +1357,8 @@ class LocalApplication:
             ),
             estimator_repository=self.database.estimator_repository(),
             static_directory=static_directory,
+            user_presence_confirmation=user_presence_confirmation,
+            user_presence_confirmation_mode=user_presence_confirmation_mode,
         )
 
 

@@ -8,6 +8,7 @@ export type IdempotentAction =
   | "quality-preview-approval"
   | "model-link-experiment"
   | "model-ensemble"
+  | "declared-task-profile"
   | "task-lifecycle";
 
 /** A content-free, collision-resistant key generated only for a local command. */

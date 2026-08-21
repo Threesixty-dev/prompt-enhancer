@@ -2,7 +2,12 @@ import type { ModelEnsembleRun } from "../../shared/api/contracts";
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 import { QUALITY_LENSES } from "../quality-profile/qualityLenses";
 import { isDeepModelStage } from "./modelStages";
-import { metricHelpV2, metricInspectorSentences, type MetricInspectorSentences } from "./metricHelpV2";
+import {
+  metricHelpV2,
+  metricInspectorSentences,
+  type MetricHelpProjectionVersion,
+  type MetricInspectorSentences,
+} from "./metricHelpV2";
 import { exactPercent, metricGuidanceReceiptSentences } from "./metricGuidanceReceipt";
 import { ME_SCOPE_CONTEXT, type MetricContextFacts, type MetricScopeContext } from "./metricContextFacts";
 import {
@@ -36,6 +41,8 @@ type MetricStateV2 = PublishedMetricV2["state"];
 export interface ModelEnsembleV2Metric {
   metric_key: string;
   metric_version: number;
+  /** Immutable projection identity carried by this exact state receipt. */
+  projection_version: MetricStateV2["projection_version"];
   value_state: PublishedMetricV2["state"]["value_state"];
   numerator: number | null;
   denominator: number | null;
@@ -369,6 +376,7 @@ export function modelEnsemblePrimaryMetrics(
     return {
       metric_key: state.metric_key,
       metric_version: guidance?.metric_version ?? 2,
+      projection_version: state.projection_version,
       value_state: state.value_state,
       numerator: state.numerator ?? null,
       denominator: state.denominator ?? null,
@@ -682,6 +690,7 @@ export function modelEnsembleAxisGuidanceSentences(
         metricKey: axis.key,
         label: axis.label,
         direction: axis.direction,
+        projectionVersion: metric.projection_version,
         guidance: metric.guidance,
         evidenceAuthority: metric.evidence_authority,
         explanationCode: metric.explanation_code,
@@ -691,6 +700,7 @@ export function modelEnsembleAxisGuidanceSentences(
     const facts = metricInspectorSentences({
       metricKey: axis.key,
       label: axis.label,
+      projectionVersion: metric.projection_version,
       state: evidence.state,
       direction: axis.direction,
       numericValue: evidence.numericValue,
@@ -740,6 +750,8 @@ export interface ModelEnsembleKnowledgeEntry {
   key: string;
   label: string;
   status: string;
+  /** Projection identity selecting frozen historical or current r5 help copy. */
+  projectionVersion: MetricHelpProjectionVersion | null;
   guidance: MetricInspectorSentences;
   context: MetricContextFacts;
 }
@@ -791,6 +803,9 @@ export function modelEnsembleKnowledgeEntries(
     key: axis.key,
     label: axis.label,
     status: modelEnsembleMetricStateLabel(axis.metric),
+    projectionVersion: axis.metric !== null && isModelEnsembleV2Metric(axis.metric)
+      ? axis.metric.projection_version
+      : null,
     context: modelEnsembleAxisContextFacts(axis, scope),
     guidance: modelEnsembleAxisGuidanceSentences(axis),
   }));

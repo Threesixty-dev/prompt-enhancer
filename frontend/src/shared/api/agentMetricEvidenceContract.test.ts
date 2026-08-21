@@ -56,6 +56,10 @@ const preview = {
 describe("agent metric evidence response contract", () => {
   it("accepts exact preview, import, and proposal-list shapes", () => {
     expect(parseAgentMetricEvidencePreview(structuredClone(preview))).toEqual(preview);
+    expect(parseAgentMetricEvidencePreview({
+      ...structuredClone(preview),
+      schema_version: "agent-metric-evidence-file-v2",
+    }).schema_version).toBe("agent-metric-evidence-file-v2");
     expect(parseAgentMetricEvidenceImport({
       payload_sha256: preview.payload_sha256,
       proposal,
@@ -82,6 +86,10 @@ describe("agent metric evidence response contract", () => {
   it("rejects score-like extras, cross-session rows, authority drift, and inconsistent decisions", () => {
     const cases: Array<() => unknown> = [
       () => parseAgentMetricEvidencePreview({ ...preview, score: 1 }),
+      () => parseAgentMetricEvidencePreview({
+        ...preview,
+        schema_version: "agent-metric-evidence-file-v3",
+      }),
       () => parseAgentMetricEvidencePreview({ ...preview, can_set_numeric_metric: true }),
       () => parseAgentMetricEvidencePreview({
         ...preview,

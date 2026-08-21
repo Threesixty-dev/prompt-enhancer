@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+from dataclasses import dataclass
+from enum import StrEnum
 from datetime import UTC, datetime, timedelta
 from threading import Lock
 from typing import Callable, Protocol
@@ -15,6 +19,11 @@ from .evidence_contracts import (
     EphemeralTypedEvidenceProjection,
     validate_projection_descriptor,
 )
+from .declared_task_profiles import (
+    DeclaredTaskProfileRecord,
+    DeclaredTaskProfileRepository,
+    apply_declared_task_profile,
+)
 from .model_ensemble import (
     EnsembleChunkPlan,
     EnsembleMetricSpec,
@@ -26,7 +35,8 @@ from .model_ensemble import (
 )
 from .objective_metric_projection import project_objective_metric_overrides_v3
 from .metric_lifecycle_evidence import MetricLifecycleEvidenceSnapshot
-from .metric_projection_v4 import project_metric_states_v4
+from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_5
+from .metric_projection_v5 import project_metric_states_v5
 from .metric_publication_v2 import MetricPublicationV2, publish_metric_states_v2
 from .provider_evidence import bind_semantic_unit_opportunities
 from .semantic_units import (
@@ -47,7 +57,7 @@ from .session_text_service import (
 )
 from .text_analysis_presets import COACHING_PROFILE_V1
 from .text_baselines import TextMetricEngine
-from .text_contracts import P1LocalAnalysisGrant, P1TextAnalysisInput
+from .text_contracts import P1LocalAnalysisGrant, P1TextAnalysisInput, TextTaskProfile
 from .text_source import (
     TEXT_ANALYSIS_PROVIDERS,
     TextAnalysisPurpose,
@@ -62,6 +72,47 @@ MODEL_ENSEMBLE_CONFIRMATION = "run_local_metric_cascade_on_selected_redacted_tex
 LEGACY_MODEL_ENSEMBLE_CONFIRMATION = "run_ten_local_models_on_selected_redacted_text"
 MODEL_ENSEMBLE_POLICY_VERSION = "explicit-local-shadow-ensemble-v1"
 _IDEMPOTENCY = re.compile(r"^[A-Za-z0-9._:-]{16,128}$")
+COACHING_PROFILE_V1_UNCONFIGURED_SCHEMA_VERSION = (
+    "coaching-profile-v1-unconfigured"
+)
+COACHING_PROFILE_V1_UNCONFIGURED_POLICY_VERSION = "server-preset-v1"
+
+
+def coaching_profile_v1_unconfigured_fingerprint() -> str:
+    """Hash every fixed field that gives the unconfigured preset meaning."""
+
+    preset = COACHING_PROFILE_V1
+    payload = {
+        "fingerprint_contract": "coaching-profile-binding-v1",
+        "preset_id": preset.preset_id.value,
+        "analysis_profile_key": preset.analysis_profile_key,
+        "analysis_profile_version": preset.analysis_profile_version,
+        "metric_pack_key": preset.metric_pack_key,
+        "metric_pack_version": preset.metric_pack_version,
+        "task_profile": preset.task_profile.model_dump(mode="json"),
+        "max_messages": preset.max_messages,
+        "max_characters": preset.max_characters,
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+COACHING_PROFILE_V1_UNCONFIGURED_FINGERPRINT = (
+    "4cf952d189fd817c3959540a18538b76b161aa3a03d810cb967cafc7f284be71"
+)
+if (
+    coaching_profile_v1_unconfigured_fingerprint()
+    != COACHING_PROFILE_V1_UNCONFIGURED_FINGERPRINT
+):
+    raise RuntimeError(
+        "COACHING_PROFILE_V1 changed without a new profile-binding identity"
+    )
 
 
 def _pseudonym(value: str) -> str:
@@ -76,6 +127,121 @@ def _safe_code(value: str) -> str:
     return value
 
 
+class MetricProfileSource(StrEnum):
+    """Closed authority vocabulary for a measured r5 denominator profile."""
+
+    COACHING_PROFILE_V1_UNCONFIGURED = "coaching_profile_v1_unconfigured"
+    DECLARED_TASK_PROFILE = "declared_task_profile"
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedMetricProfile:
+    task_profile: TextTaskProfile
+    declaration: DeclaredTaskProfileRecord | None
+
+    @property
+    def source(self) -> MetricProfileSource:
+        return (
+            MetricProfileSource.COACHING_PROFILE_V1_UNCONFIGURED
+            if self.declaration is None
+            else MetricProfileSource.DECLARED_TASK_PROFILE
+        )
+
+    def request_identity(self) -> tuple[str, ...]:
+        declaration = self.declaration
+        if declaration is None:
+            return (
+                self.source.value,
+                "none",
+                "none",
+                COACHING_PROFILE_V1_UNCONFIGURED_FINGERPRINT,
+                COACHING_PROFILE_V1_UNCONFIGURED_SCHEMA_VERSION,
+                COACHING_PROFILE_V1_UNCONFIGURED_POLICY_VERSION,
+            )
+        return (
+            self.source.value,
+            declaration.profile_id,
+            str(declaration.revision),
+            declaration.profile_fingerprint,
+            declaration.schema_version,
+            declaration.policy_version,
+        )
+
+
+class SessionMetricProfileBinding(StrictModel):
+    """Content-free, exact profile provenance for one measured source window."""
+
+    profile_source: MetricProfileSource
+    provider: Provider
+    session_id: str
+    source_window_fingerprint: str
+    profile_id: str | None = None
+    profile_revision: int | None = None
+    profile_fingerprint: str
+    profile_schema_version: str
+    profile_policy_version: str
+    bound_at: datetime
+    local_only: bool = True
+    content_persisted: bool = False
+
+    _ids = field_validator(
+        "session_id",
+        "source_window_fingerprint",
+        "profile_fingerprint",
+    )(_pseudonym)
+    _codes = field_validator(
+        "profile_schema_version",
+        "profile_policy_version",
+    )(_safe_code)
+
+    @field_validator("profile_id")
+    @classmethod
+    def validate_profile_id(cls, value: str | None) -> str | None:
+        return None if value is None else _pseudonym(value)
+
+    @field_validator("profile_revision")
+    @classmethod
+    def validate_profile_revision(cls, value: int | None) -> int | None:
+        if value is not None and (
+            isinstance(value, bool) or not 1 <= value <= 1_000_000
+        ):
+            raise ValueError("profile revision is invalid")
+        return value
+
+    @field_validator("bound_at")
+    @classmethod
+    def validate_bound_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("profile binding timestamp must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def validate_profile_authority(self) -> "SessionMetricProfileBinding":
+        if not self.local_only or self.content_persisted:
+            raise ValueError("metric profile bindings are content-free local metadata")
+        if self.profile_source is MetricProfileSource.DECLARED_TASK_PROFILE:
+            if self.profile_id is None or self.profile_revision is None:
+                raise ValueError("declared task profile identity is incomplete")
+            if (
+                self.profile_schema_version != "declared-task-profile-v1"
+                or self.profile_policy_version != "authenticated-local-user-v1"
+            ):
+                raise ValueError("declared task profile provenance is invalid")
+        else:
+            if self.profile_id is not None or self.profile_revision is not None:
+                raise ValueError("the unconfigured preset has no declared revision")
+            if (
+                self.profile_fingerprint
+                != COACHING_PROFILE_V1_UNCONFIGURED_FINGERPRINT
+                or self.profile_schema_version
+                != COACHING_PROFILE_V1_UNCONFIGURED_SCHEMA_VERSION
+                or self.profile_policy_version
+                != COACHING_PROFILE_V1_UNCONFIGURED_POLICY_VERSION
+            ):
+                raise ValueError("unconfigured coaching profile marker is invalid")
+        return self
+
+
 class SessionModelEnsembleRunRecord(StrictModel):
     run_id: str
     session_id: str
@@ -88,6 +254,7 @@ class SessionModelEnsembleRunRecord(StrictModel):
     content_schema_version: str
     redactor_version: str
     consent_policy_version: str = MODEL_ENSEMBLE_POLICY_VERSION
+    metric_profile_binding: SessionMetricProfileBinding | None = None
     receipt: SessionModelEnsembleReceipt
 
     _ids = field_validator(
@@ -106,6 +273,20 @@ class SessionModelEnsembleRunRecord(StrictModel):
     def validate_binding(self) -> "SessionModelEnsembleRunRecord":
         if self.input_fingerprint != self.receipt.source_window_fingerprint:
             raise ValueError("ensemble receipt is bound to another source window")
+        binding = self.metric_profile_binding
+        if binding is not None and (
+            binding.provider is not self.provider
+            or binding.session_id != self.session_id
+            or binding.source_window_fingerprint != self.input_fingerprint
+        ):
+            raise ValueError("metric profile is bound to another source window")
+        publication = self.receipt.metric_publication_v2
+        if publication is not None:
+            if publication.projection_version == METRIC_PROJECTION_V2_VERSION_5:
+                if binding is None:
+                    raise ValueError("r5 metric publication requires a profile binding")
+            elif binding is not None:
+                raise ValueError("legacy metric publication cannot carry an r5 profile")
         return self
 
 
@@ -270,6 +451,7 @@ class SessionModelEnsembleService:
         typed_evidence_projector: SessionTypedEvidenceProjector | None = None,
         semantic_unit_reconciler: SemanticUnitReconciler | None = None,
         lifecycle_evidence_reader: SessionMetricLifecycleEvidenceReader | None = None,
+        declared_task_profile_reader: DeclaredTaskProfileRepository | None = None,
     ) -> None:
         self._access_policy = access_policy
         self._repository = repository
@@ -282,6 +464,7 @@ class SessionModelEnsembleService:
         self._typed_evidence_projector = typed_evidence_projector
         self._semantic_unit_reconciler = semantic_unit_reconciler
         self._lifecycle_evidence_reader = lifecycle_evidence_reader
+        self._declared_task_profile_reader = declared_task_profile_reader
         self._lock = Lock()
 
     def run(
@@ -320,26 +503,37 @@ class SessionModelEnsembleService:
             raise ModelEnsembleConfirmationError(
                 "explicit model ensemble confirmation is required"
             )
-        request_fingerprint = self._identifiers.fingerprint(
-            "session-model-ensemble-request-v2",
-            (
-                provider.value,
-                session_id,
-                idempotency_key,
-                MODEL_ENSEMBLE_POLICY_VERSION,
-                str(max_messages),
-            ),
-        )
-        run_id = self._identifiers.fingerprint(
-            "session-model-ensemble-run-v1",
-            (session_id, request_fingerprint),
-        )
         with self._lock:
+            self._enforce_access(provider, session_id)
+            resolved_profile = self._resolve_metric_profile(provider, session_id)
+            request_fingerprint = self._identifiers.fingerprint(
+                "session-model-ensemble-request-v3",
+                (
+                    provider.value,
+                    session_id,
+                    idempotency_key,
+                    MODEL_ENSEMBLE_POLICY_VERSION,
+                    str(max_messages),
+                    *resolved_profile.request_identity(),
+                ),
+            )
+            run_id = self._identifiers.fingerprint(
+                "session-model-ensemble-run-v1",
+                (session_id, request_fingerprint),
+            )
             existing = self._safe_get(run_id)
             if existing is not None:
                 return SessionModelEnsembleOutcome(run=existing, applied=False)
-            self._enforce_access(provider, session_id)
-            context = self._read_context(provider, session_id, max_messages)
+            context = self._read_context(
+                provider,
+                session_id,
+                max_messages,
+                resolved_profile.task_profile,
+            )
+            metric_profile_binding = self._bind_metric_profile(
+                resolved_profile,
+                context,
+            )
             typed_evidence = self._project_typed_evidence(provider, session_id)
             typed_metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...] | None = None
             metric_publication_v2: MetricPublicationV2 | None = None
@@ -373,6 +567,10 @@ class SessionModelEnsembleService:
                     and latest.source_schema_version == context.source_schema_version
                     and latest.content_schema_version == context.content_schema_version
                     and latest.redactor_version == context.redactor_version
+                    and self._metric_profile_identity_matches(
+                        latest.metric_profile_binding,
+                        metric_profile_binding,
+                    )
                 )
                 if latest is not None and not compatible:
                     latest = None
@@ -510,6 +708,7 @@ class SessionModelEnsembleService:
                     source_schema_version=context.source_schema_version,
                     content_schema_version=context.content_schema_version,
                     redactor_version=context.redactor_version,
+                    metric_profile_binding=metric_profile_binding,
                     receipt=projected_receipt,
                 )
             except SessionModelEnsembleError:
@@ -611,7 +810,105 @@ class SessionModelEnsembleService:
                 "provider compatibility is not verified"
             ) from None
 
-    def _read_context(self, provider: Provider, session_id: str, max_messages: int):
+    def _resolve_metric_profile(
+        self,
+        provider: Provider,
+        session_id: str,
+    ) -> _ResolvedMetricProfile:
+        reader = self._declared_task_profile_reader
+        if reader is None:
+            return _ResolvedMetricProfile(
+                task_profile=COACHING_PROFILE_V1.task_profile,
+                declaration=None,
+            )
+        try:
+            declaration = reader.get_latest(provider, session_id)
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "reviewed task profile is unavailable"
+            ) from None
+        if declaration is None:
+            return _ResolvedMetricProfile(
+                task_profile=COACHING_PROFILE_V1.task_profile,
+                declaration=None,
+            )
+        if (
+            declaration.provider is not provider
+            or declaration.session_id != session_id
+        ):
+            raise ModelEnsemblePersistenceError(
+                "reviewed task profile is bound to another session"
+            )
+        try:
+            task_profile = apply_declared_task_profile(
+                COACHING_PROFILE_V1.task_profile,
+                declaration,
+            )
+        except (TypeError, ValueError):
+            raise ModelEnsemblePersistenceError(
+                "reviewed task profile is invalid"
+            ) from None
+        return _ResolvedMetricProfile(
+            task_profile=task_profile,
+            declaration=declaration,
+        )
+
+    def _bind_metric_profile(
+        self,
+        resolved: _ResolvedMetricProfile,
+        context: P1TextAnalysisInput,
+    ) -> SessionMetricProfileBinding:
+        declaration = resolved.declaration
+        try:
+            return SessionMetricProfileBinding(
+                profile_source=resolved.source,
+                provider=context.provider,
+                session_id=context.session_id,
+                source_window_fingerprint=context.analysis_window_fingerprint,
+                profile_id=(None if declaration is None else declaration.profile_id),
+                profile_revision=(
+                    None if declaration is None else declaration.revision
+                ),
+                profile_fingerprint=(
+                    COACHING_PROFILE_V1_UNCONFIGURED_FINGERPRINT
+                    if declaration is None
+                    else declaration.profile_fingerprint
+                ),
+                profile_schema_version=(
+                    COACHING_PROFILE_V1_UNCONFIGURED_SCHEMA_VERSION
+                    if declaration is None
+                    else declaration.schema_version
+                ),
+                profile_policy_version=(
+                    COACHING_PROFILE_V1_UNCONFIGURED_POLICY_VERSION
+                    if declaration is None
+                    else declaration.policy_version
+                ),
+                bound_at=self._clock(),
+                local_only=True,
+                content_persisted=False,
+            )
+        except (TypeError, ValueError):
+            raise ModelEnsemblePersistenceError(
+                "metric profile binding could not be issued"
+            ) from None
+
+    @staticmethod
+    def _metric_profile_identity_matches(
+        stored: SessionMetricProfileBinding | None,
+        current: SessionMetricProfileBinding,
+    ) -> bool:
+        return stored is not None and stored.model_dump(
+            exclude={"bound_at"}
+        ) == current.model_dump(exclude={"bound_at"})
+
+    def _read_context(
+        self,
+        provider: Provider,
+        session_id: str,
+        max_messages: int,
+        task_profile: TextTaskProfile,
+    ) -> P1TextAnalysisInput:
         selection = TextAnalysisSelection(
             provider=provider,
             session_id=session_id,
@@ -632,7 +929,7 @@ class SessionModelEnsembleService:
             context = source.read(
                 selection=selection,
                 grant=grant,
-                task_profile=COACHING_PROFILE_V1.task_profile,
+                task_profile=task_profile,
             )
         except TextSourceReadError as error:
             raise ModelEnsembleSourceError(error.reason) from None
@@ -640,7 +937,11 @@ class SessionModelEnsembleService:
             raise ModelEnsembleSourceError(
                 TextSourceFailureReason.PROVIDER_UNAVAILABLE
             ) from None
-        if context.provider is not provider or context.session_id != session_id:
+        if (
+            context.provider is not provider
+            or context.session_id != session_id
+            or context.task_profile != task_profile
+        ):
             raise ModelEnsembleSourceError(
                 TextSourceFailureReason.PROVIDER_UNAVAILABLE
             )
@@ -700,14 +1001,14 @@ class SessionModelEnsembleService:
             projected_at = self._clock()
             if projected_at.tzinfo is None or projected_at.utcoffset() != timedelta(0):
                 raise ValueError("metric projection clock must return UTC")
-            # Current code writes projection identity r4 only.  Frozen earlier
+            # Current code writes projection identity r5 only. Frozen earlier
             # producers remain importable so historical rows retain the exact
             # meaning of the algorithm that wrote them.
             objective_overrides = project_objective_metric_overrides_v3(
                 typed_evidence,
                 self._objective_evidence_descriptor(context.provider),
             )
-            live_states = project_metric_states_v4(
+            live_states = project_metric_states_v5(
                 context=context,
                 reconciliation=(
                     None
@@ -987,8 +1288,13 @@ class SessionModelEnsembleService:
 
 
 __all__ = [
+    "COACHING_PROFILE_V1_UNCONFIGURED_FINGERPRINT",
+    "COACHING_PROFILE_V1_UNCONFIGURED_POLICY_VERSION",
+    "COACHING_PROFILE_V1_UNCONFIGURED_SCHEMA_VERSION",
+    "coaching_profile_v1_unconfigured_fingerprint",
     "LEGACY_MODEL_ENSEMBLE_CONFIRMATION",
     "MODEL_ENSEMBLE_CONFIRMATION",
+    "MetricProfileSource",
     "ModelEnsembleCompatibilityError",
     "ModelEnsembleConfirmationError",
     "ModelEnsembleConsentError",
@@ -1000,6 +1306,7 @@ __all__ = [
     "SessionModelEnsembleError",
     "SessionModelEnsembleOutcome",
     "SessionModelEnsemblePersistenceAuthority",
+    "SessionMetricProfileBinding",
     "SessionModelEnsembleRepository",
     "SessionModelEnsembleRunRecord",
     "SessionModelEnsembleRunner",

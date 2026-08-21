@@ -513,15 +513,16 @@ stages remain a separate experimental diagnostic and cannot change its values.
 
 **A twenty-state publication is not a promise of twenty numeric values.** The
 built-in provider-neutral extractor owns only documented message structure.
-Current projection r4 inherits r3's explicit-plan path and gives the five
-collaboration contracts a separate browser-confirmed lifecycle-receipt path.
-Three declared-profile contracts remain `unknown` until a task profile declares
-their slot sets. Four objective families still need provider-owned opportunity
-enumeration and links; first-pass verification has one narrow path through an
-exactly reviewed task plus a task-scoped verification receipt. These states are
-deliberate authority boundaries; adding a larger language model cannot turn an
-absent opportunity registry or receipt link into measured evidence. The exact
-current 12/3/5 path partition is published in
+Current projection r5 preserves r4's owned-native-confirmed collaboration lifecycle
+path and r3's explicit-plan path, and adds an immutable reviewed task-profile
+path for the three profile contracts. An unconfigured profile family remains
+`unknown`; it is never zero or not-applicable. Four objective families still
+need provider-owned opportunity enumeration and links; first-pass verification
+has one narrow path through an exactly reviewed task plus a task-scoped
+verification receipt. These states are deliberate authority boundaries; adding
+a larger language model cannot turn an absent opportunity registry or receipt
+link into measured evidence. The exact current 15/0/5 path partition is
+published in
 [`metric-operability.md`](metric-operability.md).
 
 ### Rubric fractions must be focus-owned
@@ -578,8 +579,8 @@ Projection `metric-contract-v2-projection-4` replaces exactly the five
 collaboration rows with confirmed lifecycle evidence and otherwise preserves r3
 semantics. An imported local-agent file creates an inert proposal only. A
 separate same-origin browser session, CSRF proof, exact confirmation literal,
-and visible second action are required to confirm or reject it. Only confirmed
-opportunities in a browser-confirmed complete family enumeration form a
+and owned-window native one-shot capability are required to confirm or reject
+it. Only confirmed opportunities in a natively confirmed complete family enumeration form a
 denominator. A confirmed opportunity without a confirmed outcome is pending and
 right-censored; a proposal alone is never evidence.
 
@@ -590,6 +591,39 @@ are rejected, exactly twenty rows are required for a seal, and privacy deletion
 cascades through the r4 sidecar and lifecycle records. The local file contract
 and authority split are documented in
 [`local-agent-metric-evidence-api.md`](local-agent-metric-evidence-api.md).
+
+### Reviewed task profiles and projection identity r5
+
+Projection `metric-contract-v2-projection-5` preserves every r4 row except
+`prompt.acceptance_testability`, whose historical single boolean cue could not
+represent more than one expected outcome honestly. R5 binds one immutable
+`declared-task-profile-v1` revision, or the exact frozen unconfigured preset, to
+the run before the provider window is read. The binding includes the profile
+source, revision, fingerprint, schema, and policy identity and participates in
+run reuse and trajectory comparability. A profile change therefore cannot reuse
+or compare as the same denominator merely because its final values match.
+
+The reviewed profile can configure only sorted constraint kinds, an expected
+outcome count from 1 to 100, and sorted deliverable slots. `null` means
+unconfigured/unknown, while an empty configured collection is rejected. Saving
+requires the same-origin browser session, CSRF and Origin checks, an exact
+predecessor revision, idempotency, the explicit confirmation literal, and an
+origin- and body-bound one-shot capability issued by an owned native window.
+Standard `serve` and attached-window compositions advertise saving as
+unavailable. The general API token may read the current revision but cannot
+save one. No request
+text, file path, rationale, or model output is persisted in the profile ledger.
+
+For acceptance testability, r5 counts distinct checkable requirement clauses in
+the canonical active request and caps the numerator at the reviewed expected
+outcome count. Superseded revisions, questions, duplicate cues, and assistant
+claims cannot inflate the result. The other nineteen rows preserve r4
+semantics. Schema v54 appends the profile ledger plus immutable r5 binding,
+state, and seal sidecars; r1-r4 remain readable, reciprocal guards reject mixed
+identities, and a seal still requires exactly twenty rows. Current new writes
+use r5. The current local-agent file is append-only v2/r5 and binds the exact
+sealed source window; historical v1/r4 files remain parseable only against
+their own source identity.
 
 `publish_v1_compatibility_preview` reads an already persisted V1 run and states
 its own limits in the payload (`preview_limits`):
@@ -683,8 +717,8 @@ it may claim: `live_measured`, `compatibility_projected`, `method_only_withheld`
 The full-run API also serves `metric_evidence_readiness_v2`, derived on read from
 the sealed publication plus the run's provider, provider version, adapter
 version, and source schema version. It introduces **no independent datum** and so
-has no schema of its own: it is recomputed from the sealed v40-v43 sidecar rows
-and disappears with the run.
+has no schema of its own: it is recomputed from the run's sealed r1-r5 sidecar
+rows and disappears with the run.
 
 Each row carries closed enums only — evidence authority, denominator basis and
 opportunity unit kind, an `availability_state`, an exact `reason_code`, the
@@ -724,10 +758,20 @@ reports `source_reconciliation_incomplete`; a complete authoritative set larger
 than the bounded receipt reports `opportunity_set_exceeds_receipt_bound`, not a
 missing capability or an empty set.
 
+Current catalog `metric-evidence-readiness-v2-4` adds projection-r5 routing
+without reinterpreting historical rows. R5 retains r4 collaboration and r3
+open-loop contributor semantics. For a profile metric, a configured and sealed
+denominator proves the reviewed declared-profile contributor; an empty
+denominator proves no such contributor and stays `unknown` with
+`declared_profile_slots_absent`. The readiness projection is still derived from
+the sealed publication rather than a caller assertion, and exposes neither the
+profile identifier nor source text.
+
 `capability_missing` reasons are **metric-specific**, replacing the generic
 "family unobservable": a rubric metric reports
-`focus_owned_request_revision_required`, a profile-slot metric reports
-`owned_canonical_request_text_required`, each conversational episode metric names
+`focus_owned_request_revision_required`; historical r1-r4 profile-slot rows can
+report `owned_canonical_request_text_required`, while current r5 distinguishes
+the missing reviewed profile slots above. Each conversational episode metric names
 the semantic-unit extractor it needs (`ambiguity_episode_extraction_required`,
 `clarification_episode_extraction_required`,
 `hypothesis_episode_extraction_required`,
@@ -794,17 +838,16 @@ Both require the local token and send `Cache-Control: no-store` with
   provider exposes its reviewed opportunity family and sufficient statistics.
   Unsupported episode/link families remain truthful `unknown`, `pending`, or
   `not_applicable`; visibility does not imply numeric availability.
-- The shipped Codex typed-event descriptor declares only `tool_events`, so it
-  authorizes no opportunity enumeration and no evidence link. All five
-  evidence-lane metrics therefore remain unknown in production. The capability
-  keys and the safe-event verification-task path now exist, so a reviewed
-  descriptor that genuinely enumerates those families can make them numeric —
-  but the descriptor is a composition-root and release decision, not a runtime
-  inference, and prose or neural estimates can never substitute.
-- No extractor was added for the six missing semantic families. Their closure
-  ownership is not provable from the current message kinds, so a lexical
-  lifecycle rule would manufacture denominators. They stay `unknown`, and the
-  readiness projection now names the specific extractor each one is waiting on.
+- The currently composed provider adapters still lack complete authoritative
+  enumeration/link/outcome capability for four objective families. The narrow
+  first-pass path requires exactly one reviewed task plus its task-scoped
+  verification receipt. Capability keys exist, but enabling them is a reviewed
+  composition-root decision, not a runtime inference; prose and neural
+  estimates can never substitute.
+- `logic.decomposition_coverage` still lacks the reviewed provider/extractor
+  adapter needed to own its requirement/plan units. A lexical fallback would
+  manufacture a denominator, so the row stays `unknown` and readiness names the
+  missing extraction requirement explicitly.
 - Per-factor measured sufficient statistics are not yet emitted by every live
   projection, so guidance names a focus factor only when the receipt actually
   proves one.

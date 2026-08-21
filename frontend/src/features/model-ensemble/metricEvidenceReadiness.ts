@@ -86,6 +86,16 @@ const R4_LIFECYCLE_METRIC_KEYS = new Set([
   "collaboration.rework_candidate_rate",
 ]);
 
+const R3_REQUIREMENT_PROJECTIONS = new Set<MetricPublicationV2["projection_version"]>([
+  "metric-contract-v2-projection-3",
+  "metric-contract-v2-projection-4",
+  "metric-contract-v2-projection-5",
+]);
+const R4_LIFECYCLE_PROJECTIONS = new Set<MetricPublicationV2["projection_version"]>([
+  "metric-contract-v2-projection-4",
+  "metric-contract-v2-projection-5",
+]);
+
 const METRIC_EVIDENCE_CONTRIBUTORS_R4: Readonly<Record<string, readonly MetricEvidenceContributor[]>> =
   Object.fromEntries([...R4_LIFECYCLE_METRIC_KEYS].map((metricKey) => [metricKey, [
     "confirmed_lifecycle_enumeration",
@@ -93,13 +103,31 @@ const METRIC_EVIDENCE_CONTRIBUTORS_R4: Readonly<Record<string, readonly MetricEv
     "confirmed_lifecycle_outcome_link",
   ] as const]));
 
-const OBJECTIVE_CAPABILITY_MISSING_REASONS: Readonly<Record<string, MetricEvidenceReadinessV2["reason_code"]>> = {
+const CAPABILITY_MISSING_REASONS = {
+  "prompt.task_definition_coverage": "focus_owned_request_revision_required",
+  "prompt.problem_evidence_quality": "focus_owned_request_revision_required",
+  "prompt.context_sufficiency": "focus_owned_request_revision_required",
+  "prompt.constraint_precision": "owned_canonical_request_text_required",
+  "prompt.acceptance_testability": "owned_canonical_request_text_required",
+  "prompt.deliverable_contract": "owned_canonical_request_text_required",
+  "collaboration.ambiguity_resolution": "ambiguity_episode_extraction_required",
+  "collaboration.clarification_yield": "clarification_episode_extraction_required",
+  "collaboration.exploration_conversion": "hypothesis_episode_extraction_required",
+  "collaboration.scope_change_discipline": "scope_change_episode_extraction_required",
+  "collaboration.rework_candidate_rate": "feedback_unit_extraction_required",
+  "logic.decomposition_coverage": "requirement_unit_extraction_required",
   "logic.hypothesis_test_linkage": "hypothesis_chain_adapter_capabilities_required",
+  "logic.decision_rationale_coverage": "decision_unit_extraction_required",
   "logic.requirement_action_traceability": "requirement_action_adapter_capabilities_required",
+  "logic.open_loop_closure": "open_loop_episode_extraction_required",
   "outcome.agent_claim_grounding": "material_claim_verification_adapter_capabilities_required",
+  "outcome.verification_strategy_adequacy": "request_revision_unit_extraction_required",
   "outcome.first_pass_verification": "verification_task_outcome_adapter_capabilities_required",
   "outcome.verified_requirement_coverage": "requirement_verification_adapter_capabilities_required",
-};
+} as const satisfies Readonly<Record<
+  typeof METRIC_V2_KEYS[number],
+  MetricEvidenceReadinessV2["reason_code"]
+>>;
 
 export function metricEvidenceRequirementFor(
   metricKey: string,
@@ -109,18 +137,21 @@ export function metricEvidenceRequirementFor(
   requiredAdapterCapabilities: readonly MetricEvidenceAdapterCapability[];
   capabilityMissingReason: MetricEvidenceReadinessV2["reason_code"] | null;
 } {
-  const projectionContributors = projectionVersion === "metric-contract-v2-projection-4"
+  const projectionContributors = R4_LIFECYCLE_PROJECTIONS.has(projectionVersion)
     ? METRIC_EVIDENCE_CONTRIBUTORS_R4[metricKey] ?? METRIC_EVIDENCE_CONTRIBUTORS_R3[metricKey]
-    : projectionVersion === "metric-contract-v2-projection-3"
+    : R3_REQUIREMENT_PROJECTIONS.has(projectionVersion)
       ? METRIC_EVIDENCE_CONTRIBUTORS_R3[metricKey]
       : undefined;
   return {
     requiredContributors: projectionContributors ?? METRIC_EVIDENCE_CONTRIBUTORS[metricKey] ?? [],
     requiredAdapterCapabilities: OBJECTIVE_ADAPTER_CAPABILITIES[metricKey] ?? [],
-    capabilityMissingReason: projectionVersion === "metric-contract-v2-projection-4"
+    capabilityMissingReason: R4_LIFECYCLE_PROJECTIONS.has(projectionVersion)
       && R4_LIFECYCLE_METRIC_KEYS.has(metricKey)
       ? "confirmed_lifecycle_service_required"
-      : OBJECTIVE_CAPABILITY_MISSING_REASONS[metricKey] ?? null,
+      : R3_REQUIREMENT_PROJECTIONS.has(projectionVersion)
+        && metricKey === "logic.open_loop_closure"
+        ? "explicit_plan_episode_required"
+        : CAPABILITY_MISSING_REASONS[metricKey as keyof typeof CAPABILITY_MISSING_REASONS] ?? null,
   };
 }
 
@@ -168,6 +199,39 @@ function sameOrderedValues(left: readonly string[], right: readonly string[]): b
   return left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
+function expectedObservedContributors(
+  sealed: MetricPublicationV2["metrics"][number]["state"],
+  required: readonly MetricEvidenceContributor[],
+): readonly MetricEvidenceContributor[] {
+  const statistics = sealed.statistics;
+  if (!statistics.capability_available) return [];
+  const resolved = statistics.met_count + statistics.not_met_count;
+  if (
+    R4_LIFECYCLE_PROJECTIONS.has(sealed.projection_version)
+    && R4_LIFECYCLE_METRIC_KEYS.has(sealed.metric_key)
+  ) {
+    const observed: MetricEvidenceContributor[] = [];
+    if (statistics.source_complete) observed.push("confirmed_lifecycle_enumeration");
+    if (statistics.eligible_count > 0) observed.push("confirmed_lifecycle_opportunity");
+    if (resolved > 0) observed.push("confirmed_lifecycle_outcome_link");
+    return observed;
+  }
+  if (
+    sealed.projection_version === "metric-contract-v2-projection-5"
+    && statistics.denominator_basis === "declared_profile_slots"
+    && statistics.eligible_count === 0
+  ) return [];
+  const observed = resolved === 0 && !statistics.source_complete
+    ? []
+    : resolved === 0
+      ? required.slice(0, 1)
+      : [...required];
+  return sealed.projection_version === "metric-contract-v2-projection-1"
+    && statistics.denominator_basis === "rubric_factors"
+    ? observed.filter((item) => item !== "focus_owned_request_revision")
+    : observed;
+}
+
 function integer(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 1_000_000;
 }
@@ -175,6 +239,92 @@ function integer(value: unknown): value is number {
 function optionalBound(value: unknown): value is number | null | undefined {
   return value === null || value === undefined
     || (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1);
+}
+
+interface ExpectedReadinessVerdict {
+  availability: MetricEvidenceAvailabilityState;
+  reason: MetricEvidenceReadinessV2["reason_code"];
+}
+
+/**
+ * Mirror the backend's structural verdict derivation from the sealed state.
+ * Producer-authored explanation/reason prose is deliberately ignored: for one
+ * immutable state shape and projection there is exactly one legal readiness
+ * reason, so a wire payload cannot redirect remediation while preserving all
+ * of the measured facts.
+ */
+function expectedReadinessVerdict(
+  sealed: MetricPublicationV2["metrics"][number]["state"],
+  capabilityMissingReason: MetricEvidenceReadinessV2["reason_code"] | null,
+): ExpectedReadinessVerdict | null {
+  const statistics = sealed.statistics;
+  if (sealed.value_state === "execution_error") {
+    return { availability: "execution_error", reason: "execution_error_reported" };
+  }
+  if (sealed.value_state === "abstained") {
+    return { availability: "abstained", reason: "calculator_abstained" };
+  }
+  if (sealed.value_state === "known") {
+    const supersededRubric = sealed.projection_version === "metric-contract-v2-projection-1"
+      && statistics.denominator_basis === "rubric_factors";
+    return {
+      availability: "measured",
+      reason: supersededRubric
+        ? "measured_under_superseded_projection_identity"
+        : "measured_from_owned_opportunities",
+    };
+  }
+  if (sealed.value_state === "pending") {
+    return { availability: "pending_right_censored", reason: "opportunity_right_censored" };
+  }
+  if (sealed.value_state === "not_applicable") {
+    return { availability: "no_opportunity", reason: "no_eligible_opportunity_observed" };
+  }
+  if (
+    R3_REQUIREMENT_PROJECTIONS.has(sealed.projection_version)
+    && statistics.denominator_basis === "objective_opportunities"
+    && statistics.capability_available
+    && statistics.source_complete
+    && statistics.eligible_count === 0
+  ) {
+    return {
+      availability: "evidence_unresolved",
+      reason: "opportunity_set_exceeds_receipt_bound",
+    };
+  }
+  if (!statistics.capability_available) {
+    return capabilityMissingReason === null
+      ? null
+      : { availability: "capability_missing", reason: capabilityMissingReason };
+  }
+  if (
+    R4_LIFECYCLE_PROJECTIONS.has(sealed.projection_version)
+    && R4_LIFECYCLE_METRIC_KEYS.has(sealed.metric_key)
+    && !statistics.source_complete
+  ) {
+    return {
+      availability: "source_incomplete",
+      reason: "confirmed_lifecycle_enumeration_required",
+    };
+  }
+  if (!statistics.source_complete) {
+    return {
+      availability: "source_incomplete",
+      reason: "source_reconciliation_incomplete",
+    };
+  }
+  if (statistics.eligible_count === 0) {
+    return {
+      availability: "evidence_unresolved",
+      reason: statistics.denominator_basis === "declared_profile_slots"
+        ? "declared_profile_slots_absent"
+        : "opportunity_set_undetermined",
+    };
+  }
+  return {
+    availability: "evidence_unresolved",
+    reason: "opportunity_classification_unresolved",
+  };
 }
 
 /**
@@ -188,9 +338,11 @@ export function metricEvidenceReadinessForPublication(
 ): MetricEvidenceReadinessProjectionV2 | null {
   const candidate = row(value);
   if (candidate === null || publication === null || publication === undefined) return null;
-  const catalogIsReadable = candidate.catalog_version === "metric-evidence-readiness-v2-3"
+  const catalogIsReadable = candidate.catalog_version === "metric-evidence-readiness-v2-4"
+    || (candidate.catalog_version === "metric-evidence-readiness-v2-3"
+      && publication.projection_version !== "metric-contract-v2-projection-5")
     || (candidate.catalog_version === "metric-evidence-readiness-v2-2"
-      && publication.projection_version !== "metric-contract-v2-projection-4");
+      && !R4_LIFECYCLE_PROJECTIONS.has(publication.projection_version));
   if (
     candidate.projection_key !== "metric.contract-v2.evidence-readiness"
     || candidate.projection_version !== 1
@@ -231,19 +383,21 @@ export function metricEvidenceReadinessForPublication(
       sealed.metric_key,
       publication.projection_version,
     );
-    const expectedRequiredContributors = publication.projection_version === "metric-contract-v2-projection-4"
+    const expectedRequiredContributors = R4_LIFECYCLE_PROJECTIONS.has(publication.projection_version)
       && R4_LIFECYCLE_METRIC_KEYS.has(sealed.metric_key)
       && sealed.value_state === "not_applicable"
       ? ["confirmed_lifecycle_enumeration"] as const
       : requirement.requiredContributors;
-    const expectedAvailability: MetricEvidenceAvailabilityState = sealed.value_state === "known" ? "measured"
-      : sealed.value_state === "pending" ? "pending_right_censored"
-        : sealed.value_state === "not_applicable" ? "no_opportunity"
-          : sealed.value_state === "abstained" ? "abstained"
-            : sealed.value_state === "execution_error" ? "execution_error"
-              : !sealed.statistics.capability_available ? "capability_missing"
-                : !sealed.statistics.source_complete ? "source_incomplete"
-                  : "evidence_unresolved";
+    const expectedObserved = expectedObservedContributors(
+      sealed,
+      expectedRequiredContributors,
+    );
+    const expectedVerdict = expectedReadinessVerdict(
+      sealed,
+      requirement.capabilityMissingReason,
+    );
+    if (expectedVerdict === null) return null;
+    const expectedAvailability = expectedVerdict.availability;
     if (
       readiness.metric_key !== METRIC_V2_KEYS[index]
       || readiness.metric_key !== sealed.metric_key
@@ -257,16 +411,14 @@ export function metricEvidenceReadinessForPublication(
       || !AVAILABILITY.includes(readiness.availability_state as MetricEvidenceAvailabilityState)
       || readiness.availability_state !== expectedAvailability
       || typeof readiness.reason_code !== "string" || !SAFE_CODE.test(readiness.reason_code)
+      || readiness.reason_code !== expectedVerdict.reason
       || required === null || required.length === 0 || observed === null || missing === null
       || !sameOrderedValues(required, expectedRequiredContributors)
-      || observed.some((item) => !required.includes(item))
+      || !sameOrderedValues(observed, expectedObserved)
       || missing.length !== required.filter((item) => !observed.includes(item)).length
       || missing.some((item) => observed.includes(item) || !required.includes(item))
       || adapterCapabilities === null
       || !sameOrderedValues(adapterCapabilities, requirement.requiredAdapterCapabilities)
-      || (expectedAvailability === "capability_missing"
-        && requirement.capabilityMissingReason !== null
-        && readiness.reason_code !== requirement.capabilityMissingReason)
       || readiness.capability_available !== sealed.statistics.capability_available
       || readiness.source_complete !== sealed.statistics.source_complete
       || readiness.eligible_count !== sealed.statistics.eligible_count

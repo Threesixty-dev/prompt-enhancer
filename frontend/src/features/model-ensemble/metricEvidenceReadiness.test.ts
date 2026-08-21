@@ -2,8 +2,41 @@ import { describe, expect, it } from "vitest";
 import {
   syntheticMetricEvidenceReadinessV2,
   syntheticMetricPublicationV2,
+  type MetricKeyV2,
+  type MetricScenarioV2,
 } from "../../test/metricPublicationV2Fixture";
+import type { ModelEnsembleRun } from "../../shared/api/contracts";
 import { metricEvidenceReadinessForPublication } from "./metricEvidenceReadiness";
+
+type ProjectionVersion = NonNullable<ModelEnsembleRun["metric_publication_v2"]>["projection_version"];
+
+function publicationFor(
+  projectionVersion: ProjectionVersion,
+  scenarios: Partial<Record<MetricKeyV2, MetricScenarioV2>> = {},
+) {
+  const publication = structuredClone(syntheticMetricPublicationV2(scenarios));
+  publication.projection_version = projectionVersion;
+  for (const metric of publication.metrics) metric.state.projection_version = projectionVersion;
+  return publication;
+}
+
+function expectReasonBound(
+  publication: ReturnType<typeof syntheticMetricPublicationV2>,
+  metricKey: MetricKeyV2,
+  expectedReason: string,
+) {
+  const readiness = syntheticMetricEvidenceReadinessV2(publication);
+  const target = readiness.metrics.find((row) => row.metric_key === metricKey);
+  expect(target?.reason_code).toBe(expectedReason);
+  expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
+  const tampered = structuredClone(readiness);
+  const mutated = tampered.metrics.find((row) => row.metric_key === metricKey);
+  if (mutated === undefined) throw new Error("synthetic readiness row missing");
+  mutated.reason_code = (expectedReason === "calculator_abstained"
+    ? "execution_error_reported"
+    : "calculator_abstained") as typeof mutated.reason_code;
+  expect(metricEvidenceReadinessForPublication(tampered, publication)).toBeNull();
+}
 
 describe("metric evidence readiness presentation binding", () => {
   it("accepts the all-twenty additive projection only for its exact sealed publication", () => {
@@ -48,7 +81,12 @@ describe("metric evidence readiness presentation binding", () => {
     // proof contributors are observed, the rest are not. The projection must
     // still name the missing ones, otherwise the guard withholds every row.
     const publication = syntheticMetricPublicationV2({
-      "collaboration.clarification_yield": { value_state: "abstained", capability_available: true, eligible: 0 },
+      "collaboration.clarification_yield": {
+        value_state: "abstained",
+        capability_available: true,
+        source_complete: true,
+        eligible: 0,
+      },
     });
     const readiness = syntheticMetricEvidenceReadinessV2(publication);
     const row = readiness.metrics.find((candidate) => candidate.metric_key === "collaboration.clarification_yield");
@@ -106,7 +144,7 @@ describe("metric evidence readiness presentation binding", () => {
     }
     const readiness = syntheticMetricEvidenceReadinessV2(publication);
 
-    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-3");
+    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-4");
     expect(readiness.metrics.find((row) => row.metric_key === "collaboration.ambiguity_resolution")?.required_contributors)
       .toEqual([
         "confirmed_lifecycle_enumeration",
@@ -120,8 +158,221 @@ describe("metric evidence readiness presentation binding", () => {
     expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
 
     const historical = structuredClone(readiness) as any;
+    historical.catalog_version = "metric-evidence-readiness-v2-3";
+    expect(metricEvidenceReadinessForPublication(historical, publication)).toEqual(historical);
     historical.catalog_version = "metric-evidence-readiness-v2-2";
     expect(metricEvidenceReadinessForPublication(historical, publication)).toBeNull();
+  });
+
+  it("binds current readiness v2-4 to r5 without rewriting r1-r4 history", () => {
+    const publication = structuredClone(syntheticMetricPublicationV2({
+      "prompt.constraint_precision": {
+        value_state: "unknown",
+        capability_available: true,
+        source_complete: true,
+        eligible: 0,
+      },
+      "collaboration.clarification_yield": {
+        value_state: "not_applicable",
+        capability_available: true,
+        source_complete: true,
+        eligible: 0,
+      },
+    }));
+    publication.projection_version = "metric-contract-v2-projection-5";
+    for (const metric of publication.metrics) {
+      metric.state.projection_version = "metric-contract-v2-projection-5";
+    }
+    const readiness = syntheticMetricEvidenceReadinessV2(publication);
+    const profile = readiness.metrics.find((row) => row.metric_key === "prompt.constraint_precision");
+    const lifecycle = readiness.metrics.find((row) => row.metric_key === "collaboration.clarification_yield");
+
+    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-4");
+    expect(profile?.reason_code).toBe("declared_profile_slots_absent");
+    expect(profile?.observed_contributors).toEqual([]);
+    expect(profile?.missing_contributors).toEqual(["declared_task_profile", "canonical_request_text"]);
+    expect(lifecycle?.required_contributors).toEqual(["confirmed_lifecycle_enumeration"]);
+    expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
+
+    const staleCatalog = structuredClone(readiness) as any;
+    staleCatalog.catalog_version = "metric-evidence-readiness-v2-3";
+    expect(metricEvidenceReadinessForPublication(staleCatalog, publication)).toBeNull();
+  });
+
+  it.each([
+    "metric-contract-v2-projection-1",
+    "metric-contract-v2-projection-2",
+    "metric-contract-v2-projection-3",
+    "metric-contract-v2-projection-4",
+  ] as const)("keeps historical %s publications readable under the current catalog", (projectionVersion) => {
+    const publication = structuredClone(syntheticMetricPublicationV2());
+    publication.projection_version = projectionVersion;
+    for (const metric of publication.metrics) metric.state.projection_version = projectionVersion;
+    const readiness = syntheticMetricEvidenceReadinessV2(publication);
+    expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
+  });
+
+  it("binds every capability-missing reason to its exact metric and projection overlay", () => {
+    const baseReasons = {
+      "prompt.task_definition_coverage": "focus_owned_request_revision_required",
+      "prompt.problem_evidence_quality": "focus_owned_request_revision_required",
+      "prompt.context_sufficiency": "focus_owned_request_revision_required",
+      "prompt.constraint_precision": "owned_canonical_request_text_required",
+      "prompt.acceptance_testability": "owned_canonical_request_text_required",
+      "prompt.deliverable_contract": "owned_canonical_request_text_required",
+      "collaboration.ambiguity_resolution": "ambiguity_episode_extraction_required",
+      "collaboration.clarification_yield": "clarification_episode_extraction_required",
+      "collaboration.exploration_conversion": "hypothesis_episode_extraction_required",
+      "collaboration.scope_change_discipline": "scope_change_episode_extraction_required",
+      "collaboration.rework_candidate_rate": "feedback_unit_extraction_required",
+      "logic.decomposition_coverage": "requirement_unit_extraction_required",
+      "logic.hypothesis_test_linkage": "hypothesis_chain_adapter_capabilities_required",
+      "logic.decision_rationale_coverage": "decision_unit_extraction_required",
+      "logic.requirement_action_traceability": "requirement_action_adapter_capabilities_required",
+      "logic.open_loop_closure": "open_loop_episode_extraction_required",
+      "outcome.agent_claim_grounding": "material_claim_verification_adapter_capabilities_required",
+      "outcome.verification_strategy_adequacy": "request_revision_unit_extraction_required",
+      "outcome.first_pass_verification": "verification_task_outcome_adapter_capabilities_required",
+      "outcome.verified_requirement_coverage": "requirement_verification_adapter_capabilities_required",
+    } as const;
+    const r1 = publicationFor("metric-contract-v2-projection-1");
+    for (const [metricKey, reason] of Object.entries(baseReasons)) {
+      expectReasonBound(r1, metricKey as MetricKeyV2, reason);
+    }
+
+    const r3 = publicationFor("metric-contract-v2-projection-3");
+    expectReasonBound(r3, "logic.open_loop_closure", "explicit_plan_episode_required");
+    for (const projection of [
+      "metric-contract-v2-projection-4",
+      "metric-contract-v2-projection-5",
+    ] as const) {
+      const publication = publicationFor(projection);
+      expectReasonBound(publication, "logic.open_loop_closure", "explicit_plan_episode_required");
+      for (const metricKey of [
+        "collaboration.ambiguity_resolution",
+        "collaboration.clarification_yield",
+        "collaboration.exploration_conversion",
+        "collaboration.scope_change_discipline",
+        "collaboration.rework_candidate_rate",
+      ] as const) {
+        expectReasonBound(publication, metricKey, "confirmed_lifecycle_service_required");
+      }
+    }
+  });
+
+  it("rejects a reason-only mutation for every structural readiness branch", () => {
+    const cases: Array<{
+      publication: ReturnType<typeof syntheticMetricPublicationV2>;
+      metricKey: MetricKeyV2;
+      reason: string;
+    }> = [
+      {
+        publication: publicationFor("metric-contract-v2-projection-1", {
+          "prompt.constraint_precision": { value_state: "known", numerator: 1, denominator: 2 },
+        }),
+        metricKey: "prompt.constraint_precision",
+        reason: "measured_from_owned_opportunities",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-1", {
+          "prompt.task_definition_coverage": { value_state: "known", numerator: 2, denominator: 3 },
+        }),
+        metricKey: "prompt.task_definition_coverage",
+        reason: "measured_under_superseded_projection_identity",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-2", {
+          "prompt.task_definition_coverage": { value_state: "known", numerator: 2, denominator: 3 },
+        }),
+        metricKey: "prompt.task_definition_coverage",
+        reason: "measured_from_owned_opportunities",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-3", {
+          "logic.open_loop_closure": { value_state: "pending", eligible: 2, pending: 1, numerator: 1 },
+        }),
+        metricKey: "logic.open_loop_closure",
+        reason: "opportunity_right_censored",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-4", {
+          "collaboration.clarification_yield": { value_state: "not_applicable", eligible: 0 },
+        }),
+        metricKey: "collaboration.clarification_yield",
+        reason: "no_eligible_opportunity_observed",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-3", {
+          "logic.hypothesis_test_linkage": {
+            value_state: "unknown", capability_available: true, source_complete: true, eligible: 0,
+          },
+        }),
+        metricKey: "logic.hypothesis_test_linkage",
+        reason: "opportunity_set_exceeds_receipt_bound",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-3", {
+          "logic.decomposition_coverage": {
+            value_state: "unknown", capability_available: true, source_complete: false, eligible: 0,
+          },
+        }),
+        metricKey: "logic.decomposition_coverage",
+        reason: "source_reconciliation_incomplete",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-4", {
+          "collaboration.ambiguity_resolution": {
+            value_state: "unknown", capability_available: true, source_complete: false, eligible: 0,
+          },
+        }),
+        metricKey: "collaboration.ambiguity_resolution",
+        reason: "confirmed_lifecycle_enumeration_required",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-5", {
+          "prompt.acceptance_testability": {
+            value_state: "unknown", capability_available: true, source_complete: true, eligible: 0,
+          },
+        }),
+        metricKey: "prompt.acceptance_testability",
+        reason: "declared_profile_slots_absent",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-3", {
+          "collaboration.ambiguity_resolution": {
+            value_state: "unknown", capability_available: true, source_complete: true, eligible: 0,
+          },
+        }),
+        metricKey: "collaboration.ambiguity_resolution",
+        reason: "opportunity_set_undetermined",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-3", {
+          "collaboration.ambiguity_resolution": {
+            value_state: "unknown", capability_available: true, source_complete: true, eligible: 2, unknown: 1,
+          },
+        }),
+        metricKey: "collaboration.ambiguity_resolution",
+        reason: "opportunity_classification_unresolved",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-3", {
+          "logic.decision_rationale_coverage": { value_state: "abstained" },
+        }),
+        metricKey: "logic.decision_rationale_coverage",
+        reason: "calculator_abstained",
+      },
+      {
+        publication: publicationFor("metric-contract-v2-projection-3", {
+          "logic.decision_rationale_coverage": { value_state: "execution_error" },
+        }),
+        metricKey: "logic.decision_rationale_coverage",
+        reason: "execution_error_reported",
+      },
+    ];
+    for (const item of cases) {
+      expectReasonBound(item.publication, item.metricKey, item.reason);
+    }
   });
 
   it("treats absence as no additive detail, never as an empty measured projection", () => {

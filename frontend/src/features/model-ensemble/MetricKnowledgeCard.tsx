@@ -10,7 +10,12 @@ import {
 } from "react";
 import { MetricContextFactList } from "./MetricContextFactList";
 import type { MetricContextFacts } from "./metricContextFacts";
-import { metricHelpV2, type MetricInspectorSentences } from "./metricHelpV2";
+import {
+  metricHelpV2,
+  metricHelpV2DefinitionLabel,
+  type MetricHelpProjectionVersion,
+  type MetricInspectorSentences,
+} from "./metricHelpV2";
 
 /**
  * One knowledge-card controller per workspace. A target is {surface, metricKey};
@@ -187,6 +192,8 @@ export interface MetricKnowledgeEntry {
   key: string;
   label: string;
   status: string;
+  /** Exact sealed projection selecting frozen historical or current r5 help. */
+  projectionVersion?: MetricHelpProjectionVersion | null;
   /** Exact receipt state and authority projected by metricAxisModel. */
   guidance?: MetricInspectorSentences;
   /** Scope · contributors · model · evidence context; rendered in full and compact cards alike. */
@@ -203,7 +210,7 @@ export function MetricKnowledgeDescriptions({ controller, entries }: {
       {entries.map((entry) => (
         <span id={metricKnowledgeDescriptionId(controller, entry.key)} key={entry.key}>
           {entry.label}: {entry.guidance === undefined
-            ? metricHelpV2(entry.key)?.entry.meaning ?? "No knowledge card is registered for this metric key."
+            ? metricHelpV2(entry.key, "en", entry.projectionVersion ?? null)?.entry.meaning ?? "No knowledge card is registered for this metric key."
             : `${entry.guidance.meaning} ${entry.guidance.action}`}
           {entry.context === undefined ? "" : ` Scope: ${entry.context.label}.`}
         </span>
@@ -230,7 +237,11 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
     if (staleTarget) controller.dismiss();
   }, [controller.dismiss, staleTarget]);
   if (entry === null) return <div className="metric-knowledge-slot" data-surface={surface} />;
-  const help = metricHelpV2(entry.key, "en");
+  const help = metricHelpV2(entry.key, "en", entry.projectionVersion ?? null);
+  const definitionLabel = help === null ? null : metricHelpV2DefinitionLabel(help);
+  const definitionHeading = definitionLabel === null
+    ? null
+    : `${definitionLabel.charAt(0).toUpperCase()}${definitionLabel.slice(1)}`;
   const pinned = controller.pinned;
   return (
     <div className="metric-knowledge-slot" data-surface={surface}>
@@ -239,6 +250,7 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
         className={`metric-knowledge-card metric-knowledge-card--viewport${compact ? " metric-knowledge-card--compact" : ""}`}
         data-metric-key={entry.key}
         data-pinned={pinned ? "true" : "false"}
+        data-projection-version={entry.projectionVersion ?? undefined}
         data-state={entry.guidance?.state}
         data-suppression-reason={entry.guidance?.suppressionReason ?? undefined}
         data-comparability={entry.guidance?.comparabilityState ?? undefined}
@@ -269,7 +281,9 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
           <p>No knowledge card is registered for this metric key.</p>
         ) : (
           <>
-            <p><b>Current local candidate definition.</b> {help.entry.meaning}</p>
+            <p>
+              <b>{definitionHeading} definition.</b> {help.entry.meaning}
+            </p>
             <dl>
               <div><dt>Question</dt><dd>{help.entry.question}</dd></div>
               <div><dt>Unit</dt><dd>{help.entry.observationUnit}</dd></div>
@@ -282,12 +296,14 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
             </dl>
             {help.measurement !== null && (
               <p className="metric-knowledge-card__measurement">
-                <b>Current measurement (shipped definition v{help.measurement.definitionVersion}).</b> {help.measurement.method} {help.measurement.limitation}
+                <b>{help.definitionScope !== "historical_candidate"
+                  ? `${definitionHeading} measurement (definition v${help.measurement.definitionVersion}).`
+                  : `Current measurement (shipped definition v${help.measurement.definitionVersion}).`}</b> {help.measurement.method} {help.measurement.limitation}
               </p>
             )}
           </>
         )}
-        <footer>{pinned ? "Pinned · Esc closes" : "Click or tap the control to pin · Esc closes"} · {help?.version ?? "unversioned"} · candidate definition shown separately from its shipped measurement method</footer>
+        <footer>{pinned ? "Pinned · Esc closes" : "Click or tap the control to pin · Esc closes"} · {help?.version ?? "unversioned"} · {help?.definitionScope === "historical_candidate" || help === null ? "candidate definition shown separately from its shipped measurement method" : `${definitionLabel} definition shown with projection-specific measurement metadata`}</footer>
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ type Row = Record<string, unknown>;
 type EnsembleMetric = ModelEnsembleRun["metrics"][number];
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
 type PredictiveMetric = ModelEnsembleRun["predictive_metrics"][number];
+export type ModelMetricProfileBinding = NonNullable<ModelEnsembleRun["metric_profile_binding"]>;
 
 const HEX_64 = /^[0-9a-f]{64}$/;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -97,6 +98,69 @@ const EXPERT_STATUSES = ["completed", "unavailable", "resource_exhausted", "fail
 const PREDICTIVE_STATES = [
   "unavailable", "experimental", "calibrated", "out_of_distribution", "execution_error",
 ] as const;
+const UNCONFIGURED_PROFILE_FINGERPRINT =
+  "4cf952d189fd817c3959540a18538b76b161aa3a03d810cb967cafc7f284be71";
+
+/**
+ * Parse the deliberately minimized profile identity exposed by a sealed r5
+ * run. The full declaration and source-window identity stay behind the local
+ * API boundary; this receipt is sufficient to bind the visible metric values
+ * to the exact reviewed revision without exposing session content.
+ */
+export function parseModelMetricProfileBinding(value: unknown): ModelMetricProfileBinding {
+  const binding = record(value);
+  exact(binding, [
+    "profile_source", "profile_id", "profile_revision", "profile_fingerprint",
+    "profile_schema_version", "profile_policy_version", "local_only", "content_persisted",
+  ]);
+  const knownSources = ["coaching_profile_v1_unconfigured", "declared_task_profile"] as const;
+  const knownSchemas = ["coaching-profile-v1-unconfigured", "declared-task-profile-v1"] as const;
+  const knownPolicies = ["server-preset-v1", "authenticated-local-user-v1"] as const;
+  for (const [candidate, known] of [
+    [binding.profile_source, knownSources],
+    [binding.profile_schema_version, knownSchemas],
+    [binding.profile_policy_version, knownPolicies],
+  ] as const) {
+    if (typeof candidate === "string" && !known.includes(candidate as never)) {
+      throw new MetricDefinitionsOutOfDateError("metric_profile_binding");
+    }
+  }
+  const source = oneOf(binding.profile_source, knownSources);
+  const schema = oneOf(binding.profile_schema_version, knownSchemas);
+  const policy = oneOf(binding.profile_policy_version, knownPolicies);
+  const profileId = binding.profile_id === null ? null : binding.profile_id;
+  const revision = binding.profile_revision === null
+    ? null
+    : integer(binding.profile_revision, 1, 1_000_000);
+  if (
+    binding.local_only !== true
+    || binding.content_persisted !== false
+    || typeof binding.profile_fingerprint !== "string"
+    || !HEX_64.test(binding.profile_fingerprint)
+    || (profileId !== null && (typeof profileId !== "string" || !HEX_64.test(profileId)))
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (source === "declared_task_profile") {
+    if (
+      profileId === null
+      || revision === null
+      || schema !== "declared-task-profile-v1"
+      || policy !== "authenticated-local-user-v1"
+    ) {
+      throw new ModelEnsemblePayloadError();
+    }
+  } else if (
+    profileId !== null
+    || revision !== null
+    || binding.profile_fingerprint !== UNCONFIGURED_PROFILE_FINGERPRINT
+    || schema !== "coaching-profile-v1-unconfigured"
+    || policy !== "server-preset-v1"
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  return value as ModelMetricProfileBinding;
+}
 
 /**
  * Validate one content-free aggregate metric against its enclosing chunk bound.
@@ -254,7 +318,8 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
     "run_id", "plan_version", "plan_fingerprint", "source_coverage_state",
     "chunk_count", "model_count", "chunks", "experts", "votes", "chunk_metrics",
     "metrics", "metric_projection_version", "metric_projection_completed_at",
-    "typed_metrics", "metric_publication_v2", "metric_evidence_readiness_v2",
+    "typed_metrics", "metric_publication_v2", "metric_profile_binding",
+    "metric_evidence_readiness_v2",
     "predictive_projection_version", "predictive_projected_at",
     "predictive_metrics", "predictive_model_stages", "completed_at", "local_only", "content_persisted",
     "calibration_state", "product_metric_eligible",
@@ -364,8 +429,8 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
   if (run.typed_metrics.length > 0 && typedKeys.size !== metricKeys.size) {
     throw new ModelEnsemblePayloadError();
   }
+  let publication: ReturnType<typeof parseMetricPublicationV2> | null = null;
   if (run.metric_publication_v2 !== null) {
-    let publication: ReturnType<typeof parseMetricPublicationV2>;
     try {
       publication = parseMetricPublicationV2(run.metric_publication_v2);
     } catch (error) {
@@ -378,6 +443,42 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
     if (
       publishedKeys.size !== metricKeys.size
       || [...metricKeys].some((metricKey) => !publishedKeys.has(metricKey))
+    ) {
+      throw new ModelEnsemblePayloadError();
+    }
+  }
+  const profileBinding = run.metric_profile_binding === null
+    ? null
+    : parseModelMetricProfileBinding(run.metric_profile_binding);
+  if (
+    (publication === null && profileBinding !== null)
+    || (publication?.projection_version === "metric-contract-v2-projection-5"
+      && profileBinding === null)
+    || (publication !== null
+      && publication.projection_version !== "metric-contract-v2-projection-5"
+      && profileBinding !== null)
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (profileBinding?.profile_source === "coaching_profile_v1_unconfigured") {
+    const profileMetricStates = publication?.metrics.filter(
+      (item) => item.state.statistics.denominator_basis === "declared_profile_slots",
+    ) ?? [];
+    if (
+      profileMetricStates.length !== 3
+      || profileMetricStates.some(({ state }) => (
+        state.value_state !== "unknown"
+        || state.numerator !== null
+        || state.denominator !== null
+        || state.numeric_value !== null
+        || state.censoring_lower_bound !== null
+        || state.censoring_upper_bound !== null
+        || state.statistics.eligible_count !== 0
+        || state.statistics.met_count !== 0
+        || state.statistics.not_met_count !== 0
+        || state.statistics.pending_count !== 0
+        || state.statistics.unknown_count !== 0
+      ))
     ) {
       throw new ModelEnsemblePayloadError();
     }

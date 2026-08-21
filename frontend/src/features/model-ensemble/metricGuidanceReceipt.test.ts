@@ -48,6 +48,7 @@ function sentencesFor(metricKey: typeof METRIC_V2_KEYS[number], scenario: Metric
     metricKey,
     label: LABELS.get(metricKey) ?? metricKey,
     direction: DIRECTIONS.get(metricKey) ?? "higher_is_better",
+    projectionVersion: "metric-contract-v2-projection-1",
     guidance: published.guidance as never,
     evidenceAuthority: published.state.evidence_authority,
     explanationCode: published.state.explanation_code,

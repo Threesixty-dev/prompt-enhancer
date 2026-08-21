@@ -36,8 +36,8 @@ describe("synthetic transport vertical slice", () => {
 
     expect(first).toMatchObject({
       total_metric_count: 20,
-      shipped_path_count: 12,
-      task_profile_configuration_gap_count: 3,
+      shipped_path_count: 15,
+      task_profile_configuration_gap_count: 0,
       provider_adapter_gap_count: 5,
       experimental_model_path_count: 8,
       model_authoritative_metric_count: 0,

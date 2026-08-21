@@ -1818,6 +1818,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/declared-task-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current Profile */
+        get: operations["current_profile_v1_sessions__session_id__declared_task_profile_get"];
+        put?: never;
+        /** Save Profile */
+        post: operations["save_profile_v1_sessions__session_id__declared_task_profile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/metric-lifecycle-evidence/proposal-page": {
         parameters: {
             query?: never;
@@ -2726,6 +2744,91 @@ export interface components {
              * @constant
              */
             schema_version: "agent-metric-evidence-file-v1";
+            /**
+             * Scores Allowed
+             * @default false
+             * @constant
+             */
+            scores_allowed: false;
+            /** Session Id */
+            session_id: string;
+            /** Source Window Fingerprint */
+            source_window_fingerprint: string;
+        };
+        /** AgentMetricEvidenceFileContractV2 */
+        AgentMetricEvidenceFileContractV2: {
+            /**
+             * Canonical Json Required
+             * @default true
+             * @constant
+             */
+            canonical_json_required: true;
+            /** Contract Set Fingerprint */
+            contract_set_fingerprint: string;
+            /**
+             * Contract Version
+             * @default probabilistic-metric-contract-v2
+             * @constant
+             */
+            contract_version: "probabilistic-metric-contract-v2";
+            /** Expected Source Run Id */
+            expected_source_run_id: string;
+            /**
+             * Explicit Local Confirmation Required
+             * @default true
+             * @constant
+             */
+            explicit_local_confirmation_required: true;
+            /**
+             * Max Lifetime Seconds
+             * @default 86400
+             * @constant
+             */
+            max_lifetime_seconds: 86400;
+            /**
+             * Max Payload Bytes
+             * @default 65536
+             * @constant
+             */
+            max_payload_bytes: 65536;
+            /**
+             * Media Type
+             * @default application/vnd.prompt-enhancer.agent-metric-evidence+json
+             * @constant
+             */
+            media_type: "application/vnd.prompt-enhancer.agent-metric-evidence+json";
+            /** Metrics */
+            metrics: components["schemas"]["AgentMetricEvidenceMetricContract"][];
+            /**
+             * Objective Receipt Claims Allowed
+             * @default false
+             * @constant
+             */
+            objective_receipt_claims_allowed: false;
+            /**
+             * Projection Version
+             * @default metric-contract-v2-projection-5
+             * @constant
+             */
+            projection_version: "metric-contract-v2-projection-5";
+            /**
+             * Prose Allowed
+             * @default false
+             * @constant
+             */
+            prose_allowed: false;
+            /**
+             * Registry Version
+             * @default all-20-factor-contracts-v2
+             * @constant
+             */
+            registry_version: "all-20-factor-contracts-v2";
+            /**
+             * Schema Version
+             * @default agent-metric-evidence-file-v2
+             * @constant
+             */
+            schema_version: "agent-metric-evidence-file-v2";
             /**
              * Scores Allowed
              * @default false
@@ -4209,6 +4312,11 @@ export interface components {
          * @enum {string}
          */
         CompatibilityState: "exact" | "compatible" | "degraded" | "untested" | "incompatible" | "unavailable";
+        /**
+         * ConstraintKind
+         * @enum {string}
+         */
+        ConstraintKind: "privacy" | "cost" | "platform" | "version" | "scope" | "performance" | "delivery" | "safety";
         /** ContextInference */
         ContextInference: {
             /** Bullet Count */
@@ -4312,6 +4420,94 @@ export interface components {
          * @enum {string}
          */
         DecisionRevisionRole: "input" | "output";
+        /**
+         * DeclaredTaskProfileCommand
+         * @description Exact reviewed declaration supplied by a local authenticated UI.
+         */
+        DeclaredTaskProfileCommand: {
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "save_reviewed_declared_task_profile";
+            /** Constraint Kinds */
+            constraint_kinds?: components["schemas"]["ConstraintKind"][] | null;
+            /** Deliverable Slots */
+            deliverable_slots?: components["schemas"]["DeliverableSlot"][] | null;
+            /** Expected Outcome Count */
+            expected_outcome_count?: number | null;
+            /** Expected Revision */
+            expected_revision?: number | null;
+        };
+        /** DeclaredTaskProfileCurrentDto */
+        DeclaredTaskProfileCurrentDto: {
+            /** Confirmation Available */
+            confirmation_available: boolean;
+            profile: components["schemas"]["DeclaredTaskProfileDto"] | null;
+            /** Session Id */
+            session_id: string;
+        };
+        /** DeclaredTaskProfileDto */
+        DeclaredTaskProfileDto: {
+            /**
+             * Confirmation Authority
+             * @constant
+             */
+            confirmation_authority: "authenticated_local_user";
+            /**
+             * Confirmed At
+             * Format: date-time
+             */
+            confirmed_at: string;
+            /** Constraint Kinds */
+            constraint_kinds?: components["schemas"]["ConstraintKind"][] | null;
+            /**
+             * Content Persisted
+             * @constant
+             */
+            content_persisted: false;
+            /** Deliverable Slots */
+            deliverable_slots?: components["schemas"]["DeliverableSlot"][] | null;
+            /** Expected Outcome Count */
+            expected_outcome_count?: number | null;
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            /**
+             * Policy Version
+             * @constant
+             */
+            policy_version: "authenticated-local-user-v1";
+            /** Previous Profile Id */
+            previous_profile_id?: string | null;
+            /** Profile Fingerprint */
+            profile_fingerprint: string;
+            /** Profile Id */
+            profile_id: string;
+            provider: components["schemas"]["Provider"];
+            /** Revision */
+            revision: number;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "declared-task-profile-v1";
+            /** Session Id */
+            session_id: string;
+        };
+        /** DeclaredTaskProfileOutcomeDto */
+        DeclaredTaskProfileOutcomeDto: {
+            /** Applied */
+            applied: boolean;
+            profile: components["schemas"]["DeclaredTaskProfileDto"];
+        };
+        /**
+         * DeliverableSlot
+         * @enum {string}
+         */
+        DeliverableSlot: "artifact" | "format" | "location" | "audience" | "interface" | "compatibility";
         /**
          * DenominatorBasis
          * @description Where a contract's exact denominator comes from.
@@ -5068,10 +5264,10 @@ export interface components {
             capability_missing_count: number;
             /**
              * Catalog Version
-             * @default metric-evidence-readiness-v2-3
+             * @default metric-evidence-readiness-v2-4
              * @constant
              */
-            catalog_version: "metric-evidence-readiness-v2-3";
+            catalog_version: "metric-evidence-readiness-v2-4";
             /** Compatibility Preview */
             compatibility_preview: boolean;
             /**
@@ -5098,7 +5294,7 @@ export interface components {
              * Metric Projection Version
              * @enum {string}
              */
-            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4";
+            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5";
             /** Metrics */
             metrics: components["schemas"]["MetricEvidenceReadinessV2"][];
             /** No Opportunity Count */
@@ -5556,10 +5752,10 @@ export interface components {
         MetricOperabilityCatalog: {
             /**
              * Catalog Version
-             * @default metric-operability-v1
+             * @default metric-operability-v2
              * @constant
              */
-            catalog_version: "metric-operability-v1";
+            catalog_version: "metric-operability-v2";
             /**
              * Content Persisted
              * @default false
@@ -5586,18 +5782,18 @@ export interface components {
             model_authoritative_metric_count: 0;
             /**
              * Projection Version
-             * @default metric-contract-v2-projection-4
+             * @default metric-contract-v2-projection-5
              * @constant
              */
-            projection_version: "metric-contract-v2-projection-4";
+            projection_version: "metric-contract-v2-projection-5";
             /** Provider Adapter Gap Count */
             provider_adapter_gap_count: number;
             /**
              * Readiness Catalog Version
-             * @default metric-evidence-readiness-v2-3
+             * @default metric-evidence-readiness-v2-4
              * @constant
              */
-            readiness_catalog_version: "metric-evidence-readiness-v2-3";
+            readiness_catalog_version: "metric-evidence-readiness-v2-4";
             /**
              * Registry Version
              * @default all-20-factor-contracts-v2
@@ -5637,6 +5833,12 @@ export interface components {
             next_step_code: components["schemas"]["MetricNextStepCode"];
             shipped_path_state: components["schemas"]["MetricShippedPathState"];
         };
+        /**
+         * MetricProfileSource
+         * @description Closed authority vocabulary for a measured r5 denominator profile.
+         * @enum {string}
+         */
+        MetricProfileSource: "coaching_profile_v1_unconfigured" | "declared_task_profile";
         /**
          * MetricPublicationSource
          * @description Where the published states came from; never mixed within one bundle.
@@ -5696,7 +5898,7 @@ export interface components {
              * Projection Version
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5";
             /**
              * Publication Key
              * @default metric.contract-v2.publication
@@ -5875,7 +6077,7 @@ export interface components {
              * Projection Version
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5";
             /**
              * Registry Version
              * @default all-20-factor-contracts-v2
@@ -6476,6 +6678,7 @@ export interface components {
              */
             local_only: true;
             metric_evidence_readiness_v2: components["schemas"]["MetricEvidenceReadinessProjectionV2"] | null;
+            metric_profile_binding: components["schemas"]["ModelMetricProfileBindingDto"] | null;
             /** Metric Projection Completed At */
             metric_projection_completed_at: string | null;
             /** Metric Projection Version */
@@ -7076,6 +7279,39 @@ export interface components {
             link_id: string;
             /** Query Excerpt */
             query_excerpt: string;
+        };
+        /**
+         * ModelMetricProfileBindingDto
+         * @description Minimized reviewed-profile identity bound to a sealed r5 run.
+         */
+        ModelMetricProfileBindingDto: {
+            /**
+             * Content Persisted
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            /** Profile Fingerprint */
+            profile_fingerprint: string;
+            /** Profile Id */
+            profile_id?: string | null;
+            /**
+             * Profile Policy Version
+             * @enum {string}
+             */
+            profile_policy_version: "server-preset-v1" | "authenticated-local-user-v1";
+            /** Profile Revision */
+            profile_revision?: number | null;
+            /**
+             * Profile Schema Version
+             * @enum {string}
+             */
+            profile_schema_version: "coaching-profile-v1-unconfigured" | "declared-task-profile-v1";
+            profile_source: components["schemas"]["MetricProfileSource"];
         };
         /** ModelPredictiveFactorDto */
         ModelPredictiveFactorDto: {
@@ -10314,6 +10550,7 @@ export interface operations {
             header?: {
                 "X-Prompt-Enhancer-Token"?: string | null;
                 "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
             };
             path: {
                 session_id: string;
@@ -10573,6 +10810,7 @@ export interface operations {
             header?: {
                 "X-Prompt-Enhancer-Token"?: string | null;
                 "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
             };
             path: {
                 session_id: string;
@@ -14171,7 +14409,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentMetricEvidenceFileContract"];
+                    "application/json": components["schemas"]["AgentMetricEvidenceFileContract"] | components["schemas"]["AgentMetricEvidenceFileContractV2"];
                 };
             };
             /** @description Validation Error */
@@ -14285,6 +14523,80 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    current_profile_v1_sessions__session_id__declared_task_profile_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclaredTaskProfileCurrentDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_profile_v1_sessions__session_id__declared_task_profile_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclaredTaskProfileCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclaredTaskProfileOutcomeDto"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -14414,6 +14726,7 @@ export interface operations {
                 "Idempotency-Key": string;
                 "X-Prompt-Enhancer-Token"?: string | null;
                 "X-Prompt-Enhancer-CSRF"?: string | null;
+                "X-Prompt-Enhancer-User-Presence"?: string | null;
             };
             path: {
                 session_id: string;

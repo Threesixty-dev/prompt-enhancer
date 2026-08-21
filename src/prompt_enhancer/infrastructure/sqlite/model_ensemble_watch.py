@@ -193,13 +193,19 @@ def _metric_v2_seal(connection, run_id: str) -> tuple[object, str] | None:
     which is exactly what ``_metric_v2_identity`` reports.
     """
 
-    for _version, states_table, seals_table in METRIC_V2_SIDECARS:
+    for version, states_table, seals_table in METRIC_V2_SIDECARS:
+        profile_columns = (
+            ",profile_source,profile_id,profile_revision,profile_fingerprint,"
+            "profile_schema_version,profile_policy_version"
+            if version == "metric-contract-v2-projection-5"
+            else ""
+        )
         seal = connection.execute(
             f"""SELECT publication_key,publication_version,registry_version,
                        contract_set_fingerprint,projection_version,
                        guidance_contract_version,guidance_template_catalog_version,
                        source,canonical_live_snapshot,model_stage_consumed,
-                       compatibility_preview
+                       compatibility_preview{profile_columns}
                 FROM {seals_table} WHERE run_id=?""",
             (run_id,),
         ).fetchone()
@@ -213,6 +219,11 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
 
     Historical runs legitimately have no V2 seal.  Two such runs remain in the
     legacy comparison cohort; a legacy run and a canonical V2 run never do.
+    R5 compares the stable profile authority and declaration identity.  Its
+    binding and combined-publication fingerprints intentionally remain out of
+    this tuple because they seal per-run fields such as ``bound_at``; treating
+    those receipt hashes as a cohort identity would make every fresh run
+    incomparable even when it used the exact same reviewed profile.
     """
 
     if run_id is None:
@@ -221,7 +232,7 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
     if found is None:
         return None
     seal, _states_table = found
-    return (
+    identity = (
         seal["publication_key"],
         int(seal["publication_version"]),
         seal["registry_version"],
@@ -233,6 +244,17 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
         int(seal["canonical_live_snapshot"]),
         int(seal["model_stage_consumed"]),
         int(seal["compatibility_preview"]),
+    )
+    if seal["projection_version"] != "metric-contract-v2-projection-5":
+        return (*identity, None, None, None, None, None, None)
+    return (
+        *identity,
+        seal["profile_source"],
+        seal["profile_id"],
+        seal["profile_revision"],
+        seal["profile_fingerprint"],
+        seal["profile_schema_version"],
+        seal["profile_policy_version"],
     )
 
 

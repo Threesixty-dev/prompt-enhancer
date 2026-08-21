@@ -442,6 +442,12 @@ class _SchemaMetricCoverageService:
         raise RuntimeError("schema-only service cannot query metric coverage")
 
 
+class _SchemaDeclaredTaskProfileService:
+    """Non-executing stand-in for reviewed task-profile route signatures."""
+
+    pass
+
+
 _BROWSER_CONTROL_PLANE_PATH = "/v1/control-plane/readiness"
 _COMPONENT_SCHEMA_PREFIX = "#/components/schemas/"
 
@@ -540,6 +546,7 @@ def _build_schema_app(*, include_control_plane: bool):
         model_judge_service=_SchemaModelJudgeService(),  # type: ignore[arg-type]
         prompt_check_service=_SchemaPromptCheckService(),  # type: ignore[arg-type]
         local_agent_service=_SchemaLocalAgentService(),  # type: ignore[arg-type]
+        declared_task_profile_service=_SchemaDeclaredTaskProfileService(),  # type: ignore[arg-type]
         annotation_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         shared_folder_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         peer_folder_client=_SchemaAnnotationSurface(),  # type: ignore[arg-type]

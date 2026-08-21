@@ -491,6 +491,115 @@
         "title": "AgentMetricEvidenceFileContract",
         "type": "object"
       },
+      "AgentMetricEvidenceFileContractV2": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_json_required": {
+            "const": true,
+            "default": true,
+            "title": "Canonical Json Required",
+            "type": "boolean"
+          },
+          "contract_set_fingerprint": {
+            "title": "Contract Set Fingerprint",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "probabilistic-metric-contract-v2",
+            "default": "probabilistic-metric-contract-v2",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "explicit_local_confirmation_required": {
+            "const": true,
+            "default": true,
+            "title": "Explicit Local Confirmation Required",
+            "type": "boolean"
+          },
+          "max_lifetime_seconds": {
+            "const": 86400,
+            "default": 86400,
+            "title": "Max Lifetime Seconds",
+            "type": "integer"
+          },
+          "max_payload_bytes": {
+            "const": 65536,
+            "default": 65536,
+            "title": "Max Payload Bytes",
+            "type": "integer"
+          },
+          "media_type": {
+            "const": "application/vnd.prompt-enhancer.agent-metric-evidence+json",
+            "default": "application/vnd.prompt-enhancer.agent-metric-evidence+json",
+            "title": "Media Type",
+            "type": "string"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/AgentMetricEvidenceMetricContract"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "objective_receipt_claims_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Objective Receipt Claims Allowed",
+            "type": "boolean"
+          },
+          "projection_version": {
+            "const": "metric-contract-v2-projection-5",
+            "default": "metric-contract-v2-projection-5",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "prose_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Prose Allowed",
+            "type": "boolean"
+          },
+          "registry_version": {
+            "const": "all-20-factor-contracts-v2",
+            "default": "all-20-factor-contracts-v2",
+            "title": "Registry Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "agent-metric-evidence-file-v2",
+            "default": "agent-metric-evidence-file-v2",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scores_allowed": {
+            "const": false,
+            "default": false,
+            "title": "Scores Allowed",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "contract_set_fingerprint",
+          "metrics"
+        ],
+        "title": "AgentMetricEvidenceFileContractV2",
+        "type": "object"
+      },
       "AgentMetricEvidenceImportDto": {
         "additionalProperties": false,
         "properties": {
@@ -4279,6 +4388,20 @@
         "title": "CompatibilityState",
         "type": "string"
       },
+      "ConstraintKind": {
+        "enum": [
+          "privacy",
+          "cost",
+          "platform",
+          "version",
+          "scope",
+          "performance",
+          "delivery",
+          "safety"
+        ],
+        "title": "ConstraintKind",
+        "type": "string"
+      },
       "ContextInference": {
         "additionalProperties": false,
         "properties": {
@@ -4495,6 +4618,264 @@
           "output"
         ],
         "title": "DecisionRevisionRole",
+        "type": "string"
+      },
+      "DeclaredTaskProfileCommand": {
+        "additionalProperties": false,
+        "description": "Exact reviewed declaration supplied by a local authenticated UI.",
+        "properties": {
+          "confirmation": {
+            "const": "save_reviewed_declared_task_profile",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "constraint_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ConstraintKind"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Constraint Kinds"
+          },
+          "deliverable_slots": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DeliverableSlot"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deliverable Slots"
+          },
+          "expected_outcome_count": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Outcome Count"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "maximum": 999999.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          }
+        },
+        "required": [
+          "confirmation"
+        ],
+        "title": "DeclaredTaskProfileCommand",
+        "type": "object"
+      },
+      "DeclaredTaskProfileCurrentDto": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation_available": {
+            "title": "Confirmation Available",
+            "type": "boolean"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeclaredTaskProfileDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "profile",
+          "confirmation_available"
+        ],
+        "title": "DeclaredTaskProfileCurrentDto",
+        "type": "object"
+      },
+      "DeclaredTaskProfileDto": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation_authority": {
+            "const": "authenticated_local_user",
+            "title": "Confirmation Authority",
+            "type": "string"
+          },
+          "confirmed_at": {
+            "format": "date-time",
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "constraint_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ConstraintKind"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Constraint Kinds"
+          },
+          "content_persisted": {
+            "const": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "deliverable_slots": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DeliverableSlot"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deliverable Slots"
+          },
+          "expected_outcome_count": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Outcome Count"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "policy_version": {
+            "const": "authenticated-local-user-v1",
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "previous_profile_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Profile Id"
+          },
+          "profile_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Profile Fingerprint",
+            "type": "string"
+          },
+          "profile_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "revision": {
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "declared-task-profile-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "provider",
+          "session_id",
+          "revision",
+          "profile_fingerprint",
+          "confirmed_at",
+          "confirmation_authority",
+          "schema_version",
+          "policy_version",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "DeclaredTaskProfileDto",
+        "type": "object"
+      },
+      "DeclaredTaskProfileOutcomeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/DeclaredTaskProfileDto"
+          }
+        },
+        "required": [
+          "profile",
+          "applied"
+        ],
+        "title": "DeclaredTaskProfileOutcomeDto",
+        "type": "object"
+      },
+      "DeliverableSlot": {
+        "enum": [
+          "artifact",
+          "format",
+          "location",
+          "audience",
+          "interface",
+          "compatibility"
+        ],
+        "title": "DeliverableSlot",
         "type": "string"
       },
       "DenominatorBasis": {
@@ -6134,8 +6515,8 @@
             "type": "integer"
           },
           "catalog_version": {
-            "const": "metric-evidence-readiness-v2-3",
-            "default": "metric-evidence-readiness-v2-3",
+            "const": "metric-evidence-readiness-v2-4",
+            "default": "metric-evidence-readiness-v2-4",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -6182,7 +6563,8 @@
               "metric-contract-v2-projection-1",
               "metric-contract-v2-projection-2",
               "metric-contract-v2-projection-3",
-              "metric-contract-v2-projection-4"
+              "metric-contract-v2-projection-4",
+              "metric-contract-v2-projection-5"
             ],
             "title": "Metric Projection Version",
             "type": "string"
@@ -7380,8 +7762,8 @@
         "additionalProperties": false,
         "properties": {
           "catalog_version": {
-            "const": "metric-operability-v1",
-            "default": "metric-operability-v1",
+            "const": "metric-operability-v2",
+            "default": "metric-operability-v2",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -7423,8 +7805,8 @@
             "type": "integer"
           },
           "projection_version": {
-            "const": "metric-contract-v2-projection-4",
-            "default": "metric-contract-v2-projection-4",
+            "const": "metric-contract-v2-projection-5",
+            "default": "metric-contract-v2-projection-5",
             "title": "Projection Version",
             "type": "string"
           },
@@ -7435,8 +7817,8 @@
             "type": "integer"
           },
           "readiness_catalog_version": {
-            "const": "metric-evidence-readiness-v2-3",
-            "default": "metric-evidence-readiness-v2-3",
+            "const": "metric-evidence-readiness-v2-4",
+            "default": "metric-evidence-readiness-v2-4",
             "title": "Readiness Catalog Version",
             "type": "string"
           },
@@ -7531,6 +7913,15 @@
         "title": "MetricOperabilityEntry",
         "type": "object"
       },
+      "MetricProfileSource": {
+        "description": "Closed authority vocabulary for a measured r5 denominator profile.",
+        "enum": [
+          "coaching_profile_v1_unconfigured",
+          "declared_task_profile"
+        ],
+        "title": "MetricProfileSource",
+        "type": "string"
+      },
       "MetricPublicationSource": {
         "description": "Where the published states came from; never mixed within one bundle.",
         "enum": [
@@ -7624,7 +8015,8 @@
               "metric-contract-v2-projection-1",
               "metric-contract-v2-projection-2",
               "metric-contract-v2-projection-3",
-              "metric-contract-v2-projection-4"
+              "metric-contract-v2-projection-4",
+              "metric-contract-v2-projection-5"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -8123,7 +8515,8 @@
               "metric-contract-v2-projection-1",
               "metric-contract-v2-projection-2",
               "metric-contract-v2-projection-3",
-              "metric-contract-v2-projection-4"
+              "metric-contract-v2-projection-4",
+              "metric-contract-v2-projection-5"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -9743,6 +10136,16 @@
               }
             ]
           },
+          "metric_profile_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelMetricProfileBindingDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "metric_projection_completed_at": {
             "anyOf": [
               {
@@ -9893,6 +10296,7 @@
           "metric_projection_completed_at",
           "typed_metrics",
           "metric_publication_v2",
+          "metric_profile_binding",
           "metric_evidence_readiness_v2",
           "predictive_projection_version",
           "predictive_projected_at",
@@ -11323,6 +11727,81 @@
           "candidate_excerpt"
         ],
         "title": "ModelLinkSuggestionDto",
+        "type": "object"
+      },
+      "ModelMetricProfileBindingDto": {
+        "additionalProperties": false,
+        "description": "Minimized reviewed-profile identity bound to a sealed r5 run.",
+        "properties": {
+          "content_persisted": {
+            "const": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "profile_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Profile Fingerprint",
+            "type": "string"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "profile_policy_version": {
+            "enum": [
+              "server-preset-v1",
+              "authenticated-local-user-v1"
+            ],
+            "title": "Profile Policy Version",
+            "type": "string"
+          },
+          "profile_revision": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Revision"
+          },
+          "profile_schema_version": {
+            "enum": [
+              "coaching-profile-v1-unconfigured",
+              "declared-task-profile-v1"
+            ],
+            "title": "Profile Schema Version",
+            "type": "string"
+          },
+          "profile_source": {
+            "$ref": "#/components/schemas/MetricProfileSource"
+          }
+        },
+        "required": [
+          "profile_source",
+          "profile_fingerprint",
+          "profile_schema_version",
+          "profile_policy_version",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "ModelMetricProfileBindingDto",
         "type": "object"
       },
       "ModelPredictiveFactorDto": {
@@ -20067,6 +20546,22 @@
               ],
               "title": "X-Prompt-Enhancer-Csrf"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
           }
         ],
         "requestBody": {
@@ -20684,6 +21179,22 @@
                 }
               ],
               "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
             }
           }
         ],
@@ -28410,7 +28921,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentMetricEvidenceFileContract"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AgentMetricEvidenceFileContract"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentMetricEvidenceFileContractV2"
+                    }
+                  ],
+                  "title": "Response Contract V1 Sessions  Session Id  Agent Metric Evidence Contract Get"
                 }
               }
             },
@@ -28688,6 +29207,190 @@
         "summary": "Latest Session Job",
         "tags": [
           "analysis-jobs"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/declared-task-profile": {
+      "get": {
+        "operationId": "current_profile_v1_sessions__session_id__declared_task_profile_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclaredTaskProfileCurrentDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Current Profile",
+        "tags": [
+          "declared-task-profile"
+        ]
+      },
+      "post": {
+        "operationId": "save_profile_v1_sessions__session_id__declared_task_profile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclaredTaskProfileCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclaredTaskProfileOutcomeDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Profile",
+        "tags": [
+          "declared-task-profile"
         ]
       }
     },
@@ -29022,6 +29725,22 @@
                 }
               ],
               "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
             }
           }
         ],

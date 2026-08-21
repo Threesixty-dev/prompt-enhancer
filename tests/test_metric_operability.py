@@ -13,7 +13,7 @@ from prompt_enhancer.application.analysis.metric_operability import (
     metric_operability_catalog,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
-    METRIC_PROJECTION_V2_VERSION_4,
+    METRIC_PROJECTION_V2_VERSION_5,
 )
 from prompt_enhancer.application.analysis.provider_evidence import (
     CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES,
@@ -28,7 +28,7 @@ from prompt_enhancer.infrastructure.text_models.probabilistic_metrics import (
 )
 
 
-PROFILE_GAPS = {
+PROFILE_PATHS = {
     "prompt.constraint_precision",
     "prompt.acceptance_testability",
     "prompt.deliverable_contract",
@@ -58,11 +58,11 @@ def test_operability_catalog_is_an_exact_all_twenty_partition() -> None:
     catalog = metric_operability_catalog()
 
     assert catalog.catalog_version == METRIC_OPERABILITY_CATALOG_VERSION
-    assert catalog.projection_version == METRIC_PROJECTION_V2_VERSION_4
+    assert catalog.projection_version == METRIC_PROJECTION_V2_VERSION_5
     assert catalog.contract_set_fingerprint == metric_contract_v2_set_fingerprint()
     assert catalog.total_metric_count == 20
-    assert catalog.shipped_path_count == 12
-    assert catalog.task_profile_configuration_gap_count == 3
+    assert catalog.shipped_path_count == 15
+    assert catalog.task_profile_configuration_gap_count == 0
     assert catalog.provider_adapter_gap_count == 5
     assert catalog.experimental_model_path_count == 8
     assert catalog.model_authoritative_metric_count == 0
@@ -83,7 +83,7 @@ def test_operability_catalog_names_every_configuration_and_adapter_gap() -> None
         for key, entry in by_key.items()
         if entry.shipped_path_state
         is MetricShippedPathState.TASK_PROFILE_CONFIGURATION_REQUIRED
-    } == PROFILE_GAPS
+    } == set()
     assert {
         key
         for key, entry in by_key.items()
@@ -92,6 +92,12 @@ def test_operability_catalog_names_every_configuration_and_adapter_gap() -> None
     assert {
         key for key, entry in by_key.items() if entry.experimental_model_path
     } == EXPERIMENTAL_MODEL_PATHS
+    assert all(
+        by_key[key].measured_path is MetricMeasuredPath.DECLARED_TASK_PROFILE
+        and by_key[key].shipped_path_state
+        is MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
+        for key in PROFILE_PATHS
+    )
 
     first_pass = by_key["outcome.first_pass_verification"]
     assert first_pass.measured_path is MetricMeasuredPath.TASK_SCOPED_VERIFICATION

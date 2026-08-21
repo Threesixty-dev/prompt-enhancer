@@ -18,6 +18,7 @@ import time
 from types import ModuleType
 from typing import Any
 import urllib.request
+import urllib.parse
 
 from .config import AppSettings
 from .interfaces.http.desktop_identity import (
@@ -27,6 +28,11 @@ from .interfaces.http.desktop_identity import (
     canonical_loopback_origin,
     new_desktop_challenge,
     verify_desktop_identity_proof,
+)
+from .interfaces.http.user_presence import (
+    USER_PRESENCE_HEADER,
+    USER_PRESENCE_VERSION,
+    UserPresenceApprovalManager,
 )
 from .privacy import load_or_create_api_token
 
@@ -70,6 +76,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class _OwnedServer:
     server: Any
     thread: Thread
+    user_presence: UserPresenceApprovalManager
 
     def stop(self) -> None:
         """Stop only the Uvicorn instance created by this desktop host."""
@@ -82,11 +89,17 @@ class _OwnedServer:
 
 
 class _DesktopWindowApi:
-    """Minimal content-free bridge for custom React window chrome."""
+    """Content-free bridge for window chrome and native user presence."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        user_presence: UserPresenceApprovalManager | None = None,
+        expected_origin: str | None = None,
+    ) -> None:
         self._window: Any | None = None
         self._maximized = False
+        self._user_presence = user_presence
+        self._expected_origin = expected_origin
 
     def _bind(self, window: Any) -> None:
         self._window = window
@@ -108,6 +121,112 @@ class _DesktopWindowApi:
     def close_window(self) -> None:
         if self._window is not None:
             self._window.destroy()
+
+    def confirm_user_presence(self, request: Any) -> dict[str, Any]:
+        """Show a native dialog and return one exact, short-lived capability."""
+
+        manager = self._user_presence
+        window = self._window
+        if manager is None or window is None:
+            return {
+                "approved": False,
+                "reason": "native_confirmation_unavailable",
+                "version": USER_PRESENCE_VERSION,
+            }
+        if not self._window_origin_is_expected(window):
+            return {
+                "approved": False,
+                "reason": "native_confirmation_unavailable",
+                "version": USER_PRESENCE_VERSION,
+            }
+        if not isinstance(request, dict) or set(request) != {
+            "method",
+            "path",
+            "body_sha256",
+        }:
+            return {
+                "approved": False,
+                "reason": "invalid_confirmation_request",
+                "version": USER_PRESENCE_VERSION,
+            }
+        method = request.get("method")
+        path = request.get("path")
+        body_sha256 = request.get("body_sha256")
+        if not all(isinstance(value, str) for value in (method, path, body_sha256)):
+            return {
+                "approved": False,
+                "reason": "invalid_confirmation_request",
+                "version": USER_PRESENCE_VERSION,
+            }
+        label = manager.action_label(method, path)
+        if label is None:
+            return {
+                "approved": False,
+                "reason": "action_not_allowed",
+                "version": USER_PRESENCE_VERSION,
+            }
+        approved = bool(
+            window.create_confirmation_dialog(
+                "Confirm local action",
+                f"{label}.\n\nApprove only if you initiated and reviewed this action.",
+            )
+        )
+        if not approved:
+            return {
+                "approved": False,
+                "reason": "user_declined",
+                "version": USER_PRESENCE_VERSION,
+            }
+        if not self._window_origin_is_expected(window):
+            return {
+                "approved": False,
+                "reason": "native_confirmation_unavailable",
+                "version": USER_PRESENCE_VERSION,
+            }
+        try:
+            token = manager.issue(
+                method=method,
+                path=path,
+                body_sha256=body_sha256,
+            )
+        except ValueError:
+            return {
+                "approved": False,
+                "reason": "invalid_confirmation_request",
+                "version": USER_PRESENCE_VERSION,
+            }
+        return {
+            "approved": True,
+            "approval_token": token,
+            "version": USER_PRESENCE_VERSION,
+        }
+
+    def _window_origin_is_expected(self, window: Any) -> bool:
+        expected = self._expected_origin
+        if expected is None:
+            return False
+        try:
+            current = window.get_current_url()
+            current_url = urllib.parse.urlsplit(current)
+            expected_url = urllib.parse.urlsplit(expected)
+            if (
+                not isinstance(current, str)
+                or current_url.username is not None
+                or current_url.password is not None
+                or current_url.scheme.casefold() not in {"http", "https"}
+            ):
+                return False
+            return (
+                current_url.scheme.casefold(),
+                (current_url.hostname or "").casefold(),
+                current_url.port,
+            ) == (
+                expected_url.scheme.casefold(),
+                (expected_url.hostname or "").casefold(),
+                expected_url.port,
+            )
+        except (AttributeError, TypeError, ValueError):
+            return False
 
 
 def _loopback_origin(host: str, port: int) -> str:
@@ -254,8 +373,27 @@ def _start_owned_server(settings: AppSettings) -> _OwnedServer:
     from .bootstrap import bootstrap_local_application
 
     application = bootstrap_local_application(settings)
+    user_presence = UserPresenceApprovalManager()
+
+    def verify_user_presence(request: Any, body: bytes) -> None:
+        if not user_presence.consume(
+            token=request.headers.get(USER_PRESENCE_HEADER),
+            method=request.method,
+            path=request.url.path,
+            body=body,
+        ):
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=403,
+                detail="native user-presence confirmation required",
+            )
+
     configuration = uvicorn.Config(
-        application.create_http_app(),
+        application.create_http_app(
+            user_presence_confirmation=verify_user_presence,
+            user_presence_confirmation_mode="native_bridge_bound_token",
+        ),
         host=settings.host,
         port=settings.port,
         access_log=False,
@@ -268,7 +406,11 @@ def _start_owned_server(settings: AppSettings) -> _OwnedServer:
         daemon=True,
     )
     thread.start()
-    return _OwnedServer(server=server, thread=thread)
+    return _OwnedServer(
+        server=server,
+        thread=thread,
+        user_presence=user_presence,
+    )
 
 
 def _wait_for_owned_service(
@@ -296,8 +438,14 @@ def _load_webview() -> ModuleType:
         ) from None
 
 
-def _open_overlay_window(webview: ModuleType, url: str) -> None:
-    window_api = _DesktopWindowApi()
+def _open_overlay_window(
+    webview: ModuleType,
+    url: str,
+    user_presence: UserPresenceApprovalManager | None = None,
+) -> None:
+    parsed_url = urllib.parse.urlsplit(url)
+    expected_origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    window_api = _DesktopWindowApi(user_presence, expected_origin)
     window = webview.create_window(
         "Prompt Enhancer - Live metrics",
         url=url,
@@ -352,7 +500,11 @@ def run_desktop_overlay(settings: AppSettings) -> None:
 
     assert origin is not None
     try:
-        _open_overlay_window(_load_webview(), f"{origin}{_OVERLAY_PATH}")
+        _open_overlay_window(
+            _load_webview(),
+            f"{origin}{_OVERLAY_PATH}",
+            None if owned is None else owned.user_presence,
+        )
     finally:
         if owned is not None:
             owned.stop()

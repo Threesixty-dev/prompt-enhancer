@@ -55,12 +55,18 @@ const ENTRIES: readonly MetricExplainerEntry[] = [
   { key: "logic.decision_rationale_coverage", label: "Decision rationale coverage", provenance: "experimental", numericValue: null, valueLabel: "Unknown" },
 ];
 
-function Harness({ compact = false }: { compact?: boolean }) {
+function Harness({
+  compact = false,
+  entries = ENTRIES,
+}: {
+  compact?: boolean;
+  entries?: readonly MetricExplainerEntry[];
+}) {
   const controller = useMetricKnowledgeCardController();
   return (
     <div>
-      <MetricExplainerDescriptions controller={controller} entries={ENTRIES} surface="team-board" />
-      {ENTRIES.map((entry) => (
+      <MetricExplainerDescriptions controller={controller} entries={entries} surface="team-board" />
+      {entries.map((entry) => (
         <button
           key={entry.key}
           {...metricExplainerTriggerProps(controller, "team-board", entry.key)}
@@ -70,7 +76,7 @@ function Harness({ compact = false }: { compact?: boolean }) {
           {entry.label}
         </button>
       ))}
-      <MetricExplainerCardSlot compact={compact} controller={controller} entries={ENTRIES} surface="team-board" />
+      <MetricExplainerCardSlot compact={compact} controller={controller} entries={entries} surface="team-board" />
     </div>
   );
 }
@@ -140,5 +146,35 @@ describe("MetricExplainer affordance", () => {
     expect(metricExplainerDescriptionId(controller, "team-board", "prompt.a.b"))
       .not.toBe(metricExplainerDescriptionId(controller, "team-compact", "prompt.a.b"));
     expect(metricExplainerDescriptionId(controller, "team-board", "prompt.a.b")).not.toContain(".");
+  });
+
+  it("uses r5 reviewed-profile units in both full and compact explainer descriptions and cards", () => {
+    const entries: readonly MetricExplainerEntry[] = [{
+      key: "prompt.acceptance_testability",
+      label: "Acceptance testability",
+      projectionVersion: "metric-contract-v2-projection-5",
+      provenance: "measured",
+      numericValue: 2 / 3,
+      valueLabel: "67% · 2/3",
+      state: "known",
+      direction: "higher_is_better",
+      numerator: 2,
+      denominator: 3,
+    }];
+    const copies: string[] = [];
+    for (const compact of [false, true]) {
+      const view = render(<Harness compact={compact} entries={entries} />);
+      const trigger = screen.getByRole("button", { name: "Acceptance testability" });
+      const description = document.getElementById(trigger.getAttribute("aria-describedby")!)!;
+      expect(description.textContent).toContain("one per expected-outcome slot in the reviewed task profile");
+      expect(description.textContent).not.toContain("one per detected requirement clause");
+      fireEvent.pointerEnter(trigger);
+      const card = document.querySelector('[role="region"][data-metric-key="prompt.acceptance_testability"]')!;
+      expect(card).toHaveAttribute("data-projection-version", "metric-contract-v2-projection-5");
+      expect(card.textContent).toContain("one per expected-outcome slot in the reviewed task profile");
+      copies.push(card.textContent ?? "");
+      view.unmount();
+    }
+    expect(copies[1]).toBe(copies[0]);
   });
 });

@@ -5,7 +5,7 @@ import { MetricOperabilityDefinitionsOutOfDateError } from "../../shared/api/met
 import { MetricOperabilityPanel } from "./MetricOperabilityPanel";
 
 describe("MetricOperabilityPanel", () => {
-  it("shows the exact 12/3/5 partition and keeps model estimates separate", async () => {
+  it("shows the exact 15/0/5 partition and keeps model estimates separate", async () => {
     const transport = createSyntheticTransport();
     const sessions = vi.spyOn(transport, "listCodexSessions");
 
@@ -15,13 +15,13 @@ describe("MetricOperabilityPanel", () => {
       name: "What can produce measured evidence today",
     })).toBeVisible();
     const summary = screen.getByLabelText("Metric operability summary");
-    expect(within(summary).getByText("Measured paths shipped").closest("div")).toHaveTextContent("12");
-    expect(within(summary).getByText("Need project profile").closest("div")).toHaveTextContent("3");
+    expect(within(summary).getByText("Measured paths shipped").closest("div")).toHaveTextContent("15");
+    expect(within(summary).getByText("Need project profile").closest("div")).toHaveTextContent("0");
     expect(within(summary).getByText("Need source adapter").closest("div")).toHaveTextContent("5");
     expect(within(summary).getByText("Model-authored metrics").closest("div")).toHaveTextContent("0");
     expect(screen.getByText("Constraint precision").closest("li")).toHaveAttribute(
       "data-operability-state",
-      "task_profile_configuration_required",
+      "available_when_evidence_exists",
     );
     expect(screen.getByText("Agent claim grounding").closest("li")).toHaveAttribute(
       "data-operability-state",

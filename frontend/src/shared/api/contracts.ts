@@ -210,6 +210,58 @@ export type ModelLinkAnnotation = Schemas["ModelLinkAnnotationDto"];
 export type ModelLinkAnnotationRequest = Schemas["ModelLinkAnnotationRequest"];
 export type ModelEnsembleRequest = Schemas["ModelEnsembleRequest"];
 export type ModelEnsembleRun = Schemas["ModelEnsembleRunDto"];
+
+/** Manual bridge until the generated OpenAPI client includes the reviewed profile route. */
+export type DeclaredTaskProfileConstraintKind =
+  | "privacy"
+  | "cost"
+  | "platform"
+  | "version"
+  | "scope"
+  | "performance"
+  | "delivery"
+  | "safety";
+export type DeclaredTaskProfileDeliverableSlot =
+  | "artifact"
+  | "format"
+  | "location"
+  | "audience"
+  | "interface"
+  | "compatibility";
+export interface DeclaredTaskProfile {
+  profile_id: string;
+  provider: Provider;
+  session_id: string;
+  revision: number;
+  previous_profile_id: string | null;
+  constraint_kinds: readonly DeclaredTaskProfileConstraintKind[] | null;
+  expected_outcome_count: number | null;
+  deliverable_slots: readonly DeclaredTaskProfileDeliverableSlot[] | null;
+  profile_fingerprint: string;
+  confirmed_at: string;
+  confirmation_authority: "authenticated_local_user";
+  schema_version: "declared-task-profile-v1";
+  policy_version: "authenticated-local-user-v1";
+  local_only: true;
+  content_persisted: false;
+}
+export interface DeclaredTaskProfileCurrent {
+  session_id: string;
+  profile: DeclaredTaskProfile | null;
+  /** True only when a non-self-issuable user-presence adapter is composed. */
+  confirmation_available: boolean;
+}
+export interface DeclaredTaskProfileCommand {
+  expected_revision: number | null;
+  constraint_kinds: readonly DeclaredTaskProfileConstraintKind[] | null;
+  expected_outcome_count: number | null;
+  deliverable_slots: readonly DeclaredTaskProfileDeliverableSlot[] | null;
+  confirmation: "save_reviewed_declared_task_profile";
+}
+export interface DeclaredTaskProfileOutcome {
+  profile: DeclaredTaskProfile;
+  applied: boolean;
+}
 export type MetricEvidenceReadinessProjectionV2 =
   Schemas["MetricEvidenceReadinessProjectionV2"];
 export type MetricEvidenceReadinessV2 = Schemas["MetricEvidenceReadinessV2"];
@@ -526,7 +578,20 @@ export interface ManualDisplayLabelResult {
 
 export type DisplayLabelEntityKind = "project" | "session";
 
+export interface UserPresenceCapability {
+  contract_version: "native-user-presence-capability-v1";
+  confirmation_available: boolean;
+  mode: "unavailable" | "native_bridge_bound_token";
+}
+
 export interface PromptEnhancerTransport {
+  /**
+   * Whether this exact server/window composition can perform a native,
+   * non-self-issuable confirmation for protected local decisions.
+   */
+  getUserPresenceCapability?(
+    signal?: AbortSignal,
+  ): Promise<UserPresenceCapability>;
   /**
    * Read the optional, default-off loopback development control-plane status.
    * This never carries the separate credential used by privileged data routes.
@@ -803,6 +868,17 @@ export interface PromptEnhancerTransport {
     sessionId: string,
     signal?: AbortSignal,
   ): Promise<ModelEnsembleRun>;
+  /** Reviewed, content-free denominators for future r5 metric publications. */
+  getDeclaredTaskProfile?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<DeclaredTaskProfileCurrent>;
+  saveDeclaredTaskProfile?(
+    sessionId: string,
+    request: DeclaredTaskProfileCommand,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<DeclaredTaskProfileOutcome>;
   startModelEnsemble(
     sessionId: string,
     request: ModelEnsembleRequest,

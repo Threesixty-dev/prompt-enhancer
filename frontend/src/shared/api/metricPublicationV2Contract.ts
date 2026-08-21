@@ -40,6 +40,7 @@ export const METRIC_CONTRACT_V2_PROJECTION_VERSIONS = [
   "metric-contract-v2-projection-2",
   "metric-contract-v2-projection-3",
   "metric-contract-v2-projection-4",
+  "metric-contract-v2-projection-5",
 ] as const;
 
 export type MetricDefinitionMismatch =
@@ -49,7 +50,8 @@ export type MetricDefinitionMismatch =
   | "guidance_contract_version"
   | "guidance_template_catalog_version"
   | "guidance_template_identity"
-  | "projection_version";
+  | "projection_version"
+  | "metric_profile_binding";
 
 function requireReadableProjectionVersion(value: unknown): asserts value is typeof METRIC_CONTRACT_V2_PROJECTION_VERSIONS[number] {
   if (METRIC_CONTRACT_V2_PROJECTION_VERSIONS.includes(

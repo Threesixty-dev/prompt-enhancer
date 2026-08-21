@@ -42,7 +42,7 @@ function summarizeArguments(tool: string | null | undefined, args: Record<string
 type TransportSlice = Pick<
   PromptEnhancerTransport,
   "listAgentSessions" | "createAgentSession" | "getAgentSession" | "deleteAgentSession" | "sendAgentMessage" | "getAgentEvents" | "decideAgentApproval" | "stopAgentSession" | "getAgentWorkspaceTree" | "getAgentWorkspaceFile" | "previewAgentWorkspaceEdit" | "applyAgentWorkspaceEdit"
-> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "checkPrompt" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
+> & Partial<Pick<PromptEnhancerTransport, "streamAgentEvents" | "getLocalModels" | "checkPrompt" | "getUserPresenceCapability" | "shareFolder" | "listSharedFolders" | "revokeSharedFolder" | "joinSharedFolder" | "listPeerLinks" | "leavePeerLink" | "pullPeerLink" | "pushPeerLink">>;
 
 /**
  * Agent workspace: a local model works inside one folder through tools. Reads
@@ -66,8 +66,12 @@ export function AgentPage({
   const [models, setModels] = useState<LocalModelsOverview | null>(null);
   const [workspace, setWorkspace] = useState("");
   const [modelAlias, setModelAlias] = useState("");
-  const [allowWrites, setAllowWrites] = useState(true);
-  const [allowCommands, setAllowCommands] = useState(true);
+  const [allowWrites, setAllowWrites] = useState(
+    transport.getUserPresenceCapability === undefined,
+  );
+  const [allowCommands, setAllowCommands] = useState(
+    transport.getUserPresenceCapability === undefined,
+  );
   const [allowWeb, setAllowWeb] = useState(false);
   const [temperature, setTemperature] = useState(0.2);
   const [topP, setTopP] = useState(0.95);
@@ -85,6 +89,9 @@ export function AgentPage({
   const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [historyGap, setHistoryGap] = useState(false);
   const [workspaceDirty, setWorkspaceDirty] = useState(false);
+  const [userPresenceAvailable, setUserPresenceAvailable] = useState(
+    transport.getUserPresenceCapability === undefined,
+  );
   const lastSeq = useRef(0);
   const logRef = useRef<HTMLDivElement | null>(null);
   const approvalRef = useRef<HTMLDivElement | null>(null);
@@ -117,6 +124,33 @@ export function AgentPage({
     const controller = new AbortController();
     void refreshSessions(controller.signal);
     transport.getLocalModels?.(controller.signal).then((value) => { if (!controller.signal.aborted) setModels(value); }).catch(() => undefined);
+    if (transport.getUserPresenceCapability === undefined) {
+      setUserPresenceAvailable(true);
+    } else {
+      setUserPresenceAvailable(false);
+      transport.getUserPresenceCapability(controller.signal)
+        .then((value) => {
+          if (!controller.signal.aborted) {
+            setUserPresenceAvailable(value.confirmation_available);
+            if (value.confirmation_available) {
+              setAllowWrites(true);
+              setAllowCommands(true);
+            } else {
+              setAllowWrites(false);
+              setAllowCommands(false);
+              setAllowWeb(false);
+            }
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setUserPresenceAvailable(false);
+            setAllowWrites(false);
+            setAllowCommands(false);
+            setAllowWeb(false);
+          }
+        });
+    }
     return () => controller.abort();
   }, [refreshSessions, transport]);
 
@@ -339,12 +373,17 @@ export function AgentPage({
   }
 
   async function decide(approved: boolean) {
-    if (!current || !pending?.approval_id) return;
+    if (!current || !pending?.approval_id || !userPresenceAvailable) return;
     try {
       const view = await transport.decideAgentApproval(current.session_id, pending.approval_id, approved);
       setCurrent(view);
-    } catch {
-      setMessage("The decision did not reach the agent; it may have moved on.");
+    } catch (caught) {
+      const status = caught instanceof TransportError ? caught.status : null;
+      setMessage(status === 503
+        ? "Native user-presence confirmation is unavailable in this app composition. The agent action remains pending."
+        : status === 403
+          ? "The native confirmation was declined or expired. The agent action remains pending."
+          : "The decision did not reach the agent; refresh before deciding again.");
     }
   }
 
@@ -425,9 +464,10 @@ export function AgentPage({
                   <textarea aria-label="Standing instructions" onChange={(e) => setInstructions(e.currentTarget.value)} placeholder="e.g. Answer in Polish. Keep documents as Markdown in docs/." rows={2} value={instructions} />
                 </label>
               </details>
-              <label className="agent__toggle"><input checked={allowWrites} onChange={(e) => setAllowWrites(e.currentTarget.checked)} type="checkbox" /><span>May write files (each write needs approval, diff shown)</span></label>
-              <label className="agent__toggle"><input checked={allowCommands} onChange={(e) => setAllowCommands(e.currentTarget.checked)} type="checkbox" /><span>May run commands (each command needs approval)</span></label>
-              <label className="agent__toggle"><input checked={allowWeb} onChange={(e) => setAllowWeb(e.currentTarget.checked)} type="checkbox" /><span>May fetch web pages (each fetch needs approval)</span></label>
+              <label className="agent__toggle"><input checked={allowWrites} disabled={!userPresenceAvailable} onChange={(e) => setAllowWrites(e.currentTarget.checked)} type="checkbox" /><span>May write files (each write needs approval, diff shown)</span></label>
+              <label className="agent__toggle"><input checked={allowCommands} disabled={!userPresenceAvailable} onChange={(e) => setAllowCommands(e.currentTarget.checked)} type="checkbox" /><span>May run commands (each command needs approval)</span></label>
+              <label className="agent__toggle"><input checked={allowWeb} disabled={!userPresenceAvailable} onChange={(e) => setAllowWeb(e.currentTarget.checked)} type="checkbox" /><span>May fetch web pages (each fetch needs approval)</span></label>
+              {!userPresenceAvailable && <p className="agent__note">Native confirmation is unavailable in this server/window composition. New sessions stay read-only; protected actions cannot be approved here.</p>}
               <button className="button button--primary" disabled={busy || !workspace.trim()} type="submit">Start session</button>
               {message && !current && <p className="agent__error" role="alert">{message}</p>}
             </form>
@@ -457,6 +497,7 @@ export function AgentPage({
               key={current.session_id}
               onDirtyChange={handleWorkspaceDirty}
               pendingWrite={pending}
+              userPresenceAvailable={userPresenceAvailable}
               sessionId={current.session_id}
               transport={transport}
             />
@@ -528,9 +569,10 @@ export function AgentPage({
                     <strong>{TOOL_LABELS[pending.tool ?? ""] ?? pending.tool}</strong> wants to {pending.tool === "write_file" ? "write" : pending.tool === "run_command" ? "run" : "fetch"}: <code>{summarizeArguments(pending.tool, pending.arguments as Record<string, unknown> | null)}</code>
                   </p>
                   {pending.preview && <pre className="agent__diff">{pending.preview}</pre>}
+                  {!userPresenceAvailable && <p className="agent__note">This pending action cannot be decided until the app is opened in a native-confirmation composition.</p>}
                   <div className="agent__approval-actions">
-                    <button className="button button--primary" onClick={() => void decide(true)} type="button">Approve</button>
-                    <button className="button button--ghost" onClick={() => void decide(false)} type="button">Deny</button>
+                    <button className="button button--primary" disabled={!userPresenceAvailable} onClick={() => void decide(true)} type="button">Approve</button>
+                    <button className="button button--ghost" disabled={!userPresenceAvailable} onClick={() => void decide(false)} type="button">Deny</button>
                   </div>
                 </div>
               )}

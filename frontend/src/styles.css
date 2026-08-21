@@ -3661,6 +3661,30 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .model-ensemble__boundary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; padding: 11px 13px; border: 1px solid var(--p-c8d5e8); border-radius: 11px; background: var(--pa-238-243-251-920); }
 .model-ensemble__boundary strong { color: var(--p-294f87); font-size: 0.76rem; }
 .model-ensemble__boundary span { color: var(--ink-650); font-size: 0.73rem; line-height: 1.5; }
+.declared-task-profile { display: grid; gap: 11px; padding: 13px; border: 1px solid var(--p-c8d5e8); border-radius: 12px; background: var(--pa-255-255-255-820); }
+.declared-task-profile > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.declared-task-profile > header > div { min-width: 0; }
+.declared-task-profile h3 { margin: 2px 0 4px; color: var(--ink-800); font-size: .88rem; }
+.declared-task-profile header p:not(.eyebrow) { max-width: 760px; margin: 0; color: var(--ink-650); font-size: .69rem; line-height: 1.45; }
+.declared-task-profile__revision { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; color: var(--p-294f87); background: var(--pa-238-243-251-920); font-size: .64rem; font-weight: 760; }
+.declared-task-profile form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.declared-task-profile fieldset { min-width: 0; display: grid; align-content: start; gap: 7px; margin: 0; padding: 9px 10px; border: 1px solid var(--p-d4deec); border-radius: 9px; }
+.declared-task-profile legend { padding: 0 4px; color: var(--ink-800); font-size: .68rem; font-weight: 780; }
+.declared-task-profile label { color: var(--ink-650); font-size: .66rem; line-height: 1.35; }
+.declared-task-profile__configure, .declared-task-profile__choices label { display: flex; align-items: center; gap: 6px; }
+.declared-task-profile__choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
+.declared-task-profile input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--teal-700); }
+.declared-task-profile__number { display: grid; gap: 5px; }
+.declared-task-profile__number input { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid var(--p-bdcadc); border-radius: 7px; color: var(--ink-800); background: var(--surface); font: inherit; }
+.declared-task-profile form > .button { justify-self: start; grid-column: 1 / -1; }
+.declared-task-profile__confirmation { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 11px; border: 1px solid var(--p-bcd8d1); border-radius: 9px; background: var(--pa-238-249-246-900); }
+.declared-task-profile__confirmation p { margin: 0; color: var(--ink-650); font-size: .68rem; line-height: 1.4; }
+.declared-task-profile__confirmation > div { flex: 0 0 auto; display: flex; gap: 7px; }
+.declared-task-profile__notice, .declared-task-profile__hint, .declared-task-profile__error { grid-column: 1 / -1; margin: 0; font-size: .66rem; line-height: 1.45; }
+.declared-task-profile__notice { color: var(--p-294f87); }
+.declared-task-profile__hint { color: var(--ink-500); }
+.declared-task-profile__error { color: var(--red-700); }
+.declared-task-profile :is(input, button):focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .model-ensemble__status { min-height: 18px; margin: 0; color: var(--p-294f87); font-size: 0.72rem; font-weight: 720; line-height: 1.45; }
 .model-ensemble__error { margin: 0; padding: 10px 12px; border: 1px solid var(--red-100); border-radius: 9px; color: var(--red-700); font-size: 0.74rem; line-height: 1.45; background: var(--red-50); }
 .model-ensemble__empty,
@@ -5089,6 +5113,7 @@ button.analysis-job-card[aria-pressed="true"] { background: var(--teal-50); box-
   .model-ensemble__header .button { width: 100%; }
   .model-ensemble__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .model-ensemble__results { grid-template-columns: 1fr; }
+  .declared-task-profile form { grid-template-columns: 1fr; }
   .metric-workspace__primary { grid-template-columns: 1fr; }
   .metric-workspace__snapshot { grid-template-columns: 1fr; }
   .metric-workspace--compact .metric-workspace__snapshot { grid-template-columns: 1fr; }
@@ -5128,6 +5153,9 @@ button.analysis-job-card[aria-pressed="true"] { background: var(--teal-50); box-
   .model-link-experiment fieldset .button { flex: 1 1 90px; min-height: 44px; }
   .model-ensemble { padding: 14px; border-radius: 14px; }
   .model-ensemble__boundary { grid-template-columns: 1fr; }
+  .declared-task-profile > header,
+  .declared-task-profile__confirmation { align-items: stretch; flex-direction: column; }
+  .declared-task-profile__confirmation > div { display: grid; grid-template-columns: 1fr 1fr; }
   .model-ensemble__facts { grid-template-columns: 1fr; }
   .model-ensemble__models li { align-items: flex-start; flex-direction: column; }
   .metric-workspace__snapshot dl { grid-template-columns: repeat(2,minmax(0,1fr)); }

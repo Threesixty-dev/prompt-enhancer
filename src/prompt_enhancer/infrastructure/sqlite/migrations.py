@@ -12791,3 +12791,581 @@ CREATE INDEX prompt_checks_by_time ON prompt_checks(created_at DESC, check_id);
 COMMIT;
 """
 
+
+MIGRATION_54 = r"""
+BEGIN IMMEDIATE;
+
+-- Reviewed task-profile denominators.  This store contains closed enum values,
+-- counts, keyed local identifiers, and server times only.  NULL means a metric
+-- family remains unconfigured/unknown; an empty configured family cannot be
+-- represented.  Each revision is appended and sealed in one transaction.
+CREATE TABLE session_declared_task_profiles (
+    profile_id TEXT PRIMARY KEY
+      CHECK(length(profile_id)=64 AND profile_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    provider TEXT NOT NULL
+      CHECK(provider IN ('codex','claude_code','synthetic')),
+    revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 1000000),
+    previous_profile_id TEXT
+      CHECK(previous_profile_id IS NULL
+            OR (length(previous_profile_id)=64
+                AND previous_profile_id NOT GLOB '*[^0-9a-f]*')),
+    constraint_kind_count INTEGER
+      CHECK(constraint_kind_count IS NULL
+            OR constraint_kind_count BETWEEN 1 AND 8),
+    expected_outcome_count INTEGER
+      CHECK(expected_outcome_count IS NULL
+            OR expected_outcome_count BETWEEN 1 AND 100),
+    deliverable_slot_count INTEGER
+      CHECK(deliverable_slot_count IS NULL
+            OR deliverable_slot_count BETWEEN 1 AND 6),
+    profile_fingerprint TEXT NOT NULL
+      CHECK(length(profile_fingerprint)=64
+            AND profile_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    idempotency_key_digest TEXT NOT NULL
+      CHECK(length(idempotency_key_digest)=64
+            AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+    command_fingerprint TEXT NOT NULL
+      CHECK(length(command_fingerprint)=64
+            AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    confirmed_at TEXT NOT NULL,
+    confirmation_authority TEXT NOT NULL
+      CHECK(confirmation_authority='authenticated_local_user'),
+    schema_version TEXT NOT NULL
+      CHECK(schema_version='declared-task-profile-v1'),
+    policy_version TEXT NOT NULL
+      CHECK(policy_version='authenticated-local-user-v1'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    CHECK((revision=1 AND previous_profile_id IS NULL)
+          OR (revision>1 AND previous_profile_id IS NOT NULL)),
+    UNIQUE(session_id,revision),
+    UNIQUE(session_id,idempotency_key_digest)
+) STRICT;
+
+CREATE INDEX session_declared_task_profiles_latest_idx
+ON session_declared_task_profiles(session_id,revision DESC,profile_id DESC);
+
+CREATE TABLE session_declared_task_profile_constraint_kinds (
+    profile_id TEXT NOT NULL
+      REFERENCES session_declared_task_profiles(profile_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 7),
+    constraint_kind TEXT NOT NULL
+      CHECK(constraint_kind IN (
+        'privacy','cost','platform','version','scope','performance','delivery','safety'
+      )),
+    PRIMARY KEY(profile_id,constraint_kind),
+    UNIQUE(profile_id,ordinal)
+) STRICT;
+
+CREATE TABLE session_declared_task_profile_deliverable_slots (
+    profile_id TEXT NOT NULL
+      REFERENCES session_declared_task_profiles(profile_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 5),
+    deliverable_slot TEXT NOT NULL
+      CHECK(deliverable_slot IN (
+        'artifact','format','location','audience','interface','compatibility'
+      )),
+    PRIMARY KEY(profile_id,deliverable_slot),
+    UNIQUE(profile_id,ordinal)
+) STRICT;
+
+-- A separate append-only seal lets child enum rows be inserted without ever
+-- updating the immutable profile row.  Reads join this seal, so no partial
+-- revision can acquire authority.
+CREATE TABLE session_declared_task_profile_seals (
+    profile_id TEXT PRIMARY KEY
+      REFERENCES session_declared_task_profiles(profile_id) ON DELETE CASCADE,
+    constraint_kind_count INTEGER CHECK(
+      constraint_kind_count IS NULL OR constraint_kind_count BETWEEN 1 AND 8
+    ),
+    expected_outcome_count INTEGER CHECK(
+      expected_outcome_count IS NULL OR expected_outcome_count BETWEEN 1 AND 100
+    ),
+    deliverable_slot_count INTEGER CHECK(
+      deliverable_slot_count IS NULL OR deliverable_slot_count BETWEEN 1 AND 6
+    ),
+    sealed_at TEXT NOT NULL
+) STRICT;
+
+CREATE TRIGGER session_declared_task_profile_provider_binding
+BEFORE INSERT ON session_declared_task_profiles
+WHEN NOT EXISTS(
+  SELECT 1 FROM sessions
+   WHERE session_id=NEW.session_id AND provider=NEW.provider
+)
+BEGIN SELECT RAISE(ABORT,'declared task profile session/provider mismatch'); END;
+
+CREATE TRIGGER session_declared_task_profile_revision_chain
+BEFORE INSERT ON session_declared_task_profiles
+WHEN (
+  (NEW.revision=1 AND EXISTS(
+    SELECT 1 FROM session_declared_task_profile_seals seal
+    JOIN session_declared_task_profiles profile
+      ON profile.profile_id=seal.profile_id
+    WHERE profile.session_id=NEW.session_id
+  ))
+  OR
+  (NEW.revision>1 AND NOT EXISTS(
+    SELECT 1 FROM session_declared_task_profiles prior
+    JOIN session_declared_task_profile_seals seal
+      ON seal.profile_id=prior.profile_id
+    WHERE prior.profile_id=NEW.previous_profile_id
+      AND prior.session_id=NEW.session_id
+      AND prior.provider=NEW.provider
+      AND prior.revision=NEW.revision-1
+      AND prior.revision=(
+        SELECT MAX(head.revision)
+        FROM session_declared_task_profiles head
+        JOIN session_declared_task_profile_seals head_seal
+          ON head_seal.profile_id=head.profile_id
+        WHERE head.session_id=NEW.session_id
+      )
+  ))
+)
+BEGIN SELECT RAISE(ABORT,'declared task profile revision is stale'); END;
+
+CREATE TRIGGER session_declared_task_profile_constraint_insert_guard
+BEFORE INSERT ON session_declared_task_profile_constraint_kinds
+WHEN EXISTS(
+       SELECT 1 FROM session_declared_task_profile_seals
+       WHERE profile_id=NEW.profile_id
+     )
+  OR NOT EXISTS(
+       SELECT 1 FROM session_declared_task_profiles
+       WHERE profile_id=NEW.profile_id
+         AND constraint_kind_count IS NOT NULL
+         AND NEW.ordinal<constraint_kind_count
+     )
+BEGIN SELECT RAISE(ABORT,'declared constraint kind is outside the profile'); END;
+
+CREATE TRIGGER session_declared_task_profile_deliverable_insert_guard
+BEFORE INSERT ON session_declared_task_profile_deliverable_slots
+WHEN EXISTS(
+       SELECT 1 FROM session_declared_task_profile_seals
+       WHERE profile_id=NEW.profile_id
+     )
+  OR NOT EXISTS(
+       SELECT 1 FROM session_declared_task_profiles
+       WHERE profile_id=NEW.profile_id
+         AND deliverable_slot_count IS NOT NULL
+         AND NEW.ordinal<deliverable_slot_count
+     )
+BEGIN SELECT RAISE(ABORT,'declared deliverable slot is outside the profile'); END;
+
+CREATE TRIGGER session_declared_task_profile_seal_counts
+BEFORE INSERT ON session_declared_task_profile_seals
+WHEN NOT EXISTS(
+  SELECT 1
+    FROM session_declared_task_profiles profile
+   WHERE profile.profile_id=NEW.profile_id
+     AND NEW.constraint_kind_count IS profile.constraint_kind_count
+     AND NEW.expected_outcome_count IS profile.expected_outcome_count
+     AND NEW.deliverable_slot_count IS profile.deliverable_slot_count
+     AND NEW.sealed_at=profile.confirmed_at
+     AND (SELECT COUNT(*)
+          FROM session_declared_task_profile_constraint_kinds item
+          WHERE item.profile_id=profile.profile_id)
+         =COALESCE(profile.constraint_kind_count,0)
+     AND (profile.constraint_kind_count IS NULL
+          OR (SELECT MIN(item.ordinal)
+              FROM session_declared_task_profile_constraint_kinds item
+              WHERE item.profile_id=profile.profile_id)=0)
+     AND (profile.constraint_kind_count IS NULL
+          OR (SELECT MAX(item.ordinal)
+              FROM session_declared_task_profile_constraint_kinds item
+              WHERE item.profile_id=profile.profile_id)
+             =profile.constraint_kind_count-1)
+     AND (SELECT COUNT(*)
+          FROM session_declared_task_profile_deliverable_slots item
+          WHERE item.profile_id=profile.profile_id)
+         =COALESCE(profile.deliverable_slot_count,0)
+     AND (profile.deliverable_slot_count IS NULL
+          OR (SELECT MIN(item.ordinal)
+              FROM session_declared_task_profile_deliverable_slots item
+              WHERE item.profile_id=profile.profile_id)=0)
+     AND (profile.deliverable_slot_count IS NULL
+          OR (SELECT MAX(item.ordinal)
+              FROM session_declared_task_profile_deliverable_slots item
+              WHERE item.profile_id=profile.profile_id)
+             =profile.deliverable_slot_count-1)
+)
+BEGIN SELECT RAISE(ABORT,'declared task profile seal counts do not match'); END;
+
+CREATE TRIGGER session_declared_task_profiles_no_update
+BEFORE UPDATE ON session_declared_task_profiles
+BEGIN SELECT RAISE(ABORT,'declared task profiles are immutable'); END;
+CREATE TRIGGER session_declared_task_profile_constraints_no_update
+BEFORE UPDATE ON session_declared_task_profile_constraint_kinds
+BEGIN SELECT RAISE(ABORT,'declared task profile constraints are immutable'); END;
+CREATE TRIGGER session_declared_task_profile_deliverables_no_update
+BEFORE UPDATE ON session_declared_task_profile_deliverable_slots
+BEGIN SELECT RAISE(ABORT,'declared task profile deliverables are immutable'); END;
+CREATE TRIGGER session_declared_task_profile_seals_no_update
+BEFORE UPDATE ON session_declared_task_profile_seals
+BEGIN SELECT RAISE(ABORT,'declared task profile seals are immutable'); END;
+
+CREATE TRIGGER session_declared_task_profiles_privacy_delete_only
+BEFORE DELETE ON session_declared_task_profiles
+WHEN EXISTS(SELECT 1 FROM sessions WHERE session_id=OLD.session_id)
+BEGIN SELECT RAISE(ABORT,'declared task profiles require parent privacy deletion'); END;
+CREATE TRIGGER session_declared_task_profile_constraints_privacy_delete_only
+BEFORE DELETE ON session_declared_task_profile_constraint_kinds
+WHEN EXISTS(
+  SELECT 1 FROM session_declared_task_profiles WHERE profile_id=OLD.profile_id
+)
+BEGIN SELECT RAISE(ABORT,'declared constraints require parent privacy deletion'); END;
+CREATE TRIGGER session_declared_task_profile_deliverables_privacy_delete_only
+BEFORE DELETE ON session_declared_task_profile_deliverable_slots
+WHEN EXISTS(
+  SELECT 1 FROM session_declared_task_profiles WHERE profile_id=OLD.profile_id
+)
+BEGIN SELECT RAISE(ABORT,'declared deliverables require parent privacy deletion'); END;
+CREATE TRIGGER session_declared_task_profile_seals_privacy_delete_only
+BEFORE DELETE ON session_declared_task_profile_seals
+WHEN EXISTS(
+  SELECT 1 FROM session_declared_task_profiles WHERE profile_id=OLD.profile_id
+)
+BEGIN SELECT RAISE(ABORT,'declared task profile seals require parent privacy deletion'); END;
+
+-- Projection r5 makes the exact reviewed denominator profile part of the
+-- measured-publication identity.  The binding contains closed metadata only;
+-- prompt text, labels, rationale, paths, and model claims cannot be stored.
+CREATE TABLE session_model_ensemble_metric_profile_bindings (
+    run_id TEXT PRIMARY KEY
+      REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    profile_source TEXT NOT NULL CHECK(profile_source IN (
+      'coaching_profile_v1_unconfigured','declared_task_profile'
+    )),
+    provider TEXT NOT NULL CHECK(provider IN ('codex','claude_code','synthetic')),
+    session_id TEXT NOT NULL
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL
+      CHECK(length(source_window_fingerprint)=64
+            AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    profile_id TEXT
+      REFERENCES session_declared_task_profiles(profile_id)
+      ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+      CHECK(profile_id IS NULL OR
+            (length(profile_id)=64 AND profile_id NOT GLOB '*[^0-9a-f]*')),
+    profile_revision INTEGER
+      CHECK(profile_revision IS NULL OR profile_revision BETWEEN 1 AND 1000000),
+    profile_fingerprint TEXT NOT NULL
+      CHECK(length(profile_fingerprint)=64
+            AND profile_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    profile_schema_version TEXT NOT NULL CHECK(profile_schema_version IN (
+      'coaching-profile-v1-unconfigured','declared-task-profile-v1'
+    )),
+    profile_policy_version TEXT NOT NULL CHECK(profile_policy_version IN (
+      'server-preset-v1','authenticated-local-user-v1'
+    )),
+    bound_at TEXT NOT NULL
+      CHECK(length(bound_at)=32 AND substr(bound_at,27)='+00:00'),
+    binding_fingerprint TEXT NOT NULL
+      CHECK(length(binding_fingerprint)=64
+            AND binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    CHECK(
+      (profile_source='coaching_profile_v1_unconfigured'
+       AND profile_id IS NULL AND profile_revision IS NULL
+       AND profile_fingerprint=
+         '4cf952d189fd817c3959540a18538b76b161aa3a03d810cb967cafc7f284be71'
+       AND profile_schema_version='coaching-profile-v1-unconfigured'
+       AND profile_policy_version='server-preset-v1')
+      OR
+      (profile_source='declared_task_profile'
+       AND profile_id IS NOT NULL AND profile_revision IS NOT NULL
+       AND profile_schema_version='declared-task-profile-v1'
+       AND profile_policy_version='authenticated-local-user-v1')
+    )
+) STRICT;
+
+CREATE TRIGGER session_model_ensemble_metric_profile_binding_exact
+BEFORE INSERT ON session_model_ensemble_metric_profile_bindings
+WHEN NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_runs run
+       WHERE run.run_id=NEW.run_id
+         AND run.session_id=NEW.session_id
+         AND run.provider=NEW.provider
+         AND run.input_fingerprint=NEW.source_window_fingerprint
+         AND run.source_window_fingerprint=NEW.source_window_fingerprint
+     )
+  OR (
+       NEW.profile_source='declared_task_profile'
+       AND NOT EXISTS(
+         SELECT 1 FROM session_declared_task_profiles profile
+         JOIN session_declared_task_profile_seals profile_seal
+           ON profile_seal.profile_id=profile.profile_id
+         WHERE profile.profile_id=NEW.profile_id
+           AND profile.session_id=NEW.session_id
+           AND profile.provider=NEW.provider
+           AND profile.revision=NEW.profile_revision
+           AND profile.profile_fingerprint=NEW.profile_fingerprint
+           AND profile.schema_version=NEW.profile_schema_version
+           AND profile.policy_version=NEW.profile_policy_version
+       )
+     )
+  OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2
+            WHERE run_id=NEW.run_id)
+  OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals
+            WHERE run_id=NEW.run_id)
+  OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r2
+            WHERE run_id=NEW.run_id)
+  OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2
+            WHERE run_id=NEW.run_id)
+  OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r3
+            WHERE run_id=NEW.run_id)
+  OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r3
+            WHERE run_id=NEW.run_id)
+  OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r4
+            WHERE run_id=NEW.run_id)
+  OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4
+            WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TABLE session_model_ensemble_metric_states_v2_r5 (
+    run_id TEXT NOT NULL,
+    metric_ordinal INTEGER NOT NULL CHECK(metric_ordinal BETWEEN 0 AND 19),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-5'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='probabilistic-metric-contract-v2'),
+    contract_fingerprint TEXT NOT NULL CHECK(length(contract_fingerprint)=64 AND contract_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    evidence_authority TEXT NOT NULL CHECK(evidence_authority IN ('conversation','objective_receipt')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','pending','unknown','not_applicable','abstained','execution_error')),
+    explanation_code TEXT NOT NULL CHECK(length(explanation_code) BETWEEN 1 AND 128 AND explanation_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    numerator INTEGER CHECK(numerator BETWEEN 0 AND 1000000),
+    denominator INTEGER CHECK(denominator BETWEEN 1 AND 1000000),
+    numeric_value REAL CHECK(numeric_value BETWEEN 0.0 AND 1.0),
+    censoring_lower_bound REAL CHECK(censoring_lower_bound BETWEEN 0.0 AND 1.0),
+    censoring_upper_bound REAL CHECK(censoring_upper_bound BETWEEN 0.0 AND 1.0),
+    denominator_basis TEXT NOT NULL CHECK(denominator_basis IN ('rubric_factors','semantic_unit_opportunities','declared_profile_slots','objective_opportunities')),
+    opportunity_unit_kind TEXT CHECK(opportunity_unit_kind IN (
+        'request_revision','requirement','constraint','deliverable','ambiguity',
+        'clarification','scope_change','feedback','hypothesis','decision',
+        'open_loop','action','verification'
+    )),
+    capability_available INTEGER NOT NULL CHECK(capability_available IN (0,1)),
+    source_complete INTEGER NOT NULL CHECK(source_complete IN (0,1)),
+    eligible_count INTEGER NOT NULL CHECK(eligible_count BETWEEN 0 AND 1000000),
+    met_count INTEGER NOT NULL CHECK(met_count BETWEEN 0 AND 1000000),
+    not_met_count INTEGER NOT NULL CHECK(not_met_count BETWEEN 0 AND 1000000),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 1000000),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 1000000),
+    superseded_excluded_count INTEGER NOT NULL CHECK(superseded_excluded_count BETWEEN 0 AND 1000000),
+    distinct_owner_count INTEGER NOT NULL CHECK(distinct_owner_count BETWEEN 0 AND 1000000),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,metric_key),
+    UNIQUE(run_id,metric_ordinal),
+    FOREIGN KEY(run_id,metric_key)
+      REFERENCES session_model_ensemble_metrics(run_id,metric_key) ON DELETE CASCADE,
+    CHECK(met_count+not_met_count+pending_count+unknown_count=eligible_count),
+    CHECK(capability_available=1 OR eligible_count=0),
+    CHECK(denominator_basis NOT IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NOT NULL),
+    CHECK(denominator_basis IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NULL),
+    CHECK((censoring_lower_bound IS NULL)=(censoring_upper_bound IS NULL)),
+    CHECK(censoring_lower_bound IS NULL OR censoring_lower_bound<=censoring_upper_bound),
+    CHECK(
+      (value_state='known' AND numerator IS NOT NULL AND denominator IS NOT NULL
+       AND numeric_value IS NOT NULL AND numerator<=denominator
+       AND abs(numeric_value-(CAST(numerator AS REAL)/denominator))<=0.000000001
+       AND censoring_lower_bound IS NOT NULL
+       AND abs(censoring_lower_bound-numeric_value)<=0.000000001
+       AND abs(censoring_upper_bound-numeric_value)<=0.000000001)
+      OR
+      (value_state<>'known' AND numerator IS NULL AND denominator IS NULL
+       AND numeric_value IS NULL)
+    ),
+    CHECK(value_state<>'pending' OR pending_count>0),
+    CHECK(value_state<>'not_applicable' OR eligible_count=0),
+    CHECK(evidence_authority<>'objective_receipt' OR value_state<>'known'
+          OR denominator_basis='objective_opportunities')
+) STRICT;
+
+CREATE TABLE session_model_ensemble_metric_publication_v2_seals_r5 (
+    run_id TEXT PRIMARY KEY
+      REFERENCES session_model_ensemble_metric_profile_bindings(run_id)
+      ON DELETE CASCADE,
+    publication_key TEXT NOT NULL CHECK(publication_key='metric.contract-v2.publication'),
+    publication_version INTEGER NOT NULL CHECK(publication_version=2),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    contract_set_fingerprint TEXT NOT NULL CHECK(length(contract_set_fingerprint)=64 AND contract_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-5'),
+    guidance_contract_version TEXT NOT NULL CHECK(guidance_contract_version='metric-guidance-contract-v1'),
+    guidance_template_catalog_version TEXT NOT NULL CHECK(guidance_template_catalog_version='metric-guidance-templates-v1'),
+    source TEXT NOT NULL CHECK(source='live_projection'),
+    canonical_live_snapshot INTEGER NOT NULL CHECK(canonical_live_snapshot=1),
+    model_stage_consumed INTEGER NOT NULL CHECK(model_stage_consumed=0),
+    compatibility_preview INTEGER NOT NULL CHECK(compatibility_preview=0),
+    metric_count INTEGER NOT NULL CHECK(metric_count=20),
+    known_count INTEGER NOT NULL CHECK(known_count BETWEEN 0 AND 20),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 20),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 20),
+    not_applicable_count INTEGER NOT NULL CHECK(not_applicable_count BETWEEN 0 AND 20),
+    abstained_count INTEGER NOT NULL CHECK(abstained_count BETWEEN 0 AND 20),
+    execution_error_count INTEGER NOT NULL CHECK(execution_error_count BETWEEN 0 AND 20),
+    objective_measured_count INTEGER NOT NULL CHECK(objective_measured_count BETWEEN 0 AND 5),
+    projection_fingerprint TEXT NOT NULL CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    profile_source TEXT NOT NULL CHECK(profile_source IN (
+      'coaching_profile_v1_unconfigured','declared_task_profile'
+    )),
+    profile_id TEXT CHECK(profile_id IS NULL OR
+      (length(profile_id)=64 AND profile_id NOT GLOB '*[^0-9a-f]*')),
+    profile_revision INTEGER CHECK(profile_revision IS NULL OR
+      profile_revision BETWEEN 1 AND 1000000),
+    profile_fingerprint TEXT NOT NULL CHECK(length(profile_fingerprint)=64 AND profile_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    profile_schema_version TEXT NOT NULL CHECK(profile_schema_version IN (
+      'coaching-profile-v1-unconfigured','declared-task-profile-v1'
+    )),
+    profile_policy_version TEXT NOT NULL CHECK(profile_policy_version IN (
+      'server-preset-v1','authenticated-local-user-v1'
+    )),
+    profile_binding_fingerprint TEXT NOT NULL CHECK(length(profile_binding_fingerprint)=64 AND profile_binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    publication_profile_fingerprint TEXT NOT NULL CHECK(length(publication_profile_fingerprint)=64 AND publication_profile_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projected_at TEXT NOT NULL CHECK(length(projected_at)=32 AND substr(projected_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    CHECK(known_count+pending_count+unknown_count+not_applicable_count+
+          abstained_count+execution_error_count=metric_count),
+    CHECK((profile_source='coaching_profile_v1_unconfigured'
+           AND profile_id IS NULL AND profile_revision IS NULL)
+          OR (profile_source='declared_task_profile'
+              AND profile_id IS NOT NULL AND profile_revision IS NOT NULL))
+) STRICT;
+
+-- Frozen r1-r4 identities reject r5 in both possible insertion orders.
+CREATE TRIGGER session_model_ensemble_metric_v2_r1_states_reject_r5
+BEFORE INSERT ON session_model_ensemble_metric_states_v2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r1_seals_reject_r5
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_states_reject_r5
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r2_seals_reject_r5
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r3_states_reject_r5
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r3
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r3_seals_reject_r5
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r3
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r4_states_reject_r5
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r4
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r4_seals_reject_r5
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r4
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r5_states_exact
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r5
+WHEN NOT EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings
+                WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r5_seal_complete
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r5
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+ OR NOT EXISTS(
+    SELECT 1 FROM session_model_ensemble_runs run
+    JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+    WHERE run.run_id=NEW.run_id AND run.metric_count=NEW.metric_count)
+ OR NOT EXISTS(
+    SELECT 1 FROM session_model_ensemble_metric_profile_bindings binding
+    WHERE binding.run_id=NEW.run_id
+      AND binding.profile_source=NEW.profile_source
+      AND binding.profile_id IS NEW.profile_id
+      AND binding.profile_revision IS NEW.profile_revision
+      AND binding.profile_fingerprint=NEW.profile_fingerprint
+      AND binding.profile_schema_version=NEW.profile_schema_version
+      AND binding.profile_policy_version=NEW.profile_policy_version
+      AND binding.binding_fingerprint=NEW.profile_binding_fingerprint)
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)<>NEW.metric_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id AND value_state='known')<>NEW.known_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id AND value_state='pending')<>NEW.pending_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id AND value_state='unknown')<>NEW.unknown_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id AND value_state='not_applicable')<>NEW.not_applicable_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id AND value_state='abstained')<>NEW.abstained_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id AND value_state='execution_error')<>NEW.execution_error_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id AND evidence_authority='objective_receipt' AND value_state='known')<>NEW.objective_measured_count
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5
+           WHERE run_id=NEW.run_id AND
+             (registry_version<>NEW.registry_version OR projection_version<>NEW.projection_version))
+BEGIN SELECT RAISE(ABORT,'metric V2 r5 publication is incomplete'); END;
+
+CREATE TRIGGER session_model_ensemble_metric_v2_r5_states_sealed_insert
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r5
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5
+            WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r5 publication is sealed'); END;
+CREATE TRIGGER session_model_ensemble_metric_profile_bindings_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_profile_bindings
+BEGIN SELECT RAISE(ABORT,'metric profile bindings are immutable'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r5_states_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_states_v2_r5
+BEGIN SELECT RAISE(ABORT,'metric V2 r5 states are immutable'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r5_seals_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_publication_v2_seals_r5
+BEGIN SELECT RAISE(ABORT,'metric V2 r5 publication seals are immutable'); END;
+CREATE TRIGGER session_model_ensemble_metric_profile_bindings_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_profile_bindings
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric profile binding requires parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r5_states_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_states_v2_r5
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r5 states require parent privacy deletion'); END;
+CREATE TRIGGER session_model_ensemble_metric_v2_r5_seals_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_publication_v2_seals_r5
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r5 publication seal requires parent privacy deletion'); END;
+
+COMMIT;
+"""
+

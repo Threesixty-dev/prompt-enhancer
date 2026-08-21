@@ -44,6 +44,7 @@ from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_1,
     METRIC_PROJECTION_V2_VERSION_3,
     METRIC_PROJECTION_V2_VERSION_4,
+    METRIC_PROJECTION_V2_VERSION_5,
     MetricProjectionV2Version,
     MetricStateV2,
 )
@@ -67,13 +68,20 @@ METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2 = "metric-evidence-readiness-v2-2
 #: Identity 3 adds the explicit, user-confirmed lifecycle receipt vocabulary
 #: used by projection r4.  Identities 1 and 2 remain readable and unchanged.
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3 = "metric-evidence-readiness-v2-3"
+#: Identity 4 teaches the readiness reader about append-only metric projection
+#: r5.  R5 inherits the r4 confirmed-lifecycle contract and the r3 open-loop
+#: contract.  Its reviewed task-profile rows also stop claiming a declared
+#: profile contributor when the sealed denominator contains no profile slots.
+#: Earlier projection identities retain their exact requirement routing.
+METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4 = "metric-evidence-readiness-v2-4"
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION = (
-    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4
 )
 SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS = (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
 )
 
 
@@ -402,6 +410,20 @@ _REQUIREMENTS_V4: dict[str, _EvidenceRequirement] = {
 }
 METRIC_EVIDENCE_REQUIREMENTS_V2_R4 = MappingProxyType(_REQUIREMENTS_V4)
 
+_R3_REQUIREMENT_PROJECTIONS = frozenset(
+    {
+        METRIC_PROJECTION_V2_VERSION_3,
+        METRIC_PROJECTION_V2_VERSION_4,
+        METRIC_PROJECTION_V2_VERSION_5,
+    }
+)
+_R4_LIFECYCLE_PROJECTIONS = frozenset(
+    {
+        METRIC_PROJECTION_V2_VERSION_4,
+        METRIC_PROJECTION_V2_VERSION_5,
+    }
+)
+
 if set(METRIC_EVIDENCE_REQUIREMENTS_V2) != {
     contract.metric_key for contract in METRIC_CONTRACTS_V2
 }:
@@ -418,14 +440,11 @@ def metric_evidence_requirement(
 ) -> _EvidenceRequirement:
     """The evidence one metric needed *under the identity that produced it*."""
 
-    if projection_version == METRIC_PROJECTION_V2_VERSION_4:
+    if projection_version in _R4_LIFECYCLE_PROJECTIONS:
         overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R4.get(metric_key)
         if overlay is not None:
             return overlay
-    if projection_version in (
-        METRIC_PROJECTION_V2_VERSION_3,
-        METRIC_PROJECTION_V2_VERSION_4,
-    ):
+    if projection_version in _R3_REQUIREMENT_PROJECTIONS:
         overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R3.get(metric_key)
         if overlay is not None:
             return overlay
@@ -483,7 +502,7 @@ def _availability(
         )
     if (
         state.projection_version
-        in {METRIC_PROJECTION_V2_VERSION_3, METRIC_PROJECTION_V2_VERSION_4}
+        in _R3_REQUIREMENT_PROJECTIONS
         and statistics.denominator_basis is DenominatorBasis.OBJECTIVE_OPPORTUNITIES
         and statistics.capability_available
         and statistics.source_complete
@@ -507,7 +526,7 @@ def _availability(
             requirement.capability_missing_reason,
         )
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_4
+        state.projection_version in _R4_LIFECYCLE_PROJECTIONS
         and state.metric_key in METRIC_EVIDENCE_REQUIREMENTS_V2_R4
         and not statistics.source_complete
     ):
@@ -572,7 +591,7 @@ def _observed_contributors(
         return ()
     resolved = statistics.met_count + statistics.not_met_count
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_4
+        state.projection_version in _R4_LIFECYCLE_PROJECTIONS
         and state.metric_key in METRIC_EVIDENCE_REQUIREMENTS_V2_R4
     ):
         observed: list[MetricEvidenceContributor] = []
@@ -589,6 +608,18 @@ def _observed_contributors(
                 MetricEvidenceContributor.CONFIRMED_LIFECYCLE_OUTCOME_LINK
             )
         return tuple(observed)
+    if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_5
+        and statistics.denominator_basis is DenominatorBasis.DECLARED_PROFILE_SLOTS
+        and statistics.eligible_count == 0
+    ):
+        # R5 binds a reviewed task-profile revision (or the exact unconfigured
+        # preset) to the source window.  A zero-slot sealed denominator does not
+        # prove that this metric family was configured.  Keeping both
+        # contributors missing is conservative: the row cannot distinguish an
+        # unconfigured family from a configured family whose canonical request
+        # was unavailable, and it must not invent either proof.
+        return ()
     observed = (
         ()
         if resolved == 0 and not statistics.source_complete
@@ -838,7 +869,7 @@ def metric_evidence_readiness_row(
     observed = _observed_contributors(state, requirement)
     required = requirement.required_contributors
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_4
+        state.projection_version in _R4_LIFECYCLE_PROJECTIONS
         and state.metric_key in METRIC_EVIDENCE_REQUIREMENTS_V2_R4
         and state.value_state is MetricValueStateV2.NOT_APPLICABLE
     ):
@@ -953,6 +984,7 @@ __all__ = [
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_2",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3",
+    "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4",
     "METRIC_EVIDENCE_READINESS_V2_KEY",
     "METRIC_EVIDENCE_READINESS_V2_VERSION",
     "METRIC_EVIDENCE_REQUIREMENTS_V2",

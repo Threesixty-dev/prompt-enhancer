@@ -3,6 +3,7 @@ import {
   METRIC_EXPLAINER_PROVENANCE_LABELS,
   METRIC_HELP_V2_VERSION,
   metricInspectorSentences,
+  type MetricHelpProjectionVersion,
   type MetricInspectorInput,
   type MetricExplainerProvenance,
 } from "./metricHelpV2";
@@ -28,6 +29,8 @@ import "./MetricExplainer.css";
 export interface MetricExplainerEntry {
   key: string;
   label: string;
+  /** Exact sealed projection selecting frozen historical or current r5 explainer units. */
+  projectionVersion?: MetricHelpProjectionVersion | null;
   provenance: MetricExplainerProvenance;
   /** Raw fraction in the metric's own direction, when a value exists. */
   numericValue: number | null;
@@ -49,6 +52,7 @@ function guidanceFor(entry: MetricExplainerEntry) {
   return metricInspectorSentences({
     metricKey: entry.key,
     label: entry.label,
+    projectionVersion: entry.projectionVersion ?? null,
     state: entry.state ?? (entry.provenance === "measured" && entry.numericValue !== null ? "known" : "missing"),
     direction: entry.direction ?? "higher_is_better",
     numericValue: entry.numericValue,
@@ -140,6 +144,7 @@ export function MetricExplainerCardSlot({ controller, surface, entries, compact 
         data-metric-key={entry.key}
         data-pinned={pinned ? "true" : "false"}
         data-provenance={entry.provenance}
+        data-projection-version={entry.projectionVersion ?? undefined}
         data-state={sentences.state}
         data-suppression-reason={sentences.suppressionReason ?? undefined}
         data-comparability={sentences.comparabilityState ?? undefined}

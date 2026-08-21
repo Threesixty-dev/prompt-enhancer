@@ -34,7 +34,7 @@ from .metric_evidence_readiness_v2 import (
     METRIC_EVIDENCE_REQUIREMENTS_V2,
 )
 from .metric_lifecycle_evidence import MetricLifecycleFamily
-from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_4
+from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_5
 from .metric_projection_v3 import OPEN_LOOP_METRIC_KEY
 from .probabilistic_metrics import (
     EVIDENCE_LANE_METRIC_KEYS,
@@ -42,10 +42,9 @@ from .probabilistic_metrics import (
 )
 from .provider_evidence import CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES
 from .semantic_units import EXTRACTABLE_SEMANTIC_UNIT_KINDS
-from .text_analysis_presets import COACHING_PROFILE_V1
 
 
-METRIC_OPERABILITY_CATALOG_VERSION = "metric-operability-v1"
+METRIC_OPERABILITY_CATALOG_VERSION = "metric-operability-v2"
 
 
 class MetricMeasuredPath(StrEnum):
@@ -99,8 +98,8 @@ class MetricOperabilityCatalog(StrictModel):
         METRIC_CONTRACT_REGISTRY_VERSION_V2
     )
     contract_set_fingerprint: str
-    projection_version: Literal[METRIC_PROJECTION_V2_VERSION_4] = (
-        METRIC_PROJECTION_V2_VERSION_4
+    projection_version: Literal[METRIC_PROJECTION_V2_VERSION_5] = (
+        METRIC_PROJECTION_V2_VERSION_5
     )
     readiness_catalog_version: Literal[
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION
@@ -160,17 +159,6 @@ _EXPERIMENTAL_MODEL_KEYS = frozenset(
 )
 
 
-def _profile_is_configured(metric_key: str) -> bool:
-    profile = COACHING_PROFILE_V1.task_profile
-    if metric_key == "prompt.constraint_precision":
-        return bool(profile.expected_constraint_kinds)
-    if metric_key == "prompt.deliverable_contract":
-        return bool(profile.expected_deliverable_slots)
-    if metric_key == "prompt.acceptance_testability":
-        return profile.expected_outcome_count is not None
-    raise ValueError("metric is not a declared-profile contract")
-
-
 def _entry(contract: MetricContractV2) -> MetricOperabilityEntry:
     key = contract.metric_key
     if key in _LIFECYCLE_KEYS:
@@ -187,11 +175,7 @@ def _entry(contract: MetricContractV2) -> MetricOperabilityEntry:
         next_step = MetricNextStepCode.ANALYZE_FOCUS_REQUEST
     elif contract.denominator_basis is DenominatorBasis.DECLARED_PROFILE_SLOTS:
         measured_path = MetricMeasuredPath.DECLARED_TASK_PROFILE
-        state = (
-            MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
-            if _profile_is_configured(key)
-            else MetricShippedPathState.TASK_PROFILE_CONFIGURATION_REQUIRED
-        )
+        state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
         next_step = MetricNextStepCode.DECLARE_TASK_PROFILE
     elif contract.denominator_basis is DenominatorBasis.OBJECTIVE_OPPORTUNITIES:
         required = set(

@@ -239,6 +239,8 @@ def test_browser_cookie_auth_requires_same_origin_csrf_for_mutations(tmp_path) -
         set_cookie = session.headers["set-cookie"].casefold()
 
         assert session.status_code == 200
+        assert session.json()["user_presence_confirmation_available"] is False
+        assert session.json()["user_presence_confirmation_mode"] == "unavailable"
         assert "httponly" in set_cookie
         assert "samesite=strict" in set_cookie
         assert "path=/" in set_cookie

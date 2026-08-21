@@ -31,7 +31,8 @@ function friendlyError(caught: unknown): string {
   if (status === 409) return "The file or preview changed. Reopen the file and review a fresh diff.";
   if (status === 413) return "This edit is too large for one safe review.";
   if (status === 415) return "Only strict UTF-8 text files can be edited here.";
-  if (status === 403) return "This path is protected or no longer belongs to the workspace.";
+  if (status === 403) return "The native approval was declined, expired, or the path is protected. Nothing was applied.";
+  if (status === 503) return "Native user-presence confirmation is unavailable in this app composition. Nothing was applied.";
   if (status === 200) return "The local service returned an invalid workspace response. Nothing was applied.";
   if (status === 422) return "This file cannot be safely edited in the current workspace.";
   return "The local workspace operation did not complete.";
@@ -48,11 +49,13 @@ export function AgentWorkspacePane({
   transport,
   pendingWrite,
   onDirtyChange,
+  userPresenceAvailable = true,
 }: {
   sessionId: string;
   transport: WorkspaceTransport;
   pendingWrite: AgentEvent | null;
   onDirtyChange?: (dirty: boolean) => void;
+  userPresenceAvailable?: boolean;
 }) {
   const [folder, setFolder] = useState(".");
   const [tree, setTree] = useState<AgentWorkspaceTree | null>(null);
@@ -198,7 +201,7 @@ export function AgentWorkspacePane({
   }
 
   async function applyPreview() {
-    if (!opened || !preview || !previewIsCurrent || loading) return;
+    if (!opened || !preview || !previewIsCurrent || loading || !userPresenceAvailable) return;
     const requestedSession = sessionId;
     const version = ++operationVersion.current;
     setLoading(true);
@@ -257,7 +260,7 @@ export function AgentWorkspacePane({
         </button>
       </header>
       <p className="agent-workspace__truth">
-        Your manual edits use browser confirmation and do not depend on whether the model may write. Existing UTF-8 text files up to {AGENT_WORKSPACE_MAX_FILE_BYTES / 1000} KB only in this first version.
+        Your manual edits require native user-presence confirmation and do not depend on whether the model may write. Existing UTF-8 text files up to {AGENT_WORKSPACE_MAX_FILE_BYTES / 1000} KB only in this first version.
       </p>
 
       <div className="agent-workspace__tree" aria-busy={loading} aria-label={folderLabel}>
@@ -325,7 +328,8 @@ export function AgentWorkspacePane({
           <h3>Review manual edit</h3>
           <pre>{preview.diff}</pre>
           {!previewIsCurrent && <p role="status">The draft changed after this preview. Review a fresh diff before applying.</p>}
-          <button className="button button--primary" disabled={!previewIsCurrent || loading} onClick={() => void applyPreview()} type="button">Apply reviewed edit</button>
+          {!userPresenceAvailable && <p role="status">This preview is read-only here because native user-presence confirmation is unavailable.</p>}
+          <button className="button button--primary" disabled={!previewIsCurrent || loading || !userPresenceAvailable} onClick={() => void applyPreview()} type="button">Apply reviewed edit</button>
         </section>
       )}
 

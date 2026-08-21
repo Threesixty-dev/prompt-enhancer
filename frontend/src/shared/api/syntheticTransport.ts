@@ -444,6 +444,13 @@ export function createSyntheticTransport(): SyntheticRuntimeTransport {
 
   return {
     runtimeKind: "synthetic_fixture",
+    async getUserPresenceCapability() {
+      return {
+        contract_version: "native-user-presence-capability-v1",
+        confirmation_available: false,
+        mode: "unavailable",
+      };
+    },
     async getControlPlaneReadiness() {
       throw new TransportError(
         "The loopback control-plane readiness route is unavailable in synthetic preview",

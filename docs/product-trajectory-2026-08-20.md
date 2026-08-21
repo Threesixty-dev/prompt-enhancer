@@ -8,8 +8,8 @@ it does not prove metric validity, production security, or customer value.
 
 | Area | What exists now | Honest boundary |
 |---|---|---|
-| All-20 metrics | One sealed twenty-state publication, r4 evidence readiness, two-sentence guidance, full dashboard and compact overlay | 12 conditional measured paths; 3 task-profile gaps; 5 provider/extractor gaps; unknown is not a failure or zero |
-| Local agent evidence | Canonical file contract, preview/import, inert proposals, paged review UI, browser-only confirm/reject, fresh-snapshot publication | Covers five collaboration lifecycle families only; an agent cannot verify its own claim |
+| All-20 metrics | One sealed twenty-state r5 publication, readiness v2-4, two-sentence guidance, full dashboard and compact overlay | 15 conditional measured paths; 0 task-profile gaps; 5 provider/extractor gaps; unknown is not a failure or zero |
+| Local agent evidence | Historical v1/r4 and current v2/r5 canonical file contracts, preview/import, inert proposals, paged review UI, owned-window native decisions, fresh-snapshot publication | Covers five collaboration lifecycle families only; an agent cannot verify its own claim; standard serve/attached mode stays proposal-only |
 | Local models | Three small factor experts, optional bounded Qwen adjudicator, immutable stage/resource receipts, hardware compatibility catalog | Eight experimental metric paths; uncalibrated, product-ineligible, and never measured authority |
 | Task work | Evidence-honest proposal/revision/review/analysis timeline plus authoritative lifecycle ledger foundations | Analysis completion is not task completion; automatic backlog/in-progress/done inference remains forbidden without explicit lifecycle receipts |
 | Team/control plane | Default-off development contracts, RBAC/policy attacks, readiness-only local UI, content-free sync envelope foundation | No production IdP, PostgreSQL/RLS adapter, durable remote transport, billing, or safe aggregate release |
@@ -34,17 +34,18 @@ approval boundaries.
 
 ## Ordered delivery trajectory
 
-### 1. Close the eight non-model metric seams
+### 1. Close the five remaining non-model metric seams
 
-1. Add a separately versioned task-profile proposal file for constraints,
-   acceptance outcomes, and deliverable slots. Import remains inert; a browser
-   confirmation binds the profile to one analysis window before a new snapshot.
+1. **Delivered in r5:** a separate reviewed task-profile editor for constraints,
+   acceptance outcomes, and deliverable slots. Owned-window native confirmation appends an
+   immutable revision whose fingerprint is sealed into a fresh snapshot; it is
+   not an agent-authored evidence file.
 2. Add reviewed requirement/plan extraction for decomposition coverage, with
    explicit opportunity ownership and correction history.
 3. Add objective proposal bundles for hypothesis, requirement-action, material
    claim, and requirement-verification families. The app issues opportunity
    identities; imported files may propose links and receipts but cannot invent
-   success authority. Browser confirmation and provider receipts are distinct.
+   success authority. Native confirmation and provider receipts are distinct.
 4. Keep old projections readable and introduce a new append-only identity for
    every semantic change. Never reinterpret historical numbers.
 
@@ -131,9 +132,10 @@ separately reviewed release commit.
 
 ## Immediate next implementation
 
-The smallest high-value next tranche is the task-profile proposal/confirmation
-workflow for the three configured-profile gaps. It reuses the now-tested local
-agent file, preview, import, browser authority, fingerprint, paging, and fresh
-snapshot patterns without weakening objective evidence. After that, implement
-one objective family end to end before generalizing the bundle—not all four in
-one migration.
+The next metric tranche is one provider/extractor gap end to end: reviewed
+requirement/plan extraction for decomposition, or one objective family with
+app-issued opportunity identities, explicit links, and typed outcome receipts.
+It must retain the r5 profile binding, append a new projection identity for any
+semantic change, and prove the full API/UI/readiness path before generalizing to
+the other four gaps. No model-authored prose or pass claim may become measured
+authority.

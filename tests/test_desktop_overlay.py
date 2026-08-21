@@ -17,6 +17,10 @@ TOKEN = "example_desktop_overlay_token_123456789"
 class FakeWindow:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.current_url = "about:blank"
+
+    def get_current_url(self) -> str:
+        return self.current_url
 
     def minimize(self) -> None:
         self.calls.append("minimize")
@@ -40,6 +44,7 @@ class FakeWebview:
 
     def create_window(self, *args: object, **kwargs: object) -> object:
         self.created.append((args, kwargs))
+        self.window.current_url = str(kwargs["url"])
         return self.window
 
     def start(self, **kwargs: object) -> None:
@@ -52,6 +57,7 @@ class FakeOwnedServer:
     def __init__(self) -> None:
         self.stops = 0
         self.thread = SimpleNamespace(is_alive=lambda: True)
+        self.user_presence = desktop_overlay.UserPresenceApprovalManager()
 
     def stop(self) -> None:
         self.stops += 1
@@ -132,6 +138,7 @@ def test_attaches_to_authenticated_service_without_owning_it(
     assert options["shadow"] is True
     assert options["min_size"] == (340, 420)
     window_api = options["js_api"]
+    assert window_api._user_presence is None
     window_api.minimize_window()
     assert window_api.toggle_maximize_window() is True
     assert window_api.toggle_maximize_window() is False
@@ -225,6 +232,7 @@ def test_starts_and_stops_only_an_owned_server(
 
     assert owned.stops == 1
     assert len(webview.created) == 1
+    assert webview.created[0][1]["js_api"]._user_presence is owned.user_presence
 
 
 def test_owned_server_stops_when_native_loop_fails(
@@ -248,6 +256,149 @@ def test_owned_server_stops_when_native_loop_fails(
     with pytest.raises(RuntimeError, match="synthetic GUI failure"):
         desktop_overlay.run_desktop_overlay(settings(tmp_path))
     assert owned.stops == 1
+
+
+def test_native_confirmation_issues_one_content_free_bound_capability() -> None:
+    manager = desktop_overlay.UserPresenceApprovalManager()
+    expected_origin = "http://127.0.0.1:18765"
+    window_api = desktop_overlay._DesktopWindowApi(manager, expected_origin)
+    calls: list[tuple[str, str]] = []
+    window = SimpleNamespace(
+        get_current_url=lambda: f"{expected_origin}/overlay/model-ensemble",
+        create_confirmation_dialog=lambda title, message: (
+            calls.append((title, message)) or True
+        )
+    )
+    window_api._bind(window)
+    path = f"/v1/sessions/{'a' * 64}/declared-task-profile"
+    body = b'{"confirmation":"save_reviewed_declared_task_profile"}'
+    import hashlib
+
+    response = window_api.confirm_user_presence(
+        {
+            "method": "POST",
+            "path": path,
+            "body_sha256": hashlib.sha256(body).hexdigest(),
+        }
+    )
+
+    assert response["approved"] is True
+    assert response["version"] == "native-user-presence-v1"
+    token = response["approval_token"]
+    assert manager.consume(token=token, method="POST", path=path, body=body) is True
+    assert manager.consume(token=token, method="POST", path=path, body=body) is False
+    assert calls == [
+        (
+            "Confirm local action",
+            "Save declared metric denominators for future analysis.\n\n"
+            "Approve only if you initiated and reviewed this action.",
+        )
+    ]
+    assert path not in str(calls)
+    assert "declared-task-profile" not in str(calls)
+
+
+def test_native_confirmation_decline_and_unregistered_action_fail_closed() -> None:
+    manager = desktop_overlay.UserPresenceApprovalManager()
+    expected_origin = "http://127.0.0.1:18765"
+    window_api = desktop_overlay._DesktopWindowApi(manager, expected_origin)
+    window_api._bind(
+        SimpleNamespace(
+            get_current_url=lambda: f"{expected_origin}/overlay/model-ensemble",
+            create_confirmation_dialog=lambda _title, _message: False,
+        )
+    )
+    allowed_path = f"/v1/agent/sessions/{'a' * 32}/approvals/{'b' * 32}"
+
+    declined = window_api.confirm_user_presence(
+        {"method": "POST", "path": allowed_path, "body_sha256": "c" * 64}
+    )
+    rejected = window_api.confirm_user_presence(
+        {"method": "POST", "path": "/v1/unreviewed", "body_sha256": "c" * 64}
+    )
+
+    assert declined == {
+        "approved": False,
+        "reason": "user_declined",
+        "version": "native-user-presence-v1",
+    }
+    assert rejected == {
+        "approved": False,
+        "reason": "action_not_allowed",
+        "version": "native-user-presence-v1",
+    }
+
+
+@pytest.mark.parametrize(
+    "current_url",
+    [
+        "https://example.invalid/overlay/model-ensemble",
+        "http://127.0.0.1:18765@example.invalid/overlay/model-ensemble",
+        "not a URL",
+        "http://127.0.0.1:18766/overlay/model-ensemble",
+    ],
+)
+def test_native_confirmation_rejects_window_origin_drift(current_url: str) -> None:
+    manager = desktop_overlay.UserPresenceApprovalManager()
+    dialogs: list[bool] = []
+    window_api = desktop_overlay._DesktopWindowApi(
+        manager,
+        "http://127.0.0.1:18765",
+    )
+    window_api._bind(
+        SimpleNamespace(
+            get_current_url=lambda: current_url,
+            create_confirmation_dialog=lambda *_args: dialogs.append(True) or True,
+        )
+    )
+
+    response = window_api.confirm_user_presence(
+        {
+            "method": "POST",
+            "path": f"/v1/sessions/{'a' * 64}/declared-task-profile",
+            "body_sha256": "b" * 64,
+        }
+    )
+
+    assert response == {
+        "approved": False,
+        "reason": "native_confirmation_unavailable",
+        "version": "native-user-presence-v1",
+    }
+    assert dialogs == []
+
+
+def test_native_confirmation_rechecks_origin_after_the_modal() -> None:
+    manager = desktop_overlay.UserPresenceApprovalManager()
+    current = ["http://127.0.0.1:18765/overlay/model-ensemble"]
+    window_api = desktop_overlay._DesktopWindowApi(
+        manager,
+        "http://127.0.0.1:18765",
+    )
+
+    def approve_then_navigate(_title: str, _message: str) -> bool:
+        current[0] = "https://example.invalid/after-dialog"
+        return True
+
+    window_api._bind(
+        SimpleNamespace(
+            get_current_url=lambda: current[0],
+            create_confirmation_dialog=approve_then_navigate,
+        )
+    )
+    response = window_api.confirm_user_presence(
+        {
+            "method": "POST",
+            "path": f"/v1/sessions/{'a' * 64}/declared-task-profile",
+            "body_sha256": "b" * 64,
+        }
+    )
+
+    assert response == {
+        "approved": False,
+        "reason": "native_confirmation_unavailable",
+        "version": "native-user-presence-v1",
+    }
 
 
 def test_failed_owned_startup_is_stopped_before_error_propagates(

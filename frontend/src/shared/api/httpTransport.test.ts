@@ -61,7 +61,20 @@ function privateJsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-const AUTH_RESPONSE = { csrf_token: "synthetic-csrf-token", expires_in_seconds: 300 };
+const AUTH_RESPONSE = {
+  csrf_token: "synthetic-csrf-token",
+  expires_in_seconds: 300,
+  user_presence_confirmation_available: true,
+  user_presence_confirmation_mode: "native_bridge_bound_token",
+} as const;
+const USER_PRESENCE_TOKEN = "u".repeat(48);
+
+async function sha256(value: string): Promise<string> {
+  const digest = new Uint8Array(
+    await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+  );
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 const CONTROL_PLANE_READINESS_RESPONSE = {
   contract_version: "control-plane-v2",
   delivery_guarantee: "at_least_once_with_monotonic_ack",
@@ -2343,23 +2356,26 @@ describe("local agent workspace transport", () => {
         byte_size: 8,
         applied: true,
       }));
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
     const transport = createHttpTransport({
       fetch: fetchMock as unknown as typeof fetch,
       origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
     });
 
     await expect(transport.getAgentWorkspaceTree(sessionId, ".")).resolves.toMatchObject({ path: "." });
     await expect(transport.getAgentWorkspaceFile(sessionId, "src/app.py")).resolves.toMatchObject({ revision: base });
     const previewRequest = { path: "src/app.py", content: "one\nnew\n", expected_revision: base, line_ending: "lf" as const };
     await expect(transport.previewAgentWorkspaceEdit(sessionId, previewRequest)).resolves.toMatchObject({ preview_id: previewId });
-    await expect(transport.applyAgentWorkspaceEdit(sessionId, previewId, {
+    const applyRequest = {
       path: "src/app.py",
       content: "one\nnew\n",
       expected_revision: base,
       proposed_revision: proposed,
       line_ending: "lf",
       confirmation: "apply_reviewed_workspace_edit",
-    })).resolves.toMatchObject({ applied: true });
+    } as const;
+    await expect(transport.applyAgentWorkspaceEdit(sessionId, previewId, applyRequest)).resolves.toMatchObject({ applied: true });
 
     expect(fetchMock.mock.calls[1][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/tree?path=.`);
     expect(fetchMock.mock.calls[2][0]).toBe(`/v1/agent/sessions/${sessionId}/workspace/file?path=src%2Fapp.py`);
@@ -2369,7 +2385,14 @@ describe("local agent workspace transport", () => {
     expect(apply.headers).toEqual(expect.objectContaining({
       "Content-Type": "application/json",
       "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+      "X-Prompt-Enhancer-User-Presence": USER_PRESENCE_TOKEN,
     }));
+    expect(approveUserPresence).toHaveBeenCalledOnce();
+    expect(approveUserPresence).toHaveBeenCalledWith({
+      method: "POST",
+      path: `/v1/agent/sessions/${sessionId}/workspace/previews/${previewId}/apply`,
+      bodySha256: await sha256(JSON.stringify(applyRequest)),
+    });
   });
 
   it("rejects a workspace tree that returns an absolute local path", async () => {
@@ -2388,5 +2411,155 @@ describe("local agent workspace transport", () => {
       message: "Local agent workspace tree response was invalid",
       status: 200,
     });
+  });
+});
+
+describe("native user-presence transport binding", () => {
+  it("reports only the exact server-issued native confirmation capability", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      ...AUTH_RESPONSE,
+      user_presence_confirmation_available: true,
+    }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getUserPresenceCapability!()).resolves.toEqual({
+      contract_version: "native-user-presence-capability-v1",
+      confirmation_available: true,
+      mode: "native_bridge_bound_token",
+    });
+    await expect(transport.getUserPresenceCapability!()).resolves.toEqual({
+      contract_version: "native-user-presence-capability-v1",
+      confirmation_available: true,
+      mode: "native_bridge_bound_token",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe("/auth/session");
+  });
+
+  it("fails closed when the server capability field has the wrong type", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      ...AUTH_RESPONSE,
+      user_presence_confirmation_available: "yes",
+    }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+    });
+
+    await expect(transport.getUserPresenceCapability!()).rejects.toMatchObject({ status: 200 });
+  });
+
+  it("does not call the bridge or mutation route when the server reports unavailable", async () => {
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      csrf_token: AUTH_RESPONSE.csrf_token,
+      expires_in_seconds: AUTH_RESPONSE.expires_in_seconds,
+      user_presence_confirmation_available: false,
+      user_presence_confirmation_mode: "unavailable",
+    }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    await expect(transport.decideAgentApproval(
+      "a".repeat(32),
+      "b".repeat(32),
+      false,
+    )).rejects.toMatchObject({ status: 503 });
+    expect(approveUserPresence).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe("/auth/session");
+  });
+
+  it("binds agent-tool and lifecycle decisions to their exact POST path and body", async () => {
+    const agentSessionId = "a".repeat(32);
+    const approvalId = "b".repeat(32);
+    const metricSessionId = "c".repeat(64);
+    const proposalId = "d".repeat(64);
+    const decision = {
+      confirmation: "apply_local_user_metric_lifecycle_decision",
+      decision: "confirm",
+      expected_proposal_revision: 1,
+      expected_source_run_id: "e".repeat(64),
+    } as const;
+    const approveUserPresence = vi.fn().mockResolvedValue(USER_PRESENCE_TOKEN);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(privateJsonResponse({}));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    await expect(transport.decideAgentApproval(agentSessionId, approvalId, true)).resolves.toEqual({});
+    await expect(transport.decideMetricLifecycleProposal!(
+      metricSessionId,
+      proposalId,
+      decision,
+      "dashboard-lifecycle-decision-example",
+    )).rejects.toMatchObject({ status: 200 });
+
+    const agentPath = `/v1/agent/sessions/${agentSessionId}/approvals/${approvalId}`;
+    const lifecyclePath = `/v1/sessions/${metricSessionId}/metric-lifecycle-evidence/proposals/${proposalId}/decision`;
+    expect(approveUserPresence).toHaveBeenNthCalledWith(1, {
+      method: "POST",
+      path: agentPath,
+      bodySha256: await sha256(JSON.stringify({ approved: true })),
+    });
+    expect(approveUserPresence).toHaveBeenNthCalledWith(2, {
+      method: "POST",
+      path: lifecyclePath,
+      bodySha256: await sha256(JSON.stringify(decision)),
+    });
+    for (const requestIndex of [1, 2]) {
+      expect((fetchMock.mock.calls[requestIndex][1] as RequestInit).headers).toEqual(expect.objectContaining({
+        "X-Prompt-Enhancer-CSRF": AUTH_RESPONSE.csrf_token,
+        "X-Prompt-Enhancer-User-Presence": USER_PRESENCE_TOKEN,
+      }));
+    }
+  });
+
+  it("does not invoke native user presence for an edit preview", async () => {
+    const sessionId = "a".repeat(32);
+    const base = "b".repeat(64);
+    const proposed = "c".repeat(64);
+    const previewId = "d".repeat(32);
+    const approveUserPresence = vi.fn().mockRejectedValue(new Error("must not be called"));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(AUTH_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse({
+        contract_version: "local-agent-workspace.v1",
+        session_id: sessionId,
+        preview_id: previewId,
+        path: "src/example.py",
+        expected_revision: base,
+        proposed_revision: proposed,
+        line_ending: "lf",
+        diff: "--- a/src/example.py\n+++ b/src/example.py\n@@ -1 +1 @@\n-old\n+new",
+        expires_at: "2040-01-02T10:00:00Z",
+      }));
+    const transport = createHttpTransport({
+      fetch: fetchMock as unknown as typeof fetch,
+      origin: "http://127.0.0.1:4173",
+      userPresenceApproval: approveUserPresence,
+    });
+
+    await expect(transport.previewAgentWorkspaceEdit(sessionId, {
+      path: "src/example.py",
+      content: "new\n",
+      expected_revision: base,
+      line_ending: "lf",
+    })).resolves.toMatchObject({ preview_id: previewId });
+    expect(approveUserPresence).not.toHaveBeenCalled();
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).not.toEqual(expect.objectContaining({
+      "X-Prompt-Enhancer-User-Presence": expect.anything(),
+    }));
   });
 });

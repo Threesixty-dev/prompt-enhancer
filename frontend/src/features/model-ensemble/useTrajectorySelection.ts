@@ -18,6 +18,11 @@ export interface HistoricalRunState {
   refused: MetricDefinitionMismatch | null;
 }
 
+interface HistoricalRunSlot extends HistoricalRunState {
+  /** Request identity that owns both the run and the refusal in this slot. */
+  requestedRunId: string | null;
+}
+
 /**
  * Loads the immutable snapshot for an earlier selected history point. The
  * displayed run is cleared while loading, admitted only when its run id equals
@@ -28,28 +33,40 @@ export function useHistoricalRun(
   transport: Pick<PromptEnhancerTransport, "getModelEnsembleSnapshot">,
   historicalRunId: string | null,
 ): HistoricalRunState {
-  const [historical, setHistorical] = useState<HistoricalRunState>({ run: null, refused: null });
+  const [historical, setHistorical] = useState<HistoricalRunSlot>({
+    requestedRunId: null,
+    run: null,
+    refused: null,
+  });
   useEffect(() => {
     if (historicalRunId === null || transport.getModelEnsembleSnapshot === undefined) {
-      setHistorical({ run: null, refused: null });
+      setHistorical({ requestedRunId: historicalRunId, run: null, refused: null });
       return;
     }
     const controller = new AbortController();
-    setHistorical({ run: null, refused: null });
+    setHistorical({ requestedRunId: historicalRunId, run: null, refused: null });
     transport.getModelEnsembleSnapshot(historicalRunId, controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted && value.run_id === historicalRunId) setHistorical({ run: value, refused: null });
+        if (!controller.signal.aborted && value.run_id === historicalRunId) {
+          setHistorical({ requestedRunId: historicalRunId, run: value, refused: null });
+        }
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setHistorical({
+          requestedRunId: historicalRunId,
           run: null,
           refused: error instanceof MetricDefinitionsOutOfDateError ? error.mismatch : null,
         });
-      });
+    });
     return () => controller.abort();
   }, [historicalRunId, transport]);
-  return historical;
+  // Effects clear the slot only after a changed selection has rendered. Bind
+  // the cached value to its request during render as well, so A can never be
+  // exposed as B for even one committed frame.
+  return historical.requestedRunId === historicalRunId
+    ? { run: historical.run, refused: historical.refused }
+    : { run: null, refused: null };
 }
 
 export interface UseTrajectorySelectionInput {
@@ -66,6 +83,8 @@ export interface UseTrajectorySelectionResult extends TrajectorySelection {
   historicalRun: ModelEnsembleRun | null;
   /** Compatibility-gate refusal of that exact snapshot; the compact point is shown alone. */
   historicalRunRefused: MetricDefinitionMismatch | null;
+  /** Exact selected seal for identity-sensitive consumers; null while an earlier snapshot is loading/refused. */
+  selectedExactRun: ModelEnsembleRun | null;
 }
 
 /**
@@ -85,9 +104,24 @@ export function useTrajectorySelection({
     ? selectedPoint.run_id
     : null;
   const historical = useHistoricalRun(transport, historicalRunId);
+  const exactHistoricalRun = historicalRunId !== null && historical.run?.run_id === historicalRunId
+    ? historical.run
+    : null;
+  const selection = resolveTrajectorySelection({
+    points,
+    selectedRunId,
+    headRun,
+    historicalRun: exactHistoricalRun,
+  });
+  const selectedExactRun = selection.selectedPoint === null
+    ? headRun
+    : selection.selectedPoint.run_id === headRun?.run_id
+      ? headRun
+      : exactHistoricalRun;
   return {
-    ...resolveTrajectorySelection({ points, selectedRunId, headRun, historicalRun: historical.run }),
-    historicalRun: historical.run,
-    historicalRunRefused: historical.refused,
+    ...selection,
+    historicalRun: exactHistoricalRun,
+    historicalRunRefused: historicalRunId === null ? null : historical.refused,
+    selectedExactRun,
   };
 }

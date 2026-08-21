@@ -33,6 +33,7 @@ from ...application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_2,
     METRIC_PROJECTION_V2_VERSION_3,
     METRIC_PROJECTION_V2_VERSION_4,
+    METRIC_PROJECTION_V2_VERSION_5,
     MetricStateV2,
     OpportunityStatistics,
     _issue_metric_state_projection,
@@ -46,9 +47,11 @@ from ...application.analysis.metric_publication_v2 import (
     publish_metric_states_v2,
 )
 from ...application.analysis.session_model_ensemble import (
+    MetricProfileSource,
     SessionModelEnsemblePersistenceAuthority,
     SessionModelEnsembleRepository,
     SessionModelEnsembleRunRecord,
+    SessionMetricProfileBinding,
 )
 from ...application.analysis.semantic_units import (
     SEMANTIC_UNIT_CONTRACT_VERSION,
@@ -75,6 +78,9 @@ from ._common import ConnectionScope, from_iso, require_safe_id, to_iso
 
 def _graph_fingerprint(run: SessionModelEnsembleRunRecord) -> str:
     payload = run.model_dump(mode="json")
+    # This append-only adjunct has its own seal and is not part of the frozen
+    # base-run graph commitment.
+    payload.pop("metric_profile_binding", None)
     receipt = payload["receipt"]
     # The typed projection is an append-only adjunct with its own seal.  Keep
     # the original v26 graph commitment byte-compatible for legacy runs.
@@ -171,9 +177,15 @@ def _predictive_projection_fingerprint(
 
 #: Sidecar tables per projection identity, newest first.  The r1 pair (frozen
 #: at MIGRATION_40), r2 (MIGRATION_41), and r3 (MIGRATION_42) never gain a row
-#: from current code; the r4 pair added by MIGRATION_44 receives every new
-#: publication.  All four stay readable, and a run carries at most one pair.
+#: from current code; r4 is frozen at MIGRATION_44 and the profile-bound r5
+#: pair added by MIGRATION_54 receives every new publication.  All five stay
+#: readable, and a run carries at most one pair.
 METRIC_V2_SIDECARS = (
+    (
+        METRIC_PROJECTION_V2_VERSION_5,
+        "session_model_ensemble_metric_states_v2_r5",
+        "session_model_ensemble_metric_publication_v2_seals_r5",
+    ),
     (
         METRIC_PROJECTION_V2_VERSION_4,
         "session_model_ensemble_metric_states_v2_r4",
@@ -210,6 +222,40 @@ def _metric_publication_v2_fingerprint(
     """Delegate to the one canonical definition the API projection also reads."""
 
     return metric_publication_v2_fingerprint(publication)
+
+
+def _metric_profile_binding_fingerprint(
+    binding: SessionMetricProfileBinding,
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            binding.model_dump(mode="json"),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _metric_publication_profile_fingerprint(
+    publication: MetricPublicationV2,
+    binding: SessionMetricProfileBinding,
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "profile_binding_fingerprint": (
+                    _metric_profile_binding_fingerprint(binding)
+                ),
+                "projection_fingerprint": (
+                    _metric_publication_v2_fingerprint(publication)
+                ),
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _semantic_unit_reconciliation_fingerprint(
@@ -497,6 +543,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                         to_iso(receipt.completed_at),
                     ),
                 )
+                self._insert_metric_profile_binding(connection, run)
                 self._insert_metric_projection(connection, run)
                 self._insert_metric_publication_v2(connection, run)
                 self._insert_predictive_projection(connection, run)
@@ -511,6 +558,8 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     or _graph_fingerprint(hydrated) != _graph_fingerprint(run)
                     or hydrated.receipt.metric_publication_v2
                     != run.receipt.metric_publication_v2
+                    or hydrated.metric_profile_binding
+                    != run.metric_profile_binding
                 ):
                     raise DatabaseInvariantError(
                         "stored model ensemble graph failed exact rehydration"
@@ -567,6 +616,14 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     raise DatabaseInvariantError(
                         "typed metric projection does not match the sealed ensemble run"
                     )
+                if (
+                    stored.metric_profile_binding is not None
+                    and stored.metric_profile_binding != run.metric_profile_binding
+                ):
+                    raise DatabaseInvariantError(
+                        "metric profile binding does not match the sealed ensemble run"
+                    )
+                self._insert_metric_profile_binding(connection, run)
                 self._insert_metric_projection(connection, run)
                 self._insert_metric_publication_v2(connection, run)
                 self._insert_predictive_projection(connection, run)
@@ -580,6 +637,8 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     or hydrated.receipt.typed_metrics != run.receipt.typed_metrics
                     or hydrated.receipt.metric_publication_v2
                     != run.receipt.metric_publication_v2
+                    or hydrated.metric_profile_binding
+                    != run.metric_profile_binding
                 ):
                     raise DatabaseInvariantError(
                         "typed metric projection failed exact rehydration"
@@ -588,6 +647,100 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             except Exception:
                 connection.rollback()
                 raise
+
+    @staticmethod
+    def _insert_metric_profile_binding(
+        connection,
+        run: SessionModelEnsembleRunRecord,
+    ) -> None:
+        binding = run.metric_profile_binding
+        existing = SqliteSessionModelEnsembleRepository._hydrate_metric_profile_binding(
+            connection,
+            run.run_id,
+        )
+        if binding is None:
+            if existing is not None:
+                raise DatabaseInvariantError(
+                    "stored metric profile binding is missing from the run"
+                )
+            return
+        if existing is not None:
+            if existing != binding:
+                raise DatabaseInvariantError("metric profile binding is immutable")
+            return
+        connection.execute(
+            """
+            INSERT INTO session_model_ensemble_metric_profile_bindings(
+                run_id,profile_source,provider,session_id,
+                source_window_fingerprint,profile_id,profile_revision,
+                profile_fingerprint,profile_schema_version,
+                profile_policy_version,bound_at,binding_fingerprint,
+                local_only,content_persisted
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,0)
+            """,
+            (
+                run.run_id,
+                binding.profile_source.value,
+                binding.provider.value,
+                binding.session_id,
+                binding.source_window_fingerprint,
+                binding.profile_id,
+                binding.profile_revision,
+                binding.profile_fingerprint,
+                binding.profile_schema_version,
+                binding.profile_policy_version,
+                to_iso(binding.bound_at),
+                _metric_profile_binding_fingerprint(binding),
+            ),
+        )
+        stored = SqliteSessionModelEnsembleRepository._hydrate_metric_profile_binding(
+            connection,
+            run.run_id,
+        )
+        if stored != binding:
+            raise DatabaseInvariantError(
+                "metric profile binding failed exact rehydration"
+            )
+
+    @staticmethod
+    def _hydrate_metric_profile_binding(
+        connection,
+        run_id: str,
+    ) -> SessionMetricProfileBinding | None:
+        # Repository upgrade fixtures deliberately hydrate pre-M54 schemas.
+        present = connection.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='table'
+                 AND name='session_model_ensemble_metric_profile_bindings'"""
+        ).fetchone()
+        if present is None:
+            return None
+        row = connection.execute(
+            """SELECT * FROM session_model_ensemble_metric_profile_bindings
+               WHERE run_id=?""",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        binding = SessionMetricProfileBinding(
+            profile_source=MetricProfileSource(row["profile_source"]),
+            provider=Provider(row["provider"]),
+            session_id=row["session_id"],
+            source_window_fingerprint=row["source_window_fingerprint"],
+            profile_id=row["profile_id"],
+            profile_revision=row["profile_revision"],
+            profile_fingerprint=row["profile_fingerprint"],
+            profile_schema_version=row["profile_schema_version"],
+            profile_policy_version=row["profile_policy_version"],
+            bound_at=from_iso(row["bound_at"]),
+            local_only=bool(row["local_only"]),
+            content_persisted=bool(row["content_persisted"]),
+        )
+        if row["binding_fingerprint"] != _metric_profile_binding_fingerprint(
+            binding
+        ):
+            raise DatabaseInvariantError("metric profile binding seal is invalid")
+        return binding
 
     @staticmethod
     def _insert_metric_projection(connection, run: SessionModelEnsembleRunRecord) -> None:
@@ -813,16 +966,21 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             raise DatabaseInvariantError(
                 "metric V2 sidecar must be a canonical live measured publication"
             )
-        # Historical r1 and r2 rows are read-only.  Accepting a superseded
+        # Historical r1-r4 rows are read-only.  Accepting a superseded
         # model here would let current code mint a fresh value under a frozen
         # producer identity, defeating the append-only correction even if the
-        # SQL sidecars stayed separate.  Every current write must use r4.
-        if publication.projection_version != METRIC_PROJECTION_V2_VERSION_4:
+        # SQL sidecars stayed separate.  Every current write must use r5 and
+        # carry the exact content-free profile identity used by projection.
+        binding = run.metric_profile_binding
+        if (
+            publication.projection_version != METRIC_PROJECTION_V2_VERSION_5
+            or binding is None
+        ):
             raise DatabaseInvariantError(
                 "new metric V2 publications require the current projection identity"
             )
         states_table, seals_table = _metric_v2_tables(
-            METRIC_PROJECTION_V2_VERSION_4
+            METRIC_PROJECTION_V2_VERSION_5
         )
         connection.executemany(
             f"""
@@ -888,9 +1046,12 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 compatibility_preview,metric_count,known_count,pending_count,
                 unknown_count,not_applicable_count,abstained_count,
                 execution_error_count,objective_measured_count,
-                projection_fingerprint,projected_at,local_only,
+                projection_fingerprint,profile_source,profile_id,
+                profile_revision,profile_fingerprint,profile_schema_version,
+                profile_policy_version,profile_binding_fingerprint,
+                publication_profile_fingerprint,projected_at,local_only,
                 content_persisted,product_metric_eligible
-            ) VALUES(?,?,?,?,?,?,?,?,?,1,0,0,?,?,?,?,?,?,?,?,?,?,1,0,0)
+            ) VALUES(?,?,?,?,?,?,?,?,?,1,0,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0,0)
             """,
             (
                 run.run_id,
@@ -911,6 +1072,14 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 publication.execution_error_count,
                 publication.objective_measured_count,
                 _metric_publication_v2_fingerprint(publication),
+                binding.profile_source.value,
+                binding.profile_id,
+                binding.profile_revision,
+                binding.profile_fingerprint,
+                binding.profile_schema_version,
+                binding.profile_policy_version,
+                _metric_profile_binding_fingerprint(binding),
+                _metric_publication_profile_fingerprint(publication, binding),
                 to_iso(projected_at),
             ),
         )
@@ -1682,6 +1851,10 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             created_at=from_iso(row["created_at"]),
             completed_at=from_iso(row["completed_at"]),
         )
+        metric_profile_binding = self._hydrate_metric_profile_binding(
+            connection,
+            run_id,
+        )
         record = SessionModelEnsembleRunRecord(
             run_id=row["run_id"],
             session_id=row["session_id"],
@@ -1694,6 +1867,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             content_schema_version=row["content_schema_version"],
             redactor_version=row["redactor_version"],
             consent_policy_version=row["consent_policy_version"],
+            metric_profile_binding=metric_profile_binding,
             receipt=receipt,
         )
         seal = connection.execute(
@@ -1747,6 +1921,38 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             != metric_publication_v2.objective_measured_count
             or metric_publication_v2_seal["projection_fingerprint"]
             != _metric_publication_v2_fingerprint(metric_publication_v2)
+            or (
+                metric_publication_v2.projection_version
+                == METRIC_PROJECTION_V2_VERSION_5
+                and (
+                    metric_profile_binding is None
+                    or metric_publication_v2_seal["profile_source"]
+                    != metric_profile_binding.profile_source.value
+                    or metric_publication_v2_seal["profile_id"]
+                    != metric_profile_binding.profile_id
+                    or metric_publication_v2_seal["profile_revision"]
+                    != metric_profile_binding.profile_revision
+                    or metric_publication_v2_seal["profile_fingerprint"]
+                    != metric_profile_binding.profile_fingerprint
+                    or metric_publication_v2_seal["profile_schema_version"]
+                    != metric_profile_binding.profile_schema_version
+                    or metric_publication_v2_seal["profile_policy_version"]
+                    != metric_profile_binding.profile_policy_version
+                    or metric_publication_v2_seal[
+                        "profile_binding_fingerprint"
+                    ]
+                    != _metric_profile_binding_fingerprint(
+                        metric_profile_binding
+                    )
+                    or metric_publication_v2_seal[
+                        "publication_profile_fingerprint"
+                    ]
+                    != _metric_publication_profile_fingerprint(
+                        metric_publication_v2,
+                        metric_profile_binding,
+                    )
+                )
+            )
         ):
             raise DatabaseInvariantError("metric V2 publication seal is invalid")
         if predictive_seal is not None and (

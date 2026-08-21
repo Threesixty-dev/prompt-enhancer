@@ -1,11 +1,17 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelEnsembleRun, PromptEnhancerTransport } from "../../shared/api/contracts";
+import {
+  syntheticMetricPublicationV2,
+  type MetricKeyV2,
+  type MetricScenarioV2,
+} from "../../test/metricPublicationV2Fixture";
 import { MetricWorkspace } from "./MetricWorkspace";
 import { ModelEnsembleRadar, type ModelEnsembleRadarData } from "./ModelEnsembleRadar";
 import { metricKnowledgeCardViewportStyle } from "./MetricKnowledgeCard";
 
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
+type ProjectionVersion = NonNullable<ModelEnsembleRun["metric_publication_v2"]>["projection_version"];
 
 function typedMetric(metricKey: string, patch: Partial<TypedMetric>): TypedMetric {
   return {
@@ -41,18 +47,48 @@ const transport = {
   getModelPredictiveMetricDetail: vi.fn(() => new Promise(() => undefined)),
 } as unknown as Pick<PromptEnhancerTransport, "getModelPredictiveMetricDetail">;
 
-function renderWorkspace(mode: "full" | "compact") {
+function renderWorkspace(mode: "full" | "compact", data: ModelEnsembleRadarData = run) {
   return render(
     <MetricWorkspace
       lensId="task-framing"
       mode={mode}
       onLensChange={() => undefined}
-      run={run}
+      run={data}
       runId="example-run-0001"
       snapshotLabel="Synthetic snapshot"
       transport={transport}
     />,
   );
+}
+
+function projectedRun(
+  projectionVersion: ProjectionVersion,
+  scenarios: Partial<Record<MetricKeyV2, MetricScenarioV2>>,
+): ModelEnsembleRadarData {
+  const base = syntheticMetricPublicationV2(scenarios);
+  const publication = {
+    ...base,
+    projection_version: projectionVersion,
+    metrics: base.metrics.map((item) => ({
+      ...item,
+      state: { ...item.state, projection_version: projectionVersion },
+    })),
+  } as typeof base;
+  return {
+    metrics: [],
+    chunk_metrics: [],
+    typed_metrics: [],
+    predictive_metrics: [],
+    metric_publication_v2: publication,
+  };
+}
+
+function r5ProfileRun(): ModelEnsembleRadarData {
+  return projectedRun("metric-contract-v2-projection-5", {
+    "prompt.constraint_precision": { value_state: "known", numerator: 1, denominator: 2 },
+    "prompt.acceptance_testability": { value_state: "known", numerator: 2, denominator: 3 },
+    "prompt.deliverable_contract": { value_state: "known", numerator: 1, denominator: 2 },
+  });
 }
 
 afterEach(() => {
@@ -164,6 +200,97 @@ describe("personal metric explainers", () => {
     expect(slot?.getAttribute("data-surface")).toBe("strip");
     expect(card.classList.contains("metric-knowledge-card--viewport")).toBe(true);
     expect(card.classList.contains("metric-knowledge-card--compact")).toBe(true);
+  });
+
+  it("renders projection-r5 reviewed-profile numerators and denominators identically in full and compact knowledge surfaces", () => {
+    const cardCopy: string[] = [];
+    for (const mode of ["full", "compact"] as const) {
+      const view = renderWorkspace(mode, r5ProfileRun());
+      const trigger = screen.getByRole("navigation", { name: /metric axes/ }).querySelectorAll("button")[3];
+      const description = document.getElementById(trigger.getAttribute("aria-describedby")!)!;
+      expect(description.textContent).toContain("one per expected constraint-kind slot in the reviewed task profile");
+      expect(description.textContent).not.toContain("one per detected constraint clause");
+      fireEvent.pointerEnter(trigger);
+      const card = document.querySelector('[role="region"][data-metric-key="prompt.constraint_precision"]')!;
+      expect(card).toHaveAttribute("data-projection-version", "metric-contract-v2-projection-5");
+      expect(card.textContent).toContain("Sealed r5 reviewed-profile definition");
+      expect(card.textContent).toContain("Denominator: exactly the configured expected_constraint_kinds slots, not detected constraint clauses");
+      expect(card.textContent).toContain("Numerator: one configured expected constraint kind");
+      expect(card.textContent).toContain("Sealed r5 reviewed-profile measurement");
+      expect(card.textContent).not.toContain("Share of detected constraint clauses");
+      cardCopy.push(card.textContent ?? "");
+      view.unmount();
+    }
+    expect(cardCopy[1]).toBe(cardCopy[0]);
+  });
+
+  it("renders the exact r3 explicit-PLAN lifecycle in full and compact knowledge surfaces", () => {
+    const data = projectedRun("metric-contract-v2-projection-3", {
+      "logic.open_loop_closure": { value_state: "known", numerator: 1, denominator: 2 },
+    });
+    const copies: string[] = [];
+    for (const mode of ["full", "compact"] as const) {
+      const view = render(
+        <MetricWorkspace
+          lensId="reasoning-trace"
+          mode={mode}
+          onLensChange={() => undefined}
+          run={data}
+          runId="example-run-open-loop"
+          snapshotLabel="Synthetic open-loop snapshot"
+          transport={transport}
+        />,
+      );
+      const trigger = screen.getByRole("navigation", { name: /metric axes/ }).querySelectorAll("button")[2];
+      const description = document.getElementById(trigger.getAttribute("aria-describedby")!)!;
+      expect(description.textContent).toContain("one per documented agent PLAN episode");
+      expect(description.textContent).not.toContain("one per detected question");
+      fireEvent.pointerEnter(trigger);
+      const card = document.querySelector('[role="region"][data-metric-key="logic.open_loop_closure"]')!;
+      expect(card).toHaveAttribute("data-projection-version", "metric-contract-v2-projection-3");
+      expect(card.textContent).toContain("Sealed r3 explicit-plan lifecycle definition");
+      expect(card.textContent).toContain("Numerator: one PLAN episode with a later agent ACTION or VERIFICATION whose supersedes_message_ids names that exact PLAN message");
+      expect(card.textContent).toContain("Denominator: exactly the provider-declared agent PLAN messages in the bounded window, not detected questions");
+      expect(card.textContent).toContain("Documented agent PLAN episodes explicitly superseded by a later agent ACTION or VERIFICATION naming that exact PLAN message divided by the exact documented agent PLAN episodes");
+      copies.push(card.textContent ?? "");
+      view.unmount();
+    }
+    expect(copies[1]).toBe(copies[0]);
+  });
+
+  it("renders the exact r4 confirmed lifecycle in full and compact knowledge surfaces", () => {
+    const data = projectedRun("metric-contract-v2-projection-4", {
+      "collaboration.ambiguity_resolution": { value_state: "known", numerator: 1, denominator: 2 },
+    });
+    const copies: string[] = [];
+    for (const mode of ["full", "compact"] as const) {
+      const view = render(
+        <MetricWorkspace
+          lensId="collaboration-flow"
+          mode={mode}
+          onLensChange={() => undefined}
+          run={data}
+          runId="example-run-lifecycle"
+          snapshotLabel="Synthetic lifecycle snapshot"
+          transport={transport}
+        />,
+      );
+      const trigger = screen.getByRole("navigation", { name: /metric axes/ }).querySelectorAll("button")[0];
+      const description = document.getElementById(trigger.getAttribute("aria-describedby")!)!;
+      expect(description.textContent).toContain("one per confirmed enumerated ambiguity opportunity");
+      expect(description.textContent).not.toContain("one per clause with an ambiguity marker");
+      fireEvent.pointerEnter(trigger);
+      const card = document.querySelector('[role="region"][data-metric-key="collaboration.ambiguity_resolution"]')!;
+      expect(card).toHaveAttribute("data-projection-version", "metric-contract-v2-projection-4");
+      expect(card.textContent).toContain("Sealed r4 confirmed-lifecycle definition");
+      expect(card.textContent).toContain("Numerator: one enumerated ambiguity opportunity with a confirmed ambiguity_resolution link whose outcome is ambiguity_resolved");
+      expect(card.textContent).toContain("Denominator: exactly the authenticated local user's confirmed ambiguity enumeration, not detected ambiguity clauses");
+      expect(card.textContent).toContain("Proposed, rejected, undecided, or non-enumerated opportunities do not enter it");
+      expect(card.textContent).toContain("Confirmed enumerated ambiguity opportunities with an ambiguity_resolution link whose outcome is ambiguity_resolved divided by the exact authenticated local-user confirmed ambiguity enumeration");
+      copies.push(card.textContent ?? "");
+      view.unmount();
+    }
+    expect(copies[1]).toBe(copies[0]);
   });
 
   it("anchors the overlay outside the entire triggering axis row", () => {

@@ -76,6 +76,7 @@ METRIC_PROJECTION_V2_VERSION_2 = "metric-contract-v2-projection-2"
 #: persistence and the wire contract validate against.
 METRIC_PROJECTION_V2_VERSION_3 = "metric-contract-v2-projection-3"
 METRIC_PROJECTION_V2_VERSION_4 = "metric-contract-v2-projection-4"
+METRIC_PROJECTION_V2_VERSION_5 = "metric-contract-v2-projection-5"
 #: The identity *this* producer stamps.  It stays at ``-2`` forever: rows it
 #: wrote must keep meaning what the producer that wrote them meant.
 METRIC_PROJECTION_V2_VERSION = METRIC_PROJECTION_V2_VERSION_2
@@ -86,12 +87,14 @@ SUPPORTED_METRIC_PROJECTION_V2_VERSIONS = (
     METRIC_PROJECTION_V2_VERSION_2,
     METRIC_PROJECTION_V2_VERSION_3,
     METRIC_PROJECTION_V2_VERSION_4,
+    METRIC_PROJECTION_V2_VERSION_5,
 )
 MetricProjectionV2Version = Literal[
     "metric-contract-v2-projection-1",
     "metric-contract-v2-projection-2",
     "metric-contract-v2-projection-3",
     "metric-contract-v2-projection-4",
+    "metric-contract-v2-projection-5",
 ]
 METRIC_PROJECTION_V2_ALGORITHM_ID = "rules.en-pl.contract-v2-opportunities"
 METRIC_PROJECTION_V2_ALGORITHM_VERSION = "2"
@@ -1255,6 +1258,7 @@ __all__ = [
     "METRIC_PROJECTION_V2_VERSION_2",
     "METRIC_PROJECTION_V2_VERSION_3",
     "METRIC_PROJECTION_V2_VERSION_4",
+    "METRIC_PROJECTION_V2_VERSION_5",
     "MetricProjectionV2Version",
     "MetricStateV2",
     "OpportunityStatistics",

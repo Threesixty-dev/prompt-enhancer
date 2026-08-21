@@ -33,8 +33,9 @@ of the app: nothing happens to the person's machine without their say-so.
    on Windows, bash elsewhere, workspace as cwd, timeout, output capped) and
    `fetch_url` (off unless enabled) **pause the run** with an
    `approval_required` event carrying the exact arguments and the diff; the
-   person approves or denies that one call in the same-origin browser (the API
-   token is not a human-decision credential); a denial is
+   person approves or denies that one call through an owned native confirmation
+   bridge (the API token and browser cookie are not human-decision credentials);
+   standard `serve` and attached-window modes keep these controls unavailable; a denial is
    reported to the model as a tool result so it adapts instead of retrying;
    stop cancels any pending approval. A write preview is bound to the exact
    file hash, file identity and parent identity; a file changed while approval
@@ -60,7 +61,7 @@ of the app: nothing happens to the person's machine without their say-so.
    composer, stop) and a chrome-less popup `/agent/window/{id}`. The same page
    now includes a typed file tree and dependency-free UTF-8 text editor beside
    the chat. Manual edits use a server-created diff plus a short-lived,
-   single-use, content-free capability and require browser confirmation to
+   single-use, content-free capability and require owned-window native confirmation to
    apply; the model's `allow_writes` switch does not restrict the person's own
    manual edit.
 5. **Boundaries.** Nothing is persisted beyond the server's memory (no

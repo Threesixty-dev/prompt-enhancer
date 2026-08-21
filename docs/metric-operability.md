@@ -17,8 +17,8 @@ It reports the exact counts below and is private/non-cacheable.
 
 | Gate | Count |
 |---|---:|
-| Shipped measured path when its evidence exists | 12 |
-| Task-profile configuration still required | 3 |
+| Shipped measured path when its evidence exists | 15 |
+| Task-profile configuration still required | 0 |
 | Provider/extractor adapter still required | 5 |
 | Experimental model-estimate path | 8 |
 | Metrics for which a model may author the measured value | 0 |
@@ -30,9 +30,9 @@ It reports the exact counts below and is private/non-cacheable.
 | `prompt.task_definition_coverage` | Focus-owned fixed-factor rubric | Available when evidence exists | Yes |
 | `prompt.problem_evidence_quality` | Focus-owned fixed-factor rubric | Available when evidence exists | Yes |
 | `prompt.context_sufficiency` | Focus-owned fixed-factor rubric | Available when evidence exists | Yes |
-| `prompt.constraint_precision` | Declared task-profile slots | Task-profile configuration required | Yes |
-| `prompt.acceptance_testability` | Declared task-profile slots | Task-profile configuration required | Yes |
-| `prompt.deliverable_contract` | Declared task-profile slots | Task-profile configuration required | Yes |
+| `prompt.constraint_precision` | Reviewed declared task-profile slots | Available when evidence exists | Yes |
+| `prompt.acceptance_testability` | Reviewed outcomes plus distinct checkable clauses in the canonical active request | Available when evidence exists | Yes |
+| `prompt.deliverable_contract` | Reviewed declared task-profile slots | Available when evidence exists | Yes |
 | `collaboration.ambiguity_resolution` | Confirmed lifecycle evidence | Available when evidence exists | No |
 | `collaboration.clarification_yield` | Confirmed lifecycle evidence | Available when evidence exists | No |
 | `collaboration.exploration_conversion` | Confirmed lifecycle evidence | Available when evidence exists | No |
@@ -50,24 +50,33 @@ It reports the exact counts below and is private/non-cacheable.
 
 “Available when evidence exists” includes honest `unknown`, `pending`, and
 `not_applicable` outcomes. For example, a collaboration family needs a
-browser-confirmed complete enumeration before it has a denominator, and
+natively confirmed complete enumeration before it has a denominator, and
 first-pass verification needs exactly one reviewed task owning the session.
 
 ## Local agent evidence file
 
-The v1 local-agent file workflow covers the five collaboration lifecycle
-families. An API-token client may fetch the contract, preview canonical JSON,
-and import an inert proposal. It cannot confirm or reject that proposal. A
-separate same-origin browser session, CSRF proof, exact confirmation literal,
-and second visible action are required before a confirmed receipt can affect a
-future sealed snapshot. See
+The historical v1/r4 and current v2/r5 local-agent file workflows cover the
+five collaboration lifecycle families. The v2 file additionally binds the
+exact sealed run and source-window fingerprint. An API-token client may fetch
+the current contract, preview canonical JSON, and import an inert proposal. It
+cannot confirm or reject that proposal. A separate same-origin browser session,
+CSRF proof, exact confirmation literal, and non-self-issuable native
+user-presence confirmation are required before a confirmed receipt can affect a
+future sealed snapshot. Only an owned desktop window currently composes that
+origin- and body-bound one-shot bridge. Standard `serve`, an attached window,
+and unsupported hosts report confirmation unavailable and disable decision
+controls. See
 [`local-agent-metric-evidence-api.md`](local-agent-metric-evidence-api.md).
 
 Extending this file format is not a shortcut around evidence authority. The
-next safe extension is a separately versioned task-profile proposal followed
-by browser confirmation. Objective evidence must bind app-issued opportunity
-identities to typed outcome receipts; an agent-authored claim that a test passed
-cannot verify itself.
+task-profile workflow is a separate, closed, native-confirmed editor: it stores an
+immutable reviewed revision containing only constraint kinds, expected outcome
+count, and deliverable slots. That revision and fingerprint are sealed into a
+fresh r5 run before any of the three profile metrics can become numeric. Null
+means unconfigured and stays `unknown`; empty sets and caller-authored prose are
+rejected. Objective evidence still must bind app-issued opportunity identities
+to typed outcome receipts; an agent-authored claim that a test passed cannot
+verify itself.
 
 ## Model boundary
 
@@ -76,7 +85,7 @@ encoders estimate factor evidence; the optional deep judge adjudicates selected
 disagreements. All model outputs remain uncalibrated and product-ineligible.
 The sealed measured publication is computed only from deterministic reviewed
 structure or typed receipts, so switching to a larger model cannot fill one of
-the eight authority/configuration gaps above.
+the five remaining provider/extractor authority gaps above.
 
 The live factor router is deliberately smaller than the historical ten-slot
 compatibility graph:

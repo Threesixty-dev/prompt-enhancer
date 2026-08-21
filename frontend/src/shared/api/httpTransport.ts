@@ -20,6 +20,7 @@ import type {
   CodexLocalSourceStatus,
   CodexSessionListResponse,
   DisplayLabelEntityKind,
+  DeclaredTaskProfileCommand,
   ManualDisplayLabelResult,
   MetricCoverageReport,
   ModelLabInventory,
@@ -161,6 +162,11 @@ import {
   parseMetricLifecycleProposalPage,
   parseMetricLifecycleProposalOutcome,
 } from "./agentMetricEvidenceContract";
+import {
+  DeclaredTaskProfilePayloadError,
+  parseDeclaredTaskProfileCurrent,
+  parseDeclaredTaskProfileOutcome,
+} from "./declaredTaskProfileContract";
 import { AgentEventPayloadError, parseAgentEvents } from "./agentEventContract";
 import type {
   LocalRuntimeTransport,
@@ -2080,11 +2086,98 @@ export function parseRuntimeHealth(value: unknown): RuntimeHealth {
 export function createHttpTransport(options: {
   fetch?: FetchLike;
   origin?: string;
+  /** Test/host injection; production defaults to the pywebview native bridge. */
+  userPresenceApproval?: (request: {
+    method: "POST";
+    path: string;
+    bodySha256: string;
+  }) => Promise<string>;
 } = {}): LocalRuntimeTransport {
   const fetchRequest = options.fetch ?? globalThis.fetch.bind(globalThis);
   const origin = options.origin ?? globalThis.location.origin;
-  let sessionAuth: { csrfToken: string; refreshAfter: number } | undefined;
+  let sessionAuth: {
+    csrfToken: string;
+    refreshAfter: number;
+    userPresenceAvailable: boolean;
+    userPresenceMode: "unavailable" | "native_bridge_bound_token";
+  } | undefined;
   let sessionBootstrap: Promise<string> | undefined;
+
+  async function sha256Utf8(value: string): Promise<string> {
+    if (globalThis.crypto?.subtle === undefined) {
+      throw new TransportError("Native user-presence hashing is unavailable", 503);
+    }
+    const digest = new Uint8Array(
+      await globalThis.crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(value),
+      ),
+    );
+    return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function desktopUserPresenceApproval(input: {
+    method: "POST";
+    path: string;
+    bodySha256: string;
+  }): Promise<string> {
+    const host = globalThis as typeof globalThis & {
+      pywebview?: {
+        api?: {
+          confirm_user_presence?: (request: {
+            method: "POST";
+            path: string;
+            body_sha256: string;
+          }) => Promise<unknown>;
+        };
+      };
+    };
+    const confirm = host.pywebview?.api?.confirm_user_presence;
+    if (typeof confirm !== "function") {
+      throw new TransportError("Native user-presence confirmation is unavailable", 503);
+    }
+    const result = await confirm({
+      method: input.method,
+      path: input.path,
+      body_sha256: input.bodySha256,
+    });
+    if (typeof result !== "object" || result === null || Array.isArray(result)) {
+      throw new TransportError("Native user-presence response was invalid", 503);
+    }
+    const record = result as Record<string, unknown>;
+    if (record.version !== "native-user-presence-v1" || typeof record.approved !== "boolean") {
+      throw new TransportError("Native user-presence response was invalid", 503);
+    }
+    if (record.approved === false) {
+      if (
+        Object.keys(record).sort().join(",") !== "approved,reason,version"
+        || ![
+          "native_confirmation_unavailable",
+          "invalid_confirmation_request",
+          "action_not_allowed",
+          "user_declined",
+        ].includes(String(record.reason))
+      ) {
+        throw new TransportError("Native user-presence response was invalid", 503);
+      }
+      throw new TransportError(
+        record.reason === "user_declined"
+          ? "Native user-presence confirmation was declined"
+          : "Native user-presence confirmation is unavailable",
+        record.reason === "user_declined" ? 403 : 503,
+      );
+    }
+    if (
+      Object.keys(record).sort().join(",") !== "approval_token,approved,version"
+      || typeof record.approval_token !== "string"
+      || !/^[A-Za-z0-9_-]{32,128}$/.test(record.approval_token)
+    ) {
+      throw new TransportError("Native user-presence response was invalid", 503);
+    }
+    return record.approval_token;
+  }
+
+  const approveUserPresence = options.userPresenceApproval ?? desktopUserPresenceApproval;
 
   async function bootstrapBrowserSession(): Promise<string> {
     const target = assertSameOriginRelativePath("/auth/session", origin);
@@ -2111,18 +2204,40 @@ export function createHttpTransport(options: {
     const payload = (await response.json()) as {
       csrf_token?: unknown;
       expires_in_seconds?: unknown;
+      user_presence_confirmation_available?: unknown;
+      user_presence_confirmation_mode?: unknown;
     };
     if (
       typeof payload.csrf_token !== "string" ||
       payload.csrf_token.length === 0 ||
       typeof payload.expires_in_seconds !== "number" ||
-      payload.expires_in_seconds <= 0
+      payload.expires_in_seconds <= 0 ||
+      (
+        payload.user_presence_confirmation_available !== undefined &&
+        typeof payload.user_presence_confirmation_available !== "boolean"
+      ) ||
+      (
+        payload.user_presence_confirmation_mode !== undefined &&
+        ![
+          "unavailable",
+          "native_bridge_bound_token",
+        ].includes(String(payload.user_presence_confirmation_mode))
+      )
     ) {
+      throw new TransportError("Local browser session response was invalid", response.status);
+    }
+    const userPresenceMode = (
+      payload.user_presence_confirmation_mode ?? "unavailable"
+    ) as "unavailable" | "native_bridge_bound_token";
+    const userPresenceAvailable = payload.user_presence_confirmation_available === true;
+    if (userPresenceAvailable !== (userPresenceMode !== "unavailable")) {
       throw new TransportError("Local browser session response was invalid", response.status);
     }
     sessionAuth = {
       csrfToken: payload.csrf_token,
       refreshAfter: Date.now() + Math.max(1, payload.expires_in_seconds - 5) * 1000,
+      userPresenceAvailable,
+      userPresenceMode,
     };
     return sessionAuth.csrfToken;
   }
@@ -2149,11 +2264,27 @@ export function createHttpTransport(options: {
     signal?: AbortSignal,
     readSafeAnalysisReason = false,
     requirePrivateNoStore = false,
+    requireUserPresence = false,
   ): Promise<T> {
     const target = assertSameOriginRelativePath(path, origin);
     const method = (init.method ?? "GET").toUpperCase();
     const mutation = !["GET", "HEAD", "OPTIONS"].includes(method);
     let csrfToken = await ensureBrowserSession(signal);
+    let userPresenceToken: string | undefined;
+    if (requireUserPresence) {
+      if (method !== "POST" || typeof init.body !== "string") {
+        throw new TransportError("Native user-presence request was invalid", 503);
+      }
+      if (sessionAuth?.userPresenceMode === "native_bridge_bound_token") {
+        userPresenceToken = await approveUserPresence({
+          method: "POST",
+          path,
+          bodySha256: await sha256Utf8(init.body),
+        });
+      } else {
+        throw new TransportError("Native user-presence confirmation is unavailable", 503);
+      }
+    }
     const send = (csrf: string) =>
       fetchRequest(target, {
         ...init,
@@ -2165,6 +2296,9 @@ export function createHttpTransport(options: {
         headers: {
           Accept: "application/json",
           ...(mutation ? { "X-Prompt-Enhancer-CSRF": csrf } : {}),
+          ...(userPresenceToken === undefined
+            ? {}
+            : { "X-Prompt-Enhancer-User-Presence": userPresenceToken }),
           ...init.headers,
         },
       });
@@ -2207,6 +2341,14 @@ export function createHttpTransport(options: {
 
   return {
     runtimeKind: "local_loopback",
+    async getUserPresenceCapability(signal) {
+      await ensureBrowserSession(signal);
+      return {
+        contract_version: "native-user-presence-capability-v1",
+        confirmation_available: sessionAuth?.userPresenceAvailable === true,
+        mode: sessionAuth?.userPresenceMode ?? "unavailable",
+      };
+    },
     async getControlPlaneReadiness(signal) {
       const value = await request<unknown>(
         "/v1/control-plane/readiness",
@@ -2566,7 +2708,7 @@ export function createHttpTransport(options: {
       }
     },
     decideAgentApproval(sessionId, approvalId, approved, signal) {
-      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(approvalId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved }) }, signal);
+      return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(approvalId)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved }) }, signal, false, false, true);
     },
     stopAgentSession(sessionId, signal) {
       return request<AgentSessionView>(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" }, signal);
@@ -2627,6 +2769,9 @@ export function createHttpTransport(options: {
         `/v1/agent/sessions/${encodeURIComponent(sessionId)}/workspace/previews/${encodeURIComponent(previewId)}/apply`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         signal,
+        false,
+        false,
+        true,
       );
       try {
         return parseAgentWorkspaceApplyResult(
@@ -3362,6 +3507,53 @@ export function createHttpTransport(options: {
         throw error;
       }
     },
+    async getDeclaredTaskProfile(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/declared-task-profile`,
+        { method: "GET" },
+        signal,
+        false,
+        true,
+      );
+      try {
+        return parseDeclaredTaskProfileCurrent(value, sessionId);
+      } catch (error) {
+        if (error instanceof DeclaredTaskProfilePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async saveDeclaredTaskProfile(
+      sessionId,
+      profileRequest: DeclaredTaskProfileCommand,
+      idempotencyKey,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/declared-task-profile`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(profileRequest),
+        },
+        signal,
+        false,
+        true,
+        true,
+      );
+      try {
+        return parseDeclaredTaskProfileOutcome(value, sessionId);
+      } catch (error) {
+        if (error instanceof DeclaredTaskProfilePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
     async startModelEnsemble(
       sessionId,
       ensembleRequest: ModelEnsembleRequest,
@@ -3509,6 +3701,7 @@ export function createHttpTransport(options: {
           body: JSON.stringify(decisionRequest),
         },
         signal,
+        true,
         true,
         true,
       );

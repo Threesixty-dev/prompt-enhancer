@@ -18,24 +18,43 @@ local runtime artifacts must never be added here.
 | Phase | Status | Current scope | Acceptance gate | Open blockers |
 |---|---|---|---|---|
 | Baseline | Complete | Preserve and classify the inherited backend, frontend, model, test, and documentation work | Python, frontend, build, Playwright, privacy scan, clean worktree, and pushed commits | None |
-| P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | Current operability: 12 shipped conditional paths, 3 task-profile configuration gaps, 5 provider/extractor gaps, 8 experimental model paths, and zero model-authoritative measured metrics |
+| P0 | Complete | Runtime truth, readiness, visualization, previews, evidence contracts, durable jobs, local automation, Job Centre, exact metric scope, and revocation-safe result activation | Backend, frontend, build, real-loopback and browser E2E, privacy, migration-upgrade, cancellation, supersession, restart, and concurrent revocation gates | Current operability: 15 shipped conditional paths, 0 task-profile configuration gaps, 5 provider/extractor gaps, 8 experimental model paths, and zero model-authoritative measured metrics |
 | P1 | In progress | Sealed v17 calibration evidence, a durable execution-only runtime through objective evidence and BM25, repository-sealed non-comparable calibration reports, repository-sealed non-activating gate decisions, truthful local metric coverage, reviewed local automation admission controls, crash-safe invalid estimator-automation reconciliation, a restart-durable strict first-claim result-publication cutoff for reviewed automated `session_quality` work, bounded large-thread preparation, and a normalized ten-model local shadow ensemble with chunk-level receipts and a separate radar | Frozen private holdout, calibration, stability, privacy, latency, and abstention gates | No representative human-calibrated holdout, eligibility-capable decision or activation slot, calibrated or product-eligible model ensemble, force-stopping runtime deadline, or product-enabled estimator |
 | P2 | In progress | Prospective capture and comparison contracts, untrusted comparison-stratum drafts, untrusted and repository-backed supplied-set raw-aggregation drafts, normalized synthetic-only temporal persistence, repository-issued synthetic comparison-stratum preparation and graph sealing, and bounded repository-sealed synthetic aggregation-validation receipts | Prospective comparable recommendation outcomes with missingness and adverse effects visible | Codex lacks authoritative per-item source timestamps and stable provider snapshot/cursor boundaries, so no Codex product source boundary exists; the new Claude Code hook surface supplies receiver-clock per-item timing (`EVENT_TIMING`) and a keyset-ordered ledger, but it is not yet reviewed as a product source boundary; there are no product snapshots, recommendations, or empirical recommendation-outcome/adverse-effect results, and no legacy backfill is permitted |
 | P3 | Deferred; P3a contracts only | Optional cloud identity, pairing, entitlements, payments, and usage ledger. P3a adds development-only control-plane contracts, default-deny policy, signed content-free snapshot envelopes, cursored deltas, tombstones, audit evidence, and an in-memory adapter behind ports | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required. P3a adds no deployment: no production identity provider, no Ed25519 adapter, no PostgreSQL adapter, no credential issuance, no billing, and no producer pipeline |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
-## Current all-20 operability truth (2026-08-20)
+## Current all-20 operability truth (2026-08-21)
 
 The versioned, authenticated
-[`metric-operability-v1`](metric-operability.md) catalog derives its result from
-the reviewed V2 contract registry, r4 lifecycle registry, task profile,
+[`metric-operability-v2`](metric-operability.md) catalog derives its result from
+the reviewed V2 contract registry, r5 profile-bound projection, lifecycle registry,
 semantic-unit extractor set, objective evidence requirements, and the exact
-capabilities composed for the current safe-event decoder. It reports 12 metrics
-with a defensible shipped path when evidence exists, three blocked on missing
-task-profile configuration, five blocked on missing provider/extractor
-authority, and eight with a separate experimental model-estimate path. No model
-stage may author any measured value. Older checkpoint counts below are retained
-as historical evidence and must not be read as the current release state.
+capabilities composed for the current safe-event decoder. It reports 15 metrics
+with a defensible shipped path when evidence exists, none blocked on missing
+task-profile configuration, five blocked on missing provider/extractor authority,
+and eight with a separate experimental model-estimate path. No model stage may
+author any measured value. Older checkpoint counts below are retained as
+historical evidence and must not be read as the current release state.
+
+### Reviewed task-profile and r5 evidence tranche (2026-08-21)
+
+Schema v54 adds an append-only, content-free declared-profile revision ledger
+and the profile-bound r5 state/seal sidecars. The owned-window native-confirmed profile editor can
+configure only constraint kinds, expected outcome count, and deliverable slots;
+null stays unconfigured/unknown and no prompt text is persisted. Run identity,
+reuse, persistence, public binding metadata, and trajectory comparability all
+include the exact profile source, revision, fingerprint, schema, and policy.
+Current projection r5 preserves nineteen r4 rows and corrects acceptance
+testability to count distinct checkable clauses owned by the canonical active
+request, capped by the reviewed expected-outcome count.
+
+The local agent metric-evidence boundary is append-only v2 for r5, binding both
+the exact sealed run and source-window fingerprint. Historical v1/r4 files stay
+readable under their original identity. Both formats remain proposal-only and
+forbid scores, prose, objective-receipt claims, and self-confirmation. The
+profile editor is a separate native-user-authorized workflow, not an expansion of
+agent evidence authority.
 
 ## Baseline evidence
 
@@ -1206,8 +1225,10 @@ The later local-authority hardening separates proposal and decision
 credentials. A loopback API token may still fetch the contract, preview a
 canonical file, and import an inert proposal, but the decision route refuses
 that token and requires the ephemeral same-origin browser session, CSRF proof,
-an exact decision literal, and a second visible confirmation step. This is an
-application authorization boundary, not a claim of physical user presence
+an exact decision literal, and an owned-window native one-shot capability bound
+to the verified origin and exact request body. Standard `serve` and attached
+windows advertise the operation as unavailable and leave proposals inert. This
+is an application authorization boundary, not a claim of physical user presence
 against software that controls the desktop. The exact workflow and current
 five-family limit are documented in
 [`local-agent-metric-evidence-api.md`](local-agent-metric-evidence-api.md).
@@ -1431,7 +1452,7 @@ Local agent workspace (ADR 0016): `LocalAgentService` binds a session to one
 folder and lets the active local model use `read_file` / `list_dir` /
 `search_text` freely and `write_file` (diff first) / `run_command` /
 `fetch_url` only after the person approves that exact call; path containment,
-protected-root refusal, browser-only human approval, revision-bound atomic
+protected-root refusal, owned-window native one-shot approval, revision-bound atomic
 writes, bounded outputs, step limit, stop; events are an in-memory, cursor-paged
 stream. The session-bound workspace API and Agent page add an existing-file
 UTF-8 tree/editor, normalized line endings, server diff, and a short-lived
@@ -1505,9 +1526,9 @@ the application composes no control-plane service and exposes no route.
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
 | Historical ten-model shadow graph | `local-shadow-ensemble-v1`; `append-stable-redacted-v3`; `owned-observation-v1`; `coaching-shadow-prompt-v4`; exact ten-model inventory in code-owned immutable manifests | Immutable/readable compatibility history; not executed by the live v35 estimator |
 | All-20 predictive sidecar | `local-probabilistic-radar-v1`; active `local-factor-router-v3` / `small-factor-router-v5`, historical v2 readable; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
-| Canonical all-20 measured publication | `metric.contract-v2.publication` v2; registry `all-20-factor-contracts-v2`; current projection `metric-contract-v2-projection-4`; schema v43 sealed `_r4` sidecar with r1-r3 rows still readable | Canonical for new model-ensemble snapshots; r4 adds browser-confirmed collaboration lifecycle evidence while preserving r3's explicit plan links; values still require reviewed opportunity ownership or typed objective authority |
-| Per-metric evidence readiness | `metric.contract-v2.evidence-readiness` v1; catalog `metric-evidence-readiness-v2-3` | Derived on read from the exact sealed publication; adds no datum, no schema, and no persistence; r4 lifecycle contributors, source/capability/receipt-bound reasons, and explicit censoring bounds |
-| All-20 operability catalog | `metric-operability-v1`; authenticated `GET /v1/metric-contracts/v2/operability-catalog` | Content-free release gate derived from the reviewed contracts and composed capabilities: 12 shipped conditional paths, 3 task-profile gaps, 5 provider/extractor gaps, 8 experimental model paths, 0 model-authoritative metrics |
+| Canonical all-20 measured publication | `metric.contract-v2.publication` v2; registry `all-20-factor-contracts-v2`; current projection `metric-contract-v2-projection-5`; schema v54 sealed profile binding plus `_r5` sidecar, with r1-r4 rows still readable | Canonical for new model-ensemble snapshots; r5 adds an immutable reviewed denominator profile and distinct-clause acceptance semantics while preserving r4 lifecycle and r3 explicit-plan paths; values still require reviewed opportunity ownership or typed objective authority |
+| Per-metric evidence readiness | `metric.contract-v2.evidence-readiness` v1; catalog `metric-evidence-readiness-v2-4` | Derived on read from the exact sealed publication; adds no datum, no schema, and no persistence; r5 profile, r4 lifecycle, source/capability/receipt-bound reasons, and explicit censoring bounds |
+| All-20 operability catalog | `metric-operability-v2`; authenticated `GET /v1/metric-contracts/v2/operability-catalog` | Content-free release gate derived from the reviewed contracts and composed capabilities: 15 shipped conditional paths, 0 task-profile gaps, 5 provider/extractor gaps, 8 experimental model paths, 0 model-authoritative metrics |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |

@@ -144,6 +144,30 @@ describe("AgentWorkspacePane", () => {
     expect(screen.getByRole("button", { name: "Apply reviewed edit" })).toBeDisabled();
   });
 
+  it("keeps a reviewed preview read-only without native user presence", async () => {
+    const api = transport();
+    render(
+      <AgentWorkspacePane
+        pendingWrite={null}
+        sessionId={SESSION}
+        transport={api}
+        userPresenceAvailable={false}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /example.ts/u }));
+    const editor = await screen.findByLabelText("Workspace file editor");
+    await waitFor(() => expect(editor).toHaveValue("export const value = 1;\n"));
+    fireEvent.change(editor, {
+      target: { value: "export const value = 2;\n" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review diff" }));
+    await screen.findByRole("region", { name: "Manual edit review" });
+
+    expect(screen.getByText(/preview is read-only here/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Apply reviewed edit" })).toBeDisabled();
+    expect(api.applyAgentWorkspaceEdit).not.toHaveBeenCalled();
+  });
+
   it("drops an in-flight file response when the selected session changes", async () => {
     const api = transport();
     let resolveFile!: (value: AgentWorkspaceFile) => void;

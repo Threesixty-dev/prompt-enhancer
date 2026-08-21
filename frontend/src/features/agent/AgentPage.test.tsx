@@ -365,4 +365,49 @@ describe("AgentPage", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps tool decisions and new mutation scopes disabled without native presence", async () => {
+    const pendingEvent = event(1, "approval_required", {
+      tool: "write_file",
+      arguments: { path: "src/example.py" },
+      approval_id: APPROVAL,
+      preview: "--- a/src/example.py\n+++ b/src/example.py\n-old\n+new",
+    });
+    const current = view({ running: true, pending_approval_id: APPROVAL, last_seq: 1 });
+    const transport = {
+      ...workspaceMethods(),
+      getUserPresenceCapability: vi.fn(async () => ({
+        contract_version: "native-user-presence-capability-v1" as const,
+        confirmation_available: false,
+        mode: "unavailable" as const,
+      })),
+      listAgentSessions: vi.fn(async () => [current]),
+      createAgentSession: vi.fn(),
+      getAgentSession: vi.fn(async () => current),
+      deleteAgentSession: vi.fn(),
+      sendAgentMessage: vi.fn(),
+      getAgentEvents: vi.fn(async () => ({
+        contract_version: "local-agent.v2" as const,
+        session_id: SESSION,
+        events: [pendingEvent],
+        running: true,
+        pending_approval_id: APPROVAL,
+        last_seq: 1,
+        first_seq: 1,
+      })),
+      decideAgentApproval: vi.fn(),
+      stopAgentSession: vi.fn(async () => current),
+    };
+    render(<AgentPage sessionId={SESSION} transport={transport} />);
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Approval needed" });
+    expect(dialog).toHaveTextContent(/cannot be decided until the app is opened/i);
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeDisabled();
+    await waitFor(() => expect(screen.getByLabelText(/May write files/i)).not.toBeChecked());
+    expect(screen.getByLabelText(/May write files/i)).toBeDisabled();
+    expect(screen.getByLabelText(/May run commands/i)).toBeDisabled();
+    expect(screen.getByLabelText(/May fetch web pages/i)).toBeDisabled();
+    expect(transport.decideAgentApproval).not.toHaveBeenCalled();
+  });
 });

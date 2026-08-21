@@ -29,6 +29,8 @@ from ...application.analysis.session_model_ensemble import (
     ModelEnsemblePersistenceError,
     ModelEnsembleSelectionError,
     ModelEnsembleSourceError,
+    MetricProfileSource,
+    SessionMetricProfileBinding,
     SessionModelEnsembleOutcome,
     SessionModelEnsembleRunRecord,
 )
@@ -244,6 +246,44 @@ class ModelPredictiveMetricDetailDto(StrictModel):
     universal_trust_percentage_available: Literal[False] = False
 
 
+class ModelMetricProfileBindingDto(StrictModel):
+    """Minimized reviewed-profile identity bound to a sealed r5 run."""
+
+    profile_source: MetricProfileSource
+    profile_id: str | None = Field(
+        default=None,
+        pattern=PSEUDONYM_PATTERN.pattern,
+    )
+    profile_revision: int | None = Field(default=None, ge=1, le=1_000_000)
+    profile_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    profile_schema_version: Literal[
+        "coaching-profile-v1-unconfigured",
+        "declared-task-profile-v1",
+    ]
+    profile_policy_version: Literal[
+        "server-preset-v1",
+        "authenticated-local-user-v1",
+    ]
+    local_only: Literal[True]
+    content_persisted: Literal[False]
+
+    @classmethod
+    def from_binding(
+        cls,
+        binding: SessionMetricProfileBinding,
+    ) -> "ModelMetricProfileBindingDto":
+        return cls.model_validate(
+            binding.model_dump(
+                exclude={
+                    "provider",
+                    "session_id",
+                    "source_window_fingerprint",
+                    "bound_at",
+                }
+            )
+        )
+
+
 class ModelEnsembleRunDto(StrictModel):
     run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     plan_version: Literal["local-shadow-ensemble-v1"]
@@ -274,6 +314,7 @@ class ModelEnsembleRunDto(StrictModel):
     metric_projection_completed_at: datetime | None
     typed_metrics: tuple[ModelEnsembleTypedMetricDto, ...] = Field(max_length=20)
     metric_publication_v2: MetricPublicationV2 | None
+    metric_profile_binding: ModelMetricProfileBindingDto | None
     #: Derived from the sealed publication above plus this run's provenance.
     #: It stores nothing of its own, so it is absent exactly when the sealed
     #: publication is absent.
@@ -366,6 +407,13 @@ class ModelEnsembleRunDto(StrictModel):
                 for item in receipt.typed_metrics
             ),
             metric_publication_v2=receipt.metric_publication_v2,
+            metric_profile_binding=(
+                None
+                if record.metric_profile_binding is None
+                else ModelMetricProfileBindingDto.from_binding(
+                    record.metric_profile_binding
+                )
+            ),
             metric_evidence_readiness_v2=(
                 None
                 if receipt.metric_publication_v2 is None

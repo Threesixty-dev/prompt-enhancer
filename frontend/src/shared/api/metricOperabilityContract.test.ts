@@ -15,8 +15,8 @@ describe("metric operability catalog contract", () => {
     const result = parseMetricOperabilityCatalog(copyFixture());
 
     expect(result.entries).toHaveLength(20);
-    expect(result.shipped_path_count).toBe(12);
-    expect(result.task_profile_configuration_gap_count).toBe(3);
+    expect(result.shipped_path_count).toBe(15);
+    expect(result.task_profile_configuration_gap_count).toBe(0);
     expect(result.provider_adapter_gap_count).toBe(5);
     expect(result.experimental_model_path_count).toBe(8);
     expect(result.model_authoritative_metric_count).toBe(0);
@@ -47,7 +47,7 @@ describe("metric operability catalog contract", () => {
 
   it.each([
     ["future projection", (value: Record<string, unknown>) => {
-      value.projection_version = "metric-contract-v2-projection-5";
+      value.projection_version = "metric-contract-v2-projection-6";
     }],
     ["contract set", (value: Record<string, unknown>) => {
       value.contract_set_fingerprint = "0".repeat(64);
@@ -56,7 +56,7 @@ describe("metric operability catalog contract", () => {
       ((value.entries as Record<string, unknown>[])[0]).contract_fingerprint = "0".repeat(64);
     }],
     ["state drift", (value: Record<string, unknown>) => {
-      ((value.entries as Record<string, unknown>[])[3]).shipped_path_state = "available_when_evidence_exists";
+      ((value.entries as Record<string, unknown>[])[3]).shipped_path_state = "task_profile_configuration_required";
     }],
     ["model-authored row", (value: Record<string, unknown>) => {
       ((value.entries as Record<string, unknown>[])[0]).measured_value_may_use_model_output = true;

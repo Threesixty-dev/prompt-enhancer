@@ -52,6 +52,7 @@ function v2Run(runId = "e".repeat(64)): ModelEnsembleRun {
     metric_projection_version: null,
     metric_projection_completed_at: null,
     metric_publication_v2: syntheticMetricPublicationV2(SCENARIOS),
+    metric_profile_binding: null,
     predictive_projection_version: null,
     predictive_projected_at: null,
     predictive_metrics: [],

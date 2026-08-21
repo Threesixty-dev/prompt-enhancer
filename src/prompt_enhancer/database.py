@@ -121,10 +121,11 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_51,
     MIGRATION_52,
     MIGRATION_53,
+    MIGRATION_54,
 )
 
 
-SCHEMA_VERSION = 53
+SCHEMA_VERSION = 54
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1657,6 +1658,7 @@ class Database:
                 (51, MIGRATION_51),
                 (52, MIGRATION_52),
                 (53, MIGRATION_53),
+                (54, MIGRATION_54),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1880,6 +1882,19 @@ class Database:
 
         self._ensure_initialized()
         return SqliteMetricLifecycleEvidenceRepository(
+            self._connection,
+            self._ensure_initialized,
+        )
+
+    def declared_task_profile_repository(self):
+        """Return immutable reviewed task-profile denominator persistence."""
+
+        from .infrastructure.sqlite.declared_task_profiles import (
+            SqliteDeclaredTaskProfileRepository,
+        )
+
+        self._ensure_initialized()
+        return SqliteDeclaredTaskProfileRepository(
             self._connection,
             self._ensure_initialized,
         )

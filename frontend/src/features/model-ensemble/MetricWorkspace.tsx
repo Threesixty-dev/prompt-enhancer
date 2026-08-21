@@ -51,6 +51,13 @@ export type { MetricWorkspaceHistory } from "./MetricHistoryDrawer";
 /** U+00A0: keeps the comparison note's line box when no comparison is shown, without visible text. */
 const NON_BREAKING_SPACE = String.fromCharCode(0xa0);
 
+export function metricEvidenceFileProjectionSupported(
+  projectionVersion: string | undefined,
+): boolean {
+  return projectionVersion === "metric-contract-v2-projection-4"
+    || projectionVersion === "metric-contract-v2-projection-5";
+}
+
 export function MetricWorkspace({
   mode,
   run,
@@ -79,7 +86,8 @@ export function MetricWorkspace({
     | "previewAgentMetricEvidence"
     | "importAgentMetricEvidence"
     | "listMetricLifecycleProposals"
-    | "decideMetricLifecycleProposal">;
+    | "decideMetricLifecycleProposal">
+    & Partial<Pick<PromptEnhancerTransport, "getUserPresenceCapability">>;
   lensId: ModelEnsembleLensId;
   onLensChange: (lens: ModelEnsembleLensId) => void;
   snapshotLabel: string;
@@ -232,7 +240,7 @@ export function MetricWorkspace({
       </div>
       {evidenceEnabled
         && evidenceSessionId !== undefined
-        && run.metric_publication_v2?.projection_version === "metric-contract-v2-projection-4"
+        && metricEvidenceFileProjectionSupported(run.metric_publication_v2?.projection_version)
         && (
           <MetricEvidenceFilePanel
             compact={mode === "compact"}

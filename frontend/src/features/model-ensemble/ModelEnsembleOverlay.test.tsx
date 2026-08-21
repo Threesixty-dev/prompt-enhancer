@@ -143,6 +143,7 @@ function radarRun(runId: string, value: number, completedAt: string): ModelEnsem
     metric_projection_version: null,
     metric_projection_completed_at: null,
     metric_publication_v2: null,
+    metric_profile_binding: null,
     typed_metrics: [],
     predictive_projection_version: null,
     predictive_projected_at: null,

@@ -21,15 +21,62 @@ from test_metric_lifecycle_evidence_persistence import (
 TOKEN = "example_metric_lifecycle_token_do_not_use_123456789"
 
 
-def _app(tmp_path):
+def _trusted_user_presence(_request, _body: bytes) -> None:
+    """Synthetic native/account user-presence adapter; never mounted by default."""
+
+
+def _app(tmp_path, *, user_presence=True):
     database, session_id, run, _models, _repository, service = _service(tmp_path)
     app = create_app(
         settings=AppSettings(home=tmp_path),
         database=database,
         api_token=TOKEN,
         metric_lifecycle_evidence_service=service,
+        user_presence_confirmation=(
+            _trusted_user_presence if user_presence else None
+        ),
     )
     return app, session_id, run
+
+
+def test_self_issued_browser_cannot_confirm_lifecycle_evidence(tmp_path) -> None:
+    app, session_id, run = _app(tmp_path, user_presence=False)
+    base = f"/v1/sessions/{session_id}/metric-lifecycle-evidence/proposals"
+    proposal_payload = _opportunity_command(
+        run.run_id, MetricLifecycleFamily.AMBIGUITY_RESOLUTION
+    ).model_dump(mode="json")
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        proposed = client.post(
+            base,
+            headers={
+                API_TOKEN_HEADER: TOKEN,
+                "Idempotency-Key": "metric-lifecycle-untrusted-proposal",
+            },
+            json=proposal_payload,
+        )
+        proposal = proposed.json()["proposal"]
+        browser = client.get("/auth/session")
+        attacked = client.post(
+            f"{base}/{proposal['proposal_id']}/decision",
+            headers={
+                "Idempotency-Key": "metric-lifecycle-self-issued-decision",
+                CSRF_HEADER: browser.json()["csrf_token"],
+                "Origin": "http://127.0.0.1",
+            },
+            json=MetricLifecycleDecisionCommand(
+                expected_source_run_id=proposal["source_run_id"],
+                decision=MetricLifecycleDecisionKind.CONFIRM,
+                confirmation=METRIC_LIFECYCLE_DECISION_CONFIRMATION,
+            ).model_dump(mode="json"),
+        )
+        listing = client.get(base, headers={API_TOKEN_HEADER: TOKEN})
+
+    assert attacked.status_code == 503
+    assert attacked.json() == {
+        "detail": "user-presence confirmation is unavailable"
+    }
+    assert listing.json()["proposals"][0]["status"] == "proposed"
+    _private(attacked)
 
 
 def _private(response) -> None:
@@ -114,11 +161,11 @@ def test_authenticated_propose_replay_decide_and_list_are_content_free(tmp_path)
     assert replay.status_code == 200
     assert replay.json() == {**proposed.json(), "applied": False}
     assert token_decision.status_code == 403
-    assert token_decision.json() == {"detail": "browser confirmation required"}
+    assert token_decision.json() == {"detail": "owned native confirmation required"}
     assert missing_confirmation.status_code == 422
     assert missing_confirmation.json() == {"detail": "request validation failed"}
     assert mixed_credentials.status_code == 403
-    assert mixed_credentials.json() == {"detail": "browser confirmation required"}
+    assert mixed_credentials.json() == {"detail": "owned native confirmation required"}
     assert decided.status_code == 201
     assert decided.json()["proposal"]["status"] == "confirmed"
     assert listing.status_code == 200

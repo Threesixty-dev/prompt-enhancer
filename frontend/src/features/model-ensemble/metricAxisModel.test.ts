@@ -27,6 +27,7 @@ import { moveRovingFocus } from "../../shared/ui/rovingFocus";
 
 type EnsembleMetric = ModelEnsembleRun["metrics"][number];
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
+type ProjectionVersion = NonNullable<ModelEnsembleRun["metric_publication_v2"]>["projection_version"];
 
 function committeeMetric(overrides: Partial<EnsembleMetric> = {}): EnsembleMetric {
   return {
@@ -80,6 +81,7 @@ function runWithV2(
   metricKey: string,
   valueState: "known" | "pending" | "unknown" = "unknown",
   capabilityAvailable = true,
+  projectionVersion: ProjectionVersion = "metric-contract-v2-projection-1",
 ): ModelEnsembleRun {
   const known = valueState === "known";
   const pending = valueState === "pending";
@@ -112,7 +114,7 @@ function runWithV2(
       superseded_excluded_count: 0,
       distinct_owner_count: identity.basis === "semantic_unit_opportunities" ? (known ? 2 : pending ? 1 : 0) : 0,
     },
-    projection_version: "metric-contract-v2-projection-1",
+    projection_version: projectionVersion,
     product_metric_eligible: false,
   }, metricKey);
   return {
@@ -120,6 +122,7 @@ function runWithV2(
     metrics: [committeeMetric({ metric_key: metricKey, numeric_value: 1 })],
     chunk_metrics: [],
     metric_publication_v2: null,
+    metric_profile_binding: null,
     metric_states_v2: [state],
   } as unknown as ModelEnsembleRun;
 }
@@ -342,6 +345,55 @@ describe("metricAxisModel receipt resolver", () => {
       comparabilityState: null,
     });
     expect(modelEnsembleKnowledgeEntries([axis])[0].guidance.evidenceAuthority).toBe("conversation");
+  });
+
+  it("propagates the exact projection into compact guidance instead of relabeling r4 history as r5", () => {
+    const key = "prompt.acceptance_testability";
+    const axisFor = (projection: ProjectionVersion) => modelEnsembleRadarAxes(
+      runWithV2(key, "known", true, projection),
+      "task-framing",
+    ).find((axis) => axis.key === key)!;
+    const r4 = modelEnsembleKnowledgeEntries([axisFor("metric-contract-v2-projection-4")])[0];
+    const r5 = modelEnsembleKnowledgeEntries([axisFor("metric-contract-v2-projection-5")])[0];
+
+    expect(r4.projectionVersion).toBe("metric-contract-v2-projection-4");
+    expect(r4.guidance.meaning).toContain("one per detected requirement clause");
+    expect(r4.guidance.meaning).toContain("versioned local contract");
+    expect(r4.guidance.meaning).not.toContain("expected-outcome slot");
+    expect(r5.projectionVersion).toBe("metric-contract-v2-projection-5");
+    expect(r5.guidance.meaning).toContain("one per expected-outcome slot in the reviewed task profile");
+    expect(r5.guidance.meaning).toContain("sealed r5 reviewed-profile contract");
+    expect(r5.guidance.meaning).not.toContain("detected requirement clause");
+  });
+
+  it("keeps compact r2/r3 and r3/r4 lifecycle boundaries exact", () => {
+    const openLoop = (projection: ProjectionVersion) => {
+      const axis = modelEnsembleRadarAxes(
+        runWithV2("logic.open_loop_closure", "known", true, projection),
+        "reasoning-trace",
+      ).find((candidate) => candidate.key === "logic.open_loop_closure")!;
+      return modelEnsembleKnowledgeEntries([axis])[0];
+    };
+    const collaboration = (projection: ProjectionVersion) => {
+      const axis = modelEnsembleRadarAxes(
+        runWithV2("collaboration.ambiguity_resolution", "known", true, projection),
+        "collaboration-flow",
+      ).find((candidate) => candidate.key === "collaboration.ambiguity_resolution")!;
+      return modelEnsembleKnowledgeEntries([axis])[0];
+    };
+
+    expect(openLoop("metric-contract-v2-projection-2").guidance.meaning)
+      .toContain("one per detected question");
+    expect(openLoop("metric-contract-v2-projection-3").guidance.meaning)
+      .toContain("one per documented agent PLAN episode");
+    expect(openLoop("metric-contract-v2-projection-3").guidance.meaning)
+      .toContain("sealed r3 explicit-plan lifecycle contract");
+    expect(collaboration("metric-contract-v2-projection-3").guidance.meaning)
+      .toContain("one per clause with an ambiguity marker");
+    expect(collaboration("metric-contract-v2-projection-4").guidance.meaning)
+      .toContain("one per confirmed enumerated ambiguity opportunity");
+    expect(collaboration("metric-contract-v2-projection-4").guidance.meaning)
+      .toContain("sealed r4 confirmed-lifecycle contract");
   });
 
   it("keeps authorized-but-unresolved objective history distinct from a missing capability", () => {

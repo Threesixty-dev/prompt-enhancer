@@ -129,6 +129,7 @@ describe("canonical metric V2 publication contract", () => {
       "metric-contract-v2-projection-2",
       "metric-contract-v2-projection-3",
       "metric-contract-v2-projection-4",
+      "metric-contract-v2-projection-5",
     ]) {
       const readable = structuredClone(legacy) as any;
       readable.projection_version = version;
@@ -138,9 +139,9 @@ describe("canonical metric V2 publication contract", () => {
       expect(parseMetricPublicationV2(structuredClone(readable))).toEqual(readable);
     }
     const future = structuredClone(legacy) as any;
-    future.projection_version = "metric-contract-v2-projection-5";
+    future.projection_version = "metric-contract-v2-projection-6";
     future.metrics.forEach((item: any) => {
-      item.state.projection_version = "metric-contract-v2-projection-5";
+      item.state.projection_version = "metric-contract-v2-projection-6";
     });
     let caught: unknown;
     try { parseMetricPublicationV2(future); } catch (error) { caught = error; }
@@ -165,6 +166,11 @@ describe("canonical metric V2 publication contract", () => {
 
   it("carries the same strict V2 states in compact trajectory points", () => {
     const publication = publicationFixture() as any;
+    publication.projection_version = "metric-contract-v2-projection-5";
+    publication.metrics.forEach((item: any) => {
+      item.state.projection_version = "metric-contract-v2-projection-5";
+    });
+    expect(parseMetricPublicationV2(structuredClone(publication))).toEqual(publication);
     const page = {
       watch_id: "1".repeat(64),
       head_run_id: "2".repeat(64),

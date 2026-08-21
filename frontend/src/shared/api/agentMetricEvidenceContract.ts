@@ -27,6 +27,10 @@ const PROPOSAL_KINDS = ["opportunity", "outcome", "enumeration"] as const;
 const OPPORTUNITY_KINDS = ["ambiguity", "clarification", "exploration", "scope_change", "rework"] as const;
 const STATUSES = ["proposed", "confirmed", "rejected"] as const;
 const DECISIONS = ["confirm", "reject"] as const;
+const EVIDENCE_FILE_SCHEMAS = [
+  "agent-metric-evidence-file-v1",
+  "agent-metric-evidence-file-v2",
+] as const;
 
 function record(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -107,7 +111,9 @@ export function parseAgentMetricEvidencePreview(value: unknown): AgentMetricEvid
   const producer = record(preview.producer);
   exact(producer, ["kind", "producer_id", "producer_version", "model_id", "authority"]);
   if (
-    preview.schema_version !== "agent-metric-evidence-file-v1"
+    !EVIDENCE_FILE_SCHEMAS.includes(
+      preview.schema_version as typeof EVIDENCE_FILE_SCHEMAS[number],
+    )
     || !safeId(preview.payload_sha256) || !safeId(preview.session_id)
     || !safeId(preview.expected_source_run_id) || !safeId(preview.source_window_fingerprint)
     || !FAMILIES.includes(preview.metric_key as typeof FAMILIES[number])

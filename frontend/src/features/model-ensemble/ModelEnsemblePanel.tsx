@@ -15,6 +15,7 @@ import { promptTextCompatibilityBlocker } from "../provider-compatibility";
 import type { ModelEnsembleLensId } from "./metricAxisModel";
 import { METRIC_DEFINITIONS_OUT_OF_DATE_TITLE, MetricDefinitionsOutOfDateAlert } from "./MetricDefinitionsAlert";
 import { MetricWorkspace } from "./MetricWorkspace";
+import { DeclaredTaskProfilePanel } from "./DeclaredTaskProfilePanel";
 import { MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES } from "./modelEnsembleConstants";
 import { useTrajectorySelection } from "./useTrajectorySelection";
 import {
@@ -573,9 +574,11 @@ export function ModelEnsemblePanel({
     selectedPoint,
     historicalRun,
     historicalRunRefused,
+    selectedExactRun,
     selectedRadarRun,
     comparisonRadarRun,
   } = useTrajectorySelection({ transport, points: trajectoryPoints, selectedRunId, headRun: run });
+  const profileUsesHistoricalSelection = selectedPoint !== null && selectedPoint.run_id !== run?.run_id;
 
   function selectTrajectoryRun(runId: string) {
     followingLive.current = runId === trajectoryHeadRunId;
@@ -621,6 +624,16 @@ export function ModelEnsemblePanel({
           treat prose as proof of an objective outcome.
         </span>
       </div>
+      {transport.getDeclaredTaskProfile !== undefined && transport.saveDeclaredTaskProfile !== undefined && (
+        <DeclaredTaskProfilePanel
+          sealedMetricProfileBinding={selectedExactRun?.metric_profile_binding ?? null}
+          sealedMetricProjectionVersion={selectedExactRun?.metric_publication_v2?.projection_version ?? null}
+          sealedRunContext={profileUsesHistoricalSelection ? "historical_selection" : "latest_head"}
+          sealedRunId={profileUsesHistoricalSelection ? selectedPoint.run_id : run?.run_id ?? null}
+          sessionId={sessionId}
+          transport={transport}
+        />
+      )}
       <div className="model-ensemble__watch">
         <div>
           <strong>Continuous local updates</strong>

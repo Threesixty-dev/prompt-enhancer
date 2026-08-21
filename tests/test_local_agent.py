@@ -820,13 +820,35 @@ def test_http_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     service = _Service(chat=chat, active_model=lambda: "stub", clock=lambda: T0)
     type(application).create_local_agent_service = lambda self, local_model_service=None: service  # type: ignore[method-assign]
-    client = TestClient(application.create_http_app(), base_url="http://127.0.0.1")
+    client = TestClient(
+        application.create_http_app(
+            user_presence_confirmation=lambda _request, _body: None
+        ),
+        base_url="http://127.0.0.1",
+    )
     headers = {API_TOKEN_HEADER: settings.api_token_path.read_text(encoding="utf-8").strip()}
     assert client.get("/v1/capabilities", headers=headers).json()["local_agent"] is True
     assert client.post("/v1/agent/sessions", json={"workspace": str(root)}).status_code == 401
     created = client.post("/v1/agent/sessions", headers=headers, json={"workspace": str(root), "title": "demo"})
     assert created.status_code == 201, created.text
     session_id = created.json()["session_id"]
+    untrusted_client = TestClient(
+        application.create_http_app(),
+        base_url="http://127.0.0.1",
+    )
+    untrusted_browser = untrusted_client.get("/auth/session")
+    untrusted_approval = untrusted_client.post(
+        f"/v1/agent/sessions/{session_id}/approvals/{'0' * 32}",
+        headers={
+            CSRF_HEADER: untrusted_browser.json()["csrf_token"],
+            "Origin": "http://127.0.0.1",
+        },
+        json={"approved": True},
+    )
+    assert untrusted_approval.status_code == 503
+    assert untrusted_approval.json() == {
+        "detail": "user-presence confirmation is unavailable"
+    }
     assert client.post("/v1/agent/sessions", headers=headers, json={"workspace": str(root / "missing")}).status_code == 422
     tree_response = client.get(
         f"/v1/agent/sessions/{session_id}/workspace/tree?path=.",
@@ -890,7 +912,7 @@ def test_http_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         json=apply_payload,
     )
     assert token_apply.status_code == 403
-    assert token_apply.json() == {"detail": "browser confirmation required"}
+    assert token_apply.json() == {"detail": "owned native confirmation required"}
     assert token_apply.headers["cache-control"] == "no-store, private"
     browser = client.get("/auth/session")
     csrf = browser.json()["csrf_token"]
@@ -901,7 +923,7 @@ def test_http_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         json=apply_payload,
     )
     assert mixed_apply.status_code == 403
-    assert mixed_apply.json() == {"detail": "browser confirmation required"}
+    assert mixed_apply.json() == {"detail": "owned native confirmation required"}
     applied = client.post(
         f"/v1/agent/sessions/{session_id}/workspace/previews/{preview['preview_id']}/apply",
         headers=browser_headers,
@@ -931,7 +953,7 @@ def test_http_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         json={"approved": True},
     )
     assert token_approval.status_code == 403
-    assert token_approval.json() == {"detail": "browser confirmation required"}
+    assert token_approval.json() == {"detail": "owned native confirmation required"}
     browser_approval = client.post(
         f"/v1/agent/sessions/{session_id}/approvals/{'0' * 32}",
         headers=browser_headers,

@@ -1003,6 +1003,18 @@ def test_private_api_returns_only_content_free_shadow_receipts(tmp_path) -> None
     assert payload["metric_publication_v2"]["canonical_live_snapshot"] is True
     assert payload["metric_publication_v2"]["compatibility_preview"] is False
     assert len(payload["metric_publication_v2"]["metrics"]) == 20
+    assert payload["metric_profile_binding"] == {
+        "profile_source": "coaching_profile_v1_unconfigured",
+        "profile_id": None,
+        "profile_revision": None,
+        "profile_fingerprint": (
+            "4cf952d189fd817c3959540a18538b76b161aa3a03d810cb967cafc7f284be71"
+        ),
+        "profile_schema_version": "coaching-profile-v1-unconfigured",
+        "profile_policy_version": "server-preset-v1",
+        "local_only": True,
+        "content_persisted": False,
+    }
     assert payload["content_persisted"] is False
     assert payload["product_metric_eligible"] is False
     assert "source_window_fingerprint" not in response.text

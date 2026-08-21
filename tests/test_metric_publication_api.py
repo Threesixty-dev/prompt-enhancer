@@ -193,8 +193,8 @@ def test_operability_catalog_is_authenticated_private_and_content_free(
     assert response.headers["Pragma"] == "no-cache"
     body = response.json()
     assert body["total_metric_count"] == 20
-    assert body["shipped_path_count"] == 12
-    assert body["task_profile_configuration_gap_count"] == 3
+    assert body["shipped_path_count"] == 15
+    assert body["task_profile_configuration_gap_count"] == 0
     assert body["provider_adapter_gap_count"] == 5
     assert body["experimental_model_path_count"] == 8
     assert body["model_authoritative_metric_count"] == 0
@@ -330,7 +330,7 @@ def test_publication_is_read_only_and_leaves_stored_receipts_untouched(
     assert before == after
     # A derived projection must be reproducible rather than a second record.
     assert first == second
-    assert SCHEMA_VERSION == 53
+    assert SCHEMA_VERSION == 54
 
 
 def test_publication_adds_no_table_and_cannot_outlive_its_parent_run(

@@ -11,8 +11,9 @@ from pydantic import Field
 
 from ...application.analysis.agent_metric_evidence import (
     MAX_AGENT_METRIC_EVIDENCE_BYTES,
+    AgentMetricEvidenceAnyFileContract,
+    AgentMetricEvidenceDefinitionsOutOfDateError,
     AgentMetricEvidenceFileError,
-    AgentMetricEvidenceFileContract,
     AgentMetricEvidenceImportResult,
     AgentMetricEvidencePreview,
     AgentMetricEvidenceProducer,
@@ -36,7 +37,7 @@ _PRIVATE_HEADERS = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
 
 
 class AgentMetricEvidenceCommand(Protocol):
-    def contract(self, session_id: str) -> AgentMetricEvidenceFileContract: ...
+    def contract(self, session_id: str) -> AgentMetricEvidenceAnyFileContract: ...
 
     def preview(
         self, *, session_id: str, payload: bytes, now: datetime | None = None
@@ -105,6 +106,14 @@ async def _bounded_body(request: Request) -> bytes:
 
 
 def _failure(error: Exception) -> HTTPException:
+    if isinstance(error, AgentMetricEvidenceDefinitionsOutOfDateError):
+        return HTTPException(
+            409,
+            detail={
+                "code": error.code,
+                "message": "agent metric evidence definitions are out of date",
+            },
+        )
     if isinstance(error, (AgentMetricEvidenceFileError, MetricLifecycleInputError)):
         return HTTPException(
             422,
@@ -146,16 +155,17 @@ def create_agent_metric_evidence_router(
 
     @router.get(
         "/sessions/{session_id}/agent-metric-evidence/contract",
-        response_model=AgentMetricEvidenceFileContract,
+        response_model=AgentMetricEvidenceAnyFileContract,
     )
     def contract(
         response: Response,
         session_id: Annotated[str, Path(pattern=PSEUDONYM_PATTERN.pattern)],
-    ) -> AgentMetricEvidenceFileContract:
+    ) -> AgentMetricEvidenceAnyFileContract:
         response.headers.update(_PRIVATE_HEADERS)
         try:
             return service.contract(session_id)
         except (
+            AgentMetricEvidenceDefinitionsOutOfDateError,
             MetricLifecycleInputError,
             MetricLifecycleNotFoundError,
             MetricLifecyclePersistenceError,
@@ -176,6 +186,7 @@ def create_agent_metric_evidence_router(
         try:
             result = service.preview(session_id=session_id, payload=payload)
         except (
+            AgentMetricEvidenceDefinitionsOutOfDateError,
             AgentMetricEvidenceFileError,
             MetricLifecycleInputError,
             MetricLifecycleNotFoundError,
@@ -220,6 +231,7 @@ def create_agent_metric_evidence_router(
                 idempotency_key=idempotency_key,
             )
         except (
+            AgentMetricEvidenceDefinitionsOutOfDateError,
             AgentMetricEvidenceFileError,
             MetricLifecycleConflictError,
             MetricLifecycleInputError,

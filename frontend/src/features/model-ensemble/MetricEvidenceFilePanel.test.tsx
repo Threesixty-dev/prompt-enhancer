@@ -121,4 +121,28 @@ describe("MetricEvidenceFilePanel", () => {
       expect.any(String),
     );
   });
+
+  it("keeps imported proposals unconfirmed when native presence is unavailable", async () => {
+    const local = {
+      ...transport([proposal]),
+      getUserPresenceCapability: vi.fn(async () => ({
+        contract_version: "native-user-presence-capability-v1" as const,
+        confirmation_available: false,
+        mode: "unavailable" as const,
+      })),
+    };
+    render(
+      <MetricEvidenceFilePanel
+        compact={false}
+        sessionId={sessionId}
+        sourceRunId={runId}
+        transport={local}
+      />,
+    );
+
+    expect(await screen.findByText(/proposals remain unconfirmed/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Confirm evidence" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled();
+    expect(local.decideMetricLifecycleProposal).not.toHaveBeenCalled();
+  });
 });

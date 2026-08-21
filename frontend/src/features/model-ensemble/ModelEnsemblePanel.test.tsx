@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  DeclaredTaskProfile,
   ModelEnsembleCanonicalHead,
   ModelEnsembleRun,
   ModelPredictiveMetricDetail,
@@ -11,9 +12,11 @@ import type {
 } from "../../shared/api/contracts";
 import {
   ModelEnsemblePayloadError,
+  parseModelMetricProfileBinding,
   parseModelEnsembleOutcome,
   parseModelEnsembleRun,
 } from "../../shared/api/modelEnsembleContract";
+import { MetricDefinitionsOutOfDateError } from "../../shared/api/metricPublicationV2Contract";
 import {
   ModelEnsembleWatchPayloadError,
   parseModelEnsembleWatchSnapshot,
@@ -24,6 +27,10 @@ import {
 } from "../../shared/api/modelEnsembleTrajectoryContract";
 import { createSyntheticTransport } from "../../shared/api/syntheticTransport";
 import { parseModelPredictiveMetricDetail } from "../../shared/api/modelPredictiveMetricDetailContract";
+import {
+  syntheticMetricPublicationV2,
+  syntheticPublishedMetricV2,
+} from "../../test/metricPublicationV2Fixture";
 import { createHttpTransport, TransportError } from "../../shared/api/httpTransport";
 import { MetricWorkspace } from "./MetricWorkspace";
 import { ModelEnsemblePanel } from "./ModelEnsemblePanel";
@@ -137,6 +144,7 @@ function runFixture(): ModelEnsembleRun {
     metric_projection_version: "coaching-typed-projection-v1",
     metric_projection_completed_at: "2040-01-02T10:00:01Z",
     metric_publication_v2: null,
+    metric_profile_binding: null,
     metric_evidence_readiness_v2: null,
     typed_metrics: metricKeys.map((metric_key, index) => ({
       metric_key,
@@ -199,6 +207,51 @@ function runFixture(): ModelEnsembleRun {
     content_persisted: false,
     calibration_state: "not_assessed",
     product_metric_eligible: false,
+  };
+}
+
+function r5RunFixture(
+  binding: NonNullable<ModelEnsembleRun["metric_profile_binding"]>,
+): ModelEnsembleRun {
+  const run = structuredClone(runFixture());
+  const publication = structuredClone(syntheticMetricPublicationV2());
+  publication.projection_version = "metric-contract-v2-projection-5";
+  for (const item of publication.metrics) {
+    item.state.projection_version = "metric-contract-v2-projection-5";
+  }
+  const metricKeys = publication.metrics.map((item) => item.state.metric_key);
+  const aggregate = run.metrics[0];
+  const chunkMetric = run.chunk_metrics[0];
+  const typed = run.typed_metrics[0];
+  const predictive = run.predictive_metrics[0];
+  const votes = run.votes.slice(0, 4);
+  run.metrics = metricKeys.map((metric_key) => ({ ...aggregate, metric_key }));
+  run.chunk_metrics = metricKeys.map((metric_key) => ({ ...chunkMetric, metric_key }));
+  run.typed_metrics = metricKeys.map((metric_key) => ({ ...typed, metric_key }));
+  run.predictive_metrics = metricKeys.map((metric_key) => ({ ...predictive, metric_key }));
+  run.votes = metricKeys.flatMap((metric_key) => votes.map((vote) => ({ ...vote, metric_key })));
+  run.metric_publication_v2 = publication;
+  run.metric_profile_binding = binding;
+  return run;
+}
+
+function declaredProfileFixture(): DeclaredTaskProfile {
+  return {
+    profile_id: "1".repeat(64),
+    provider: "codex",
+    session_id: SESSION_ID,
+    revision: 3,
+    previous_profile_id: "3".repeat(64),
+    constraint_kinds: ["privacy"],
+    expected_outcome_count: 2,
+    deliverable_slots: ["artifact"],
+    profile_fingerprint: "2".repeat(64),
+    confirmed_at: "2040-01-02T09:59:00Z",
+    confirmation_authority: "authenticated_local_user",
+    schema_version: "declared-task-profile-v1",
+    policy_version: "authenticated-local-user-v1",
+    local_only: true,
+    content_persisted: false,
   };
 }
 
@@ -427,6 +480,127 @@ function renderPanel(transport: PromptEnhancerTransport) {
 }
 
 describe("model ensemble response contract", () => {
+  it("strictly parses the minimized declared-profile binding and classifies future identities", () => {
+    const binding = {
+      profile_source: "declared_task_profile",
+      profile_id: "1".repeat(64),
+      profile_revision: 3,
+      profile_fingerprint: "2".repeat(64),
+      profile_schema_version: "declared-task-profile-v1",
+      profile_policy_version: "authenticated-local-user-v1",
+      local_only: true,
+      content_persisted: false,
+    };
+    expect(parseModelMetricProfileBinding(structuredClone(binding))).toEqual(binding);
+
+    const extra = { ...binding, session_id: SESSION_ID };
+    expect(() => parseModelMetricProfileBinding(extra)).toThrow(ModelEnsemblePayloadError);
+    const crossed = { ...binding, profile_policy_version: "server-preset-v1" };
+    expect(() => parseModelMetricProfileBinding(crossed)).toThrow(ModelEnsemblePayloadError);
+    const future = { ...binding, profile_schema_version: "declared-task-profile-v2" };
+    let caught: unknown;
+    try { parseModelMetricProfileBinding(future); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(MetricDefinitionsOutOfDateError);
+    expect((caught as MetricDefinitionsOutOfDateError).mismatch).toBe("metric_profile_binding");
+  });
+
+  it("accepts only the exact content-free unconfigured preset identity", () => {
+    const binding = {
+      profile_source: "coaching_profile_v1_unconfigured",
+      profile_id: null,
+      profile_revision: null,
+      profile_fingerprint: "4cf952d189fd817c3959540a18538b76b161aa3a03d810cb967cafc7f284be71",
+      profile_schema_version: "coaching-profile-v1-unconfigured",
+      profile_policy_version: "server-preset-v1",
+      local_only: true,
+      content_persisted: false,
+    };
+    const parsedBinding = parseModelMetricProfileBinding(structuredClone(binding));
+    expect(parsedBinding).toEqual(binding);
+    const r5 = r5RunFixture(parsedBinding);
+    expect(parseModelEnsembleRun(structuredClone(r5))).toEqual(r5);
+    r5.metric_profile_binding = null;
+    expect(() => parseModelEnsembleRun(r5)).toThrow(ModelEnsemblePayloadError);
+    const legacy = runFixture();
+    legacy.metric_profile_binding = parsedBinding;
+    expect(() => parseModelEnsembleRun(legacy)).toThrow(ModelEnsemblePayloadError);
+    expect(() => parseModelMetricProfileBinding({
+      ...binding,
+      profile_fingerprint: "0".repeat(64),
+    })).toThrow(ModelEnsemblePayloadError);
+  });
+
+  it("keeps unconfigured declared-profile metrics entirely nonnumeric and count-free", () => {
+    const unconfiguredBinding = parseModelMetricProfileBinding({
+      profile_source: "coaching_profile_v1_unconfigured",
+      profile_id: null,
+      profile_revision: null,
+      profile_fingerprint: "4cf952d189fd817c3959540a18538b76b161aa3a03d810cb967cafc7f284be71",
+      profile_schema_version: "coaching-profile-v1-unconfigured",
+      profile_policy_version: "server-preset-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    const valid = r5RunFixture(unconfiguredBinding);
+    expect(parseModelEnsembleRun(structuredClone(valid))).toEqual(valid);
+
+    const known = structuredClone(valid);
+    const knownIndex = known.metric_publication_v2!.metrics.findIndex(
+      (item) => item.state.metric_key === "prompt.constraint_precision",
+    );
+    const knownMetric = syntheticPublishedMetricV2("prompt.constraint_precision", {
+      value_state: "known",
+      numerator: 1,
+      denominator: 1,
+    });
+    knownMetric.state.projection_version = "metric-contract-v2-projection-5";
+    known.metric_publication_v2!.metrics[knownIndex] = knownMetric as NonNullable<
+      ModelEnsembleRun["metric_publication_v2"]
+    >["metrics"][number];
+    known.metric_publication_v2!.known_count += 1;
+    known.metric_publication_v2!.unknown_count -= 1;
+    expect(() => parseModelEnsembleRun(known)).toThrow(ModelEnsemblePayloadError);
+
+    const countedUnknown = structuredClone(valid);
+    const countedIndex = countedUnknown.metric_publication_v2!.metrics.findIndex(
+      (item) => item.state.metric_key === "prompt.acceptance_testability",
+    );
+    const countedMetric = syntheticPublishedMetricV2("prompt.acceptance_testability", {
+      value_state: "unknown",
+      eligible: 1,
+      unknown: 1,
+      capability_available: true,
+    });
+    countedMetric.state.projection_version = "metric-contract-v2-projection-5";
+    countedUnknown.metric_publication_v2!.metrics[countedIndex] = countedMetric as NonNullable<
+      ModelEnsembleRun["metric_publication_v2"]
+    >["metrics"][number];
+    expect(() => parseModelEnsembleRun(countedUnknown)).toThrow(ModelEnsemblePayloadError);
+
+    const boundedUnknown = structuredClone(valid);
+    const boundedItem = boundedUnknown.metric_publication_v2!.metrics.find(
+      (item) => item.state.metric_key === "prompt.deliverable_contract",
+    )!;
+    boundedItem.state.censoring_lower_bound = 0;
+    boundedItem.state.censoring_upper_bound = 0;
+    boundedItem.guidance.censoring_lower_bound = 0;
+    boundedItem.guidance.censoring_upper_bound = 0;
+    expect(() => parseModelEnsembleRun(boundedUnknown)).toThrow(ModelEnsemblePayloadError);
+
+    const declared = structuredClone(known);
+    declared.metric_profile_binding = parseModelMetricProfileBinding({
+      profile_source: "declared_task_profile",
+      profile_id: "1".repeat(64),
+      profile_revision: 3,
+      profile_fingerprint: "2".repeat(64),
+      profile_schema_version: "declared-task-profile-v1",
+      profile_policy_version: "authenticated-local-user-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    expect(parseModelEnsembleRun(declared)).toEqual(declared);
+  });
+
   it("accepts the complete fixed committee and rejects missing votes", () => {
     const valid = runFixture();
     expect(parseModelEnsembleRun(structuredClone(valid))).toEqual(valid);
@@ -720,6 +894,39 @@ describe("ModelEnsemblePanel", () => {
     expect(screen.getAllByRole("navigation", { name: "Metric workspace view" })).toHaveLength(2);
     expect(screen.getAllByText("History")).toHaveLength(2);
     expect(screen.getAllByText("Scope not exposed")).toHaveLength(2);
+  });
+
+  it("keeps the reviewed agent-evidence workflow available for current r5 snapshots", () => {
+    const run = runFixture();
+    run.metric_publication_v2 = syntheticMetricPublicationV2();
+    run.metric_publication_v2.projection_version = "metric-contract-v2-projection-5";
+    expect(run.metric_publication_v2?.projection_version).toBe(
+      "metric-contract-v2-projection-5",
+    );
+    const props = {
+      evidenceEnabled: true,
+      evidenceSessionId: SESSION_ID,
+      lensId: "collaboration-flow" as const,
+      mode: "full" as const,
+      onLensChange: vi.fn(),
+      run,
+      runId: run.run_id,
+      snapshotLabel: "Sealed source window",
+      stageRun: run,
+      transport: createSyntheticTransport(),
+    };
+    const view = render(<MetricWorkspace {...props} />);
+
+    expect(screen.getByRole("region", { name: "Import agent metric evidence" })).toBeVisible();
+
+    const historical = structuredClone(run);
+    if (historical.metric_publication_v2 === null) {
+      throw new Error("synthetic run is missing its publication");
+    }
+    historical.metric_publication_v2.projection_version = "metric-contract-v2-projection-3";
+    view.rerender(<MetricWorkspace {...props} run={historical} />);
+
+    expect(screen.queryByRole("region", { name: "Import agent metric evidence" })).not.toBeInTheDocument();
   });
 
   it("renders the dynamic three-small plus Qwen terminal constellation without counting Qwen as a small expert", () => {
@@ -1147,6 +1354,73 @@ describe("ModelEnsemblePanel", () => {
       expect.any(AbortSignal),
     ));
     expect(await screen.findByText(/radar-quality median 70%/i)).toBeVisible();
+  });
+
+  it("binds profile status to the selected exact seal instead of relabelling the latest head as visible history", async () => {
+    const profile = declaredProfileFixture();
+    const binding = parseModelMetricProfileBinding({
+      profile_source: "declared_task_profile",
+      profile_id: profile.profile_id,
+      profile_revision: profile.revision,
+      profile_fingerprint: profile.profile_fingerprint,
+      profile_schema_version: profile.schema_version,
+      profile_policy_version: profile.policy_version,
+      local_only: true,
+      content_persisted: false,
+    });
+    const headRun = r5RunFixture(binding);
+    const historicalRun = { ...structuredClone(runFixture()), run_id: "c".repeat(64) };
+    const trajectory = trajectoryFixture();
+    trajectory.points[0] = {
+      ...trajectory.points[0],
+      metrics: headRun.metrics,
+      typed_metrics: headRun.typed_metrics,
+      metric_states_v2: headRun.metric_publication_v2!.metrics.map((item) => item.state),
+    };
+    trajectory.points.push({
+      ...structuredClone(trajectory.points[0]),
+      generation: 1,
+      run_id: historicalRun.run_id,
+      published_at: "2040-01-02T09:00:01Z",
+      completed_at: "2040-01-02T09:00:00Z",
+      metric_states_v2: [],
+    });
+    const getModelEnsembleSnapshot = vi.fn(async (runId: string) => (
+      runId === historicalRun.run_id ? historicalRun : headRun
+    ));
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(async () => structuredClone(headRun)),
+      getSessionModelEnsembleCanonicalHead: undefined,
+      getActiveModelEnsembleWatch: vi.fn(async () => watchFixture(headRun)),
+      getModelEnsembleSnapshot,
+      getModelEnsembleTrajectory: vi.fn(async () => trajectory),
+      getDeclaredTaskProfile: vi.fn(async () => ({
+        session_id: SESSION_ID,
+        profile,
+        confirmation_available: true,
+      })),
+      saveDeclaredTaskProfile: vi.fn(),
+    };
+    renderPanel(transport);
+
+    const currentStatus = await screen.findByText(
+      /exactly bound to latest sealed head bbbbbbbb…bbbb/i,
+    );
+    expect(currentStatus).toHaveAttribute("data-profile-publication-status", "verified_current");
+    fireEvent.click(screen.getByText("History"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open earlier snapshot 2" }));
+
+    await waitFor(() => expect(getModelEnsembleSnapshot).toHaveBeenCalledWith(
+      historicalRun.run_id,
+      expect.any(AbortSignal),
+    ));
+    const historicalStatus = await screen.findByText(
+      /selected historical seal cccccccc…cccc has no exact r5 binding/i,
+    );
+    expect(historicalStatus).toHaveAttribute("data-profile-publication-status", "unverified");
+    expect(screen.queryByText(/exactly bound to latest sealed head/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/visible sealed r5 snapshot/i)).not.toBeInTheDocument();
   });
 
   it("marks an incomplete source window without presenting it as complete-session evidence", async () => {

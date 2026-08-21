@@ -35,6 +35,7 @@ export interface MetricScenarioV2 {
   censoring_lower_bound?: number | null;
   censoring_upper_bound?: number | null;
   capability_available?: boolean;
+  source_complete?: boolean;
   explanation_code?: string;
   contract_factor_count?: number;
 }
@@ -127,7 +128,7 @@ export function syntheticPublishedMetricV2(metricKey: MetricKeyV2, scenario: Met
     denominator_basis: identity.basis,
     opportunity_unit_kind: identity.unit,
     capability_available: capabilityAvailable,
-    source_complete: known,
+    source_complete: scenario.source_complete ?? known,
     eligible_count: eligible,
     met_count: met,
     not_met_count: notMet,
@@ -254,24 +255,73 @@ export function syntheticMetricEvidenceReadinessV2(
               : !state.statistics.capability_available ? "capability_missing"
                 : !state.statistics.source_complete ? "source_incomplete"
                   : "evidence_unresolved";
-    const reason: MetricEvidenceReadinessRowV2["reason_code"] = availability === "measured" ? "measured_from_owned_opportunities"
-      : availability === "pending_right_censored" ? "opportunity_right_censored"
-        : availability === "no_opportunity" ? "no_eligible_opportunity_observed"
-          : availability === "abstained" ? "calculator_abstained"
-            : availability === "execution_error" ? "execution_error_reported"
-              : availability === "source_incomplete" ? "source_reconciliation_incomplete"
-                : availability === "evidence_unresolved" ? "opportunity_classification_unresolved"
-                  : requirement.capabilityMissingReason ?? "focus_owned_request_revision_required";
-    const required = publication.projection_version === "metric-contract-v2-projection-4"
-      && state.metric_key.startsWith("collaboration.")
+    const lifecycleProjection = publication.projection_version === "metric-contract-v2-projection-4"
+      || publication.projection_version === "metric-contract-v2-projection-5";
+    const lifecycleMetric = state.metric_key.startsWith("collaboration.");
+    let reason: MetricEvidenceReadinessRowV2["reason_code"];
+    if (availability === "execution_error") {
+      reason = "execution_error_reported";
+    } else if (availability === "abstained") {
+      reason = "calculator_abstained";
+    } else if (availability === "measured") {
+      reason = publication.projection_version === "metric-contract-v2-projection-1"
+        && state.statistics.denominator_basis === "rubric_factors"
+        ? "measured_under_superseded_projection_identity"
+        : "measured_from_owned_opportunities";
+    } else if (availability === "pending_right_censored") {
+      reason = "opportunity_right_censored";
+    } else if (availability === "no_opportunity") {
+      reason = "no_eligible_opportunity_observed";
+    } else if (
+      [
+        "metric-contract-v2-projection-3",
+        "metric-contract-v2-projection-4",
+        "metric-contract-v2-projection-5",
+      ].includes(publication.projection_version)
+      && state.statistics.denominator_basis === "objective_opportunities"
+      && state.statistics.capability_available
+      && state.statistics.source_complete
+      && state.statistics.eligible_count === 0
+    ) {
+      reason = "opportunity_set_exceeds_receipt_bound";
+    } else if (availability === "capability_missing") {
+      reason = requirement.capabilityMissingReason ?? "focus_owned_request_revision_required";
+    } else if (availability === "source_incomplete" && lifecycleProjection && lifecycleMetric) {
+      reason = "confirmed_lifecycle_enumeration_required";
+    } else if (availability === "source_incomplete") {
+      reason = "source_reconciliation_incomplete";
+    } else if (state.statistics.eligible_count === 0) {
+      reason = state.statistics.denominator_basis === "declared_profile_slots"
+        ? "declared_profile_slots_absent"
+        : "opportunity_set_undetermined";
+    } else {
+      reason = "opportunity_classification_unresolved";
+    }
+    const required = lifecycleProjection
+      && lifecycleMetric
       && state.value_state === "not_applicable"
       ? ["confirmed_lifecycle_enumeration"] as const
       : requirement.requiredContributors;
     const observed = !state.statistics.capability_available
       ? []
+      : lifecycleProjection && lifecycleMetric
+        ? [
+          ...(state.statistics.source_complete ? ["confirmed_lifecycle_enumeration" as const] : []),
+          ...(state.statistics.eligible_count > 0 ? ["confirmed_lifecycle_opportunity" as const] : []),
+          ...(state.statistics.met_count + state.statistics.not_met_count > 0
+            ? ["confirmed_lifecycle_outcome_link" as const]
+            : []),
+        ]
+      : publication.projection_version === "metric-contract-v2-projection-5"
+        && state.statistics.denominator_basis === "declared_profile_slots"
+        && state.statistics.eligible_count === 0
+        ? []
       : state.statistics.met_count + state.statistics.not_met_count === 0
-        ? required.slice(0, 1)
-        : required;
+        ? state.statistics.source_complete ? required.slice(0, 1) : []
+        : publication.projection_version === "metric-contract-v2-projection-1"
+          && state.statistics.denominator_basis === "rubric_factors"
+          ? required.filter((contributor) => contributor !== "focus_owned_request_revision")
+          : required;
     return {
       metric_key: state.metric_key,
       contract_version: state.contract_version,
@@ -308,7 +358,7 @@ export function syntheticMetricEvidenceReadinessV2(
   return {
     projection_key: "metric.contract-v2.evidence-readiness",
     projection_version: 1,
-    catalog_version: "metric-evidence-readiness-v2-3",
+    catalog_version: "metric-evidence-readiness-v2-4",
     registry_version: "all-20-factor-contracts-v2",
     publication_key: publication.publication_key,
     publication_version: publication.publication_version,

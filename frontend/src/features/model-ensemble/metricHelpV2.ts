@@ -1,3 +1,4 @@
+import type { MetricPublicationV2 } from "../../shared/api/metricPublicationV2Contract";
 import { metricDecisionGuidance, sessionMetricGuidance } from "../quality-profile/metricGuidance";
 import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile";
 
@@ -5,18 +6,20 @@ import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile"
  * Canonical, versioned presentation registry for the twenty workspace metrics.
  *
  * Two layers are kept visibly separate:
- * - `entry` explains the CURRENT local candidate definition whose legacy
- *   receipt is rendered by this workspace.
- * - `measurement` documents the shipped compatibility measurement. Canonical
- *   V2 state and evidence authority come from the exact V2 receipt instead;
- *   this static registry never overrides those receipt facts.
+ * - `entry` explains the immutable definition selected by the sealed
+ *   projection: frozen candidate copy before each semantic change, explicit
+ *   PLAN lifecycle copy from r3, confirmed lifecycle copy from r4, and
+ *   reviewed-profile copy for the three changed r5 contracts.
+ * - `measurement` documents the corresponding shipped measurement. Canonical
+ *   state and evidence authority still come from the exact V2 receipt; help
+ *   copy never overrides those receipt facts.
  *
  * Presentation copy only: it never changes a persisted value, never invents
  * transcript-specific evidence, and keeps measured evidence separate from model
  * judgments. English is the only shipped UI locale; Polish entries are kept in
  * the registry for a future locale signal and are not surfaced by any UI path.
  */
-export const METRIC_HELP_V2_VERSION = "metric-help-v2.1.0";
+export const METRIC_HELP_V2_VERSION = "metric-help-v2.2.0";
 export const METRIC_HELP_V2_SHIPPED_LOCALES = ["en"] as const;
 
 const DECLARED_TASK_PROFILE_METRIC_KEYS = new Set([
@@ -27,9 +30,10 @@ const DECLARED_TASK_PROFILE_METRIC_KEYS = new Set([
 
 export type MetricHelpLocale = "en" | "pl";
 export type MetricHelpDirection = "higher_is_better" | "lower_is_better";
+export type MetricHelpProjectionVersion = MetricPublicationV2["projection_version"];
 
 export interface MetricHelpEntry {
-  /** One sentence: what the current local candidate definition measures. */
+  /** One sentence: what the projection-selected definition measures. */
   meaning: string;
   question: string;
   observationUnit: string;
@@ -65,6 +69,179 @@ const HIGHER_EN = "Higher is better (radar plots the raw share).";
 const HIGHER_PL = "Wyżej znaczy lepiej (radar pokazuje surowy udział).";
 const LOWER_EN = "Lower is better (radar plots 100% minus the raw rate; the center is a raw rate of 100%).";
 const LOWER_PL = "Niżej znaczy lepiej (radar pokazuje 100% minus surowy wskaźnik; środek oznacza surowy wskaźnik 100%).";
+const R3_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-3";
+const R4_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-4";
+const R5_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-5";
+const R3_PLUS_PROJECTIONS = new Set<MetricHelpProjectionVersion>([
+  R3_PROJECTION,
+  R4_PROJECTION,
+  R5_PROJECTION,
+]);
+const R4_PLUS_PROJECTIONS = new Set<MetricHelpProjectionVersion>([
+  R4_PROJECTION,
+  R5_PROJECTION,
+]);
+const REVIEWED_PROFILE_EVIDENCE_EN = "The value is a deterministic local, method-only comparison between the immutable reviewed task-profile revision and the canonical active user request; it is neither a model judgment nor objective proof of quality or task success.";
+const EXPLICIT_PLAN_EVIDENCE_EN = "The value comes from deterministic provider-declared message kinds and explicit supersedes_message_ids links in the bounded local window; no lexical similarity or model judgment supplies a closure, and the structural receipt is not objective proof that the plan or result was correct.";
+const CONFIRMED_LIFECYCLE_EVIDENCE_EN = "Only content-free lifecycle records explicitly confirmed by an authenticated local user can supply the enumeration, opportunity, and family-specific outcome link; proposals, model judgments, and transcript wording alone are not evidence, and the confirmation is not objective test proof of task success.";
+
+/**
+ * Projection r5 changed the denominator contract for these receipt surfaces.
+ * The base registry below remains the frozen r1-r4 presentation; selecting r5
+ * replaces only these three entries and never rewrites a historical receipt.
+ */
+export const METRIC_HELP_V2_R5_PROFILE_EN: Readonly<Record<string, MetricHelpEntry>> = {
+  "prompt.constraint_precision": {
+    meaning: "Share of the exact constraint-kind slots declared in the reviewed task profile whose matching versioned cue appears in the canonical active user request.",
+    question: "For each expected constraint kind in the reviewed profile, does the canonical active user request contain its matching versioned cue?",
+    observationUnit: "one expected constraint-kind slot in the reviewed task profile",
+    direction: HIGHER_EN,
+    counts: "Numerator: one configured expected constraint kind whose matching versioned cue appears in the canonical active user request; each configured kind counts at most once.",
+    doesNotCount: "Denominator: exactly the configured expected_constraint_kinds slots, not detected constraint clauses. Unconfigured kinds, cues outside the canonical active request, superseded requests, and agent prose do not count; no configured slots yields Unknown, never zero.",
+    objectiveEvidence: REVIEWED_PROFILE_EVIDENCE_EN,
+  },
+  "prompt.acceptance_testability": {
+    meaning: "Share of the exact expected-outcome slots declared in the reviewed task profile filled by distinct normalized checkable requirement clauses owned by the canonical active user request, capped at the declared count.",
+    question: "How many reviewed expected-outcome slots are filled by distinct checkable requirement clauses in the canonical active user request?",
+    observationUnit: "one expected-outcome slot in the reviewed task profile",
+    direction: HIGHER_EN,
+    counts: "Numerator: one slot per distinct normalized, non-question requirement clause in the canonical active user request that has an action-or-requirement cue and a recognized observable-check cue, capped at expected_outcome_count.",
+    doesNotCount: "Denominator: exactly expected_outcome_count, not detected requirement clauses. Duplicate normalized clauses, questions, clauses outside the canonical active request, superseded requests, and checks added by the agent do not add slots; no declared count yields Unknown, never zero.",
+    objectiveEvidence: REVIEWED_PROFILE_EVIDENCE_EN,
+  },
+  "prompt.deliverable_contract": {
+    meaning: "Share of the exact deliverable slots declared in the reviewed task profile whose matching versioned cue appears in the canonical active user request.",
+    question: "For each expected deliverable slot in the reviewed profile, does the canonical active user request contain its matching versioned cue?",
+    observationUnit: "one expected deliverable slot in the reviewed task profile",
+    direction: HIGHER_EN,
+    counts: "Numerator: one configured expected deliverable slot whose matching versioned cue appears in the canonical active user request; each configured slot counts at most once.",
+    doesNotCount: "Denominator: exactly the configured expected_deliverable_slots, not detected deliverable clauses. Unconfigured slots, cues outside the canonical active request, superseded requests, and agent prose do not count; no configured slots yields Unknown, never zero.",
+    objectiveEvidence: REVIEWED_PROFILE_EVIDENCE_EN,
+  },
+};
+
+const METRIC_HELP_V2_R3_OPEN_LOOP_EN: Readonly<Record<string, MetricHelpEntry>> = {
+  "logic.open_loop_closure": {
+    meaning: "Share of documented agent PLAN episodes in the bounded analysis window explicitly closed by a later agent ACTION or VERIFICATION that names that exact PLAN message in supersedes_message_ids.",
+    question: "For each documented agent PLAN message, does a later agent ACTION or VERIFICATION explicitly supersede that exact plan?",
+    observationUnit: "one documented agent PLAN episode",
+    direction: HIGHER_EN,
+    counts: "Numerator: one PLAN episode with a later agent ACTION or VERIFICATION whose supersedes_message_ids names that exact PLAN message; the earliest valid closer owns the closure.",
+    doesNotCount: "Denominator: exactly the provider-declared agent PLAN messages in the bounded window, not detected questions. Token overlap, topical similarity, adjacency, a shared event identity, unrelated later actions, and plans outside the window do not close an episode. An unclosed plan is right-censored pending, not failed; no PLAN capability or no observed PLAN yields Unknown, never zero or N/A.",
+    objectiveEvidence: EXPLICIT_PLAN_EVIDENCE_EN,
+  },
+};
+
+const METRIC_HELP_V2_R4_LIFECYCLE_EN: Readonly<Record<string, MetricHelpEntry>> = {
+  "collaboration.ambiguity_resolution": {
+    meaning: "Share of the exact ambiguity opportunities in the authenticated local user's confirmed family enumeration whose confirmed ambiguity-resolution outcome is ambiguity_resolved.",
+    question: "For each confirmed enumerated ambiguity opportunity, does its confirmed ambiguity_resolution link record ambiguity_resolved?",
+    observationUnit: "one confirmed enumerated ambiguity opportunity",
+    direction: HIGHER_EN,
+    counts: "Numerator: one enumerated ambiguity opportunity with a confirmed ambiguity_resolution link whose outcome is ambiguity_resolved.",
+    doesNotCount: "Denominator: exactly the authenticated local user's confirmed ambiguity enumeration, not detected ambiguity clauses. Proposed, rejected, undecided, or non-enumerated opportunities do not enter it; ambiguity_closed_unresolved is resolved not-met, while an enumerated opportunity without an outcome stays right-censored pending. Without an exact confirmed enumeration the metric is Unknown, never zero.",
+    objectiveEvidence: CONFIRMED_LIFECYCLE_EVIDENCE_EN,
+  },
+  "collaboration.clarification_yield": {
+    meaning: "Share of the exact clarification opportunities in the authenticated local user's confirmed family enumeration whose confirmed answer-incorporation outcome is clarification_incorporated.",
+    question: "For each confirmed enumerated clarification opportunity, does its confirmed clarification_answer_incorporation link record clarification_incorporated?",
+    observationUnit: "one confirmed enumerated clarification opportunity",
+    direction: HIGHER_EN,
+    counts: "Numerator: one enumerated clarification opportunity with a confirmed clarification_answer_incorporation link whose outcome is clarification_incorporated.",
+    doesNotCount: "Denominator: exactly the authenticated local user's confirmed clarification enumeration, not detected agent questions. Proposed, rejected, undecided, or non-enumerated opportunities do not enter it; clarification_not_incorporated is resolved not-met, while an enumerated opportunity without an outcome stays right-censored pending. Without an exact confirmed enumeration the metric is Unknown, never zero.",
+    objectiveEvidence: CONFIRMED_LIFECYCLE_EVIDENCE_EN,
+  },
+  "collaboration.exploration_conversion": {
+    meaning: "Share of the exact exploration opportunities in the authenticated local user's confirmed family enumeration whose confirmed support-decision outcome is exploration_converted.",
+    question: "For each confirmed enumerated exploration opportunity, does its confirmed exploration_support_decision link record exploration_converted?",
+    observationUnit: "one confirmed enumerated exploration opportunity",
+    direction: HIGHER_EN,
+    counts: "Numerator: one enumerated exploration opportunity with a confirmed exploration_support_decision link whose outcome is exploration_converted.",
+    doesNotCount: "Denominator: exactly the authenticated local user's confirmed exploration enumeration, not hypothesis-marker clauses. Proposed, rejected, undecided, or non-enumerated opportunities do not enter it; exploration_not_converted is resolved not-met, while an enumerated opportunity without an outcome stays right-censored pending. Without an exact confirmed enumeration the metric is Unknown, never zero.",
+    objectiveEvidence: CONFIRMED_LIFECYCLE_EVIDENCE_EN,
+  },
+  "collaboration.scope_change_discipline": {
+    meaning: "Share of the exact scope-change opportunities in the authenticated local user's confirmed family enumeration whose confirmed impact-disposition outcome is scope_change_disciplined.",
+    question: "For each confirmed enumerated scope-change opportunity, does its confirmed scope_change_impact_disposition link record scope_change_disciplined?",
+    observationUnit: "one confirmed enumerated scope-change opportunity",
+    direction: HIGHER_EN,
+    counts: "Numerator: one enumerated scope-change opportunity with a confirmed scope_change_impact_disposition link whose outcome is scope_change_disciplined.",
+    doesNotCount: "Denominator: exactly the authenticated local user's confirmed scope-change enumeration, not detected scope-change clauses. Proposed, rejected, undecided, or non-enumerated opportunities do not enter it; scope_change_undisciplined is resolved not-met, while an enumerated opportunity without an outcome stays right-censored pending. Without an exact confirmed enumeration the metric is Unknown, never zero.",
+    objectiveEvidence: CONFIRMED_LIFECYCLE_EVIDENCE_EN,
+  },
+  "collaboration.rework_candidate_rate": {
+    meaning: "Share of the exact rework opportunities in the authenticated local user's confirmed family enumeration whose confirmed requirement-assessment outcome is rework_required; this is the raw lower-is-better rate.",
+    question: "For each confirmed enumerated rework opportunity, does its confirmed rework_requirement_assessment link record rework_required?",
+    observationUnit: "one confirmed enumerated rework opportunity",
+    direction: LOWER_EN,
+    counts: "Numerator: one enumerated rework opportunity with a confirmed rework_requirement_assessment link whose outcome is rework_required.",
+    doesNotCount: "Denominator: exactly the authenticated local user's confirmed rework enumeration, not correction-marker feedback clauses. Proposed, rejected, undecided, or non-enumerated opportunities do not enter it; rework_not_required is resolved not-met, while an enumerated opportunity without an outcome stays right-censored pending. Without an exact confirmed enumeration the metric is Unknown, never zero.",
+    objectiveEvidence: CONFIRMED_LIFECYCLE_EVIDENCE_EN,
+  },
+};
+
+const METRIC_HELP_V2_R5_PROFILE_MEASUREMENTS: Readonly<Record<string, MetricHelpMeasurement>> = {
+  "prompt.constraint_precision": {
+    definitionVersion: 2,
+    method: "Configured expected constraint kinds with a matching versioned cue in the canonical active user request divided by the exact expected_constraint_kinds slots in the reviewed profile.",
+    limitation: "This is lexical method-only evidence: an absent slot set stays Unknown, and a cue match does not prove that a constraint is correct or sufficient.",
+    objective: false,
+  },
+  "prompt.acceptance_testability": {
+    definitionVersion: 2,
+    method: "Distinct normalized checkable requirement clauses owned by the canonical active user request, capped at expected_outcome_count, divided by that exact reviewed count.",
+    limitation: "This is lexical method-only evidence: an absent reviewed count stays Unknown, duplicate clauses do not inflate the numerator, and a matched cue does not prove that an acceptance criterion is correct or complete.",
+    objective: false,
+  },
+  "prompt.deliverable_contract": {
+    definitionVersion: 3,
+    method: "Configured expected deliverable slots with a matching versioned cue in the canonical active user request divided by the exact expected_deliverable_slots in the reviewed profile.",
+    limitation: "This is lexical method-only evidence: an absent slot set stays Unknown, and a cue match does not prove that a deliverable contract is correct or sufficient.",
+    objective: false,
+  },
+};
+
+const METRIC_HELP_V2_R3_OPEN_LOOP_MEASUREMENTS: Readonly<Record<string, MetricHelpMeasurement>> = {
+  "logic.open_loop_closure": {
+    definitionVersion: 2,
+    method: "Documented agent PLAN episodes explicitly superseded by a later agent ACTION or VERIFICATION naming that exact PLAN message divided by the exact documented agent PLAN episodes in the bounded window.",
+    limitation: "An unclosed plan is right-censored pending rather than failed; absent PLAN capability or an observed empty PLAN set remains Unknown, and an explicit link does not prove that the plan or result was correct.",
+    objective: false,
+  },
+};
+
+const METRIC_HELP_V2_R4_LIFECYCLE_MEASUREMENTS: Readonly<Record<string, MetricHelpMeasurement>> = {
+  "collaboration.ambiguity_resolution": {
+    definitionVersion: 2,
+    method: "Confirmed enumerated ambiguity opportunities with an ambiguity_resolution link whose outcome is ambiguity_resolved divided by the exact authenticated local-user confirmed ambiguity enumeration.",
+    limitation: "A confirmed enumeration is mandatory; an enumerated opportunity without a confirmed outcome is right-censored pending, and local-user confirmation is not objective test proof.",
+    objective: false,
+  },
+  "collaboration.clarification_yield": {
+    definitionVersion: 2,
+    method: "Confirmed enumerated clarification opportunities with a clarification_answer_incorporation link whose outcome is clarification_incorporated divided by the exact authenticated local-user confirmed clarification enumeration.",
+    limitation: "A confirmed enumeration is mandatory; an enumerated opportunity without a confirmed outcome is right-censored pending, and local-user confirmation is not objective test proof.",
+    objective: false,
+  },
+  "collaboration.exploration_conversion": {
+    definitionVersion: 2,
+    method: "Confirmed enumerated exploration opportunities with an exploration_support_decision link whose outcome is exploration_converted divided by the exact authenticated local-user confirmed exploration enumeration.",
+    limitation: "A confirmed enumeration is mandatory; an enumerated opportunity without a confirmed outcome is right-censored pending, and local-user confirmation is not objective test proof.",
+    objective: false,
+  },
+  "collaboration.scope_change_discipline": {
+    definitionVersion: 2,
+    method: "Confirmed enumerated scope-change opportunities with a scope_change_impact_disposition link whose outcome is scope_change_disciplined divided by the exact authenticated local-user confirmed scope-change enumeration.",
+    limitation: "A confirmed enumeration is mandatory; an enumerated opportunity without a confirmed outcome is right-censored pending, and local-user confirmation is not objective test proof.",
+    objective: false,
+  },
+  "collaboration.rework_candidate_rate": {
+    definitionVersion: 2,
+    method: "Confirmed enumerated rework opportunities with a rework_requirement_assessment link whose outcome is rework_required divided by the exact authenticated local-user confirmed rework enumeration.",
+    limitation: "This publishes the raw lower-is-better rework-required rate. A confirmed enumeration is mandatory; an enumerated opportunity without a confirmed outcome is right-censored pending, and local-user confirmation is not objective test proof.",
+    objective: false,
+  },
+};
 
 const SEEDS: readonly MetricHelpSeed[] = [
   {
@@ -185,8 +362,23 @@ export function metricHelpV2IsObjective(metricKey: string): boolean {
   return OBJECTIVE_KEYS.has(metricKey);
 }
 
-/** Shipped measurement binding: the versioned coaching definition whose receipts the UI displays. */
-export function metricHelpV2Measurement(metricKey: string): MetricHelpMeasurement | null {
+/** Shipped measurement binding selected by the exact sealed projection. */
+export function metricHelpV2Measurement(
+  metricKey: string,
+  projectionVersion: MetricHelpProjectionVersion | null = null,
+): MetricHelpMeasurement | null {
+  if (projectionVersion === R5_PROJECTION) {
+    const reviewedProfile = METRIC_HELP_V2_R5_PROFILE_MEASUREMENTS[metricKey];
+    if (reviewedProfile !== undefined) return reviewedProfile;
+  }
+  if (projectionVersion !== null && R4_PLUS_PROJECTIONS.has(projectionVersion)) {
+    const confirmedLifecycle = METRIC_HELP_V2_R4_LIFECYCLE_MEASUREMENTS[metricKey];
+    if (confirmedLifecycle !== undefined) return confirmedLifecycle;
+  }
+  if (projectionVersion !== null && R3_PLUS_PROJECTIONS.has(projectionVersion)) {
+    const explicitPlan = METRIC_HELP_V2_R3_OPEN_LOOP_MEASUREMENTS[metricKey];
+    if (explicitPlan !== undefined) return explicitPlan;
+  }
   const definition = QUALITY_ANALYSIS_DEFINITIONS.find((candidate) => candidate.key === metricKey);
   if (definition === undefined) return null;
   return {
@@ -205,21 +397,115 @@ export interface ResolvedMetricHelp {
   fallback: boolean;
   /** Target contract copy. */
   entry: MetricHelpEntry;
+  /** Which immutable receipt definition selected this copy. */
+  definitionScope:
+    | "historical_candidate"
+    | "r3_explicit_plan_lifecycle"
+    | "r4_confirmed_lifecycle"
+    | "r5_reviewed_profile";
+  projectionVersion: MetricHelpProjectionVersion | null;
   /** Shipped measurement source (English only). */
   measurement: MetricHelpMeasurement | null;
 }
 
-/** Resolve help for one metric; unknown or partial locales fall back to English. */
-export function metricHelpV2(metricKey: string, locale: MetricHelpLocale = "en"): ResolvedMetricHelp | null {
+/** Human-readable immutable definition identity for headings and receipt sentences. */
+export function metricHelpV2DefinitionLabel(
+  help: Pick<ResolvedMetricHelp, "definitionScope" | "projectionVersion">,
+): string {
+  const projection = help.projectionVersion?.replace("metric-contract-v2-projection-", "r") ?? "unbound";
+  switch (help.definitionScope) {
+    case "r3_explicit_plan_lifecycle": return `sealed ${projection} explicit-plan lifecycle`;
+    case "r4_confirmed_lifecycle": return `sealed ${projection} confirmed-lifecycle`;
+    case "r5_reviewed_profile": return "sealed r5 reviewed-profile";
+    default: return help.projectionVersion === null
+      ? "unbound local candidate"
+      : `sealed ${projection} candidate`;
+  }
+}
+
+/** Resolve help for one metric and sealed projection; unknown or partial locales fall back to English. */
+export function metricHelpV2(
+  metricKey: string,
+  locale: MetricHelpLocale = "en",
+  projectionVersion: MetricHelpProjectionVersion | null = null,
+): ResolvedMetricHelp | null {
   const requested = METRIC_HELP_V2[locale] as Readonly<Record<string, MetricHelpEntry>> | undefined;
   const english = METRIC_HELP_V2.en[metricKey];
   if (english === undefined) return null;
-  const measurement = metricHelpV2Measurement(metricKey);
+  const measurement = metricHelpV2Measurement(metricKey, projectionVersion);
+  const r5Profile = projectionVersion === R5_PROJECTION
+    ? METRIC_HELP_V2_R5_PROFILE_EN[metricKey]
+    : undefined;
+  if (r5Profile !== undefined) {
+    return {
+      version: METRIC_HELP_V2_VERSION,
+      metricKey,
+      requestedLocale: locale,
+      locale: "en",
+      fallback: locale !== "en",
+      entry: r5Profile,
+      definitionScope: "r5_reviewed_profile",
+      projectionVersion,
+      measurement,
+    };
+  }
+  const r4Lifecycle = projectionVersion !== null && R4_PLUS_PROJECTIONS.has(projectionVersion)
+    ? METRIC_HELP_V2_R4_LIFECYCLE_EN[metricKey]
+    : undefined;
+  if (r4Lifecycle !== undefined) {
+    return {
+      version: METRIC_HELP_V2_VERSION,
+      metricKey,
+      requestedLocale: locale,
+      locale: "en",
+      fallback: locale !== "en",
+      entry: r4Lifecycle,
+      definitionScope: "r4_confirmed_lifecycle",
+      projectionVersion,
+      measurement,
+    };
+  }
+  const r3OpenLoop = projectionVersion !== null && R3_PLUS_PROJECTIONS.has(projectionVersion)
+    ? METRIC_HELP_V2_R3_OPEN_LOOP_EN[metricKey]
+    : undefined;
+  if (r3OpenLoop !== undefined) {
+    return {
+      version: METRIC_HELP_V2_VERSION,
+      metricKey,
+      requestedLocale: locale,
+      locale: "en",
+      fallback: locale !== "en",
+      entry: r3OpenLoop,
+      definitionScope: "r3_explicit_plan_lifecycle",
+      projectionVersion,
+      measurement,
+    };
+  }
   const entry = requested?.[metricKey];
   if (entry === undefined || locale === "en") {
-    return { version: METRIC_HELP_V2_VERSION, metricKey, requestedLocale: locale, locale: "en", fallback: locale !== "en", entry: english, measurement };
+    return {
+      version: METRIC_HELP_V2_VERSION,
+      metricKey,
+      requestedLocale: locale,
+      locale: "en",
+      fallback: locale !== "en",
+      entry: english,
+      definitionScope: "historical_candidate",
+      projectionVersion,
+      measurement,
+    };
   }
-  return { version: METRIC_HELP_V2_VERSION, metricKey, requestedLocale: locale, locale, fallback: false, entry, measurement };
+  return {
+    version: METRIC_HELP_V2_VERSION,
+    metricKey,
+    requestedLocale: locale,
+    locale,
+    fallback: false,
+    entry,
+    definitionScope: "historical_candidate",
+    projectionVersion,
+    measurement,
+  };
 }
 
 /**
@@ -258,6 +544,8 @@ export type MetricInspectorKind =
 export interface MetricInspectorInput {
   metricKey: string;
   label: string;
+  /** Projection identity of this exact sealed state; absent means legacy/unbound help. */
+  projectionVersion?: MetricHelpProjectionVersion | null;
   state:
     | "known"
     | "unknown"
@@ -334,9 +622,13 @@ function completeSentence(value: string): string {
  */
 export function metricExplainerSentences(
   metricKey: string,
-  input: { provenance?: MetricExplainerProvenance; numericValue?: number | null } = {},
+  input: {
+    provenance?: MetricExplainerProvenance;
+    numericValue?: number | null;
+    projectionVersion?: MetricHelpProjectionVersion | null;
+  } = {},
 ): MetricExplainerSentences | null {
-  const help = metricHelpV2(metricKey, "en");
+  const help = metricHelpV2(metricKey, "en", input.projectionVersion);
   if (help === null) return null;
   const provenance = input.provenance ?? "not_measured";
   const numericValue = input.numericValue ?? null;
@@ -391,7 +683,14 @@ function inspectorKind(input: MetricInspectorInput): MetricInspectorKind {
  * and predictive factor probabilities are never described as measured.
  */
 export function metricInspectorSentences(input: MetricInspectorInput): MetricInspectorSentences {
-  const help = metricHelpV2(input.metricKey, "en")?.entry;
+  const resolvedHelp = metricHelpV2(input.metricKey, "en", input.projectionVersion);
+  const help = resolvedHelp?.entry;
+  const r5ReviewedProfile = resolvedHelp?.definitionScope === "r5_reviewed_profile";
+  const projectionBoundDefinition = resolvedHelp !== null
+    && resolvedHelp.definitionScope !== "historical_candidate";
+  const definitionLabel = resolvedHelp === null
+    ? "versioned local"
+    : metricHelpV2DefinitionLabel(resolvedHelp);
   const unit = help?.observationUnit ?? "observation";
   const unitSingular = observationUnitSingular(unit);
   const objective = metricHelpV2IsObjective(input.metricKey) || (input.explanationCode ?? "").includes("objective_");
@@ -447,8 +746,12 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       } else if (input.explanationCode === "source_reconciliation_incomplete" || input.explanationCode === "semantic_units_unavailable") {
         meaning = `Unknown: semantic-unit reconciliation was not complete for this exact analyzed window, so ${input.label} was withheld instead of scoring a partial source as complete.`;
       } else if (input.explanationCode === "opportunity_set_undetermined") {
-        meaning = `Unknown: the task profile did not declare the expected ${unitSingular} set, so ${input.label} has no defensible denominator and was not converted to zero.`;
-        if (DECLARED_TASK_PROFILE_METRIC_KEYS.has(input.metricKey)) {
+        meaning = r5ReviewedProfile
+          ? `Unknown: the reviewed task profile exposes no ${unitSingular} denominator, so ${input.label} has no defensible value and was not converted to zero.`
+          : `Unknown: the task profile did not declare the expected ${unitSingular} set, so ${input.label} has no defensible denominator and was not converted to zero.`;
+        if (r5ReviewedProfile) {
+          action = "Use Reviewed metric denominators below: save an immutable profile revision with this metric's exact expected slots or count, run a fresh analysis, and verify that the selected sealed r5 receipt exactly binds that revision before interpreting a value.";
+        } else if (DECLARED_TASK_PROFILE_METRIC_KEYS.has(input.metricKey)) {
           action = `This analyzed window cannot be repaired with extra wording: the app still needs a separately confirmed task profile declaring its expected ${unitSingular} set — verify: configure that reviewed profile workflow, bind it to a fresh analysis, and confirm the new sealed receipt before interpreting a value.`;
         }
       } else if (input.explanationCode === "diagnostic_task_not_detected") {
@@ -475,15 +778,27 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       break;
     case "zero":
       meaning = input.direction === "lower_is_better"
-        ? `Known radar-quality zero: ${fraction} carried the marker (raw ${percent(input.numericValue!)}), so radar quality is 0% and the point sits at the center; a real measured value, not missing data.`
-        : `Known radar-quality zero: ${fraction} met the versioned local contract for ${input.label}, so the point sits at the radar center; a real measured value, not missing data.`;
+        ? projectionBoundDefinition
+          ? `Known radar-quality zero: ${fraction} met the ${definitionLabel} contract at a raw rate of ${percent(input.numericValue!)}, so radar quality is 0% and the point sits at the center; a real projection-bound value, not missing data or objective outcome proof.`
+          : `Known radar-quality zero: ${fraction} carried the marker (raw ${percent(input.numericValue!)}), so radar quality is 0% and the point sits at the center; a real measured value, not missing data.`
+        : r5ReviewedProfile
+          ? `Known radar-quality zero: ${fraction} met the sealed r5 reviewed-profile contract for ${input.label}, so the point sits at the radar center; a real deterministic method-only value, not missing data or objective outcome proof.`
+          : projectionBoundDefinition
+            ? `Known radar-quality zero: ${fraction} met the ${definitionLabel} contract for ${input.label}, so the point sits at the radar center; a real projection-bound value, not missing data or objective outcome proof.`
+            : `Known radar-quality zero: ${fraction} met the versioned local contract for ${input.label}, so the point sits at the radar center; a real measured value, not missing data.`;
       break;
     case "measured":
     default: {
       const radarQuality = input.direction === "lower_is_better" ? 1 - input.numericValue! : input.numericValue!;
       meaning = input.direction === "lower_is_better"
-        ? `Measured: ${fraction} carried the marker, a raw rate of ${percent(input.numericValue!)} (radar quality ${percent(radarQuality)} because lower is better); this exact versioned candidate value is not a validated quality band.`
-        : `Measured: ${fraction} met the versioned local contract for ${input.label}, exactly ${percent(radarQuality)}; this versioned candidate value is not a validated quality band or calibrated score.`;
+        ? projectionBoundDefinition
+          ? `Measured: ${fraction} met the ${definitionLabel} contract, a raw rate of ${percent(input.numericValue!)} (radar quality ${percent(radarQuality)} because lower is better); this projection-bound value is not objective outcome proof, a validated quality band, or a calibrated score.`
+          : `Measured: ${fraction} carried the marker, a raw rate of ${percent(input.numericValue!)} (radar quality ${percent(radarQuality)} because lower is better); this exact versioned candidate value is not a validated quality band.`
+        : r5ReviewedProfile
+          ? `Measured: ${fraction} met the sealed r5 reviewed-profile contract for ${input.label}, exactly ${percent(radarQuality)}; this deterministic method-only value is not objective outcome proof, a validated quality band, or a calibrated score.`
+          : projectionBoundDefinition
+            ? `Measured: ${fraction} met the ${definitionLabel} contract for ${input.label}, exactly ${percent(radarQuality)}; this projection-bound value is not objective outcome proof, a validated quality band, or a calibrated score.`
+            : `Measured: ${fraction} met the versioned local contract for ${input.label}, exactly ${percent(radarQuality)}; this versioned candidate value is not a validated quality band or calibrated score.`;
       break;
     }
   }
