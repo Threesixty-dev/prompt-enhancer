@@ -3,6 +3,7 @@ import type { ModelEnsembleAttemptStage, ModelEnsembleRun } from "../../shared/a
 import {
   MODEL_ENSEMBLE_STAGE_GROUPS,
   formatStageResource,
+  formatStageUnloadReceipt,
   isDeepModelStage,
   modelEnsembleAttemptStages,
   modelEnsembleRunStages,
@@ -135,11 +136,16 @@ describe("modelStages receipt adapters", () => {
     expect(modelEnsembleRunStages(null)).toEqual([]);
   });
 
-  it("adapts attempt stages with explicit fallbacks for unrecorded identity and release", () => {
-    const [known, anonymous] = modelEnsembleAttemptStages([
+  it("adapts attempt stages without collapsing an unknown unload receipt into false", () => {
+    const [known, explicitNegative, anonymous] = modelEnsembleAttemptStages([
       attemptStage(),
       attemptStage({
         stage_ordinal: 1,
+        stage_key: "explicit_no_unload_stage",
+        unloaded_after_stage: false,
+      }),
+      attemptStage({
+        stage_ordinal: 2,
         stage_key: "typed_projection_stage",
         model_key: null,
         repository_id: null,
@@ -164,6 +170,7 @@ describe("modelStages receipt adapters", () => {
       group: "Factor models",
       role: "Primary multilingual factor model",
     });
+    expect(explicitNegative.unloaded).toBe(false);
     expect(anonymous).toMatchObject({
       modelKey: "typed_projection_stage",
       repositoryId: "typed projection stage",
@@ -172,7 +179,7 @@ describe("modelStages receipt adapters", () => {
       latency: null,
       acceleratorMemory: null,
       rss: null,
-      unloaded: false,
+      unloaded: null,
       evaluatedCases: null,
       contributedCases: null,
       group: "Factor models",
@@ -208,5 +215,11 @@ describe("modelStages receipt adapters", () => {
     expect(formatStageResource(1023.6)).toBe("1024 MiB");
     expect(shortIdentity("short-id")).toBe("short-id");
     expect(shortIdentity("d".repeat(64))).toBe(`${"d".repeat(8)}…${"d".repeat(4)}`);
+  });
+
+  it("formats true, false, and unknown unload receipts as distinct facts", () => {
+    expect(formatStageUnloadReceipt(true)).toBe("yes · unloaded after stage");
+    expect(formatStageUnloadReceipt(false)).toBe("no · not unloaded after stage");
+    expect(formatStageUnloadReceipt(null)).toBe("not recorded · unload receipt missing");
   });
 });

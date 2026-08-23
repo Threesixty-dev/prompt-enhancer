@@ -32,7 +32,8 @@ export interface ModelEnsembleStage {
   latency: number | null;
   acceleratorMemory: number | null;
   rss: number | null;
-  unloaded: boolean;
+  /** Whether the receipt explicitly records unloading after the stage. */
+  unloaded: boolean | null;
   evaluatedCases: number | null;
   contributedCases: number | null;
   group: ModelEnsembleStageGroup;
@@ -127,7 +128,7 @@ export function modelEnsembleAttemptStages(stages: readonly ModelEnsembleAttempt
     latency: stage.inference_latency_ms,
     acceleratorMemory: stage.peak_accelerator_memory_mb,
     rss: stage.process_rss_mb,
-    unloaded: stage.unloaded_after_stage ?? false,
+    unloaded: stage.unloaded_after_stage,
     evaluatedCases: stage.evaluated_case_count,
     contributedCases: stage.contributed_case_count,
     group: modelEnsembleStageGroup(stage.model_key ?? stage.stage_key, stage.repository_id ?? ""),
@@ -158,6 +159,13 @@ export function modelEnsembleStageSummaryLabel({ stages, source }: ModelEnsemble
 /** Memory receipts are shown only when recorded; absence is stated, never rendered as 0 MiB. */
 export function formatStageResource(value: number | null): string {
   return value === null ? "not recorded" : `${Math.round(value)} MiB`;
+}
+
+/** Preserve the unload receipt's true / false / unknown distinction. */
+export function formatStageUnloadReceipt(value: boolean | null): string {
+  if (value === true) return "yes · unloaded after stage";
+  if (value === false) return "no · not unloaded after stage";
+  return "not recorded · unload receipt missing";
 }
 
 /** Compact identity for run ids and revisions; short values are shown whole. */
