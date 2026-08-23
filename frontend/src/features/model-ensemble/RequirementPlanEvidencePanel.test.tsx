@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   PromptEnhancerTransport,
@@ -25,6 +26,16 @@ const REVIEW_RECEIPT_ID = "f".repeat(64);
 const MANIFEST_ID = "8".repeat(64);
 const GRAPH_ID = "7".repeat(64);
 const CANDIDATE_SET_ID = "6".repeat(64);
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
 
 function clauseAlgorithmSpec(): RequirementPlanEvidenceContract["clause_algorithm_spec"] {
   return structuredClone(REQUIREMENT_PLAN_CLAUSE_ALGORITHM_SPEC) as RequirementPlanEvidenceContract["clause_algorithm_spec"];
@@ -301,13 +312,26 @@ function transport(initial: RequirementPlanProposal[] = []): PromptEnhancerTrans
 }
 
 function chooseSyntheticFile(): void {
-  const file = new File(["{}"], "example.json", { type: "application/json" });
+  chooseFile("{}", "example.json", "application/json");
+}
+
+function chooseFile(contents: string, name: string, type: string): void {
+  const file = new File([contents], name, { type });
   Object.defineProperty(file, "arrayBuffer", {
-    value: async () => new TextEncoder().encode("{}").buffer,
+    value: async () => new TextEncoder().encode(contents).buffer,
   });
   fireEvent.change(screen.getByLabelText("Choose canonical requirement-plan evidence file"), {
     target: { files: [file] },
   });
+}
+
+function captureReactClick(button: HTMLElement): () => void {
+  const propsKey = Object.keys(button).find((key) => key.startsWith("__reactProps$"));
+  if (propsKey === undefined) throw new Error("Synthetic test could not capture the React click handler");
+  const props = (button as unknown as Record<string, { onClick?: (event: unknown) => void }>)[propsKey];
+  if (props?.onClick === undefined) throw new Error("Synthetic test button has no React click handler");
+  const onClick = props.onClick;
+  return () => onClick({ currentTarget: button });
 }
 
 afterEach(() => {
@@ -315,6 +339,46 @@ afterEach(() => {
 });
 
 describe("RequirementPlanEvidencePanel", () => {
+  it("blocks an already-rendered A import during a same-binding transport B layout commit", async () => {
+    const transportA = transport();
+    const transportB = transport();
+
+    function Harness() {
+      const [useB, setUseB] = useState(false);
+      const host = useRef<HTMLDivElement>(null);
+      useLayoutEffect(() => {
+        if (!useB) return;
+        const staleImport = [...(host.current?.querySelectorAll("button") ?? [])]
+          .find((button) => button.textContent === "Import as unconfirmed");
+        staleImport?.click();
+      }, [useB]);
+      return (
+        <>
+          <button onClick={() => setUseB(true)} type="button">Switch transport</button>
+          <div ref={host}>
+            <RequirementPlanEvidencePanel
+              compact={false}
+              sessionId={SESSION_ID}
+              sourceProjectionVersion="metric-contract-v2-projection-6"
+              sourceRunId={RUN_ID}
+              transport={useB ? transportB : transportA}
+            />
+          </div>
+        </>
+      );
+    }
+
+    render(<Harness />);
+    await screen.findByText(/bound to sealed run/i);
+    chooseSyntheticFile();
+    expect(await screen.findByRole("button", { name: "Import as unconfirmed" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch transport" }));
+
+    expect(transportB.importRequirementPlanEvidence).not.toHaveBeenCalled();
+    expect(transportA.importRequirementPlanEvidence).not.toHaveBeenCalled();
+  });
+
   it("keeps the compact surface read-only and never exposes ephemeral clause text", async () => {
     const local = transport([proposal()]);
     render(
@@ -343,7 +407,8 @@ describe("RequirementPlanEvidencePanel", () => {
     );
     expect(await screen.findByText(/bound to sealed run/i)).toBeVisible();
     chooseSyntheticFile();
-    expect(await screen.findByText(/producer example-agent \/ example-model is ephemeral, untrusted provenance/i)).toBeVisible();
+    expect(await screen.findByText(/producer metadata is an ephemeral untrusted preview claim/i)).toBeVisible();
+    expect(screen.queryByText(/example-agent|example-model/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Confirm evidence" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Import as unconfirmed" }));
@@ -624,5 +689,441 @@ describe("RequirementPlanEvidencePanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/receipt expired/i);
     expect(screen.queryByRole("button", { name: "Confirm evidence" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/I reviewed every displayed user and PLAN clause/i)).not.toBeInTheDocument();
+  });
+
+  it("renders explicit unavailable, loading, empty, confirmed, and rejected card states", async () => {
+    const unavailable = render(
+      <RequirementPlanEvidencePanel
+        compact={false}
+        sessionId={SESSION_ID}
+        sourceProjectionVersion="metric-contract-v2-projection-6"
+        sourceRunId={RUN_ID}
+        transport={{} as PromptEnhancerTransport}
+      />,
+    );
+    expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" }))
+      .toHaveAttribute("data-state", "unavailable");
+    expect(screen.queryByLabelText(/choose canonical requirement-plan/i)).not.toBeInTheDocument();
+    unavailable.unmount();
+
+    const pendingContract = deferred<RequirementPlanEvidenceContract>();
+    const loadingTransport = transport();
+    loadingTransport.getRequirementPlanEvidenceContract = vi.fn().mockReturnValue(pendingContract.promise);
+    const loading = render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={loadingTransport} />,
+    );
+    expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" }))
+      .toHaveAttribute("data-state", "loading");
+    expect(screen.getByText(/loading the fresh exact r5\/r6\/r7 contract/i)).toBeVisible();
+    loading.unmount();
+
+    const empty = render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={transport()} />,
+    );
+    expect(await screen.findByText(/No unconfirmed requirement-plan proposal/i)).toBeVisible();
+    expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" }))
+      .toHaveAttribute("data-state", "empty");
+    empty.unmount();
+
+    const decisions = render(
+      <RequirementPlanEvidencePanel
+        compact={false}
+        sessionId={SESSION_ID}
+        sourceProjectionVersion="metric-contract-v2-projection-6"
+        sourceRunId={RUN_ID}
+        transport={transport([proposal(RUN_ID, "confirmed"), proposal(RUN_ID, "rejected", "1".repeat(64))])}
+      />,
+    );
+    expect(await screen.findByText("Confirmed evidence")).toBeVisible();
+    expect(screen.getByText("Rejected proposal")).toBeVisible();
+    expect(screen.getByText("1 confirmed · 1 rejected")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" }))
+      .toHaveAttribute("data-state", "confirmed");
+    decisions.unmount();
+
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={transport([proposal(RUN_ID, "rejected")])} />,
+    );
+    expect(await screen.findByText("Rejected proposal")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" }))
+      .toHaveAttribute("data-state", "rejected");
+  });
+
+  it("rejects empty, oversized, wrong-media, and schema-invalid files without rendering file names or raw errors", async () => {
+    const local = transport();
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={local} />,
+    );
+    await screen.findByLabelText("Choose canonical requirement-plan evidence file");
+
+    chooseFile("", "private-name.json", "application/json");
+    expect(screen.getByRole("alert")).toHaveTextContent(/non-empty/i);
+    expect(screen.queryByText("private-name.json")).not.toBeInTheDocument();
+
+    chooseFile("{}", "private-name.txt", "text/plain");
+    expect(screen.getByRole("alert")).toHaveTextContent(/\.json file/i);
+    expect(screen.queryByText("private-name.txt")).not.toBeInTheDocument();
+
+    chooseFile("x".repeat(65_537), "oversized.json", "application/json");
+    expect(screen.getByRole("alert")).toHaveTextContent(/64 KiB/i);
+    expect(local.previewRequirementPlanEvidence).not.toHaveBeenCalled();
+
+    local.previewRequirementPlanEvidence = vi.fn().mockRejectedValue(
+      new Error("synthetic raw parser detail must stay hidden"),
+    );
+    chooseSyntheticFile();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/failed strict local schema validation/i);
+    expect(screen.queryByText(/synthetic raw parser detail/i)).not.toBeInTheDocument();
+  });
+
+  it("rejects a mismatched preview and an imported proposal that loses exact authority", async () => {
+    const previewMismatch = transport();
+    previewMismatch.previewRequirementPlanEvidence = vi.fn().mockResolvedValue(
+      preview("9".repeat(64)),
+    );
+    const first = render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={previewMismatch} />,
+    );
+    await screen.findByText(/bound to sealed run/i);
+    chooseSyntheticFile();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/another exact session, sealed run/i);
+    expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" }))
+      .toHaveAttribute("data-state", "stale");
+    expect(previewMismatch.importRequirementPlanEvidence).not.toHaveBeenCalled();
+    first.unmount();
+
+    const importMismatch = transport();
+    importMismatch.importRequirementPlanEvidence = vi.fn().mockResolvedValue({
+      payload_sha256: PAYLOAD_ID,
+      proposal: proposal("9".repeat(64)),
+      applied: true,
+      creates_unconfirmed_proposal_only: true,
+      native_confirmation_required_for_metric_authority: true,
+      raw_payload_persisted: false,
+    });
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={importMismatch} />,
+    );
+    await screen.findByText(/bound to sealed run/i);
+    chooseSyntheticFile();
+    fireEvent.click(await screen.findByRole("button", { name: "Import as unconfirmed" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/did not preserve the exact preview/i);
+    expect(screen.queryByRole("button", { name: "Open exact local clause review" })).not.toBeInTheDocument();
+  });
+
+  it("expires a strict preview before import and clears its retained payload", async () => {
+    vi.useFakeTimers({ now: new Date("2042-01-01T00:00:00Z") });
+    const local = transport();
+    local.previewRequirementPlanEvidence = vi.fn().mockResolvedValue({
+      ...preview(), expires_at: "2042-01-01T00:00:01Z",
+    });
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={local} />,
+    );
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    chooseSyntheticFile();
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.getByRole("button", { name: "Import as unconfirmed" })).toBeVisible();
+    await act(async () => { vi.advanceTimersByTime(1_001); });
+    expect(screen.queryByRole("button", { name: "Import as unconfirmed" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/file preview expired/i);
+    expect(local.importRequirementPlanEvidence).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mismatched decision response and never announces evidence authority", async () => {
+    const local = transport([proposal()]);
+    local.decideRequirementPlanProposal = vi.fn().mockResolvedValue({
+      proposal: proposal(RUN_ID, "confirmed", "1".repeat(64)),
+      applied: true,
+    });
+    const changed = vi.fn();
+    render(
+      <RequirementPlanEvidencePanel compact={false} onEvidenceChanged={changed} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={local} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply native rejection" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/did not preserve the exact proposal/i);
+    expect(changed).not.toHaveBeenCalled();
+    expect(screen.queryByText("Confirmed evidence")).not.toBeInTheDocument();
+  });
+
+  it("makes a captured run-A decision inert immediately after the first run-B render", async () => {
+    const runB = "9".repeat(64);
+    const windowB = "2".repeat(64);
+    const proposalB = "1".repeat(64);
+    const local = transport([proposal()]);
+    local.getRequirementPlanEvidenceContract = vi.fn()
+      .mockResolvedValueOnce(contract())
+      .mockResolvedValueOnce(contract(runB, "metric-contract-v2-projection-6", windowB));
+    local.listRequirementPlanProposals = vi.fn()
+      .mockResolvedValueOnce({ session_id: SESSION_ID, proposals: [proposal()], total: 1, complete: true, snapshot: snapshot([proposal()]) })
+      .mockResolvedValueOnce({
+        session_id: SESSION_ID,
+        proposals: [proposal(runB, "proposed", proposalB, windowB)],
+        total: 1,
+        complete: true,
+        snapshot: snapshot([proposal(runB, "proposed", proposalB, windowB)]),
+      });
+    const view = render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={local} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    const staleApply = screen.getByRole("button", { name: "Apply native rejection" });
+
+    view.rerender(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={runB} transport={local} />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Apply native rejection" })).not.toBeInTheDocument();
+    fireEvent.click(staleApply);
+    expect(local.decideRequirementPlanProposal).not.toHaveBeenCalled();
+    expect(await screen.findByText(new RegExp(`Content-free proposal ${proposalB.slice(0, 12)}`))).toBeVisible();
+  });
+
+  it("drops a delayed run-A confirmation completion after switching to run B", async () => {
+    const runB = "9".repeat(64);
+    const windowB = "2".repeat(64);
+    const decision = deferred<{ proposal: RequirementPlanProposal; applied: boolean }>();
+    const local = transport([proposal()]);
+    local.decideRequirementPlanProposal = vi.fn().mockReturnValue(decision.promise);
+    local.getRequirementPlanEvidenceContract = vi.fn()
+      .mockResolvedValueOnce(contract())
+      .mockResolvedValueOnce(contract(runB, "metric-contract-v2-projection-6", windowB));
+    local.listRequirementPlanProposals = vi.fn()
+      .mockResolvedValueOnce({ session_id: SESSION_ID, proposals: [proposal()], total: 1, complete: true, snapshot: snapshot([proposal()]) })
+      .mockResolvedValueOnce({ session_id: SESSION_ID, proposals: [], total: 0, complete: true, snapshot: snapshot([]) });
+    const changed = vi.fn();
+    const view = render(
+      <RequirementPlanEvidencePanel compact={false} onEvidenceChanged={changed} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={local} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open exact local clause review" }));
+    await screen.findByText("Create the synthetic artifact.");
+    fireEvent.click(screen.getByLabelText(/I reviewed every displayed user and PLAN clause/i));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm evidence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply native confirmation" }));
+
+    view.rerender(
+      <RequirementPlanEvidencePanel compact={false} onEvidenceChanged={changed} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={runB} transport={local} />,
+    );
+    await screen.findByText(/No unconfirmed requirement-plan proposal/i);
+    decision.resolve({ proposal: proposal(RUN_ID, "confirmed"), applied: true });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(changed).not.toHaveBeenCalled();
+    expect(screen.queryByText("Confirmed evidence")).not.toBeInTheDocument();
+    expect(screen.queryByText("Create the synthetic artifact.")).not.toBeInTheDocument();
+  });
+
+  it("renders long safe coordinates, opaque IDs, and escaped synthetic clause text exactly", async () => {
+    const sequences = new Map([[1, 999_999_990], [2, 999_999_991], [3, 999_999_992], [4, 999_999_993]]);
+    const exactText = `<synthetic.example>&"\\n${"Z".repeat(512)}`;
+    const exactContract = contract();
+    exactContract.source_manifest.messages = exactContract.source_manifest.messages.map((message) => ({
+      ...message,
+      message_sequence: sequences.get(message.message_sequence)!,
+    }));
+    const exactProposal = proposal();
+    exactProposal.requirements = exactProposal.requirements.map((item) => ({
+      ...item,
+      coordinate: { ...item.coordinate, message_sequence: sequences.get(item.coordinate.message_sequence)! },
+    }));
+    exactProposal.excluded_user_clauses = exactProposal.excluded_user_clauses.map((item) => ({
+      ...item,
+      coordinate: { ...item.coordinate, message_sequence: sequences.get(item.coordinate.message_sequence)! },
+      basis_coordinate: item.basis_coordinate === null ? null : {
+        ...item.basis_coordinate,
+        message_sequence: sequences.get(item.basis_coordinate.message_sequence)!,
+      },
+    }));
+    exactProposal.plan_items = exactProposal.plan_items.map((item) => ({
+      ...item, message_sequence: sequences.get(item.message_sequence)!,
+    }));
+    const exactReview = review();
+    exactReview.candidate_clauses = exactReview.candidate_clauses.map((clause, index) => ({
+      ...clause,
+      text: index === 0 ? exactText : clause.text,
+      message_sequence: sequences.get(clause.message_sequence)!,
+      basis_coordinate: clause.basis_coordinate === null ? null : {
+        ...clause.basis_coordinate,
+        message_sequence: sequences.get(clause.basis_coordinate.message_sequence)!,
+      },
+      linked_plan_coordinates: clause.linked_plan_coordinates.map((coordinate) => ({
+        ...coordinate,
+        message_sequence: sequences.get(coordinate.message_sequence)!,
+      })),
+    }));
+    const local = transport([exactProposal]);
+    local.getRequirementPlanEvidenceContract = vi.fn().mockResolvedValue(exactContract);
+    local.reviewRequirementPlanProposal = vi.fn().mockResolvedValue(exactReview);
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={local} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open exact local clause review" }));
+
+    expect(await screen.findByText(exactText)).toBeVisible();
+    expect(screen.getAllByText(/message 999999990, clause 0/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(new RegExp(PROPOSAL_ID))).toBeVisible();
+    expect(screen.getByText(REVIEW_RECEIPT_ID)).toBeVisible();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("focuses one-shot review and decision controls and closes each with Escape", async () => {
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={transport([proposal()])} />,
+    );
+    const open = await screen.findByRole("button", { name: "Open exact local clause review" });
+    fireEvent.click(open);
+    const reviewRegion = await screen.findByRole("region", { name: new RegExp(`Exact clause review for proposal ${PROPOSAL_ID}`) });
+    expect(reviewRegion).toHaveFocus();
+    fireEvent.keyDown(reviewRegion, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: /Exact clause review for proposal/i })).not.toBeInTheDocument();
+    expect(open).toHaveFocus();
+
+    const reject = screen.getByRole("button", { name: "Reject" });
+    fireEvent.click(reject);
+    const apply = screen.getByRole("button", { name: "Apply native rejection" });
+    expect(apply).toHaveFocus();
+    const decisionGroup = screen.getByRole("group", { name: "Reject requirement-plan proposal" });
+    fireEvent.keyDown(decisionGroup, { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "Reject requirement-plan proposal" })).not.toBeInTheDocument();
+    expect(reject).toHaveFocus();
+  });
+
+  it("fails closed on incomplete review and on load errors without exposing caught details", async () => {
+    const incomplete = transport([proposal()]);
+    incomplete.reviewRequirementPlanProposal = vi.fn().mockResolvedValue({
+      ...review(), candidate_clauses: review().candidate_clauses.slice(0, -1),
+    });
+    const first = render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={incomplete} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open exact local clause review" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/incomplete, stale, mismatched, or expired/i);
+    expect(screen.queryByLabelText(/I reviewed every displayed/i)).not.toBeInTheDocument();
+    first.unmount();
+
+    const failed = transport();
+    failed.getRequirementPlanEvidenceContract = vi.fn().mockRejectedValue(
+      new Error("synthetic internal transport detail must stay hidden"),
+    );
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={failed} />,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(/temporarily unavailable/i);
+    expect(screen.queryByText(/synthetic internal transport detail/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" }))
+      .toHaveAttribute("data-state", "error");
+  });
+
+  it("makes a captured preview-A import inert after same-owner preview B replaces its bytes", async () => {
+    const local = transport();
+    local.previewRequirementPlanEvidence = vi.fn()
+      .mockResolvedValueOnce(preview())
+      .mockResolvedValueOnce({
+        ...preview(),
+        payload_sha256: "0".repeat(64),
+        active_requirement_count: 1,
+        linked_active_requirement_count: 1,
+        pending_active_requirement_count: 0,
+        reviewed_user_clause_count: 2,
+      });
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={local} />,
+    );
+    await screen.findByText(/bound to sealed run/i);
+    chooseSyntheticFile();
+    const importA = await screen.findByRole("button", { name: "Import as unconfirmed" });
+    const retainedImportA = captureReactClick(importA);
+
+    chooseFile('{"synthetic":"b"}', "replacement.json", "application/json");
+    expect(await screen.findByText(/1 proposed active requirements/i)).toBeVisible();
+    act(() => retainedImportA());
+
+    expect(local.importRequirementPlanEvidence).not.toHaveBeenCalled();
+  });
+
+  it("requires a currently live pending decision after Cancel and consumes it after one Apply", async () => {
+    const local = transport([proposal()]);
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={local} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    const apply = screen.getByRole("button", { name: "Apply native rejection" });
+    const retainedApply = captureReactClick(apply);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    act(() => retainedApply());
+    expect(local.decideRequirementPlanProposal).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    const liveApply = screen.getByRole("button", { name: "Apply native rejection" });
+    const retainedAfterApply = captureReactClick(liveApply);
+    fireEvent.click(liveApply);
+    await waitFor(() => expect(local.decideRequirementPlanProposal).toHaveBeenCalledTimes(1));
+    act(() => retainedAfterApply());
+    expect(local.decideRequirementPlanProposal).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes retained review and confirmation controls inert after live proposal, review, or acknowledgement changes", async () => {
+    const local = transport([proposal()]);
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={local} />,
+    );
+    const open = await screen.findByRole("button", { name: "Open exact local clause review" });
+    const retainedOpen = captureReactClick(open);
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply native rejection" }));
+    await waitFor(() => expect(local.decideRequirementPlanProposal).toHaveBeenCalledTimes(1));
+    act(() => retainedOpen());
+    expect(local.reviewRequirementPlanProposal).not.toHaveBeenCalled();
+
+    const localReview = transport([proposal()]);
+    const second = render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={localReview} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open exact local clause review" }));
+    await screen.findByText("Create the synthetic artifact.");
+    const acknowledgement = screen.getByLabelText(/I reviewed every displayed user and PLAN clause/i);
+    fireEvent.click(acknowledgement);
+    const confirm = screen.getByRole("button", { name: "Confirm evidence" });
+    const retainedConfirm = captureReactClick(confirm);
+    fireEvent.click(acknowledgement);
+    act(() => retainedConfirm());
+    expect(screen.queryByRole("group", { name: "Confirm requirement-plan proposal" })).not.toBeInTheDocument();
+
+    fireEvent.click(acknowledgement);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm evidence" }));
+    const applyConfirmation = screen.getByRole("button", { name: "Apply native confirmation" });
+    const retainedConfirmation = captureReactClick(applyConfirmation);
+    fireEvent.click(screen.getByRole("button", { name: "Close review" }));
+    act(() => retainedConfirmation());
+    expect(localReview.decideRequirementPlanProposal).not.toHaveBeenCalled();
+    second.unmount();
+  });
+
+  it("treats native presence as a coherent fail-closed tuple", async () => {
+    const inconsistentMode = transport([proposal()]);
+    inconsistentMode.getUserPresenceCapability = vi.fn().mockResolvedValue({
+      contract_version: "native-user-presence-capability-v1",
+      confirmation_available: true,
+      mode: "unavailable",
+    });
+    const first = render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={inconsistentMode} />,
+    );
+    expect(await screen.findByRole("button", { name: "Reject" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open exact local clause review" })).toBeDisabled();
+    first.unmount();
+
+    const wrongContract = transport([proposal()]);
+    wrongContract.getUserPresenceCapability = vi.fn().mockResolvedValue({
+      contract_version: "synthetic-wrong-contract",
+      confirmation_available: true,
+      mode: "native_bridge_bound_token",
+    } as never);
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-6" sourceRunId={RUN_ID} transport={wrongContract} />,
+    );
+    expect(await screen.findByRole("button", { name: "Reject" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open exact local clause review" })).toBeDisabled();
   });
 });
