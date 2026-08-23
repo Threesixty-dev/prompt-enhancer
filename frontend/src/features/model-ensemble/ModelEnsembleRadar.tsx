@@ -451,7 +451,9 @@ export function ModelEnsembleRadar({
         legacy committee receipts show eligible-observation coverage). Structural
         ownership cells are not analytic observations. The outline has no area fill because
         these metrics are separate constructs, not one overall quality score.
-        {comparisonRun === null ? "" : ` Dashed lines and diamonds show ${comparisonLabel.toLowerCase()}.`}
+        {comparisonAxes?.some((axis) => axis.plotted !== null)
+          ? ` Dashed lines and diamonds show ${comparisonLabel.toLowerCase()} where numeric values exist.`
+          : ""}
       </figcaption>
     </figure>
   );

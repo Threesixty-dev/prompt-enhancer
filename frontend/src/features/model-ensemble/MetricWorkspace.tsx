@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   ModelEnsembleRun,
   ModelEnsembleAttemptStage,
@@ -18,11 +18,14 @@ import { ModelEnsembleRadar } from "./ModelEnsembleRadar";
 import {
   MODEL_ENSEMBLE_LENSES,
   MODEL_ENSEMBLE_OBJECTIVE_CONTRACT_COUNT,
+  isModelEnsembleTypedMetric,
+  isModelEnsembleV2Metric,
   modelEnsembleAxisGuidanceSentences,
   modelEnsembleAxisPendingBoundsLabel,
   modelEnsembleAxisRawRateLabel,
   modelEnsembleKnowledgeEntries,
   modelEnsembleMetricPresentation,
+  modelEnsembleMetricStateValue,
   modelEnsembleObjectiveMeasurableCount,
   modelEnsembleObjectiveMeasuredCount,
   modelEnsemblePrimaryMetrics,
@@ -52,8 +55,76 @@ export {
 } from "./trajectorySelection";
 export type { MetricWorkspaceHistory } from "./MetricHistoryDrawer";
 
-/** U+00A0: keeps the comparison note's line box when no comparison is shown, without visible text. */
-const NON_BREAKING_SPACE = String.fromCharCode(0xa0);
+const METRIC_CONTRACT_COUNT = MODEL_ENSEMBLE_LENSES.reduce(
+  (total, lens) => total + lens.expectedMetricCount,
+  0,
+);
+const METRIC_CONTRACT_KEYS = new Set(
+  MODEL_ENSEMBLE_LENSES.flatMap((lens) => lens.metrics.map((metric) => metric.key)),
+);
+
+type PrimaryMetric = ReturnType<typeof modelEnsemblePrimaryMetrics>[number];
+
+interface MetricWorkspaceReceiptSummary {
+  measured: number;
+  legacySignals: number;
+  pending: number;
+  notApplicable: number;
+  unresolved: number;
+  missing: number;
+}
+
+function metricWorkspaceReceiptSummary(
+  metrics: readonly PrimaryMetric[],
+): MetricWorkspaceReceiptSummary {
+  const receipts = new Map<string, PrimaryMetric>();
+  for (const metric of metrics) {
+    if (METRIC_CONTRACT_KEYS.has(metric.metric_key)) receipts.set(metric.metric_key, metric);
+  }
+  const summary: MetricWorkspaceReceiptSummary = {
+    measured: 0,
+    legacySignals: 0,
+    pending: 0,
+    notApplicable: 0,
+    unresolved: 0,
+    missing: Math.max(0, METRIC_CONTRACT_COUNT - receipts.size),
+  };
+  for (const metric of receipts.values()) {
+    const status = modelEnsembleMetricStatus(metric);
+    if (metric.value_state === "known") {
+      if (isModelEnsembleV2Metric(metric) || isModelEnsembleTypedMetric(metric)) summary.measured += 1;
+      else summary.legacySignals += 1;
+    } else if (status === "pending") {
+      summary.pending += 1;
+    } else if (metric.value_state === "not_applicable") {
+      summary.notApplicable += 1;
+    } else {
+      summary.unresolved += 1;
+    }
+  }
+  return summary;
+}
+
+function metricWorkspaceBoardValue(
+  axis: ReturnType<typeof modelEnsembleRadarAxes>[number],
+): string {
+  const metric = axis.metric;
+  if (metric === null || metric.value_state !== "known" || typeof metric.numeric_value !== "number") {
+    return modelEnsembleMetricStateValue(metric);
+  }
+  if (axis.direction === "lower_is_better") {
+    const kind = isModelEnsembleV2Metric(metric) || isModelEnsembleTypedMetric(metric)
+      ? "measured raw rate"
+      : "legacy signal";
+    return `${Math.round(metric.numeric_value * 100)}% ${kind}`;
+  }
+  return modelEnsembleMetricPresentation(metric, axis.direction).value;
+}
+
+function metricWorkspaceComparisonLabel(label: string | undefined): string {
+  const trimmed = label?.trim();
+  return trimmed === undefined || trimmed === "" ? "the comparison publication" : trimmed;
+}
 
 export function metricEvidenceFileProjectionSupported(
   projectionVersion: string | undefined,
@@ -122,11 +193,15 @@ export function MetricWorkspace({
 }) {
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
   const boardHelp = useMetricKnowledgeCardController();
+  const previousRunId = useRef(runId);
+  const workspaceHeadingId = useId();
+  const boardHeadingId = useId();
   const axes = useMemo(() => modelEnsembleRadarAxes(run, lensId), [lensId, run]);
   const primaryMetrics = useMemo(() => modelEnsemblePrimaryMetrics(run), [run]);
-  const known = primaryMetrics.filter((metric) => metric.value_state === "known").length;
-  const pending = primaryMetrics.filter((metric) => modelEnsembleMetricStatus(metric) === "pending").length;
-  const unavailable = primaryMetrics.filter((metric) => metric.value_state !== "known").length;
+  const receiptSummary = useMemo(
+    () => metricWorkspaceReceiptSummary(primaryMetrics),
+    [primaryMetrics],
+  );
   const completedSmallExperts = modelEnsembleCompletedSmallExperts(run);
   const visibleExperimental = (run.predictive_metrics ?? []).filter(
     (metric) => modelEnsemblePredictiveVisibility(metric, completedSmallExperts).visible,
@@ -140,22 +215,49 @@ export function MetricWorkspace({
     () => metricEvidenceReadinessForPublication(run.metric_evidence_readiness_v2, run.metric_publication_v2),
     [run.metric_evidence_readiness_v2, run.metric_publication_v2],
   );
+  const comparisonHasNumericValues = useMemo(
+    () => comparisonRun !== null
+      && modelEnsembleRadarAxes(comparisonRun, lensId).some((axis) => axis.plotted !== null),
+    [comparisonRun, lensId],
+  );
+  const defaultMetricKey = axes.find((axis) => (
+    axis.metric?.value_state === "known"
+    && (isModelEnsembleV2Metric(axis.metric) || isModelEnsembleTypedMetric(axis.metric))
+  ))?.key
+    ?? axes.find((axis) => axis.metric?.value_state === "known")?.key
+    ?? axes.find((axis) => axis.metric !== null)?.key
+    ?? axes[0]?.key
+    ?? "";
   const activeMetricKey = axes.some((axis) => axis.key === selectedMetricKey)
     ? selectedMetricKey
-    : axes[0]?.key ?? "";
+    : defaultMetricKey;
   const activeDirection = axes.find((axis) => axis.key === activeMetricKey)?.direction ?? "higher_is_better";
   const activeLens = MODEL_ENSEMBLE_LENSES.find((lens) => lens.id === lensId);
+  useLayoutEffect(() => {
+    if (previousRunId.current === runId) return;
+    previousRunId.current = runId;
+    boardHelp.dismiss();
+  }, [boardHelp.dismiss, runId]);
   return (
     <section
-      aria-label={`Metric workspace · ${snapshotLabel}`}
+      aria-labelledby={workspaceHeadingId}
       className={`metric-workspace metric-workspace--${mode}`}
       data-run-id={runId}
       data-workspace-mode={mode}
     >
       <header className="metric-workspace__snapshot">
-        <div><span>{snapshotLabel}{pending > 0 ? ` · ${pending} pending` : ""}</span><strong>Snapshot {shortIdentity(runId)}</strong><span className="metric-workspace__scope" data-scope={(scopeContext ?? ME_SCOPE_CONTEXT).scope}>Scope · {(scopeContext ?? ME_SCOPE_CONTEXT).label}</span></div>
-        <dl>
-          <div><dt>Measured</dt><dd>{known}/20</dd></div>
+        <div>
+          <span>{snapshotLabel}</span>
+          <h3 id={workspaceHeadingId}>Metric workspace · Snapshot {shortIdentity(runId)}</h3>
+          <span className="metric-workspace__scope" data-scope={(scopeContext ?? ME_SCOPE_CONTEXT).scope}>Scope · {(scopeContext ?? ME_SCOPE_CONTEXT).label}</span>
+        </div>
+        <dl aria-label={`${METRIC_CONTRACT_COUNT}-contract receipt summary`}>
+          <div data-receipt-state="measured"><dt>Measured</dt><dd>{receiptSummary.measured}/{METRIC_CONTRACT_COUNT}</dd></div>
+          <div data-receipt-state="legacy_signal"><dt>Legacy signals</dt><dd>{receiptSummary.legacySignals}</dd></div>
+          <div data-receipt-state="pending"><dt>Pending</dt><dd>{receiptSummary.pending}</dd></div>
+          <div data-receipt-state="not_applicable"><dt>N/A</dt><dd>{receiptSummary.notApplicable}</dd></div>
+          <div data-receipt-state="unresolved"><dt>Unresolved</dt><dd>{receiptSummary.unresolved}</dd></div>
+          <div data-receipt-state="missing"><dt>No receipt</dt><dd>{receiptSummary.missing}</dd></div>
           {objectiveMeasurable !== null && (
             <div data-objective-measurable={objectiveMeasurable}>
               <dt>Objective measurable</dt>
@@ -168,7 +270,6 @@ export function MetricWorkspace({
               <dd>{objectiveMeasured}/{MODEL_ENSEMBLE_OBJECTIVE_CONTRACT_COUNT}</dd>
             </div>
           )}
-          <div><dt>State-only</dt><dd>{unavailable}</dd></div>
           {evidenceReadiness !== null && (
             <div data-capability-gaps={evidenceReadiness.capability_missing_count}>
               <dt>Capability gaps</dt><dd>{evidenceReadiness.capability_missing_count}/20</dd>
@@ -178,10 +279,11 @@ export function MetricWorkspace({
           <div><dt>Window</dt><dd>{scopeLabel}</dd></div>
         </dl>
       </header>
-      <nav
+      <div
         aria-label="Metric workspace view"
         className="metric-workspace__lenses"
         onKeyDown={(event) => moveRovingFocus(event, (index) => onLensChange(MODEL_ENSEMBLE_LENSES[index].id))}
+        role="group"
       >
         {MODEL_ENSEMBLE_LENSES.map((lens) => (
           <button
@@ -194,7 +296,7 @@ export function MetricWorkspace({
             <span aria-hidden="true">{lens.shortLabel}</span><small aria-hidden="true">{lens.expectedMetricCount} metrics</small>
           </button>
         ))}
-      </nav>
+      </div>
       <div className="metric-workspace__primary">
         <ModelEnsembleRadar
           compact={mode === "compact"}
@@ -211,16 +313,17 @@ export function MetricWorkspace({
           snapshotLabel={snapshotLabel}
         />
         {mode === "full" && (
-          <section aria-label="Exact metric values" className="metric-workspace__board">
-            <header><strong>{activeLens?.label}</strong><span>Exact states and next actions</span></header>
+          <section aria-labelledby={boardHeadingId} className="metric-workspace__board">
+            <header><h4 id={boardHeadingId}>{activeLens?.label ?? "Metric values"} · exact metric values</h4><span>Exact states and next actions</span></header>
             <div onKeyDown={(event) => moveRovingFocus(event, (index) => setSelectedMetricKey(axes[index].key))}>
               {axes.map((axis) => {
-                const presentation = axis.metric === null
-                  ? { value: "—", detail: "No sealed receipt." }
-                  : modelEnsembleMetricPresentation(axis.metric, axis.direction);
                 const status = modelEnsembleMetricStatus(axis.metric);
                 const rawRate = modelEnsembleAxisRawRateLabel(axis);
                 const pendingBounds = modelEnsembleAxisPendingBoundsLabel(axis);
+                const numericValue = axis.metric?.numeric_value;
+                const radarOrientation = rawRate === null || typeof numericValue !== "number"
+                  ? null
+                  : `radar orientation ${100 - Math.round(numericValue * 100)}%`;
                 // The same two sentences the radar inspector and knowledge card
                 // render: the action here can never differ from the inspector's.
                 const guidance = modelEnsembleAxisGuidanceSentences(axis);
@@ -238,11 +341,11 @@ export function MetricWorkspace({
                       <strong>{axis.label}</strong>
                       <small>
                         {modelEnsembleMetricStatusLabel(status)}
-                        {rawRate === null ? "" : ` · ${rawRate}`}
+                        {radarOrientation === null ? "" : ` · ${radarOrientation}`}
                         {pendingBounds === null ? "" : ` · ${pendingBounds}`}
                       </small>
                     </span>
-                    <b>{presentation.value}</b>
+                    <b>{metricWorkspaceBoardValue(axis)}</b>
                     <span aria-hidden="true" className="metric-workspace__board-action">{guidance.action}</span>
                   </button>
                 );
@@ -302,9 +405,16 @@ export function MetricWorkspace({
             transport={transport}
           />
         )}
-      <p aria-hidden={comparisonRun === null} className="metric-workspace__comparison-note">
-        {comparisonRun === null ? NON_BREAKING_SPACE : "Dashed geometry is the immediately preceding comparable publication."}
-      </p>
+      {comparisonRun !== null && (
+        <p
+          className="metric-workspace__comparison-note"
+          data-comparison-state={comparisonHasNumericValues ? "numeric" : "state_only"}
+        >
+          {comparisonHasNumericValues
+            ? `Dashed geometry marks ${metricWorkspaceComparisonLabel(comparisonLabel)} where numeric values exist.`
+            : `No numeric comparison is available for ${metricWorkspaceComparisonLabel(comparisonLabel)} in this lens.`}
+        </p>
+      )}
       <div className="metric-workspace__drawers">
         <ModelConstellationDrawer attemptStages={attemptStages} compact={mode === "compact"} run={stageRun} />
         <MetricHistoryDrawer

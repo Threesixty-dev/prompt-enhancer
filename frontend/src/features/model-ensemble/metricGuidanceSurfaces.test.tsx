@@ -88,7 +88,7 @@ describe("canonical V2 guidance across the workspace surfaces", () => {
     const run = v2Run();
     workspace("full", run);
     const axes = modelEnsembleRadarAxes(run, "task-framing");
-    const board = within(screen.getByRole("region", { name: "Exact metric values" })).getAllByRole("button");
+    const board = within(screen.getByRole("region", { name: /exact metric values/i })).getAllByRole("button");
     const strip = within(screen.getByRole("navigation", { name: /metric axes/ })).getAllByRole("button");
     axes.forEach((axis, index) => {
       const sentences = modelEnsembleAxisGuidanceSentences(axis);
@@ -116,7 +116,7 @@ describe("canonical V2 guidance across the workspace surfaces", () => {
     const axes = modelEnsembleRadarAxes(run, "task-framing");
     const pending = axes.findIndex((axis) => axis.key === "prompt.constraint_precision");
     const strip = within(screen.getByRole("navigation", { name: /metric axes/ })).getAllByRole("button");
-    const board = within(screen.getByRole("region", { name: "Exact metric values" })).getAllByRole("button");
+    const board = within(screen.getByRole("region", { name: /exact metric values/i })).getAllByRole("button");
     expect(strip[pending].querySelector("b")?.textContent).toBe("Pending");
     expect([...strip[pending].querySelectorAll("small")].map((node) => node.textContent)).toContain("bounds 25%–75%");
     expect(board[pending].querySelector("small")?.textContent).toBe("pending · horizon open · bounds 25%–75%");
@@ -179,7 +179,7 @@ describe("canonical V2 guidance across the workspace surfaces", () => {
     const fullView = workspace("full", run, detailTransport);
     const axes = modelEnsembleRadarAxes(run, "task-framing");
     const expected = modelEnsembleAxisGuidanceSentences(axes[0]);
-    const board = within(screen.getByRole("region", { name: "Exact metric values" })).getAllByRole("button")[0];
+    const board = within(screen.getByRole("region", { name: /exact metric values/i })).getAllByRole("button")[0];
     const strip = within(screen.getByRole("navigation", { name: /metric axes/ })).getAllByRole("button")[0];
     fireEvent.click(strip);
     await waitFor(() => expect(detailTransport.getModelPredictiveMetricDetail).toHaveBeenCalled());

@@ -6,6 +6,7 @@ import { usePredictiveMetricDetail, type PredictiveMetricDetailResult } from "./
 
 const METRIC = "prompt.task_definition_coverage";
 const RUN_ID = "b".repeat(64);
+const NEXT_RUN_ID = "c".repeat(64);
 
 function prediction(metricKey = METRIC) {
   return {
@@ -45,9 +46,9 @@ function axesFor(experts: number): ModelEnsembleRadarAxis[] {
   return modelEnsembleRadarAxes(run, "task-framing");
 }
 
-function detail(metricKey: string): ModelPredictiveMetricDetail {
+function detail(metricKey: string, runId = RUN_ID): ModelPredictiveMetricDetail {
   return {
-    run_id: RUN_ID,
+    run_id: runId,
     projection_version: "local-probabilistic-radar-v1",
     projected_at: "2040-01-02T10:00:02Z",
     metric: prediction(metricKey),
@@ -61,6 +62,16 @@ function detail(metricKey: string): ModelPredictiveMetricDetail {
 }
 
 type Loader = (runId: string, metricKey: string, signal?: AbortSignal) => Promise<ModelPredictiveMetricDetail>;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, reject, resolve };
+}
 
 /**
  * Hook props mirror the hook's own optionality (`axis` may be undefined, `runId`
@@ -119,6 +130,98 @@ describe("usePredictiveMetricDetail", () => {
     const transport = { getModelPredictiveMetricDetail: mismatch };
     const first = axesFor(3)[0];
     const { result } = renderHook(() => usePredictiveMetricDetail({ transport, runId: RUN_ID, axis: first }));
+    await waitFor(() => expect(result.current.state).toBe("failed"));
+    expect(result.current.detail).toBeNull();
+  });
+
+  it("never exposes cached detail from run A during the first same-key render of run B", async () => {
+    const loader: Loader = async (runId, metricKey) => detail(metricKey, runId);
+    const transport = { getModelPredictiveMetricDetail: vi.fn(loader) };
+    const axis = axesFor(3)[0];
+    const renders: Array<{ contextRunId: string; detailRunId: string | null }> = [];
+    const hook = renderHook<PredictiveMetricDetailResult, { runId: string }>(
+      ({ runId }) => {
+        const value = usePredictiveMetricDetail({ transport, runId, axis });
+        renders.push({ contextRunId: runId, detailRunId: value.detail?.run_id ?? null });
+        return value;
+      },
+      { initialProps: { runId: RUN_ID } },
+    );
+    await waitFor(() => expect(hook.result.current.detail?.run_id).toBe(RUN_ID));
+
+    const transitionRenderStart = renders.length;
+    hook.rerender({ runId: NEXT_RUN_ID });
+    const firstRunBRender = renders.slice(transitionRenderStart)
+      .find((item) => item.contextRunId === NEXT_RUN_ID);
+    expect(firstRunBRender).toEqual({ contextRunId: NEXT_RUN_ID, detailRunId: null });
+    await waitFor(() => expect(hook.result.current.detail?.run_id).toBe(NEXT_RUN_ID));
+  });
+
+  it("ignores a same-key run A response that resolves after run B", async () => {
+    const requests = new Map<string, ReturnType<typeof deferred<ModelPredictiveMetricDetail>>>();
+    const loader: Loader = (runId) => {
+      const request = deferred<ModelPredictiveMetricDetail>();
+      requests.set(runId, request);
+      return request.promise;
+    };
+    const transport = { getModelPredictiveMetricDetail: vi.fn(loader) };
+    const axis = axesFor(3)[0];
+    const hook = renderHook<PredictiveMetricDetailResult, { runId: string }>(
+      ({ runId }) => usePredictiveMetricDetail({ transport, runId, axis }),
+      { initialProps: { runId: RUN_ID } },
+    );
+    hook.rerender({ runId: NEXT_RUN_ID });
+    expect(transport.getModelPredictiveMetricDetail.mock.calls[0][2]?.aborted).toBe(true);
+
+    await act(async () => {
+      requests.get(NEXT_RUN_ID)!.resolve(detail(METRIC, NEXT_RUN_ID));
+    });
+    await waitFor(() => expect(hook.result.current.detail?.run_id).toBe(NEXT_RUN_ID));
+    await act(async () => {
+      requests.get(RUN_ID)!.resolve(detail(METRIC, RUN_ID));
+      await Promise.resolve();
+    });
+    expect(hook.result.current).toMatchObject({
+      detail: { run_id: NEXT_RUN_ID },
+      state: "idle",
+    });
+  });
+
+  it("ignores a late non-Abort rejection owned by run A", async () => {
+    const requests = new Map<string, ReturnType<typeof deferred<ModelPredictiveMetricDetail>>>();
+    const loader: Loader = (runId) => {
+      const request = deferred<ModelPredictiveMetricDetail>();
+      requests.set(runId, request);
+      return request.promise;
+    };
+    const transport = { getModelPredictiveMetricDetail: vi.fn(loader) };
+    const axis = axesFor(3)[0];
+    const hook = renderHook<PredictiveMetricDetailResult, { runId: string }>(
+      ({ runId }) => usePredictiveMetricDetail({ transport, runId, axis }),
+      { initialProps: { runId: RUN_ID } },
+    );
+    hook.rerender({ runId: NEXT_RUN_ID });
+    await act(async () => {
+      requests.get(NEXT_RUN_ID)!.resolve(detail(METRIC, NEXT_RUN_ID));
+    });
+    await waitFor(() => expect(hook.result.current.detail?.run_id).toBe(NEXT_RUN_ID));
+
+    await act(async () => {
+      requests.get(RUN_ID)!.reject(new Error("late synthetic transport failure"));
+      await Promise.resolve();
+    });
+    expect(hook.result.current).toMatchObject({
+      detail: { run_id: NEXT_RUN_ID },
+      state: "idle",
+    });
+  });
+
+  it("fails closed when the response has the requested metric but the wrong run id", async () => {
+    const wrongRunLoader: Loader = async (_runId, metricKey) => detail(metricKey, NEXT_RUN_ID);
+    const transport = { getModelPredictiveMetricDetail: vi.fn(wrongRunLoader) };
+    const axis = axesFor(3)[0];
+    const { result } = renderHook(() => usePredictiveMetricDetail({ transport, runId: RUN_ID, axis }));
+
     await waitFor(() => expect(result.current.state).toBe("failed"));
     expect(result.current.detail).toBeNull();
   });

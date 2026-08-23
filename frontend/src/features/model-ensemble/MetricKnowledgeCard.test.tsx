@@ -111,7 +111,7 @@ describe("personal metric explainers", () => {
     expect(cards()).toHaveLength(0);
     const strip = screen.getByRole("navigation", { name: /metric axes/ });
     const stripButtons = strip.querySelectorAll("button");
-    const board = screen.getByRole("region", { name: "Exact metric values" });
+    const board = screen.getByRole("region", { name: /exact metric values/i });
     const boardButtons = board.querySelectorAll("button");
     for (const button of [...stripButtons, ...boardButtons]) {
       const description = document.getElementById(button.getAttribute("aria-describedby")!);

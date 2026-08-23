@@ -3832,34 +3832,38 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .model-ensemble > .model-ensemble__error--action > :not(.button) { min-width: 0; overflow-wrap: anywhere; }
 .model-ensemble > .model-ensemble__error--action > .button { flex: 0 0 auto; }
 
-.metric-workspace { min-width: 0; display: grid; gap: 12px; }
+.metric-workspace { min-width: 0; display: grid; gap: 12px; container-type: inline-size; }
 .metric-workspace__snapshot { min-height: 66px; display: grid; grid-template-columns: minmax(170px, .72fr) minmax(420px, 1.28fr); align-items: stretch; gap: 10px; padding: 10px 12px; border: 1px solid var(--p-c9d9d5); border-radius: 13px; background: var(--pa-255-255-255-900); box-shadow: 0 8px 28px var(--pa-35-79-72-50); }
 .metric-workspace__snapshot > div { min-width: 0; display: grid; align-content: center; gap: 3px; }
 .metric-workspace__snapshot > div span { color: var(--ink-500); font-size: .75rem; }
-.metric-workspace__snapshot > div strong { overflow: hidden; color: var(--ink-800); font-size: .9rem; text-overflow: ellipsis; white-space: nowrap; }
+.metric-workspace__snapshot > div :is(h3,strong) { margin: 0; overflow: hidden; color: var(--ink-800); font-size: .9rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .metric-workspace__snapshot dl { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(78px,1fr)); gap: 6px; margin: 0; }
-.metric-workspace__snapshot dl > div { min-width: 0; display: grid; align-content: center; gap: 2px; padding: 7px 9px; border-radius: 9px; background: var(--p-f1f6f4); }
-.metric-workspace__snapshot dt { color: var(--ink-500); font-size: .68rem; }
-.metric-workspace__snapshot dd { margin: 0; overflow: hidden; color: var(--teal-800); font-size: .82rem; font-weight: 820; text-overflow: ellipsis; white-space: nowrap; }
+.metric-workspace__snapshot dl > div { min-width: 0; display: grid; align-content: center; gap: 2px; padding: 7px 9px; border: 1px solid transparent; border-radius: 9px; background: var(--p-f1f6f4); }
+.metric-workspace__snapshot dt { color: var(--ink-500); font-size: max(12px, .68rem); }
+.metric-workspace__snapshot dd { margin: 0; overflow: hidden; color: var(--ink-800); font-size: .82rem; font-weight: 740; text-overflow: ellipsis; white-space: nowrap; }
+.metric-workspace__snapshot [data-receipt-state="measured"] { border-inline-start: 3px solid var(--teal-700); }
+.metric-workspace__snapshot [data-receipt-state="measured"] dd { color: var(--teal-700); font-weight: 860; }
+.metric-workspace__snapshot [data-receipt-state="pending"] { border-color: var(--amber-700); border-style: dashed; background: var(--amber-50); }
+.metric-workspace__snapshot [data-receipt-state="pending"] dd { color: var(--amber-700); font-weight: 780; }
 .metric-workspace__lenses { position: relative; z-index: 121; min-height: 52px; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; padding: 5px; border: 1px solid var(--p-c8d8d4); border-radius: 13px; background: var(--pa-255-255-255-720); }
 .metric-workspace__lenses button { min-width: 0; display: grid; place-content: center; gap: 2px; padding: 7px 9px; border: 0; border-radius: 9px; color: var(--ink-650); background: transparent; font: inherit; cursor: pointer; }
 .metric-workspace__lenses button span { font-size: .78rem; font-weight: 780; }
-.metric-workspace__lenses button small { color: var(--ink-500); font-size: .65rem; }
-.metric-workspace__lenses button[aria-pressed="true"] { color: var(--surface); background: linear-gradient(145deg,var(--p-176f65),var(--p-238777)); box-shadow: 0 5px 14px var(--pa-23-111-101-170); }
-.metric-workspace__lenses button[aria-pressed="true"] small { color: var(--pa-255-255-255-780); }
+.metric-workspace__lenses button small { color: var(--ink-500); font-size: max(12px, .65rem); }
+.metric-workspace__lenses button[aria-pressed="true"] { color: var(--ink-on-accent); background: var(--accent-primary); box-shadow: 0 5px 14px var(--pa-23-111-101-170); }
+.metric-workspace__lenses button[aria-pressed="true"] small { color: currentColor; }
 .metric-workspace__primary { min-width: 0; display: grid; grid-template-columns: minmax(380px,1fr) minmax(330px,.9fr); gap: 12px; align-items: start; }
 .metric-workspace__board { min-width: 0; overflow: hidden; border: 1px solid var(--p-d2dfdc); border-radius: 13px; background: var(--pa-255-255-255-880); }
 .metric-workspace__board > header { display: flex; justify-content: space-between; gap: 8px; padding: 11px 12px; border-bottom: 1px solid var(--p-e0e8e6); }
-.metric-workspace__board > header strong { color: var(--ink-800); font-size: .82rem; }
-.metric-workspace__board > header span { color: var(--ink-500); font-size: .7rem; }
+.metric-workspace__board > header :is(h4,strong) { margin: 0; color: var(--ink-800); font-size: .82rem; font-weight: 700; line-height: 1.25; }
+.metric-workspace__board > header span { color: var(--ink-500); font-size: max(12px, .7rem); }
 .metric-workspace__board > div { display: grid; gap: 1px; background: var(--p-e4ebe9); }
 .metric-workspace__board button { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 12px; padding: 11px 12px; border: 0; color: var(--ink-650); background: var(--surface); font: inherit; text-align: left; cursor: pointer; }
 .metric-workspace__board button[aria-pressed="true"] { background: var(--p-eef8f5); box-shadow: inset 3px 0 var(--p-268574); }
 .metric-workspace__board button > span { min-width: 0; display: grid; gap: 2px; }
 .metric-workspace__board button strong { color: var(--ink-800); font-size: .76rem; }
-.metric-workspace__board button small { color: var(--ink-500); font-size: .66rem; text-transform: capitalize; }
-.metric-workspace__board button b { color: var(--teal-800); font-size: .78rem; }
-.metric-workspace__board-action { grid-column: 1/-1; margin: 0; color: var(--ink-500); font-size: .7rem; line-height: 1.45; }
+.metric-workspace__board button small { color: var(--ink-500); font-size: max(12px, .66rem); text-transform: capitalize; }
+.metric-workspace__board button b { color: var(--teal-700); font-size: .78rem; }
+.metric-workspace__board-action { grid-column: 1/-1; margin: 0; color: var(--ink-500); font-size: max(12px, .7rem); line-height: 1.45; }
 .model-ensemble__guidance { display: grid; gap: 4px; padding: 8px 9px; border-left: 3px solid var(--p-2e8a79); border-radius: 7px; background: var(--p-eaf6f2); }
 .model-ensemble__guidance > span { color: var(--p-39776d); font-size: .64rem; font-weight: 760; text-transform: capitalize; }
 .model-ensemble__guidance > strong { color: var(--ink-800); font-size: .72rem; line-height: 1.45; }
@@ -3907,18 +3911,18 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .metric-history__snapshots small { color: var(--ink-500); font-size: .62rem; }
 .metric-workspace--compact { gap: 8px; }
 .metric-workspace--compact .metric-workspace__snapshot { min-height: 54px; grid-template-columns: minmax(130px,.72fr) minmax(280px,1.28fr); padding: 7px 9px; }
-.metric-workspace--compact .metric-workspace__snapshot > div span { font-size: .66rem; }
-.metric-workspace--compact .metric-workspace__snapshot > div strong { font-size: .75rem; }
+.metric-workspace--compact .metric-workspace__snapshot > div span { font-size: max(12px, .66rem); }
+.metric-workspace--compact .metric-workspace__snapshot > div :is(h3,strong) { font-size: .75rem; }
 .metric-workspace--compact .metric-workspace__snapshot dl > div { padding: 5px 6px; }
-.metric-workspace--compact .metric-workspace__snapshot dt { font-size: .62rem; }
-.metric-workspace--compact .metric-workspace__snapshot dd { font-size: .68rem; }
+.metric-workspace--compact .metric-workspace__snapshot dt { font-size: max(12px, .62rem); }
+.metric-workspace--compact .metric-workspace__snapshot dd { font-size: max(12px, .68rem); }
 .metric-workspace--compact .metric-workspace__lenses { min-height: 44px; gap: 4px; padding: 4px; }
 .metric-workspace--compact .metric-workspace__lenses button { padding: 5px 4px; }
-.metric-workspace--compact .metric-workspace__lenses button span { font-size: .68rem; }
+.metric-workspace--compact .metric-workspace__lenses button span { font-size: max(12px, .68rem); }
 .metric-workspace--compact .metric-workspace__lenses button small { display: none; }
 .metric-workspace--compact .metric-workspace__primary { grid-template-columns: 1fr; }
 .metric-workspace--compact .metric-workspace__drawers { grid-template-columns: 1fr 1fr; }
-.metric-workspace__comparison-note { margin: -5px 0 0; color: var(--ink-500); font-size: .68rem; text-align: center; }
+.metric-workspace__comparison-note { margin: -5px 0 0; color: var(--ink-500); font-size: max(12px, .68rem); text-align: center; }
 
 .model-ensemble-overlay { min-height: 100vh; box-sizing: border-box; display: grid; align-content: start; gap: 12px; padding: 16px; color: var(--ink-800); background: radial-gradient(circle at top right, var(--p-effaf6) 0, var(--p-f6f8f7) 42%, var(--p-edf2f0) 100%); }
 .model-ensemble-overlay--native { height: 100vh; overflow: auto; border: 1px solid var(--pa-46-92-85-280); overscroll-behavior: none; box-shadow: inset 0 1px var(--pa-255-255-255-750); }
@@ -4062,7 +4066,28 @@ main { width: 100%; max-width: 100%; min-width: 0; min-height: calc(100vh - 68px
 .metric-workspace--compact .metric-workspace__snapshot { grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr); }
 .metric-workspace__lenses button { min-height: 40px; border: 2px solid transparent; }
 .metric-workspace__lenses button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.metric-workspace__board button[data-status="pending"] small { color: var(--p-7a5a1e); }
+.metric-workspace__board button[data-status="known"] small { font-weight: 700; }
+.metric-workspace__board button[data-status="known"] b { font-weight: 860; }
+.metric-workspace__board button:not([data-status="known"]) small {
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--unknown-ink);
+  background: var(--unknown-surface);
+  font-weight: 780;
+  line-height: 1.35;
+}
+.metric-workspace__board button:not([data-status="known"]) b { color: var(--unknown-ink); font-weight: 720; }
+.metric-workspace__board button[data-status="pending"] small { border-color: var(--amber-700); border-style: dashed; color: var(--amber-700); background: var(--amber-50); }
+.metric-workspace__board button[data-status="pending"] b { color: var(--amber-700); }
+.metric-workspace__board button[data-status="execution_error"] small { border-width: 2px; border-color: var(--red-700); border-radius: 5px; color: var(--red-700); background: var(--red-50); font-weight: 850; }
+.metric-workspace__board button[data-status="execution_error"] b { color: var(--red-700); font-weight: 800; }
+@container (max-width: 760px) {
+  .metric-workspace__snapshot,
+  .metric-workspace__primary { grid-template-columns: minmax(0,1fr); }
+}
 .metric-workspace__drawer > summary { min-height: 44px; }
 .model-constellation__nodes button,
 .metric-history__snapshots button { min-height: 40px; }

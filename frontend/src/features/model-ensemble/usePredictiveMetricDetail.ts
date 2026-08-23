@@ -12,12 +12,18 @@ export interface PredictiveMetricDetailResult {
   state: PredictiveMetricDetailState;
 }
 
+interface PredictiveMetricDetailSlot extends PredictiveMetricDetailResult {
+  metricKey: string | null;
+  runId: string | null;
+}
+
 /**
  * Loads the content-free factor distribution for the selected axis, and only
  * when an informative experimental estimate is actually visible for it: a
  * withheld or absent estimate never triggers a request. Responses are admitted
- * only for the requested metric key; a superseded request is aborted and its
- * abort is not reported as a failure.
+ * only when both the requested run id and metric key match; a superseded
+ * request is aborted and no completion owned by that aborted request is allowed
+ * to change the current state.
  */
 export function usePredictiveMetricDetail({
   transport,
@@ -28,39 +34,57 @@ export function usePredictiveMetricDetail({
   runId?: string;
   axis: ModelEnsembleRadarAxis | undefined;
 }): PredictiveMetricDetailResult {
-  const [detail, setDetail] = useState<ModelPredictiveMetricDetail | null>(null);
-  const [state, setState] = useState<PredictiveMetricDetailState>("idle");
+  const [slot, setSlot] = useState<PredictiveMetricDetailSlot>({
+    detail: null,
+    metricKey: null,
+    runId: null,
+    state: "idle",
+  });
   const metricKey = axis?.key;
   const prediction = axis?.prediction;
   const predictiveMedian = axis?.predictiveMedian;
+  const load = transport?.getModelPredictiveMetricDetail;
+  const loadable = load !== undefined
+    && runId !== undefined
+    && metricKey !== undefined
+    && prediction !== null
+    && prediction !== undefined
+    && predictiveMedian !== null
+    && predictiveMedian !== undefined;
   useEffect(() => {
-    const load = transport?.getModelPredictiveMetricDetail;
     if (
-      load === undefined
+      !loadable
+      || load === undefined
       || runId === undefined
       || metricKey === undefined
-      || prediction === null || prediction === undefined
-      || predictiveMedian === null || predictiveMedian === undefined
     ) {
-      setDetail(null);
-      setState("idle");
+      setSlot({
+        detail: null,
+        metricKey: metricKey ?? null,
+        runId: runId ?? null,
+        state: "idle",
+      });
       return undefined;
     }
     const controller = new AbortController();
-    setDetail(null);
-    setState("loading");
+    setSlot({ detail: null, metricKey, runId, state: "loading" });
     void load(runId, metricKey, controller.signal)
       .then((loaded) => {
-        if (loaded.metric.metric_key !== metricKey) throw new Error("predictive detail metric mismatch");
-        setDetail(loaded);
-        setState("idle");
+        if (controller.signal.aborted) return;
+        if (loaded.run_id !== runId || loaded.metric.metric_key !== metricKey) {
+          throw new Error("predictive detail request identity mismatch");
+        }
+        setSlot({ detail: loaded, metricKey, runId, state: "idle" });
       })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setDetail(null);
-        setState("failed");
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setSlot({ detail: null, metricKey, runId, state: "failed" });
       });
     return () => controller.abort();
-  }, [runId, transport, metricKey, prediction, predictiveMedian]);
-  return { detail, state };
+  }, [load, loadable, metricKey, prediction, predictiveMedian, runId]);
+  if (!loadable) return { detail: null, state: "idle" };
+  if (slot.runId !== runId || slot.metricKey !== metricKey) {
+    return { detail: null, state: "loading" };
+  }
+  return { detail: slot.detail, state: slot.state };
 }

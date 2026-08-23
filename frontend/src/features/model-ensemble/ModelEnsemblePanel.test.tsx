@@ -1533,8 +1533,11 @@ describe("ModelEnsemblePanel", () => {
     const workspaces = [...view.container.querySelectorAll(".metric-workspace")];
     expect(workspaces).toHaveLength(2);
     expect(workspaces.map((node) => node.getAttribute("data-run-id"))).toEqual([run.run_id, run.run_id]);
-    expect(screen.getAllByText(`Snapshot ${run.run_id.slice(0, 8)}…${run.run_id.slice(-4)}`)).toHaveLength(2);
-    expect(screen.getAllByRole("navigation", { name: "Metric workspace view" })).toHaveLength(2);
+    expect(screen.getAllByRole("heading", {
+      level: 3,
+      name: `Metric workspace · Snapshot ${run.run_id.slice(0, 8)}…${run.run_id.slice(-4)}`,
+    })).toHaveLength(2);
+    expect(screen.getAllByRole("group", { name: "Metric workspace view" })).toHaveLength(2);
     expect(screen.getAllByText("History")).toHaveLength(2);
     expect(screen.getAllByText("Scope not exposed")).toHaveLength(2);
   });
@@ -1856,7 +1859,8 @@ describe("ModelEnsemblePanel", () => {
 
     expect(screen.getAllByText("98% radar quality").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/raw lower-is-better rate 2%/i)).toBeVisible();
-    expect(screen.getAllByText(/raw rate 2%/i).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("2% measured raw rate")).toBeVisible();
+    expect(screen.getAllByText(/raw rate 2%/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/radar-quality median 98%/i)).toBeVisible();
     expect(screen.getByText(/Raw modeled lower-is-better rate: median 2%/i)).toBeVisible();
     expect(screen.getByText(/applicability not estimable/i)).toBeVisible();
@@ -2362,11 +2366,15 @@ describe("ModelEnsemblePanel", () => {
     };
     renderPanel(transport);
 
-    expect(await screen.findByText(`Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`)).toBeVisible();
+    const newerHeading = `Metric workspace · Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`;
+    expect(await screen.findByRole("heading", { level: 3, name: newerHeading })).toBeVisible();
     oldLatest.resolve(runFixture());
     await Promise.resolve();
-    expect(screen.getByText(`Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`)).toBeVisible();
-    expect(screen.queryByText(`Snapshot ${runFixture().run_id.slice(0, 8)}…${runFixture().run_id.slice(-4)}`)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: newerHeading })).toBeVisible();
+    expect(screen.queryByRole("heading", {
+      level: 3,
+      name: `Metric workspace · Snapshot ${runFixture().run_id.slice(0, 8)}…${runFixture().run_id.slice(-4)}`,
+    })).not.toBeInTheDocument();
   });
 
   it("does not let a slower legacy latest read overwrite a newer analysis command", async () => {
@@ -2382,12 +2390,16 @@ describe("ModelEnsemblePanel", () => {
     };
     renderPanel(transport);
     fireEvent.click(screen.getByRole("button", { name: "Analyze metric ranges" }));
-    expect(await screen.findByText(`Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`)).toBeVisible();
+    const newerHeading = `Metric workspace · Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`;
+    expect(await screen.findByRole("heading", { level: 3, name: newerHeading })).toBeVisible();
 
     oldLatest.resolve(runFixture());
     await Promise.resolve();
-    expect(screen.getByText(`Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`)).toBeVisible();
-    expect(screen.queryByText(`Snapshot ${runFixture().run_id.slice(0, 8)}…${runFixture().run_id.slice(-4)}`)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: newerHeading })).toBeVisible();
+    expect(screen.queryByRole("heading", {
+      level: 3,
+      name: `Metric workspace · Snapshot ${runFixture().run_id.slice(0, 8)}…${runFixture().run_id.slice(-4)}`,
+    })).not.toBeInTheDocument();
   });
 
   it("does not let a slower legacy latest read clear command-owned definitions refusal", async () => {

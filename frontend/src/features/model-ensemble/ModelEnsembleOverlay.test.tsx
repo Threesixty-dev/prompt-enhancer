@@ -426,7 +426,7 @@ describe("ModelEnsembleOverlay", () => {
       undefined,
       expect.any(AbortSignal),
     ));
-    expect(screen.getByText(/Dashed geometry is the immediately preceding comparable publication/i)).toBeVisible();
+    expect(await screen.findByText(/Dashed geometry marks previous comparable publication where numeric values exist/i)).toBeVisible();
     expect(document.querySelectorAll(".model-ensemble__radar-prior-segment")).toHaveLength(0);
     expect(document.querySelectorAll(".model-ensemble__radar-prior-point")).toHaveLength(1);
     expect(document.querySelectorAll(".model-ensemble__radar-state")).toHaveLength(5);
