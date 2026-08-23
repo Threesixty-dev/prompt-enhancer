@@ -30,10 +30,17 @@ from ...application.analysis.session_model_ensemble import (
     ModelEnsembleSelectionError,
     ModelEnsembleSourceError,
     MetricProfileSource,
+    REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT,
+    REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT,
+    REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_FINGERPRINT,
+    REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT,
+    REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT,
     REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT,
     REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT,
+    RequirementActionEvidenceSource,
     RequirementPlanEvidenceSource,
     SessionMetricProfileBinding,
+    SessionRequirementActionEvidenceBinding,
     SessionRequirementPlanEvidenceBinding,
     SessionModelEnsembleOutcome,
     SessionModelEnsembleRunRecord,
@@ -365,6 +372,142 @@ class ModelRequirementPlanEvidenceBindingDto(StrictModel):
         )
 
 
+class ModelRequirementActionEvidenceBindingDto(StrictModel):
+    """Minimized reviewed requirement-to-action authority for one r7 run."""
+
+    evidence_source: RequirementActionEvidenceSource
+    source_run_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    requirement_plan_confirmation_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    requirement_plan_evidence_fingerprint: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    candidate_manifest_fingerprint: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    confirmation_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    proposal_id: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    reviewed_descriptor_set_fingerprint: str | None = Field(
+        default=None, pattern=PSEUDONYM_PATTERN.pattern
+    )
+    evidence_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    evidence_schema_version: Literal[
+        "requirement-action-unavailable-v1",
+        "requirement-action-awaiting-review-v1",
+        "requirement-action-candidate-manifest-overflow-v1",
+        "requirement-action-candidate-source-incomplete-v1",
+        "requirement-action-binding-invalid-v1",
+        "requirement-action-evidence-v1",
+    ]
+    evidence_policy_version: Literal["reviewed-requirement-action-v1"]
+    local_only: Literal[True]
+    content_persisted: Literal[False]
+
+    @model_validator(mode="after")
+    def exact_source_shape(self) -> "ModelRequirementActionEvidenceBindingDto":
+        reviewed = self.evidence_source is (
+            RequirementActionEvidenceSource.REVIEWED_REQUIREMENT_ACTION
+        )
+        awaiting = self.evidence_source is (
+            RequirementActionEvidenceSource.AWAITING_REVIEW
+        )
+        overflow = self.evidence_source is (
+            RequirementActionEvidenceSource.CANDIDATE_MANIFEST_OVERFLOW
+        )
+        source_incomplete = self.evidence_source is (
+            RequirementActionEvidenceSource.CANDIDATE_SOURCE_INCOMPLETE
+        )
+        binding_invalid = self.evidence_source is (
+            RequirementActionEvidenceSource.BINDING_INVALID
+        )
+        reviewed_fields = (
+            self.source_run_id,
+            self.requirement_plan_confirmation_id,
+            self.requirement_plan_evidence_fingerprint,
+            self.candidate_manifest_fingerprint,
+            self.confirmation_id,
+            self.proposal_id,
+            self.reviewed_descriptor_set_fingerprint,
+        )
+        if reviewed != all(value is not None for value in reviewed_fields):
+            raise ValueError(
+                "reviewed requirement-action authority is incomplete"
+            )
+        if not reviewed and any(value is not None for value in reviewed_fields):
+            raise ValueError(
+                "unreviewed requirement-action authority carries reviewed fields"
+            )
+        expected_schema = (
+            "requirement-action-evidence-v1"
+            if reviewed
+            else "requirement-action-candidate-manifest-overflow-v1"
+            if overflow
+            else "requirement-action-candidate-source-incomplete-v1"
+            if source_incomplete
+            else "requirement-action-binding-invalid-v1"
+            if binding_invalid
+            else "requirement-action-awaiting-review-v1"
+            if awaiting
+            else "requirement-action-unavailable-v1"
+        )
+        if self.evidence_schema_version != expected_schema:
+            raise ValueError(
+                "requirement-action authority source and schema disagree"
+            )
+        expected_fingerprint = (
+            None
+            if reviewed
+            else REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT
+            if overflow
+            else REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_FINGERPRINT
+            if source_incomplete
+            else REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT
+            if binding_invalid
+            else REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT
+            if awaiting
+            else REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT
+        )
+        if expected_fingerprint is not None and (
+            self.evidence_fingerprint != expected_fingerprint
+        ):
+            raise ValueError(
+                "requirement-action authority fingerprint and source disagree"
+            )
+        if reviewed and self.evidence_fingerprint in {
+            REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT,
+            REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT,
+            REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT,
+            REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_FINGERPRINT,
+            REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT,
+        }:
+            raise ValueError(
+                "requirement-action authority fingerprint and source disagree"
+            )
+        return self
+
+    @classmethod
+    def from_binding(
+        cls,
+        binding: SessionRequirementActionEvidenceBinding,
+    ) -> "ModelRequirementActionEvidenceBindingDto":
+        return cls.model_validate(
+            binding.model_dump(
+                exclude={
+                    "session_id",
+                    "source_window_fingerprint",
+                    "bound_at",
+                }
+            )
+        )
+
+
 class ModelEnsembleRunDto(StrictModel):
     run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     plan_version: Literal["local-shadow-ensemble-v1"]
@@ -398,6 +541,9 @@ class ModelEnsembleRunDto(StrictModel):
     metric_profile_binding: ModelMetricProfileBindingDto | None
     requirement_plan_evidence_binding: (
         ModelRequirementPlanEvidenceBindingDto | None
+    )
+    requirement_action_evidence_binding: (
+        ModelRequirementActionEvidenceBindingDto | None
     )
     #: Derived from the sealed publication above plus this run's provenance.
     #: It stores nothing of its own, so it is absent exactly when the sealed
@@ -503,6 +649,13 @@ class ModelEnsembleRunDto(StrictModel):
                 if record.requirement_plan_evidence_binding is None
                 else ModelRequirementPlanEvidenceBindingDto.from_binding(
                     record.requirement_plan_evidence_binding
+                )
+            ),
+            requirement_action_evidence_binding=(
+                None
+                if record.requirement_action_evidence_binding is None
+                else ModelRequirementActionEvidenceBindingDto.from_binding(
+                    record.requirement_action_evidence_binding
                 )
             ),
             metric_evidence_readiness_v2=(

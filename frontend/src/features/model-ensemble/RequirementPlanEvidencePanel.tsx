@@ -142,7 +142,7 @@ export function RequirementPlanEvidencePanel({
         !exactBinding(loadedContract, sessionId, sourceRunId, sourceProjectionVersion)
         || !contractReviewCurrent(loadedContract)
       ) {
-        setError("Requirement-plan review is not bound to a current exact sealed r5/r6 source window.");
+        setError("Requirement-plan review is not bound to a current exact sealed r5/r6/r7 source window.");
         return;
       }
       setContract(loadedContract);
@@ -392,7 +392,7 @@ export function RequirementPlanEvidencePanel({
         <strong>Requirement-to-plan evidence</strong>
         <span>{capabilities && contract !== null
           ? `${undecided.length} proposal${undecided.length === 1 ? "" : "s"} awaiting review`
-          : "Exact r5/r6 review unavailable"}</span>
+          : "Exact r5/r6/r7 review unavailable"}</span>
         <small>{confirmationAvailable
           ? "Open the full dashboard to inspect every local source clause and natively confirm or reject its proposal."
           : "Review is fail-closed: this server/window composition cannot natively review or confirm proposals."}</small>
@@ -414,11 +414,11 @@ export function RequirementPlanEvidencePanel({
         <p>This local runtime does not expose the complete reviewed requirement-plan boundary.</p>
       ) : contract === null ? (
         <p role={error === "" ? "status" : "alert"}>{error === ""
-          ? "Loading the exact content-free r5/r6 contract…"
+          ? "Loading the exact content-free r5/r6/r7 contract…"
           : error}</p>
       ) : (
         <>
-          <p>Bound to sealed run <strong>{sourceRunId.slice(0, 8)}…</strong>. Import alone can never set a metric value; only active requirement clauses enter the denominator after exact native review and a fresh r6 analysis.</p>
+          <p>Bound to sealed run <strong>{sourceRunId.slice(0, 8)}…</strong>. Import alone can never set a metric value; only active requirement clauses enter the denominator after exact native review and a fresh analysis for this selected projection.</p>
           <p>Every reviewable user request/feedback clause must be classified as active or excluded. A compound active clause remains one opportunity and may coarsen multiple requirements; excluded clauses never enter the metric.</p>
           <label>
             <span>Choose canonical requirement-plan evidence file</span>
@@ -506,7 +506,7 @@ export function RequirementPlanEvidencePanel({
                     {pendingDecision?.proposalId === proposal.proposal_id && (
                       <div aria-label={`${pendingDecision.decision === "confirm" ? "Confirm" : "Reject"} requirement-plan proposal`} className="metric-evidence-file__decision-confirmation" role="group">
                         <p>{pendingDecision.decision === "confirm"
-                          ? "Native confirmation consumes this exact one-shot review receipt. It makes only the reviewed active-requirement classification and dispositions eligible for a fresh sealed r6 analysis; it does not prove plan quality or atomic requirement coverage."
+                          ? "Native confirmation consumes this exact one-shot review receipt. It makes only the reviewed active-requirement classification and dispositions eligible for a fresh sealed analysis of this selected projection; it does not prove plan quality or atomic requirement coverage."
                           : "Native rejection permanently excludes this proposal from metric authority."}</p>
                         <div>
                           <button disabled={busy} onClick={() => setPendingDecision(null)} type="button">Cancel</button>
@@ -523,7 +523,7 @@ export function RequirementPlanEvidencePanel({
             <p role="status">Native user-presence review is unavailable. Proposals remain unconfirmed and cannot affect the metric.</p>
           )}
           {error !== "" && <p className="metric-evidence-file__error" role="alert">{error}</p>}
-          <p>After confirmation, run a fresh local analysis and verify that its sealed r6 requirement-plan binding names the confirmed proposal.</p>
+          <p>After confirmation, run a fresh local analysis and verify that its sealed requirement-plan binding names the confirmed proposal.</p>
         </>
       )}
     </section>

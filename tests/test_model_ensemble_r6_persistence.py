@@ -10,6 +10,7 @@ from datetime import timedelta
 import sqlite3
 
 import pytest
+from pydantic import SecretStr
 
 from prompt_enhancer.application.analysis.metric_projection_v6 import (
     METRIC_PROJECTION_V6_VERSION,
@@ -21,9 +22,13 @@ from prompt_enhancer.application.analysis.metric_publication_v2 import (
 from prompt_enhancer.application.analysis.requirement_plan_evidence import (
     RequirementPlanEvidenceSnapshot,
 )
+from prompt_enhancer.application.analysis.requirement_action_evidence import (
+    requirement_plan_snapshot_fingerprint,
+)
 from prompt_enhancer.application.analysis.semantic_units import (
     SemanticUnitReconciler,
 )
+from prompt_enhancer.application.analysis.text_contracts import TextMessageKind
 from prompt_enhancer.application.analysis.session_model_ensemble import (
     REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT,
     REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT,
@@ -36,6 +41,10 @@ from prompt_enhancer.application.analysis.session_model_ensemble import (
 )
 from prompt_enhancer.database import DatabaseInvariantError
 from prompt_enhancer.domain import Provider
+from prompt_enhancer.infrastructure.sqlite.model_ensemble import (
+    _metric_publication_requirement_plan_fingerprint,
+    _requirement_plan_binding_fingerprint,
+)
 
 from test_model_ensemble_r5_profile_persistence import (
     NOW,
@@ -50,6 +59,7 @@ from test_probabilistic_metric_persistence import (
     _database_and_session,
 )
 from test_requirement_plan_evidence_persistence import (
+    ARTIFACT_IDS,
     _confirm,
     _import,
     _payload_with_withdrawal_basis,
@@ -58,50 +68,7 @@ from test_requirement_plan_evidence_persistence import (
 
 
 def _snapshot_fingerprint(snapshot: RequirementPlanEvidenceSnapshot) -> str:
-    return IDS.fingerprint(
-        "requirement-plan-evidence-snapshot-v1",
-        (
-            snapshot.session_id,
-            snapshot.source_window_fingerprint,
-            snapshot.confirmation_id or "none",
-            snapshot.proposal_id or "none",
-            snapshot.schema_version,
-            snapshot.policy_version,
-            snapshot.review_rubric_version or "none",
-            *(
-                ()
-                if snapshot.producer_receipt is None
-                else (
-                    f"producer-kind:{snapshot.producer_receipt.kind}",
-                    "producer-claim:"
-                    f"{snapshot.producer_receipt.claim_fingerprint}",
-                    "producer-authority:"
-                    f"{snapshot.producer_receipt.authority}",
-                    "producer-raw-claim-persisted:"
-                    f"{str(snapshot.producer_receipt.raw_claim_persisted).lower()}",
-                )
-            ),
-            *(
-                f"plan:{item.plan_id}:{item.coordinate.message_sequence}:"
-                f"{item.coordinate.clause_index}"
-                for item in snapshot.plan_items
-            ),
-            *(
-                f"requirement:{item.requirement_id}:"
-                f"{item.coordinate.message_sequence}:"
-                f"{item.coordinate.clause_index}:{item.disposition.value}:"
-                f"{','.join(item.linked_plan_ids)}"
-                for item in snapshot.requirements
-            ),
-            *(
-                "excluded-user-clause:"
-                f"{item.coordinate.message_sequence}:"
-                f"{item.coordinate.clause_index}:{item.reason.value}:"
-                f"{('none' if item.basis_coordinate is None else f'{item.basis_coordinate.message_sequence}:{item.basis_coordinate.clause_index}')}"
-                for item in snapshot.excluded_user_clauses
-            ),
-        ),
-    )
+    return requirement_plan_snapshot_fingerprint(snapshot, ARTIFACT_IDS)
 
 
 def _unavailable_binding(
@@ -148,8 +115,9 @@ def _r6_record(
     evidence_binding: SessionRequirementPlanEvidenceBinding,
     snapshot: RequirementPlanEvidenceSnapshot | None = None,
     profile_bound_at=NOW,  # type: ignore[no-untyped-def]
+    projection_context=None,  # type: ignore[no-untyped-def]
 ) -> SessionModelEnsembleRunRecord:
-    context = _context(session_id)
+    context = projection_context or _context(session_id)
     publication = publish_metric_states_v2(
         project_metric_states_v6(
             context=context,
@@ -407,6 +375,124 @@ def test_r6_reviewed_binding_round_trips_with_relational_authority(tmp_path) -> 
         )
 
 
+def test_m57_r6_seal_rejects_shape_valid_keyed_plan_row_substitution(
+    tmp_path,
+) -> None:
+    database, session_id, _source, _repository, _service, snapshot, _head = (
+        _reviewed_setup(tmp_path)
+    )
+    base_context = _context(session_id)
+    context = base_context.model_copy(
+        update={
+            "available_message_kinds": frozenset(
+                {TextMessageKind.REQUEST, TextMessageKind.PLAN}
+            ),
+            "messages": (
+                base_context.messages[0].model_copy(
+                    update={
+                        "text": SecretStr(
+                            "First synthetic requirement. Second synthetic requirement. Third synthetic requirement. Omitted synthetic clause."
+                        )
+                    }
+                ),
+                base_context.messages[1].model_copy(
+                    update={
+                        "kind": TextMessageKind.PLAN,
+                        "text": SecretStr(
+                            "Implement the first synthetic requirement. Verify the synthetic result."
+                        ),
+                    }
+                ),
+            ),
+        }
+    )
+    record = _r6_record(
+        session_id,
+        run_character="b",
+        request_character="c",
+        evidence_binding=_reviewed_binding(snapshot),
+        snapshot=snapshot,
+        projection_context=context,
+    )
+    runs = database.model_ensemble_repository()
+    runs.save_completed(record)
+    bare = _bare_run(record, run_character="0", request_character="1")
+    runs.save_completed(bare)
+
+    with database._connection() as connection:
+        source_state = connection.execute(
+            """SELECT eligible_count,met_count
+               FROM session_model_ensemble_metric_states_v2_r6
+               WHERE run_id=?
+                 AND metric_key='logic.decomposition_coverage'""",
+            (record.run_id,),
+        ).fetchone()
+        assert source_state is not None
+        assert source_state["eligible_count"] > 0
+        assert source_state["met_count"] > 0
+        _copy_profile_binding(connection, bare.run_id, record.run_id)
+        _copy_requirement_binding(connection, bare.run_id, record.run_id)
+        connection.execute(
+            f"""INSERT INTO session_model_ensemble_metric_states_v2_r6({_STATE_COLUMNS})
+                SELECT ?,metric_ordinal,registry_version,projection_version,
+                       metric_key,contract_version,contract_fingerprint,
+                       evidence_authority,value_state,explanation_code,
+                       CASE WHEN metric_key='logic.decomposition_coverage'
+                                  AND value_state='known'
+                            THEN 0 ELSE numerator END,
+                       denominator,
+                       CASE WHEN metric_key='logic.decomposition_coverage'
+                                  AND value_state='known'
+                            THEN 0.0 ELSE numeric_value END,
+                       CASE WHEN metric_key='logic.decomposition_coverage'
+                            THEN 0.0 ELSE censoring_lower_bound END,
+                       CASE WHEN metric_key='logic.decomposition_coverage'
+                                  AND value_state='pending'
+                            THEN CAST(pending_count AS REAL)/eligible_count
+                            WHEN metric_key='logic.decomposition_coverage'
+                            THEN 0.0 ELSE censoring_upper_bound END,
+                       denominator_basis,opportunity_unit_kind,
+                       capability_available,source_complete,eligible_count,
+                       CASE WHEN metric_key='logic.decomposition_coverage'
+                            THEN 0 ELSE met_count END,
+                       CASE WHEN metric_key='logic.decomposition_coverage'
+                            THEN eligible_count-pending_count
+                            ELSE not_met_count END,
+                       pending_count,unknown_count,superseded_excluded_count,
+                       distinct_owner_count,product_metric_eligible
+                FROM session_model_ensemble_metric_states_v2_r6
+                WHERE run_id=? ORDER BY metric_ordinal""",
+            (bare.run_id, record.run_id),
+        )
+        columns = tuple(
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(session_model_ensemble_metric_publication_v2_seals_r6)"
+            ).fetchall()
+        )
+        source_seal = connection.execute(
+            """SELECT *
+               FROM session_model_ensemble_metric_publication_v2_seals_r6
+               WHERE run_id=?""",
+            (record.run_id,),
+        ).fetchone()
+        assert source_seal is not None
+        values = tuple(
+            bare.run_id if column == "run_id" else source_seal[column]
+            for column in columns
+        )
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="requirement-plan graph mismatch",
+        ):
+            connection.execute(
+                f"""INSERT INTO session_model_ensemble_metric_publication_v2_seals_r6
+                    ({','.join(columns)})
+                    VALUES({','.join('?' for _ in columns)})""",
+                values,
+            )
+
+
 @pytest.mark.parametrize(
     "reserved_fingerprint",
     (
@@ -662,6 +748,123 @@ def test_r6_bindings_states_and_seal_are_immutable_and_tamper_evident(
         repository.get(record.run_id)
 
 
+def test_reviewed_snapshot_fingerprint_substitution_fails_run_and_watch_reads(
+    tmp_path,
+) -> None:
+    database, session_id, _source, _repository, _service, snapshot, _head = (
+        _reviewed_setup(tmp_path)
+    )
+    first = _r6_record(
+        session_id,
+        run_character="b",
+        request_character="c",
+        evidence_binding=_reviewed_binding(snapshot),
+        snapshot=snapshot,
+    )
+    second = _r6_record(
+        session_id,
+        run_character="d",
+        request_character="e",
+        evidence_binding=_reviewed_binding(
+            snapshot,
+            bound_at=NOW + timedelta(seconds=30),
+        ),
+        snapshot=snapshot,
+        profile_bound_at=NOW + timedelta(seconds=30),
+    )
+    _trajectory(database, session_id, first, second)
+    original = second.requirement_plan_evidence_binding
+    publication = second.receipt.metric_publication_v2
+    assert original is not None
+    assert publication is not None
+    forged = original.model_copy(update={"evidence_fingerprint": "f" * 64})
+
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "DROP TRIGGER session_model_ensemble_requirement_plan_bindings_no_update"
+        )
+        connection.execute("DROP TRIGGER session_metric_r6_seals_no_update")
+        connection.execute(
+            """UPDATE session_model_ensemble_requirement_plan_bindings
+               SET evidence_fingerprint=?,binding_fingerprint=? WHERE run_id=?""",
+            (
+                forged.evidence_fingerprint,
+                _requirement_plan_binding_fingerprint(forged),
+                second.run_id,
+            ),
+        )
+        connection.execute(
+            """UPDATE session_model_ensemble_metric_publication_v2_seals_r6
+               SET requirement_plan_evidence_fingerprint=?,
+                   requirement_plan_binding_fingerprint=?,
+                   publication_requirement_plan_fingerprint=?
+               WHERE run_id=?""",
+            (
+                forged.evidence_fingerprint,
+                _requirement_plan_binding_fingerprint(forged),
+                _metric_publication_requirement_plan_fingerprint(
+                    publication,
+                    forged,
+                ),
+                second.run_id,
+            ),
+        )
+        connection.commit()
+
+    with pytest.raises(DatabaseInvariantError, match="evidence fingerprint is invalid"):
+        database.model_ensemble_repository().get(second.run_id)
+    with pytest.raises(DatabaseInvariantError, match="evidence fingerprint is invalid"):
+        database.model_ensemble_watch_repository().list_publications(
+            "6" * 64,
+            before_generation=None,
+            limit=12,
+        )
+
+
+def test_plan_decision_authority_tamper_fails_run_and_watch_reads(tmp_path) -> None:
+    database, session_id, _source, _repository, _service, snapshot, _head = (
+        _reviewed_setup(tmp_path)
+    )
+    first = _r6_record(
+        session_id,
+        run_character="b",
+        request_character="c",
+        evidence_binding=_reviewed_binding(snapshot),
+        snapshot=snapshot,
+    )
+    second = _r6_record(
+        session_id,
+        run_character="d",
+        request_character="e",
+        evidence_binding=_reviewed_binding(
+            snapshot,
+            bound_at=NOW + timedelta(seconds=30),
+        ),
+        snapshot=snapshot,
+        profile_bound_at=NOW + timedelta(seconds=30),
+    )
+    _trajectory(database, session_id, first, second)
+    with sqlite3.connect(database.path) as connection:
+        connection.execute(
+            "DROP TRIGGER requirement_plan_decision_authority_update_exact_m56"
+        )
+        connection.execute(
+            """UPDATE requirement_plan_evidence_decision_authority_m56
+               SET authority_fingerprint=? WHERE decision_id=?""",
+            ("f" * 64, snapshot.confirmation_id),
+        )
+        connection.commit()
+
+    with pytest.raises(DatabaseInvariantError, match="decision authority is invalid"):
+        database.model_ensemble_repository().get(second.run_id)
+    with pytest.raises(DatabaseInvariantError, match="decision authority is invalid"):
+        database.model_ensemble_watch_repository().list_publications(
+            "6" * 64,
+            before_generation=None,
+            limit=12,
+        )
+
+
 def test_r6_sidecars_follow_run_and_session_privacy_cascades(tmp_path) -> None:
     database, session_id = _database_and_session(tmp_path)
     first = _r6_record(
@@ -763,6 +966,7 @@ def test_source_run_privacy_delete_cascades_confirmed_reviewed_authority(
             "requirement_plan_evidence_links",
             "requirement_plan_evidence_proposal_seals",
             "requirement_plan_evidence_decisions",
+            "requirement_plan_evidence_decision_authority_m56",
         ):
             assert connection.execute(
                 f"SELECT COUNT(*) FROM {table}"  # noqa: S608 - closed constants
@@ -808,6 +1012,7 @@ def test_direct_session_delete_cascades_confirmed_reviewed_r6_graph(
             "requirement_plan_evidence_links",
             "requirement_plan_evidence_proposal_seals",
             "requirement_plan_evidence_decisions",
+            "requirement_plan_evidence_decision_authority_m56",
         ):
             assert connection.execute(
                 f"SELECT COUNT(*) FROM {table}"  # noqa: S608 - closed constants

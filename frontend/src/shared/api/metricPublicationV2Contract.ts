@@ -42,6 +42,7 @@ export const METRIC_CONTRACT_V2_PROJECTION_VERSIONS = [
   "metric-contract-v2-projection-4",
   "metric-contract-v2-projection-5",
   "metric-contract-v2-projection-6",
+  "metric-contract-v2-projection-7",
 ] as const;
 
 export type MetricDefinitionMismatch =
@@ -53,7 +54,8 @@ export type MetricDefinitionMismatch =
   | "guidance_template_identity"
   | "projection_version"
   | "metric_profile_binding"
-  | "requirement_plan_evidence_binding";
+  | "requirement_plan_evidence_binding"
+  | "requirement_action_evidence_binding";
 
 function requireReadableProjectionVersion(value: unknown): asserts value is typeof METRIC_CONTRACT_V2_PROJECTION_VERSIONS[number] {
   if (METRIC_CONTRACT_V2_PROJECTION_VERSIONS.includes(
@@ -302,7 +304,6 @@ function parseStatistics(value: unknown, metricKey: string) {
   const owners = integer(statistics.distinct_owner_count, 0, 1_000_000);
   if (
     met + notMet + pending + unknown !== eligible
-    || (!statistics.capability_available && eligible !== 0)
     || (denominatorBasis === "semantic_unit_opportunities" && owners !== eligible)
   ) {
     throw new MetricPublicationV2PayloadError();
@@ -356,21 +357,38 @@ function parseState(value: unknown, expectedMetricKey: string) {
   const lower = optionalFinite(state.censoring_lower_bound);
   const upper = optionalFinite(state.censoring_upper_bound);
   const parsed = parseStatistics(state.statistics, expectedMetricKey);
+  const r7UnavailableRequirementActionException =
+    state.projection_version === "metric-contract-v2-projection-7"
+    && expectedMetricKey === "logic.requirement_action_traceability"
+    && valueState === "unknown"
+    && state.explanation_code === "requirement_action_evidence_unavailable"
+    && parsed.statistics.capability_available === false
+    && parsed.statistics.source_complete === true
+    && parsed.met === 0
+    && parsed.notMet === 0
+    && parsed.pending === 0
+    && parsed.unknown === parsed.eligible;
   if (
     authority !== identity.authority
     || parsed.denominatorBasis !== identity.basis
     || parsed.statistics.opportunity_unit_kind !== identity.unit
     || (lower === null) !== (upper === null)
     || (lower !== null && upper !== null && lower > upper)
-    || (valueState === "pending" && parsed.pending === 0)
     // A right-censored value always travels with its exact bounds: met/eligible
-    // below, (met + pending)/eligible above; an unknown count is never pending.
+    // below, (met + pending)/eligible above. It is only authoritative when the
+    // capability and source are complete; an unknown count is never pending.
     || (valueState === "pending" && (
-      lower === null || upper === null || parsed.unknown !== 0
+      !parsed.statistics.capability_available
+      || !parsed.statistics.source_complete
+      || parsed.eligible === 0
+      || parsed.pending === 0
+      || lower === null || upper === null || parsed.unknown !== 0
       || Math.abs(lower - parsed.met / parsed.eligible) > 1e-9
       || Math.abs(upper - (parsed.met + parsed.pending) / parsed.eligible) > 1e-9
     ))
     || (valueState === "not_applicable" && parsed.eligible !== 0)
+    || (!parsed.statistics.capability_available && parsed.eligible !== 0
+      && !r7UnavailableRequirementActionException)
     || (authority === "objective_receipt" && valueState === "known"
       && parsed.denominatorBasis !== "objective_opportunities")
   ) {
@@ -400,6 +418,78 @@ export function parseMetricV2State(
   expectedMetricKey: string,
 ): MetricPublicationV2["metrics"][number]["state"] {
   return parseState(value, expectedMetricKey).state as MetricPublicationV2["metrics"][number]["state"];
+}
+
+/** Exact reviewed-r6 denominator authority used by projection 7. */
+function hasExactPendingCensoringBounds(
+  state: MetricPublicationV2["metrics"][number]["state"],
+): boolean {
+  const lower = state.censoring_lower_bound;
+  const upper = state.censoring_upper_bound;
+  const statistics = state.statistics;
+  return typeof lower === "number"
+    && typeof upper === "number"
+    && statistics.eligible_count > 0
+    && Math.abs(lower - statistics.met_count / statistics.eligible_count) <= 1e-9
+    && Math.abs(upper - (statistics.met_count + statistics.pending_count)
+      / statistics.eligible_count) <= 1e-9;
+}
+
+export function isReviewedRequirementPlanState(
+  state: MetricPublicationV2["metrics"][number]["state"],
+): boolean {
+  if (
+    state.metric_key !== "logic.decomposition_coverage"
+    || !["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+      state.projection_version,
+    )
+    || state.statistics.capability_available !== true
+    || state.statistics.source_complete !== true
+    || state.statistics.unknown_count !== 0
+  ) return false;
+  if (state.value_state === "known") {
+    return state.explanation_code === "reviewed_requirement_plan_links";
+  }
+  if (state.value_state === "pending") {
+    return state.explanation_code === "opportunity_right_censored"
+      && state.statistics.eligible_count > 0
+      && state.statistics.pending_count > 0
+      && hasExactPendingCensoringBounds(state);
+  }
+  return state.value_state === "not_applicable"
+    && state.explanation_code === "no_opportunity_observed"
+    && state.statistics.eligible_count === 0
+    && state.statistics.met_count === 0
+    && state.statistics.not_met_count === 0
+    && state.statistics.pending_count === 0;
+}
+
+/** Exact reviewed-r7 action authority after the shared state resolver runs. */
+export function isReviewedRequirementActionState(
+  state: MetricPublicationV2["metrics"][number]["state"],
+): boolean {
+  if (
+    state.metric_key !== "logic.requirement_action_traceability"
+    || state.projection_version !== "metric-contract-v2-projection-7"
+    || state.statistics.capability_available !== true
+    || state.statistics.source_complete !== true
+    || state.statistics.unknown_count !== 0
+  ) return false;
+  if (state.value_state === "known") {
+    return state.explanation_code === "reviewed_requirement_action_links";
+  }
+  if (state.value_state === "pending") {
+    return state.explanation_code === "opportunity_right_censored"
+      && state.statistics.eligible_count > 0
+      && state.statistics.pending_count > 0
+      && hasExactPendingCensoringBounds(state);
+  }
+  return state.value_state === "not_applicable"
+    && state.explanation_code === "no_opportunity_observed"
+    && state.statistics.eligible_count === 0
+    && state.statistics.met_count === 0
+    && state.statistics.not_met_count === 0
+    && state.statistics.pending_count === 0;
 }
 
 function parseGuidance(value: unknown, parsedState: ReturnType<typeof parseState>) {
@@ -574,6 +664,7 @@ export function parseMetricPublicationV2(value: unknown): MetricPublicationV2 {
     throw new MetricPublicationV2PayloadError();
   }
   const counts = new Map<string, number>();
+  const parsedStates = new Map<string, ReturnType<typeof parseState>>();
   let objectiveMeasured = 0;
   publication.metrics.forEach((candidate, ordinal) => {
     const item = record(candidate);
@@ -606,11 +697,51 @@ export function parseMetricPublicationV2(value: unknown): MetricPublicationV2 {
     ) {
       throw new MetricPublicationV2PayloadError();
     }
+    parsedStates.set(parsedState.state.metric_key as string, parsedState);
     counts.set(parsedState.valueState, (counts.get(parsedState.valueState) ?? 0) + 1);
     if (parsedState.authority === "objective_receipt" && parsedState.valueState === "known") {
       objectiveMeasured += 1;
     }
   });
+  if (publication.projection_version === "metric-contract-v2-projection-7") {
+    const requirementPlan = parsedStates.get("logic.decomposition_coverage");
+    const requirementAction = parsedStates.get("logic.requirement_action_traceability");
+    if (requirementPlan === undefined || requirementAction === undefined) {
+      throw new MetricPublicationV2PayloadError();
+    }
+    const actionResolved = (["known", "pending", "not_applicable"] as const).includes(
+      requirementAction.valueState as "known" | "pending" | "not_applicable",
+    );
+    const reviewedAction = isReviewedRequirementActionState(
+      requirementAction.state as MetricPublicationV2["metrics"][number]["state"],
+    );
+    if (actionResolved && !reviewedAction) throw new MetricPublicationV2PayloadError();
+    const reviewedPlan = isReviewedRequirementPlanState(
+      requirementPlan.state as MetricPublicationV2["metrics"][number]["state"],
+    );
+    if (
+      (reviewedPlan
+        ? requirementAction.parsed.eligible !== requirementPlan.parsed.eligible
+        : requirementAction.parsed.eligible !== 0)
+      || (reviewedAction && !reviewedPlan)
+    ) {
+      throw new MetricPublicationV2PayloadError();
+    }
+  }
+  if (["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+    publication.projection_version as string,
+  )) {
+    const requirementPlan = parsedStates.get("logic.decomposition_coverage");
+    if (
+      requirementPlan !== undefined
+      && (["known", "pending", "not_applicable"] as const).includes(
+        requirementPlan.valueState as "known" | "pending" | "not_applicable",
+      )
+      && !isReviewedRequirementPlanState(
+        requirementPlan.state as MetricPublicationV2["metrics"][number]["state"],
+      )
+    ) throw new MetricPublicationV2PayloadError();
+  }
   const declared = [
     ["known", publication.known_count], ["pending", publication.pending_count],
     ["unknown", publication.unknown_count], ["not_applicable", publication.not_applicable_count],

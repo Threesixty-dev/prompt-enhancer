@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 import hashlib
 import json
+import re
 import sqlite3
 
 import pytest
@@ -64,6 +65,33 @@ def _restart_database(database: Database) -> Database:
     restarted = Database(database.path)
     restarted.configure_local_artifact_id_factory(ARTIFACT_IDS)
     return restarted
+
+
+def _downgrade_synthetic_copy_to_v55(path) -> None:  # type: ignore[no-untyped-def]
+    """Remove only M56/M57 objects to exercise the explicit trusted upgrade."""
+
+    from prompt_enhancer.infrastructure.sqlite import migrations
+
+    created = tuple(
+        (kind.casefold(), name)
+        for script in (migrations.MIGRATION_56, migrations.MIGRATION_57)
+        for kind, name in re.findall(
+            r"CREATE\s+(?:(?:UNIQUE)\s+)?(TABLE|INDEX|TRIGGER)\s+([a-z0-9_]+)",
+            script,
+            flags=re.IGNORECASE,
+        )
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        for kind in ("trigger", "index", "table"):
+            for object_kind, name in reversed(created):
+                if object_kind == kind:
+                    connection.execute(
+                        f"DROP {kind.upper()} IF EXISTS {name}"  # noqa: S608
+                    )
+        connection.execute("DELETE FROM schema_migrations WHERE version>=56")
+        connection.execute("PRAGMA user_version=55")
+        connection.commit()
 
 
 def _payload(session_id: str, run, *, predecessor: str | None = None) -> bytes:  # type: ignore[no-untyped-def]
@@ -458,6 +486,53 @@ def test_sqlite_roundtrip_is_inert_until_confirmed_and_restart_safe(tmp_path) ->
         assert connection.execute(
             "SELECT confirmation_authority FROM requirement_plan_evidence_decisions"
         ).fetchone()[0] == "owned_native_user_presence"
+        authority = connection.execute(
+            """SELECT authority_source,authority_fingerprint,authority_version,
+                      local_only,content_persisted
+               FROM requirement_plan_evidence_decision_authority_m56"""
+        ).fetchone()
+        assert authority is not None
+        assert authority[0] == "keyed_application_issuance"
+        assert len(authority[1]) == 64
+        assert authority[2:] == (
+            "requirement-plan-decision-authority-v1",
+            1,
+            0,
+        )
+
+
+def test_populated_m55_decision_receives_one_explicit_keyed_upgrade(tmp_path) -> None:
+    database, session_id, run, _repository, service = _setup(tmp_path)
+    confirmed = _confirm(
+        service,
+        session_id,
+        run,
+        _import(service, session_id, run, suffix="trusted-upgrade"),
+        suffix="trusted-upgrade",
+    )
+    assert confirmed.decision is not None
+    _downgrade_synthetic_copy_to_v55(database.path)
+
+    upgraded = Database(database.path)
+    upgraded.configure_local_artifact_id_factory(ARTIFACT_IDS)
+    upgraded.initialize()
+    repository = upgraded.requirement_plan_evidence_repository()
+    assert repository.get_proposal(confirmed.proposal.proposal_id) == confirmed
+    with sqlite3.connect(database.path) as connection:
+        authority = connection.execute(
+            """SELECT authority_source,authority_fingerprint
+               FROM requirement_plan_evidence_decision_authority_m56
+               WHERE decision_id=?""",
+            (confirmed.decision.decision_id,),
+        ).fetchone()
+        assert authority is not None
+        assert authority[0] == "trusted_m55_upgrade"
+        assert len(authority[1]) == 64
+
+    restarted = _restart_database(upgraded)
+    assert restarted.requirement_plan_evidence_repository().get_proposal(
+        confirmed.proposal.proposal_id
+    ) == confirmed
 
 
 @pytest.mark.parametrize("first_kind", ("requirement", "excluded"))
@@ -1209,10 +1284,174 @@ def test_direct_mutation_and_delete_are_rejected(tmp_path) -> None:
         connection.rollback()
 
 
-def test_direct_session_delete_cascades_unconfirmed_proposal_graph(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "decision_kind",
+    (RequirementPlanDecisionKind.CONFIRM, RequirementPlanDecisionKind.REJECT),
+)
+def test_unissued_native_decision_without_keyed_sidecar_fails_every_read(
+    tmp_path,
+    decision_kind: RequirementPlanDecisionKind,
+) -> None:
     database, session_id, run, repository, service = _setup(tmp_path)
-    proposal = _import(service, session_id, run, suffix="session-delete")
-    assert proposal.status is RequirementPlanProposalStatus.PROPOSED
+    proposal = _import(
+        service,
+        session_id,
+        run,
+        suffix=f"unissued-{decision_kind.value}",
+    )
+    decision = _decision_record(
+        session_id,
+        proposal,
+        decision=decision_kind,
+        suffix=f"unissued-{decision_kind.value}",
+    )
+    with database._connection() as connection:
+        connection.execute(
+            """INSERT INTO requirement_plan_evidence_decisions(
+                   decision_id,proposal_id,session_id,decision,
+                   idempotency_key_digest,command_fingerprint,decided_at,
+                   confirmation_authority,schema_version,local_only,
+                   content_persisted
+               ) VALUES(?,?,?,?,?,?,?,?,?,1,0)""",
+            (
+                decision.decision_id,
+                decision.proposal_id,
+                decision.session_id,
+                decision.decision.value,
+                decision.idempotency_key_digest,
+                decision.command_fingerprint,
+                decision.decided_at.isoformat(timespec="microseconds"),
+                decision.confirmation_authority,
+                decision.schema_version,
+            ),
+        )
+        connection.commit()
+
+    with pytest.raises(DatabaseInvariantError, match="authority is incomplete"):
+        repository.get_proposal(proposal.proposal.proposal_id)
+    with pytest.raises(DatabaseInvariantError, match="authority is incomplete"):
+        repository.list_proposals_page(session_id, limit=10, offset=0)
+    restarted = Database(database.path)
+    restarted.configure_local_artifact_id_factory(ARTIFACT_IDS)
+    with pytest.raises(DatabaseInvariantError, match="authority is incomplete"):
+        restarted.initialize()
+
+
+def test_issued_decision_rejects_authority_fingerprint_and_kind_tampering(
+    tmp_path,
+) -> None:
+    database, session_id, run, repository, service = _setup(tmp_path)
+    confirmed = _confirm(
+        service,
+        session_id,
+        run,
+        _import(service, session_id, run, suffix="authority-tamper"),
+        suffix="authority-tamper",
+    )
+    assert confirmed.decision is not None
+    with database._connection() as connection:
+        connection.execute(
+            "DROP TRIGGER requirement_plan_decision_authority_update_exact_m56"
+        )
+        connection.execute(
+            """UPDATE requirement_plan_evidence_decision_authority_m56
+               SET authority_fingerprint=? WHERE decision_id=?""",
+            ("f" * 64, confirmed.decision.decision_id),
+        )
+        connection.commit()
+    with pytest.raises(DatabaseInvariantError, match="authority is invalid"):
+        repository.get_proposal(confirmed.proposal.proposal_id)
+
+
+def test_keyed_authority_fingerprints_cannot_be_swapped_between_decisions(
+    tmp_path,
+) -> None:
+    database, session_id, run, repository, service = _setup(tmp_path)
+    first_proposal = _import(service, session_id, run, suffix="swap-first")
+    second_proposal = _import(service, session_id, run, suffix="swap-second")
+    confirmed = _confirm(
+        service,
+        session_id,
+        run,
+        first_proposal,
+        suffix="swap-first",
+    )
+    rejected, applied = service.decide(
+        session_id=session_id,
+        proposal_id=second_proposal.proposal.proposal_id,
+        command=RequirementPlanDecisionCommand(
+            expected_source_run_id=run.run_id,
+            decision=RequirementPlanDecisionKind.REJECT,
+            confirmation=REQUIREMENT_PLAN_DECISION_CONFIRMATION,
+        ),
+        idempotency_key="synthetic-requirement-plan-decision-swap-second",
+    )
+    assert applied is True
+    assert confirmed.decision is not None
+    assert rejected.decision is not None
+
+    with database._connection() as connection:
+        connection.execute(
+            "DROP TRIGGER requirement_plan_decision_authority_update_exact_m56"
+        )
+        rows = connection.execute(
+            """SELECT decision_id,authority_fingerprint
+               FROM requirement_plan_evidence_decision_authority_m56
+               WHERE decision_id IN (?,?) ORDER BY decision_id""",
+            (confirmed.decision.decision_id, rejected.decision.decision_id),
+        ).fetchall()
+        assert len(rows) == 2
+        connection.execute(
+            """UPDATE requirement_plan_evidence_decision_authority_m56
+               SET authority_fingerprint=CASE decision_id
+                 WHEN ? THEN ? WHEN ? THEN ? ELSE authority_fingerprint END
+               WHERE decision_id IN (?,?)""",
+            (
+                rows[0]["decision_id"],
+                rows[1]["authority_fingerprint"],
+                rows[1]["decision_id"],
+                rows[0]["authority_fingerprint"],
+                rows[0]["decision_id"],
+                rows[1]["decision_id"],
+            ),
+        )
+        connection.commit()
+
+    for proposal_id in (
+        confirmed.proposal.proposal_id,
+        rejected.proposal.proposal_id,
+    ):
+        with pytest.raises(DatabaseInvariantError, match="authority is invalid"):
+            repository.get_proposal(proposal_id)
+    with pytest.raises(DatabaseInvariantError, match="authority is invalid"):
+        repository.snapshot(session_id, run.input_fingerprint)
+
+    with database._connection() as connection:
+        connection.execute(
+            "DROP TRIGGER requirement_plan_evidence_decisions_no_update"
+        )
+        connection.execute(
+            """UPDATE requirement_plan_evidence_decisions SET decision='reject'
+               WHERE decision_id=?""",
+            (confirmed.decision.decision_id,),
+        )
+        connection.commit()
+    with pytest.raises(DatabaseInvariantError, match="authority is invalid"):
+        repository.get_proposal(confirmed.proposal.proposal_id)
+
+
+def test_direct_session_delete_cascades_confirmed_proposal_and_authority(
+    tmp_path,
+) -> None:
+    database, session_id, run, repository, service = _setup(tmp_path)
+    proposal = _confirm(
+        service,
+        session_id,
+        run,
+        _import(service, session_id, run, suffix="session-delete"),
+        suffix="session-delete",
+    )
+    assert proposal.status is RequirementPlanProposalStatus.CONFIRMED
 
     with database._connection() as connection:
         connection.execute("PRAGMA trusted_schema=ON")
@@ -1227,6 +1466,7 @@ def test_direct_session_delete_cascades_unconfirmed_proposal_graph(tmp_path) -> 
             "requirement_plan_evidence_links",
             "requirement_plan_evidence_proposal_seals",
             "requirement_plan_evidence_decisions",
+            "requirement_plan_evidence_decision_authority_m56",
         ):
             assert connection.execute(
                 f"SELECT COUNT(*) FROM {table}"  # noqa: S608 - closed constants
@@ -1236,11 +1476,37 @@ def test_direct_session_delete_cascades_unconfirmed_proposal_graph(tmp_path) -> 
     assert repository.get_proposal(proposal.proposal.proposal_id) is None
 
 
+def test_confirmed_decision_sidecar_cascades_on_run_and_session_privacy_delete(
+    tmp_path,
+) -> None:
+    database, session_id, run, repository, service = _setup(tmp_path)
+    confirmed = _confirm(
+        service,
+        session_id,
+        run,
+        _import(service, session_id, run, suffix="confirmed-cascade"),
+        suffix="confirmed-cascade",
+    )
+    assert confirmed.decision is not None
+
+    assert database.model_ensemble_repository().delete_for_privacy(run.run_id) is True
+    with sqlite3.connect(database.path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM requirement_plan_evidence_decisions"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            """SELECT COUNT(*)
+               FROM requirement_plan_evidence_decision_authority_m56"""
+        ).fetchone()[0] == 0
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert repository.get_proposal(confirmed.proposal.proposal_id) is None
+
+
 def test_schema_55_is_content_free_and_migration_54_is_unchanged(tmp_path) -> None:
     database, _session_id, _run, _repository, _service = _setup(tmp_path)
     from prompt_enhancer.infrastructure.sqlite import migrations
 
-    assert database.summary()["schema_version"] == 55
+    assert database.summary()["schema_version"] == 57
     assert hashlib.sha256(migrations.MIGRATION_54.encode()).hexdigest() == (
         "aafd1c1cc0c121db267d02f7cf14c1a05e6a796af5affda2988fa700216576ac"
     )

@@ -119,7 +119,7 @@ compatibility dimension.
 | `prompt.completion_evaluability` | higher is better | detected requirement clauses containing an observable-check marker / detected requirement clauses | a check word is not a complete acceptance criterion; abstain when no denominator can be formed |
 | `prompt.deliverable_contract` | higher is better | detected deliverable slots / explicitly expected slots | abstain without explicit expected slots |
 | `prompt.open_decision_load` | **lower risk is better** | clauses containing a recognized choice marker / analyzed user clauses | does not prove materiality or later resolution; deliberate delegation is narrowly excluded |
-| `logic.requirement_action_traceability` | higher is better | active requirements conservatively linked to observed action events / active requirements | abstains when the source cannot expose `ACTION`; an action link is not proof of success |
+| `logic.requirement_action_traceability` | higher is better | native-reviewed active requirements resolved by at least one completed app-issued safe-action candidate / native-reviewed active requirements under complete reviewed authority | incomplete, stale, or overflowing authority abstains; an action link is not proof of task success |
 | `logic.plan_state_accounting` | higher is better | plan items with an explicit state or observed-action link / plan items | an explicitly no-plan task is `not_applicable` |
 | `logic.decision_rationale_coverage` | higher is better | decisions with an explicit rationale marker / observed decisions | abstains when the source cannot expose `DECISION`; zero observed decisions never creates a synthetic denominator |
 | `logic.scoped_consistency_candidate_rate` | **lower risk is better** | differing typed claims / comparable non-superseded claim pairs | no comparable pair remains unknown; candidates are not proven contradictions |
@@ -513,20 +513,21 @@ stages remain a separate experimental diagnostic and cannot change its values.
 
 **A twenty-state publication is not a promise of twenty numeric values.** The
 built-in provider-neutral extractor owns only documented message structure.
-Current projection r6 preserves r5's reviewed task-profile path, r4's
-owned-native-confirmed collaboration lifecycle path, and r3's explicit-plan
- path. It additionally gives decomposition coverage an immutable, complete,
- native-confirmed classification of every reviewable user request/feedback
- clause plus active-requirement-to-plan evidence. Only a clause confirmed as an
- active requirement becomes one deliberately coarse opportunity; compound
- active clauses are never split by a model. An unconfigured profile family remains
+Current projection r7 preserves r6's reviewed requirement-to-plan path, r5's
+reviewed task-profile path, r4's owned-native-confirmed collaboration lifecycle
+path, and r3's explicit-plan path. It replaces only
+`logic.requirement_action_traceability`, using the exact native-reviewed r6
+active requirements and an app-issued, complete safe-action candidate manifest.
+Only a clause confirmed as an active requirement becomes one deliberately
+coarse opportunity; compound active clauses are never split by a model. An
+unconfigured profile family remains
 `unknown`; it is never zero or not-applicable. Four objective families still
-need provider-owned opportunity enumeration and links; first-pass verification
-has one narrow path through an exactly reviewed task plus a task-scoped
-verification receipt. These states are deliberate authority boundaries; adding
-a larger language model cannot turn an absent opportunity registry or receipt
-link into measured evidence. The exact current 16/0/4 path partition is
-published in
+need either provider-owned opportunity enumeration and links or final release
+composition; first-pass verification has one narrow path through an exactly
+reviewed task plus a task-scoped verification receipt. These states are
+deliberate authority boundaries; adding a larger language model cannot turn an
+absent opportunity registry, complete review, or receipt link into measured
+evidence. The exact current 16/0/4 release partition is published in
 [`metric-operability.md`](metric-operability.md).
 
 ### Rubric fractions must be focus-owned
@@ -679,7 +680,73 @@ Schema v55 appends the proposal/decision ledger, exact requirement-plan run
 binding, and r6 state/seal sidecars. R1-r5 remain readable, reciprocal triggers
 reject mixed identities in either insertion order, a seal requires the exact
 twenty r6 rows and both profile/evidence bindings, and parent privacy deletion
-cascades through the content-free graph. Current new writes use r6.
+cascades through the content-free graph. At that checkpoint, new writes used
+r6.
+
+### Reviewed requirement-to-action evidence and projection identity r7
+
+Projection `metric-contract-v2-projection-7` preserves nineteen r6 rows and
+replaces only `logic.requirement_action_traceability`. Its denominator is the
+exact, native-confirmed active-requirement set already bound by r6; r7 neither
+re-extracts requirements nor lets a model add, split, exclude, or relabel one.
+The application issues the other side of the review from the complete safe-event
+decoder output for the same sealed run and source window. Each durable,
+content-free candidate carries only an opaque application identifier and source receipt,
+sequence, safe event kind, optional tool category, time, optional duration,
+closed action family, and closed action state. Candidate extraction and
+enumeration must both be complete. The process-memory-only native review joins
+each candidate to a bounded redacted tool name, invocation, and result/effect
+descriptor; descriptor strings never enter the proposal ledger or sealed run.
+
+The portable `requirement-action-evidence-file-v1` is deliberately weaker than
+that app-issued authority. A local agent may propose only zero or more candidate
+indexes for each exact r6 requirement. It cannot author candidate state,
+objective proof, a metric value, prose, or a path. Its bounded producer/model
+label is an untrusted claim: the raw label exists only in the submitted file and
+ephemeral preview, while durable storage retains only an application-keyed
+opaque receipt. Preview and import are inert and cannot change a metric.
+
+The first owned-native action opens a process-memory-only review containing
+every r6 active-requirement clause, every action candidate with its redacted
+invocation/effect descriptor, and the complete proposed membership in both
+directions. A frozen injective one-pass encoding makes control, bidirectional,
+and layout characters visible while preserving literal escape text. A
+versioned content-free receipt also proves that each displayed descriptor came
+from the same provider read as the indexed candidate metadata. The second
+owned-native action can confirm only the exact unexpired,
+one-shot review receipt after acknowledging that every requirement and candidate
+was displayed and every linked action's semantics were reviewed. A completed linked action
+makes its requirement `met`; a started or unknown-state linked action leaves it
+`pending`; a failed/cancelled-only link set or an explicitly empty link becomes
+`not_met` only after complete extraction, complete enumeration, exact-cover
+native review, and confirmation. Action completion remains traceability
+evidence, not objective proof that the requirement or task succeeded.
+
+Run identity binds the r6 confirmation and keyed evidence fingerprint, the
+app-issued candidate-manifest fingerprint and provenance, the process-keyed
+reviewed descriptor-set commitment incorporating the ephemeral same-read
+candidate-metadata receipts, keyed native-decision authority, the reviewed graph,
+and the r7 confirmation. Source-run or source-window staleness, a changed r6
+denominator, incomplete extraction/enumeration/review, any candidate-set drift
+within what appears to be the same window, invalid provenance, or a bounded-set
+overflow fails closed to a named `unknown`; no partial ratio is published. A
+null-authority `binding_invalid` run marker keeps stale confirmed authority
+distinct from the never-confirmed `awaiting_review` state. A
+complete native-confirmed r6 classification with zero active requirements is
+`not_applicable` because there is no denominator.
+
+Migration 56 appends the content-free requirement-action proposal/decision
+ledger, exact r7 binding, and r7 state/seal sidecars without rewriting migrations
+1-55. It also adds an installation-keyed authority sidecar for native r6
+requirement-plan decisions: rows captured by the 55-to-56 migration receive one
+explicit trusted-upgrade receipt during keyed initialization, while ordinary
+reads never mint a missing receipt. Historical r1-r6 rows retain their original
+meaning and remain readable;
+mixed projection identities are rejected and privacy deletion cascades through
+the new graph. New canonical writes use r7. The evidence contract is implemented,
+but the release operability catalog remains at the verified 16/0/4 partition
+until a production provider proves complete safe-event enumeration and the
+same-read redacted-descriptor review authority.
 
 `publish_v1_compatibility_preview` reads an already persisted V1 run and states
 its own limits in the payload (`preview_limits`):
@@ -737,8 +804,11 @@ decision, and/or verification outcome kinds it reads. The shipped Codex
 safe-event descriptor declares `tool_events`, `verification_events`,
 `verification_task_opportunities`, and
 `verification_task_evidence_links`. It declares no requirement, hypothesis, or
-material-claim family, so those four objective contracts stay `unknown`;
-first-pass verification is conditional on the reviewed-task ownership below.
+material-claim family, so the generic typed-objective lane cannot resolve those
+four contracts. R7 gives requirement-action traceability its separate,
+native-reviewed exact-graph path; it does not grant the descriptor a generic
+requirement family or affect the other three contracts. First-pass verification
+is conditional on the reviewed-task ownership below.
 
 Historical safe-event decoder v2 could mint one `verification_task` identity
 from one explicit `EventKind.VERIFICATION`; decoder v3 removed that tautological
@@ -773,7 +843,7 @@ it may claim: `live_measured`, `compatibility_projected`, `method_only_withheld`
 The full-run API also serves `metric_evidence_readiness_v2`, derived on read from
 the sealed publication plus the run's provider, provider version, adapter
 version, and source schema version. It introduces **no independent datum** and so
-has no schema of its own: it is recomputed from the run's sealed r1-r6 sidecar
+has no schema of its own: it is recomputed from the run's sealed r1-r7 sidecar
 rows and disappears with the run.
 
 Each row carries closed enums only — evidence authority, denominator basis and
@@ -835,6 +905,20 @@ profile identifier nor source text.
 `reviewed_requirement_plan_binding_invalid`. A confirmed complete classification
 with zero active requirements requires only the enumeration contributor and is
 truthfully no-opportunity.
+
+Catalog `metric-evidence-readiness-v2-6` adds projection-r7 routing without
+reinterpreting r1-r6. For `logic.requirement_action_traceability`, a measured or
+right-censored row proves both `safe_action_candidate_enumeration` and
+`reviewed_requirement_action_link`. The closed unknown reasons distinguish an
+uncomposed service (`reviewed_requirement_action_service_required`), an
+unconfirmed complete review
+(`reviewed_requirement_action_confirmation_required`), stale or incoherent
+run/window/requirement/candidate authority
+(`reviewed_requirement_action_binding_invalid`), and a bounded set that cannot
+be reviewed without truncation (`opportunity_set_exceeds_receipt_bound`). These
+are named unknowns, never failed requirements or synthetic zeroes. A complete
+confirmed r6 denominator containing no active requirements remains
+no-opportunity.
 
 `capability_missing` reasons are **metric-specific**, replacing the generic
 "family unobservable": a rubric metric reports
@@ -907,12 +991,14 @@ Both require the local token and send `Cache-Control: no-store` with
   provider exposes its reviewed opportunity family and sufficient statistics.
   Unsupported episode/link families remain truthful `unknown`, `pending`, or
   `not_applicable`; visibility does not imply numeric availability.
-- The currently composed provider adapters still lack complete authoritative
-  enumeration/link/outcome capability for four objective families. The narrow
-  first-pass path requires exactly one reviewed task plus its task-scoped
-  verification receipt. Capability keys exist, but enabling them is a reviewed
-  composition-root decision, not a runtime inference; prose and neural
-  estimates can never substitute.
+- The generic typed-objective provider lane still lacks complete authoritative
+  enumeration/link/outcome capability for four objective families. R7 handles
+  requirement-action through its separate exact native-review contract, whose
+  provider completeness authority is still unpromoted. The narrow first-pass path
+  requires exactly one reviewed task plus its task-scoped verification receipt.
+  Capability keys exist, but enabling them is a reviewed composition-root
+  decision, not a runtime inference; prose and neural estimates can never
+  substitute.
 - `logic.decomposition_coverage` uses native-reviewed active-or-excluded user
   clause classifications and counts only active-requirement clauses; it is not
   an atomic requirement splitter. A compound active
@@ -923,6 +1009,20 @@ Both require the local token and send `Cache-Control: no-store` with
   plan clause, two owned-native actions, and a
   fresh sealed r6 run; expiry, restart, overflow, or binding drift stays
   nonnumeric.
+- `logic.requirement_action_traceability` adds no success proof. It requires the
+  exact r6 active-requirement denominator, a complete same-window app-issued
+  safe-action manifest, review of every requirement clause plus every candidate's
+  redacted invocation/effect and membership, a second exact confirmation, and a fresh
+  sealed r7 run. A completed tool or artifact event proves only that a reviewed
+  action candidate completed. Restart, expiry, extraction or enumeration
+  incompleteness, overflow, requirement-plan drift, candidate drift even within
+  the same apparent window, or any fingerprint/provenance mismatch stays a
+  named `unknown`.
+- The next distinct requirement slice is
+  `outcome.verified_requirement_coverage`. It must reuse the reviewed
+  requirement identity but add app-issued typed passing verification or
+  explicit acceptance authority. Neither an r7 action link nor an assistant or
+  model completion claim may satisfy that future contract.
 - Per-factor measured sufficient statistics are not yet emitted by every live
   projection, so guidance names a focus factor only when the receipt actually
   proves one.

@@ -30,6 +30,28 @@
         "title": "AcceptTaskRequest",
         "type": "object"
       },
+      "ActionFamily": {
+        "enum": [
+          "tool",
+          "command",
+          "file_change",
+          "review",
+          "other_documented"
+        ],
+        "title": "ActionFamily",
+        "type": "string"
+      },
+      "ActionState": {
+        "enum": [
+          "started",
+          "completed",
+          "failed",
+          "cancelled",
+          "unknown"
+        ],
+        "title": "ActionState",
+        "type": "string"
+      },
       "ActivateLocalModel": {
         "additionalProperties": false,
         "properties": {
@@ -4388,6 +4410,29 @@
         "title": "CompatibilityState",
         "type": "string"
       },
+      "ConfirmedRequirementActionLink": {
+        "additionalProperties": false,
+        "properties": {
+          "action_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4000,
+            "title": "Action Ids",
+            "type": "array"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id"
+        ],
+        "title": "ConfirmedRequirementActionLink",
+        "type": "object"
+      },
       "ConstraintKind": {
         "enum": [
           "privacy",
@@ -5092,6 +5137,32 @@
         ],
         "title": "DownloadStatus",
         "type": "object"
+      },
+      "EventKind": {
+        "enum": [
+          "session_start",
+          "session_end",
+          "turn_start",
+          "turn_end",
+          "plan",
+          "decision",
+          "tool_start",
+          "tool_end",
+          "verification",
+          "approval",
+          "permission_change",
+          "task_state",
+          "usage",
+          "compaction",
+          "subagent_start",
+          "subagent_end",
+          "fork",
+          "artifact",
+          "user_feedback",
+          "unknown"
+        ],
+        "title": "EventKind",
+        "type": "string"
       },
       "EvidenceAuthority": {
         "description": "Highest authority allowed to publish a known value.\n\n``OBJECTIVE_RECEIPT`` outranks ``CONVERSATION``.  A conversational\nprojection may never resolve an objective contract, and no volume of\nassistant prose upgrades a conversational observation into a receipt.",
@@ -6506,6 +6577,8 @@
           "confirmed_lifecycle_outcome_link",
           "reviewed_requirement_enumeration",
           "reviewed_requirement_plan_disposition",
+          "reviewed_requirement_action_link",
+          "safe_action_candidate_enumeration",
           "typed_action_evidence",
           "typed_decision_evidence",
           "typed_verification_receipt"
@@ -6544,8 +6617,8 @@
             "type": "integer"
           },
           "catalog_version": {
-            "const": "metric-evidence-readiness-v2-5",
-            "default": "metric-evidence-readiness-v2-5",
+            "const": "metric-evidence-readiness-v2-6",
+            "default": "metric-evidence-readiness-v2-6",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -6594,7 +6667,8 @@
               "metric-contract-v2-projection-3",
               "metric-contract-v2-projection-4",
               "metric-contract-v2-projection-5",
-              "metric-contract-v2-projection-6"
+              "metric-contract-v2-projection-6",
+              "metric-contract-v2-projection-7"
             ],
             "title": "Metric Projection Version",
             "type": "string"
@@ -6755,6 +6829,9 @@
           "reviewed_requirement_plan_service_required",
           "reviewed_requirement_plan_confirmation_required",
           "reviewed_requirement_plan_binding_invalid",
+          "reviewed_requirement_action_service_required",
+          "reviewed_requirement_action_confirmation_required",
+          "reviewed_requirement_action_binding_invalid",
           "hypothesis_chain_adapter_capabilities_required",
           "requirement_action_adapter_capabilities_required",
           "material_claim_verification_adapter_capabilities_required",
@@ -6896,7 +6973,7 @@
             "items": {
               "$ref": "#/components/schemas/MetricEvidenceContributor"
             },
-            "maxItems": 18,
+            "maxItems": 20,
             "minItems": 1,
             "title": "Required Contributors",
             "type": "array"
@@ -7773,7 +7850,8 @@
           "task_scoped_verification",
           "typed_objective",
           "semantic_unit_extractor",
-          "reviewed_requirement_plan"
+          "reviewed_requirement_plan",
+          "reviewed_requirement_action"
         ],
         "title": "MetricMeasuredPath",
         "type": "string"
@@ -7788,7 +7866,8 @@
           "record_task_scoped_verification",
           "add_objective_opportunity_link_adapter",
           "add_requirement_plan_extractor",
-          "confirm_requirement_plan_evidence"
+          "confirm_requirement_plan_evidence",
+          "compose_requirement_action_evidence"
         ],
         "title": "MetricNextStepCode",
         "type": "string"
@@ -7840,8 +7919,8 @@
             "type": "integer"
           },
           "projection_version": {
-            "const": "metric-contract-v2-projection-6",
-            "default": "metric-contract-v2-projection-6",
+            "const": "metric-contract-v2-projection-7",
+            "default": "metric-contract-v2-projection-7",
             "title": "Projection Version",
             "type": "string"
           },
@@ -7852,8 +7931,8 @@
             "type": "integer"
           },
           "readiness_catalog_version": {
-            "const": "metric-evidence-readiness-v2-5",
-            "default": "metric-evidence-readiness-v2-5",
+            "const": "metric-evidence-readiness-v2-6",
+            "default": "metric-evidence-readiness-v2-6",
             "title": "Readiness Catalog Version",
             "type": "string"
           },
@@ -8052,7 +8131,8 @@
               "metric-contract-v2-projection-3",
               "metric-contract-v2-projection-4",
               "metric-contract-v2-projection-5",
-              "metric-contract-v2-projection-6"
+              "metric-contract-v2-projection-6",
+              "metric-contract-v2-projection-7"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -8553,7 +8633,8 @@
               "metric-contract-v2-projection-3",
               "metric-contract-v2-projection-4",
               "metric-contract-v2-projection-5",
-              "metric-contract-v2-projection-6"
+              "metric-contract-v2-projection-6",
+              "metric-contract-v2-projection-7"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -10287,6 +10368,16 @@
             "title": "Product Metric Eligible",
             "type": "boolean"
           },
+          "requirement_action_evidence_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelRequirementActionEvidenceBindingDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "requirement_plan_evidence_binding": {
             "anyOf": [
               {
@@ -10345,6 +10436,7 @@
           "metric_publication_v2",
           "metric_profile_binding",
           "requirement_plan_evidence_binding",
+          "requirement_action_evidence_binding",
           "metric_evidence_readiness_v2",
           "predictive_projection_version",
           "predictive_projected_at",
@@ -12283,6 +12375,141 @@
           "unloaded_after_stage"
         ],
         "title": "ModelPredictiveStageDto",
+        "type": "object"
+      },
+      "ModelRequirementActionEvidenceBindingDto": {
+        "additionalProperties": false,
+        "description": "Minimized reviewed requirement-to-action authority for one r7 run.",
+        "properties": {
+          "candidate_manifest_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Manifest Fingerprint"
+          },
+          "confirmation_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Id"
+          },
+          "content_persisted": {
+            "const": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "evidence_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Evidence Fingerprint",
+            "type": "string"
+          },
+          "evidence_policy_version": {
+            "const": "reviewed-requirement-action-v1",
+            "title": "Evidence Policy Version",
+            "type": "string"
+          },
+          "evidence_schema_version": {
+            "enum": [
+              "requirement-action-unavailable-v1",
+              "requirement-action-awaiting-review-v1",
+              "requirement-action-candidate-manifest-overflow-v1",
+              "requirement-action-candidate-source-incomplete-v1",
+              "requirement-action-binding-invalid-v1",
+              "requirement-action-evidence-v1"
+            ],
+            "title": "Evidence Schema Version",
+            "type": "string"
+          },
+          "evidence_source": {
+            "$ref": "#/components/schemas/RequirementActionEvidenceSource"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          },
+          "requirement_plan_confirmation_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Plan Confirmation Id"
+          },
+          "requirement_plan_evidence_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Plan Evidence Fingerprint"
+          },
+          "reviewed_descriptor_set_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Descriptor Set Fingerprint"
+          },
+          "source_run_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Run Id"
+          }
+        },
+        "required": [
+          "evidence_source",
+          "evidence_fingerprint",
+          "evidence_schema_version",
+          "evidence_policy_version",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "ModelRequirementActionEvidenceBindingDto",
         "type": "object"
       },
       "ModelRequirementPlanEvidenceBindingDto": {
@@ -14926,6 +15153,1344 @@
         "title": "RemoteSubmitResult",
         "type": "object"
       },
+      "RequirementActionCandidate": {
+        "additionalProperties": false,
+        "description": "One application-issued, content-free safe action receipt.",
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "candidate_index": {
+            "exclusiveMaximum": 4000.0,
+            "minimum": 0.0,
+            "title": "Candidate Index",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "event_kind": {
+            "$ref": "#/components/schemas/EventKind"
+          },
+          "family": {
+            "$ref": "#/components/schemas/ActionFamily"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 4000000000.0,
+            "minimum": 0.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "source_reference_id": {
+            "title": "Source Reference Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ActionState"
+          },
+          "tool_category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ToolCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "candidate_index",
+          "action_id",
+          "source_reference_id",
+          "sequence",
+          "event_kind",
+          "occurred_at",
+          "family",
+          "state"
+        ],
+        "title": "RequirementActionCandidate",
+        "type": "object"
+      },
+      "RequirementActionCandidateManifest": {
+        "additionalProperties": false,
+        "description": "Exact provider-owned safe-action set for one sealed source run.",
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionCandidate"
+            },
+            "maxItems": 4000,
+            "title": "Actions",
+            "type": "array"
+          },
+          "content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "enumeration_complete": {
+            "title": "Enumeration Complete",
+            "type": "boolean"
+          },
+          "extraction_complete": {
+            "title": "Extraction Complete",
+            "type": "boolean"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "manifest_fingerprint": {
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/TypedEvidenceProvenance"
+          },
+          "schema_version": {
+            "const": "requirement-action-candidate-manifest-v1",
+            "default": "requirement-action-candidate-manifest-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "provenance",
+          "extraction_complete",
+          "enumeration_complete",
+          "actions",
+          "manifest_fingerprint"
+        ],
+        "title": "RequirementActionCandidateManifest",
+        "type": "object"
+      },
+      "RequirementActionDecisionCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "all_linked_action_semantics_reviewed": {
+            "default": false,
+            "title": "All Linked Action Semantics Reviewed",
+            "type": "boolean"
+          },
+          "all_requirements_and_candidates_acknowledged": {
+            "default": false,
+            "title": "All Requirements And Candidates Acknowledged",
+            "type": "boolean"
+          },
+          "candidate_manifest_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Manifest Fingerprint"
+          },
+          "complete_review_acknowledged": {
+            "default": false,
+            "title": "Complete Review Acknowledged",
+            "type": "boolean"
+          },
+          "confirmation": {
+            "const": "decide_exact_reviewed_requirement_action_proposal",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/RequirementActionDecisionKind"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "review_receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Receipt Id"
+          },
+          "reviewed_candidate_set_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Candidate Set Fingerprint"
+          },
+          "reviewed_descriptor_set_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Descriptor Set Fingerprint"
+          },
+          "reviewed_graph_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Graph Fingerprint"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "decision",
+          "confirmation"
+        ],
+        "title": "RequirementActionDecisionCommand",
+        "type": "object"
+      },
+      "RequirementActionDecisionKind": {
+        "enum": [
+          "confirm",
+          "reject"
+        ],
+        "title": "RequirementActionDecisionKind",
+        "type": "string"
+      },
+      "RequirementActionEvidenceContract": {
+        "additionalProperties": false,
+        "properties": {
+          "action_descriptor_algorithm_version": {
+            "const": "provider-local-redacted-action-descriptor-v1",
+            "default": "provider-local-redacted-action-descriptor-v1",
+            "title": "Action Descriptor Algorithm Version",
+            "type": "string"
+          },
+          "action_descriptor_content_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Action Descriptor Content Persisted",
+            "type": "boolean"
+          },
+          "action_state_claims_allowed_in_file": {
+            "const": false,
+            "default": false,
+            "title": "Action State Claims Allowed In File",
+            "type": "boolean"
+          },
+          "action_states_are_application_issued": {
+            "const": true,
+            "default": true,
+            "title": "Action States Are Application Issued",
+            "type": "boolean"
+          },
+          "all_linked_action_semantics_acknowledgement_required": {
+            "const": true,
+            "default": true,
+            "title": "All Linked Action Semantics Acknowledgement Required",
+            "type": "boolean"
+          },
+          "candidate_manifest": {
+            "$ref": "#/components/schemas/RequirementActionCandidateManifest"
+          },
+          "candidate_metadata_fingerprint_version": {
+            "const": "requirement-action-candidate-metadata-v1",
+            "default": "requirement-action-candidate-metadata-v1",
+            "title": "Candidate Metadata Fingerprint Version",
+            "type": "string"
+          },
+          "canonicalization": {
+            "const": "json-sort-keys-compact-ensure-ascii-v1",
+            "default": "json-sort-keys-compact-ensure-ascii-v1",
+            "title": "Canonicalization",
+            "type": "string"
+          },
+          "durable_producer_claim_shape": {
+            "const": "installation_keyed_opaque_commitment_only",
+            "default": "installation_keyed_opaque_commitment_only",
+            "title": "Durable Producer Claim Shape",
+            "type": "string"
+          },
+          "empty_action_links_are_explicit_reviewed_negative_links": {
+            "const": true,
+            "default": true,
+            "title": "Empty Action Links Are Explicit Reviewed Negative Links",
+            "type": "boolean"
+          },
+          "every_requirement_requires_one_link_classification": {
+            "const": true,
+            "default": true,
+            "title": "Every Requirement Requires One Link Classification",
+            "type": "boolean"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "file_json_schema": {
+            "additionalProperties": true,
+            "title": "File Json Schema",
+            "type": "object"
+          },
+          "file_json_schema_sha256": {
+            "title": "File Json Schema Sha256",
+            "type": "string"
+          },
+          "import_confirmation": {
+            "const": "import_requirement_action_proposal_without_metric_authority",
+            "default": "import_requirement_action_proposal_without_metric_authority",
+            "title": "Import Confirmation",
+            "type": "string"
+          },
+          "import_creates_unconfirmed_proposal_only": {
+            "const": true,
+            "default": true,
+            "title": "Import Creates Unconfirmed Proposal Only",
+            "type": "boolean"
+          },
+          "max_candidate_count": {
+            "const": 4000,
+            "default": 4000,
+            "title": "Max Candidate Count",
+            "type": "integer"
+          },
+          "max_file_bytes": {
+            "const": 65536,
+            "default": 65536,
+            "title": "Max File Bytes",
+            "type": "integer"
+          },
+          "max_json_depth": {
+            "const": 8,
+            "default": 8,
+            "title": "Max Json Depth",
+            "type": "integer"
+          },
+          "max_json_items": {
+            "const": 8000,
+            "default": 8000,
+            "title": "Max Json Items",
+            "type": "integer"
+          },
+          "max_lifetime_seconds": {
+            "const": 86400,
+            "default": 86400,
+            "title": "Max Lifetime Seconds",
+            "type": "integer"
+          },
+          "max_link_count": {
+            "const": 8000,
+            "default": 8000,
+            "title": "Max Link Count",
+            "type": "integer"
+          },
+          "max_requirement_count": {
+            "const": 1000,
+            "default": 1000,
+            "title": "Max Requirement Count",
+            "type": "integer"
+          },
+          "metric_key": {
+            "const": "logic.requirement_action_traceability",
+            "default": "logic.requirement_action_traceability",
+            "title": "Metric Key",
+            "type": "string"
+          },
+          "metric_values_allowed_in_file": {
+            "const": false,
+            "default": false,
+            "title": "Metric Values Allowed In File",
+            "type": "boolean"
+          },
+          "native_confirmation_required_for_metric_authority": {
+            "const": true,
+            "default": true,
+            "title": "Native Confirmation Required For Metric Authority",
+            "type": "boolean"
+          },
+          "native_review_displays_every_redacted_invocation_and_effect": {
+            "const": true,
+            "default": true,
+            "title": "Native Review Displays Every Redacted Invocation And Effect",
+            "type": "boolean"
+          },
+          "objective_proof_claims_allowed_in_file": {
+            "const": false,
+            "default": false,
+            "title": "Objective Proof Claims Allowed In File",
+            "type": "boolean"
+          },
+          "raw_payload_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Payload Persisted",
+            "type": "boolean"
+          },
+          "raw_producer_claim_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Producer Claim Persisted",
+            "type": "boolean"
+          },
+          "requirement_plan_confirmation_id": {
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_evidence_fingerprint": {
+            "title": "Requirement Plan Evidence Fingerprint",
+            "type": "string"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionRequirement"
+            },
+            "maxItems": 1000,
+            "title": "Requirements",
+            "type": "array"
+          },
+          "review_rubric_version": {
+            "const": "requirement-action-review-rubric-v2",
+            "default": "requirement-action-review-rubric-v2",
+            "title": "Review Rubric Version",
+            "type": "string"
+          },
+          "review_visible_display_algorithm_version": {
+            "const": "requirement-action-review-visible-display-v1",
+            "default": "requirement-action-review-visible-display-v1",
+            "title": "Review Visible Display Algorithm Version",
+            "type": "string"
+          },
+          "review_visible_display_is_injective_one_pass": {
+            "const": true,
+            "default": true,
+            "title": "Review Visible Display Is Injective One Pass",
+            "type": "boolean"
+          },
+          "review_visible_display_never_truncates": {
+            "const": true,
+            "default": true,
+            "title": "Review Visible Display Never Truncates",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": "requirement-action-evidence-file-v1",
+            "default": "requirement-action-evidence-file-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_projection_version": {
+            "enum": [
+              "metric-contract-v2-projection-6",
+              "metric-contract-v2-projection-7"
+            ],
+            "title": "Source Projection Version",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "source_projection_version",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_evidence_fingerprint",
+          "candidate_manifest",
+          "requirements",
+          "file_json_schema_sha256",
+          "file_json_schema"
+        ],
+        "title": "RequirementActionEvidenceContract",
+        "type": "object"
+      },
+      "RequirementActionEvidencePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "can_set_numeric_metric_on_import": {
+            "const": false,
+            "default": false,
+            "title": "Can Set Numeric Metric On Import",
+            "type": "boolean"
+          },
+          "candidate_count": {
+            "maximum": 4000.0,
+            "minimum": 0.0,
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "candidate_manifest_fingerprint": {
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "creates_unconfirmed_proposal_only": {
+            "const": true,
+            "default": true,
+            "title": "Creates Unconfirmed Proposal Only",
+            "type": "boolean"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "expected_source_run_id": {
+            "title": "Expected Source Run Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "link_count": {
+            "maximum": 8000.0,
+            "minimum": 0.0,
+            "title": "Link Count",
+            "type": "integer"
+          },
+          "linked_requirement_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Linked Requirement Count",
+            "type": "integer"
+          },
+          "native_confirmation_required_for_metric_authority": {
+            "const": true,
+            "default": true,
+            "title": "Native Confirmation Required For Metric Authority",
+            "type": "boolean"
+          },
+          "payload_sha256": {
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "producer": {
+            "$ref": "#/components/schemas/RequirementPlanProducer"
+          },
+          "raw_payload_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Payload Persisted",
+            "type": "boolean"
+          },
+          "raw_producer_claim_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Producer Claim Persisted",
+            "type": "boolean"
+          },
+          "requirement_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Requirement Count",
+            "type": "integer"
+          },
+          "requirement_plan_confirmation_id": {
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_evidence_fingerprint": {
+            "title": "Requirement Plan Evidence Fingerprint",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "unlinked_requirement_count": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Unlinked Requirement Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "payload_sha256",
+          "session_id",
+          "expected_source_run_id",
+          "source_window_fingerprint",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_evidence_fingerprint",
+          "candidate_manifest_fingerprint",
+          "requirement_count",
+          "candidate_count",
+          "linked_requirement_count",
+          "unlinked_requirement_count",
+          "link_count",
+          "expires_at",
+          "producer"
+        ],
+        "title": "RequirementActionEvidencePreview",
+        "type": "object"
+      },
+      "RequirementActionEvidenceSource": {
+        "enum": [
+          "unavailable",
+          "awaiting_review",
+          "candidate_manifest_overflow",
+          "candidate_source_incomplete",
+          "binding_invalid",
+          "reviewed_requirement_action"
+        ],
+        "title": "RequirementActionEvidenceSource",
+        "type": "string"
+      },
+      "RequirementActionImportDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "creates_unconfirmed_proposal_only": {
+            "const": true,
+            "default": true,
+            "title": "Creates Unconfirmed Proposal Only",
+            "type": "boolean"
+          },
+          "native_confirmation_required_for_metric_authority": {
+            "const": true,
+            "default": true,
+            "title": "Native Confirmation Required For Metric Authority",
+            "type": "boolean"
+          },
+          "payload_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/RequirementActionProposalDto"
+          },
+          "raw_payload_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Payload Persisted",
+            "type": "boolean"
+          },
+          "raw_producer_claim_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Producer Claim Persisted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "payload_sha256",
+          "proposal",
+          "applied"
+        ],
+        "title": "RequirementActionImportDto",
+        "type": "object"
+      },
+      "RequirementActionProposalDto": {
+        "additionalProperties": false,
+        "description": "Durable content-free proposal view; producer prose never crosses this wire.",
+        "properties": {
+          "candidate_enumeration_complete": {
+            "title": "Candidate Enumeration Complete",
+            "type": "boolean"
+          },
+          "candidate_extraction_complete": {
+            "title": "Candidate Extraction Complete",
+            "type": "boolean"
+          },
+          "candidate_manifest_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "candidate_provenance": {
+            "$ref": "#/components/schemas/TypedEvidenceProvenance"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionCandidate"
+            },
+            "maxItems": 4000,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "confirmation_authority": {
+            "anyOf": [
+              {
+                "const": "owned_native_user_presence",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Authority"
+          },
+          "content_persisted": {
+            "const": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequirementActionDecisionKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "expected_predecessor_confirmation_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Predecessor Confirmation Id"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/ConfirmedRequirementActionLink"
+            },
+            "maxItems": 1000,
+            "title": "Links",
+            "type": "array"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "payload_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "policy_version": {
+            "const": "reviewed-requirement-action-v1",
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "producer_receipt": {
+            "$ref": "#/components/schemas/RequirementPlanProducerReceipt"
+          },
+          "proposal_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "requirement_plan_confirmation_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Requirement Plan Confirmation Id",
+            "type": "string"
+          },
+          "requirement_plan_evidence_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Requirement Plan Evidence Fingerprint",
+            "type": "string"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionRequirement"
+            },
+            "maxItems": 1000,
+            "title": "Requirements",
+            "type": "array"
+          },
+          "review_rubric_version": {
+            "const": "requirement-action-review-rubric-v2",
+            "title": "Review Rubric Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "requirement-action-evidence-v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequirementActionProposalStatus"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_evidence_fingerprint",
+          "candidate_manifest_fingerprint",
+          "candidate_provenance",
+          "candidate_extraction_complete",
+          "candidate_enumeration_complete",
+          "payload_sha256",
+          "producer_receipt",
+          "review_rubric_version",
+          "requirements",
+          "candidates",
+          "links",
+          "created_at",
+          "schema_version",
+          "policy_version",
+          "status",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "RequirementActionProposalDto",
+        "type": "object"
+      },
+      "RequirementActionProposalOutcomeDto": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/RequirementActionProposalDto"
+          }
+        },
+        "required": [
+          "proposal",
+          "applied"
+        ],
+        "title": "RequirementActionProposalOutcomeDto",
+        "type": "object"
+      },
+      "RequirementActionProposalPageDto": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "limit": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionProposalDto"
+            },
+            "maxItems": 200,
+            "title": "Proposals",
+            "type": "array"
+          },
+          "session_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/RequirementActionProposalPageSnapshot"
+          },
+          "total": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "proposals",
+          "limit",
+          "offset",
+          "total",
+          "snapshot",
+          "complete"
+        ],
+        "title": "RequirementActionProposalPageDto",
+        "type": "object"
+      },
+      "RequirementActionProposalPageSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_count": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Decision Count",
+            "type": "integer"
+          },
+          "high_water_created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Water Created At"
+          },
+          "high_water_proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Water Proposal Id"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "total": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "total",
+          "decision_count"
+        ],
+        "title": "RequirementActionProposalPageSnapshot",
+        "type": "object"
+      },
+      "RequirementActionProposalReview": {
+        "additionalProperties": false,
+        "properties": {
+          "all_requirements_and_candidates_displayed": {
+            "const": true,
+            "default": true,
+            "title": "All Requirements And Candidates Displayed",
+            "type": "boolean"
+          },
+          "candidate_manifest_fingerprint": {
+            "title": "Candidate Manifest Fingerprint",
+            "type": "string"
+          },
+          "candidate_memberships": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionReviewCandidate"
+            },
+            "maxItems": 4000,
+            "title": "Candidate Memberships",
+            "type": "array"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionCandidate"
+            },
+            "maxItems": 4000,
+            "title": "Candidates",
+            "type": "array"
+          },
+          "local_only": {
+            "const": true,
+            "default": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "payload_sha256": {
+            "title": "Payload Sha256",
+            "type": "string"
+          },
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "raw_text_persisted": {
+            "const": false,
+            "default": false,
+            "title": "Raw Text Persisted",
+            "type": "boolean"
+          },
+          "requirement_plan_evidence_fingerprint": {
+            "title": "Requirement Plan Evidence Fingerprint",
+            "type": "string"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementActionReviewRequirement"
+            },
+            "maxItems": 1000,
+            "title": "Requirements",
+            "type": "array"
+          },
+          "review_context_expires_at": {
+            "format": "date-time",
+            "title": "Review Context Expires At",
+            "type": "string"
+          },
+          "review_receipt_expires_at": {
+            "format": "date-time",
+            "title": "Review Receipt Expires At",
+            "type": "string"
+          },
+          "review_receipt_id": {
+            "title": "Review Receipt Id",
+            "type": "string"
+          },
+          "review_visible_display_algorithm_version": {
+            "const": "requirement-action-review-visible-display-v1",
+            "default": "requirement-action-review-visible-display-v1",
+            "title": "Review Visible Display Algorithm Version",
+            "type": "string"
+          },
+          "reviewed_candidate_set_fingerprint": {
+            "title": "Reviewed Candidate Set Fingerprint",
+            "type": "string"
+          },
+          "reviewed_descriptor_set_fingerprint": {
+            "title": "Reviewed Descriptor Set Fingerprint",
+            "type": "string"
+          },
+          "reviewed_graph_fingerprint": {
+            "title": "Reviewed Graph Fingerprint",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source_run_id": {
+            "title": "Source Run Id",
+            "type": "string"
+          },
+          "source_window_fingerprint": {
+            "title": "Source Window Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "session_id",
+          "source_run_id",
+          "source_window_fingerprint",
+          "review_receipt_id",
+          "payload_sha256",
+          "requirement_plan_evidence_fingerprint",
+          "candidate_manifest_fingerprint",
+          "reviewed_graph_fingerprint",
+          "reviewed_candidate_set_fingerprint",
+          "reviewed_descriptor_set_fingerprint",
+          "requirements",
+          "candidates",
+          "candidate_memberships",
+          "review_context_expires_at",
+          "review_receipt_expires_at"
+        ],
+        "title": "RequirementActionProposalReview",
+        "type": "object"
+      },
+      "RequirementActionProposalStatus": {
+        "enum": [
+          "proposed",
+          "confirmed",
+          "rejected"
+        ],
+        "title": "RequirementActionProposalStatus",
+        "type": "string"
+      },
+      "RequirementActionRequirement": {
+        "additionalProperties": false,
+        "properties": {
+          "coordinate": {
+            "$ref": "#/components/schemas/RequirementCoordinate"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "requirement_index": {
+            "exclusiveMaximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Requirement Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requirement_index",
+          "requirement_id",
+          "coordinate"
+        ],
+        "title": "RequirementActionRequirement",
+        "type": "object"
+      },
+      "RequirementActionReviewCandidate": {
+        "additionalProperties": false,
+        "description": "Candidate, proposed memberships, and process-only semantic descriptor.",
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/RequirementActionCandidate"
+          },
+          "candidate_metadata_fingerprint": {
+            "title": "Candidate Metadata Fingerprint",
+            "type": "string"
+          },
+          "candidate_metadata_fingerprint_version": {
+            "const": "requirement-action-candidate-metadata-v1",
+            "title": "Candidate Metadata Fingerprint Version",
+            "type": "string"
+          },
+          "descriptor_algorithm_version": {
+            "const": "provider-local-redacted-action-descriptor-v1",
+            "default": "provider-local-redacted-action-descriptor-v1",
+            "title": "Descriptor Algorithm Version",
+            "type": "string"
+          },
+          "invocation_preview": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Invocation Preview",
+            "type": "string"
+          },
+          "invocation_truncated": {
+            "const": false,
+            "default": false,
+            "title": "Invocation Truncated",
+            "type": "boolean"
+          },
+          "linked_requirement_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Linked Requirement Ids",
+            "type": "array"
+          },
+          "redactor_version": {
+            "title": "Redactor Version",
+            "type": "string"
+          },
+          "result_or_effect_preview": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Or Effect Preview"
+          },
+          "result_or_effect_truncated": {
+            "const": false,
+            "default": false,
+            "title": "Result Or Effect Truncated",
+            "type": "boolean"
+          },
+          "tool_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate",
+          "candidate_metadata_fingerprint_version",
+          "candidate_metadata_fingerprint",
+          "tool_name",
+          "invocation_preview",
+          "redactor_version"
+        ],
+        "title": "RequirementActionReviewCandidate",
+        "type": "object"
+      },
+      "RequirementActionReviewCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "const": "open_exact_local_requirement_action_review",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "expected_source_run_id": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Source Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_source_run_id",
+          "confirmation"
+        ],
+        "title": "RequirementActionReviewCommand",
+        "type": "object"
+      },
+      "RequirementActionReviewRequirement": {
+        "additionalProperties": false,
+        "properties": {
+          "coordinate": {
+            "$ref": "#/components/schemas/RequirementCoordinate"
+          },
+          "linked_action_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4000,
+            "title": "Linked Action Ids",
+            "type": "array"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 32000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "coordinate",
+          "text"
+        ],
+        "title": "RequirementActionReviewRequirement",
+        "type": "object"
+      },
       "RequirementCoordinate": {
         "additionalProperties": false,
         "properties": {
@@ -15563,7 +17128,8 @@
           "source_projection_version": {
             "enum": [
               "metric-contract-v2-projection-5",
-              "metric-contract-v2-projection-6"
+              "metric-contract-v2-projection-6",
+              "metric-contract-v2-projection-7"
             ],
             "title": "Source Projection Version",
             "type": "string"
@@ -21091,6 +22657,54 @@
         ],
         "title": "ToolCategory",
         "type": "string"
+      },
+      "TypedEvidenceProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "decoder_key": {
+            "title": "Decoder Key",
+            "type": "string"
+          },
+          "decoder_version": {
+            "title": "Decoder Version",
+            "type": "string"
+          },
+          "evidence_schema_version": {
+            "default": 2,
+            "title": "Evidence Schema Version",
+            "type": "integer"
+          },
+          "extraction_complete": {
+            "default": false,
+            "title": "Extraction Complete",
+            "type": "boolean"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "provider_version": {
+            "title": "Provider Version",
+            "type": "string"
+          },
+          "source_schema_version": {
+            "title": "Source Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "provider_version",
+          "adapter_version",
+          "decoder_key",
+          "decoder_version",
+          "source_schema_version"
+        ],
+        "title": "TypedEvidenceProvenance",
+        "type": "object"
       },
       "ValidationError": {
         "properties": {
@@ -32779,6 +34393,723 @@
         "summary": "Latest Session Analysis Run",
         "tags": [
           "session-quality-analysis"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-action-evidence/contract": {
+      "get": {
+        "operationId": "contract_v1_sessions__session_id__requirement_action_evidence_contract_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionEvidenceContract"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Contract",
+        "tags": [
+          "requirement-action-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-action-evidence/import": {
+      "post": {
+        "operationId": "import_file_v1_sessions__session_id__requirement_action_evidence_import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Requirement-Action-Payload-SHA256",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "X-Requirement-Action-Payload-Sha256",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Requirement-Action-Confirmation",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "X-Requirement-Action-Confirmation",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.prompt-enhancer.requirement-action-evidence+json": {
+              "schema": {
+                "format": "binary",
+                "maxLength": 65536,
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionImportDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionImportDto"
+                }
+              }
+            },
+            "description": "A new inert requirement-action proposal was created."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import File",
+        "tags": [
+          "requirement-action-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-action-evidence/preview": {
+      "post": {
+        "operationId": "preview_v1_sessions__session_id__requirement_action_evidence_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.prompt-enhancer.requirement-action-evidence+json": {
+              "schema": {
+                "format": "binary",
+                "maxLength": 65536,
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionEvidencePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "requirement-action-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-action-evidence/proposal-page": {
+      "get": {
+        "operationId": "proposal_page_v1_sessions__session_id__requirement_action_evidence_proposal_page_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_total",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot Total"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_decision_count",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot Decision Count"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_high_water_created_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot High Water Created At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "snapshot_high_water_proposal_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot High Water Proposal Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionProposalPageDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Proposal Page",
+        "tags": [
+          "requirement-action-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-action-evidence/proposals/{proposal_id}/decision": {
+      "post": {
+        "operationId": "decide_v1_sessions__session_id__requirement_action_evidence_proposals__proposal_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementActionDecisionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionProposalOutcomeDto"
+                }
+              }
+            },
+            "description": "A new owned-native decision was recorded."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide",
+        "tags": [
+          "requirement-action-evidence"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/requirement-action-evidence/proposals/{proposal_id}/review": {
+      "post": {
+        "operationId": "review_proposal_v1_sessions__session_id__requirement_action_evidence_proposals__proposal_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-f0-9]{64}$",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-User-Presence",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-User-Presence"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementActionReviewCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementActionProposalReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review Proposal",
+        "tags": [
+          "requirement-action-evidence"
         ]
       }
     },

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from scripts.export_openapi import build_openapi_schema, export_openapi
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_build_time_schema_contains_bounded_queries_and_review_commands() -> None:
@@ -102,3 +106,12 @@ def test_exporter_writes_reproducible_json_without_runtime_state(tmp_path) -> No
     assert "example-state" not in serialized
     assert "schema_token" not in serialized
     assert "openapi.json" not in document["paths"]
+
+
+def test_committed_openapi_artifact_is_byte_exact_to_current_schema() -> None:
+    expected = (
+        json.dumps(build_openapi_schema(), indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    actual = (REPOSITORY_ROOT / "docs" / "openapi.json").read_bytes()
+
+    assert actual == expected

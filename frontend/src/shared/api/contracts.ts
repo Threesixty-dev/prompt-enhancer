@@ -217,7 +217,8 @@ export type ModelEnsembleRequest = Schemas["ModelEnsembleRequest"];
  */
 export type MetricProjectionV2Version =
   | Schemas["MetricStateV2"]["projection_version"]
-  | "metric-contract-v2-projection-6";
+  | "metric-contract-v2-projection-6"
+  | "metric-contract-v2-projection-7";
 export type MetricStateV2 = Omit<Schemas["MetricStateV2"], "projection_version"> & {
   projection_version: MetricProjectionV2Version;
 };
@@ -246,13 +247,45 @@ export interface ModelRequirementPlanEvidenceBinding {
   content_persisted: false;
 }
 
+export interface ModelRequirementActionEvidenceBinding {
+  evidence_source:
+    | "unavailable"
+    | "awaiting_review"
+    | "candidate_manifest_overflow"
+    | "candidate_source_incomplete"
+    | "binding_invalid"
+    | "reviewed_requirement_action";
+  source_run_id: string | null;
+  requirement_plan_confirmation_id: string | null;
+  requirement_plan_evidence_fingerprint: string | null;
+  candidate_manifest_fingerprint: string | null;
+  confirmation_id: string | null;
+  proposal_id: string | null;
+  reviewed_descriptor_set_fingerprint: string | null;
+  evidence_fingerprint: string;
+  evidence_schema_version:
+    | "requirement-action-unavailable-v1"
+    | "requirement-action-awaiting-review-v1"
+    | "requirement-action-candidate-manifest-overflow-v1"
+    | "requirement-action-candidate-source-incomplete-v1"
+    | "requirement-action-binding-invalid-v1"
+    | "requirement-action-evidence-v1";
+  evidence_policy_version: "reviewed-requirement-action-v1";
+  local_only: true;
+  content_persisted: false;
+}
+
 export type ModelEnsembleRun = Omit<
   Schemas["ModelEnsembleRunDto"],
-  "metric_publication_v2" | "metric_evidence_readiness_v2" | "requirement_plan_evidence_binding"
+  | "metric_publication_v2"
+  | "metric_evidence_readiness_v2"
+  | "requirement_plan_evidence_binding"
+  | "requirement_action_evidence_binding"
 > & {
   metric_publication_v2: MetricPublicationV2Contract | null;
   metric_evidence_readiness_v2: MetricEvidenceReadinessProjectionV2 | null;
   requirement_plan_evidence_binding: ModelRequirementPlanEvidenceBinding | null;
+  requirement_action_evidence_binding: ModelRequirementActionEvidenceBinding | null;
 };
 
 /** Manual bridge until the generated OpenAPI client includes the reviewed profile route. */
@@ -309,12 +342,17 @@ export interface DeclaredTaskProfileOutcome {
 export type MetricEvidenceContributor =
   | Schemas["MetricEvidenceContributor"]
   | "reviewed_requirement_enumeration"
-  | "reviewed_requirement_plan_disposition";
+  | "reviewed_requirement_plan_disposition"
+  | "reviewed_requirement_action_link"
+  | "safe_action_candidate_enumeration";
 export type MetricEvidenceReadinessReason =
   | Schemas["MetricEvidenceReadinessReason"]
   | "reviewed_requirement_plan_service_required"
   | "reviewed_requirement_plan_confirmation_required"
-  | "reviewed_requirement_plan_binding_invalid";
+  | "reviewed_requirement_plan_binding_invalid"
+  | "reviewed_requirement_action_service_required"
+  | "reviewed_requirement_action_confirmation_required"
+  | "reviewed_requirement_action_binding_invalid";
 export type MetricEvidenceReadinessV2 = Omit<
   Schemas["MetricEvidenceReadinessV2"],
   "required_contributors" | "observed_contributors" | "missing_contributors" | "reason_code"
@@ -332,7 +370,8 @@ export type MetricEvidenceReadinessProjectionV2 = Omit<
     | "metric-evidence-readiness-v2-2"
     | "metric-evidence-readiness-v2-3"
     | "metric-evidence-readiness-v2-4"
-    | "metric-evidence-readiness-v2-5";
+    | "metric-evidence-readiness-v2-5"
+    | "metric-evidence-readiness-v2-6";
   metric_projection_version: MetricProjectionV2Version;
   metrics: MetricEvidenceReadinessV2[];
 };
@@ -342,8 +381,14 @@ export type MetricOperabilityEntry = Omit<
   Schemas["MetricOperabilityEntry"],
   "measured_path" | "next_step_code"
 > & {
-  measured_path: Schemas["MetricOperabilityEntry"]["measured_path"] | "reviewed_requirement_plan";
-  next_step_code: Schemas["MetricOperabilityEntry"]["next_step_code"] | "confirm_requirement_plan_evidence";
+  measured_path:
+    | Schemas["MetricOperabilityEntry"]["measured_path"]
+    | "reviewed_requirement_plan"
+    | "reviewed_requirement_action";
+  next_step_code:
+    | Schemas["MetricOperabilityEntry"]["next_step_code"]
+    | "confirm_requirement_plan_evidence"
+    | "compose_requirement_action_evidence";
 };
 export type MetricOperabilityCatalog = Omit<
   Schemas["MetricOperabilityCatalog"],
@@ -398,7 +443,8 @@ export interface RequirementPlanEvidenceContract {
   metric_contract_fingerprint: string;
   source_projection_version:
     | "metric-contract-v2-projection-5"
-    | "metric-contract-v2-projection-6";
+    | "metric-contract-v2-projection-6"
+    | "metric-contract-v2-projection-7";
   clause_algorithm: "message-clause-coordinates-en-pl-v1";
   clause_algorithm_spec: RequirementPlanClauseAlgorithmContract;
   review_rubric_version: "active-requirement-plan-review-rubric-v1";
@@ -581,6 +627,256 @@ export interface RequirementPlanRejectDecisionRequest {
 export type RequirementPlanDecisionRequest =
   | RequirementPlanConfirmDecisionRequest
   | RequirementPlanRejectDecisionRequest;
+
+/** Explicit r7 facade narrowed by the strict runtime parsers below the generated wire types. */
+export interface RequirementActionEvidenceProvenance {
+  provider: Provider;
+  provider_version: string;
+  adapter_version: string;
+  decoder_key: string;
+  decoder_version: string;
+  source_schema_version: string;
+  evidence_schema_version: 2;
+  extraction_complete: boolean;
+}
+export type RequirementActionEventKind = "tool_start" | "tool_end" | "artifact";
+export type RequirementActionToolCategory =
+  | "file_read" | "file_write" | "command" | "search" | "test" | "build"
+  | "version_control" | "network" | "mcp" | "subagent" | "other" | "unknown";
+export type RequirementActionFamily = "tool" | "command" | "file_change" | "review" | "other_documented";
+export type RequirementActionState = "started" | "completed" | "failed" | "cancelled" | "unknown";
+export interface RequirementActionCandidate {
+  candidate_index: number;
+  action_id: string;
+  source_reference_id: string;
+  sequence: number;
+  event_kind: RequirementActionEventKind;
+  tool_category: RequirementActionToolCategory | null;
+  occurred_at: string;
+  duration_ms: number | null;
+  family: RequirementActionFamily;
+  state: RequirementActionState;
+}
+export interface RequirementActionCandidateManifest {
+  session_id: string;
+  source_run_id: string;
+  source_window_fingerprint: string;
+  provenance: RequirementActionEvidenceProvenance;
+  extraction_complete: boolean;
+  enumeration_complete: boolean;
+  actions: RequirementActionCandidate[];
+  manifest_fingerprint: string;
+  schema_version: "requirement-action-candidate-manifest-v1";
+  local_only: true;
+  content_persisted: false;
+}
+export interface RequirementActionRequirement {
+  requirement_index: number;
+  requirement_id: string;
+  coordinate: RequirementPlanCoordinate;
+}
+export interface RequirementActionEvidenceContract {
+  action_descriptor_algorithm_version: "provider-local-redacted-action-descriptor-v1";
+  action_descriptor_content_persisted: false;
+  candidate_metadata_fingerprint_version: "requirement-action-candidate-metadata-v1";
+  schema_version: "requirement-action-evidence-file-v1";
+  session_id: string;
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  source_projection_version: "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7";
+  requirement_plan_confirmation_id: string;
+  requirement_plan_evidence_fingerprint: string;
+  candidate_manifest: RequirementActionCandidateManifest;
+  requirements: RequirementActionRequirement[];
+  expected_predecessor_confirmation_id: string | null;
+  metric_key: "logic.requirement_action_traceability";
+  max_requirement_count: 1000;
+  max_candidate_count: 4000;
+  max_link_count: 8000;
+  max_file_bytes: 65536;
+  max_json_depth: 8;
+  max_json_items: 8000;
+  max_lifetime_seconds: 86400;
+  canonicalization: "json-sort-keys-compact-ensure-ascii-v1";
+  import_creates_unconfirmed_proposal_only: true;
+  native_confirmation_required_for_metric_authority: true;
+  all_linked_action_semantics_acknowledgement_required: true;
+  native_review_displays_every_redacted_invocation_and_effect: true;
+  review_visible_display_algorithm_version: "requirement-action-review-visible-display-v1";
+  review_visible_display_is_injective_one_pass: true;
+  review_visible_display_never_truncates: true;
+  every_requirement_requires_one_link_classification: true;
+  empty_action_links_are_explicit_reviewed_negative_links: true;
+  action_states_are_application_issued: true;
+  action_state_claims_allowed_in_file: false;
+  objective_proof_claims_allowed_in_file: false;
+  metric_values_allowed_in_file: false;
+  raw_payload_persisted: false;
+  raw_producer_claim_persisted: false;
+  durable_producer_claim_shape: "installation_keyed_opaque_commitment_only";
+  import_confirmation: "import_requirement_action_proposal_without_metric_authority";
+  review_rubric_version: "requirement-action-review-rubric-v2";
+  file_json_schema_sha256: string;
+  file_json_schema: Record<string, unknown>;
+}
+export interface RequirementActionEvidencePreview {
+  payload_sha256: string;
+  session_id: string;
+  expected_source_run_id: string;
+  source_window_fingerprint: string;
+  requirement_plan_confirmation_id: string;
+  requirement_plan_evidence_fingerprint: string;
+  candidate_manifest_fingerprint: string;
+  expected_predecessor_confirmation_id: string | null;
+  requirement_count: number;
+  candidate_count: number;
+  linked_requirement_count: number;
+  unlinked_requirement_count: number;
+  link_count: number;
+  expires_at: string;
+  producer: RequirementPlanProducer;
+  creates_unconfirmed_proposal_only: true;
+  native_confirmation_required_for_metric_authority: true;
+  can_set_numeric_metric_on_import: false;
+  raw_payload_persisted: false;
+  raw_producer_claim_persisted: false;
+}
+export interface RequirementActionLink {
+  requirement_id: string;
+  action_ids: string[];
+}
+export interface RequirementActionProposal {
+  proposal_id: string;
+  session_id: string;
+  source_run_id: string;
+  source_window_fingerprint: string;
+  requirement_plan_confirmation_id: string;
+  requirement_plan_evidence_fingerprint: string;
+  candidate_manifest_fingerprint: string;
+  candidate_provenance: RequirementActionEvidenceProvenance;
+  candidate_extraction_complete: boolean;
+  candidate_enumeration_complete: boolean;
+  expected_predecessor_confirmation_id: string | null;
+  payload_sha256: string;
+  producer_receipt: RequirementPlanProducerReceipt;
+  review_rubric_version: "requirement-action-review-rubric-v2";
+  requirements: RequirementActionRequirement[];
+  candidates: RequirementActionCandidate[];
+  links: RequirementActionLink[];
+  created_at: string;
+  schema_version: "requirement-action-evidence-v1";
+  policy_version: "reviewed-requirement-action-v1";
+  status: "proposed" | "confirmed" | "rejected";
+  decision_id: string | null;
+  decision: "confirm" | "reject" | null;
+  decided_at: string | null;
+  confirmation_authority: "owned_native_user_presence" | null;
+  local_only: true;
+  content_persisted: false;
+}
+export interface RequirementActionImport {
+  payload_sha256: string;
+  proposal: RequirementActionProposal;
+  applied: boolean;
+  creates_unconfirmed_proposal_only: true;
+  native_confirmation_required_for_metric_authority: true;
+  raw_payload_persisted: false;
+  raw_producer_claim_persisted: false;
+}
+export interface RequirementActionReviewRequirement {
+  requirement_id: string;
+  coordinate: RequirementPlanCoordinate;
+  text: string;
+  linked_action_ids: string[];
+}
+export interface RequirementActionReviewCandidate {
+  candidate: RequirementActionCandidate;
+  candidate_metadata_fingerprint_version: "requirement-action-candidate-metadata-v1";
+  candidate_metadata_fingerprint: string;
+  descriptor_algorithm_version: "provider-local-redacted-action-descriptor-v1";
+  tool_name: string;
+  invocation_preview: string;
+  result_or_effect_preview: string | null;
+  invocation_truncated: false;
+  result_or_effect_truncated: false;
+  redactor_version: string;
+  linked_requirement_ids: string[];
+}
+export interface RequirementActionProposalReview {
+  proposal_id: string;
+  session_id: string;
+  source_run_id: string;
+  source_window_fingerprint: string;
+  review_receipt_id: string;
+  payload_sha256: string;
+  requirement_plan_evidence_fingerprint: string;
+  candidate_manifest_fingerprint: string;
+  reviewed_graph_fingerprint: string;
+  reviewed_candidate_set_fingerprint: string;
+  reviewed_descriptor_set_fingerprint: string;
+  review_visible_display_algorithm_version: "requirement-action-review-visible-display-v1";
+  requirements: RequirementActionReviewRequirement[];
+  candidates: RequirementActionCandidate[];
+  candidate_memberships: RequirementActionReviewCandidate[];
+  review_context_expires_at: string;
+  review_receipt_expires_at: string;
+  all_requirements_and_candidates_displayed: true;
+  raw_text_persisted: false;
+  local_only: true;
+}
+export interface RequirementActionProposalPageSnapshot {
+  snapshot_id: string;
+  total: number;
+  decision_count: number;
+  high_water_created_at: string | null;
+  high_water_proposal_id: string | null;
+}
+export interface RequirementActionProposalPage {
+  session_id: string;
+  proposals: RequirementActionProposal[];
+  limit: number;
+  offset: number;
+  total: number;
+  snapshot: RequirementActionProposalPageSnapshot;
+  next_offset: number | null;
+  complete: boolean;
+}
+export interface RequirementActionProposalCollection {
+  session_id: string;
+  proposals: RequirementActionProposal[];
+  total: number;
+  complete: true;
+  snapshot: RequirementActionProposalPageSnapshot;
+}
+export interface RequirementActionReviewRequest {
+  expected_source_run_id: string;
+  confirmation: "open_exact_local_requirement_action_review";
+}
+export interface RequirementActionConfirmDecisionRequest {
+  expected_source_run_id: string;
+  decision: "confirm";
+  confirmation: "decide_exact_reviewed_requirement_action_proposal";
+  review_receipt_id: string;
+  reviewed_graph_fingerprint: string;
+  candidate_manifest_fingerprint: string;
+  reviewed_candidate_set_fingerprint: string;
+  reviewed_descriptor_set_fingerprint: string;
+  complete_review_acknowledged: true;
+  all_requirements_and_candidates_acknowledged: true;
+  all_linked_action_semantics_reviewed: true;
+}
+export interface RequirementActionRejectDecisionRequest {
+  expected_source_run_id: string;
+  decision: "reject";
+  confirmation: "decide_exact_reviewed_requirement_action_proposal";
+}
+export type RequirementActionDecisionRequest =
+  | RequirementActionConfirmDecisionRequest
+  | RequirementActionRejectDecisionRequest;
+export interface RequirementActionProposalOutcome {
+  proposal: RequirementActionProposal;
+  applied: boolean;
+}
 export type AgentMetricEvidencePreview = Schemas["AgentMetricEvidencePreviewDto"];
 export type AgentMetricEvidenceImport = Schemas["AgentMetricEvidenceImportDto"];
 export type MetricLifecycleProposal = Schemas["MetricLifecycleProposalDto"];
@@ -1314,6 +1610,42 @@ export interface PromptEnhancerTransport {
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<RequirementPlanProposalOutcome>;
+  /** Content-free, native-reviewed requirement-to-action authority for r7. */
+  getRequirementActionEvidenceContract?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementActionEvidenceContract>;
+  previewRequirementActionEvidence?(
+    sessionId: string,
+    payload: ArrayBuffer,
+    signal?: AbortSignal,
+  ): Promise<RequirementActionEvidencePreview>;
+  importRequirementActionEvidence?(
+    sessionId: string,
+    payload: ArrayBuffer,
+    preview: RequirementActionEvidencePreview,
+    confirmation: RequirementActionEvidenceContract["import_confirmation"],
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementActionImport>;
+  listRequirementActionProposals?(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementActionProposalCollection>;
+  reviewRequirementActionProposal?(
+    sessionId: string,
+    proposal: RequirementActionProposal,
+    contract: RequirementActionEvidenceContract,
+    request: RequirementActionReviewRequest,
+    signal?: AbortSignal,
+  ): Promise<RequirementActionProposalReview>;
+  decideRequirementActionProposal?(
+    sessionId: string,
+    proposalId: string,
+    request: RequirementActionDecisionRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<RequirementActionProposalOutcome>;
   listCandidates(
     status?: CandidateStatusFilter,
     signal?: AbortSignal,

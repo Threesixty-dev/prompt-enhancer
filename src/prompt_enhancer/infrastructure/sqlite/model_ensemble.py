@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 import hashlib
+import hmac
 import json
 
 from ...application.analysis.model_ensemble import (
@@ -35,9 +36,11 @@ from ...application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_4,
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
+    METRIC_PROJECTION_V2_VERSION_7,
     MetricStateV2,
     OpportunityStatistics,
     _issue_metric_state_projection,
+    reviewed_requirement_plan_denominator_is_authoritative,
 )
 from ...application.analysis.metric_publication_v2 import (
     METRIC_PUBLICATION_V2_KEY,
@@ -47,14 +50,29 @@ from ...application.analysis.metric_publication_v2 import (
     metric_publication_v2_fingerprint,
     publish_metric_states_v2,
 )
+from ...application.analysis.requirement_action_evidence import (
+    RequirementActionDecisionKind,
+    RequirementActionEvidenceSnapshot,
+    requirement_action_evidence_snapshot_fingerprint,
+    requirement_plan_snapshot_fingerprint,
+)
+from ...application.analysis.requirement_plan_evidence import (
+    RequirementPlanDecisionKind,
+)
 from ...application.analysis.session_model_ensemble import (
     MetricProfileSource,
+    RequirementActionEvidenceSource,
     RequirementPlanEvidenceSource,
     SessionModelEnsemblePersistenceAuthority,
     SessionModelEnsembleRepository,
     SessionModelEnsembleRunRecord,
     SessionMetricProfileBinding,
+    SessionRequirementActionEvidenceBinding,
     SessionRequirementPlanEvidenceBinding,
+    validate_requirement_action_binding_metric_state,
+    validate_requirement_plan_binding_metric_state,
+    validate_reviewed_requirement_action_snapshot_metric_state,
+    validate_reviewed_requirement_plan_outcomes_metric_state,
 )
 from ...application.analysis.semantic_units import (
     SEMANTIC_UNIT_CONTRACT_VERSION,
@@ -76,6 +94,7 @@ from ...application.analysis.probabilistic_metrics import (
 from ...application.persistence import MetricValueState
 from ...database import DatabaseInvariantError
 from ...domain import Provider
+from ..identifiers import LocalArtifactIdFactory
 from ._common import ConnectionScope, from_iso, require_safe_id, to_iso
 
 
@@ -85,6 +104,7 @@ def _graph_fingerprint(run: SessionModelEnsembleRunRecord) -> str:
     # base-run graph commitment.
     payload.pop("metric_profile_binding", None)
     payload.pop("requirement_plan_evidence_binding", None)
+    payload.pop("requirement_action_evidence_binding", None)
     receipt = payload["receipt"]
     # The typed projection is an append-only adjunct with its own seal.  Keep
     # the original v26 graph commitment byte-compatible for legacy runs.
@@ -130,6 +150,43 @@ def _graph_fingerprint(run: SessionModelEnsembleRunRecord) -> str:
             sort_keys=True,
         ).encode("utf-8")
     ).hexdigest()
+
+
+def _metric_state_v2_from_row(item: object) -> MetricStateV2:
+    """Hydrate one content-free V2 row through the application validators."""
+
+    return MetricStateV2(
+        metric_key=item["metric_key"],  # type: ignore[index]
+        registry_version=item["registry_version"],  # type: ignore[index]
+        contract_version=item["contract_version"],  # type: ignore[index]
+        contract_fingerprint=item["contract_fingerprint"],  # type: ignore[index]
+        evidence_authority=EvidenceAuthority(item["evidence_authority"]),  # type: ignore[index]
+        value_state=MetricValueStateV2(item["value_state"]),  # type: ignore[index]
+        explanation_code=item["explanation_code"],  # type: ignore[index]
+        numerator=item["numerator"],  # type: ignore[index]
+        denominator=item["denominator"],  # type: ignore[index]
+        numeric_value=item["numeric_value"],  # type: ignore[index]
+        censoring_lower_bound=item["censoring_lower_bound"],  # type: ignore[index]
+        censoring_upper_bound=item["censoring_upper_bound"],  # type: ignore[index]
+        statistics=OpportunityStatistics(
+            metric_key=item["metric_key"],  # type: ignore[index]
+            denominator_basis=DenominatorBasis(item["denominator_basis"]),  # type: ignore[index]
+            opportunity_unit_kind=item["opportunity_unit_kind"],  # type: ignore[index]
+            capability_available=bool(item["capability_available"]),  # type: ignore[index]
+            source_complete=bool(item["source_complete"]),  # type: ignore[index]
+            eligible_count=item["eligible_count"],  # type: ignore[index]
+            met_count=item["met_count"],  # type: ignore[index]
+            not_met_count=item["not_met_count"],  # type: ignore[index]
+            pending_count=item["pending_count"],  # type: ignore[index]
+            unknown_count=item["unknown_count"],  # type: ignore[index]
+            superseded_excluded_count=item[  # type: ignore[index]
+                "superseded_excluded_count"
+            ],
+            distinct_owner_count=item["distinct_owner_count"],  # type: ignore[index]
+        ),
+        projection_version=item["projection_version"],  # type: ignore[index]
+        product_metric_eligible=bool(item["product_metric_eligible"]),  # type: ignore[index]
+    )
 
 
 def _metric_projection_fingerprint(receipt: SessionModelEnsembleReceipt) -> str:
@@ -185,6 +242,11 @@ def _predictive_projection_fingerprint(
 #: pair added by MIGRATION_54 receives every new publication.  All five stay
 #: readable, and a run carries at most one pair.
 METRIC_V2_SIDECARS = (
+    (
+        METRIC_PROJECTION_V2_VERSION_7,
+        "session_model_ensemble_metric_states_v2_r7",
+        "session_model_ensemble_metric_publication_v2_seals_r7",
+    ),
     (
         METRIC_PROJECTION_V2_VERSION_6,
         "session_model_ensemble_metric_states_v2_r6",
@@ -301,6 +363,40 @@ def _metric_publication_requirement_plan_fingerprint(
     ).hexdigest()
 
 
+def _requirement_action_binding_fingerprint(
+    binding: SessionRequirementActionEvidenceBinding,
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            binding.model_dump(mode="json"),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _metric_publication_requirement_action_fingerprint(
+    publication: MetricPublicationV2,
+    binding: SessionRequirementActionEvidenceBinding,
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "requirement_action_binding_fingerprint": (
+                    _requirement_action_binding_fingerprint(binding)
+                ),
+                "projection_fingerprint": (
+                    _metric_publication_v2_fingerprint(publication)
+                ),
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _semantic_unit_reconciliation_fingerprint(
     reconciliation: SemanticUnitReconciliation,
 ) -> str:
@@ -321,9 +417,12 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
         self,
         connection_scope: ConnectionScope,
         ensure_initialized: Callable[[], None],
+        *,
+        identifiers: LocalArtifactIdFactory | None = None,
     ) -> None:
         self._connection_scope = connection_scope
         self._ensure_initialized = ensure_initialized
+        self._identifiers = identifiers
 
     def save_completed(
         self,
@@ -588,6 +687,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 )
                 self._insert_metric_profile_binding(connection, run)
                 self._insert_requirement_plan_binding(connection, run)
+                self._insert_requirement_action_binding(connection, run)
                 self._insert_metric_projection(connection, run)
                 self._insert_metric_publication_v2(connection, run)
                 self._insert_predictive_projection(connection, run)
@@ -606,6 +706,8 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     != run.metric_profile_binding
                     or hydrated.requirement_plan_evidence_binding
                     != run.requirement_plan_evidence_binding
+                    or hydrated.requirement_action_evidence_binding
+                    != run.requirement_action_evidence_binding
                 ):
                     raise DatabaseInvariantError(
                         "stored model ensemble graph failed exact rehydration"
@@ -677,8 +779,17 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     raise DatabaseInvariantError(
                         "requirement-plan binding does not match the sealed run"
                     )
+                if (
+                    stored.requirement_action_evidence_binding is not None
+                    and stored.requirement_action_evidence_binding
+                    != run.requirement_action_evidence_binding
+                ):
+                    raise DatabaseInvariantError(
+                        "requirement-action binding does not match the sealed run"
+                    )
                 self._insert_metric_profile_binding(connection, run)
                 self._insert_requirement_plan_binding(connection, run)
+                self._insert_requirement_action_binding(connection, run)
                 self._insert_metric_projection(connection, run)
                 self._insert_metric_publication_v2(connection, run)
                 self._insert_predictive_projection(connection, run)
@@ -696,6 +807,8 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     != run.metric_profile_binding
                     or hydrated.requirement_plan_evidence_binding
                     != run.requirement_plan_evidence_binding
+                    or hydrated.requirement_action_evidence_binding
+                    != run.requirement_action_evidence_binding
                 ):
                     raise DatabaseInvariantError(
                         "typed metric projection failed exact rehydration"
@@ -799,12 +912,24 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             raise DatabaseInvariantError("metric profile binding seal is invalid")
         return binding
 
-    @staticmethod
     def _insert_requirement_plan_binding(
+        self,
         connection,
         run: SessionModelEnsembleRunRecord,
     ) -> None:
         binding = run.requirement_plan_evidence_binding
+        publication = run.receipt.metric_publication_v2
+        if binding is not None and publication is not None:
+            state = next(
+                item.state
+                for item in publication.metrics
+                if item.state.metric_key == "logic.decomposition_coverage"
+            )
+            self._validate_requirement_plan_binding_authority(
+                connection,
+                binding,
+                state,
+            )
         existing = (
             SqliteSessionModelEnsembleRepository._hydrate_requirement_plan_binding(
                 connection,
@@ -897,6 +1022,418 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
         ):
             raise DatabaseInvariantError(
                 "requirement-plan binding seal is invalid"
+            )
+        return binding
+
+    def _validate_requirement_plan_binding_authority(
+        self,
+        connection,
+        binding: SessionRequirementPlanEvidenceBinding,
+        state: MetricStateV2,
+    ) -> None:
+        if (
+            binding.evidence_source
+            is not RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+        ):
+            return
+        identifiers = self._identifiers
+        if identifiers is None:
+            raise DatabaseInvariantError(
+                "reviewed requirement-plan binding requires keyed identifiers"
+            )
+        assert binding.proposal_id is not None
+        assert binding.confirmation_id is not None
+        from .requirement_plan_evidence import (
+            SqliteRequirementPlanEvidenceRepository,
+            confirmed_requirement_plan_snapshot,
+        )
+
+        evidence = SqliteRequirementPlanEvidenceRepository(
+            self._connection_scope,
+            self._ensure_initialized,
+            identifiers=identifiers,
+        )
+        view = evidence._get_view(connection, binding.proposal_id)
+        if (
+            view is None
+            or view.decision is None
+            or view.decision.decision is not RequirementPlanDecisionKind.CONFIRM
+            or view.decision.decision_id != binding.confirmation_id
+            or view.proposal.session_id != binding.session_id
+            or view.proposal.source_window_fingerprint
+            != binding.source_window_fingerprint
+        ):
+            raise DatabaseInvariantError(
+                "requirement-plan binding lacks its confirmed graph"
+            )
+        snapshot = confirmed_requirement_plan_snapshot(view)
+        expected_fingerprint = requirement_plan_snapshot_fingerprint(
+            snapshot,
+            identifiers,
+        )
+        if not hmac.compare_digest(
+            binding.evidence_fingerprint,
+            expected_fingerprint,
+        ):
+            raise DatabaseInvariantError(
+                "requirement-plan binding evidence fingerprint is invalid"
+            )
+        if reviewed_requirement_plan_denominator_is_authoritative(state):
+            try:
+                validate_reviewed_requirement_plan_outcomes_metric_state(
+                    tuple(item.disposition for item in view.proposal.requirements),
+                    state,
+                )
+            except ValueError as exc:
+                raise DatabaseInvariantError(
+                    "reviewed requirement-plan graph disagrees with metric state"
+                ) from exc
+
+    def _insert_requirement_action_binding(
+        self,
+        connection,
+        run: SessionModelEnsembleRunRecord,
+    ) -> None:
+        binding = run.requirement_action_evidence_binding
+        snapshot = self._validate_requirement_action_binding_authority(
+            connection,
+            binding,
+        )
+        if snapshot is not None:
+            publication = run.receipt.metric_publication_v2
+            if publication is None:
+                raise DatabaseInvariantError(
+                    "reviewed requirement-action binding has no metric publication"
+                )
+            state = next(
+                item.state
+                for item in publication.metrics
+                if item.state.metric_key
+                == "logic.requirement_action_traceability"
+            )
+            try:
+                validate_reviewed_requirement_action_snapshot_metric_state(
+                    snapshot,
+                    state,
+                )
+            except ValueError as exc:
+                raise DatabaseInvariantError(
+                    "reviewed requirement-action graph disagrees with metric state"
+                ) from exc
+        existing = (
+            SqliteSessionModelEnsembleRepository
+            ._hydrate_requirement_action_binding(connection, run.run_id)
+        )
+        if binding is None:
+            if existing is not None:
+                raise DatabaseInvariantError(
+                    "stored requirement-action binding is missing from the run"
+                )
+            return
+        if existing is not None:
+            if existing != binding:
+                raise DatabaseInvariantError(
+                    "requirement-action binding is immutable"
+                )
+            return
+        connection.execute(
+            """INSERT INTO session_model_ensemble_requirement_action_bindings(
+                   run_id,evidence_source,session_id,
+                   source_window_fingerprint,source_run_id,
+                   requirement_plan_confirmation_id,
+                   requirement_plan_evidence_fingerprint,
+                   candidate_manifest_fingerprint,
+                   reviewed_descriptor_set_fingerprint,
+                   confirmation_id,proposal_id,
+                   evidence_fingerprint,evidence_schema_version,
+                   evidence_policy_version,bound_at,binding_fingerprint,
+                   local_only,content_persisted
+               ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0)""",
+            (
+                run.run_id,
+                binding.evidence_source.value,
+                binding.session_id,
+                binding.source_window_fingerprint,
+                binding.source_run_id,
+                binding.requirement_plan_confirmation_id,
+                binding.requirement_plan_evidence_fingerprint,
+                binding.candidate_manifest_fingerprint,
+                binding.reviewed_descriptor_set_fingerprint,
+                binding.confirmation_id,
+                binding.proposal_id,
+                binding.evidence_fingerprint,
+                binding.evidence_schema_version,
+                binding.evidence_policy_version,
+                to_iso(binding.bound_at),
+                _requirement_action_binding_fingerprint(binding),
+            ),
+        )
+        stored = (
+            SqliteSessionModelEnsembleRepository
+            ._hydrate_requirement_action_binding(connection, run.run_id)
+        )
+        if stored != binding:
+            raise DatabaseInvariantError(
+                "requirement-action binding failed exact rehydration"
+            )
+
+    def _validate_requirement_action_binding_authority(
+        self,
+        connection,
+        binding: SessionRequirementActionEvidenceBinding | None,
+    ) -> RequirementActionEvidenceSnapshot | None:
+        if (
+            binding is None
+            or binding.evidence_source
+            is not RequirementActionEvidenceSource.REVIEWED_REQUIREMENT_ACTION
+        ):
+            return None
+        identifiers = self._identifiers
+        if identifiers is None:
+            raise DatabaseInvariantError(
+                "reviewed requirement-action binding requires keyed identifiers"
+            )
+        assert binding.proposal_id is not None
+        assert binding.confirmation_id is not None
+        from .requirement_action_evidence import (
+            SqliteRequirementActionEvidenceRepository,
+        )
+
+        evidence = SqliteRequirementActionEvidenceRepository(
+            self._connection_scope,
+            self._ensure_initialized,
+            identifiers=identifiers,
+        )
+        view = evidence._get_view(connection, binding.proposal_id)
+        if (
+            view is None
+            or view.decision is None
+            or view.decision.decision
+            is not RequirementActionDecisionKind.CONFIRM
+        ):
+            raise DatabaseInvariantError(
+                "requirement-action binding lacks confirmed authority"
+            )
+        proposal = view.proposal
+        decision = view.decision
+        manifest = evidence._manifest(proposal)
+        if (
+            binding.session_id != proposal.session_id
+            or binding.source_window_fingerprint
+            != proposal.source_window_fingerprint
+            or binding.source_run_id != proposal.source_run_id
+            or binding.requirement_plan_confirmation_id
+            != proposal.requirement_plan_confirmation_id
+            or binding.requirement_plan_evidence_fingerprint
+            != proposal.requirement_plan_evidence_fingerprint
+            or binding.candidate_manifest_fingerprint
+            != proposal.candidate_manifest_fingerprint
+            or binding.confirmation_id != decision.decision_id
+            or binding.reviewed_descriptor_set_fingerprint
+            != decision.reviewed_descriptor_set_fingerprint
+            or binding.evidence_schema_version != proposal.schema_version
+            or binding.evidence_policy_version != proposal.policy_version
+        ):
+            raise DatabaseInvariantError(
+                "requirement-action binding is cross-bound"
+            )
+        snapshot = RequirementActionEvidenceSnapshot(
+            session_id=proposal.session_id,
+            source_run_id=proposal.source_run_id,
+            source_window_fingerprint=proposal.source_window_fingerprint,
+            requirement_plan_confirmation_id=(
+                proposal.requirement_plan_confirmation_id
+            ),
+            requirement_plan_evidence_fingerprint=(
+                proposal.requirement_plan_evidence_fingerprint
+            ),
+            confirmation_id=decision.decision_id,
+            proposal_id=proposal.proposal_id,
+            reviewed_descriptor_set_fingerprint=(
+                decision.reviewed_descriptor_set_fingerprint
+            ),
+            producer_receipt=proposal.producer_receipt,
+            candidate_manifest=manifest,
+            requirements=proposal.requirements,
+            links=proposal.links,
+            complete_requirement_enumeration=True,
+            complete_action_candidate_enumeration=True,
+            complete_requirement_link_classification=True,
+            evidence_fingerprint="0" * 64,
+        )
+        expected_fingerprint = requirement_action_evidence_snapshot_fingerprint(
+            snapshot,
+            identifiers,
+        )
+        if not hmac.compare_digest(
+            binding.evidence_fingerprint,
+            expected_fingerprint,
+        ):
+            raise DatabaseInvariantError(
+                "requirement-action binding evidence fingerprint is invalid"
+            )
+        return snapshot.model_copy(
+            update={"evidence_fingerprint": binding.evidence_fingerprint}
+        )
+
+    def validate_requirement_action_run_authority(
+        self,
+        connection,
+        run_id: str,
+    ) -> SessionRequirementActionEvidenceBinding | None:
+        """Revalidate the exact keyed r7 authority graph for a run.
+
+        Trajectory reads intentionally avoid hydrating the complete ensemble
+        graph, but they must not bypass the same installation-keyed decision
+        and evidence checks used by :meth:`get`.  Keep this small authority
+        reader shared so every SQLite projection of an r7 run fails closed on
+        forged native-review claims.
+        """
+
+        binding = self._hydrate_requirement_action_binding(connection, run_id)
+        snapshot = self._validate_requirement_action_binding_authority(
+            connection,
+            binding,
+        )
+        if binding is not None:
+            state = self._require_r6_or_r7_metric_state(
+                connection,
+                run_id,
+                metric_key="logic.requirement_action_traceability",
+                tables=("session_model_ensemble_metric_states_v2_r7",),
+            )
+            try:
+                validate_requirement_action_binding_metric_state(binding, state)
+                if snapshot is not None:
+                    validate_reviewed_requirement_action_snapshot_metric_state(
+                        snapshot,
+                        state,
+                    )
+            except ValueError as exc:
+                raise DatabaseInvariantError(
+                    "requirement-action binding disagrees with its metric row"
+                ) from exc
+        return binding
+
+    def validate_requirement_plan_run_authority(
+        self,
+        connection,
+        run_id: str,
+    ) -> SessionRequirementPlanEvidenceBinding | None:
+        """Revalidate plan marker semantics for r6/r7 run and watch reads."""
+
+        binding = self._hydrate_requirement_plan_binding(connection, run_id)
+        if binding is not None:
+            state = self._require_r6_or_r7_metric_state(
+                connection,
+                run_id,
+                metric_key="logic.decomposition_coverage",
+                tables=(
+                    "session_model_ensemble_metric_states_v2_r6",
+                    "session_model_ensemble_metric_states_v2_r7",
+                ),
+            )
+            try:
+                validate_requirement_plan_binding_metric_state(binding, state)
+            except ValueError as exc:
+                raise DatabaseInvariantError(
+                    "requirement-plan binding disagrees with its metric row"
+                ) from exc
+            self._validate_requirement_plan_binding_authority(
+                connection,
+                binding,
+                state,
+            )
+        return binding
+
+    @staticmethod
+    def _require_r6_or_r7_metric_state(
+        connection,
+        run_id: str,
+        *,
+        metric_key: str,
+        tables: tuple[str, ...],
+    ) -> MetricStateV2:
+        rows = []
+        for table in tables:
+            present = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone()
+            if present is None:
+                continue
+            row = connection.execute(
+                f"SELECT * FROM {table} WHERE run_id=? AND metric_key=?",
+                (run_id, metric_key),
+            ).fetchone()
+            if row is not None:
+                rows.append(row)
+        if len(rows) != 1:
+            raise DatabaseInvariantError(
+                "evidence binding requires exactly one matching metric row"
+            )
+        try:
+            return _metric_state_v2_from_row(rows[0])
+        except (TypeError, ValueError) as exc:
+            raise DatabaseInvariantError("bound metric row is invalid") from exc
+
+    @staticmethod
+    def _hydrate_requirement_action_binding(
+        connection,
+        run_id: str,
+    ) -> SessionRequirementActionEvidenceBinding | None:
+        present = connection.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type='table'
+                 AND name='session_model_ensemble_requirement_action_bindings'"""
+        ).fetchone()
+        if present is None:
+            return None
+        row = connection.execute(
+            """SELECT * FROM session_model_ensemble_requirement_action_bindings
+               WHERE run_id=?""",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        bound_at = from_iso(row["bound_at"])
+        if bound_at is None:
+            raise DatabaseInvariantError(
+                "requirement-action binding time is missing"
+            )
+        binding = SessionRequirementActionEvidenceBinding(
+            evidence_source=RequirementActionEvidenceSource(
+                row["evidence_source"]
+            ),
+            session_id=row["session_id"],
+            source_window_fingerprint=row["source_window_fingerprint"],
+            source_run_id=row["source_run_id"],
+            requirement_plan_confirmation_id=(
+                row["requirement_plan_confirmation_id"]
+            ),
+            requirement_plan_evidence_fingerprint=(
+                row["requirement_plan_evidence_fingerprint"]
+            ),
+            candidate_manifest_fingerprint=(
+                row["candidate_manifest_fingerprint"]
+            ),
+            reviewed_descriptor_set_fingerprint=(
+                row["reviewed_descriptor_set_fingerprint"]
+            ),
+            confirmation_id=row["confirmation_id"],
+            proposal_id=row["proposal_id"],
+            evidence_fingerprint=row["evidence_fingerprint"],
+            evidence_schema_version=row["evidence_schema_version"],
+            evidence_policy_version=row["evidence_policy_version"],
+            bound_at=bound_at,
+            local_only=bool(row["local_only"]),
+            content_persisted=bool(row["content_persisted"]),
+        )
+        if row["binding_fingerprint"] != (
+            _requirement_action_binding_fingerprint(binding)
+        ):
+            raise DatabaseInvariantError(
+                "requirement-action binding seal is invalid"
             )
         return binding
 
@@ -1124,23 +1661,31 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             raise DatabaseInvariantError(
                 "metric V2 sidecar must be a canonical live measured publication"
             )
-        # Historical r1-r4 rows are read-only.  Accepting a superseded
-        # model here would let current code mint a fresh value under a frozen
-        # producer identity, defeating the append-only correction even if the
-        # SQL sidecars stayed separate.  Every current write must use r6 and
-        # carry both exact content-free input authorities used by projection.
+        # Historical r1-r5 rows are read-only.  R6 remains writable only as
+        # the bootstrap source for the reviewed action workflow; r7 adds the
+        # exact requirement-action authority without reinterpreting r6 rows.
         binding = run.metric_profile_binding
         evidence_binding = run.requirement_plan_evidence_binding
+        action_binding = run.requirement_action_evidence_binding
         if (
-            publication.projection_version != METRIC_PROJECTION_V2_VERSION_6
+            publication.projection_version
+            not in {
+                METRIC_PROJECTION_V2_VERSION_6,
+                METRIC_PROJECTION_V2_VERSION_7,
+            }
             or binding is None
             or evidence_binding is None
+            or (
+                publication.projection_version
+                == METRIC_PROJECTION_V2_VERSION_7
+            )
+            != (action_binding is not None)
         ):
             raise DatabaseInvariantError(
                 "new metric V2 publications require the current projection identity"
             )
         states_table, seals_table = _metric_v2_tables(
-            METRIC_PROJECTION_V2_VERSION_6
+            publication.projection_version
         )
         connection.executemany(
             f"""
@@ -1196,6 +1741,132 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             run.receipt.metric_projection_completed_at
             or run.receipt.completed_at
         )
+        if action_binding is not None:
+            seal_columns = (
+                "run_id",
+                "publication_key",
+                "publication_version",
+                "registry_version",
+                "contract_set_fingerprint",
+                "projection_version",
+                "guidance_contract_version",
+                "guidance_template_catalog_version",
+                "source",
+                "canonical_live_snapshot",
+                "model_stage_consumed",
+                "compatibility_preview",
+                "metric_count",
+                "known_count",
+                "pending_count",
+                "unknown_count",
+                "not_applicable_count",
+                "abstained_count",
+                "execution_error_count",
+                "objective_measured_count",
+                "projection_fingerprint",
+                "profile_source",
+                "profile_id",
+                "profile_revision",
+                "profile_fingerprint",
+                "profile_schema_version",
+                "profile_policy_version",
+                "profile_binding_fingerprint",
+                "publication_profile_fingerprint",
+                "requirement_plan_source",
+                "requirement_plan_confirmation_id",
+                "requirement_plan_proposal_id",
+                "requirement_plan_evidence_fingerprint",
+                "requirement_plan_schema_version",
+                "requirement_plan_policy_version",
+                "requirement_plan_binding_fingerprint",
+                "publication_requirement_plan_fingerprint",
+                "requirement_action_source",
+                "requirement_action_source_run_id",
+                "requirement_action_requirement_plan_confirmation_id",
+                "requirement_action_requirement_plan_evidence_fingerprint",
+                "requirement_action_candidate_manifest_fingerprint",
+                "requirement_action_reviewed_descriptor_set_fingerprint",
+                "requirement_action_confirmation_id",
+                "requirement_action_proposal_id",
+                "requirement_action_evidence_fingerprint",
+                "requirement_action_schema_version",
+                "requirement_action_policy_version",
+                "requirement_action_binding_fingerprint",
+                "publication_requirement_action_fingerprint",
+                "projected_at",
+                "local_only",
+                "content_persisted",
+                "product_metric_eligible",
+            )
+            seal_values = (
+                run.run_id,
+                publication.publication_key,
+                publication.publication_version,
+                publication.registry_version,
+                publication.contract_set_fingerprint,
+                publication.projection_version,
+                publication.guidance_contract_version,
+                publication.guidance_template_catalog_version,
+                publication.source.value,
+                1,
+                0,
+                0,
+                len(publication.metrics),
+                publication.known_count,
+                publication.pending_count,
+                publication.unknown_count,
+                publication.not_applicable_count,
+                publication.abstained_count,
+                publication.execution_error_count,
+                publication.objective_measured_count,
+                _metric_publication_v2_fingerprint(publication),
+                binding.profile_source.value,
+                binding.profile_id,
+                binding.profile_revision,
+                binding.profile_fingerprint,
+                binding.profile_schema_version,
+                binding.profile_policy_version,
+                _metric_profile_binding_fingerprint(binding),
+                _metric_publication_profile_fingerprint(publication, binding),
+                evidence_binding.evidence_source.value,
+                evidence_binding.confirmation_id,
+                evidence_binding.proposal_id,
+                evidence_binding.evidence_fingerprint,
+                evidence_binding.evidence_schema_version,
+                evidence_binding.evidence_policy_version,
+                _requirement_plan_binding_fingerprint(evidence_binding),
+                _metric_publication_requirement_plan_fingerprint(
+                    publication,
+                    evidence_binding,
+                ),
+                action_binding.evidence_source.value,
+                action_binding.source_run_id,
+                action_binding.requirement_plan_confirmation_id,
+                action_binding.requirement_plan_evidence_fingerprint,
+                action_binding.candidate_manifest_fingerprint,
+                action_binding.reviewed_descriptor_set_fingerprint,
+                action_binding.confirmation_id,
+                action_binding.proposal_id,
+                action_binding.evidence_fingerprint,
+                action_binding.evidence_schema_version,
+                action_binding.evidence_policy_version,
+                _requirement_action_binding_fingerprint(action_binding),
+                _metric_publication_requirement_action_fingerprint(
+                    publication,
+                    action_binding,
+                ),
+                to_iso(projected_at),
+                1,
+                0,
+                0,
+            )
+            placeholders = ",".join("?" for _ in seal_values)
+            connection.execute(
+                f"INSERT INTO {seals_table}({','.join(seal_columns)}) "
+                f"VALUES({placeholders})",
+                seal_values,
+            )
+            return
         connection.execute(
             f"""
             INSERT INTO {seals_table}(
@@ -1838,44 +2509,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
         metric_publication_v2 = None
         if metric_publication_v2_seal is not None:
             states = tuple(
-                MetricStateV2(
-                    metric_key=item["metric_key"],
-                    registry_version=item["registry_version"],
-                    contract_version=item["contract_version"],
-                    contract_fingerprint=item["contract_fingerprint"],
-                    evidence_authority=EvidenceAuthority(
-                        item["evidence_authority"]
-                    ),
-                    value_state=MetricValueStateV2(item["value_state"]),
-                    explanation_code=item["explanation_code"],
-                    numerator=item["numerator"],
-                    denominator=item["denominator"],
-                    numeric_value=item["numeric_value"],
-                    censoring_lower_bound=item["censoring_lower_bound"],
-                    censoring_upper_bound=item["censoring_upper_bound"],
-                    statistics=OpportunityStatistics(
-                        metric_key=item["metric_key"],
-                        denominator_basis=DenominatorBasis(
-                            item["denominator_basis"]
-                        ),
-                        opportunity_unit_kind=item["opportunity_unit_kind"],
-                        capability_available=bool(item["capability_available"]),
-                        source_complete=bool(item["source_complete"]),
-                        eligible_count=item["eligible_count"],
-                        met_count=item["met_count"],
-                        not_met_count=item["not_met_count"],
-                        pending_count=item["pending_count"],
-                        unknown_count=item["unknown_count"],
-                        superseded_excluded_count=item[
-                            "superseded_excluded_count"
-                        ],
-                        distinct_owner_count=item["distinct_owner_count"],
-                    ),
-                    projection_version=item["projection_version"],
-                    product_metric_eligible=bool(
-                        item["product_metric_eligible"]
-                    ),
-                )
+                _metric_state_v2_from_row(item)
                 for item in connection.execute(
                     f"""SELECT * FROM {metric_v2_states_table}
                         WHERE run_id=? ORDER BY metric_ordinal""",
@@ -2039,7 +2673,13 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             run_id,
         )
         requirement_plan_evidence_binding = (
-            self._hydrate_requirement_plan_binding(connection, run_id)
+            self.validate_requirement_plan_run_authority(connection, run_id)
+        )
+        requirement_action_evidence_binding = (
+            self.validate_requirement_action_run_authority(
+                connection,
+                run_id,
+            )
         )
         record = SessionModelEnsembleRunRecord(
             run_id=row["run_id"],
@@ -2056,6 +2696,9 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             metric_profile_binding=metric_profile_binding,
             requirement_plan_evidence_binding=(
                 requirement_plan_evidence_binding
+            ),
+            requirement_action_evidence_binding=(
+                requirement_action_evidence_binding
             ),
             receipt=receipt,
         )
@@ -2115,6 +2758,7 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                 in {
                     METRIC_PROJECTION_V2_VERSION_5,
                     METRIC_PROJECTION_V2_VERSION_6,
+                    METRIC_PROJECTION_V2_VERSION_7,
                 }
                 and (
                     metric_profile_binding is None
@@ -2147,7 +2791,10 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
             )
             or (
                 metric_publication_v2.projection_version
-                == METRIC_PROJECTION_V2_VERSION_6
+                in {
+                    METRIC_PROJECTION_V2_VERSION_6,
+                    METRIC_PROJECTION_V2_VERSION_7,
+                }
                 and (
                     requirement_plan_evidence_binding is None
                     or metric_publication_v2_seal["requirement_plan_source"]
@@ -2184,6 +2831,68 @@ class SqliteSessionModelEnsembleRepository(SessionModelEnsembleRepository):
                     != _metric_publication_requirement_plan_fingerprint(
                         metric_publication_v2,
                         requirement_plan_evidence_binding,
+                    )
+                )
+            )
+            or (
+                metric_publication_v2.projection_version
+                == METRIC_PROJECTION_V2_VERSION_7
+                and (
+                    requirement_action_evidence_binding is None
+                    or metric_publication_v2_seal["requirement_action_source"]
+                    != requirement_action_evidence_binding.evidence_source.value
+                    or metric_publication_v2_seal[
+                        "requirement_action_source_run_id"
+                    ]
+                    != requirement_action_evidence_binding.source_run_id
+                    or metric_publication_v2_seal[
+                        "requirement_action_requirement_plan_confirmation_id"
+                    ]
+                    != requirement_action_evidence_binding.requirement_plan_confirmation_id
+                    or metric_publication_v2_seal[
+                        "requirement_action_requirement_plan_evidence_fingerprint"
+                    ]
+                    != requirement_action_evidence_binding.requirement_plan_evidence_fingerprint
+                    or metric_publication_v2_seal[
+                        "requirement_action_candidate_manifest_fingerprint"
+                    ]
+                    != requirement_action_evidence_binding.candidate_manifest_fingerprint
+                    or metric_publication_v2_seal[
+                        "requirement_action_reviewed_descriptor_set_fingerprint"
+                    ]
+                    != requirement_action_evidence_binding.reviewed_descriptor_set_fingerprint
+                    or metric_publication_v2_seal[
+                        "requirement_action_confirmation_id"
+                    ]
+                    != requirement_action_evidence_binding.confirmation_id
+                    or metric_publication_v2_seal[
+                        "requirement_action_proposal_id"
+                    ]
+                    != requirement_action_evidence_binding.proposal_id
+                    or metric_publication_v2_seal[
+                        "requirement_action_evidence_fingerprint"
+                    ]
+                    != requirement_action_evidence_binding.evidence_fingerprint
+                    or metric_publication_v2_seal[
+                        "requirement_action_schema_version"
+                    ]
+                    != requirement_action_evidence_binding.evidence_schema_version
+                    or metric_publication_v2_seal[
+                        "requirement_action_policy_version"
+                    ]
+                    != requirement_action_evidence_binding.evidence_policy_version
+                    or metric_publication_v2_seal[
+                        "requirement_action_binding_fingerprint"
+                    ]
+                    != _requirement_action_binding_fingerprint(
+                        requirement_action_evidence_binding
+                    )
+                    or metric_publication_v2_seal[
+                        "publication_requirement_action_fingerprint"
+                    ]
+                    != _metric_publication_requirement_action_fingerprint(
+                        metric_publication_v2,
+                        requirement_action_evidence_binding,
                     )
                 )
             )

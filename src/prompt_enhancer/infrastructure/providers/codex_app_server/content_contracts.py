@@ -13,14 +13,22 @@ completeness without claiming complete provider history.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import StrEnum
+import json
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from ....application.analysis.text_contracts import (
+    MAX_ACTION_REVIEW_DESCRIPTORS,
+    MAX_ACTION_REVIEW_PREVIEW_CHARACTERS,
+    MAX_ACTION_REVIEW_TOTAL_CHARACTERS,
+    MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS,
     MAX_REDACTED_MESSAGE_CHARACTERS,
 )
+from ....application.analysis.evidence_contracts import ActionFamily, ActionState
+from ....domain import ToolCategory
 from .errors import CodexCompatibilityError, CodexThreadStructureLimitError
 
 
@@ -57,6 +65,73 @@ class RawCodexTextFragment(_PrivateWireModel):
     )
 
 
+class RawCodexActionDescriptor(_PrivateWireModel):
+    """One bounded private action descriptor from the selected provider read."""
+
+    source_event_id: SecretStr = Field(repr=False, min_length=1, max_length=16_384)
+    event_kind: str = Field(pattern=r"^(tool_start|tool_end|artifact)$")
+    tool_name: SecretStr = Field(
+        repr=False,
+        min_length=1,
+        max_length=MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS,
+    )
+    invocation_preview: SecretStr = Field(
+        repr=False,
+        min_length=1,
+        max_length=MAX_ACTION_REVIEW_PREVIEW_CHARACTERS,
+    )
+    result_or_effect_preview: SecretStr | None = Field(
+        default=None,
+        repr=False,
+        min_length=1,
+        max_length=MAX_ACTION_REVIEW_PREVIEW_CHARACTERS,
+    )
+    invocation_truncated: bool
+    result_or_effect_truncated: bool
+    candidate_metadata_complete: bool = False
+    candidate_sequence: int | None = Field(
+        default=None,
+        ge=0,
+        le=4_000_000_000,
+    )
+    candidate_tool_category: ToolCategory | None = None
+    candidate_occurred_at: datetime | None = None
+    candidate_duration_ms: int | None = Field(default=None, ge=0)
+    candidate_family: ActionFamily | None = None
+    candidate_state: ActionState | None = None
+
+    @model_validator(mode="after")
+    def exact_candidate_metadata(self) -> "RawCodexActionDescriptor":
+        required = (
+            self.candidate_sequence,
+            self.candidate_occurred_at,
+            self.candidate_family,
+            self.candidate_state,
+        )
+        if self.candidate_metadata_complete != all(
+            value is not None for value in required
+        ):
+            raise ValueError("candidate metadata completeness is incoherent")
+        if not self.candidate_metadata_complete and any(
+            value is not None
+            for value in (
+                self.candidate_tool_category,
+                self.candidate_sequence,
+                self.candidate_occurred_at,
+                self.candidate_duration_ms,
+                self.candidate_family,
+                self.candidate_state,
+            )
+        ):
+            raise ValueError("incomplete candidate metadata cannot carry values")
+        if self.candidate_occurred_at is not None and (
+            self.candidate_occurred_at.tzinfo is None
+            or self.candidate_occurred_at.utcoffset() != timedelta(0)
+        ):
+            raise ValueError("candidate metadata timestamp must be UTC")
+        return self
+
+
 class RawCodexTextThread(_PrivateWireModel):
     """Minimized private result of one explicit ``thread/read`` call."""
 
@@ -65,6 +140,12 @@ class RawCodexTextThread(_PrivateWireModel):
     extraction_complete: bool
     older_history_truncated: bool
     unclassified_omission: bool
+    action_descriptors: tuple[RawCodexActionDescriptor, ...] = Field(
+        default=(),
+        repr=False,
+        max_length=MAX_ACTION_REVIEW_DESCRIPTORS,
+    )
+    action_descriptor_extraction_complete: bool = False
 
     @model_validator(mode="after")
     def validate_completeness_partition(self) -> RawCodexTextThread:
@@ -72,6 +153,12 @@ class RawCodexTextThread(_PrivateWireModel):
             not self.older_history_truncated and not self.unclassified_omission
         ):
             raise ValueError("Codex text extraction completeness is inconsistent")
+        descriptor_ids = tuple(
+            item.source_event_id.get_secret_value()
+            for item in self.action_descriptors
+        )
+        if len(set(descriptor_ids)) != len(descriptor_ids):
+            raise ValueError("Codex action descriptor identifiers must be unique")
         return self
 
 
@@ -133,6 +220,9 @@ DISCARDED_USER_INPUT_TYPES = frozenset(
     {"image", "localImage", "skill", "mention"}
 )
 _AGENT_PHASES = frozenset({"commentary", "final_answer"})
+_ACTION_DESCRIPTOR_ITEM_TYPES = frozenset(
+    {"commandExecution", "fileChange", "mcpToolCall", "webSearch", "imageView"}
+)
 
 
 def _bounded_string(
@@ -201,6 +291,123 @@ def _parse_fragments(
     )
 
 
+def _encode_source_event_identity(*components: str) -> str:
+    """Mirror the content-free mapper's injective source-event identity."""
+
+    return "".join(f"{len(component)}:{component}" for component in components)
+
+
+def _bounded_json_preview(value: object) -> tuple[SecretStr, bool]:
+    try:
+        rendered = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        raise CodexCompatibilityError(
+            "provider action descriptor has an unsupported shape"
+        ) from None
+    if not rendered or "\x00" in rendered:
+        raise CodexCompatibilityError(
+            "provider action descriptor contains unsupported content"
+        )
+    truncated = len(rendered) > MAX_ACTION_REVIEW_PREVIEW_CHARACTERS
+    if truncated:
+        rendered = rendered[:MAX_ACTION_REVIEW_PREVIEW_CHARACTERS]
+    return SecretStr(rendered), truncated
+
+
+def _action_descriptor(
+    *,
+    thread_id: str,
+    turn_id: str,
+    item_id: str,
+    item_type: str,
+    item: dict[str, object],
+) -> RawCodexActionDescriptor:
+    if item_type == "commandExecution":
+        command = item.get("command")
+        if not isinstance(command, str) or not command.strip():
+            raise CodexCompatibilityError("provider command descriptor is incomplete")
+        tool_name = "commandExecution"
+        invocation_value = {"command": command, "cwd": item.get("cwd")}
+        effect_value = {
+            "aggregatedOutput": item.get("aggregatedOutput"),
+            "exitCode": item.get("exitCode"),
+            "status": item.get("status"),
+            "success": item.get("success"),
+        }
+    elif item_type == "fileChange":
+        changes = item.get("changes")
+        if not isinstance(changes, list):
+            raise CodexCompatibilityError("provider file-change descriptor is incomplete")
+        tool_name = "fileChange"
+        invocation_value = {"operation": "fileChange"}
+        effect_value = {
+            "changes": changes,
+            "status": item.get("status"),
+            "success": item.get("success"),
+        }
+    elif item_type == "mcpToolCall":
+        tool = item.get("tool") or item.get("name")
+        if not isinstance(tool, str) or not tool.strip():
+            raise CodexCompatibilityError("provider MCP descriptor is incomplete")
+        tool_name = tool
+        invocation_value = {
+            "server": item.get("server"),
+            "tool": tool,
+            "arguments": item.get("arguments"),
+        }
+        effect_value = {
+            "result": item.get("result"),
+            "status": item.get("status"),
+            "success": item.get("success"),
+        }
+    elif item_type == "webSearch":
+        query = item.get("query") or item.get("searchQuery")
+        if not isinstance(query, str) or not query.strip():
+            raise CodexCompatibilityError("provider web-search descriptor is incomplete")
+        tool_name = "webSearch"
+        invocation_value = {"query": query}
+        effect_value = {
+            "result": item.get("result"),
+            "results": item.get("results"),
+            "status": item.get("status"),
+            "success": item.get("success"),
+        }
+    elif item_type == "imageView":
+        target = item.get("path") or item.get("imagePath")
+        if not isinstance(target, str) or not target.strip():
+            raise CodexCompatibilityError("provider image-view descriptor is incomplete")
+        tool_name = "imageView"
+        invocation_value = {"target": target}
+        effect_value = {
+            "status": item.get("status"),
+            "success": item.get("success"),
+        }
+    else:  # pragma: no cover - caller is a closed allowlist
+        raise CodexCompatibilityError("provider action descriptor type is unsupported")
+    if len(tool_name) > MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS or "\x00" in tool_name:
+        raise CodexCompatibilityError("provider action tool name is unsupported")
+    invocation, invocation_truncated = _bounded_json_preview(invocation_value)
+    effect, effect_truncated = _bounded_json_preview(effect_value)
+    return RawCodexActionDescriptor(
+        source_event_id=SecretStr(
+            _encode_source_event_identity(
+                thread_id, "turn", turn_id, "item", item_id
+            )
+        ),
+        event_kind="tool_end",
+        tool_name=SecretStr(tool_name),
+        invocation_preview=invocation,
+        result_or_effect_preview=effect,
+        invocation_truncated=invocation_truncated,
+        result_or_effect_truncated=effect_truncated,
+    )
+
+
 def parse_text_thread_read(
     result: object,
     limits: CodexTextContentLimits | None = None,
@@ -229,6 +436,9 @@ def parse_text_thread_read(
     older_history_truncated = turn_start > 0
     unclassified_omission = False
     newest_fragments: list[RawCodexTextFragment] = []
+    newest_action_descriptors: list[RawCodexActionDescriptor] = []
+    total_action_descriptor_characters = 0
+    action_descriptor_extraction_complete = not older_history_truncated
     remaining_items = effective_limits.max_total_items
     total_characters = 0
     projection_full = False
@@ -255,6 +465,7 @@ def parse_text_thread_read(
         item_start = len(items) - selected_item_count
         if item_start > 0:
             older_history_truncated = True
+            action_descriptor_extraction_complete = False
         remaining_items -= selected_item_count
 
         for item_index in range(len(items) - 1, item_start - 1, -1):
@@ -265,12 +476,68 @@ def parse_text_thread_read(
             if not isinstance(item_type, str) or not item_type:
                 raise CodexCompatibilityError("provider text item type is unsupported")
             if item_type in DISCARDED_THREAD_ITEM_TYPES:
+                if item_type in _ACTION_DESCRIPTOR_ITEM_TYPES:
+                    try:
+                        item_id = _bounded_string(
+                            item.get("id"),
+                            field="action item identifier",
+                            maximum=4_096,
+                        )
+                        if len(newest_action_descriptors) >= MAX_ACTION_REVIEW_DESCRIPTORS:
+                            action_descriptor_extraction_complete = False
+                        else:
+                            descriptor = _action_descriptor(
+                                thread_id=thread_id,
+                                turn_id=turn_id,
+                                item_id=item_id,
+                                item_type=item_type,
+                                item=item,
+                            )
+                            descriptor_characters = (
+                                len(descriptor.tool_name.get_secret_value())
+                                + len(
+                                    descriptor.invocation_preview.get_secret_value()
+                                )
+                                + (
+                                    0
+                                    if descriptor.result_or_effect_preview is None
+                                    else len(
+                                        descriptor.result_or_effect_preview.get_secret_value()
+                                    )
+                                )
+                            )
+                            if (
+                                total_action_descriptor_characters
+                                + descriptor_characters
+                                > MAX_ACTION_REVIEW_TOTAL_CHARACTERS
+                            ):
+                                action_descriptor_extraction_complete = False
+                            else:
+                                newest_action_descriptors.append(descriptor)
+                                total_action_descriptor_characters += (
+                                    descriptor_characters
+                                )
+                    except CodexCompatibilityError:
+                        action_descriptor_extraction_complete = False
+                elif item_type in {
+                    "dynamicToolCall",
+                    "collabToolCall",
+                    "collabAgentToolCall",
+                    "subAgentActivity",
+                    "imageGeneration",
+                }:
+                    # These current documented variants do not map to the
+                    # safe action receipt family.  If a future metadata mapper
+                    # admits one, exact descriptor/candidate matching below
+                    # will fail closed until its shape is allowlisted here.
+                    pass
                 continue
             if item_type not in ADMITTED_THREAD_ITEM_TYPES:
                 # Never inspect an unknown variant's payload. It cannot become
                 # admitted merely by adding a text-like field, but its presence
                 # means this adapter cannot prove that extraction is complete.
                 unclassified_omission = True
+                action_descriptor_extraction_complete = False
                 continue
 
             item_id = _bounded_string(
@@ -351,6 +618,7 @@ def parse_text_thread_read(
                 > effective_limits.max_total_text_characters
             ):
                 older_history_truncated = True
+                action_descriptor_extraction_complete = False
                 projection_full = True
                 break
             newest_fragments.extend(reversed(item_fragments))
@@ -360,6 +628,7 @@ def parse_text_thread_read(
             break
         if remaining_items == 0 and (turn_index > turn_start or item_start > 0):
             older_history_truncated = True
+            action_descriptor_extraction_complete = False
             break
 
     return RawCodexTextThread(
@@ -368,4 +637,14 @@ def parse_text_thread_read(
         extraction_complete=not older_history_truncated and not unclassified_omission,
         older_history_truncated=older_history_truncated,
         unclassified_omission=unclassified_omission,
+        action_descriptors=tuple(reversed(newest_action_descriptors)),
+        action_descriptor_extraction_complete=(
+            action_descriptor_extraction_complete
+            and not older_history_truncated
+            and not unclassified_omission
+            and not any(
+                item.invocation_truncated or item.result_or_effect_truncated
+                for item in newest_action_descriptors
+            )
+        ),
     )

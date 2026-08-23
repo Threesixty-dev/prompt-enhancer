@@ -211,6 +211,9 @@ describe("requirement-plan evidence wire contract", () => {
   it("accepts only the exact content-free contract and preview identities", () => {
     const contract = contractFixture();
     expect(parseRequirementPlanEvidenceContract(structuredClone(contract), SESSION_ID)).toEqual(contract);
+    const r7Contract = structuredClone(contract);
+    r7Contract.source_projection_version = "metric-contract-v2-projection-7";
+    expect(parseRequirementPlanEvidenceContract(r7Contract, SESSION_ID)).toEqual(r7Contract);
     const preview = previewFixture();
     expect(parseRequirementPlanEvidencePreview(structuredClone(preview), SESSION_ID)).toEqual(preview);
 
@@ -218,6 +221,7 @@ describe("requirement-plan evidence wire contract", () => {
       (value: any) => { value.private_text = "forbidden"; },
       (value: any) => { value.prose_allowed = true; },
       (value: any) => { value.expected_source_run_id = "short"; },
+      (value: any) => { value.source_projection_version = "metric-contract-v2-projection-4"; },
       (value: any) => { value.allowed_dispositions.reverse(); },
       (value: any) => { value.metric_contract_fingerprint = "0".repeat(64); },
       (value: any) => { value.file_constraint_contract_version = "requirement-plan-file-constraints-v2"; },

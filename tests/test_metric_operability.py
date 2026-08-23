@@ -13,7 +13,7 @@ from prompt_enhancer.application.analysis.metric_operability import (
     metric_operability_catalog,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
-    METRIC_PROJECTION_V2_VERSION_6,
+    METRIC_PROJECTION_V2_VERSION_7,
 )
 from prompt_enhancer.application.analysis.provider_evidence import (
     CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES,
@@ -57,7 +57,7 @@ def test_operability_catalog_is_an_exact_all_twenty_partition() -> None:
     catalog = metric_operability_catalog()
 
     assert catalog.catalog_version == METRIC_OPERABILITY_CATALOG_VERSION
-    assert catalog.projection_version == METRIC_PROJECTION_V2_VERSION_6
+    assert catalog.projection_version == METRIC_PROJECTION_V2_VERSION_7
     assert catalog.contract_set_fingerprint == metric_contract_v2_set_fingerprint()
     assert catalog.total_metric_count == 20
     assert catalog.shipped_path_count == 16
@@ -109,6 +109,16 @@ def test_operability_catalog_names_every_configuration_and_adapter_gap() -> None
     assert decomposition.measured_path is MetricMeasuredPath.REVIEWED_REQUIREMENT_PLAN
     assert decomposition.shipped_path_state is (
         MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
+    )
+    requirement_action = by_key["logic.requirement_action_traceability"]
+    assert requirement_action.measured_path is (
+        MetricMeasuredPath.REVIEWED_REQUIREMENT_ACTION
+    )
+    assert requirement_action.shipped_path_state is (
+        MetricShippedPathState.PROVIDER_ADAPTER_REQUIRED
+    )
+    assert requirement_action.next_step_code.value == (
+        "compose_requirement_action_evidence"
     )
 
 

@@ -970,9 +970,12 @@ describe("ProjectWorkspace", () => {
       <ProjectWorkspace navigate={vi.fn()} route={route} transport={transport} />,
     );
 
-    expect(
-      await screen.findByRole("heading", { name: "Measure the analyzed window, then estimate every eligible axis locally" }),
-    ).toBeVisible();
+    const canonicalHeading = await screen.findByRole("heading", {
+      name: "Measure the analyzed window, then estimate every eligible axis locally",
+    });
+    expect(canonicalHeading).toBeVisible();
+    expect(screen.getByRole("region", { name: canonicalHeading.textContent ?? "" })).toHaveClass("model-ensemble");
+    expect(screen.queryByRole("region", { name: "Canonical session metric workspace" })).not.toBeInTheDocument();
     expect(screen.getByText("Legacy coaching profile")).toBeVisible();
     expect(screen.getByText(/not the canonical measurement snapshot/i)).toBeVisible();
     expect(screen.queryByText("Prompt & collaboration coaching")).not.toBeInTheDocument();

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   DeclaredTaskProfile,
@@ -13,6 +14,7 @@ import type {
 import {
   ModelEnsemblePayloadError,
   parseModelMetricProfileBinding,
+  parseModelRequirementActionEvidenceBinding,
   parseModelRequirementPlanEvidenceBinding,
   parseModelEnsembleOutcome,
   parseModelEnsembleRun,
@@ -68,6 +70,16 @@ const CAPABILITY = {
   network_inference: false,
   raw_transcripts: false,
 } as const;
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 function runFixture(): ModelEnsembleRun {
   const roles = [
@@ -147,6 +159,7 @@ function runFixture(): ModelEnsembleRun {
     metric_publication_v2: null,
     metric_profile_binding: null,
     requirement_plan_evidence_binding: null,
+    requirement_action_evidence_binding: null,
     metric_evidence_readiness_v2: null,
     typed_metrics: metricKeys.map((metric_key, index) => ({
       metric_key,
@@ -268,6 +281,69 @@ function r6RunFixture(
   unavailable.state.projection_version = "metric-contract-v2-projection-6";
   publication.metrics[index] = unavailable as typeof publication.metrics[number];
   run.requirement_plan_evidence_binding = requirementPlanBinding;
+  return run;
+}
+
+function r7RunFixture(
+  actionBinding: NonNullable<ModelEnsembleRun["requirement_action_evidence_binding"]>,
+): ModelEnsembleRun {
+  const planBinding = parseModelRequirementPlanEvidenceBinding({
+    evidence_source: "reviewed_requirement_plan",
+    confirmation_id: "8".repeat(64),
+    proposal_id: "9".repeat(64),
+    evidence_fingerprint: "7".repeat(64),
+    evidence_schema_version: "requirement-plan-evidence-v1",
+    evidence_policy_version: "reviewed-requirement-plan-v1",
+    local_only: true,
+    content_persisted: false,
+  });
+  const run = r6RunFixture(planBinding);
+  const publication = run.metric_publication_v2!;
+  publication.projection_version = "metric-contract-v2-projection-7";
+  for (const item of publication.metrics) {
+    item.state.projection_version = "metric-contract-v2-projection-7";
+  }
+  const decompositionIndex = publication.metrics.findIndex(
+    (item) => item.state.metric_key === "logic.decomposition_coverage",
+  );
+  const decomposition = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+    value_state: "known", numerator: 1, denominator: 2,
+    explanation_code: "reviewed_requirement_plan_links",
+  });
+  decomposition.state.projection_version = "metric-contract-v2-projection-7";
+  publication.metrics[decompositionIndex] = decomposition as typeof publication.metrics[number];
+  publication.unknown_count -= 1;
+  publication.known_count += 1;
+
+  const actionIndex = publication.metrics.findIndex(
+    (item) => item.state.metric_key === "logic.requirement_action_traceability",
+  );
+  const scenario = actionBinding.evidence_source === "unavailable"
+    ? { value_state: "unknown" as const, capability_available: false, source_complete: true,
+      eligible: 2, unknown: 2, explanation_code: "requirement_action_evidence_unavailable" }
+    : actionBinding.evidence_source === "awaiting_review"
+      ? { value_state: "unknown" as const, capability_available: true, source_complete: true,
+        eligible: 2, unknown: 2, explanation_code: "requirement_action_evidence_confirmation_required" }
+      : actionBinding.evidence_source === "candidate_manifest_overflow"
+        ? { value_state: "unknown" as const, capability_available: true, source_complete: true,
+          eligible: 2, unknown: 2, explanation_code: "requirement_action_evidence_overflow" }
+        : actionBinding.evidence_source === "candidate_source_incomplete"
+          ? { value_state: "unknown" as const, capability_available: true, source_complete: false,
+            eligible: 2, unknown: 2, explanation_code: "requirement_action_candidate_source_incomplete" }
+          : actionBinding.evidence_source === "binding_invalid"
+            ? { value_state: "unknown" as const, capability_available: true, source_complete: false,
+              eligible: 2, unknown: 2, explanation_code: "requirement_action_evidence_invalid" }
+          : { value_state: "known" as const, numerator: 1, denominator: 2,
+            explanation_code: "reviewed_requirement_action_links" };
+  const action = syntheticPublishedMetricV2("logic.requirement_action_traceability", scenario);
+  action.state.projection_version = "metric-contract-v2-projection-7";
+  publication.metrics[actionIndex] = action as typeof publication.metrics[number];
+  if (actionBinding.evidence_source === "reviewed_requirement_action") {
+    publication.unknown_count -= 1;
+    publication.known_count += 1;
+    publication.objective_measured_count += 1;
+  }
+  run.requirement_action_evidence_binding = actionBinding;
   return run;
 }
 
@@ -502,7 +578,10 @@ function predictiveDetailFixture(metricKey = "prompt.task_definition_coverage"):
   };
 }
 
-function renderPanel(transport: PromptEnhancerTransport) {
+function renderPanel(
+  transport: PromptEnhancerTransport,
+  overrides: Partial<ComponentProps<typeof ModelEnsemblePanel>> = {},
+) {
   return render(
     <ModelEnsemblePanel
       analysisCapability={CAPABILITY}
@@ -511,6 +590,7 @@ function renderPanel(transport: PromptEnhancerTransport) {
       projectId={PROJECT_ID}
       sessionId={SESSION_ID}
       transport={transport}
+      {...overrides}
     />,
   );
 }
@@ -667,6 +747,37 @@ describe("model ensemble response contract", () => {
     publication.known_count += 1;
     expect(parseModelEnsembleRun(structuredClone(measured))).toEqual(measured);
 
+    const pendingPlanRun = r6RunFixture(reviewed);
+    const pendingPlanPublication = pendingPlanRun.metric_publication_v2!;
+    const pendingPlanIndex = pendingPlanPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    );
+    const pendingPlan = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "pending", capability_available: true, source_complete: true,
+      eligible: 2, numerator: 1, pending: 1,
+      explanation_code: "opportunity_right_censored",
+    });
+    pendingPlan.state.projection_version = "metric-contract-v2-projection-6";
+    pendingPlanPublication.metrics[pendingPlanIndex] = pendingPlan as typeof pendingPlanPublication.metrics[number];
+    pendingPlanPublication.unknown_count -= 1;
+    pendingPlanPublication.pending_count += 1;
+    expect(parseModelEnsembleRun(structuredClone(pendingPlanRun))).toEqual(pendingPlanRun);
+
+    const emptyPlanRun = r6RunFixture(reviewed);
+    const emptyPlanPublication = emptyPlanRun.metric_publication_v2!;
+    const emptyPlanIndex = emptyPlanPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    );
+    const emptyPlan = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "not_applicable", capability_available: true, source_complete: true,
+      eligible: 0, explanation_code: "no_opportunity_observed",
+    });
+    emptyPlan.state.projection_version = "metric-contract-v2-projection-6";
+    emptyPlanPublication.metrics[emptyPlanIndex] = emptyPlan as typeof emptyPlanPublication.metrics[number];
+    emptyPlanPublication.unknown_count -= 1;
+    emptyPlanPublication.not_applicable_count += 1;
+    expect(parseModelEnsembleRun(structuredClone(emptyPlanRun))).toEqual(emptyPlanRun);
+
     const invalidCoordinates = r6RunFixture(reviewed);
     const invalidPublication = invalidCoordinates.metric_publication_v2!;
     const invalidIndex = invalidPublication.metrics.findIndex(
@@ -685,6 +796,381 @@ describe("model ensemble response contract", () => {
     const legacy = r5RunFixture(measured.metric_profile_binding!);
     legacy.requirement_plan_evidence_binding = reviewed;
     expect(() => parseModelEnsembleRun(legacy)).toThrow(ModelEnsemblePayloadError);
+  });
+
+  it("strictly correlates every r7 requirement-action marker and reviewed authority to its sealed state", () => {
+    const marker = (
+      source: "unavailable" | "awaiting_review" | "candidate_manifest_overflow" | "candidate_source_incomplete" | "binding_invalid",
+      evidenceFingerprint: string,
+      schema: NonNullable<ModelEnsembleRun["requirement_action_evidence_binding"]>["evidence_schema_version"],
+    ) => parseModelRequirementActionEvidenceBinding({
+      evidence_source: source,
+      source_run_id: null,
+      requirement_plan_confirmation_id: null,
+      requirement_plan_evidence_fingerprint: null,
+      candidate_manifest_fingerprint: null,
+      confirmation_id: null,
+      proposal_id: null,
+      reviewed_descriptor_set_fingerprint: null,
+      evidence_fingerprint: evidenceFingerprint,
+      evidence_schema_version: schema,
+      evidence_policy_version: "reviewed-requirement-action-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    const markers = [
+      marker("unavailable", "9059e785839871abf94e1fea1c86c48e737621047a526cd3c9e94099a5b5e07f", "requirement-action-unavailable-v1"),
+      marker("awaiting_review", "0ca65041b98be25e41cbbba908641f116f0e81b45416f89fd7ddf177489add4a", "requirement-action-awaiting-review-v1"),
+      marker("candidate_manifest_overflow", "528224b052ffbec5c2b404b8970ab2ced61b84bc39cc20d70fd77320a059875f", "requirement-action-candidate-manifest-overflow-v1"),
+      marker("candidate_source_incomplete", "d44bd4fa494e3123c7cb6f23ada45473204a55736c8a0ae9e5305ba30d91c699", "requirement-action-candidate-source-incomplete-v1"),
+      marker("binding_invalid", "357ed7bbb833a8dfbd8f907e8309c363957460c6053d5b9d77d069bbbb7e55da", "requirement-action-binding-invalid-v1"),
+    ];
+    for (const binding of markers) {
+      const run = r7RunFixture(binding);
+      expect(
+        () => parseModelEnsembleRun(structuredClone(run)),
+        `r7 ${binding.evidence_source} binding must match its exact unknown state`,
+      ).not.toThrow();
+      expect(parseModelEnsembleRun(structuredClone(run))).toEqual(run);
+
+      const mismatched = r7RunFixture(binding);
+      const actionIndex = mismatched.metric_publication_v2!.metrics.findIndex(
+        (item) => item.state.metric_key === "logic.requirement_action_traceability",
+      );
+      const mismatchScenario = binding.evidence_source === "unavailable"
+        ? { capability_available: false, source_complete: true,
+          explanation_code: "requirement_action_evidence_unavailable" }
+        : binding.evidence_source === "awaiting_review"
+          ? { capability_available: true, source_complete: true,
+            explanation_code: "requirement_action_evidence_confirmation_required" }
+          : binding.evidence_source === "candidate_manifest_overflow"
+            ? { capability_available: true, source_complete: true,
+              explanation_code: "requirement_action_evidence_overflow" }
+            : binding.evidence_source === "candidate_source_incomplete"
+              ? { capability_available: true, source_complete: false,
+                explanation_code: "requirement_action_candidate_source_incomplete" }
+              : { capability_available: true, source_complete: false,
+                explanation_code: "requirement_action_evidence_invalid" };
+      const mismatchedAction = syntheticPublishedMetricV2(
+        "logic.requirement_action_traceability",
+        { value_state: "unknown", eligible: 1, unknown: 1, ...mismatchScenario },
+      );
+      mismatchedAction.state.projection_version = "metric-contract-v2-projection-7";
+      mismatched.metric_publication_v2!.metrics[actionIndex] = mismatchedAction as NonNullable<
+        ModelEnsembleRun["metric_publication_v2"]
+      >["metrics"][number];
+      expect(() => parseModelEnsembleRun(mismatched)).toThrow(ModelEnsemblePayloadError);
+
+      const pendingPlanMarker = r7RunFixture(binding);
+      const pendingPublication = pendingPlanMarker.metric_publication_v2!;
+      const pendingPlanIndex = pendingPublication.metrics.findIndex(
+        (item) => item.state.metric_key === "logic.decomposition_coverage",
+      );
+      const pendingReviewedPlan = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+        value_state: "pending", capability_available: true, source_complete: true,
+        eligible: 2, numerator: 1, pending: 1,
+        explanation_code: "opportunity_right_censored",
+      });
+      pendingReviewedPlan.state.projection_version = "metric-contract-v2-projection-7";
+      pendingPublication.metrics[pendingPlanIndex] = pendingReviewedPlan as typeof pendingPublication.metrics[number];
+      pendingPublication.known_count -= 1;
+      pendingPublication.pending_count += 1;
+      expect(parseModelEnsembleRun(structuredClone(pendingPlanMarker))).toEqual(pendingPlanMarker);
+    }
+
+    const overflowBinding = markers.find(
+      (binding) => binding.evidence_source === "candidate_manifest_overflow",
+    )!;
+    const mismatchedNonemptyOverflow = r7RunFixture(overflowBinding);
+    const nonemptyActionIndex = mismatchedNonemptyOverflow.metric_publication_v2!.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.requirement_action_traceability",
+    );
+    const zeroActionOverflow = syntheticPublishedMetricV2(
+      "logic.requirement_action_traceability",
+      {
+        value_state: "unknown", capability_available: true, source_complete: true,
+        eligible: 0, unknown: 0, explanation_code: "requirement_action_evidence_overflow",
+      },
+    );
+    zeroActionOverflow.state.projection_version = "metric-contract-v2-projection-7";
+    mismatchedNonemptyOverflow.metric_publication_v2!.metrics[nonemptyActionIndex] =
+      zeroActionOverflow as NonNullable<ModelEnsembleRun["metric_publication_v2"]>["metrics"][number];
+    expect(() => parseModelEnsembleRun(mismatchedNonemptyOverflow))
+      .toThrow(ModelEnsemblePayloadError);
+
+    const emptyOverflow = r7RunFixture(overflowBinding);
+    const emptyPublication = emptyOverflow.metric_publication_v2!;
+    const emptyPlanIndex = emptyPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    );
+    const emptyActionIndex = emptyPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.requirement_action_traceability",
+    );
+    const emptyPlan = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "not_applicable", capability_available: true, source_complete: true,
+      eligible: 0, explanation_code: "no_opportunity_observed",
+    });
+    emptyPlan.state.projection_version = "metric-contract-v2-projection-7";
+    emptyPublication.metrics[emptyPlanIndex] = emptyPlan as typeof emptyPublication.metrics[number];
+    emptyPublication.metrics[emptyActionIndex] = zeroActionOverflow as typeof emptyPublication.metrics[number];
+    emptyPublication.known_count -= 1;
+    emptyPublication.not_applicable_count += 1;
+    expect(parseModelEnsembleRun(structuredClone(emptyOverflow))).toEqual(emptyOverflow);
+
+    const overflowBeforePlanAuthorityCases = [
+      {
+        binding: parseModelRequirementPlanEvidenceBinding({
+          evidence_source: "unavailable",
+          confirmation_id: null,
+          proposal_id: null,
+          evidence_fingerprint: "30f6b309825c563a881ed1b7587072222e3cb33ca70f7bff274ba968cb067641",
+          evidence_schema_version: "requirement-plan-unavailable-v1",
+          evidence_policy_version: "reviewed-requirement-plan-v1",
+          local_only: true,
+          content_persisted: false,
+        }),
+        plan: {
+          value_state: "unknown" as const, capability_available: false, source_complete: true,
+          eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_unavailable",
+        },
+      },
+      {
+        binding: parseModelRequirementPlanEvidenceBinding({
+          evidence_source: "awaiting_review",
+          confirmation_id: null,
+          proposal_id: null,
+          evidence_fingerprint: "843a2a5154affde7f7cddc19137dfcdfa8253d9f541c98b6e2cdabd930401ff2",
+          evidence_schema_version: "requirement-plan-awaiting-review-v1",
+          evidence_policy_version: "reviewed-requirement-plan-v1",
+          local_only: true,
+          content_persisted: false,
+        }),
+        plan: {
+          value_state: "unknown" as const, capability_available: true, source_complete: true,
+          eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_confirmation_required",
+        },
+      },
+      {
+        binding: parseModelRequirementPlanEvidenceBinding({
+          evidence_source: "reviewed_requirement_plan",
+          confirmation_id: "8".repeat(64),
+          proposal_id: "9".repeat(64),
+          evidence_fingerprint: "7".repeat(64),
+          evidence_schema_version: "requirement-plan-evidence-v1",
+          evidence_policy_version: "reviewed-requirement-plan-v1",
+          local_only: true,
+          content_persisted: false,
+        }),
+        plan: {
+          value_state: "unknown" as const, capability_available: true, source_complete: false,
+          eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+        },
+      },
+    ];
+    for (const { binding, plan } of overflowBeforePlanAuthorityCases) {
+      const run = r7RunFixture(overflowBinding);
+      const publication = run.metric_publication_v2!;
+      const planIndex = publication.metrics.findIndex(
+        (item) => item.state.metric_key === "logic.decomposition_coverage",
+      );
+      const actionIndex = publication.metrics.findIndex(
+        (item) => item.state.metric_key === "logic.requirement_action_traceability",
+      );
+      const unresolvedPlan = syntheticPublishedMetricV2("logic.decomposition_coverage", plan);
+      unresolvedPlan.state.projection_version = "metric-contract-v2-projection-7";
+      publication.metrics[planIndex] = unresolvedPlan as typeof publication.metrics[number];
+      publication.metrics[actionIndex] = zeroActionOverflow as typeof publication.metrics[number];
+      publication.known_count -= 1;
+      publication.unknown_count += 1;
+      run.requirement_plan_evidence_binding = binding;
+      expect(parseModelEnsembleRun(structuredClone(run))).toEqual(run);
+    }
+
+    const mismatchedEmptyOverflow = structuredClone(emptyOverflow);
+    const oneActionOverflow = syntheticPublishedMetricV2(
+      "logic.requirement_action_traceability",
+      {
+        value_state: "unknown", capability_available: true, source_complete: true,
+        eligible: 1, unknown: 1, explanation_code: "requirement_action_evidence_overflow",
+      },
+    );
+    oneActionOverflow.state.projection_version = "metric-contract-v2-projection-7";
+    mismatchedEmptyOverflow.metric_publication_v2!.metrics[emptyActionIndex] =
+      oneActionOverflow as NonNullable<ModelEnsembleRun["metric_publication_v2"]>["metrics"][number];
+    expect(() => parseModelEnsembleRun(mismatchedEmptyOverflow))
+      .toThrow(ModelEnsemblePayloadError);
+
+    const invalidPlan = r7RunFixture(markers.find(
+      (binding) => binding.evidence_source === "binding_invalid",
+    )!);
+    const invalidPlanPublication = invalidPlan.metric_publication_v2!;
+    const invalidPlanIndex = invalidPlanPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    );
+    const invalidPlanActionIndex = invalidPlanPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.requirement_action_traceability",
+    );
+    const sealedInvalidPlan = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "unknown", capability_available: true, source_complete: false,
+      eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+    });
+    sealedInvalidPlan.state.projection_version = "metric-contract-v2-projection-7";
+    const zeroInvalidAction = syntheticPublishedMetricV2(
+      "logic.requirement_action_traceability",
+      {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_action_evidence_invalid",
+      },
+    );
+    zeroInvalidAction.state.projection_version = "metric-contract-v2-projection-7";
+    invalidPlanPublication.metrics[invalidPlanIndex] = sealedInvalidPlan as typeof invalidPlanPublication.metrics[number];
+    invalidPlanPublication.metrics[invalidPlanActionIndex] = zeroInvalidAction as typeof invalidPlanPublication.metrics[number];
+    invalidPlanPublication.known_count -= 1;
+    invalidPlanPublication.unknown_count += 1;
+    expect(parseModelEnsembleRun(structuredClone(invalidPlan))).toEqual(invalidPlan);
+
+    const invalidPlanWithInventedDenominator = structuredClone(invalidPlan);
+    const inventedAction = syntheticPublishedMetricV2(
+      "logic.requirement_action_traceability",
+      {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 1, unknown: 1, explanation_code: "requirement_action_evidence_invalid",
+      },
+    );
+    inventedAction.state.projection_version = "metric-contract-v2-projection-7";
+    invalidPlanWithInventedDenominator.metric_publication_v2!.metrics[invalidPlanActionIndex] =
+      inventedAction as NonNullable<ModelEnsembleRun["metric_publication_v2"]>["metrics"][number];
+    expect(() => parseModelEnsembleRun(invalidPlanWithInventedDenominator))
+      .toThrow(ModelEnsemblePayloadError);
+
+    const reviewed = parseModelRequirementActionEvidenceBinding({
+      evidence_source: "reviewed_requirement_action",
+      // The reviewed authority targets the predecessor source run used to
+      // create the proposal, not the newly sealed analysis run.
+      source_run_id: "d".repeat(64),
+      requirement_plan_confirmation_id: "8".repeat(64),
+      requirement_plan_evidence_fingerprint: "7".repeat(64),
+      candidate_manifest_fingerprint: "4".repeat(64),
+      confirmation_id: "5".repeat(64),
+      proposal_id: "6".repeat(64),
+      reviewed_descriptor_set_fingerprint: "a".repeat(64),
+      evidence_fingerprint: "c".repeat(64),
+      evidence_schema_version: "requirement-action-evidence-v1",
+      evidence_policy_version: "reviewed-requirement-action-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    const reviewedRun = r7RunFixture(reviewed);
+    expect(parseModelEnsembleRun(structuredClone(reviewedRun))).toEqual(reviewedRun);
+
+    const reviewedPending = r7RunFixture(reviewed);
+    const reviewedPendingPublication = reviewedPending.metric_publication_v2!;
+    const reviewedPendingActionIndex = reviewedPendingPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.requirement_action_traceability",
+    );
+    const pendingAction = syntheticPublishedMetricV2("logic.requirement_action_traceability", {
+      value_state: "pending", capability_available: true, source_complete: true,
+      eligible: 2, numerator: 1, pending: 1,
+      explanation_code: "opportunity_right_censored",
+    });
+    pendingAction.state.projection_version = "metric-contract-v2-projection-7";
+    reviewedPendingPublication.metrics[reviewedPendingActionIndex] =
+      pendingAction as typeof reviewedPendingPublication.metrics[number];
+    reviewedPendingPublication.known_count -= 1;
+    reviewedPendingPublication.pending_count += 1;
+    reviewedPendingPublication.objective_measured_count -= 1;
+    expect(parseModelEnsembleRun(structuredClone(reviewedPending))).toEqual(reviewedPending);
+
+    const pendingWrongReason = structuredClone(reviewedPending);
+    const pendingWrongRow = pendingWrongReason.metric_publication_v2!.metrics[reviewedPendingActionIndex];
+    pendingWrongRow.state.explanation_code = "reviewed_requirement_action_links";
+    pendingWrongRow.guidance.reason_code = "reviewed_requirement_action_links";
+    expect(() => parseModelEnsembleRun(pendingWrongReason)).toThrow(ModelEnsemblePayloadError);
+
+    const reviewedEmpty = r7RunFixture(reviewed);
+    const reviewedEmptyPublication = reviewedEmpty.metric_publication_v2!;
+    const reviewedEmptyPlanIndex = reviewedEmptyPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    );
+    const reviewedEmptyActionIndex = reviewedEmptyPublication.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.requirement_action_traceability",
+    );
+    const emptyReviewedPlan = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "not_applicable", capability_available: true, source_complete: true,
+      eligible: 0, explanation_code: "no_opportunity_observed",
+    });
+    emptyReviewedPlan.state.projection_version = "metric-contract-v2-projection-7";
+    const emptyReviewedAction = syntheticPublishedMetricV2("logic.requirement_action_traceability", {
+      value_state: "not_applicable", capability_available: true, source_complete: true,
+      eligible: 0, explanation_code: "no_opportunity_observed",
+    });
+    emptyReviewedAction.state.projection_version = "metric-contract-v2-projection-7";
+    reviewedEmptyPublication.metrics[reviewedEmptyPlanIndex] =
+      emptyReviewedPlan as typeof reviewedEmptyPublication.metrics[number];
+    reviewedEmptyPublication.metrics[reviewedEmptyActionIndex] =
+      emptyReviewedAction as typeof reviewedEmptyPublication.metrics[number];
+    reviewedEmptyPublication.known_count -= 2;
+    reviewedEmptyPublication.not_applicable_count += 2;
+    reviewedEmptyPublication.objective_measured_count -= 1;
+    expect(parseModelEnsembleRun(structuredClone(reviewedEmpty))).toEqual(reviewedEmpty);
+
+    const emptyWrongReason = structuredClone(reviewedEmpty);
+    const emptyWrongRow = emptyWrongReason.metric_publication_v2!.metrics[reviewedEmptyActionIndex];
+    emptyWrongRow.state.explanation_code = "reviewed_requirement_action_links";
+    emptyWrongRow.guidance.reason_code = "reviewed_requirement_action_links";
+    expect(() => parseModelEnsembleRun(emptyWrongReason)).toThrow(ModelEnsemblePayloadError);
+
+    const reviewedEmptyWithInvalidPlan = structuredClone(reviewedEmpty);
+    const invalidEmptyPlan = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "unknown", capability_available: true, source_complete: false,
+      eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+    });
+    invalidEmptyPlan.state.projection_version = "metric-contract-v2-projection-7";
+    reviewedEmptyWithInvalidPlan.metric_publication_v2!.metrics[reviewedEmptyPlanIndex] =
+      invalidEmptyPlan as NonNullable<ModelEnsembleRun["metric_publication_v2"]>["metrics"][number];
+    reviewedEmptyWithInvalidPlan.metric_publication_v2!.not_applicable_count -= 1;
+    reviewedEmptyWithInvalidPlan.metric_publication_v2!.unknown_count += 1;
+    expect(() => parseModelEnsembleRun(reviewedEmptyWithInvalidPlan))
+      .toThrow(ModelEnsemblePayloadError);
+
+    const reviewedDenominatorDrift = r7RunFixture(reviewed);
+    const reviewedActionIndex = reviewedDenominatorDrift.metric_publication_v2!.metrics.findIndex(
+      (item) => item.state.metric_key === "logic.requirement_action_traceability",
+    );
+    const oneRequirementReviewed = syntheticPublishedMetricV2(
+      "logic.requirement_action_traceability",
+      { value_state: "known", numerator: 1, denominator: 1,
+        explanation_code: "reviewed_requirement_action_links" },
+    );
+    oneRequirementReviewed.state.projection_version = "metric-contract-v2-projection-7";
+    reviewedDenominatorDrift.metric_publication_v2!.metrics[reviewedActionIndex] =
+      oneRequirementReviewed as NonNullable<ModelEnsembleRun["metric_publication_v2"]>["metrics"][number];
+    expect(() => parseModelEnsembleRun(reviewedDenominatorDrift))
+      .toThrow(ModelEnsemblePayloadError);
+
+    const reviewedAsInvalid = r7RunFixture(reviewed);
+    const invalidAction = syntheticPublishedMetricV2(
+      "logic.requirement_action_traceability",
+      { value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 2, unknown: 2, explanation_code: "requirement_action_evidence_invalid" },
+    );
+    invalidAction.state.projection_version = "metric-contract-v2-projection-7";
+    reviewedAsInvalid.metric_publication_v2!.metrics[reviewedActionIndex] =
+      invalidAction as NonNullable<ModelEnsembleRun["metric_publication_v2"]>["metrics"][number];
+    reviewedAsInvalid.metric_publication_v2!.known_count -= 1;
+    reviewedAsInvalid.metric_publication_v2!.unknown_count += 1;
+    reviewedAsInvalid.metric_publication_v2!.objective_measured_count -= 1;
+    expect(() => parseModelEnsembleRun(reviewedAsInvalid)).toThrow(ModelEnsemblePayloadError);
+
+    for (const mutate of [
+      (run: ModelEnsembleRun) => { run.requirement_action_evidence_binding!.requirement_plan_confirmation_id = "d".repeat(64); },
+      (run: ModelEnsembleRun) => { run.requirement_action_evidence_binding!.requirement_plan_evidence_fingerprint = "d".repeat(64); },
+      (run: ModelEnsembleRun) => { run.metric_publication_v2!.metrics.find((item) => item.state.metric_key === "logic.requirement_action_traceability")!.state.explanation_code = "requirement_action_evidence_confirmation_required"; },
+    ]) {
+      const crossed = structuredClone(reviewedRun);
+      mutate(crossed);
+      expect(() => parseModelEnsembleRun(crossed)).toThrow(ModelEnsemblePayloadError);
+    }
   });
 
   it("keeps unconfigured declared-profile metrics entirely nonnumeric and count-free", () => {
@@ -1086,6 +1572,46 @@ describe("ModelEnsemblePanel", () => {
     expect(screen.queryByRole("region", { name: "Import agent metric evidence" })).not.toBeInTheDocument();
   });
 
+  it("routes the strict requirement-plan workflow for an exact selected r7 snapshot", () => {
+    const actionBinding = parseModelRequirementActionEvidenceBinding({
+      evidence_source: "awaiting_review",
+      source_run_id: null,
+      requirement_plan_confirmation_id: null,
+      requirement_plan_evidence_fingerprint: null,
+      candidate_manifest_fingerprint: null,
+      confirmation_id: null,
+      proposal_id: null,
+      reviewed_descriptor_set_fingerprint: null,
+      evidence_fingerprint: "0ca65041b98be25e41cbbba908641f116f0e81b45416f89fd7ddf177489add4a",
+      evidence_schema_version: "requirement-action-awaiting-review-v1",
+      evidence_policy_version: "reviewed-requirement-action-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    const run = r7RunFixture(actionBinding);
+    const props = {
+      evidenceEnabled: true,
+      evidenceSessionId: SESSION_ID,
+      lensId: "collaboration-flow" as const,
+      mode: "full" as const,
+      onLensChange: vi.fn(),
+      run,
+      runId: run.run_id,
+      snapshotLabel: "Sealed r7 source window",
+      stageRun: run,
+      transport: createSyntheticTransport(),
+    };
+    const view = render(<MetricWorkspace {...props} />);
+
+    expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" })).toBeVisible();
+    expect(screen.getByText(/does not expose the complete reviewed requirement-plan boundary/i)).toBeVisible();
+
+    const unsupported = structuredClone(run);
+    unsupported.metric_publication_v2!.projection_version = "metric-contract-v2-projection-4";
+    view.rerender(<MetricWorkspace {...props} run={unsupported} />);
+    expect(screen.queryByRole("region", { name: "Review requirement-to-plan evidence" })).not.toBeInTheDocument();
+  });
+
   it("renders the dynamic three-small plus Qwen terminal constellation without counting Qwen as a small expert", () => {
     const run = fourStageTerminalRun();
     const attemptStages = fourTerminalAttemptStages();
@@ -1381,8 +1907,11 @@ describe("ModelEnsemblePanel", () => {
     expect(startModelEnsemble).not.toHaveBeenCalled();
 
     fireEvent.click(await screen.findByRole("button", { name: "Cancel analysis" }));
-    await waitFor(() => expect(cancelModelEnsembleAnalysis).toHaveBeenCalledWith("d".repeat(64)));
-    expect(screen.getByText(/Stored local analysis completed/i)).toBeVisible();
+    await waitFor(() => expect(cancelModelEnsembleAnalysis).toHaveBeenCalledWith(
+      "d".repeat(64),
+      expect.any(AbortSignal),
+    ));
+    expect(screen.getByText(/Local analysis was cancelled/i)).toBeVisible();
     fireEvent.click(screen.getByText("Models"));
     expect(document.querySelector('.model-constellation__nodes button[data-status="cancelled"]')).toBeInTheDocument();
     expect(screen.getAllByText("cancelled").length).toBeGreaterThanOrEqual(1);
@@ -1446,8 +1975,8 @@ describe("ModelEnsemblePanel", () => {
     };
     renderPanel(transport);
 
-    const queuedButton = await screen.findByRole("button", { name: "Analysis queued" });
-    expect(queuedButton).toBeDisabled();
+    expect(await screen.findByText("Analysis queued")).not.toHaveAttribute("role", "button");
+    expect(screen.queryByRole("button", { name: "Analysis queued" })).not.toBeInTheDocument();
     expect(screen.getByText(/queued for the serial local model lane/i)).toBeVisible();
     expect(screen.getByText(/queued · waiting for the local model lane/i)).toBeVisible();
   });
@@ -1465,7 +1994,8 @@ describe("ModelEnsemblePanel", () => {
     };
     renderPanel(transport);
 
-    expect(await screen.findByText(/Start one explicit run to create typed metric receipts/i)).toBeVisible();
+    expect(await screen.findByRole("status")).toHaveTextContent(/Checking for stored content-free/i);
+    expect(screen.queryByText(/Start one explicit run to create typed metric receipts/i)).not.toBeInTheDocument();
     expect(screen.queryByText(`Snapshot ${run.run_id.slice(0, 8)}…${run.run_id.slice(-4)}`)).not.toBeInTheDocument();
     expect(screen.queryByText("foreign-stage")).not.toBeInTheDocument();
     expect(getLatestModelEnsemble).not.toHaveBeenCalled();
@@ -1633,6 +2163,7 @@ describe("ModelEnsemblePanel", () => {
         max_messages: 100,
         confirmation: "continuously_analyze_selected_redacted_session",
       },
+      expect.any(AbortSignal),
     );
   });
 
@@ -1652,5 +2183,317 @@ describe("ModelEnsemblePanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Watch this session" }));
     expect(await screen.findByText(/Start one explicit run to create typed metric receipts/i)).toBeVisible();
     expect(screen.queryByText(/Snapshot [a-f0-9]/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps checking distinct from a verified empty receipt store", async () => {
+    const latest = deferred<ModelEnsembleRun>();
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(() => latest.promise),
+      getActiveModelEnsembleWatch: undefined,
+      getSessionModelEnsembleCanonicalHead: undefined,
+    };
+    renderPanel(transport);
+
+    const panel = screen.getByRole("region", { name: /Measure the analyzed window/i });
+    expect(panel).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("status")).toHaveTextContent(/Checking for stored content-free/i);
+    expect(screen.queryByText(/No measured \+ predictive analysis is stored/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Start one explicit run/i)).not.toBeInTheDocument();
+
+    latest.resolve(runFixture());
+    expect(await screen.findByText(/Snapshot [a-f0-9]/i)).toBeVisible();
+    expect(panel).toHaveAttribute("aria-busy", "false");
+  });
+
+  it("reports a failed legacy receipt read as unknown and offers an exact retry", async () => {
+    const getLatestModelEnsemble = vi.fn()
+      .mockRejectedValueOnce(new TransportError("unavailable", 503))
+      .mockResolvedValueOnce(runFixture());
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble,
+      getActiveModelEnsembleWatch: undefined,
+      getSessionModelEnsembleCanonicalHead: undefined,
+    };
+    renderPanel(transport);
+
+    expect(await screen.findByText(/availability remains unknown/i)).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent(/availability is unknown/i);
+    expect(screen.queryByText(/Start one explicit run/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/Snapshot [a-f0-9]/i)).toBeVisible();
+    expect(getLatestModelEnsemble).toHaveBeenCalledTimes(2);
+  });
+
+  it("serializes a watch change against analysis and keeps policy-disabled actions discoverable", async () => {
+    const enabled = deferred<ModelEnsembleWatchSnapshot>();
+    const startModelEnsemble = vi.fn();
+    const enableModelEnsembleWatch = vi.fn(() => enabled.promise);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn().mockRejectedValue(new TransportError("not found", 404)),
+      getActiveModelEnsembleWatch: undefined,
+      getSessionModelEnsembleCanonicalHead: undefined,
+      startModelEnsemble,
+      enableModelEnsembleWatch,
+    };
+    renderPanel(transport);
+    await screen.findByText(/Start one explicit run/i);
+
+    fireEvent.click(screen.getByRole("button", { name: "Watch this session" }));
+    const analyze = screen.getByRole("button", { name: "Analyze metric ranges" });
+    expect(analyze).toBeDisabled();
+    fireEvent.click(analyze);
+    expect(startModelEnsemble).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Starting…" })).toBeDisabled();
+
+    enabled.resolve(watchFixture(null));
+    expect(await screen.findByRole("button", { name: "Stop continuous updates" })).toBeEnabled();
+  });
+
+  it("serializes an analysis request against the watch control", async () => {
+    const started = deferred<{ run: ModelEnsembleRun; applied: boolean }>();
+    const enableModelEnsembleWatch = vi.fn();
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn().mockRejectedValue(new TransportError("not found", 404)),
+      getActiveModelEnsembleWatch: undefined,
+      getSessionModelEnsembleCanonicalHead: undefined,
+      startModelEnsemble: vi.fn(() => started.promise),
+      enableModelEnsembleWatch,
+    };
+    renderPanel(transport);
+    await screen.findByText(/Start one explicit run/i);
+    fireEvent.click(screen.getByRole("button", { name: "Analyze metric ranges" }));
+
+    const watchButton = screen.getByRole("button", { name: "Watch this session" });
+    expect(watchButton).toBeDisabled();
+    fireEvent.click(watchButton);
+    expect(enableModelEnsembleWatch).not.toHaveBeenCalled();
+    started.resolve({ run: runFixture(), applied: true });
+    expect(await screen.findByText(/Snapshot [a-f0-9]/i)).toBeVisible();
+  });
+
+  it("allows an active watch to be stopped after analysis access is blocked", async () => {
+    const active = watchFixture(runFixture());
+    active.watch.state = "idle";
+    const disabled = structuredClone(active);
+    disabled.watch.state = "disabled";
+    const disableModelEnsembleWatch = vi.fn(async () => disabled);
+    const startModelEnsemble = vi.fn();
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(async () => runFixture()),
+      getActiveModelEnsembleWatch: vi.fn(async () => active),
+      getSessionModelEnsembleCanonicalHead: undefined,
+      disableModelEnsembleWatch,
+      startModelEnsemble,
+    };
+    renderPanel(transport, {
+      analysisCapability: {
+        ...CAPABILITY,
+        available: false,
+        reason_code: "redacted_content_consent_required",
+        data_tier: null,
+      },
+    });
+
+    const analyze = await screen.findByRole("button", { name: "Analyze metric ranges" });
+    expect(analyze).toHaveAttribute("aria-disabled", "true");
+    expect(analyze).not.toBeDisabled();
+    fireEvent.click(analyze);
+    expect(startModelEnsemble).not.toHaveBeenCalled();
+
+    const stop = screen.getByRole("button", { name: "Stop continuous updates" });
+    expect(stop).toBeEnabled();
+    fireEvent.click(stop);
+    await waitFor(() => expect(disableModelEnsembleWatch).toHaveBeenCalledWith(
+      active.watch.watch_id,
+      expect.any(AbortSignal),
+    ));
+  });
+
+  it("aborts and ignores an earlier session mutation after the panel context changes", async () => {
+    const started = deferred<{ run: ModelEnsembleRun; applied: boolean }>();
+    let startSignal: AbortSignal | undefined;
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn().mockRejectedValue(new TransportError("not found", 404)),
+      getActiveModelEnsembleWatch: undefined,
+      getSessionModelEnsembleCanonicalHead: undefined,
+      startModelEnsemble: vi.fn((_sessionId, _request, _key, signal) => {
+        startSignal = signal;
+        return started.promise;
+      }),
+    };
+    const view = renderPanel(transport);
+    await screen.findByText(/Start one explicit run/i);
+    fireEvent.click(screen.getByRole("button", { name: "Analyze metric ranges" }));
+
+    const nextSession = "9".repeat(64);
+    view.rerender(
+      <ModelEnsemblePanel
+        analysisCapability={CAPABILITY}
+        category="prompt-quality"
+        projectId={PROJECT_ID}
+        providerCompatibility={EXACT}
+        sessionId={nextSession}
+        transport={transport}
+      />,
+    );
+    expect(startSignal?.aborted).toBe(true);
+    started.resolve({ run: runFixture(), applied: true });
+    await screen.findByText(/Start one explicit run/i);
+    expect(screen.queryByText(/Snapshot [a-f0-9]/i)).not.toBeInTheDocument();
+  });
+
+  it("does not let a slower legacy latest read overwrite a newer watch snapshot", async () => {
+    const oldLatest = deferred<ModelEnsembleRun>();
+    const newer = structuredClone(runFixture());
+    newer.run_id = "c".repeat(64);
+    const currentWatch = watchFixture(newer);
+    currentWatch.watch.state = "idle";
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(() => oldLatest.promise),
+      getActiveModelEnsembleWatch: vi.fn(async () => currentWatch),
+      getSessionModelEnsembleCanonicalHead: undefined,
+    };
+    renderPanel(transport);
+
+    expect(await screen.findByText(`Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`)).toBeVisible();
+    oldLatest.resolve(runFixture());
+    await Promise.resolve();
+    expect(screen.getByText(`Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`)).toBeVisible();
+    expect(screen.queryByText(`Snapshot ${runFixture().run_id.slice(0, 8)}…${runFixture().run_id.slice(-4)}`)).not.toBeInTheDocument();
+  });
+
+  it("does not let a slower legacy latest read overwrite a newer analysis command", async () => {
+    const oldLatest = deferred<ModelEnsembleRun>();
+    const newer = structuredClone(runFixture());
+    newer.run_id = "c".repeat(64);
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(() => oldLatest.promise),
+      getActiveModelEnsembleWatch: undefined,
+      getSessionModelEnsembleCanonicalHead: undefined,
+      startModelEnsemble: vi.fn(async () => ({ run: newer, applied: true })),
+    };
+    renderPanel(transport);
+    fireEvent.click(screen.getByRole("button", { name: "Analyze metric ranges" }));
+    expect(await screen.findByText(`Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`)).toBeVisible();
+
+    oldLatest.resolve(runFixture());
+    await Promise.resolve();
+    expect(screen.getByText(`Snapshot ${newer.run_id.slice(0, 8)}…${newer.run_id.slice(-4)}`)).toBeVisible();
+    expect(screen.queryByText(`Snapshot ${runFixture().run_id.slice(0, 8)}…${runFixture().run_id.slice(-4)}`)).not.toBeInTheDocument();
+  });
+
+  it("does not let a slower legacy latest read clear command-owned definitions refusal", async () => {
+    const oldLatest = deferred<ModelEnsembleRun>();
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(() => oldLatest.promise),
+      getActiveModelEnsembleWatch: undefined,
+      getSessionModelEnsembleCanonicalHead: undefined,
+      startModelEnsemble: vi.fn().mockRejectedValue(new MetricDefinitionsOutOfDateError("registry_version")),
+    };
+    renderPanel(transport);
+    fireEvent.click(screen.getByRole("button", { name: "Analyze metric ranges" }));
+    expect(await screen.findByRole("alert", { name: "Metric definitions out of date" })).toBeVisible();
+
+    oldLatest.resolve(runFixture());
+    await Promise.resolve();
+    expect(screen.getByRole("alert", { name: "Metric definitions out of date" })).toBeVisible();
+    expect(screen.queryByText(/Snapshot [a-f0-9]/i)).not.toBeInTheDocument();
+  });
+
+  it("does not let a slower legacy latest read clear watch-owned definitions refusal", async () => {
+    const oldLatest = deferred<ModelEnsembleRun>();
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(() => oldLatest.promise),
+      getActiveModelEnsembleWatch: vi.fn().mockRejectedValue(
+        new MetricDefinitionsOutOfDateError("contract_set_fingerprint"),
+      ),
+      getSessionModelEnsembleCanonicalHead: undefined,
+    };
+    renderPanel(transport);
+    expect(await screen.findByRole("alert", { name: "Metric definitions out of date" })).toBeVisible();
+
+    oldLatest.resolve(runFixture());
+    await Promise.resolve();
+    expect(screen.getByRole("alert", { name: "Metric definitions out of date" })).toBeVisible();
+    expect(screen.queryByText(/Snapshot [a-f0-9]/i)).not.toBeInTheDocument();
+  });
+
+  it("uses truthful local-wait copy without claiming a durable queue cancellation", async () => {
+    const enqueue = deferred<ModelEnsembleCanonicalHead>();
+    const cancelModelEnsembleAnalysis = vi.fn();
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getLatestModelEnsemble: vi.fn(async () => runFixture()),
+      getSessionModelEnsembleCanonicalHead: vi.fn().mockRejectedValue({ status: 404 }),
+      getModelEnsembleSnapshot: vi.fn(async () => runFixture()),
+      enableModelEnsembleWatch: vi.fn(async () => watchFixture(runFixture())),
+      enqueueModelEnsembleAnalysis: vi.fn(() => enqueue.promise),
+      cancelModelEnsembleAnalysis,
+    };
+    renderPanel(transport);
+    await screen.findByText(/Start one explicit run/i);
+    fireEvent.click(screen.getByRole("button", { name: "Analyze metric ranges" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop waiting for queue response" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/Durable work may already have started/i);
+    expect(cancelModelEnsembleAnalysis).not.toHaveBeenCalled();
+    expect(screen.queryByText(/queue request cancelled/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces sustained canonical disconnection without inferring an empty store", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getSessionModelEnsembleCanonicalHead = vi.fn().mockRejectedValue(new TransportError("unavailable", 503));
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getSessionModelEnsembleCanonicalHead,
+      getModelEnsembleSnapshot: vi.fn(),
+    };
+    renderPanel(transport);
+
+    await vi.advanceTimersByTimeAsync(10_100);
+    await waitFor(() => expect(getSessionModelEnsembleCanonicalHead.mock.calls.length).toBeGreaterThanOrEqual(3));
+    expect(screen.getByRole("status")).toHaveTextContent(/availability is temporarily unknown/i);
+    expect(screen.queryByText(/Start one explicit run/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/without treating missing data as zero or absence/i)).toBeVisible();
+    vi.useRealTimers();
+  });
+
+  it("labels failed and partial terminal attempts without false completed-success copy", async () => {
+    const failedHead = canonicalHeadFixture(runFixture());
+    failedHead.latest_attempt = {
+      ...failedHead.latest_attempt!,
+      state: "failed",
+      completed_at: "2040-01-02T10:00:02Z",
+      error_code: "local_model_ensemble_execution_failed",
+    };
+    const transport: PromptEnhancerTransport = {
+      ...createSyntheticTransport(),
+      getSessionModelEnsembleCanonicalHead: vi.fn(async () => failedHead),
+      getModelEnsembleSnapshot: vi.fn(async () => runFixture()),
+    };
+    const view = renderPanel(transport);
+    expect(await screen.findByRole("status")).toHaveTextContent(/Local analysis failed/i);
+    expect(screen.getByRole("button", { name: "Retry analysis" })).toBeVisible();
+    expect(screen.getByRole("status")).not.toHaveTextContent(/Stored local analysis completed/i);
+
+    const partialHead = structuredClone(failedHead);
+    partialHead.latest_attempt!.state = "partial";
+    partialHead.latest_attempt!.warning_count = 2;
+    view.unmount();
+    renderPanel({
+      ...transport,
+      getSessionModelEnsembleCanonicalHead: vi.fn(async () => partialHead),
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent(/completed with 2 warnings/i);
   });
 });

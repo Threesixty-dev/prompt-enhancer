@@ -14,6 +14,9 @@ from typing import Protocol
 from pydantic import SecretStr
 
 from ....application.analysis.text_contracts import (
+    ACTION_CANDIDATE_METADATA_FINGERPRINT_VERSION,
+    ACTION_REVIEW_DESCRIPTOR_ALGORITHM_VERSION,
+    EphemeralRedactedActionDescriptor,
     EphemeralRedactedMessage,
     P1TextAnalysisInput,
     TextAnalysisScope,
@@ -26,6 +29,9 @@ from ....application.analysis.text_contracts import (
     TextRole,
     TextTaskProfile,
 )
+from ....application.analysis.requirement_action_evidence import (
+    requirement_action_candidate_metadata_fingerprint,
+)
 from ....application.analysis.text_source import (
     EphemeralTextAnalysisSource,
     TextAnalysisPurpose,
@@ -37,6 +43,7 @@ from ....application.analysis.text_source import (
 from ....application.ingestion import SourceIdentifierProtector
 from ....domain import (
     DataTier,
+    EventKind,
     Provider,
     SAFE_VERSION_PATTERN,
 )
@@ -438,6 +445,10 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             )
             for candidate in observed
         )
+        action_descriptors = self._redacted_action_descriptors(
+            thread,
+            selection.session_id,
+        )
         fingerprint_payload = _encode_identity(
             selection.session_id,
             self._content_schema_version,
@@ -477,6 +488,33 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
                         )
                     ),
             ),
+            _encode_identity(
+                "action-descriptor-algorithm",
+                ACTION_REVIEW_DESCRIPTOR_ALGORITHM_VERSION,
+                "complete",
+                str(thread.action_descriptor_extraction_complete).casefold(),
+                "descriptor-count",
+                str(len(action_descriptors)),
+            ),
+            *(
+                _encode_identity(
+                    descriptor.source_reference_id,
+                    descriptor.event_kind.value,
+                    descriptor.tool_name.get_secret_value(),
+                    descriptor.invocation_preview.get_secret_value(),
+                    (
+                        "none"
+                        if descriptor.result_or_effect_preview is None
+                        else descriptor.result_or_effect_preview.get_secret_value()
+                    ),
+                    str(descriptor.invocation_truncated).casefold(),
+                    str(descriptor.result_or_effect_truncated).casefold(),
+                    descriptor.redactor_version,
+                    descriptor.candidate_metadata_fingerprint_version or "none",
+                    descriptor.candidate_metadata_fingerprint or "none",
+                )
+                for descriptor in action_descriptors
+            ),
             *(
                 _encode_identity(
                     message.message_id,
@@ -508,8 +546,80 @@ class CodexTextAnalysisSource(EphemeralTextAnalysisSource):
             observed_message_count=len(messages),
             eligible_message_count=len(candidates),
             messages=messages,
+            action_descriptor_algorithm_version=(
+                ACTION_REVIEW_DESCRIPTOR_ALGORITHM_VERSION
+            ),
+            action_descriptor_extraction_complete=(
+                thread.action_descriptor_extraction_complete
+            ),
+            action_descriptors=action_descriptors,
             task_profile=task_profile,
         )
+
+    def _redacted_action_descriptors(
+        self,
+        thread: RawCodexTextThread,
+        safe_session_id: str,
+    ) -> tuple[EphemeralRedactedActionDescriptor, ...]:
+        """Redact private action details and bind them to persisted safe IDs."""
+
+        descriptors: list[EphemeralRedactedActionDescriptor] = []
+        for raw in thread.action_descriptors:
+            source_reference_id = self._pseudonymizer.pseudonymize(
+                f"{self.provider.value}:event:{safe_session_id}",
+                raw.source_event_id.get_secret_value(),
+            )
+            event_kind = EventKind(raw.event_kind)
+            candidate_metadata_fingerprint = None
+            candidate_metadata_fingerprint_version = None
+            if raw.candidate_metadata_complete:
+                assert raw.candidate_sequence is not None
+                assert raw.candidate_occurred_at is not None
+                assert raw.candidate_family is not None
+                assert raw.candidate_state is not None
+                candidate_metadata_fingerprint = (
+                    requirement_action_candidate_metadata_fingerprint(
+                        source_reference_id=source_reference_id,
+                        sequence=raw.candidate_sequence,
+                        event_kind=event_kind,
+                        tool_category=raw.candidate_tool_category,
+                        occurred_at=raw.candidate_occurred_at,
+                        duration_ms=raw.candidate_duration_ms,
+                        family=raw.candidate_family,
+                        state=raw.candidate_state,
+                    )
+                )
+                candidate_metadata_fingerprint_version = (
+                    ACTION_CANDIDATE_METADATA_FINGERPRINT_VERSION
+                )
+            tool = self._redactor.redact(raw.tool_name)
+            invocation = self._redactor.redact(raw.invocation_preview)
+            effect = (
+                None
+                if raw.result_or_effect_preview is None
+                else self._redactor.redact(raw.result_or_effect_preview)
+            )
+            descriptors.append(
+                EphemeralRedactedActionDescriptor(
+                    source_reference_id=source_reference_id,
+                    event_kind=event_kind,
+                    tool_name=tool.text,
+                    invocation_preview=invocation.text,
+                    result_or_effect_preview=(
+                        None if effect is None else effect.text
+                    ),
+                    invocation_truncated=raw.invocation_truncated,
+                    result_or_effect_truncated=raw.result_or_effect_truncated,
+                    redactor_version=self._redactor.version,
+                    candidate_metadata_fingerprint_version=(
+                        candidate_metadata_fingerprint_version
+                    ),
+                    candidate_metadata_fingerprint=(
+                        candidate_metadata_fingerprint
+                    ),
+                )
+            )
+        return tuple(descriptors)
 
     @staticmethod
     def _scope_incomplete_reasons(

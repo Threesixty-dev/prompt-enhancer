@@ -14212,3 +14212,1642 @@ BEGIN SELECT RAISE(ABORT,'metric V2 r6 seal requires parent privacy deletion'); 
 COMMIT;
 """
 
+
+MIGRATION_56 = r"""
+BEGIN IMMEDIATE;
+
+-- M55 stored the relational shape of a native requirement-plan decision but
+-- had no installation-keyed proof that the application issued it.  This
+-- append-only sidecar closes that gap without changing any M55 byte.  Only
+-- rows captured by this migration receive the explicit one-time upgrade
+-- marker; ordinary reads never mint missing authority.
+CREATE TABLE requirement_plan_evidence_decision_authority_m56 (
+    decision_id TEXT PRIMARY KEY
+      REFERENCES requirement_plan_evidence_decisions(decision_id) ON DELETE CASCADE
+      CHECK(length(decision_id)=64 AND decision_id NOT GLOB '*[^0-9a-f]*'),
+    proposal_id TEXT NOT NULL
+      REFERENCES requirement_plan_evidence_proposals(proposal_id) ON DELETE CASCADE
+      CHECK(length(proposal_id)=64 AND proposal_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    authority_source TEXT NOT NULL CHECK(authority_source IN (
+      'keyed_application_issuance','trusted_m55_upgrade_pending',
+      'trusted_m55_upgrade'
+    )),
+    authority_fingerprint TEXT
+      CHECK(authority_fingerprint IS NULL OR
+            (length(authority_fingerprint)=64
+             AND authority_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    authority_version TEXT NOT NULL
+      CHECK(authority_version='requirement-plan-decision-authority-v1'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    CHECK(
+      (authority_source='trusted_m55_upgrade_pending'
+       AND authority_fingerprint IS NULL)
+      OR
+      (authority_source IN ('keyed_application_issuance','trusted_m55_upgrade')
+       AND authority_fingerprint IS NOT NULL)
+    )
+) STRICT;
+
+INSERT INTO requirement_plan_evidence_decision_authority_m56(
+  decision_id,proposal_id,session_id,authority_source,authority_fingerprint,
+  authority_version,local_only,content_persisted
+)
+SELECT decision_id,proposal_id,session_id,'trusted_m55_upgrade_pending',NULL,
+       'requirement-plan-decision-authority-v1',1,0
+FROM requirement_plan_evidence_decisions;
+
+CREATE TRIGGER requirement_plan_decision_authority_insert_exact_m56
+BEFORE INSERT ON requirement_plan_evidence_decision_authority_m56
+WHEN NEW.authority_source='trusted_m55_upgrade_pending'
+ OR NOT EXISTS(
+   SELECT 1 FROM requirement_plan_evidence_decisions decision
+   WHERE decision.decision_id=NEW.decision_id
+     AND decision.proposal_id=NEW.proposal_id
+     AND decision.session_id=NEW.session_id
+ )
+BEGIN SELECT RAISE(ABORT,'requirement-plan decision authority is invalid'); END;
+
+CREATE TRIGGER requirement_plan_decision_authority_update_exact_m56
+BEFORE UPDATE ON requirement_plan_evidence_decision_authority_m56
+WHEN NOT (
+  OLD.authority_source='trusted_m55_upgrade_pending'
+  AND OLD.authority_fingerprint IS NULL
+  AND NEW.authority_source='trusted_m55_upgrade'
+  AND NEW.authority_fingerprint IS NOT NULL
+  AND NEW.decision_id=OLD.decision_id
+  AND NEW.proposal_id=OLD.proposal_id
+  AND NEW.session_id=OLD.session_id
+  AND NEW.authority_version=OLD.authority_version
+  AND NEW.local_only=OLD.local_only
+  AND NEW.content_persisted=OLD.content_persisted
+)
+BEGIN SELECT RAISE(ABORT,'requirement-plan decision authority is immutable'); END;
+
+-- Reviewed requirement-to-action links.  Candidate action state and provider
+-- provenance are issued by the application, never by the imported file.  The
+-- imported link graph stays inert until an exact owned-native decision.
+CREATE TABLE requirement_action_evidence_proposals (
+    proposal_id TEXT PRIMARY KEY
+      CHECK(length(proposal_id)=64 AND proposal_id NOT GLOB '*[^0-9a-f]*'),
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    source_run_id TEXT NOT NULL
+      REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE
+      CHECK(length(source_run_id)=64 AND source_run_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL
+      CHECK(length(source_window_fingerprint)=64
+            AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_confirmation_id TEXT NOT NULL
+      REFERENCES requirement_plan_evidence_decisions(decision_id)
+      ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+      CHECK(length(requirement_plan_confirmation_id)=64
+            AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_evidence_fingerprint TEXT NOT NULL
+      CHECK(length(requirement_plan_evidence_fingerprint)=64
+            AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    candidate_manifest_fingerprint TEXT NOT NULL
+      CHECK(length(candidate_manifest_fingerprint)=64
+            AND candidate_manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    expected_predecessor_confirmation_id TEXT
+      CHECK(expected_predecessor_confirmation_id IS NULL OR
+            (length(expected_predecessor_confirmation_id)=64
+             AND expected_predecessor_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    payload_sha256 TEXT NOT NULL
+      CHECK(length(payload_sha256)=64 AND payload_sha256 NOT GLOB '*[^0-9a-f]*'),
+    idempotency_key_digest TEXT NOT NULL
+      CHECK(length(idempotency_key_digest)=64
+            AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+    command_fingerprint TEXT NOT NULL
+      CHECK(length(command_fingerprint)=64
+            AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_kind TEXT NOT NULL CHECK(producer_kind='local_coding_agent'),
+    producer_claim_fingerprint TEXT NOT NULL
+      CHECK(length(producer_claim_fingerprint)=64
+            AND producer_claim_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_authority TEXT NOT NULL
+      CHECK(producer_authority='untrusted_provenance_claim_commitment'),
+    producer_raw_claim_persisted INTEGER NOT NULL
+      CHECK(producer_raw_claim_persisted=0),
+    candidate_provider TEXT NOT NULL
+      CHECK(candidate_provider IN ('codex','claude_code','synthetic')),
+    candidate_provider_version TEXT NOT NULL
+      CHECK(length(candidate_provider_version) BETWEEN 1 AND 128
+            AND candidate_provider_version GLOB '[A-Za-z0-9]*'
+            AND candidate_provider_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_adapter_version TEXT NOT NULL
+      CHECK(length(candidate_adapter_version) BETWEEN 1 AND 128
+            AND candidate_adapter_version GLOB '[A-Za-z0-9]*'
+            AND candidate_adapter_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_decoder_key TEXT NOT NULL
+      CHECK(length(candidate_decoder_key) BETWEEN 1 AND 128
+            AND candidate_decoder_key GLOB '[A-Za-z0-9]*'
+            AND candidate_decoder_key NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_decoder_version TEXT NOT NULL
+      CHECK(length(candidate_decoder_version) BETWEEN 1 AND 128
+            AND candidate_decoder_version GLOB '[A-Za-z0-9]*'
+            AND candidate_decoder_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_source_schema_version TEXT NOT NULL
+      CHECK(length(candidate_source_schema_version) BETWEEN 1 AND 128
+            AND candidate_source_schema_version GLOB '[A-Za-z0-9]*'
+            AND candidate_source_schema_version NOT GLOB '*[^A-Za-z0-9._+:/-]*'),
+    candidate_evidence_schema_version INTEGER NOT NULL CHECK(candidate_evidence_schema_version=2),
+    candidate_provenance_extraction_complete INTEGER NOT NULL
+      CHECK(candidate_provenance_extraction_complete IN (0,1)),
+    candidate_extraction_complete INTEGER NOT NULL CHECK(candidate_extraction_complete=1),
+    candidate_enumeration_complete INTEGER NOT NULL CHECK(candidate_enumeration_complete=1),
+    requirement_count INTEGER NOT NULL CHECK(requirement_count BETWEEN 0 AND 1000),
+    candidate_count INTEGER NOT NULL CHECK(candidate_count BETWEEN 0 AND 4000),
+    link_count INTEGER NOT NULL CHECK(link_count BETWEEN 0 AND 8000),
+    graph_fingerprint TEXT NOT NULL
+      CHECK(length(graph_fingerprint)=64
+            AND graph_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    created_at TEXT NOT NULL
+      CHECK(length(created_at)=32 AND substr(created_at,27)='+00:00'),
+    schema_version TEXT NOT NULL CHECK(schema_version='requirement-action-evidence-v1'),
+    policy_version TEXT NOT NULL CHECK(policy_version='reviewed-requirement-action-v1'),
+    review_rubric_version TEXT NOT NULL
+      CHECK(review_rubric_version='requirement-action-review-rubric-v2'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    UNIQUE(session_id,idempotency_key_digest)
+) STRICT;
+
+CREATE INDEX requirement_action_evidence_proposals_session_idx
+ON requirement_action_evidence_proposals(session_id,created_at,proposal_id);
+
+CREATE TABLE requirement_action_evidence_requirements (
+    proposal_id TEXT NOT NULL
+      REFERENCES requirement_action_evidence_proposals(proposal_id) ON DELETE CASCADE,
+    requirement_index INTEGER NOT NULL CHECK(requirement_index BETWEEN 0 AND 999),
+    requirement_id TEXT NOT NULL
+      CHECK(length(requirement_id)=64 AND requirement_id NOT GLOB '*[^0-9a-f]*'),
+    message_sequence INTEGER NOT NULL CHECK(message_sequence BETWEEN 0 AND 1000000000),
+    clause_index INTEGER NOT NULL CHECK(clause_index BETWEEN 0 AND 127),
+    PRIMARY KEY(proposal_id,requirement_index),
+    UNIQUE(proposal_id,requirement_id),
+    UNIQUE(proposal_id,message_sequence,clause_index)
+) STRICT;
+
+CREATE TABLE requirement_action_evidence_candidates (
+    proposal_id TEXT NOT NULL
+      REFERENCES requirement_action_evidence_proposals(proposal_id) ON DELETE CASCADE,
+    candidate_index INTEGER NOT NULL CHECK(candidate_index BETWEEN 0 AND 3999),
+    action_id TEXT NOT NULL
+      CHECK(length(action_id)=64 AND action_id NOT GLOB '*[^0-9a-f]*'),
+    source_reference_id TEXT NOT NULL
+      CHECK(length(source_reference_id)=64
+            AND source_reference_id NOT GLOB '*[^0-9a-f]*'),
+    sequence INTEGER NOT NULL CHECK(sequence BETWEEN 0 AND 4000000000),
+    event_kind TEXT NOT NULL CHECK(event_kind IN ('tool_start','tool_end','artifact')),
+    tool_category TEXT CHECK(tool_category IS NULL OR tool_category IN (
+      'file_read','file_write','command','search','test','build',
+      'version_control','network','mcp','subagent','other','unknown'
+    )),
+    occurred_at TEXT NOT NULL
+      CHECK(length(occurred_at)=32 AND substr(occurred_at,27)='+00:00'),
+    duration_ms INTEGER CHECK(duration_ms IS NULL OR duration_ms>=0),
+    family TEXT NOT NULL CHECK(family IN (
+      'tool','command','file_change','review','other_documented'
+    )),
+    state TEXT NOT NULL CHECK(state IN (
+      'started','completed','failed','cancelled','unknown'
+    )),
+    PRIMARY KEY(proposal_id,candidate_index),
+    UNIQUE(proposal_id,action_id),
+    UNIQUE(proposal_id,sequence)
+) STRICT;
+
+CREATE TABLE requirement_action_evidence_links (
+    proposal_id TEXT NOT NULL,
+    requirement_index INTEGER NOT NULL CHECK(requirement_index BETWEEN 0 AND 999),
+    candidate_index INTEGER NOT NULL CHECK(candidate_index BETWEEN 0 AND 3999),
+    PRIMARY KEY(proposal_id,requirement_index,candidate_index),
+    FOREIGN KEY(proposal_id,requirement_index)
+      REFERENCES requirement_action_evidence_requirements(proposal_id,requirement_index)
+      ON DELETE CASCADE,
+    FOREIGN KEY(proposal_id,candidate_index)
+      REFERENCES requirement_action_evidence_candidates(proposal_id,candidate_index)
+      ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE requirement_action_evidence_proposal_seals (
+    proposal_id TEXT PRIMARY KEY
+      REFERENCES requirement_action_evidence_proposals(proposal_id) ON DELETE CASCADE,
+    requirement_count INTEGER NOT NULL CHECK(requirement_count BETWEEN 0 AND 1000),
+    candidate_count INTEGER NOT NULL CHECK(candidate_count BETWEEN 0 AND 4000),
+    link_count INTEGER NOT NULL CHECK(link_count BETWEEN 0 AND 8000),
+    payload_sha256 TEXT NOT NULL
+      CHECK(length(payload_sha256)=64 AND payload_sha256 NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_confirmation_id TEXT NOT NULL
+      CHECK(length(requirement_plan_confirmation_id)=64
+            AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_evidence_fingerprint TEXT NOT NULL
+      CHECK(length(requirement_plan_evidence_fingerprint)=64
+            AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    candidate_manifest_fingerprint TEXT NOT NULL
+      CHECK(length(candidate_manifest_fingerprint)=64
+            AND candidate_manifest_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_kind TEXT NOT NULL CHECK(producer_kind='local_coding_agent'),
+    producer_claim_fingerprint TEXT NOT NULL
+      CHECK(length(producer_claim_fingerprint)=64
+            AND producer_claim_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    producer_authority TEXT NOT NULL
+      CHECK(producer_authority='untrusted_provenance_claim_commitment'),
+    producer_raw_claim_persisted INTEGER NOT NULL CHECK(producer_raw_claim_persisted=0),
+    candidate_provider TEXT NOT NULL CHECK(candidate_provider IN ('codex','claude_code','synthetic')),
+    candidate_provider_version TEXT NOT NULL,
+    candidate_adapter_version TEXT NOT NULL,
+    candidate_decoder_key TEXT NOT NULL,
+    candidate_decoder_version TEXT NOT NULL,
+    candidate_source_schema_version TEXT NOT NULL,
+    candidate_evidence_schema_version INTEGER NOT NULL CHECK(candidate_evidence_schema_version=2),
+    candidate_provenance_extraction_complete INTEGER NOT NULL
+      CHECK(candidate_provenance_extraction_complete IN (0,1)),
+    candidate_extraction_complete INTEGER NOT NULL CHECK(candidate_extraction_complete=1),
+    candidate_enumeration_complete INTEGER NOT NULL CHECK(candidate_enumeration_complete=1),
+    schema_version TEXT NOT NULL CHECK(schema_version='requirement-action-evidence-v1'),
+    policy_version TEXT NOT NULL CHECK(policy_version='reviewed-requirement-action-v1'),
+    review_rubric_version TEXT NOT NULL
+      CHECK(review_rubric_version='requirement-action-review-rubric-v2'),
+    graph_fingerprint TEXT NOT NULL
+      CHECK(length(graph_fingerprint)=64
+            AND graph_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    sealed_at TEXT NOT NULL
+      CHECK(length(sealed_at)=32 AND substr(sealed_at,27)='+00:00')
+) STRICT;
+
+CREATE TABLE requirement_action_evidence_decisions (
+    decision_id TEXT PRIMARY KEY
+      CHECK(length(decision_id)=64 AND decision_id NOT GLOB '*[^0-9a-f]*'),
+    proposal_id TEXT NOT NULL UNIQUE
+      REFERENCES requirement_action_evidence_proposals(proposal_id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    decision TEXT NOT NULL CHECK(decision IN ('confirm','reject')),
+    idempotency_key_digest TEXT NOT NULL
+      CHECK(length(idempotency_key_digest)=64
+            AND idempotency_key_digest NOT GLOB '*[^0-9a-f]*'),
+    command_fingerprint TEXT NOT NULL
+      CHECK(length(command_fingerprint)=64
+            AND command_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    reviewed_descriptor_set_fingerprint TEXT
+      CHECK(reviewed_descriptor_set_fingerprint IS NULL OR
+            (length(reviewed_descriptor_set_fingerprint)=64
+             AND reviewed_descriptor_set_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    decision_authority_fingerprint TEXT NOT NULL
+      CHECK(length(decision_authority_fingerprint)=64
+            AND decision_authority_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    decided_at TEXT NOT NULL
+      CHECK(length(decided_at)=32 AND substr(decided_at,27)='+00:00'),
+    confirmation_authority TEXT NOT NULL
+      CHECK(confirmation_authority='owned_native_user_presence'),
+    schema_version TEXT NOT NULL CHECK(schema_version='requirement-action-evidence-v1'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    CHECK((decision='confirm' AND reviewed_descriptor_set_fingerprint IS NOT NULL)
+          OR (decision='reject' AND reviewed_descriptor_set_fingerprint IS NULL)),
+    UNIQUE(session_id,idempotency_key_digest)
+) STRICT;
+
+CREATE TRIGGER requirement_action_evidence_proposal_source_exact
+BEFORE INSERT ON requirement_action_evidence_proposals
+WHEN NOT EXISTS(
+  SELECT 1
+  FROM session_model_ensemble_runs run
+  JOIN session_model_ensemble_seals run_seal ON run_seal.run_id=run.run_id
+  JOIN session_model_ensemble_requirement_plan_bindings binding
+    ON binding.run_id=run.run_id
+  JOIN requirement_plan_evidence_decisions decision
+    ON decision.decision_id=NEW.requirement_plan_confirmation_id
+  JOIN requirement_plan_evidence_proposals plan
+    ON plan.proposal_id=decision.proposal_id
+  JOIN requirement_plan_evidence_proposal_seals plan_seal
+    ON plan_seal.proposal_id=plan.proposal_id
+  WHERE run.run_id=NEW.source_run_id
+    AND run.session_id=NEW.session_id
+    AND run.input_fingerprint=NEW.source_window_fingerprint
+    AND run.source_window_fingerprint=NEW.source_window_fingerprint
+    AND run.run_id=(
+      SELECT latest.run_id FROM session_model_ensemble_runs latest
+      JOIN session_model_ensemble_seals latest_seal
+        ON latest_seal.run_id=latest.run_id
+      WHERE latest.session_id=NEW.session_id
+      ORDER BY latest.completed_at DESC,latest.run_id DESC LIMIT 1
+    )
+    AND (
+      EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r6
+             WHERE run_id=run.run_id)
+      OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7
+                WHERE run_id=run.run_id)
+    )
+    AND binding.evidence_source='reviewed_requirement_plan'
+    AND binding.confirmation_id=decision.decision_id
+    AND binding.proposal_id=plan.proposal_id
+    AND binding.evidence_fingerprint=NEW.requirement_plan_evidence_fingerprint
+    AND binding.session_id=NEW.session_id
+    AND binding.source_window_fingerprint=NEW.source_window_fingerprint
+    AND decision.decision='confirm'
+    AND plan.session_id=NEW.session_id
+    AND plan.source_window_fingerprint=NEW.source_window_fingerprint
+    AND NOT EXISTS(
+      SELECT 1 FROM requirement_plan_evidence_decisions child_decision
+      JOIN requirement_plan_evidence_proposals child
+        ON child.proposal_id=child_decision.proposal_id
+      WHERE child_decision.decision='confirm'
+        AND child.expected_predecessor_confirmation_id=decision.decision_id
+    )
+)
+BEGIN SELECT RAISE(ABORT,'requirement-action source authority changed'); END;
+
+CREATE TRIGGER requirement_action_evidence_requirement_insert_guard
+BEFORE INSERT ON requirement_action_evidence_requirements
+WHEN EXISTS(SELECT 1 FROM requirement_action_evidence_proposal_seals
+            WHERE proposal_id=NEW.proposal_id)
+ OR NOT EXISTS(
+   SELECT 1 FROM requirement_action_evidence_proposals proposal
+   WHERE proposal.proposal_id=NEW.proposal_id
+     AND NEW.requirement_index<proposal.requirement_count
+ )
+ OR NOT EXISTS(
+   SELECT 1 FROM requirement_action_evidence_proposals proposal
+   JOIN requirement_plan_evidence_decisions decision
+     ON decision.decision_id=proposal.requirement_plan_confirmation_id
+   JOIN requirement_plan_evidence_requirements requirement
+     ON requirement.proposal_id=decision.proposal_id
+   WHERE proposal.proposal_id=NEW.proposal_id
+     AND requirement.message_sequence=NEW.message_sequence
+     AND requirement.clause_index=NEW.clause_index
+ )
+BEGIN SELECT RAISE(ABORT,'requirement-action requirement is outside authority'); END;
+
+CREATE TRIGGER requirement_action_evidence_candidate_insert_guard
+BEFORE INSERT ON requirement_action_evidence_candidates
+WHEN EXISTS(SELECT 1 FROM requirement_action_evidence_proposal_seals
+            WHERE proposal_id=NEW.proposal_id)
+ OR NOT EXISTS(
+   SELECT 1 FROM requirement_action_evidence_proposals proposal
+   WHERE proposal.proposal_id=NEW.proposal_id
+     AND NEW.candidate_index<proposal.candidate_count
+ )
+BEGIN SELECT RAISE(ABORT,'requirement-action candidate is outside manifest'); END;
+
+CREATE TRIGGER requirement_action_evidence_link_insert_guard
+BEFORE INSERT ON requirement_action_evidence_links
+WHEN EXISTS(SELECT 1 FROM requirement_action_evidence_proposal_seals
+            WHERE proposal_id=NEW.proposal_id)
+BEGIN SELECT RAISE(ABORT,'requirement-action link is outside proposal'); END;
+
+CREATE TRIGGER requirement_action_evidence_proposal_seal_complete
+BEFORE INSERT ON requirement_action_evidence_proposal_seals
+WHEN NOT EXISTS(
+  SELECT 1 FROM requirement_action_evidence_proposals proposal
+  JOIN requirement_plan_evidence_decisions plan_decision
+    ON plan_decision.decision_id=proposal.requirement_plan_confirmation_id
+  JOIN requirement_plan_evidence_proposals plan
+    ON plan.proposal_id=plan_decision.proposal_id
+  WHERE proposal.proposal_id=NEW.proposal_id
+    AND proposal.requirement_count=NEW.requirement_count
+    AND proposal.candidate_count=NEW.candidate_count
+    AND proposal.link_count=NEW.link_count
+    AND proposal.payload_sha256=NEW.payload_sha256
+    AND proposal.requirement_plan_confirmation_id=NEW.requirement_plan_confirmation_id
+    AND proposal.requirement_plan_evidence_fingerprint=NEW.requirement_plan_evidence_fingerprint
+    AND proposal.candidate_manifest_fingerprint=NEW.candidate_manifest_fingerprint
+    AND proposal.producer_kind=NEW.producer_kind
+    AND proposal.producer_claim_fingerprint=NEW.producer_claim_fingerprint
+    AND proposal.producer_authority=NEW.producer_authority
+    AND proposal.producer_raw_claim_persisted=NEW.producer_raw_claim_persisted
+    AND proposal.candidate_provider=NEW.candidate_provider
+    AND proposal.candidate_provider_version=NEW.candidate_provider_version
+    AND proposal.candidate_adapter_version=NEW.candidate_adapter_version
+    AND proposal.candidate_decoder_key=NEW.candidate_decoder_key
+    AND proposal.candidate_decoder_version=NEW.candidate_decoder_version
+    AND proposal.candidate_source_schema_version=NEW.candidate_source_schema_version
+    AND proposal.candidate_evidence_schema_version=NEW.candidate_evidence_schema_version
+    AND proposal.candidate_provenance_extraction_complete=NEW.candidate_provenance_extraction_complete
+    AND proposal.candidate_extraction_complete=NEW.candidate_extraction_complete
+    AND proposal.candidate_enumeration_complete=NEW.candidate_enumeration_complete
+    AND proposal.schema_version=NEW.schema_version
+    AND proposal.policy_version=NEW.policy_version
+    AND proposal.review_rubric_version=NEW.review_rubric_version
+    AND proposal.graph_fingerprint=NEW.graph_fingerprint
+    AND proposal.created_at=NEW.sealed_at
+    AND plan_decision.decision='confirm'
+    AND plan.requirement_count=proposal.requirement_count
+    AND (SELECT COUNT(*) FROM requirement_action_evidence_requirements item
+         WHERE item.proposal_id=proposal.proposal_id)=proposal.requirement_count
+    AND (SELECT COUNT(*) FROM requirement_action_evidence_candidates item
+         WHERE item.proposal_id=proposal.proposal_id)=proposal.candidate_count
+    AND (SELECT COUNT(*) FROM requirement_action_evidence_links item
+         WHERE item.proposal_id=proposal.proposal_id)=proposal.link_count
+    AND NOT EXISTS(
+      SELECT 1 FROM requirement_plan_evidence_requirements source_requirement
+      WHERE source_requirement.proposal_id=plan.proposal_id
+        AND NOT EXISTS(
+          SELECT 1 FROM requirement_action_evidence_requirements stored
+          WHERE stored.proposal_id=proposal.proposal_id
+            AND stored.message_sequence=source_requirement.message_sequence
+            AND stored.clause_index=source_requirement.clause_index
+        )
+    )
+ )
+BEGIN SELECT RAISE(ABORT,'requirement-action proposal is incomplete'); END;
+
+CREATE TRIGGER requirement_action_evidence_decision_exact
+BEFORE INSERT ON requirement_action_evidence_decisions
+WHEN NOT EXISTS(
+       SELECT 1 FROM requirement_action_evidence_proposals proposal
+       JOIN requirement_action_evidence_proposal_seals seal
+         ON seal.proposal_id=proposal.proposal_id
+       WHERE proposal.proposal_id=NEW.proposal_id
+         AND proposal.session_id=NEW.session_id
+     )
+ OR (
+   NEW.decision='confirm' AND NOT EXISTS(
+       SELECT 1 FROM requirement_action_evidence_proposals proposal
+       JOIN requirement_action_evidence_proposal_seals seal
+         ON seal.proposal_id=proposal.proposal_id
+       JOIN session_model_ensemble_runs run
+         ON run.run_id=proposal.source_run_id
+       JOIN session_model_ensemble_seals run_seal ON run_seal.run_id=run.run_id
+       JOIN session_model_ensemble_requirement_plan_bindings binding
+         ON binding.run_id=run.run_id
+       JOIN requirement_plan_evidence_decisions plan_decision
+         ON plan_decision.decision_id=proposal.requirement_plan_confirmation_id
+       WHERE proposal.proposal_id=NEW.proposal_id
+         AND proposal.session_id=NEW.session_id
+         AND run.run_id=(
+           SELECT latest.run_id FROM session_model_ensemble_runs latest
+           JOIN session_model_ensemble_seals latest_seal
+             ON latest_seal.run_id=latest.run_id
+           WHERE latest.session_id=proposal.session_id
+           ORDER BY latest.completed_at DESC,latest.run_id DESC LIMIT 1
+         )
+         AND binding.evidence_source='reviewed_requirement_plan'
+         AND binding.confirmation_id=proposal.requirement_plan_confirmation_id
+         AND binding.evidence_fingerprint=proposal.requirement_plan_evidence_fingerprint
+         AND plan_decision.decision='confirm'
+         AND NOT EXISTS(
+           SELECT 1 FROM requirement_plan_evidence_decisions child_decision
+           JOIN requirement_plan_evidence_proposals child
+             ON child.proposal_id=child_decision.proposal_id
+           WHERE child_decision.decision='confirm'
+             AND child.expected_predecessor_confirmation_id=plan_decision.decision_id
+         )
+     )
+ )
+ OR (
+   NEW.decision='confirm' AND NOT EXISTS(
+     SELECT 1 FROM requirement_action_evidence_proposals target
+     WHERE target.proposal_id=NEW.proposal_id
+       AND (
+         (target.expected_predecessor_confirmation_id IS NULL
+          AND NOT EXISTS(
+            SELECT 1 FROM requirement_action_evidence_decisions prior
+            JOIN requirement_action_evidence_proposals prior_proposal
+              ON prior_proposal.proposal_id=prior.proposal_id
+            WHERE prior.decision='confirm'
+              AND prior_proposal.session_id=target.session_id
+              AND prior_proposal.source_window_fingerprint=target.source_window_fingerprint
+          ))
+         OR
+         (target.expected_predecessor_confirmation_id IS NOT NULL
+          AND EXISTS(
+            SELECT 1 FROM requirement_action_evidence_decisions prior
+            JOIN requirement_action_evidence_proposals prior_proposal
+              ON prior_proposal.proposal_id=prior.proposal_id
+            WHERE prior.decision_id=target.expected_predecessor_confirmation_id
+              AND prior.decision='confirm'
+              AND prior_proposal.session_id=target.session_id
+              AND prior_proposal.source_window_fingerprint=target.source_window_fingerprint
+              AND NOT EXISTS(
+                SELECT 1 FROM requirement_action_evidence_decisions child_decision
+                JOIN requirement_action_evidence_proposals child
+                  ON child.proposal_id=child_decision.proposal_id
+                WHERE child_decision.decision='confirm'
+                  AND child.expected_predecessor_confirmation_id=prior.decision_id
+              )
+          ))
+       )
+   )
+ )
+BEGIN SELECT RAISE(ABORT,'requirement-action decision authority changed'); END;
+
+CREATE TRIGGER requirement_action_evidence_proposals_no_update
+BEFORE UPDATE ON requirement_action_evidence_proposals
+BEGIN SELECT RAISE(ABORT,'requirement-action proposals are immutable'); END;
+CREATE TRIGGER requirement_action_evidence_requirements_no_update
+BEFORE UPDATE ON requirement_action_evidence_requirements
+BEGIN SELECT RAISE(ABORT,'requirement-action requirements are immutable'); END;
+CREATE TRIGGER requirement_action_evidence_candidates_no_update
+BEFORE UPDATE ON requirement_action_evidence_candidates
+BEGIN SELECT RAISE(ABORT,'requirement-action candidates are immutable'); END;
+CREATE TRIGGER requirement_action_evidence_links_no_update
+BEFORE UPDATE ON requirement_action_evidence_links
+BEGIN SELECT RAISE(ABORT,'requirement-action links are immutable'); END;
+CREATE TRIGGER requirement_action_evidence_proposal_seals_no_update
+BEFORE UPDATE ON requirement_action_evidence_proposal_seals
+BEGIN SELECT RAISE(ABORT,'requirement-action proposal seals are immutable'); END;
+CREATE TRIGGER requirement_action_evidence_decisions_no_update
+BEFORE UPDATE ON requirement_action_evidence_decisions
+BEGIN SELECT RAISE(ABORT,'requirement-action decisions are immutable'); END;
+
+CREATE TRIGGER requirement_action_evidence_proposals_privacy_delete_only
+BEFORE DELETE ON requirement_action_evidence_proposals
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.source_run_id)
+ AND EXISTS(SELECT 1 FROM sessions WHERE session_id=OLD.session_id)
+BEGIN SELECT RAISE(ABORT,'requirement-action proposal requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_action_evidence_requirements_privacy_delete_only
+BEFORE DELETE ON requirement_action_evidence_requirements
+WHEN EXISTS(SELECT 1 FROM requirement_action_evidence_proposals WHERE proposal_id=OLD.proposal_id)
+BEGIN SELECT RAISE(ABORT,'requirement-action requirement requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_action_evidence_candidates_privacy_delete_only
+BEFORE DELETE ON requirement_action_evidence_candidates
+WHEN EXISTS(SELECT 1 FROM requirement_action_evidence_proposals WHERE proposal_id=OLD.proposal_id)
+BEGIN SELECT RAISE(ABORT,'requirement-action candidate requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_action_evidence_links_privacy_delete_only
+BEFORE DELETE ON requirement_action_evidence_links
+WHEN EXISTS(SELECT 1 FROM requirement_action_evidence_proposals WHERE proposal_id=OLD.proposal_id)
+BEGIN SELECT RAISE(ABORT,'requirement-action link requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_action_evidence_proposal_seals_privacy_delete_only
+BEFORE DELETE ON requirement_action_evidence_proposal_seals
+WHEN EXISTS(SELECT 1 FROM requirement_action_evidence_proposals WHERE proposal_id=OLD.proposal_id)
+BEGIN SELECT RAISE(ABORT,'requirement-action seal requires parent privacy deletion'); END;
+CREATE TRIGGER requirement_action_evidence_decisions_privacy_delete_only
+BEFORE DELETE ON requirement_action_evidence_decisions
+WHEN EXISTS(SELECT 1 FROM requirement_action_evidence_proposals WHERE proposal_id=OLD.proposal_id)
+ AND EXISTS(SELECT 1 FROM sessions WHERE session_id=OLD.session_id)
+BEGIN SELECT RAISE(ABORT,'requirement-action decision requires parent privacy deletion'); END;
+
+-- Projection r7 binds exact reviewed requirement-action authority or one
+-- closed null-authority availability marker beside the existing profile and
+-- requirement-plan authorities.
+CREATE TABLE session_model_ensemble_requirement_action_bindings (
+    run_id TEXT PRIMARY KEY
+      REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    evidence_source TEXT NOT NULL CHECK(evidence_source IN (
+      'unavailable','awaiting_review','candidate_manifest_overflow',
+      'candidate_source_incomplete','binding_invalid',
+      'reviewed_requirement_action'
+    )),
+    session_id TEXT NOT NULL
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL
+      CHECK(length(source_window_fingerprint)=64
+            AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    source_run_id TEXT
+      REFERENCES session_model_ensemble_runs(run_id)
+      ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+      CHECK(source_run_id IS NULL OR
+            (length(source_run_id)=64 AND source_run_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_plan_confirmation_id TEXT
+      REFERENCES requirement_plan_evidence_decisions(decision_id)
+      ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+      CHECK(requirement_plan_confirmation_id IS NULL OR
+            (length(requirement_plan_confirmation_id)=64
+             AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_plan_evidence_fingerprint TEXT
+      CHECK(requirement_plan_evidence_fingerprint IS NULL OR
+            (length(requirement_plan_evidence_fingerprint)=64
+             AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    candidate_manifest_fingerprint TEXT
+      CHECK(candidate_manifest_fingerprint IS NULL OR
+            (length(candidate_manifest_fingerprint)=64
+             AND candidate_manifest_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    reviewed_descriptor_set_fingerprint TEXT
+      CHECK(reviewed_descriptor_set_fingerprint IS NULL OR
+            (length(reviewed_descriptor_set_fingerprint)=64
+             AND reviewed_descriptor_set_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    confirmation_id TEXT
+      REFERENCES requirement_action_evidence_decisions(decision_id)
+      ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+      CHECK(confirmation_id IS NULL OR
+            (length(confirmation_id)=64
+             AND confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    proposal_id TEXT
+      REFERENCES requirement_action_evidence_proposals(proposal_id)
+      ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
+      CHECK(proposal_id IS NULL OR
+            (length(proposal_id)=64 AND proposal_id NOT GLOB '*[^0-9a-f]*')),
+    evidence_fingerprint TEXT NOT NULL
+      CHECK(length(evidence_fingerprint)=64
+            AND evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    evidence_schema_version TEXT NOT NULL CHECK(evidence_schema_version IN (
+      'requirement-action-unavailable-v1',
+      'requirement-action-awaiting-review-v1',
+      'requirement-action-candidate-manifest-overflow-v1',
+      'requirement-action-candidate-source-incomplete-v1',
+      'requirement-action-binding-invalid-v1',
+      'requirement-action-evidence-v1'
+    )),
+    evidence_policy_version TEXT NOT NULL
+      CHECK(evidence_policy_version='reviewed-requirement-action-v1'),
+    bound_at TEXT NOT NULL
+      CHECK(length(bound_at)=32 AND substr(bound_at,27)='+00:00'),
+    binding_fingerprint TEXT NOT NULL
+      CHECK(length(binding_fingerprint)=64
+            AND binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    CHECK(
+      (evidence_source='unavailable'
+       AND source_run_id IS NULL
+       AND requirement_plan_confirmation_id IS NULL
+       AND requirement_plan_evidence_fingerprint IS NULL
+       AND candidate_manifest_fingerprint IS NULL
+       AND reviewed_descriptor_set_fingerprint IS NULL
+       AND confirmation_id IS NULL AND proposal_id IS NULL
+       AND evidence_fingerprint=
+         '9059e785839871abf94e1fea1c86c48e737621047a526cd3c9e94099a5b5e07f'
+       AND evidence_schema_version='requirement-action-unavailable-v1')
+      OR
+      (evidence_source='awaiting_review'
+       AND source_run_id IS NULL
+       AND requirement_plan_confirmation_id IS NULL
+       AND requirement_plan_evidence_fingerprint IS NULL
+       AND candidate_manifest_fingerprint IS NULL
+       AND reviewed_descriptor_set_fingerprint IS NULL
+       AND confirmation_id IS NULL AND proposal_id IS NULL
+       AND evidence_fingerprint=
+         '0ca65041b98be25e41cbbba908641f116f0e81b45416f89fd7ddf177489add4a'
+       AND evidence_schema_version='requirement-action-awaiting-review-v1')
+      OR
+      (evidence_source='candidate_manifest_overflow'
+       AND source_run_id IS NULL
+       AND requirement_plan_confirmation_id IS NULL
+       AND requirement_plan_evidence_fingerprint IS NULL
+       AND candidate_manifest_fingerprint IS NULL
+       AND reviewed_descriptor_set_fingerprint IS NULL
+       AND confirmation_id IS NULL AND proposal_id IS NULL
+       AND evidence_fingerprint=
+         '528224b052ffbec5c2b404b8970ab2ced61b84bc39cc20d70fd77320a059875f'
+       AND evidence_schema_version='requirement-action-candidate-manifest-overflow-v1')
+      OR
+      (evidence_source='candidate_source_incomplete'
+       AND source_run_id IS NULL
+       AND requirement_plan_confirmation_id IS NULL
+       AND requirement_plan_evidence_fingerprint IS NULL
+       AND candidate_manifest_fingerprint IS NULL
+       AND reviewed_descriptor_set_fingerprint IS NULL
+       AND confirmation_id IS NULL AND proposal_id IS NULL
+       AND evidence_fingerprint=
+         'd44bd4fa494e3123c7cb6f23ada45473204a55736c8a0ae9e5305ba30d91c699'
+       AND evidence_schema_version='requirement-action-candidate-source-incomplete-v1')
+      OR
+      (evidence_source='binding_invalid'
+       AND source_run_id IS NULL
+       AND requirement_plan_confirmation_id IS NULL
+       AND requirement_plan_evidence_fingerprint IS NULL
+       AND candidate_manifest_fingerprint IS NULL
+       AND reviewed_descriptor_set_fingerprint IS NULL
+       AND confirmation_id IS NULL AND proposal_id IS NULL
+       AND evidence_fingerprint=
+         '357ed7bbb833a8dfbd8f907e8309c363957460c6053d5b9d77d069bbbb7e55da'
+       AND evidence_schema_version='requirement-action-binding-invalid-v1')
+      OR
+      (evidence_source='reviewed_requirement_action'
+       AND source_run_id IS NOT NULL
+       AND requirement_plan_confirmation_id IS NOT NULL
+       AND requirement_plan_evidence_fingerprint IS NOT NULL
+       AND candidate_manifest_fingerprint IS NOT NULL
+       AND reviewed_descriptor_set_fingerprint IS NOT NULL
+       AND confirmation_id IS NOT NULL AND proposal_id IS NOT NULL
+       AND evidence_fingerprint NOT IN (
+         '9059e785839871abf94e1fea1c86c48e737621047a526cd3c9e94099a5b5e07f',
+         '0ca65041b98be25e41cbbba908641f116f0e81b45416f89fd7ddf177489add4a',
+         '528224b052ffbec5c2b404b8970ab2ced61b84bc39cc20d70fd77320a059875f',
+         'd44bd4fa494e3123c7cb6f23ada45473204a55736c8a0ae9e5305ba30d91c699',
+         '357ed7bbb833a8dfbd8f907e8309c363957460c6053d5b9d77d069bbbb7e55da'
+       )
+       AND evidence_schema_version='requirement-action-evidence-v1')
+    )
+) STRICT;
+
+CREATE TRIGGER session_model_ensemble_requirement_action_binding_exact
+BEFORE INSERT ON session_model_ensemble_requirement_action_bindings
+WHEN NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_runs run
+       WHERE run.run_id=NEW.run_id
+         AND run.session_id=NEW.session_id
+         AND run.input_fingerprint=NEW.source_window_fingerprint
+         AND run.source_window_fingerprint=NEW.source_window_fingerprint
+     )
+ OR NOT EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings
+               WHERE run_id=NEW.run_id)
+ OR NOT EXISTS(SELECT 1 FROM session_model_ensemble_requirement_plan_bindings
+               WHERE run_id=NEW.run_id)
+ OR (
+      NEW.evidence_source='reviewed_requirement_action'
+      AND NOT EXISTS(
+        SELECT 1 FROM requirement_action_evidence_decisions decision
+        JOIN requirement_action_evidence_proposals proposal
+          ON proposal.proposal_id=decision.proposal_id
+        JOIN requirement_action_evidence_proposal_seals proposal_seal
+          ON proposal_seal.proposal_id=proposal.proposal_id
+        JOIN session_model_ensemble_requirement_plan_bindings plan_binding
+          ON plan_binding.run_id=NEW.run_id
+        WHERE decision.decision_id=NEW.confirmation_id
+          AND decision.decision='confirm'
+          AND proposal.proposal_id=NEW.proposal_id
+          AND proposal.session_id=NEW.session_id
+          AND proposal.source_run_id=NEW.source_run_id
+          AND proposal.source_window_fingerprint=NEW.source_window_fingerprint
+          AND proposal.requirement_plan_confirmation_id=
+              NEW.requirement_plan_confirmation_id
+          AND proposal.requirement_plan_evidence_fingerprint=
+              NEW.requirement_plan_evidence_fingerprint
+          AND proposal.candidate_manifest_fingerprint=
+              NEW.candidate_manifest_fingerprint
+          AND decision.reviewed_descriptor_set_fingerprint=
+              NEW.reviewed_descriptor_set_fingerprint
+          AND plan_binding.evidence_source='reviewed_requirement_plan'
+          AND plan_binding.confirmation_id=NEW.requirement_plan_confirmation_id
+          AND plan_binding.evidence_fingerprint=
+              NEW.requirement_plan_evidence_fingerprint
+          AND NOT EXISTS(
+            SELECT 1 FROM requirement_action_evidence_decisions child_decision
+            JOIN requirement_action_evidence_proposals child
+              ON child.proposal_id=child_decision.proposal_id
+            WHERE child_decision.decision='confirm'
+              AND child.expected_predecessor_confirmation_id=decision.decision_id
+          )
+      )
+    )
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r6 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r6 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TABLE session_model_ensemble_metric_states_v2_r7 (
+    run_id TEXT NOT NULL,
+    metric_ordinal INTEGER NOT NULL CHECK(metric_ordinal BETWEEN 0 AND 19),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-7'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='probabilistic-metric-contract-v2'),
+    contract_fingerprint TEXT NOT NULL CHECK(length(contract_fingerprint)=64 AND contract_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    evidence_authority TEXT NOT NULL CHECK(evidence_authority IN ('conversation','objective_receipt')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','pending','unknown','not_applicable','abstained','execution_error')),
+    explanation_code TEXT NOT NULL CHECK(length(explanation_code) BETWEEN 1 AND 128 AND explanation_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    numerator INTEGER CHECK(numerator BETWEEN 0 AND 1000000),
+    denominator INTEGER CHECK(denominator BETWEEN 1 AND 1000000),
+    numeric_value REAL CHECK(numeric_value BETWEEN 0.0 AND 1.0),
+    censoring_lower_bound REAL CHECK(censoring_lower_bound BETWEEN 0.0 AND 1.0),
+    censoring_upper_bound REAL CHECK(censoring_upper_bound BETWEEN 0.0 AND 1.0),
+    denominator_basis TEXT NOT NULL CHECK(denominator_basis IN ('rubric_factors','semantic_unit_opportunities','declared_profile_slots','objective_opportunities')),
+    opportunity_unit_kind TEXT CHECK(opportunity_unit_kind IN (
+      'request_revision','requirement','constraint','deliverable','ambiguity',
+      'clarification','scope_change','feedback','hypothesis','decision',
+      'open_loop','action','verification'
+    )),
+    capability_available INTEGER NOT NULL CHECK(capability_available IN (0,1)),
+    source_complete INTEGER NOT NULL CHECK(source_complete IN (0,1)),
+    eligible_count INTEGER NOT NULL CHECK(eligible_count BETWEEN 0 AND 1000000),
+    met_count INTEGER NOT NULL CHECK(met_count BETWEEN 0 AND 1000000),
+    not_met_count INTEGER NOT NULL CHECK(not_met_count BETWEEN 0 AND 1000000),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 1000000),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 1000000),
+    superseded_excluded_count INTEGER NOT NULL CHECK(superseded_excluded_count BETWEEN 0 AND 1000000),
+    distinct_owner_count INTEGER NOT NULL CHECK(distinct_owner_count BETWEEN 0 AND 1000000),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,metric_key),
+    UNIQUE(run_id,metric_ordinal),
+    FOREIGN KEY(run_id,metric_key)
+      REFERENCES session_model_ensemble_metrics(run_id,metric_key) ON DELETE CASCADE,
+    CHECK(met_count+not_met_count+pending_count+unknown_count=eligible_count),
+    CHECK(
+      capability_available=1
+      OR eligible_count=0
+      OR (
+        metric_key='logic.requirement_action_traceability'
+        AND value_state='unknown'
+        AND explanation_code='requirement_action_evidence_unavailable'
+        AND source_complete=1
+        AND met_count=0
+        AND not_met_count=0
+        AND pending_count=0
+        AND unknown_count=eligible_count
+      )
+    ),
+    CHECK(denominator_basis NOT IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NOT NULL),
+    CHECK(denominator_basis IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NULL),
+    CHECK((censoring_lower_bound IS NULL)=(censoring_upper_bound IS NULL)),
+    CHECK(censoring_lower_bound IS NULL OR censoring_lower_bound<=censoring_upper_bound),
+    CHECK(
+      (value_state='known' AND numerator IS NOT NULL AND denominator IS NOT NULL
+       AND numeric_value IS NOT NULL AND numerator<=denominator
+       AND abs(numeric_value-(CAST(numerator AS REAL)/denominator))<=0.000000001
+       AND censoring_lower_bound IS NOT NULL
+       AND abs(censoring_lower_bound-numeric_value)<=0.000000001
+       AND abs(censoring_upper_bound-numeric_value)<=0.000000001)
+      OR
+      (value_state<>'known' AND numerator IS NULL AND denominator IS NULL
+       AND numeric_value IS NULL)
+    ),
+    CHECK(value_state<>'pending' OR pending_count>0),
+    CHECK(value_state<>'pending' OR (
+      capability_available=1 AND source_complete=1
+      AND eligible_count>0 AND unknown_count=0
+      AND censoring_lower_bound IS NOT NULL
+      AND censoring_upper_bound IS NOT NULL
+      AND abs(censoring_lower_bound-(CAST(met_count AS REAL)/eligible_count))<=0.000000001
+      AND abs(censoring_upper_bound-
+              (CAST(met_count+pending_count AS REAL)/eligible_count))<=0.000000001
+    )),
+    CHECK(value_state<>'not_applicable' OR eligible_count=0),
+    CHECK(evidence_authority<>'objective_receipt' OR value_state<>'known'
+          OR denominator_basis='objective_opportunities')
+) STRICT;
+
+CREATE TABLE session_model_ensemble_metric_publication_v2_seals_r7 (
+    run_id TEXT PRIMARY KEY
+      REFERENCES session_model_ensemble_requirement_action_bindings(run_id)
+      ON DELETE CASCADE,
+    publication_key TEXT NOT NULL CHECK(publication_key='metric.contract-v2.publication'),
+    publication_version INTEGER NOT NULL CHECK(publication_version=2),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    contract_set_fingerprint TEXT NOT NULL CHECK(length(contract_set_fingerprint)=64 AND contract_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-7'),
+    guidance_contract_version TEXT NOT NULL CHECK(guidance_contract_version='metric-guidance-contract-v1'),
+    guidance_template_catalog_version TEXT NOT NULL CHECK(guidance_template_catalog_version='metric-guidance-templates-v1'),
+    source TEXT NOT NULL CHECK(source='live_projection'),
+    canonical_live_snapshot INTEGER NOT NULL CHECK(canonical_live_snapshot=1),
+    model_stage_consumed INTEGER NOT NULL CHECK(model_stage_consumed=0),
+    compatibility_preview INTEGER NOT NULL CHECK(compatibility_preview=0),
+    metric_count INTEGER NOT NULL CHECK(metric_count=20),
+    known_count INTEGER NOT NULL CHECK(known_count BETWEEN 0 AND 20),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 20),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 20),
+    not_applicable_count INTEGER NOT NULL CHECK(not_applicable_count BETWEEN 0 AND 20),
+    abstained_count INTEGER NOT NULL CHECK(abstained_count BETWEEN 0 AND 20),
+    execution_error_count INTEGER NOT NULL CHECK(execution_error_count BETWEEN 0 AND 20),
+    objective_measured_count INTEGER NOT NULL CHECK(objective_measured_count BETWEEN 0 AND 5),
+    projection_fingerprint TEXT NOT NULL CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    profile_source TEXT NOT NULL CHECK(profile_source IN ('coaching_profile_v1_unconfigured','declared_task_profile')),
+    profile_id TEXT CHECK(profile_id IS NULL OR (length(profile_id)=64 AND profile_id NOT GLOB '*[^0-9a-f]*')),
+    profile_revision INTEGER CHECK(profile_revision IS NULL OR profile_revision BETWEEN 1 AND 1000000),
+    profile_fingerprint TEXT NOT NULL CHECK(length(profile_fingerprint)=64 AND profile_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    profile_schema_version TEXT NOT NULL CHECK(profile_schema_version IN ('coaching-profile-v1-unconfigured','declared-task-profile-v1')),
+    profile_policy_version TEXT NOT NULL CHECK(profile_policy_version IN ('server-preset-v1','authenticated-local-user-v1')),
+    profile_binding_fingerprint TEXT NOT NULL CHECK(length(profile_binding_fingerprint)=64 AND profile_binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    publication_profile_fingerprint TEXT NOT NULL CHECK(length(publication_profile_fingerprint)=64 AND publication_profile_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_source TEXT NOT NULL CHECK(requirement_plan_source IN ('unavailable','awaiting_review','reviewed_requirement_plan')),
+    requirement_plan_confirmation_id TEXT CHECK(requirement_plan_confirmation_id IS NULL OR (length(requirement_plan_confirmation_id)=64 AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_plan_proposal_id TEXT CHECK(requirement_plan_proposal_id IS NULL OR (length(requirement_plan_proposal_id)=64 AND requirement_plan_proposal_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_plan_evidence_fingerprint TEXT NOT NULL CHECK(length(requirement_plan_evidence_fingerprint)=64 AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_schema_version TEXT NOT NULL CHECK(requirement_plan_schema_version IN ('requirement-plan-unavailable-v1','requirement-plan-awaiting-review-v1','requirement-plan-evidence-v1')),
+    requirement_plan_policy_version TEXT NOT NULL CHECK(requirement_plan_policy_version='reviewed-requirement-plan-v1'),
+    requirement_plan_binding_fingerprint TEXT NOT NULL CHECK(length(requirement_plan_binding_fingerprint)=64 AND requirement_plan_binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    publication_requirement_plan_fingerprint TEXT NOT NULL CHECK(length(publication_requirement_plan_fingerprint)=64 AND publication_requirement_plan_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_action_source TEXT NOT NULL CHECK(requirement_action_source IN ('unavailable','awaiting_review','candidate_manifest_overflow','candidate_source_incomplete','binding_invalid','reviewed_requirement_action')),
+    requirement_action_source_run_id TEXT CHECK(requirement_action_source_run_id IS NULL OR (length(requirement_action_source_run_id)=64 AND requirement_action_source_run_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_requirement_plan_confirmation_id TEXT CHECK(requirement_action_requirement_plan_confirmation_id IS NULL OR (length(requirement_action_requirement_plan_confirmation_id)=64 AND requirement_action_requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_requirement_plan_evidence_fingerprint TEXT CHECK(requirement_action_requirement_plan_evidence_fingerprint IS NULL OR (length(requirement_action_requirement_plan_evidence_fingerprint)=64 AND requirement_action_requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_candidate_manifest_fingerprint TEXT CHECK(requirement_action_candidate_manifest_fingerprint IS NULL OR (length(requirement_action_candidate_manifest_fingerprint)=64 AND requirement_action_candidate_manifest_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_reviewed_descriptor_set_fingerprint TEXT CHECK(requirement_action_reviewed_descriptor_set_fingerprint IS NULL OR (length(requirement_action_reviewed_descriptor_set_fingerprint)=64 AND requirement_action_reviewed_descriptor_set_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_confirmation_id TEXT CHECK(requirement_action_confirmation_id IS NULL OR (length(requirement_action_confirmation_id)=64 AND requirement_action_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_proposal_id TEXT CHECK(requirement_action_proposal_id IS NULL OR (length(requirement_action_proposal_id)=64 AND requirement_action_proposal_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_evidence_fingerprint TEXT NOT NULL CHECK(length(requirement_action_evidence_fingerprint)=64 AND requirement_action_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_action_schema_version TEXT NOT NULL CHECK(requirement_action_schema_version IN ('requirement-action-unavailable-v1','requirement-action-awaiting-review-v1','requirement-action-candidate-manifest-overflow-v1','requirement-action-candidate-source-incomplete-v1','requirement-action-binding-invalid-v1','requirement-action-evidence-v1')),
+    requirement_action_policy_version TEXT NOT NULL CHECK(requirement_action_policy_version='reviewed-requirement-action-v1'),
+    requirement_action_binding_fingerprint TEXT NOT NULL CHECK(length(requirement_action_binding_fingerprint)=64 AND requirement_action_binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    publication_requirement_action_fingerprint TEXT NOT NULL CHECK(length(publication_requirement_action_fingerprint)=64 AND publication_requirement_action_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projected_at TEXT NOT NULL CHECK(length(projected_at)=32 AND substr(projected_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    CHECK(known_count+pending_count+unknown_count+not_applicable_count+
+          abstained_count+execution_error_count=metric_count)
+) STRICT;
+
+-- Every frozen r1-r6 identity rejects r7 in either insertion order.
+CREATE TRIGGER session_metric_r1_states_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_states_v2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r1_seals_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r2_states_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r2_seals_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r3_states_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r3
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r3_seals_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r3
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r4_states_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r4
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r4_seals_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r4
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r5_states_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r5
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r5_seals_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r5
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r6_states_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r6
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r6_seals_reject_r7 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r6
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_metric_r7_states_exact
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r7
+WHEN NOT EXISTS(SELECT 1 FROM session_model_ensemble_metric_profile_bindings WHERE run_id=NEW.run_id)
+ OR NOT EXISTS(SELECT 1 FROM session_model_ensemble_requirement_plan_bindings WHERE run_id=NEW.run_id)
+ OR NOT EXISTS(SELECT 1 FROM session_model_ensemble_requirement_action_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r6 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r6 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_metric_r7_seal_complete
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r7
+WHEN NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_runs run
+       JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+       WHERE run.run_id=NEW.run_id AND run.metric_count=NEW.metric_count
+     )
+ OR NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_metric_profile_bindings binding
+       WHERE binding.run_id=NEW.run_id
+         AND binding.profile_source=NEW.profile_source
+         AND binding.profile_id IS NEW.profile_id
+         AND binding.profile_revision IS NEW.profile_revision
+         AND binding.profile_fingerprint=NEW.profile_fingerprint
+         AND binding.profile_schema_version=NEW.profile_schema_version
+         AND binding.profile_policy_version=NEW.profile_policy_version
+         AND binding.binding_fingerprint=NEW.profile_binding_fingerprint
+     )
+ OR NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_requirement_plan_bindings binding
+       WHERE binding.run_id=NEW.run_id
+         AND binding.evidence_source=NEW.requirement_plan_source
+         AND binding.confirmation_id IS NEW.requirement_plan_confirmation_id
+         AND binding.proposal_id IS NEW.requirement_plan_proposal_id
+         AND binding.evidence_fingerprint=NEW.requirement_plan_evidence_fingerprint
+         AND binding.evidence_schema_version=NEW.requirement_plan_schema_version
+         AND binding.evidence_policy_version=NEW.requirement_plan_policy_version
+         AND binding.binding_fingerprint=NEW.requirement_plan_binding_fingerprint
+     )
+ OR NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_requirement_action_bindings binding
+       WHERE binding.run_id=NEW.run_id
+         AND binding.evidence_source=NEW.requirement_action_source
+         AND binding.source_run_id IS NEW.requirement_action_source_run_id
+         AND binding.requirement_plan_confirmation_id IS
+             NEW.requirement_action_requirement_plan_confirmation_id
+         AND binding.requirement_plan_evidence_fingerprint IS
+             NEW.requirement_action_requirement_plan_evidence_fingerprint
+         AND binding.candidate_manifest_fingerprint IS
+             NEW.requirement_action_candidate_manifest_fingerprint
+         AND binding.reviewed_descriptor_set_fingerprint IS
+             NEW.requirement_action_reviewed_descriptor_set_fingerprint
+         AND binding.confirmation_id IS NEW.requirement_action_confirmation_id
+         AND binding.proposal_id IS NEW.requirement_action_proposal_id
+         AND binding.evidence_fingerprint=NEW.requirement_action_evidence_fingerprint
+         AND binding.evidence_schema_version=NEW.requirement_action_schema_version
+         AND binding.evidence_policy_version=NEW.requirement_action_policy_version
+         AND binding.binding_fingerprint=NEW.requirement_action_binding_fingerprint
+     )
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)<>20
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id AND value_state='known')<>NEW.known_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id AND value_state='pending')<>NEW.pending_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id AND value_state='unknown')<>NEW.unknown_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id AND value_state='not_applicable')<>NEW.not_applicable_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id AND value_state='abstained')<>NEW.abstained_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id AND value_state='execution_error')<>NEW.execution_error_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id AND evidence_authority='objective_receipt' AND value_state='known')<>NEW.objective_measured_count
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7
+           WHERE run_id=NEW.run_id AND
+             (registry_version<>NEW.registry_version OR projection_version<>NEW.projection_version))
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 publication is incomplete'); END;
+
+-- M56 appends semantic cross-binding to the frozen r6 table without changing
+-- the M55 migration bytes.  Existing corrupt rows fail closed in repository
+-- hydration; every new r6/r7 seal must match its exact authority marker.
+CREATE TRIGGER session_metric_r6_plan_state_binding_exact_m56
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r6
+WHEN NOT EXISTS(
+  SELECT 1
+  FROM session_model_ensemble_requirement_plan_bindings binding
+  JOIN session_model_ensemble_metric_states_v2_r6 state
+    ON state.run_id=binding.run_id
+   AND state.metric_key='logic.decomposition_coverage'
+  WHERE binding.run_id=NEW.run_id
+    AND state.superseded_excluded_count=0 AND (
+    (binding.evidence_source='unavailable'
+     AND state.value_state='unknown'
+     AND state.explanation_code='requirement_plan_evidence_unavailable'
+     AND state.capability_available=0 AND state.source_complete=1
+     AND state.eligible_count=0 AND state.met_count=0
+     AND state.not_met_count=0 AND state.pending_count=0
+     AND state.unknown_count=0 AND state.distinct_owner_count=0
+     AND state.censoring_lower_bound IS NULL
+     AND state.censoring_upper_bound IS NULL)
+    OR
+    (binding.evidence_source='awaiting_review'
+     AND state.value_state='unknown'
+     AND state.explanation_code='requirement_plan_evidence_confirmation_required'
+     AND state.capability_available=1 AND state.source_complete=1
+     AND state.eligible_count=0 AND state.met_count=0
+     AND state.not_met_count=0 AND state.pending_count=0
+     AND state.unknown_count=0 AND state.distinct_owner_count=0
+     AND state.censoring_lower_bound IS NULL
+     AND state.censoring_upper_bound IS NULL)
+    OR
+    (binding.evidence_source='reviewed_requirement_plan' AND (
+      (state.value_state='unknown'
+       AND state.explanation_code='requirement_plan_evidence_invalid'
+       AND state.capability_available=1 AND state.source_complete=0
+       AND state.eligible_count=0 AND state.met_count=0
+       AND state.not_met_count=0 AND state.pending_count=0
+       AND state.unknown_count=0 AND state.distinct_owner_count=0
+       AND state.censoring_lower_bound IS NULL
+       AND state.censoring_upper_bound IS NULL)
+      OR
+      (state.value_state='known'
+       AND state.explanation_code='reviewed_requirement_plan_links'
+       AND state.capability_available=1 AND state.source_complete=1
+       AND state.eligible_count>0 AND state.pending_count=0
+       AND state.unknown_count=0
+       AND state.distinct_owner_count=state.eligible_count)
+      OR
+      (state.value_state='pending'
+       AND state.explanation_code='opportunity_right_censored'
+       AND state.capability_available=1 AND state.source_complete=1
+       AND state.eligible_count>0 AND state.pending_count>0
+       AND state.unknown_count=0
+       AND state.distinct_owner_count=state.eligible_count
+       AND abs(state.censoring_lower_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))<=0.000000001
+       AND abs(state.censoring_upper_bound-
+               (CAST(state.met_count+state.pending_count AS REAL)/state.eligible_count))<=0.000000001)
+      OR
+      (state.value_state='not_applicable'
+       AND state.explanation_code='no_opportunity_observed'
+       AND state.capability_available=1 AND state.source_complete=1
+       AND state.eligible_count=0 AND state.met_count=0
+       AND state.not_met_count=0 AND state.pending_count=0
+       AND state.unknown_count=0 AND state.distinct_owner_count=0)
+    ))
+  )
+)
+BEGIN SELECT RAISE(ABORT,'metric V2 r6 publication is incomplete: requirement-plan binding mismatch'); END;
+
+CREATE TRIGGER session_metric_r7_plan_state_binding_exact
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r7
+WHEN NOT EXISTS(
+  SELECT 1
+  FROM session_model_ensemble_requirement_plan_bindings binding
+  JOIN session_model_ensemble_metric_states_v2_r7 state
+    ON state.run_id=binding.run_id
+   AND state.metric_key='logic.decomposition_coverage'
+  WHERE binding.run_id=NEW.run_id
+    AND state.superseded_excluded_count=0 AND (
+    (binding.evidence_source='unavailable'
+     AND state.value_state='unknown'
+     AND state.explanation_code='requirement_plan_evidence_unavailable'
+     AND state.capability_available=0 AND state.source_complete=1
+     AND state.eligible_count=0 AND state.met_count=0
+     AND state.not_met_count=0 AND state.pending_count=0
+     AND state.unknown_count=0 AND state.distinct_owner_count=0
+     AND state.censoring_lower_bound IS NULL
+     AND state.censoring_upper_bound IS NULL)
+    OR
+    (binding.evidence_source='awaiting_review'
+     AND state.value_state='unknown'
+     AND state.explanation_code='requirement_plan_evidence_confirmation_required'
+     AND state.capability_available=1 AND state.source_complete=1
+     AND state.eligible_count=0 AND state.met_count=0
+     AND state.not_met_count=0 AND state.pending_count=0
+     AND state.unknown_count=0 AND state.distinct_owner_count=0
+     AND state.censoring_lower_bound IS NULL
+     AND state.censoring_upper_bound IS NULL)
+    OR
+    (binding.evidence_source='reviewed_requirement_plan' AND (
+      (state.value_state='unknown'
+       AND state.explanation_code='requirement_plan_evidence_invalid'
+       AND state.capability_available=1 AND state.source_complete=0
+       AND state.eligible_count=0 AND state.met_count=0
+       AND state.not_met_count=0 AND state.pending_count=0
+       AND state.unknown_count=0 AND state.distinct_owner_count=0
+       AND state.censoring_lower_bound IS NULL
+       AND state.censoring_upper_bound IS NULL)
+      OR
+      (state.value_state='known'
+       AND state.explanation_code='reviewed_requirement_plan_links'
+       AND state.capability_available=1 AND state.source_complete=1
+       AND state.eligible_count>0 AND state.pending_count=0
+       AND state.unknown_count=0
+       AND state.distinct_owner_count=state.eligible_count)
+      OR
+      (state.value_state='pending'
+       AND state.explanation_code='opportunity_right_censored'
+       AND state.capability_available=1 AND state.source_complete=1
+       AND state.eligible_count>0 AND state.pending_count>0
+       AND state.unknown_count=0
+       AND state.distinct_owner_count=state.eligible_count
+       AND abs(state.censoring_lower_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))<=0.000000001
+       AND abs(state.censoring_upper_bound-
+               (CAST(state.met_count+state.pending_count AS REAL)/state.eligible_count))<=0.000000001)
+      OR
+      (state.value_state='not_applicable'
+       AND state.explanation_code='no_opportunity_observed'
+       AND state.capability_available=1 AND state.source_complete=1
+       AND state.eligible_count=0 AND state.met_count=0
+       AND state.not_met_count=0 AND state.pending_count=0
+       AND state.unknown_count=0 AND state.distinct_owner_count=0)
+    ))
+  )
+)
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 publication is incomplete: requirement-plan binding mismatch'); END;
+
+CREATE TRIGGER session_metric_r7_action_state_binding_exact
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r7
+WHEN NOT EXISTS(
+  SELECT 1
+  FROM session_model_ensemble_requirement_action_bindings binding
+  JOIN session_model_ensemble_metric_states_v2_r7 state
+    ON state.run_id=binding.run_id
+   AND state.metric_key='logic.requirement_action_traceability'
+  WHERE binding.run_id=NEW.run_id
+    AND state.superseded_excluded_count=0 AND (
+    (binding.evidence_source='unavailable'
+     AND state.value_state='unknown'
+     AND state.explanation_code='requirement_action_evidence_unavailable'
+     AND state.capability_available=0 AND state.source_complete=1
+     AND state.met_count=0 AND state.not_met_count=0
+     AND state.pending_count=0 AND state.unknown_count=state.eligible_count
+     AND state.distinct_owner_count=state.eligible_count
+     AND state.censoring_lower_bound IS NULL
+     AND state.censoring_upper_bound IS NULL)
+    OR
+    (binding.evidence_source='awaiting_review'
+     AND state.value_state='unknown'
+     AND state.explanation_code='requirement_action_evidence_confirmation_required'
+     AND state.capability_available=1 AND state.source_complete=1
+     AND state.met_count=0 AND state.not_met_count=0
+     AND state.pending_count=0 AND state.unknown_count=state.eligible_count
+     AND state.distinct_owner_count=state.eligible_count
+     AND state.censoring_lower_bound IS NULL
+     AND state.censoring_upper_bound IS NULL)
+    OR
+    (binding.evidence_source='candidate_manifest_overflow'
+     AND state.value_state='unknown'
+     AND state.explanation_code='requirement_action_evidence_overflow'
+     AND state.capability_available=1 AND state.source_complete=1
+     AND state.met_count=0 AND state.not_met_count=0
+     AND state.pending_count=0 AND state.unknown_count=state.eligible_count
+     AND state.distinct_owner_count=state.eligible_count
+     AND state.censoring_lower_bound IS NULL
+     AND state.censoring_upper_bound IS NULL)
+    OR
+    (binding.evidence_source='candidate_source_incomplete'
+     AND state.value_state='unknown'
+     AND state.explanation_code='requirement_action_candidate_source_incomplete'
+     AND state.capability_available=1 AND state.source_complete=0
+     AND state.met_count=0 AND state.not_met_count=0
+     AND state.pending_count=0 AND state.unknown_count=state.eligible_count
+     AND state.distinct_owner_count=state.eligible_count
+     AND state.censoring_lower_bound IS NULL
+     AND state.censoring_upper_bound IS NULL)
+    OR
+    (binding.evidence_source='binding_invalid'
+     AND state.value_state='unknown'
+     AND state.explanation_code='requirement_action_evidence_invalid'
+     AND state.capability_available=1 AND state.source_complete=0
+     AND state.met_count=0 AND state.not_met_count=0
+     AND state.pending_count=0 AND state.unknown_count=state.eligible_count
+     AND state.distinct_owner_count=state.eligible_count
+     AND state.censoring_lower_bound IS NULL
+     AND state.censoring_upper_bound IS NULL)
+    OR
+    (binding.evidence_source='reviewed_requirement_action' AND (
+      (state.value_state='known'
+       AND state.explanation_code='reviewed_requirement_action_links'
+       AND state.capability_available=1 AND state.source_complete=1
+       AND state.eligible_count>0 AND state.pending_count=0
+       AND state.unknown_count=0
+       AND state.distinct_owner_count=state.eligible_count)
+      OR
+      (state.value_state='pending'
+       AND state.explanation_code='opportunity_right_censored'
+       AND state.capability_available=1 AND state.source_complete=1
+       AND state.eligible_count>0 AND state.pending_count>0
+       AND state.unknown_count=0
+       AND state.distinct_owner_count=state.eligible_count
+       AND abs(state.censoring_lower_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))<=0.000000001
+       AND abs(state.censoring_upper_bound-
+               (CAST(state.met_count+state.pending_count AS REAL)/state.eligible_count))<=0.000000001)
+      OR
+      (state.value_state='not_applicable'
+       AND state.explanation_code='no_opportunity_observed'
+       AND state.capability_available=1 AND state.source_complete=1
+       AND state.eligible_count=0 AND state.met_count=0
+       AND state.not_met_count=0 AND state.pending_count=0
+       AND state.unknown_count=0 AND state.distinct_owner_count=0)
+    ))
+  )
+)
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 publication is incomplete: requirement-action binding mismatch'); END;
+
+CREATE TRIGGER session_metric_r7_requirement_action_denominator_exact
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r7
+WHEN NOT EXISTS(
+  SELECT 1
+  FROM session_model_ensemble_metric_states_v2_r7 plan
+  JOIN session_model_ensemble_metric_states_v2_r7 action
+    ON action.run_id=plan.run_id
+   AND action.metric_key='logic.requirement_action_traceability'
+  WHERE plan.run_id=NEW.run_id
+    AND plan.metric_key='logic.decomposition_coverage'
+    AND action.eligible_count = CASE WHEN (
+      (plan.value_state='known'
+       AND plan.explanation_code='reviewed_requirement_plan_links'
+       AND plan.capability_available=1 AND plan.source_complete=1
+       AND plan.superseded_excluded_count=0
+       AND plan.eligible_count>0 AND plan.pending_count=0
+       AND plan.unknown_count=0
+       AND plan.distinct_owner_count=plan.eligible_count)
+      OR
+      (plan.value_state='pending'
+       AND plan.explanation_code='opportunity_right_censored'
+       AND plan.capability_available=1 AND plan.source_complete=1
+       AND plan.superseded_excluded_count=0
+       AND plan.eligible_count>0 AND plan.pending_count>0
+       AND plan.unknown_count=0
+       AND plan.distinct_owner_count=plan.eligible_count
+       AND abs(plan.censoring_lower_bound-
+               (CAST(plan.met_count AS REAL)/plan.eligible_count))<=0.000000001
+       AND abs(plan.censoring_upper_bound-
+               (CAST(plan.met_count+plan.pending_count AS REAL)/plan.eligible_count))<=0.000000001)
+      OR
+      (plan.value_state='not_applicable'
+       AND plan.explanation_code='no_opportunity_observed'
+       AND plan.capability_available=1 AND plan.source_complete=1
+       AND plan.superseded_excluded_count=0
+       AND plan.eligible_count=0 AND plan.unknown_count=0)
+    ) THEN plan.eligible_count ELSE 0 END
+)
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 publication is incomplete: requirement-action denominator mismatch'); END;
+
+CREATE TRIGGER session_metric_r7_states_sealed_insert
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r7
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 publication is sealed'); END;
+CREATE TRIGGER session_model_ensemble_requirement_action_bindings_no_update
+BEFORE UPDATE ON session_model_ensemble_requirement_action_bindings
+BEGIN SELECT RAISE(ABORT,'requirement-action bindings are immutable'); END;
+CREATE TRIGGER session_metric_r7_states_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_states_v2_r7
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 states are immutable'); END;
+CREATE TRIGGER session_metric_r7_seals_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_publication_v2_seals_r7
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 seals are immutable'); END;
+CREATE TRIGGER session_model_ensemble_requirement_action_bindings_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_requirement_action_bindings
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'requirement-action binding requires parent privacy deletion'); END;
+CREATE TRIGGER session_metric_r7_states_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_states_v2_r7
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 states require parent privacy deletion'); END;
+CREATE TRIGGER session_metric_r7_seals_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_publication_v2_seals_r7
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 seal requires parent privacy deletion'); END;
+
+COMMIT;
+"""
+
+
+MIGRATION_57 = r"""
+BEGIN IMMEDIATE;
+
+-- M57 preserves the byte-frozen M56 migration and adds future-write guards
+-- that bind every resolved reviewed metric row to its keyed evidence graph.
+CREATE TRIGGER session_metric_r6_plan_graph_state_exact_m57
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r6
+WHEN EXISTS(
+  SELECT 1
+  FROM session_model_ensemble_requirement_plan_bindings binding
+  JOIN session_model_ensemble_metric_states_v2_r6 state
+    ON state.run_id=binding.run_id
+   AND state.metric_key='logic.decomposition_coverage'
+  WHERE binding.run_id=NEW.run_id
+    AND binding.evidence_source='reviewed_requirement_plan'
+    AND state.value_state IN ('known','pending','not_applicable')
+    AND (
+      state.capability_available<>1 OR state.source_complete<>1
+      OR state.unknown_count<>0 OR state.superseded_excluded_count<>0
+      OR state.distinct_owner_count<>state.eligible_count
+      OR state.eligible_count<>(
+        SELECT COUNT(*) FROM requirement_plan_evidence_requirements item
+        WHERE item.proposal_id=binding.proposal_id
+      )
+      OR state.met_count<>(
+        SELECT COUNT(*) FROM requirement_plan_evidence_requirements item
+        WHERE item.proposal_id=binding.proposal_id
+          AND item.disposition='linked'
+      )
+      OR state.not_met_count<>(
+        SELECT COUNT(*) FROM requirement_plan_evidence_requirements item
+        WHERE item.proposal_id=binding.proposal_id
+          AND item.disposition='not_linked'
+      )
+      OR state.pending_count<>(
+        SELECT COUNT(*) FROM requirement_plan_evidence_requirements item
+        WHERE item.proposal_id=binding.proposal_id
+          AND item.disposition='pending'
+      )
+      OR (state.value_state='known' AND (
+        state.explanation_code<>'reviewed_requirement_plan_links'
+        OR state.eligible_count<=0 OR state.pending_count<>0
+        OR state.numerator IS NULL OR state.denominator IS NULL
+        OR state.numeric_value IS NULL
+        OR state.censoring_lower_bound IS NULL
+        OR state.censoring_upper_bound IS NULL
+        OR state.numerator<>state.met_count
+        OR state.denominator<>state.eligible_count
+        OR abs(state.numeric_value-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+        OR abs(state.censoring_lower_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+        OR abs(state.censoring_upper_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+      ))
+      OR (state.value_state='pending' AND (
+        state.explanation_code<>'opportunity_right_censored'
+        OR state.eligible_count<=0 OR state.pending_count<=0
+        OR state.numerator IS NOT NULL OR state.denominator IS NOT NULL
+        OR state.numeric_value IS NOT NULL
+        OR state.censoring_lower_bound IS NULL
+        OR state.censoring_upper_bound IS NULL
+        OR abs(state.censoring_lower_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+        OR abs(state.censoring_upper_bound-
+               (CAST(state.met_count+state.pending_count AS REAL)/state.eligible_count))>0.000000001
+      ))
+      OR (state.value_state='not_applicable' AND (
+        state.explanation_code<>'no_opportunity_observed'
+        OR state.eligible_count<>0 OR state.met_count<>0
+        OR state.not_met_count<>0 OR state.pending_count<>0
+        OR state.numerator IS NOT NULL OR state.denominator IS NOT NULL
+        OR state.numeric_value IS NOT NULL
+        OR state.censoring_lower_bound IS NOT NULL
+        OR state.censoring_upper_bound IS NOT NULL
+      ))
+    )
+)
+BEGIN SELECT RAISE(ABORT,'metric V2 r6 publication is incomplete: requirement-plan graph mismatch'); END;
+
+CREATE TRIGGER session_metric_r7_plan_graph_state_exact_m57
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r7
+WHEN EXISTS(
+  SELECT 1
+  FROM session_model_ensemble_requirement_plan_bindings binding
+  JOIN session_model_ensemble_metric_states_v2_r7 state
+    ON state.run_id=binding.run_id
+   AND state.metric_key='logic.decomposition_coverage'
+  WHERE binding.run_id=NEW.run_id
+    AND binding.evidence_source='reviewed_requirement_plan'
+    AND state.value_state IN ('known','pending','not_applicable')
+    AND (
+      state.capability_available<>1 OR state.source_complete<>1
+      OR state.unknown_count<>0 OR state.superseded_excluded_count<>0
+      OR state.distinct_owner_count<>state.eligible_count
+      OR state.eligible_count<>(
+        SELECT COUNT(*) FROM requirement_plan_evidence_requirements item
+        WHERE item.proposal_id=binding.proposal_id
+      )
+      OR state.met_count<>(
+        SELECT COUNT(*) FROM requirement_plan_evidence_requirements item
+        WHERE item.proposal_id=binding.proposal_id
+          AND item.disposition='linked'
+      )
+      OR state.not_met_count<>(
+        SELECT COUNT(*) FROM requirement_plan_evidence_requirements item
+        WHERE item.proposal_id=binding.proposal_id
+          AND item.disposition='not_linked'
+      )
+      OR state.pending_count<>(
+        SELECT COUNT(*) FROM requirement_plan_evidence_requirements item
+        WHERE item.proposal_id=binding.proposal_id
+          AND item.disposition='pending'
+      )
+      OR (state.value_state='known' AND (
+        state.explanation_code<>'reviewed_requirement_plan_links'
+        OR state.eligible_count<=0 OR state.pending_count<>0
+        OR state.numerator IS NULL OR state.denominator IS NULL
+        OR state.numeric_value IS NULL
+        OR state.censoring_lower_bound IS NULL
+        OR state.censoring_upper_bound IS NULL
+        OR state.numerator<>state.met_count
+        OR state.denominator<>state.eligible_count
+        OR abs(state.numeric_value-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+        OR abs(state.censoring_lower_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+        OR abs(state.censoring_upper_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+      ))
+      OR (state.value_state='pending' AND (
+        state.explanation_code<>'opportunity_right_censored'
+        OR state.eligible_count<=0 OR state.pending_count<=0
+        OR state.numerator IS NOT NULL OR state.denominator IS NOT NULL
+        OR state.numeric_value IS NOT NULL
+        OR state.censoring_lower_bound IS NULL
+        OR state.censoring_upper_bound IS NULL
+        OR abs(state.censoring_lower_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+        OR abs(state.censoring_upper_bound-
+               (CAST(state.met_count+state.pending_count AS REAL)/state.eligible_count))>0.000000001
+      ))
+      OR (state.value_state='not_applicable' AND (
+        state.explanation_code<>'no_opportunity_observed'
+        OR state.eligible_count<>0 OR state.met_count<>0
+        OR state.not_met_count<>0 OR state.pending_count<>0
+        OR state.numerator IS NOT NULL OR state.denominator IS NOT NULL
+        OR state.numeric_value IS NOT NULL
+        OR state.censoring_lower_bound IS NOT NULL
+        OR state.censoring_upper_bound IS NOT NULL
+      ))
+    )
+)
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 publication is incomplete: requirement-plan graph mismatch'); END;
+
+CREATE TRIGGER session_metric_r7_action_graph_state_exact_m57
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r7
+WHEN EXISTS(
+  SELECT 1
+  FROM session_model_ensemble_requirement_action_bindings binding
+  JOIN session_model_ensemble_metric_states_v2_r7 state
+    ON state.run_id=binding.run_id
+   AND state.metric_key='logic.requirement_action_traceability'
+  WHERE binding.run_id=NEW.run_id
+    AND binding.evidence_source='reviewed_requirement_action'
+    AND state.value_state IN ('known','pending','not_applicable')
+    AND (
+      state.capability_available<>1 OR state.source_complete<>1
+      OR state.unknown_count<>0 OR state.superseded_excluded_count<>0
+      OR state.distinct_owner_count<>state.eligible_count
+      OR state.eligible_count<>(
+        SELECT COUNT(*) FROM requirement_action_evidence_requirements requirement
+        WHERE requirement.proposal_id=binding.proposal_id
+      )
+      OR state.met_count<>(
+        SELECT COUNT(*)
+        FROM requirement_action_evidence_requirements requirement
+        WHERE requirement.proposal_id=binding.proposal_id
+          AND EXISTS(
+            SELECT 1
+            FROM requirement_action_evidence_links link
+            JOIN requirement_action_evidence_candidates candidate
+              ON candidate.proposal_id=link.proposal_id
+             AND candidate.candidate_index=link.candidate_index
+            WHERE link.proposal_id=requirement.proposal_id
+              AND link.requirement_index=requirement.requirement_index
+              AND candidate.state='completed'
+          )
+      )
+      OR state.pending_count<>(
+        SELECT COUNT(*)
+        FROM requirement_action_evidence_requirements requirement
+        WHERE requirement.proposal_id=binding.proposal_id
+          AND NOT EXISTS(
+            SELECT 1
+            FROM requirement_action_evidence_links link
+            JOIN requirement_action_evidence_candidates candidate
+              ON candidate.proposal_id=link.proposal_id
+             AND candidate.candidate_index=link.candidate_index
+            WHERE link.proposal_id=requirement.proposal_id
+              AND link.requirement_index=requirement.requirement_index
+              AND candidate.state='completed'
+          )
+          AND EXISTS(
+            SELECT 1
+            FROM requirement_action_evidence_links link
+            JOIN requirement_action_evidence_candidates candidate
+              ON candidate.proposal_id=link.proposal_id
+             AND candidate.candidate_index=link.candidate_index
+            WHERE link.proposal_id=requirement.proposal_id
+              AND link.requirement_index=requirement.requirement_index
+              AND candidate.state IN ('started','unknown')
+          )
+      )
+      OR state.not_met_count<>(
+        SELECT COUNT(*)
+        FROM requirement_action_evidence_requirements requirement
+        WHERE requirement.proposal_id=binding.proposal_id
+          AND NOT EXISTS(
+            SELECT 1
+            FROM requirement_action_evidence_links link
+            JOIN requirement_action_evidence_candidates candidate
+              ON candidate.proposal_id=link.proposal_id
+             AND candidate.candidate_index=link.candidate_index
+            WHERE link.proposal_id=requirement.proposal_id
+              AND link.requirement_index=requirement.requirement_index
+              AND candidate.state IN ('completed','started','unknown')
+          )
+      )
+      OR (state.value_state='known' AND (
+        state.explanation_code<>'reviewed_requirement_action_links'
+        OR state.eligible_count<=0 OR state.pending_count<>0
+        OR state.numerator IS NULL OR state.denominator IS NULL
+        OR state.numeric_value IS NULL
+        OR state.censoring_lower_bound IS NULL
+        OR state.censoring_upper_bound IS NULL
+        OR state.numerator<>state.met_count
+        OR state.denominator<>state.eligible_count
+        OR abs(state.numeric_value-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+        OR abs(state.censoring_lower_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+        OR abs(state.censoring_upper_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+      ))
+      OR (state.value_state='pending' AND (
+        state.explanation_code<>'opportunity_right_censored'
+        OR state.eligible_count<=0 OR state.pending_count<=0
+        OR state.numerator IS NOT NULL OR state.denominator IS NOT NULL
+        OR state.numeric_value IS NOT NULL
+        OR state.censoring_lower_bound IS NULL
+        OR state.censoring_upper_bound IS NULL
+        OR abs(state.censoring_lower_bound-
+               (CAST(state.met_count AS REAL)/state.eligible_count))>0.000000001
+        OR abs(state.censoring_upper_bound-
+               (CAST(state.met_count+state.pending_count AS REAL)/state.eligible_count))>0.000000001
+      ))
+      OR (state.value_state='not_applicable' AND (
+        state.explanation_code<>'no_opportunity_observed'
+        OR state.eligible_count<>0 OR state.met_count<>0
+        OR state.not_met_count<>0 OR state.pending_count<>0
+        OR state.numerator IS NOT NULL OR state.denominator IS NOT NULL
+        OR state.numeric_value IS NOT NULL
+        OR state.censoring_lower_bound IS NOT NULL
+        OR state.censoring_upper_bound IS NOT NULL
+      ))
+    )
+)
+BEGIN SELECT RAISE(ABORT,'metric V2 r7 publication is incomplete: requirement-action graph mismatch'); END;
+
+COMMIT;
+"""
+

@@ -14,7 +14,20 @@ function publicationFor(
   projectionVersion: ProjectionVersion,
   scenarios: Partial<Record<MetricKeyV2, MetricScenarioV2>> = {},
 ) {
-  const publication = structuredClone(syntheticMetricPublicationV2(scenarios));
+  const resolvedScenarios = projectionVersion === "metric-contract-v2-projection-7"
+    && scenarios["logic.requirement_action_traceability"] === undefined
+    ? {
+        ...scenarios,
+        "logic.requirement_action_traceability": {
+          value_state: "unknown" as const,
+          capability_available: false,
+          source_complete: true,
+          eligible: 0,
+          explanation_code: "requirement_action_evidence_unavailable",
+        },
+      }
+    : scenarios;
+  const publication = structuredClone(syntheticMetricPublicationV2(resolvedScenarios));
   publication.projection_version = projectionVersion;
   for (const metric of publication.metrics) metric.state.projection_version = projectionVersion;
   return publication;
@@ -53,6 +66,43 @@ describe("metric evidence readiness presentation binding", () => {
     expect(readiness.objective_measured_count).toBe(0);
     expect(readiness.metrics.find((row) => row.metric_key === "logic.hypothesis_test_linkage")?.required_adapter_capabilities)
       .toEqual(["hypothesis_opportunities", "hypothesis_evidence_links", "tool_events", "decision_events", "verification_events"]);
+  });
+
+  it("withholds pending readiness unless source authority and both censoring bounds are exact", () => {
+    const exact = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "pending", capability_available: true, source_complete: true,
+        eligible: 4, numerator: 1, pending: 2,
+        explanation_code: "opportunity_right_censored",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: false, source_complete: true,
+        eligible: 4, unknown: 4, explanation_code: "requirement_action_evidence_unavailable",
+      },
+    });
+    expect(metricEvidenceReadinessForPublication(
+      syntheticMetricEvidenceReadinessV2(exact),
+      exact,
+    )).not.toBeNull();
+
+    for (const mutate of [
+      (state: any) => { state.statistics.source_complete = false; },
+      (state: any) => { state.statistics.capability_available = false; },
+      (state: any) => { state.censoring_lower_bound = null; },
+      (state: any) => { state.censoring_upper_bound = null; },
+      (state: any) => { state.censoring_lower_bound = 0.5; },
+      (state: any) => { state.censoring_upper_bound = 0.5; },
+    ]) {
+      const attacked = structuredClone(exact);
+      const state = attacked.metrics.find(
+        (item) => item.state.metric_key === "logic.decomposition_coverage",
+      )!.state;
+      mutate(state);
+      expect(metricEvidenceReadinessForPublication(
+        syntheticMetricEvidenceReadinessV2(attacked),
+        attacked,
+      )).toBeNull();
+    }
   });
 
   it("withholds contributor prose when identity, row order, counts, or contributor partitions drift", () => {
@@ -278,7 +328,7 @@ describe("metric evidence readiness presentation binding", () => {
         capability_available: true,
         source_complete: true,
         eligible: 0,
-        explanation_code: "reviewed_requirement_plan_links",
+        explanation_code: "no_opportunity_observed",
       },
     });
     const emptyReadiness = syntheticMetricEvidenceReadinessV2(
@@ -295,6 +345,309 @@ describe("metric evidence readiness presentation binding", () => {
       syntheticMetricEvidenceReadinessV2(emptyReviewedEnumeration),
       emptyReviewedEnumeration,
     )).not.toBeNull();
+  });
+
+  it("binds r7 action traceability only to a complete reviewed requirement-action graph", () => {
+    const publication = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "known",
+        numerator: 2,
+        denominator: 3,
+        explanation_code: "reviewed_requirement_plan_links",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "known",
+        numerator: 2,
+        denominator: 3,
+        explanation_code: "reviewed_requirement_action_links",
+      },
+    });
+    const readiness = syntheticMetricEvidenceReadinessV2(publication);
+    const action = readiness.metrics.find(
+      (row) => row.metric_key === "logic.requirement_action_traceability",
+    );
+
+    expect(readiness.catalog_version).toBe("metric-evidence-readiness-v2-6");
+    expect(action).toMatchObject({
+      availability_state: "measured",
+      reason_code: "measured_from_owned_opportunities",
+      required_contributors: [
+        "reviewed_requirement_enumeration",
+        "reviewed_requirement_action_link",
+        "safe_action_candidate_enumeration",
+      ],
+      observed_contributors: [
+        "reviewed_requirement_enumeration",
+        "reviewed_requirement_action_link",
+        "safe_action_candidate_enumeration",
+      ],
+      missing_contributors: [],
+    });
+    expect(metricEvidenceReadinessForPublication(readiness, publication)).toEqual(readiness);
+
+    const staleCatalog = structuredClone(readiness) as any;
+    staleCatalog.catalog_version = "metric-evidence-readiness-v2-5";
+    expect(metricEvidenceReadinessForPublication(staleCatalog, publication)).toBeNull();
+  });
+
+  it("keeps every unresolved r7 action authority fail-closed and reason-bound", () => {
+    for (const [explanationCode, scenario, reason] of [
+      [
+        "requirement_action_evidence_unavailable",
+        { capability_available: false, source_complete: true, eligible: 2, unknown: 2 },
+        "reviewed_requirement_action_service_required",
+      ],
+      [
+        "requirement_action_evidence_confirmation_required",
+        { capability_available: true, source_complete: true, eligible: 2, unknown: 2 },
+        "reviewed_requirement_action_confirmation_required",
+      ],
+      [
+        "requirement_action_evidence_invalid",
+        { capability_available: true, source_complete: false, eligible: 2, unknown: 2 },
+        "reviewed_requirement_action_binding_invalid",
+      ],
+      [
+        "requirement_action_evidence_overflow",
+        { capability_available: true, source_complete: true, eligible: 2, unknown: 2 },
+        "opportunity_set_exceeds_receipt_bound",
+      ],
+      [
+        "requirement_action_candidate_source_incomplete",
+        { capability_available: true, source_complete: false, eligible: 2, unknown: 2 },
+        "requirement_action_adapter_capabilities_required",
+      ],
+    ] as const) {
+      const publication = publicationFor("metric-contract-v2-projection-7", {
+        "logic.decomposition_coverage": {
+          value_state: "known" as const, numerator: 1, denominator: 2,
+          explanation_code: "reviewed_requirement_plan_links",
+        },
+        "logic.requirement_action_traceability": {
+          value_state: "unknown",
+          explanation_code: explanationCode,
+          ...scenario,
+        },
+      });
+      expectReasonBound(publication, "logic.requirement_action_traceability", reason);
+
+      const pendingPlanPublication = publicationFor("metric-contract-v2-projection-7", {
+        "logic.decomposition_coverage": {
+          value_state: "pending", capability_available: true, source_complete: true,
+          eligible: 2, numerator: 1, pending: 1,
+          explanation_code: "opportunity_right_censored",
+        },
+        "logic.requirement_action_traceability": {
+          value_state: "unknown",
+          explanation_code: explanationCode,
+          ...scenario,
+        },
+      });
+      expectReasonBound(
+        pendingPlanPublication,
+        "logic.requirement_action_traceability",
+        reason,
+      );
+
+      const denominatorDrift = publicationFor("metric-contract-v2-projection-7", {
+        "logic.decomposition_coverage": {
+          value_state: "known", numerator: 1, denominator: 2,
+          explanation_code: "reviewed_requirement_plan_links",
+        },
+        "logic.requirement_action_traceability": {
+          value_state: "unknown",
+          explanation_code: explanationCode,
+          ...scenario,
+          eligible: 1,
+          unknown: 1,
+        },
+      });
+      expect(metricEvidenceReadinessForPublication(
+        syntheticMetricEvidenceReadinessV2(denominatorDrift),
+        denominatorDrift,
+      )).toBeNull();
+    }
+
+    const reviewedDenominatorDrift = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "known", numerator: 1, denominator: 2,
+        explanation_code: "reviewed_requirement_plan_links",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "known", numerator: 1, denominator: 1,
+        explanation_code: "reviewed_requirement_action_links",
+      },
+    });
+    expect(metricEvidenceReadinessForPublication(
+      syntheticMetricEvidenceReadinessV2(reviewedDenominatorDrift),
+      reviewedDenominatorDrift,
+    )).toBeNull();
+
+    const emptyOverflow = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "not_applicable", capability_available: true, source_complete: true,
+        eligible: 0, explanation_code: "no_opportunity_observed",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: true, source_complete: true,
+        eligible: 0, unknown: 0, explanation_code: "requirement_action_evidence_overflow",
+      },
+    });
+    expectReasonBound(
+      emptyOverflow,
+      "logic.requirement_action_traceability",
+      "opportunity_set_exceeds_receipt_bound",
+    );
+
+    for (const planScenario of [
+      {
+        value_state: "unknown" as const, capability_available: false, source_complete: true,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_unavailable",
+      },
+      {
+        value_state: "unknown" as const, capability_available: true, source_complete: true,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_confirmation_required",
+      },
+      {
+        value_state: "unknown" as const, capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+      },
+    ]) {
+      const overflowBeforePlanAuthority = publicationFor("metric-contract-v2-projection-7", {
+        "logic.decomposition_coverage": planScenario,
+        "logic.requirement_action_traceability": {
+          value_state: "unknown", capability_available: true, source_complete: true,
+          eligible: 0, unknown: 0, explanation_code: "requirement_action_evidence_overflow",
+        },
+      });
+      expectReasonBound(
+        overflowBeforePlanAuthority,
+        "logic.requirement_action_traceability",
+        "opportunity_set_exceeds_receipt_bound",
+      );
+    }
+
+    const emptyUnavailable = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "not_applicable", capability_available: true, source_complete: true,
+        eligible: 0, explanation_code: "no_opportunity_observed",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: false, source_complete: true,
+        eligible: 0, unknown: 0, explanation_code: "requirement_action_evidence_unavailable",
+      },
+    });
+    expectReasonBound(
+      emptyUnavailable,
+      "logic.requirement_action_traceability",
+      "reviewed_requirement_action_service_required",
+    );
+
+    const reviewedPending = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "pending", capability_available: true, source_complete: true,
+        eligible: 2, numerator: 1, pending: 1,
+        explanation_code: "opportunity_right_censored",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "pending", capability_available: true, source_complete: true,
+        eligible: 2, numerator: 1, pending: 1,
+        explanation_code: "opportunity_right_censored",
+      },
+    });
+    expectReasonBound(
+      reviewedPending,
+      "logic.requirement_action_traceability",
+      "opportunity_right_censored",
+    );
+
+    const reviewedEmpty = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "not_applicable", capability_available: true, source_complete: true,
+        eligible: 0, explanation_code: "no_opportunity_observed",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "not_applicable", capability_available: true, source_complete: true,
+        eligible: 0, explanation_code: "no_opportunity_observed",
+      },
+    });
+    expectReasonBound(
+      reviewedEmpty,
+      "logic.requirement_action_traceability",
+      "no_eligible_opportunity_observed",
+    );
+    const reviewedEmptyWithInvalidPlan = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "not_applicable", capability_available: true, source_complete: true,
+        eligible: 0, explanation_code: "no_opportunity_observed",
+      },
+    });
+    expect(metricEvidenceReadinessForPublication(
+      syntheticMetricEvidenceReadinessV2(reviewedEmptyWithInvalidPlan),
+      reviewedEmptyWithInvalidPlan,
+    )).toBeNull();
+
+    const invalidPlan = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_action_evidence_invalid",
+      },
+    });
+    expectReasonBound(
+      invalidPlan,
+      "logic.requirement_action_traceability",
+      "reviewed_requirement_action_binding_invalid",
+    );
+    const invalidPlanWithInventedDenominator = publicationFor("metric-contract-v2-projection-7", {
+      "logic.decomposition_coverage": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 1, unknown: 1, explanation_code: "requirement_action_evidence_invalid",
+      },
+    });
+    expect(metricEvidenceReadinessForPublication(
+      syntheticMetricEvidenceReadinessV2(invalidPlanWithInventedDenominator),
+      invalidPlanWithInventedDenominator,
+    )).toBeNull();
+
+    for (const invalidScenario of [
+      { eligible: 2, unknown: 1, pending: 1 },
+      { eligible: 0, unknown: 0, pending: 0, met: 0, notMet: 0 },
+    ]) {
+      const invalid = publicationFor("metric-contract-v2-projection-7", {
+        "logic.decomposition_coverage": invalidScenario.eligible === 0 ? {
+          value_state: "not_applicable", capability_available: true, source_complete: true,
+          eligible: 0, explanation_code: "no_opportunity_observed",
+        } : {
+          value_state: "known", numerator: 1, denominator: 2,
+          explanation_code: "reviewed_requirement_plan_links",
+        },
+        "logic.requirement_action_traceability": {
+          value_state: "unknown", capability_available: true, source_complete: true,
+          explanation_code: "requirement_action_evidence_overflow",
+          ...invalidScenario,
+        },
+      });
+      const readiness = syntheticMetricEvidenceReadinessV2(invalid);
+      if (invalidScenario.eligible === 0) {
+        const state = invalid.metrics.find(
+          (item) => item.state.metric_key === "logic.requirement_action_traceability",
+        )!.state;
+        state.statistics.unknown_count = 1;
+      }
+      expect(metricEvidenceReadinessForPublication(readiness, invalid)).toBeNull();
+    }
   });
 
   it.each([
@@ -344,6 +697,7 @@ describe("metric evidence readiness presentation binding", () => {
       "metric-contract-v2-projection-4",
       "metric-contract-v2-projection-5",
       "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
     ] as const) {
       const publication = publicationFor(projection);
       expectReasonBound(publication, "logic.open_loop_closure", "explicit_plan_episode_required");
@@ -357,6 +711,18 @@ describe("metric evidence readiness presentation binding", () => {
         expectReasonBound(publication, metricKey, "confirmed_lifecycle_service_required");
       }
       if (projection === "metric-contract-v2-projection-6") {
+        expectReasonBound(
+          publication,
+          "logic.decomposition_coverage",
+          "reviewed_requirement_plan_service_required",
+        );
+      }
+      if (projection === "metric-contract-v2-projection-7") {
+        expectReasonBound(
+          publication,
+          "logic.requirement_action_traceability",
+          "reviewed_requirement_action_service_required",
+        );
         expectReasonBound(
           publication,
           "logic.decomposition_coverage",

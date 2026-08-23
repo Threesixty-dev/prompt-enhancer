@@ -34,6 +34,7 @@ const SAFE_CODE = /^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$/;
 const PROJECTIONS = [
   "metric-contract-v2-projection-5",
   "metric-contract-v2-projection-6",
+  "metric-contract-v2-projection-7",
 ] as const;
 const DISPOSITIONS = ["linked", "not_linked", "pending"] as const;
 const USER_CLASSIFICATIONS = [
@@ -105,7 +106,7 @@ export const REQUIREMENT_PLAN_FILE_CONSTRAINT_CODES = [
   "linked_plan_sequence_gte_requirement_sequence",
 ] as const;
 export const REQUIREMENT_PLAN_FILE_SCHEMA_SHA256 =
-  "cdbaf5739cd0ae0b46464495c1eeb4d1cd97e7d940774ec76a88cd98da1f2b6d";
+  "b087951a125ca98844f647990e249baff377a423184d5c9f418219377c3fa7ed";
 const PSEUDONYM_SCHEMA_PATTERN = "^[a-f0-9]{64}$";
 const SAFE_CODE_SCHEMA_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._+:/-]{0,127}$";
 
@@ -126,7 +127,7 @@ function coordinateFileSchema(title: string) {
   };
 }
 
-/** Exact JSON Schema supplied to local coding agents for the r6 content-free file. */
+/** Exact JSON Schema supplied to local coding agents for the r5-r7 content-free file. */
 export const REQUIREMENT_PLAN_FILE_JSON_SCHEMA = {
   $defs: {
     ExcludedRequirementClause: {

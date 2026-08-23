@@ -11,12 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 import re
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 
 from ...domain import (
     DataTier,
+    EventKind,
     MetricObservation,
     PSEUDONYM_PATTERN,
     Provider,
@@ -32,6 +33,16 @@ MAX_ANALYSIS_CHARACTERS = 500_000
 MAX_ELIGIBLE_MESSAGES = 10_000_000
 TEXT_METRIC_SCHEMA_VERSION = 2
 MAX_TEXT_METRIC_SIGNALS = 32
+MAX_ACTION_REVIEW_DESCRIPTORS = 4_000
+MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS = 120
+MAX_ACTION_REVIEW_PREVIEW_CHARACTERS = 4_096
+MAX_ACTION_REVIEW_TOTAL_CHARACTERS = 2 * 1024 * 1024
+ACTION_REVIEW_DESCRIPTOR_ALGORITHM_VERSION = (
+    "provider-local-redacted-action-descriptor-v1"
+)
+ACTION_CANDIDATE_METADATA_FINGERPRINT_VERSION = (
+    "requirement-action-candidate-metadata-v1"
+)
 
 _SAFE_LABEL = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
@@ -245,6 +256,82 @@ class EphemeralRedactedMessage(StrictModel):
         return value
 
 
+class EphemeralRedactedActionDescriptor(StrictModel):
+    """One process-only, locally redacted action review descriptor.
+
+    The descriptor is intentionally absent from every persistence contract and
+    model input.  It exists only so an owned local review surface can show the
+    operation and its observed result/effect before a person adopts an
+    agent-proposed requirement-to-action link.
+    """
+
+    source_reference_id: str
+    event_kind: EventKind
+    tool_name: SecretStr = Field(
+        repr=False,
+        min_length=1,
+        max_length=MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS,
+    )
+    invocation_preview: SecretStr = Field(
+        repr=False,
+        min_length=1,
+        max_length=MAX_ACTION_REVIEW_PREVIEW_CHARACTERS,
+    )
+    result_or_effect_preview: SecretStr | None = Field(
+        default=None,
+        repr=False,
+        min_length=1,
+        max_length=MAX_ACTION_REVIEW_PREVIEW_CHARACTERS,
+    )
+    invocation_truncated: bool
+    result_or_effect_truncated: bool
+    redactor_version: str
+    candidate_metadata_fingerprint_version: Literal[
+        ACTION_CANDIDATE_METADATA_FINGERPRINT_VERSION
+    ] | None = None
+    candidate_metadata_fingerprint: str | None = None
+    local_only: bool = True
+    content_persistence_allowed: bool = False
+
+    _source_reference = field_validator("source_reference_id")(_pseudonym)
+    _redactor = field_validator("redactor_version")(_safe_version)
+
+    @field_validator("candidate_metadata_fingerprint")
+    @classmethod
+    def optional_metadata_fingerprint(cls, value: str | None) -> str | None:
+        return None if value is None else _pseudonym(value)
+
+    @field_validator("tool_name", "invocation_preview", "result_or_effect_preview")
+    @classmethod
+    def no_nul(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and "\x00" in value.get_secret_value():
+            raise ValueError("action review descriptor cannot contain NUL")
+        return value
+
+    @model_validator(mode="after")
+    def exact_ephemeral_boundary(self) -> "EphemeralRedactedActionDescriptor":
+        if (self.candidate_metadata_fingerprint_version is None) != (
+            self.candidate_metadata_fingerprint is None
+        ):
+            raise ValueError(
+                "candidate metadata fingerprint fields must be paired"
+            )
+        if not self.local_only or self.content_persistence_allowed:
+            raise ValueError("action review descriptors are process-local only")
+        if self.event_kind not in {
+            EventKind.TOOL_START,
+            EventKind.TOOL_END,
+            EventKind.ARTIFACT,
+        }:
+            raise ValueError("action review descriptor names a non-action event")
+        if (
+            self.event_kind is not EventKind.TOOL_START
+            and self.result_or_effect_preview is None
+        ):
+            raise ValueError("completed action review requires a result or effect")
+        return self
+
+
 class MetricApplicabilityDecision(StrictModel):
     metric_key: str
     applicability: MetricApplicability
@@ -323,6 +410,13 @@ class P1TextAnalysisInput(StrictModel):
         min_length=1,
         max_length=MAX_ANALYSIS_MESSAGES,
     )
+    action_descriptor_algorithm_version: str | None = None
+    action_descriptor_extraction_complete: bool = False
+    action_descriptors: tuple[EphemeralRedactedActionDescriptor, ...] = Field(
+        default=(),
+        repr=False,
+        max_length=MAX_ACTION_REVIEW_DESCRIPTORS,
+    )
     task_profile: TextTaskProfile
 
     _validate_ids = field_validator(
@@ -334,6 +428,7 @@ class P1TextAnalysisInput(StrictModel):
         "source_schema_version",
         "content_schema_version",
         "redactor_version",
+        "action_descriptor_algorithm_version",
     )(_safe_version)
 
     @model_validator(mode="after")
@@ -350,6 +445,36 @@ class P1TextAnalysisInput(StrictModel):
             )
         if self.observed_message_count > self.eligible_message_count:
             raise ValueError("observed message count cannot exceed eligible count")
+        descriptor_ids = tuple(
+            item.source_reference_id for item in self.action_descriptors
+        )
+        if len(set(descriptor_ids)) != len(descriptor_ids):
+            raise ValueError("action review descriptor identifiers must be unique")
+        descriptor_characters = sum(
+            len(item.tool_name.get_secret_value())
+            + len(item.invocation_preview.get_secret_value())
+            + (
+                0
+                if item.result_or_effect_preview is None
+                else len(item.result_or_effect_preview.get_secret_value())
+            )
+            for item in self.action_descriptors
+        )
+        if descriptor_characters > MAX_ACTION_REVIEW_TOTAL_CHARACTERS:
+            raise ValueError("action review descriptors exceed their aggregate bound")
+        if any(
+            item.redactor_version != self.redactor_version
+            for item in self.action_descriptors
+        ):
+            raise ValueError("action review descriptor redactor provenance differs")
+        if self.action_descriptor_algorithm_version is None:
+            if self.action_descriptor_extraction_complete or self.action_descriptors:
+                raise ValueError("action descriptors require an algorithm identity")
+        elif (
+            self.action_descriptor_algorithm_version
+            != ACTION_REVIEW_DESCRIPTOR_ALGORITHM_VERSION
+        ):
+            raise ValueError("action descriptor algorithm is unsupported")
         if self.analysis_scope is not None:
             if self.observed_message_count > self.analysis_scope.requested_max_messages:
                 raise ValueError("observed window exceeds the requested message scope")

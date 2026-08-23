@@ -19,12 +19,24 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import StringIO
 import json
 from pathlib import Path
 
 from pydantic import SecretStr
 
 from ....adapters.base import AdapterHealth, AdapterProbe, ProviderAdapter
+from ....application.analysis.text_contracts import (
+    MAX_ACTION_REVIEW_DESCRIPTORS,
+    MAX_ACTION_REVIEW_PREVIEW_CHARACTERS,
+    MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS,
+    MAX_ACTION_REVIEW_TOTAL_CHARACTERS,
+)
+from ....application.analysis.evidence_contracts import ActionFamily, ActionState
+from ....application.analysis.provider_evidence import (
+    requirement_action_family_for_tool_category,
+    requirement_action_state_for_event,
+)
 from ....domain import (
     DataTier,
     EventKind,
@@ -67,6 +79,10 @@ MAX_TRANSCRIPT_PAGES = 200
 HEAD_LINES = 60
 USAGE_SEQUENCE_BASE = 3_000_000  # disjoint from hook (0+) and OTLP (1_000_000+) usage
 _KNOWN_TYPES = {"user", "assistant", "system", "summary", "queue-operation"}
+_USER_CONTENT_BLOCK_TYPES = frozenset({"text", "tool_result"})
+_ASSISTANT_CONTENT_BLOCK_TYPES = frozenset(
+    {"text", "thinking", "redacted_thinking", "tool_use"}
+)
 
 
 class TranscriptAdapterError(RuntimeError):
@@ -153,7 +169,11 @@ class TranscriptHead:
     version: str | None
 
 
-def read_head(path: Path) -> TranscriptHead:
+def read_head(
+    path: Path,
+    *,
+    snapshot_text: str | None = None,
+) -> TranscriptHead:
     """Metadata from the first lines only, so listing thousands of files stays cheap."""
 
     cwd = None
@@ -161,7 +181,11 @@ def read_head(path: Path) -> TranscriptHead:
     title = None
     version = None
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
+        with (
+            StringIO(snapshot_text)
+            if snapshot_text is not None
+            else path.open("r", encoding="utf-8", errors="replace")
+        ) as handle:
             for index, line in enumerate(handle):
                 if index >= HEAD_LINES:
                     break
@@ -200,12 +224,55 @@ def read_head(path: Path) -> TranscriptHead:
 @dataclass(frozen=True, slots=True)
 class ParsedTranscript:
     events: tuple[SourceEvent, ...]
+    action_details: tuple["TranscriptActionDetail", ...]
+    action_descriptor_extraction_complete: bool
     first_at: datetime | None
     last_at: datetime | None
     complete: bool
 
 
-def parse_events(path: Path, stem: str) -> ParsedTranscript:
+@dataclass(frozen=True, slots=True)
+class TranscriptActionDetail:
+    """Private bounded action detail; consumed only by the local review source."""
+
+    source_event_id: SecretStr
+    event_kind: EventKind
+    tool_category: ToolCategory | None
+    occurred_at: datetime
+    duration_ms: int | None
+    family: ActionFamily
+    state: ActionState
+    tool_name: SecretStr
+    invocation_preview: SecretStr
+    result_or_effect_preview: SecretStr | None
+    invocation_truncated: bool
+    result_or_effect_truncated: bool
+
+
+def _private_json_preview(value: object) -> tuple[SecretStr, bool]:
+    try:
+        rendered = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        rendered = "unsupported"
+    if not rendered or "\x00" in rendered:
+        rendered = "unsupported"
+    truncated = len(rendered) > MAX_ACTION_REVIEW_PREVIEW_CHARACTERS
+    if truncated:
+        rendered = rendered[:MAX_ACTION_REVIEW_PREVIEW_CHARACTERS]
+    return SecretStr(rendered), truncated
+
+
+def parse_events(
+    path: Path,
+    stem: str,
+    *,
+    snapshot_text: str | None = None,
+) -> ParsedTranscript:
     """Deterministic event stream from one transcript; provider-reported times."""
 
     events: list[SourceEvent] = []
@@ -214,21 +281,55 @@ def parse_events(path: Path, stem: str) -> ParsedTranscript:
     first_at: datetime | None = None
     last_at: datetime | None = None
     complete = True
-    open_tools: dict[str, tuple[datetime | None, ToolCategory]] = {}
+    action_descriptor_complete = True
+    action_details: list[TranscriptActionDetail] = []
+    action_descriptor_characters = 0
+    open_tools: dict[
+        str,
+        tuple[datetime | None, ToolCategory, str, SecretStr, bool],
+    ] = {}
+    seen_tool_refs: set[str] = set()
     last_assistant_at: datetime | None = None
     turn_open = False
 
-    def emit(kind: EventKind, at: datetime, **fields: object) -> None:
+    def emit(kind: EventKind, at: datetime, **fields: object) -> str:
         nonlocal sequence
+        source_event_id = f"{stem}:e:{sequence}"
         events.append(SourceEvent(
-            source_event_id=SecretStr(f"{stem}:e:{sequence}"),
+            source_event_id=SecretStr(source_event_id),
             kind=kind, sequence=sequence, occurred_at=at,
             time_basis=EventTimeBasis.PROVIDER_REPORTED, **fields,  # type: ignore[arg-type]
         ))
         sequence += 1
+        return source_event_id
+
+    def add_action_detail(detail: TranscriptActionDetail) -> None:
+        nonlocal action_descriptor_complete, action_descriptor_characters
+        characters = (
+            len(detail.tool_name.get_secret_value())
+            + len(detail.invocation_preview.get_secret_value())
+            + (
+                0
+                if detail.result_or_effect_preview is None
+                else len(detail.result_or_effect_preview.get_secret_value())
+            )
+        )
+        if (
+            len(action_details) >= MAX_ACTION_REVIEW_DESCRIPTORS
+            or action_descriptor_characters + characters
+            > MAX_ACTION_REVIEW_TOTAL_CHARACTERS
+        ):
+            action_descriptor_complete = False
+            return
+        action_details.append(detail)
+        action_descriptor_characters += characters
 
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
+        with (
+            StringIO(snapshot_text)
+            if snapshot_text is not None
+            else path.open("r", encoding="utf-8", errors="replace")
+        ) as handle:
             for index, line in enumerate(handle):
                 if index >= MAX_TRANSCRIPT_LINES:
                     complete = False
@@ -239,16 +340,28 @@ def parse_events(path: Path, stem: str) -> ParsedTranscript:
                     record = json.loads(line)
                 except ValueError:
                     complete = False
+                    action_descriptor_complete = False
                     continue
                 if not isinstance(record, dict):
                     complete = False
+                    action_descriptor_complete = False
                     continue
                 kind = record.get("type")
                 if kind not in _KNOWN_TYPES:
                     complete = False
+                    action_descriptor_complete = False
                     continue
-                at = _timestamp(record.get("timestamp")) or last_at or first_at
+                if kind in {"summary", "queue-operation"}:
+                    # These provider bookkeeping rows carry no user text or
+                    # action event and are intentionally outside the event set.
+                    continue
+                at = _timestamp(record.get("timestamp"))
                 if at is None:
+                    # Never substitute an earlier timestamp while claiming the
+                    # event time was provider-reported. An action-bearing row
+                    # without a usable time makes the exact event set incomplete.
+                    complete = False
+                    action_descriptor_complete = False
                     continue
                 if first_at is None or at < first_at:
                     first_at = at
@@ -259,12 +372,50 @@ def parse_events(path: Path, stem: str) -> ParsedTranscript:
                         emit(EventKind.COMPACTION, at)
                     continue
                 message = record.get("message")
-                if kind not in ("user", "assistant") or not isinstance(message, dict):
+                if kind not in ("user", "assistant"):
+                    continue
+                if not isinstance(message, dict):
+                    complete = False
+                    action_descriptor_complete = False
                     continue
                 content = message.get("content")
-                blocks = content if isinstance(content, list) else [{"type": "text", "text": content}] if isinstance(content, str) else []
+                if isinstance(content, list):
+                    blocks = content
+                elif isinstance(content, str):
+                    blocks = [{"type": "text", "text": content}]
+                else:
+                    complete = False
+                    action_descriptor_complete = False
+                    continue
+                allowed_block_types = (
+                    _USER_CONTENT_BLOCK_TYPES
+                    if kind == "user"
+                    else _ASSISTANT_CONTENT_BLOCK_TYPES
+                )
+                malformed_or_unknown_block = any(
+                    not isinstance(block, dict)
+                    or block.get("type") not in allowed_block_types
+                    for block in blocks
+                )
+                if malformed_or_unknown_block:
+                    complete = False
+                    action_descriptor_complete = False
                 if kind == "user":
-                    has_text = any(isinstance(b, dict) and b.get("type") == "text" and str(b.get("text", "")).strip() for b in blocks)
+                    if any(
+                        isinstance(block, dict)
+                        and block.get("type") == "text"
+                        and not isinstance(block.get("text"), str)
+                        for block in blocks
+                    ):
+                        complete = False
+                        action_descriptor_complete = False
+                    has_text = any(
+                        isinstance(block, dict)
+                        and block.get("type") == "text"
+                        and isinstance(block.get("text"), str)
+                        and block["text"].strip()
+                        for block in blocks
+                    )
                     for block in blocks:
                         if not isinstance(block, dict) or block.get("type") != "tool_result":
                             continue
@@ -273,13 +424,63 @@ def parse_events(path: Path, stem: str) -> ParsedTranscript:
                         duration = None
                         category = ToolCategory.UNKNOWN
                         if opened is not None:
-                            opened_at, category = opened
+                            (
+                                opened_at,
+                                category,
+                                tool_name,
+                                invocation_preview,
+                                invocation_truncated,
+                            ) = opened
                             if opened_at is not None and at >= opened_at:
                                 duration = round((at - opened_at).total_seconds() * 1000)
                         is_error = block.get("is_error")
-                        emit(EventKind.TOOL_END, at, duration_ms=duration,
-                             success=(not is_error) if isinstance(is_error, bool) else None,
-                             tool_category=category)
+                        success = (
+                            (not is_error)
+                            if isinstance(is_error, bool)
+                            else None
+                        )
+                        end_source_id = emit(
+                            EventKind.TOOL_END,
+                            at,
+                            duration_ms=duration,
+                            success=success,
+                            tool_category=category,
+                        )
+                        if opened is None:
+                            complete = False
+                            action_descriptor_complete = False
+                        else:
+                            result_preview, result_truncated = _private_json_preview(
+                                {
+                                    "content": block.get("content"),
+                                    "is_error": is_error,
+                                }
+                            )
+                            add_action_detail(
+                                TranscriptActionDetail(
+                                    source_event_id=SecretStr(end_source_id),
+                                    event_kind=EventKind.TOOL_END,
+                                    tool_category=category,
+                                    occurred_at=at,
+                                    duration_ms=duration,
+                                    family=(
+                                        requirement_action_family_for_tool_category(
+                                            category
+                                        )
+                                    ),
+                                    state=requirement_action_state_for_event(
+                                        EventKind.TOOL_END,
+                                        success,
+                                    ),
+                                    tool_name=SecretStr(tool_name),
+                                    invocation_preview=invocation_preview,
+                                    result_or_effect_preview=result_preview,
+                                    invocation_truncated=invocation_truncated,
+                                    result_or_effect_truncated=result_truncated,
+                                )
+                            )
+                            if invocation_truncated or result_truncated:
+                                action_descriptor_complete = False
                     if has_text:
                         if turn_open and last_assistant_at is not None:
                             emit(EventKind.TURN_END, last_assistant_at)
@@ -288,18 +489,89 @@ def parse_events(path: Path, stem: str) -> ParsedTranscript:
                 else:
                     last_assistant_at = at
                     for block in blocks:
+                        if (
+                            isinstance(block, dict)
+                            and block.get("type") == "text"
+                            and not isinstance(block.get("text"), str)
+                        ):
+                            complete = False
+                            action_descriptor_complete = False
                         if isinstance(block, dict) and block.get("type") == "tool_use":
                             category = categorize_tool_name(block.get("name"))
+                            tool_input = block.get("input")
                             if category is ToolCategory.COMMAND:
                                 # Deterministic test/build recognition; the
                                 # command text is classified and dropped.
-                                tool_input = block.get("input")
                                 command = tool_input.get("command") if isinstance(tool_input, dict) else None
                                 category = classify_command(command)
                             ref = block.get("id")
-                            if isinstance(ref, str):
-                                open_tools[ref] = (at, category)
-                            emit(EventKind.TOOL_START, at, tool_category=category)
+                            name = block.get("name")
+                            tool_name = (
+                                name
+                                if isinstance(name, str)
+                                and 0 < len(name) <= MAX_ACTION_REVIEW_TOOL_NAME_CHARACTERS
+                                and "\x00" not in name
+                                else "unsupported"
+                            )
+                            invocation_preview, invocation_truncated = (
+                                _private_json_preview(tool_input)
+                            )
+                            start_source_id = emit(
+                                EventKind.TOOL_START,
+                                at,
+                                tool_category=category,
+                            )
+                            add_action_detail(
+                                TranscriptActionDetail(
+                                    source_event_id=SecretStr(start_source_id),
+                                    event_kind=EventKind.TOOL_START,
+                                    tool_category=category,
+                                    occurred_at=at,
+                                    duration_ms=None,
+                                    family=(
+                                        requirement_action_family_for_tool_category(
+                                            category
+                                        )
+                                    ),
+                                    state=requirement_action_state_for_event(
+                                        EventKind.TOOL_START,
+                                        None,
+                                    ),
+                                    tool_name=SecretStr(tool_name),
+                                    invocation_preview=invocation_preview,
+                                    result_or_effect_preview=None,
+                                    invocation_truncated=invocation_truncated,
+                                    result_or_effect_truncated=False,
+                                )
+                            )
+                            if (
+                                tool_name == "unsupported"
+                                or invocation_truncated
+                                or not isinstance(tool_input, dict)
+                                or not isinstance(ref, str)
+                                or not ref
+                            ):
+                                if not isinstance(tool_input, dict):
+                                    complete = False
+                                action_descriptor_complete = False
+                            else:
+                                if ref in seen_tool_refs:
+                                    # Provider tool-use identity must be
+                                    # one-to-one for the whole transcript.
+                                    # Reuse before or after a result makes the
+                                    # eventual effect semantically ambiguous;
+                                    # never overwrite the original invocation.
+                                    complete = False
+                                    action_descriptor_complete = False
+                                else:
+                                    seen_tool_refs.add(ref)
+                                    open_tools[ref] = (
+                                        at,
+                                        category,
+                                        tool_name,
+                                        invocation_preview,
+                                        invocation_truncated,
+                                    )
                     usage = message.get("usage")
                     if isinstance(usage, dict):
                         model = _safe_version(message.get("model"))
@@ -321,6 +593,10 @@ def parse_events(path: Path, stem: str) -> ParsedTranscript:
         raise TranscriptAdapterError("transcript file could not be read") from None
     if turn_open and last_assistant_at is not None:
         emit(EventKind.TURN_END, last_assistant_at)
+    if open_tools:
+        # Started actions remain reviewable; the start descriptor above is
+        # complete even though no provider result has arrived yet.
+        open_tools.clear()
     if first_at is not None:
         events.insert(0, SourceEvent(
             source_event_id=SecretStr(f"{stem}:start"), kind=EventKind.SESSION_START,
@@ -337,7 +613,16 @@ def parse_events(path: Path, stem: str) -> ParsedTranscript:
     for next_sequence, (_, _, event) in enumerate(hook_space):
         renumbered.append(event.model_copy(update={"sequence": next_sequence}))
     events = renumbered + usage_events
-    return ParsedTranscript(events=tuple(events), first_at=first_at, last_at=last_at, complete=complete)
+    return ParsedTranscript(
+        events=tuple(events),
+        action_details=tuple(action_details),
+        action_descriptor_extraction_complete=(
+            complete and action_descriptor_complete
+        ),
+        first_at=first_at,
+        last_at=last_at,
+        complete=complete,
+    )
 
 
 class ClaudeTranscriptAdapter(ProviderAdapter):

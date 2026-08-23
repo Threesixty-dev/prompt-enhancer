@@ -17,6 +17,9 @@ from test_declared_task_profile_migration import _create_v53
 MIGRATION_54_FROZEN_SHA256 = (
     "aafd1c1cc0c121db267d02f7cf14c1a05e6a796af5affda2988fa700216576ac"
 )
+MIGRATION_55_FROZEN_SHA256 = (
+    "c33be75cef513923f86796ec2fe6feb76216c26d3430384b78409d0c2b3f78a2"
+)
 NOW = datetime(2049, 10, 11, 12, 13, 14, tzinfo=UTC)
 REQUIREMENT_PLAN_TABLES = (
     "requirement_plan_evidence_proposals",
@@ -26,6 +29,7 @@ REQUIREMENT_PLAN_TABLES = (
     "requirement_plan_evidence_links",
     "requirement_plan_evidence_proposal_seals",
     "requirement_plan_evidence_decisions",
+    "requirement_plan_evidence_decision_authority_m56",
     "session_model_ensemble_requirement_plan_bindings",
     "session_model_ensemble_metric_states_v2_r6",
     "session_model_ensemble_metric_publication_v2_seals_r6",
@@ -56,9 +60,9 @@ def test_populated_v54_upgrades_to_v55_without_backfill_or_m54_drift(tmp_path) -
         versions = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 55
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 55
-        assert tuple(row[0] for row in versions) == tuple(range(1, 56))
+        assert SCHEMA_VERSION == 57
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 57
+        assert tuple(row[0] for row in versions) == tuple(range(1, 58))
         assert versions[53][1] == MIGRATION_54_FROZEN_SHA256
         assert versions[54][1] == hashlib.sha256(
             migrations.MIGRATION_55.encode()
@@ -105,9 +109,12 @@ def test_failed_v55_rolls_back_schema_ledger_and_user_version_together(tmp_path)
 
 
 def test_database_registry_appends_v55_after_byte_frozen_v54() -> None:
-    assert SCHEMA_VERSION == 55
+    assert SCHEMA_VERSION == 57
     assert hashlib.sha256(migrations.MIGRATION_54.encode()).hexdigest() == (
         MIGRATION_54_FROZEN_SHA256
+    )
+    assert hashlib.sha256(migrations.MIGRATION_55.encode()).hexdigest() == (
+        MIGRATION_55_FROZEN_SHA256
     )
     assert "requirement_plan_evidence_proposals" not in migrations.MIGRATION_54
     assert "requirement_plan_evidence_proposals" in migrations.MIGRATION_55

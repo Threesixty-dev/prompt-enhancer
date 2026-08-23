@@ -65,7 +65,6 @@ const LIFECYCLE_KEYS = new Set<MetricKey>([
 ]);
 const TYPED_OBJECTIVE_GAP_KEYS = new Set<MetricKey>([
   "logic.hypothesis_test_linkage",
-  "logic.requirement_action_traceability",
   "outcome.agent_claim_grounding",
   "outcome.verified_requirement_coverage",
 ]);
@@ -137,6 +136,14 @@ function expectedOperability(metricKey: MetricKey): ExpectedOperability {
       shipped_path_state: "available_when_evidence_exists",
       next_step_code: "confirm_requirement_plan_evidence",
       experimental_model_path: true,
+    };
+  }
+  if (metricKey === "logic.requirement_action_traceability") {
+    return {
+      measured_path: "reviewed_requirement_action",
+      shipped_path_state: "provider_adapter_required",
+      next_step_code: "compose_requirement_action_evidence",
+      experimental_model_path: false,
     };
   }
   if (TYPED_OBJECTIVE_GAP_KEYS.has(metricKey)) {

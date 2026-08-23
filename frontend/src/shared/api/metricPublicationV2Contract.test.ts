@@ -8,7 +8,12 @@ import {
   MetricPublicationV2PayloadError,
   expectedMetricGuidanceTemplateIdentities,
   parseMetricPublicationV2,
+  parseMetricV2State,
 } from "./metricPublicationV2Contract";
+import {
+  syntheticMetricPublicationV2,
+  syntheticPublishedMetricV2,
+} from "../../test/metricPublicationV2Fixture";
 import {
   ModelEnsembleTrajectoryPayloadError,
   parseModelEnsembleTrajectoryPage,
@@ -131,6 +136,7 @@ describe("canonical metric V2 publication contract", () => {
       "metric-contract-v2-projection-4",
       "metric-contract-v2-projection-5",
       "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
     ]) {
       const readable = structuredClone(legacy) as any;
       readable.projection_version = version;
@@ -140,14 +146,206 @@ describe("canonical metric V2 publication contract", () => {
       expect(parseMetricPublicationV2(structuredClone(readable))).toEqual(readable);
     }
     const future = structuredClone(legacy) as any;
-    future.projection_version = "metric-contract-v2-projection-7";
+    future.projection_version = "metric-contract-v2-projection-8";
     future.metrics.forEach((item: any) => {
-      item.state.projection_version = "metric-contract-v2-projection-7";
+      item.state.projection_version = "metric-contract-v2-projection-8";
     });
     let caught: unknown;
     try { parseMetricPublicationV2(future); } catch (error) { caught = error; }
     expect(caught).toBeInstanceOf(MetricDefinitionsOutOfDateError);
     expect((caught as MetricDefinitionsOutOfDateError).mismatch).toBe("projection_version");
+  });
+
+  it("allows a nonempty capability-missing denominator only for exact r7 action-service unavailability", () => {
+    const exact = syntheticPublishedMetricV2("logic.requirement_action_traceability", {
+      value_state: "unknown",
+      capability_available: false,
+      source_complete: true,
+      eligible: 2,
+      unknown: 2,
+      explanation_code: "requirement_action_evidence_unavailable",
+    }).state;
+    exact.projection_version = "metric-contract-v2-projection-7";
+    expect(parseMetricV2State(structuredClone(exact), exact.metric_key)).toEqual(exact);
+
+    for (const mutate of [
+      (state: any) => { state.projection_version = "metric-contract-v2-projection-6"; },
+      (state: any) => { state.explanation_code = "requirement_action_evidence_confirmation_required"; },
+      (state: any) => { state.statistics.source_complete = false; },
+      (state: any) => {
+        state.statistics.pending_count = 1;
+        state.statistics.unknown_count = 1;
+      },
+    ]) {
+      const attacked = structuredClone(exact);
+      mutate(attacked);
+      expect(() => parseMetricV2State(attacked, exact.metric_key))
+        .toThrow(MetricPublicationV2PayloadError);
+    }
+
+    const foreignMetric = syntheticPublishedMetricV2("logic.hypothesis_test_linkage", {
+      value_state: "unknown",
+      capability_available: false,
+      source_complete: true,
+      eligible: 2,
+      unknown: 2,
+      explanation_code: "requirement_action_evidence_unavailable",
+    }).state;
+    foreignMetric.projection_version = "metric-contract-v2-projection-7";
+    expect(() => parseMetricV2State(foreignMetric, foreignMetric.metric_key))
+      .toThrow(MetricPublicationV2PayloadError);
+  });
+
+  it("requires complete authority and exact censoring bounds for every pending state", () => {
+    const exact = syntheticPublishedMetricV2("logic.decomposition_coverage", {
+      value_state: "pending",
+      capability_available: true,
+      source_complete: true,
+      eligible: 4,
+      numerator: 1,
+      pending: 2,
+      explanation_code: "opportunity_right_censored",
+    }).state;
+    expect(parseMetricV2State(structuredClone(exact), exact.metric_key)).toEqual(exact);
+
+    for (const mutate of [
+      (state: any) => { state.censoring_lower_bound = null; },
+      (state: any) => { state.censoring_upper_bound = null; },
+      (state: any) => { state.censoring_lower_bound = 0.5; },
+      (state: any) => { state.censoring_upper_bound = 0.5; },
+      (state: any) => { state.statistics.source_complete = false; },
+      (state: any) => { state.statistics.capability_available = false; },
+    ]) {
+      const attacked = structuredClone(exact);
+      mutate(attacked);
+      expect(() => parseMetricV2State(attacked, exact.metric_key))
+        .toThrow(MetricPublicationV2PayloadError);
+    }
+  });
+
+  it("cross-binds every standalone r7 action denominator to the exact reviewed r6 plan", () => {
+    const r7 = (scenarios: Parameters<typeof syntheticMetricPublicationV2>[0]) => {
+      const publication = syntheticMetricPublicationV2(scenarios);
+      publication.projection_version = "metric-contract-v2-projection-7";
+      publication.metrics.forEach((item) => {
+        item.state.projection_version = "metric-contract-v2-projection-7";
+      });
+      return publication;
+    };
+    const reviewedUnavailable = r7({
+      "logic.decomposition_coverage": {
+        value_state: "known", numerator: 1, denominator: 2,
+        explanation_code: "reviewed_requirement_plan_links",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: false, source_complete: true,
+        eligible: 2, unknown: 2, explanation_code: "requirement_action_evidence_unavailable",
+      },
+    });
+    expect(parseMetricPublicationV2(structuredClone(reviewedUnavailable)))
+      .toEqual(reviewedUnavailable);
+
+    const pendingPlanUnavailable = r7({
+      "logic.decomposition_coverage": {
+        value_state: "pending", capability_available: true, source_complete: true,
+        eligible: 2, numerator: 1, pending: 1,
+        explanation_code: "opportunity_right_censored",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: false, source_complete: true,
+        eligible: 2, unknown: 2, explanation_code: "requirement_action_evidence_unavailable",
+      },
+    });
+    expect(parseMetricPublicationV2(structuredClone(pendingPlanUnavailable)))
+      .toEqual(pendingPlanUnavailable);
+
+    const reviewedDrift = r7({
+      "logic.decomposition_coverage": {
+        value_state: "known", numerator: 1, denominator: 2,
+        explanation_code: "reviewed_requirement_plan_links",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 1, unknown: 1, explanation_code: "requirement_action_evidence_invalid",
+      },
+    });
+    expect(() => parseMetricPublicationV2(reviewedDrift))
+      .toThrow(MetricPublicationV2PayloadError);
+
+    const invalidPlanZero = r7({
+      "logic.decomposition_coverage": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_action_evidence_invalid",
+      },
+    });
+    expect(parseMetricPublicationV2(structuredClone(invalidPlanZero))).toEqual(invalidPlanZero);
+
+    const reviewedEmpty = r7({
+      "logic.decomposition_coverage": {
+        value_state: "not_applicable", capability_available: true, source_complete: true,
+        eligible: 0, explanation_code: "no_opportunity_observed",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "not_applicable", capability_available: true, source_complete: true,
+        eligible: 0, explanation_code: "no_opportunity_observed",
+      },
+    });
+    expect(parseMetricPublicationV2(structuredClone(reviewedEmpty))).toEqual(reviewedEmpty);
+
+    const reviewedEmptyWithInvalidPlan = r7({
+      "logic.decomposition_coverage": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "not_applicable", capability_available: true, source_complete: true,
+        eligible: 0, explanation_code: "no_opportunity_observed",
+      },
+    });
+    expect(() => parseMetricPublicationV2(reviewedEmptyWithInvalidPlan))
+      .toThrow(MetricPublicationV2PayloadError);
+
+    const invalidPlanNonzero = r7({
+      "logic.decomposition_coverage": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+      },
+      "logic.requirement_action_traceability": {
+        value_state: "unknown", capability_available: true, source_complete: false,
+        eligible: 1, unknown: 1, explanation_code: "requirement_action_evidence_invalid",
+      },
+    });
+    expect(() => parseMetricPublicationV2(invalidPlanNonzero))
+      .toThrow(MetricPublicationV2PayloadError);
+
+    for (const planScenario of [
+      {
+        value_state: "unknown" as const, capability_available: false, source_complete: true,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_unavailable",
+      },
+      {
+        value_state: "unknown" as const, capability_available: true, source_complete: true,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_confirmation_required",
+      },
+      {
+        value_state: "unknown" as const, capability_available: true, source_complete: false,
+        eligible: 0, unknown: 0, explanation_code: "requirement_plan_evidence_invalid",
+      },
+    ]) {
+      const overflowWithoutReviewedPlan = r7({
+        "logic.decomposition_coverage": planScenario,
+        "logic.requirement_action_traceability": {
+          value_state: "unknown", capability_available: true, source_complete: true,
+          eligible: 0, unknown: 0, explanation_code: "requirement_action_evidence_overflow",
+        },
+      });
+      expect(parseMetricPublicationV2(structuredClone(overflowWithoutReviewedPlan)))
+        .toEqual(overflowWithoutReviewedPlan);
+    }
   });
 
   it("rejects a publication that mixes legacy and current row projections", () => {

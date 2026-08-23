@@ -47,6 +47,7 @@ const NEXT_STEP_LABELS: Record<MetricOperabilityEntry["next_step_code"], string>
   add_objective_opportunity_link_adapter: "Add typed opportunity, link and outcome capture",
   add_requirement_plan_extractor: "Add a reviewed requirement-to-plan extractor",
   confirm_requirement_plan_evidence: "Confirm reviewed requirement-to-plan evidence",
+  compose_requirement_action_evidence: "Compose and confirm reviewed requirement-to-action evidence",
 };
 
 function metricLabel(metricKey: string): string {

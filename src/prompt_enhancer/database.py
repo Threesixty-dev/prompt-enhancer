@@ -123,10 +123,12 @@ from .infrastructure.sqlite.migrations import (
     MIGRATION_53,
     MIGRATION_54,
     MIGRATION_55,
+    MIGRATION_56,
+    MIGRATION_57,
 )
 
 
-SCHEMA_VERSION = 55
+SCHEMA_VERSION = 57
 LOCAL_SOURCE_CONSENT_TIERS = frozenset(
     {DataTier.METADATA, DataTier.REDACTED_CONTENT}
 )
@@ -1661,6 +1663,8 @@ class Database:
                 (53, MIGRATION_53),
                 (54, MIGRATION_54),
                 (55, MIGRATION_55),
+                (56, MIGRATION_56),
+                (57, MIGRATION_57),
             )
             with self._connection() as connection:
                 database_version = int(
@@ -1715,6 +1719,45 @@ class Database:
                         script=script,
                         checksum=checksum,
                         applied_at=_iso(_utc_now()),
+                    )
+                pending_plan_decision_authority = int(
+                    connection.execute(
+                        """SELECT COUNT(*)
+                           FROM requirement_plan_evidence_decision_authority_m56
+                           WHERE authority_source='trusted_m55_upgrade_pending'
+                              OR authority_fingerprint IS NULL"""
+                    ).fetchone()[0]
+                )
+                if pending_plan_decision_authority:
+                    if database_version >= 56:
+                        raise DatabaseInvariantError(
+                            "requirement-plan decision authority is incomplete"
+                        )
+                    identifiers = self._local_artifact_id_factory
+                    if identifiers is None:
+                        raise DatabaseInvariantError(
+                            "M55 requirement-plan decisions require a keyed trusted upgrade"
+                        )
+                    from .infrastructure.sqlite.requirement_plan_evidence import (
+                        upgrade_trusted_m55_decision_authority,
+                    )
+
+                    upgrade_trusted_m55_decision_authority(connection, identifiers)
+                incomplete_plan_decision_authority = int(
+                    connection.execute(
+                        """SELECT COUNT(*)
+                           FROM requirement_plan_evidence_decisions decision
+                           LEFT JOIN requirement_plan_evidence_decision_authority_m56 authority
+                             ON authority.decision_id=decision.decision_id
+                           WHERE authority.decision_id IS NULL
+                              OR authority.authority_source=
+                                 'trusted_m55_upgrade_pending'
+                              OR authority.authority_fingerprint IS NULL"""
+                    ).fetchone()[0]
+                )
+                if incomplete_plan_decision_authority:
+                    raise DatabaseInvariantError(
+                        "requirement-plan decision authority is incomplete"
                     )
                 self._seed_metric_definitions(connection)
                 connection.commit()
@@ -1920,6 +1963,25 @@ class Database:
             identifiers=identifiers,
         )
 
+    def requirement_action_evidence_repository(self):
+        """Return reviewed, content-free requirement-action evidence storage."""
+
+        from .infrastructure.sqlite.requirement_action_evidence import (
+            SqliteRequirementActionEvidenceRepository,
+        )
+
+        self._ensure_initialized()
+        identifiers = self._local_artifact_id_factory
+        if identifiers is None:
+            raise DatabaseInvariantError(
+                "requirement-action persistence requires local keyed ID issuance"
+            )
+        return SqliteRequirementActionEvidenceRepository(
+            self._connection,
+            self._ensure_initialized,
+            identifiers=identifiers,
+        )
+
     def analysis_run_repository(self):
         """Return the immutable task-analysis persistence adapter."""
 
@@ -2068,7 +2130,9 @@ class Database:
 
         self._ensure_initialized()
         return SqliteSessionModelEnsembleRepository(
-            self._connection, self._ensure_initialized
+            self._connection,
+            self._ensure_initialized,
+            identifiers=self._local_artifact_id_factory,
         )
 
     def model_ensemble_watch_repository(self):
@@ -2080,7 +2144,9 @@ class Database:
 
         self._ensure_initialized()
         return SqliteModelEnsembleWatchRepository(
-            self._connection, self._ensure_initialized
+            self._connection,
+            self._ensure_initialized,
+            identifiers=self._local_artifact_id_factory,
         )
 
     def estimator_repository(self):

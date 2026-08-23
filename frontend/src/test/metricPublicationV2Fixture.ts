@@ -128,7 +128,7 @@ export function syntheticPublishedMetricV2(metricKey: MetricKeyV2, scenario: Met
     denominator_basis: identity.basis,
     opportunity_unit_kind: identity.unit,
     capability_available: capabilityAvailable,
-    source_complete: scenario.source_complete ?? known,
+    source_complete: scenario.source_complete ?? (known || pending),
     eligible_count: eligible,
     met_count: met,
     not_met_count: notMet,
@@ -160,7 +160,7 @@ export function syntheticPublishedMetricV2(metricKey: MetricKeyV2, scenario: Met
         : valueState === "abstained" ? "abstained"
           : valueState === "execution_error" ? "error"
             : objective
-              ? (capabilityAvailable && eligible > 0 ? "objective_evidence_unresolved" : "objective_capability_missing")
+              ? (capabilityAvailable ? "objective_evidence_unresolved" : "objective_capability_missing")
               : "method_only_withheld";
   const guidance = {
     schema_version: 1,
@@ -257,7 +257,8 @@ export function syntheticMetricEvidenceReadinessV2(
                   : "evidence_unresolved";
     const lifecycleProjection = publication.projection_version === "metric-contract-v2-projection-4"
       || publication.projection_version === "metric-contract-v2-projection-5"
-      || publication.projection_version === "metric-contract-v2-projection-6";
+      || publication.projection_version === "metric-contract-v2-projection-6"
+      || publication.projection_version === "metric-contract-v2-projection-7";
     const lifecycleMetric = state.metric_key.startsWith("collaboration.");
     let reason: MetricEvidenceReadinessRowV2["reason_code"];
     if (availability === "execution_error") {
@@ -274,11 +275,29 @@ export function syntheticMetricEvidenceReadinessV2(
     } else if (availability === "no_opportunity") {
       reason = "no_eligible_opportunity_observed";
     } else if (
+      publication.projection_version === "metric-contract-v2-projection-7"
+      && state.metric_key === "logic.requirement_action_traceability"
+      && state.value_state === "unknown"
+    ) {
+      const exactReason = {
+        requirement_action_evidence_unavailable: "reviewed_requirement_action_service_required",
+        requirement_action_evidence_confirmation_required: "reviewed_requirement_action_confirmation_required",
+        requirement_action_evidence_invalid: "reviewed_requirement_action_binding_invalid",
+        requirement_action_evidence_overflow: "opportunity_set_exceeds_receipt_bound",
+        requirement_action_candidate_source_incomplete: "requirement_action_adapter_capabilities_required",
+      } as const;
+      const resolvedReason = exactReason[state.explanation_code as keyof typeof exactReason];
+      if (resolvedReason === undefined) {
+        throw new Error("synthetic r7 requirement-action fixture needs an exact structural explanation");
+      }
+      reason = resolvedReason;
+    } else if (
       [
         "metric-contract-v2-projection-3",
         "metric-contract-v2-projection-4",
         "metric-contract-v2-projection-5",
         "metric-contract-v2-projection-6",
+        "metric-contract-v2-projection-7",
       ].includes(publication.projection_version)
       && state.statistics.denominator_basis === "objective_opportunities"
       && state.statistics.capability_available
@@ -290,7 +309,9 @@ export function syntheticMetricEvidenceReadinessV2(
       reason = requirement.capabilityMissingReason ?? "focus_owned_request_revision_required";
     } else if (
       availability === "source_incomplete"
-      && publication.projection_version === "metric-contract-v2-projection-6"
+      && ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+        publication.projection_version,
+      )
       && state.metric_key === "logic.decomposition_coverage"
     ) {
       reason = "reviewed_requirement_plan_binding_invalid";
@@ -299,7 +320,9 @@ export function syntheticMetricEvidenceReadinessV2(
     } else if (availability === "source_incomplete") {
       reason = "source_reconciliation_incomplete";
     } else if (
-      publication.projection_version === "metric-contract-v2-projection-6"
+      ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+        publication.projection_version,
+      )
       && state.metric_key === "logic.decomposition_coverage"
       && state.statistics.capability_available
       && state.statistics.source_complete
@@ -313,8 +336,12 @@ export function syntheticMetricEvidenceReadinessV2(
     } else {
       reason = "opportunity_classification_unresolved";
     }
-    const r6Decomposition = publication.projection_version === "metric-contract-v2-projection-6"
+    const r6Decomposition = ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+      publication.projection_version,
+    )
       && state.metric_key === "logic.decomposition_coverage";
+    const r7RequirementAction = publication.projection_version === "metric-contract-v2-projection-7"
+      && state.metric_key === "logic.requirement_action_traceability";
     const required = r6Decomposition
       && state.value_state === "not_applicable"
       ? ["reviewed_requirement_enumeration"] as const
@@ -325,6 +352,11 @@ export function syntheticMetricEvidenceReadinessV2(
       : requirement.requiredContributors;
     const observed = !state.statistics.capability_available
       ? []
+      : r7RequirementAction
+        ? (["known", "pending", "not_applicable"].includes(state.value_state)
+          && state.statistics.source_complete
+          ? [...required]
+          : [])
       : r6Decomposition
         ? [
           ...(state.statistics.source_complete
@@ -341,7 +373,11 @@ export function syntheticMetricEvidenceReadinessV2(
             ? ["confirmed_lifecycle_outcome_link" as const]
             : []),
         ]
-      : ["metric-contract-v2-projection-5", "metric-contract-v2-projection-6"].includes(
+      : [
+        "metric-contract-v2-projection-5",
+        "metric-contract-v2-projection-6",
+        "metric-contract-v2-projection-7",
+      ].includes(
         publication.projection_version,
       )
         && state.statistics.denominator_basis === "declared_profile_slots"
@@ -389,7 +425,9 @@ export function syntheticMetricEvidenceReadinessV2(
   return {
     projection_key: "metric.contract-v2.evidence-readiness",
     projection_version: 1,
-    catalog_version: "metric-evidence-readiness-v2-5",
+    catalog_version: publication.projection_version === "metric-contract-v2-projection-7"
+      ? "metric-evidence-readiness-v2-6"
+      : "metric-evidence-readiness-v2-5",
     registry_version: "all-20-factor-contracts-v2",
     publication_key: publication.publication_key,
     publication_version: publication.publication_version,

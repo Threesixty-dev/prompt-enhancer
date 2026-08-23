@@ -44,6 +44,9 @@ from .application.analysis.agent_metric_evidence import AgentMetricEvidenceServi
 from .application.analysis.requirement_plan_evidence import (
     RequirementPlanEvidenceService,
 )
+from .application.analysis.requirement_action_evidence import (
+    RequirementActionEvidenceService,
+)
 from .application.estimators import EstimatorRepository
 from .application.analysis.model_link_experiments import (
     SessionModelLinkExperimentService,
@@ -103,6 +106,9 @@ from .interfaces.http.declared_task_profile_routes import (
 )
 from .interfaces.http.requirement_plan_evidence_routes import (
     create_requirement_plan_evidence_router,
+)
+from .interfaces.http.requirement_action_evidence_routes import (
+    create_requirement_action_evidence_router,
 )
 from .interfaces.http.browser_session import (
     BROWSER_SESSION_COOKIE,
@@ -335,6 +341,9 @@ def create_app(
     agent_metric_evidence_service: AgentMetricEvidenceService | None = None,
     declared_task_profile_service: DeclaredTaskProfileService | None = None,
     requirement_plan_evidence_service: RequirementPlanEvidenceService | None = None,
+    requirement_action_evidence_service: (
+        RequirementActionEvidenceService | None
+    ) = None,
     task_analysis_service: TaskAnalysisCommandService | None = None,
     session_text_analysis_service: SessionTextAnalysisService | None = None,
     session_model_link_experiment_service: SessionModelLinkExperimentService | None = None,
@@ -511,6 +520,7 @@ def create_app(
                 "/lifecycle",
                 "/agent-metric-evidence",
                 "/requirement-plan-evidence",
+                "/requirement-action-evidence",
                 "/declared-task-profile",
                 "/agent/sessions",
             )
@@ -1015,6 +1025,14 @@ def create_app(
                 require_local_token,
                 require_browser_user_confirmation,
                 requirement_plan_evidence_service,
+            )
+        )
+    if requirement_action_evidence_service is not None:
+        app.include_router(
+            create_requirement_action_evidence_router(
+                require_local_token,
+                require_browser_user_confirmation,
+                requirement_action_evidence_service,
             )
         )
     if declared_task_profile_service is not None:

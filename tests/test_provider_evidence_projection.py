@@ -14,6 +14,8 @@ from prompt_enhancer.application.analysis.evidence_contracts import (
     TypedEvidenceOpportunityKind,
     VerificationMethod,
     VerificationOutcome,
+    EphemeralTypedEvidenceProjection,
+    TypedEvidenceProvenance,
 )
 from prompt_enhancer.application.analysis.provider_evidence import (
     SAFE_EVENT_EVIDENCE_DECODER_KEY,
@@ -21,6 +23,8 @@ from prompt_enhancer.application.analysis.provider_evidence import (
     SAFE_EVENT_EVIDENCE_DECODER_VERSION_3,
     SafeEventTypedEvidenceProjector,
     bind_semantic_unit_opportunities,
+    derive_requirement_action_candidate_manifest,
+    requirement_action_candidate_manifest_fingerprint,
 )
 from prompt_enhancer.application.analysis.objective_metric_projection import (
     project_objective_metric_overrides,
@@ -138,6 +142,7 @@ def _event(
     *,
     category: ToolCategory | None = None,
     success: bool | None = None,
+    duration_ms: int | None = None,
 ) -> SafeEvent:
     return SafeEvent(
         session_id=SESSION_ID,
@@ -147,6 +152,7 @@ def _event(
         occurred_at=datetime(2040, 1, 1, 10, ordinal, tzinfo=UTC),
         tool_category=category,
         success=success,
+        duration_ms=duration_ms,
     )
 
 
@@ -198,6 +204,227 @@ def test_projects_content_free_actions_decisions_and_verification() -> None:
         RationaleState.UNKNOWN,
     )
     assert [item.sequence for item in projection.records] == [4, 8, 10, 13]
+
+
+def test_derives_exact_content_free_requirement_action_candidate_manifest() -> None:
+    projection = SafeEventTypedEvidenceProjector(
+        _Source(
+            _session(),
+            (
+                _event(1, EventKind.TOOL_START, category=ToolCategory.FILE_WRITE),
+                _event(
+                    2,
+                    EventKind.TOOL_END,
+                    category=ToolCategory.TEST,
+                    success=True,
+                ),
+                _event(3, EventKind.DECISION, success=True),
+            ),
+        ),
+        _Ids(),
+        DESCRIPTOR,
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+    assert projection is not None
+
+    manifest = derive_requirement_action_candidate_manifest(
+        projection,
+        source_run_id="d" * 64,
+        source_window_fingerprint="e" * 64,
+        safe_events=(
+            _event(1, EventKind.TOOL_START, category=ToolCategory.FILE_WRITE),
+            _event(
+                2,
+                EventKind.TOOL_END,
+                category=ToolCategory.TEST,
+                success=True,
+            ),
+            _event(3, EventKind.DECISION, success=True),
+        ),
+    )
+
+    assert manifest.session_id == SESSION_ID
+    assert manifest.provenance == projection.provenance
+    assert manifest.extraction_complete is True
+    assert manifest.enumeration_complete is True
+    assert [item.candidate_index for item in manifest.actions] == [0, 1]
+    assert [item.source_reference_id for item in manifest.actions] == [
+        "1" * 64,
+        "2" * 64,
+    ]
+    assert [item.state for item in manifest.actions] == [
+        ActionState.STARTED,
+        ActionState.COMPLETED,
+    ]
+    assert [item.event_kind for item in manifest.actions] == [
+        EventKind.TOOL_START,
+        EventKind.TOOL_END,
+    ]
+    assert [item.tool_category for item in manifest.actions] == [
+        ToolCategory.FILE_WRITE,
+        ToolCategory.TEST,
+    ]
+    assert all(item.occurred_at.tzinfo is UTC for item in manifest.actions)
+    assert manifest.manifest_fingerprint == (
+        requirement_action_candidate_manifest_fingerprint(manifest)
+    )
+    payload = manifest.model_dump(mode="json")
+    assert "requirement_reference_ids" not in repr(payload)
+    assert "hypothesis_reference_ids" not in repr(payload)
+
+
+def test_candidate_manifest_never_claims_complete_enumeration_from_partial_source() -> None:
+    projection = SafeEventTypedEvidenceProjector(
+        _Source(
+            _session(complete=False),
+            (_event(1, EventKind.TOOL_START, category=ToolCategory.FILE_WRITE),),
+        ),
+        _Ids(),
+        DESCRIPTOR,
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+    assert projection is not None
+
+    manifest = derive_requirement_action_candidate_manifest(
+        projection,
+        source_run_id="d" * 64,
+        source_window_fingerprint="e" * 64,
+        safe_events=(
+            _event(1, EventKind.TOOL_START, category=ToolCategory.FILE_WRITE),
+        ),
+    )
+
+    assert len(manifest.actions) == 1
+    assert manifest.extraction_complete is False
+    assert manifest.enumeration_complete is False
+
+
+def test_candidate_manifest_never_treats_undeclared_empty_action_family_as_exact() -> None:
+    projection = EphemeralTypedEvidenceProjection(
+        session_id=SESSION_ID,
+        provenance=TypedEvidenceProvenance(
+            provider=Provider.CODEX,
+            provider_version="synthetic-provider-v1",
+            adapter_version="synthetic-adapter-v1",
+            decoder_key=SAFE_EVENT_EVIDENCE_DECODER_KEY,
+            decoder_version=SAFE_EVENT_EVIDENCE_DECODER_VERSION,
+            source_schema_version="synthetic-schema-v1",
+            extraction_complete=True,
+        ),
+        declared_kinds=frozenset(),
+        records=(),
+    )
+
+    manifest = derive_requirement_action_candidate_manifest(
+        projection,
+        source_run_id="d" * 64,
+        source_window_fingerprint="e" * 64,
+        safe_events=(),
+    )
+
+    assert manifest.actions == ()
+    assert manifest.extraction_complete is True
+    assert manifest.enumeration_complete is False
+
+
+def test_projector_issues_reviewable_candidate_metadata_without_private_content() -> None:
+    events = (
+        _event(
+            1,
+            EventKind.TOOL_END,
+            category=ToolCategory.BUILD,
+            success=True,
+            duration_ms=321,
+        ),
+    )
+    manifest = SafeEventTypedEvidenceProjector(
+        _Source(_session(), events),
+        _Ids(),
+        DESCRIPTOR,
+    ).requirement_action_candidate_manifest(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        source_run_id="d" * 64,
+        source_window_fingerprint="e" * 64,
+    )
+
+    assert manifest is not None
+    candidate = manifest.actions[0]
+    assert candidate.event_kind is EventKind.TOOL_END
+    assert candidate.tool_category is ToolCategory.BUILD
+    assert candidate.duration_ms == 321
+    assert candidate.occurred_at == events[0].occurred_at
+    assert set(candidate.model_dump()) == {
+        "candidate_index",
+        "action_id",
+        "source_reference_id",
+        "sequence",
+        "event_kind",
+        "tool_category",
+        "occurred_at",
+        "duration_ms",
+        "family",
+        "state",
+    }
+
+
+def test_candidate_manifest_rejects_a_growing_mixed_event_snapshot() -> None:
+    first = _event(1, EventKind.TOOL_START, category=ToolCategory.FILE_WRITE)
+    second = _event(2, EventKind.TOOL_END, category=ToolCategory.FILE_WRITE)
+
+    class _GrowingSource(_Source):
+        def __init__(self) -> None:
+            super().__init__(_session(), (first,))
+            self.reads = 0
+
+        def get_session_events(self, session_id: str) -> tuple[SafeEvent, ...]:
+            assert session_id == SESSION_ID
+            self.reads += 1
+            return (first,) if self.reads == 1 else (first, second)
+
+    projector = SafeEventTypedEvidenceProjector(
+        _GrowingSource(),
+        _Ids(),
+        DESCRIPTOR,
+    )
+
+    with pytest.raises(ValueError, match="exactly cover"):
+        projector.requirement_action_candidate_manifest(
+            provider=Provider.CODEX,
+            session_id=SESSION_ID,
+            source_run_id="d" * 64,
+            source_window_fingerprint="e" * 64,
+        )
+
+
+def test_candidate_manifest_overflow_fails_closed_without_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projection = SafeEventTypedEvidenceProjector(
+        _Source(
+            _session(),
+            (
+                _event(1, EventKind.TOOL_START, category=ToolCategory.FILE_WRITE),
+                _event(2, EventKind.TOOL_END, category=ToolCategory.FILE_WRITE),
+            ),
+        ),
+        _Ids(),
+        DESCRIPTOR,
+    ).project(provider=Provider.CODEX, session_id=SESSION_ID)
+    assert projection is not None
+    monkeypatch.setattr(
+        "prompt_enhancer.application.analysis.provider_evidence.MAX_REQUIREMENT_ACTION_CANDIDATES",
+        1,
+    )
+
+    with pytest.raises(ValueError, match="exceeds its bound"):
+        derive_requirement_action_candidate_manifest(
+            projection,
+            source_run_id="d" * 64,
+            source_window_fingerprint="e" * 64,
+            safe_events=(
+                _event(1, EventKind.TOOL_START, category=ToolCategory.FILE_WRITE),
+                _event(2, EventKind.TOOL_END, category=ToolCategory.FILE_WRITE),
+            ),
+        )
 
 
 def test_incomplete_event_stream_stays_explicit_and_empty_is_valid() -> None:

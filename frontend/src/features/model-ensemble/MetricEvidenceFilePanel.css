@@ -101,6 +101,22 @@
   white-space: pre-wrap;
 }
 
+.metric-evidence-file__exact-review-text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.metric-evidence-file__opaque-id {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.metric-evidence-file__membership-list {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
 .metric-evidence-file__clause-review dl {
   display: grid;
   gap: 0.3rem;

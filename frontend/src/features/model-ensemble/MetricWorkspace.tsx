@@ -4,6 +4,7 @@ import type {
   ModelEnsembleAttemptStage,
   PromptEnhancerTransport,
   RequirementPlanEvidenceContract,
+  RequirementActionEvidenceContract,
 } from "../../shared/api/contracts";
 import { moveRovingFocus } from "../../shared/ui/rovingFocus";
 import {
@@ -38,6 +39,7 @@ import { shortIdentity } from "./modelStages";
 import { metricEvidenceReadinessForPublication } from "./metricEvidenceReadiness";
 import { MetricEvidenceFilePanel } from "./MetricEvidenceFilePanel";
 import { RequirementPlanEvidencePanel } from "./RequirementPlanEvidencePanel";
+import { RequirementActionEvidencePanel } from "./RequirementActionEvidencePanel";
 
 /**
  * The trajectory helpers and the history contract used to live in this file.
@@ -58,7 +60,8 @@ export function metricEvidenceFileProjectionSupported(
 ): boolean {
   return projectionVersion === "metric-contract-v2-projection-4"
     || projectionVersion === "metric-contract-v2-projection-5"
-    || projectionVersion === "metric-contract-v2-projection-6";
+    || projectionVersion === "metric-contract-v2-projection-6"
+    || projectionVersion === "metric-contract-v2-projection-7";
 }
 
 export function MetricWorkspace({
@@ -89,7 +92,19 @@ export function MetricWorkspace({
     | "previewAgentMetricEvidence"
     | "importAgentMetricEvidence"
     | "listMetricLifecycleProposals"
-    | "decideMetricLifecycleProposal">
+    | "decideMetricLifecycleProposal"
+    | "getRequirementPlanEvidenceContract"
+    | "previewRequirementPlanEvidence"
+    | "importRequirementPlanEvidence"
+    | "listRequirementPlanProposals"
+    | "reviewRequirementPlanProposal"
+    | "decideRequirementPlanProposal"
+    | "getRequirementActionEvidenceContract"
+    | "previewRequirementActionEvidence"
+    | "importRequirementActionEvidence"
+    | "listRequirementActionProposals"
+    | "reviewRequirementActionProposal"
+    | "decideRequirementActionProposal">
     & Partial<Pick<PromptEnhancerTransport, "getUserPresenceCapability">>;
   lensId: ModelEnsembleLensId;
   onLensChange: (lens: ModelEnsembleLensId) => void;
@@ -255,9 +270,27 @@ export function MetricWorkspace({
         )}
       {evidenceEnabled
         && evidenceSessionId !== undefined
+        && run.metric_publication_v2?.projection_version === "metric-contract-v2-projection-7"
+        && stageRun?.requirement_action_evidence_binding !== null
+        && stageRun?.requirement_action_evidence_binding !== undefined
+        && (
+          <RequirementActionEvidencePanel
+            compact={mode === "compact"}
+            onEvidenceChanged={onEvidenceChanged}
+            publicEvidenceBinding={stageRun.requirement_action_evidence_binding}
+            publicEvidenceSource={stageRun.requirement_action_evidence_binding.evidence_source}
+            sessionId={evidenceSessionId}
+            sourceProjectionVersion={run.metric_publication_v2.projection_version as RequirementActionEvidenceContract["source_projection_version"]}
+            sourceRunId={runId}
+            transport={transport}
+          />
+        )}
+      {evidenceEnabled
+        && evidenceSessionId !== undefined
         && [
           "metric-contract-v2-projection-5",
           "metric-contract-v2-projection-6",
+          "metric-contract-v2-projection-7",
         ].includes(run.metric_publication_v2?.projection_version ?? "")
         && (
           <RequirementPlanEvidencePanel

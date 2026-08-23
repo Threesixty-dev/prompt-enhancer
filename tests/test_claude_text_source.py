@@ -8,15 +8,24 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import json
+import os
 from pathlib import Path
 
 import pytest
 
+from prompt_enhancer.infrastructure.providers.claude_code_hooks import (
+    text_source as text_source_module,
+)
+
 from prompt_enhancer.application.analysis.text_contracts import (
+    ACTION_CANDIDATE_METADATA_FINGERPRINT_VERSION,
     TextAnalysisPrivacyError,
     TextMessageKind,
     TextRole,
     TextTaskProfile,
+)
+from prompt_enhancer.application.analysis.requirement_action_evidence import (
+    requirement_action_candidate_metadata_fingerprint,
 )
 from prompt_enhancer.application.analysis.text_source import (
     TextAnalysisPurpose,
@@ -46,6 +55,9 @@ from prompt_enhancer.infrastructure.providers.claude_code_hooks.text_source impo
     ClaudeTranscriptTextWindowProbe,
     extract_fragments,
     sample_transcript_structure,
+)
+from prompt_enhancer.infrastructure.providers.claude_code_hooks.transcript_adapter import (
+    parse_events,
 )
 from prompt_enhancer.infrastructure.providers.claude_code_hooks.transcript_reader import (
     ClaudeTranscriptReader,
@@ -157,6 +169,17 @@ def test_extract_fragments_bounds_history_and_flags_truncation(claude_home: Path
     assert thread.fragments[-1].kind is CodexTextItemKind.AGENT_MESSAGE
 
 
+def test_extract_fragments_marks_unknown_content_variant_incomplete(
+    claude_home: Path,
+) -> None:
+    path = write_transcript(claude_home, unknown_block=True)
+
+    thread = extract_fragments(path, limits=CodexTextContentLimits())
+
+    assert thread.extraction_complete is False
+    assert thread.unclassified_omission is True
+
+
 def _selection(session_id: str) -> TextAnalysisSelection:
     return TextAnalysisSelection(provider=Provider.CLAUDE_CODE, session_id=session_id)
 
@@ -174,7 +197,7 @@ def _grant(selection: TextAnalysisSelection) -> TextSourceAccessGrant:
 
 
 def test_source_reads_transcript_into_p1_input(claude_home: Path) -> None:
-    write_transcript(claude_home)
+    path = write_transcript(claude_home)
     pseudonymizer = _pseudonymizer()
     reader = ClaudeTranscriptReader(pseudonymizer, claude_home=claude_home)
     source = ClaudeTranscriptTextAnalysisSource(pseudonymizer, locate=reader.locate)
@@ -195,6 +218,210 @@ def test_source_reads_transcript_into_p1_input(claude_home: Path) -> None:
     focus = next(m for m in result.messages if m.message_id == result.focus_message_id)
     assert focus.role is TextRole.USER
     assert "log each retry" in focus.text.get_secret_value()
+    assert result.action_descriptor_extraction_complete is True
+    assert len(result.action_descriptors) == 2
+    assert len({item.source_reference_id for item in result.action_descriptors}) == 2
+    parsed = parse_events(path, SESSION)
+    event_by_source = {
+        item.source_event_id.get_secret_value(): item for item in parsed.events
+    }
+    expected_receipts = {}
+    for item in parsed.action_details:
+        raw_source_id = item.source_event_id.get_secret_value()
+        event = event_by_source[raw_source_id]
+        safe_source_id = pseudonymizer.pseudonymize(
+            f"claude_code:event:{selection.session_id}",
+            raw_source_id,
+        )
+        expected_receipts[safe_source_id] = (
+            requirement_action_candidate_metadata_fingerprint(
+                source_reference_id=safe_source_id,
+                sequence=event.sequence * 4,
+                event_kind=item.event_kind,
+                tool_category=item.tool_category,
+                occurred_at=item.occurred_at,
+                duration_ms=item.duration_ms,
+                family=item.family,
+                state=item.state,
+            )
+        )
+    assert {
+        item.source_reference_id: (
+            item.candidate_metadata_fingerprint_version,
+            item.candidate_metadata_fingerprint,
+        )
+        for item in result.action_descriptors
+    } == {
+        source_id: (
+            ACTION_CANDIDATE_METADATA_FINGERPRINT_VERSION,
+            fingerprint,
+        )
+        for source_id, fingerprint in expected_receipts.items()
+    }
+
+
+def test_analysis_window_binds_same_id_metadata_and_descriptor_drift(
+    claude_home: Path,
+) -> None:
+    path = write_transcript(claude_home)
+    pseudonymizer = _pseudonymizer()
+    reader = ClaudeTranscriptReader(pseudonymizer, claude_home=claude_home)
+    source = ClaudeTranscriptTextAnalysisSource(
+        pseudonymizer,
+        locate=reader.locate,
+    )
+    selection = _selection(catalog_session_id_for(pseudonymizer, SESSION))
+    profile = TextTaskProfile(applicability=())
+
+    first = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=profile,
+    )
+    original = path.read_text(encoding="utf-8")
+    path.write_text(
+        original.replace(
+            "2026-03-01T09:00:06Z",
+            "2026-03-01T09:00:07Z",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    metadata_drift = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=profile,
+    )
+
+    assert tuple(item.source_reference_id for item in first.action_descriptors) == tuple(
+        item.source_reference_id for item in metadata_drift.action_descriptors
+    )
+    assert tuple(
+        item.result_or_effect_preview for item in first.action_descriptors
+    ) == tuple(
+        item.result_or_effect_preview for item in metadata_drift.action_descriptors
+    )
+    assert tuple(
+        item.candidate_metadata_fingerprint for item in first.action_descriptors
+    ) != tuple(
+        item.candidate_metadata_fingerprint
+        for item in metadata_drift.action_descriptors
+    )
+    assert first.analysis_window_fingerprint != (
+        metadata_drift.analysis_window_fingerprint
+    )
+
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            '"content": "ok"',
+            '"content": "changed"',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    descriptor_drift = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=profile,
+    )
+    assert tuple(
+        item.candidate_metadata_fingerprint
+        for item in metadata_drift.action_descriptors
+    ) == tuple(
+        item.candidate_metadata_fingerprint
+        for item in descriptor_drift.action_descriptors
+    )
+    assert tuple(
+        item.result_or_effect_preview for item in metadata_drift.action_descriptors
+    ) != tuple(
+        item.result_or_effect_preview for item in descriptor_drift.action_descriptors
+    )
+    assert metadata_drift.analysis_window_fingerprint != (
+        descriptor_drift.analysis_window_fingerprint
+    )
+
+
+def test_source_uses_one_byte_snapshot_across_all_transcript_parsers(
+    claude_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An equal-size path replacement cannot splice text A with actions B."""
+
+    path = write_transcript(claude_home)
+    pseudonymizer = _pseudonymizer()
+    reader = ClaudeTranscriptReader(pseudonymizer, claude_home=claude_home)
+    source = ClaudeTranscriptTextAnalysisSource(
+        pseudonymizer,
+        locate=reader.locate,
+    )
+    selection = _selection(catalog_session_id_for(pseudonymizer, SESSION))
+    profile = TextTaskProfile(applicability=())
+    baseline = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=profile,
+    )
+
+    original = path.read_text(encoding="utf-8")
+    replacement = original.replace("add a retry", "add a queue", 1).replace(
+        '"content": "ok"',
+        '"content": "NO"',
+        1,
+    )
+    assert replacement != original
+    assert len(replacement.encode("utf-8")) == len(original.encode("utf-8"))
+    original_stat = path.stat()
+    real_extract = text_source_module.extract_fragments
+
+    def replace_after_fragment_parse(
+        transcript_path: Path,
+        *,
+        limits: CodexTextContentLimits,
+        snapshot_text: str | None = None,
+        snapshot_complete: bool = True,
+    ):
+        thread = real_extract(
+            transcript_path,
+            limits=limits,
+            snapshot_text=snapshot_text,
+            snapshot_complete=snapshot_complete,
+        )
+        transcript_path.write_text(replacement, encoding="utf-8")
+        os.utime(
+            transcript_path,
+            ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+        )
+        return thread
+
+    monkeypatch.setattr(
+        text_source_module,
+        "extract_fragments",
+        replace_after_fragment_parse,
+    )
+    observed = source.read(
+        selection=selection,
+        grant=_grant(selection),
+        task_profile=profile,
+    )
+
+    assert "add a queue" in path.read_text(encoding="utf-8")
+    assert observed.analysis_window_fingerprint == baseline.analysis_window_fingerprint
+    assert observed.action_descriptor_extraction_complete is True
+    observed_text = " ".join(
+        item.text.get_secret_value() for item in observed.messages
+    )
+    assert "add a retry" in observed_text
+    assert "add a queue" not in observed_text
+    results = tuple(
+        (
+            None
+            if item.result_or_effect_preview is None
+            else item.result_or_effect_preview.get_secret_value()
+        )
+        for item in observed.action_descriptors
+    )
+    assert any(value is not None and '"ok"' in value for value in results)
+    assert all(value is None or '"NO"' not in value for value in results)
 
 
 def test_source_refuses_other_provider_and_unknown_session(claude_home: Path) -> None:

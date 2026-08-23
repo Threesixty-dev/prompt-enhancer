@@ -2,7 +2,12 @@ import type {
   ModelEnsembleOutcome,
   ModelEnsembleRun,
 } from "./contracts";
-import { MetricDefinitionsOutOfDateError, parseMetricPublicationV2 } from "./metricPublicationV2Contract";
+import {
+  isReviewedRequirementActionState,
+  isReviewedRequirementPlanState,
+  MetricDefinitionsOutOfDateError,
+  parseMetricPublicationV2,
+} from "./metricPublicationV2Contract";
 
 export class ModelEnsemblePayloadError extends Error {
   constructor() {
@@ -19,11 +24,24 @@ export type ModelMetricProfileBinding = NonNullable<ModelEnsembleRun["metric_pro
 export type ModelRequirementPlanEvidenceBinding = NonNullable<
   ModelEnsembleRun["requirement_plan_evidence_binding"]
 >;
+export type ModelRequirementActionEvidenceBinding = NonNullable<
+  ModelEnsembleRun["requirement_action_evidence_binding"]
+>;
 
 const HEX_64 = /^[0-9a-f]{64}$/;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const AWAITING_REVIEW_REQUIREMENT_PLAN_FINGERPRINT =
   "843a2a5154affde7f7cddc19137dfcdfa8253d9f541c98b6e2cdabd930401ff2";
+const UNAVAILABLE_REQUIREMENT_ACTION_FINGERPRINT =
+  "9059e785839871abf94e1fea1c86c48e737621047a526cd3c9e94099a5b5e07f";
+const AWAITING_REVIEW_REQUIREMENT_ACTION_FINGERPRINT =
+  "0ca65041b98be25e41cbbba908641f116f0e81b45416f89fd7ddf177489add4a";
+const OVERFLOW_REQUIREMENT_ACTION_FINGERPRINT =
+  "528224b052ffbec5c2b404b8970ab2ced61b84bc39cc20d70fd77320a059875f";
+const SOURCE_INCOMPLETE_REQUIREMENT_ACTION_FINGERPRINT =
+  "d44bd4fa494e3123c7cb6f23ada45473204a55736c8a0ae9e5305ba30d91c699";
+const BINDING_INVALID_REQUIREMENT_ACTION_FINGERPRINT =
+  "357ed7bbb833a8dfbd8f907e8309c363957460c6053d5b9d77d069bbbb7e55da";
 
 function record(value: unknown): Row {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -241,6 +259,106 @@ export function parseModelRequirementPlanEvidenceBinding(
   return value as ModelRequirementPlanEvidenceBinding;
 }
 
+/** Parse the minimized r7 requirement-action authority bound to one sealed run. */
+export function parseModelRequirementActionEvidenceBinding(
+  value: unknown,
+): ModelRequirementActionEvidenceBinding {
+  const binding = record(value);
+  exact(binding, [
+    "evidence_source", "source_run_id", "requirement_plan_confirmation_id",
+    "requirement_plan_evidence_fingerprint", "candidate_manifest_fingerprint",
+    "confirmation_id", "proposal_id", "reviewed_descriptor_set_fingerprint",
+    "evidence_fingerprint",
+    "evidence_schema_version", "evidence_policy_version", "local_only",
+    "content_persisted",
+  ]);
+  const knownSources = [
+    "unavailable", "awaiting_review", "candidate_manifest_overflow",
+    "candidate_source_incomplete", "binding_invalid", "reviewed_requirement_action",
+  ] as const;
+  const knownSchemas = [
+    "requirement-action-unavailable-v1", "requirement-action-awaiting-review-v1",
+    "requirement-action-candidate-manifest-overflow-v1",
+    "requirement-action-candidate-source-incomplete-v1",
+    "requirement-action-binding-invalid-v1",
+    "requirement-action-evidence-v1",
+  ] as const;
+  if (
+    (typeof binding.evidence_source === "string"
+      && !knownSources.includes(binding.evidence_source as never))
+    || (typeof binding.evidence_schema_version === "string"
+      && !knownSchemas.includes(binding.evidence_schema_version as never))
+    || (typeof binding.evidence_policy_version === "string"
+      && binding.evidence_policy_version !== "reviewed-requirement-action-v1")
+  ) {
+    throw new MetricDefinitionsOutOfDateError("requirement_action_evidence_binding");
+  }
+  const source = oneOf(binding.evidence_source, knownSources);
+  const schema = oneOf(binding.evidence_schema_version, knownSchemas);
+  const authorityFields = [
+    binding.source_run_id,
+    binding.requirement_plan_confirmation_id,
+    binding.requirement_plan_evidence_fingerprint,
+    binding.candidate_manifest_fingerprint,
+    binding.confirmation_id,
+    binding.proposal_id,
+    binding.reviewed_descriptor_set_fingerprint,
+  ];
+  if (
+    binding.evidence_policy_version !== "reviewed-requirement-action-v1"
+    || binding.local_only !== true
+    || binding.content_persisted !== false
+    || typeof binding.evidence_fingerprint !== "string"
+    || !HEX_64.test(binding.evidence_fingerprint)
+    || authorityFields.some((candidate) => candidate !== null
+      && (typeof candidate !== "string" || !HEX_64.test(candidate)))
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  if (source === "reviewed_requirement_action") {
+    if (
+      authorityFields.some((candidate) => candidate === null)
+      || schema !== "requirement-action-evidence-v1"
+      || binding.evidence_fingerprint === UNAVAILABLE_REQUIREMENT_ACTION_FINGERPRINT
+      || binding.evidence_fingerprint === AWAITING_REVIEW_REQUIREMENT_ACTION_FINGERPRINT
+      || binding.evidence_fingerprint === OVERFLOW_REQUIREMENT_ACTION_FINGERPRINT
+      || binding.evidence_fingerprint === SOURCE_INCOMPLETE_REQUIREMENT_ACTION_FINGERPRINT
+      || binding.evidence_fingerprint === BINDING_INVALID_REQUIREMENT_ACTION_FINGERPRINT
+    ) throw new ModelEnsemblePayloadError();
+  } else if (source === "awaiting_review") {
+    if (
+      authorityFields.some((candidate) => candidate !== null)
+      || schema !== "requirement-action-awaiting-review-v1"
+      || binding.evidence_fingerprint !== AWAITING_REVIEW_REQUIREMENT_ACTION_FINGERPRINT
+    ) throw new ModelEnsemblePayloadError();
+  } else if (source === "candidate_manifest_overflow") {
+    if (
+      authorityFields.some((candidate) => candidate !== null)
+      || schema !== "requirement-action-candidate-manifest-overflow-v1"
+      || binding.evidence_fingerprint !== OVERFLOW_REQUIREMENT_ACTION_FINGERPRINT
+    ) throw new ModelEnsemblePayloadError();
+  } else if (source === "candidate_source_incomplete") {
+    if (
+      authorityFields.some((candidate) => candidate !== null)
+      || schema !== "requirement-action-candidate-source-incomplete-v1"
+      || binding.evidence_fingerprint !== SOURCE_INCOMPLETE_REQUIREMENT_ACTION_FINGERPRINT
+    ) throw new ModelEnsemblePayloadError();
+  } else if (source === "binding_invalid") {
+    if (
+      authorityFields.some((candidate) => candidate !== null)
+      || schema !== "requirement-action-binding-invalid-v1"
+      || binding.evidence_fingerprint !== BINDING_INVALID_REQUIREMENT_ACTION_FINGERPRINT
+    ) throw new ModelEnsemblePayloadError();
+  } else if (
+    authorityFields.some((candidate) => candidate !== null)
+    || schema !== "requirement-action-unavailable-v1"
+    || binding.evidence_fingerprint !== UNAVAILABLE_REQUIREMENT_ACTION_FINGERPRINT
+  ) {
+    throw new ModelEnsemblePayloadError();
+  }
+  return value as ModelRequirementActionEvidenceBinding;
+}
+
 /**
  * Validate one content-free aggregate metric against its enclosing chunk bound.
  * Structural graph cells do not count as eligible metric observations, so the
@@ -399,6 +517,7 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
     "metrics", "metric_projection_version", "metric_projection_completed_at",
     "typed_metrics", "metric_publication_v2", "metric_profile_binding",
     "requirement_plan_evidence_binding", "metric_evidence_readiness_v2",
+    "requirement_action_evidence_binding",
     "predictive_projection_version", "predictive_projected_at",
     "predictive_metrics", "predictive_model_stages", "completed_at", "local_only", "content_persisted",
     "calibration_state", "product_metric_eligible",
@@ -532,6 +651,7 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
   const currentProfileProjection = publication !== null && [
     "metric-contract-v2-projection-5",
     "metric-contract-v2-projection-6",
+    "metric-contract-v2-projection-7",
   ].includes(publication.projection_version);
   if (
     (publication === null && profileBinding !== null)
@@ -567,10 +687,99 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
     ? null
     : parseModelRequirementPlanEvidenceBinding(run.requirement_plan_evidence_binding);
   if (
-    (publication?.projection_version === "metric-contract-v2-projection-6")
+    (["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+      publication?.projection_version ?? "",
+    ))
       !== (requirementPlanBinding !== null)
   ) {
     throw new ModelEnsemblePayloadError();
+  }
+  const requirementActionBinding = run.requirement_action_evidence_binding === null
+    ? null
+    : parseModelRequirementActionEvidenceBinding(run.requirement_action_evidence_binding);
+  if (
+    (publication?.projection_version === "metric-contract-v2-projection-7")
+      !== (requirementActionBinding !== null)
+  ) throw new ModelEnsemblePayloadError();
+  if (
+    requirementActionBinding?.evidence_source === "reviewed_requirement_action"
+    && (
+      requirementPlanBinding?.evidence_source !== "reviewed_requirement_plan"
+      || requirementActionBinding.requirement_plan_confirmation_id
+        !== requirementPlanBinding.confirmation_id
+      || requirementActionBinding.requirement_plan_evidence_fingerprint
+        !== requirementPlanBinding.evidence_fingerprint
+    )
+  ) throw new ModelEnsemblePayloadError();
+  if (requirementActionBinding !== null && publication !== null) {
+    const state = publication.metrics.find(
+      (item) => item.state.metric_key === "logic.requirement_action_traceability",
+    )?.state;
+    const requirementPlanState = publication.metrics.find(
+      (item) => item.state.metric_key === "logic.decomposition_coverage",
+    )?.state;
+    if (state === undefined || requirementPlanState === undefined) throw new ModelEnsemblePayloadError();
+    const statistics = state.statistics;
+    const unknownShape = state.value_state === "unknown"
+      && state.numerator === null
+      && state.denominator === null
+      && state.numeric_value === null
+      && state.censoring_lower_bound === null
+      && state.censoring_upper_bound === null;
+    const unresolvedShape = statistics.met_count === 0
+      && statistics.not_met_count === 0
+      && statistics.pending_count === 0
+      && statistics.unknown_count === statistics.eligible_count;
+    const reviewedRequirementPlan = isReviewedRequirementPlanState(requirementPlanState);
+    if (
+      reviewedRequirementPlan
+        ? statistics.eligible_count !== requirementPlanState.statistics.eligible_count
+        : statistics.eligible_count !== 0
+    ) throw new ModelEnsemblePayloadError();
+    if (requirementActionBinding.evidence_source === "unavailable") {
+      if (
+        !unknownShape
+        || state.explanation_code !== "requirement_action_evidence_unavailable"
+        || statistics.capability_available !== false
+        || statistics.source_complete !== true
+        || !unresolvedShape
+      ) throw new ModelEnsemblePayloadError();
+    } else if (requirementActionBinding.evidence_source === "awaiting_review") {
+      if (
+        !unknownShape
+        || state.explanation_code !== "requirement_action_evidence_confirmation_required"
+        || statistics.capability_available !== true
+        || statistics.source_complete !== true
+        || !unresolvedShape
+      ) throw new ModelEnsemblePayloadError();
+    } else if (requirementActionBinding.evidence_source === "candidate_manifest_overflow") {
+      if (
+        !unknownShape
+        || state.explanation_code !== "requirement_action_evidence_overflow"
+        || statistics.capability_available !== true
+        || statistics.source_complete !== true
+        || !unresolvedShape
+      ) throw new ModelEnsemblePayloadError();
+    } else if (requirementActionBinding.evidence_source === "candidate_source_incomplete") {
+      if (
+        !unknownShape
+        || state.explanation_code !== "requirement_action_candidate_source_incomplete"
+        || statistics.capability_available !== true
+        || statistics.source_complete !== false
+        || !unresolvedShape
+      ) throw new ModelEnsemblePayloadError();
+    } else if (requirementActionBinding.evidence_source === "binding_invalid") {
+      if (
+        !unknownShape
+        || state.explanation_code !== "requirement_action_evidence_invalid"
+        || statistics.capability_available !== true
+        || statistics.source_complete !== false
+        || !unresolvedShape
+      ) throw new ModelEnsemblePayloadError();
+    } else {
+      const reviewed = reviewedRequirementPlan && isReviewedRequirementActionState(state);
+      if (!reviewed) throw new ModelEnsemblePayloadError();
+    }
   }
   if (requirementPlanBinding !== null && publication !== null) {
     const decomposition = publication.metrics.find(
@@ -615,13 +824,7 @@ export function parseModelEnsembleRun(value: unknown): ModelEnsembleRun {
         && statistics.capability_available === true
         && statistics.source_complete === false
         && empty;
-      const reviewed = ["known", "pending", "not_applicable"].includes(
-        decomposition.value_state,
-      )
-        && decomposition.explanation_code === "reviewed_requirement_plan_links"
-        && statistics.capability_available === true
-        && statistics.source_complete === true
-        && statistics.unknown_count === 0;
+      const reviewed = isReviewedRequirementPlanState(decomposition);
       if (!invalid && !reviewed) throw new ModelEnsemblePayloadError();
     }
   }

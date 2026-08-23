@@ -64,6 +64,249 @@ def _derived_id(namespace: str, authority_id: str, ordinal: int) -> str:
     ).hexdigest()
 
 
+_PLAN_DECISION_AUTHORITY_VERSION = "requirement-plan-decision-authority-v1"
+_PLAN_DECISION_AUTHORITY_KEYED = "keyed_application_issuance"
+_PLAN_DECISION_AUTHORITY_UPGRADE = "trusted_m55_upgrade"
+_PLAN_DECISION_AUTHORITY_UPGRADE_PENDING = "trusted_m55_upgrade_pending"
+
+
+def _decision_authority_fingerprint(
+    identifiers: LocalArtifactIdFactory,
+    *,
+    authority_source: str,
+    decision_id: str,
+    proposal_id: str,
+    session_id: str,
+    decision: str,
+    idempotency_key_digest: str,
+    command_fingerprint: str,
+    decided_at: str,
+    confirmation_authority: str,
+    decision_schema_version: str,
+    decision_local_only: int,
+    decision_content_persisted: int,
+    source_run_id: str,
+    source_window_fingerprint: str,
+    expected_predecessor_confirmation_id: str | None,
+    payload_sha256: str,
+    graph_fingerprint: str,
+    proposal_schema_version: str,
+    proposal_policy_version: str,
+    review_rubric_version: str,
+) -> str:
+    """Bind one durable plan decision to its complete sealed authority."""
+
+    return identifiers.fingerprint(
+        _PLAN_DECISION_AUTHORITY_VERSION,
+        (
+            authority_source,
+            decision_id,
+            proposal_id,
+            session_id,
+            decision,
+            idempotency_key_digest,
+            command_fingerprint,
+            decided_at,
+            confirmation_authority,
+            decision_schema_version,
+            str(decision_local_only),
+            str(decision_content_persisted),
+            source_run_id,
+            source_window_fingerprint,
+            expected_predecessor_confirmation_id or "none",
+            payload_sha256,
+            graph_fingerprint,
+            proposal_schema_version,
+            proposal_policy_version,
+            review_rubric_version,
+        ),
+    )
+
+
+def upgrade_trusted_m55_decision_authority(
+    connection: sqlite3.Connection,
+    identifiers: LocalArtifactIdFactory,
+) -> None:
+    """Key only rows explicitly queued by the M55-to-M56 migration.
+
+    The migration-created pending row is the durable proof that a decision
+    existed before the keyed authority sidecar was introduced.  Missing
+    sidecars discovered during ordinary reads are never manufactured here.
+    """
+
+    pending = connection.execute(
+        """SELECT authority.decision_id,
+                  decision.proposal_id,decision.session_id,decision.decision,
+                  decision.idempotency_key_digest,decision.command_fingerprint,
+                  decision.decided_at,decision.confirmation_authority,
+                  decision.schema_version AS decision_schema_version,
+                  decision.local_only AS decision_local_only,
+                  decision.content_persisted AS decision_content_persisted,
+                  proposal.source_run_id,proposal.source_window_fingerprint,
+                  proposal.expected_predecessor_confirmation_id,
+                  proposal.payload_sha256,proposal.graph_fingerprint,
+                  proposal.schema_version AS proposal_schema_version,
+                  proposal.policy_version AS proposal_policy_version,
+                  proposal.review_rubric_version
+           FROM requirement_plan_evidence_decision_authority_m56 authority
+           JOIN requirement_plan_evidence_decisions decision
+             ON decision.decision_id=authority.decision_id
+           JOIN requirement_plan_evidence_proposals proposal
+             ON proposal.proposal_id=decision.proposal_id
+           WHERE authority.authority_source=?
+             AND authority.authority_fingerprint IS NULL
+           ORDER BY authority.decision_id""",
+        (_PLAN_DECISION_AUTHORITY_UPGRADE_PENDING,),
+    ).fetchall()
+    for row in pending:
+        fingerprint = _decision_authority_fingerprint(
+            identifiers,
+            authority_source=_PLAN_DECISION_AUTHORITY_UPGRADE,
+            decision_id=row["decision_id"],
+            proposal_id=row["proposal_id"],
+            session_id=row["session_id"],
+            decision=row["decision"],
+            idempotency_key_digest=row["idempotency_key_digest"],
+            command_fingerprint=row["command_fingerprint"],
+            decided_at=row["decided_at"],
+            confirmation_authority=row["confirmation_authority"],
+            decision_schema_version=row["decision_schema_version"],
+            decision_local_only=int(row["decision_local_only"]),
+            decision_content_persisted=int(row["decision_content_persisted"]),
+            source_run_id=row["source_run_id"],
+            source_window_fingerprint=row["source_window_fingerprint"],
+            expected_predecessor_confirmation_id=(
+                row["expected_predecessor_confirmation_id"]
+            ),
+            payload_sha256=row["payload_sha256"],
+            graph_fingerprint=row["graph_fingerprint"],
+            proposal_schema_version=row["proposal_schema_version"],
+            proposal_policy_version=row["proposal_policy_version"],
+            review_rubric_version=row["review_rubric_version"],
+        )
+        changed = connection.execute(
+            """UPDATE requirement_plan_evidence_decision_authority_m56
+               SET authority_source=?,authority_fingerprint=?
+               WHERE decision_id=? AND authority_source=?
+                 AND authority_fingerprint IS NULL""",
+            (
+                _PLAN_DECISION_AUTHORITY_UPGRADE,
+                fingerprint,
+                row["decision_id"],
+                _PLAN_DECISION_AUTHORITY_UPGRADE_PENDING,
+            ),
+        ).rowcount
+        if changed != 1:
+            raise DatabaseInvariantError(
+                "requirement-plan decision upgrade authority changed"
+            )
+
+
+def _decision_authority_for_record(
+    identifiers: LocalArtifactIdFactory,
+    *,
+    authority_source: str,
+    proposal: RequirementPlanProposalRecord,
+    decision: RequirementPlanDecisionRecord,
+) -> str:
+    return _decision_authority_fingerprint(
+        identifiers,
+        authority_source=authority_source,
+        decision_id=decision.decision_id,
+        proposal_id=decision.proposal_id,
+        session_id=decision.session_id,
+        decision=decision.decision.value,
+        idempotency_key_digest=decision.idempotency_key_digest,
+        command_fingerprint=decision.command_fingerprint,
+        decided_at=to_iso(decision.decided_at),
+        confirmation_authority=decision.confirmation_authority,
+        decision_schema_version=decision.schema_version,
+        decision_local_only=int(decision.local_only),
+        decision_content_persisted=int(decision.content_persisted),
+        source_run_id=proposal.source_run_id,
+        source_window_fingerprint=proposal.source_window_fingerprint,
+        expected_predecessor_confirmation_id=(
+            proposal.expected_predecessor_confirmation_id
+        ),
+        payload_sha256=proposal.payload_sha256,
+        graph_fingerprint=requirement_plan_graph_fingerprint(proposal),
+        proposal_schema_version=proposal.schema_version,
+        proposal_policy_version=proposal.policy_version,
+        review_rubric_version=proposal.review_rubric_version,
+    )
+
+
+def confirmed_requirement_plan_snapshot(
+    view: RequirementPlanProposalView,
+) -> RequirementPlanEvidenceSnapshot:
+    """Reconstruct one exact historical confirmed graph from its sealed view."""
+
+    decision = view.decision
+    if (
+        decision is None
+        or decision.decision is not RequirementPlanDecisionKind.CONFIRM
+    ):
+        raise DatabaseInvariantError(
+            "requirement-plan confirmed graph is incomplete"
+        )
+    confirmation_id = decision.decision_id
+    plan_id_by_ordinal = {
+        ordinal: _derived_id(
+            "requirement-plan-confirmed-plan-v1",
+            confirmation_id,
+            ordinal,
+        )
+        for ordinal in range(len(view.proposal.plan_items))
+    }
+    plan_items = tuple(
+        sorted(
+            (
+                ConfirmedPlanEvidence(
+                    plan_id=plan_id_by_ordinal[ordinal],
+                    coordinate=coordinate,
+                )
+                for ordinal, coordinate in enumerate(view.proposal.plan_items)
+            ),
+            key=lambda item: item.plan_id,
+        )
+    )
+    requirements = tuple(
+        sorted(
+            (
+                ConfirmedRequirementEvidence(
+                    requirement_id=_derived_id(
+                        "requirement-plan-confirmed-requirement-v1",
+                        confirmation_id,
+                        ordinal,
+                    ),
+                    coordinate=item.coordinate,
+                    disposition=item.disposition,
+                    linked_plan_ids=tuple(
+                        sorted(
+                            plan_id_by_ordinal[index]
+                            for index in item.plan_indexes
+                        )
+                    ),
+                )
+                for ordinal, item in enumerate(view.proposal.requirements)
+            ),
+            key=lambda item: item.requirement_id,
+        )
+    )
+    return RequirementPlanEvidenceSnapshot(
+        session_id=view.proposal.session_id,
+        source_window_fingerprint=view.proposal.source_window_fingerprint,
+        confirmation_id=confirmation_id,
+        proposal_id=view.proposal.proposal_id,
+        producer_receipt=view.proposal.producer_receipt,
+        review_rubric_version=view.proposal.review_rubric_version,
+        requirements=requirements,
+        excluded_user_clauses=view.proposal.excluded_user_clauses,
+        plan_items=plan_items,
+        complete_user_clause_classification=True,
+    )
+
+
 class SqliteRequirementPlanEvidenceRepository(RequirementPlanRepository):
     def __init__(
         self,
@@ -310,6 +553,11 @@ class SqliteRequirementPlanEvidenceRepository(RequirementPlanRepository):
                         )
                     connection.commit()
                     return view, False
+                proposal_view = self._get_view(connection, decision.proposal_id)
+                if proposal_view is None or proposal_view.decision is not None:
+                    raise DatabaseInvariantError(
+                        "requirement-plan proposal authority is incomplete"
+                    )
                 connection.execute(
                     """INSERT INTO requirement_plan_evidence_decisions(
                            decision_id,proposal_id,session_id,decision,
@@ -329,10 +577,31 @@ class SqliteRequirementPlanEvidenceRepository(RequirementPlanRepository):
                         decision.schema_version,
                     ),
                 )
+                authority_fingerprint = _decision_authority_for_record(
+                    self._identifiers,
+                    authority_source=_PLAN_DECISION_AUTHORITY_KEYED,
+                    proposal=proposal_view.proposal,
+                    decision=decision,
+                )
+                connection.execute(
+                    """INSERT INTO requirement_plan_evidence_decision_authority_m56(
+                           decision_id,proposal_id,session_id,authority_source,
+                           authority_fingerprint,authority_version,
+                           local_only,content_persisted
+                       ) VALUES(?,?,?,?,?,?,1,0)""",
+                    (
+                        decision.decision_id,
+                        decision.proposal_id,
+                        decision.session_id,
+                        _PLAN_DECISION_AUTHORITY_KEYED,
+                        authority_fingerprint,
+                        _PLAN_DECISION_AUTHORITY_VERSION,
+                    ),
+                )
                 view = self._get_view(connection, decision.proposal_id)
-                if view is None:
+                if view is None or view.decision != decision:
                     raise DatabaseInvariantError(
-                        "requirement-plan decision insert is incomplete"
+                        "requirement-plan decision failed exact rehydration"
                     )
                 connection.commit()
                 return view, True
@@ -595,111 +864,7 @@ class SqliteRequirementPlanEvidenceRepository(RequirementPlanRepository):
                 raise DatabaseInvariantError(
                     "requirement-plan confirmed graph is incomplete"
                 )
-            plan_rows = connection.execute(
-                """SELECT ordinal,message_sequence,clause_index
-                   FROM requirement_plan_evidence_plans
-                   WHERE proposal_id=? ORDER BY ordinal""",
-                (proposal_id,),
-            ).fetchall()
-            plan_id_by_ordinal = {
-                int(row["ordinal"]): _derived_id(
-                    "requirement-plan-confirmed-plan-v1",
-                    confirmation_id,
-                    int(row["ordinal"]),
-                )
-                for row in plan_rows
-            }
-            plan_items = tuple(
-                sorted(
-                    (
-                        ConfirmedPlanEvidence(
-                            plan_id=plan_id_by_ordinal[int(row["ordinal"])],
-                            coordinate=PlanCoordinate(
-                                message_sequence=int(row["message_sequence"]),
-                                clause_index=int(row["clause_index"]),
-                            ),
-                        )
-                        for row in plan_rows
-                    ),
-                    key=lambda item: item.plan_id,
-                )
-            )
-            requirement_rows = connection.execute(
-                """SELECT ordinal,message_sequence,clause_index,disposition
-                   FROM requirement_plan_evidence_requirements
-                   WHERE proposal_id=? ORDER BY ordinal""",
-                (proposal_id,),
-            ).fetchall()
-            excluded_user_clauses = tuple(
-                ExcludedRequirementClause(
-                    coordinate=RequirementCoordinate(
-                        message_sequence=int(row["message_sequence"]),
-                        clause_index=int(row["clause_index"]),
-                    ),
-                    reason=RequirementPlanExclusionReason(
-                        row["exclusion_reason"]
-                    ),
-                    basis_coordinate=(
-                        None
-                        if row["basis_message_sequence"] is None
-                        else RequirementCoordinate(
-                            message_sequence=int(row["basis_message_sequence"]),
-                            clause_index=int(row["basis_clause_index"]),
-                        )
-                    ),
-                )
-                for row in connection.execute(
-                    """SELECT message_sequence,clause_index,exclusion_reason,
-                              basis_message_sequence,basis_clause_index
-                       FROM requirement_plan_evidence_excluded_user_clauses
-                       WHERE proposal_id=? ORDER BY ordinal""",
-                    (proposal_id,),
-                ).fetchall()
-            )
-            requirements = []
-            for row in requirement_rows:
-                ordinal = int(row["ordinal"])
-                links = tuple(
-                    sorted(
-                        plan_id_by_ordinal[int(link["plan_ordinal"])]
-                        for link in connection.execute(
-                            """SELECT plan_ordinal
-                               FROM requirement_plan_evidence_links
-                               WHERE proposal_id=? AND requirement_ordinal=?
-                               ORDER BY plan_ordinal""",
-                            (proposal_id, ordinal),
-                        ).fetchall()
-                    )
-                )
-                requirements.append(
-                    ConfirmedRequirementEvidence(
-                        requirement_id=_derived_id(
-                            "requirement-plan-confirmed-requirement-v1",
-                            confirmation_id,
-                            ordinal,
-                        ),
-                        coordinate=RequirementCoordinate(
-                            message_sequence=int(row["message_sequence"]),
-                            clause_index=int(row["clause_index"]),
-                        ),
-                        disposition=RequirementDisposition(row["disposition"]),
-                        linked_plan_ids=links,
-                    )
-                )
-            return RequirementPlanEvidenceSnapshot(
-                session_id=session_id,
-                source_window_fingerprint=source_window_fingerprint,
-                confirmation_id=confirmation_id,
-                proposal_id=proposal_id,
-                producer_receipt=view.proposal.producer_receipt,
-                review_rubric_version=view.proposal.review_rubric_version,
-                requirements=tuple(
-                    sorted(requirements, key=lambda item: item.requirement_id)
-                ),
-                excluded_user_clauses=excluded_user_clauses,
-                plan_items=plan_items,
-                complete_user_clause_classification=True,
-            )
+            return confirmed_requirement_plan_snapshot(view)
 
     def latest_snapshot(self, session_id: str) -> RequirementPlanEvidenceSnapshot:
         self._ensure_initialized()
@@ -732,9 +897,8 @@ class SqliteRequirementPlanEvidenceRepository(RequirementPlanRepository):
             )
         return self.snapshot(session_id, rows[0]["source_window_fingerprint"])
 
-    @staticmethod
     def _get_view(
-        connection: sqlite3.Connection, proposal_id: str
+        self, connection: sqlite3.Connection, proposal_id: str
     ) -> RequirementPlanProposalView | None:
         row = connection.execute(
             """SELECT proposal.*,
@@ -918,8 +1082,18 @@ class SqliteRequirementPlanEvidenceRepository(RequirementPlanRepository):
                 "requirement-plan proposal graph fingerprint is invalid"
             )
         decision_row = connection.execute(
-            """SELECT * FROM requirement_plan_evidence_decisions
-               WHERE proposal_id=?""",
+            """SELECT decision.*,
+                      authority.proposal_id AS authority_proposal_id,
+                      authority.session_id AS authority_session_id,
+                      authority.authority_source,
+                      authority.authority_fingerprint,
+                      authority.authority_version,
+                      authority.local_only AS authority_local_only,
+                      authority.content_persisted AS authority_content_persisted
+               FROM requirement_plan_evidence_decisions decision
+               LEFT JOIN requirement_plan_evidence_decision_authority_m56 authority
+                 ON authority.decision_id=decision.decision_id
+               WHERE decision.proposal_id=?""",
             (proposal_id,),
         ).fetchone()
         decision = None
@@ -942,6 +1116,38 @@ class SqliteRequirementPlanEvidenceRepository(RequirementPlanRepository):
                 local_only=bool(decision_row["local_only"]),
                 content_persisted=bool(decision_row["content_persisted"]),
             )
+            if (
+                decision.proposal_id != proposal.proposal_id
+                or decision.session_id != proposal.session_id
+                or decision_row["authority_proposal_id"] != proposal.proposal_id
+                or decision_row["authority_session_id"] != proposal.session_id
+                or decision_row["authority_version"]
+                != _PLAN_DECISION_AUTHORITY_VERSION
+                or decision_row["authority_source"]
+                not in (
+                    _PLAN_DECISION_AUTHORITY_KEYED,
+                    _PLAN_DECISION_AUTHORITY_UPGRADE,
+                )
+                or decision_row["authority_local_only"] != 1
+                or decision_row["authority_content_persisted"] != 0
+                or decision_row["authority_fingerprint"] is None
+            ):
+                raise DatabaseInvariantError(
+                    "requirement-plan decision authority is incomplete"
+                )
+            expected_decision_authority = _decision_authority_for_record(
+                self._identifiers,
+                authority_source=decision_row["authority_source"],
+                proposal=proposal,
+                decision=decision,
+            )
+            if not hmac.compare_digest(
+                decision_row["authority_fingerprint"],
+                expected_decision_authority,
+            ):
+                raise DatabaseInvariantError(
+                    "requirement-plan decision authority is invalid"
+                )
         status = (
             RequirementPlanProposalStatus.PROPOSED
             if decision is None

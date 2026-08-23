@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type {
+  ModelEnsembleAttempt,
   ModelEnsembleRun,
   ModelEnsembleCanonicalHead,
   ModelEnsembleTrajectoryPage,
@@ -13,7 +14,7 @@ import { MetricDefinitionsOutOfDateError, type MetricDefinitionMismatch } from "
 import type { MetricCategory } from "../../shared/platform/platform";
 import { promptTextCompatibilityBlocker } from "../provider-compatibility";
 import type { ModelEnsembleLensId } from "./metricAxisModel";
-import { METRIC_DEFINITIONS_OUT_OF_DATE_TITLE, MetricDefinitionsOutOfDateAlert } from "./MetricDefinitionsAlert";
+import { MetricDefinitionsOutOfDateAlert } from "./MetricDefinitionsAlert";
 import { MetricWorkspace } from "./MetricWorkspace";
 import { DeclaredTaskProfilePanel } from "./DeclaredTaskProfilePanel";
 import { MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES } from "./modelEnsembleConstants";
@@ -24,6 +25,7 @@ import {
   CANONICAL_POLL_WRONG_RUN_MS,
   TRAJECTORY_RETRY_LIMIT,
   TRAJECTORY_RETRY_MS,
+  PollFailureTracker,
   PollCoordinator,
   canonicalHeadIdentity,
   canonicalHeadPollDelay,
@@ -32,6 +34,10 @@ import {
   watchSnapshotIdentity,
   watchSnapshotPollDelay,
 } from "./canonicalPolling";
+import { ErrorState } from "../../shared/ui/AsyncState";
+
+type ReceiptAuthority = "checking" | "verified" | "unknown";
+type PendingMutation = "start" | "cancel" | "watch";
 
 const TERMINAL_SOURCE_REASONS = new Set([
   "source_selection_limit",
@@ -100,6 +106,25 @@ function formatTimestamp(value: string): string {
   }).format(new Date(value));
 }
 
+function terminalAttemptStatus(
+  attempt: ModelEnsembleAttempt | null | undefined,
+  run: ModelEnsembleRun | null,
+): string | null {
+  if (attempt === null || attempt === undefined || attempt.state === "running") return null;
+  const retained = run === null
+    ? "No new sealed snapshot is available."
+    : "The last sealed snapshot remains visible.";
+  if (attempt.state === "failed") return `Local analysis failed. ${retained}`;
+  if (attempt.state === "cancelled") return `Local analysis was cancelled. ${retained}`;
+  if (attempt.state === "partial") {
+    const warnings = `${attempt.warning_count} warning${attempt.warning_count === 1 ? "" : "s"}`;
+    return `Local analysis completed with ${warnings}. ${retained}`;
+  }
+  return run === null
+    ? "Local analysis completed, but no sealed snapshot is available."
+    : `Stored local analysis completed ${formatTimestamp(run.completed_at)}.`;
+}
+
 export function ModelEnsemblePanel({
   projectId,
   sessionId,
@@ -118,9 +143,13 @@ export function ModelEnsemblePanel({
   compatibilityLoading?: boolean;
 }) {
   const [run, setRun] = useState<ModelEnsembleRun | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
+  const [receiptAuthority, setReceiptAuthority] = useState<ReceiptAuthority>("checking");
+  const [pendingMutation, setPendingMutation] = useState<PendingMutation | null>(null);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [disconnected, setDisconnected] = useState(false);
+  const [legacyLoadRevision, setLegacyLoadRevision] = useState(0);
   /** Compatibility-gate refusal: clears every retained value; never rendered as a load error. */
   const [definitionsOutOfDate, setDefinitionsOutOfDate] = useState<MetricDefinitionMismatch | null>(null);
   const [watch, setWatch] = useState<ModelEnsembleWatchSnapshot | null>(null);
@@ -134,11 +163,14 @@ export function ModelEnsemblePanel({
    */
   const [trajectoryDefinitionsMismatch, setTrajectoryDefinitionsMismatch] = useState<MetricDefinitionMismatch | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [watchChanging, setWatchChanging] = useState(false);
   const [lensId, setLensId] = useState<ModelEnsembleLensId>(
     category === "prompt-quality" ? "task-framing" : "reasoning-trace",
   );
   const controllerRef = useRef<AbortController | null>(null);
+  const pendingMutationRef = useRef<PendingMutation | null>(null);
+  const contextEpochRef = useRef(0);
+  const receiptAuthorityRef = useRef<ReceiptAuthority>("checking");
+  const legacyWatchRevisionRef = useRef(0);
   const runRef = useRef<ModelEnsembleRun | null>(null);
   const watchRef = useRef<ModelEnsembleWatchSnapshot | null>(null);
   const canonicalHeadRef = useRef<ModelEnsembleCanonicalHead | null>(null);
@@ -147,11 +179,33 @@ export function ModelEnsemblePanel({
   const blocked = blocker(analysisCapability, providerCompatibility, compatibilityLoading);
   const supportsCanonicalSnapshots = transport.getSessionModelEnsembleCanonicalHead !== undefined
     && transport.getModelEnsembleSnapshot !== undefined;
+  const titleId = useId();
+  const statusId = useId();
+
+  useEffect(() => {
+    contextEpochRef.current += 1;
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    pendingMutationRef.current = null;
+    setPendingMutation(null);
+    legacyWatchRevisionRef.current = 0;
+    return () => {
+      contextEpochRef.current += 1;
+      controllerRef.current?.abort();
+      controllerRef.current = null;
+      pendingMutationRef.current = null;
+    };
+  }, [projectId, sessionId, transport]);
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
+    const legacyWatchRevision = legacyWatchRevisionRef.current;
+    receiptAuthorityRef.current = "checking";
+    setReceiptAuthority("checking");
     setError("");
+    setLoadError("");
+    setNotice("");
+    setDisconnected(false);
     setRun(null);
     runRef.current = null;
     setDefinitionsOutOfDate(null);
@@ -161,29 +215,38 @@ export function ModelEnsemblePanel({
     transport.getLatestModelEnsemble(sessionId, controller.signal)
       .then((value) => {
         if (controller.signal.aborted) return;
+        if (legacyWatchRevisionRef.current !== legacyWatchRevision) return;
         const exactHead = canonicalHeadRef.current;
         if (
           exactHead?.watch.session_id === sessionId
           && exactHead.head_run_id !== value.run_id
         ) return;
+        receiptAuthorityRef.current = "verified";
+        setReceiptAuthority("verified");
+        setLoadError("");
         setDefinitionsOutOfDate(null);
+        runRef.current = value;
         setRun(value);
       })
       .catch((loadError: unknown) => {
         if (controller.signal.aborted) return;
+        if (legacyWatchRevisionRef.current !== legacyWatchRevision) return;
         if (loadError instanceof MetricDefinitionsOutOfDateError) {
+          receiptAuthorityRef.current = "verified";
+          setReceiptAuthority("verified");
           setDefinitionsOutOfDate(loadError.mismatch);
           runRef.current = null;
           setRun(null);
           return;
         }
+        receiptAuthorityRef.current = statusOf(loadError) === 404 ? "verified" : "unknown";
+        setReceiptAuthority(receiptAuthorityRef.current);
         if (statusOf(loadError) !== 404) {
-          setError("The stored shadow ensemble could not be validated or loaded.");
+          setLoadError("Stored local-analysis receipts could not be checked. Their availability remains unknown.");
         }
-      })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      });
     return () => controller.abort();
-  }, [sessionId, supportsCanonicalSnapshots, transport]);
+  }, [legacyLoadRevision, sessionId, supportsCanonicalSnapshots, transport]);
 
   const trajectoryWatchId = watch?.watch.session_id === sessionId
     && watch.watch.state !== "disabled"
@@ -253,7 +316,6 @@ export function ModelEnsemblePanel({
     };
   }, [trajectoryHeadRunId, trajectoryWatchId, transport]);
 
-  useEffect(() => () => controllerRef.current?.abort(), []);
   useEffect(() => { runRef.current = run; }, [run]);
   useEffect(() => { watchRef.current = watch; }, [watch]);
   useEffect(() => { canonicalHeadRef.current = canonicalHead; }, [canonicalHead]);
@@ -284,6 +346,26 @@ export function ModelEnsemblePanel({
 
   useEffect(() => {
     if (transport.getSessionModelEnsembleCanonicalHead === undefined && transport.getActiveModelEnsembleWatch === undefined) return;
+    const failures = new PollFailureTracker();
+    const healthy = (authority: ReceiptAuthority = "verified") => {
+      failures.reset();
+      receiptAuthorityRef.current = authority;
+      setReceiptAuthority(authority);
+      setDisconnected(false);
+      setLoadError("");
+      setError("");
+      setNotice("");
+    };
+    const degraded = (delay: number) => {
+      if (failures.recordFailure()) {
+        setDisconnected(true);
+        if (runRef.current === null) {
+          receiptAuthorityRef.current = "unknown";
+          setReceiptAuthority("unknown");
+        }
+      }
+      coordinator.schedule(delay);
+    };
     const coordinator = new PollCoordinator(async (ticket) => {
       let head: ModelEnsembleCanonicalHead | null = null;
       let legacy: ModelEnsembleWatchSnapshot | null = null;
@@ -295,12 +377,13 @@ export function ModelEnsemblePanel({
         }
       } catch (watchError) {
         if (!ticket.isCurrent()) return;
-        setLoading(false);
         if (watchError instanceof MetricDefinitionsOutOfDateError) {
           // Legacy watch snapshot embeds the run: a definitions mismatch clears
           // every retained value and is shown as a client-update state.
+          legacyWatchRevisionRef.current += 1;
           setDefinitionsOutOfDate(watchError.mismatch);
           applyCanonical(null, null, null);
+          healthy();
           coordinator.schedule(CANONICAL_POLL_IDLE_MS);
           return;
         }
@@ -314,25 +397,30 @@ export function ModelEnsemblePanel({
           // publication: there is nothing left to be out of date about.
           if (supportsCanonicalSnapshots) setDefinitionsOutOfDate(null);
           applyCanonical(null, null, supportsCanonicalSnapshots ? null : undefined);
+          if (supportsCanonicalSnapshots) healthy();
+          else {
+            failures.reset();
+            setDisconnected(false);
+          }
           coordinator.schedule(CANONICAL_POLL_IDLE_MS);
           return;
         }
         // Transport failure: keep the last complete snapshot and retry sooner.
-        coordinator.schedule(CANONICAL_POLL_RETRY_MS);
+        degraded(CANONICAL_POLL_RETRY_MS);
         return;
       }
       if (!ticket.isCurrent()) return;
       if (head !== null) {
         if (head.watch.session_id !== sessionId) {
           // Never admit another session's head; keep the current view and retry.
-          setLoading(false);
-          coordinator.schedule(CANONICAL_POLL_RETRY_MS);
+          degraded(CANONICAL_POLL_RETRY_MS);
           return;
         }
         if (isStaleWatchHead(
           canonicalHeadRef.current === null ? null : canonicalHeadIdentity(canonicalHeadRef.current),
           canonicalHeadIdentity(head),
         )) {
+          healthy();
           coordinator.schedule(canonicalHeadPollDelay(canonicalHeadRef.current!));
           return;
         }
@@ -346,29 +434,28 @@ export function ModelEnsemblePanel({
             // The immutable snapshot is not readable (including 404): retain the
             // last complete run rather than presenting a head without it.
             if (!ticket.isCurrent()) return;
-            setLoading(false);
             if (snapshotError instanceof MetricDefinitionsOutOfDateError) {
               // Client definitions are out of date for this exact head: clear
               // every retained value and guidance; keep polling at idle cadence.
               setDefinitionsOutOfDate(snapshotError.mismatch);
               applyCanonical(head, { watch: head.watch, latest_run: null }, null);
+              healthy();
               coordinator.schedule(CANONICAL_POLL_IDLE_MS);
               return;
             }
-            coordinator.schedule(CANONICAL_POLL_RETRY_MS);
+            degraded(CANONICAL_POLL_RETRY_MS);
             return;
           }
           if (!ticket.isCurrent()) return;
           if (latestRun.run_id !== head.head_run_id) {
             // Parser-valid snapshot for the wrong run: keep polling instead of stopping.
-            setLoading(false);
-            coordinator.schedule(CANONICAL_POLL_WRONG_RUN_MS);
+            degraded(CANONICAL_POLL_WRONG_RUN_MS);
             return;
           }
         }
         setDefinitionsOutOfDate(null);
         applyCanonical(head, { watch: head.watch, latest_run: latestRun }, latestRun);
-        setLoading(false);
+        healthy();
         coordinator.schedule(canonicalHeadPollDelay(head));
         return;
       }
@@ -377,12 +464,18 @@ export function ModelEnsemblePanel({
           watchRef.current === null ? null : watchSnapshotIdentity(watchRef.current),
           watchSnapshotIdentity(legacy),
         )) {
+          healthy(receiptAuthorityRef.current);
           coordinator.schedule(watchSnapshotPollDelay(watchRef.current!));
           return;
         }
-        if (legacy.watch.session_id === sessionId) setDefinitionsOutOfDate(null);
-        applyCanonical(null, legacy, legacy.watch.session_id === sessionId ? legacy.latest_run : runRef.current);
-        setLoading(false);
+        if (legacy.watch.session_id !== sessionId) {
+          degraded(CANONICAL_POLL_RETRY_MS);
+          return;
+        }
+        legacyWatchRevisionRef.current += 1;
+        setDefinitionsOutOfDate(null);
+        applyCanonical(null, legacy, legacy.latest_run);
+        healthy();
         coordinator.schedule(watchSnapshotPollDelay(legacy));
       }
     });
@@ -402,9 +495,37 @@ export function ModelEnsemblePanel({
    * compatible poll or command clears the state again.
    */
   function refuseCommandDefinitions(mismatch: MetricDefinitionMismatch) {
+    legacyWatchRevisionRef.current += 1;
+    receiptAuthorityRef.current = "verified";
+    setReceiptAuthority("verified");
     setDefinitionsOutOfDate(mismatch);
     runRef.current = null;
     setRun(null);
+  }
+
+  function beginMutation(kind: PendingMutation): { controller: AbortController; epoch: number } | null {
+    if (pendingMutationRef.current !== null) return null;
+    const controller = new AbortController();
+    pendingMutationRef.current = kind;
+    controllerRef.current = controller;
+    setPendingMutation(kind);
+    setError("");
+    setNotice("");
+    return { controller, epoch: contextEpochRef.current };
+  }
+
+  function mutationIsCurrent(mutation: { controller: AbortController; epoch: number }): boolean {
+    return !mutation.controller.signal.aborted
+      && mutation.epoch === contextEpochRef.current
+      && controllerRef.current === mutation.controller;
+  }
+
+  function finishMutation(kind: PendingMutation, controller: AbortController) {
+    if (controllerRef.current === controller) controllerRef.current = null;
+    if (pendingMutationRef.current === kind) {
+      pendingMutationRef.current = null;
+      setPendingMutation(null);
+    }
   }
 
   /**
@@ -426,11 +547,17 @@ export function ModelEnsemblePanel({
   }
 
   async function start() {
-    if (running || blocked !== null || durableAttemptRunning || watchQueued || legacyWatchBusy) return;
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    setRunning(true);
-    setError("");
+    if (
+      pendingMutationRef.current !== null
+      || blocked !== null
+      || definitionsOutOfDate !== null
+      || durableAttemptRunning
+      || watchQueued
+      || legacyWatchBusy
+    ) return;
+    const mutation = beginMutation("start");
+    if (mutation === null) return;
+    const { controller } = mutation;
     const coordinator = coordinatorRef.current;
     coordinator?.beginCommand();
     let resumeDelay: number | undefined;
@@ -448,16 +575,20 @@ export function ModelEnsemblePanel({
             max_messages: MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES,
             confirmation: "continuously_analyze_selected_redacted_session",
           }, controller.signal);
-          if (controller.signal.aborted) return;
-          watchRef.current = activeWatch;
-          setWatch(activeWatch);
+          if (!mutationIsCurrent(mutation)) return;
+          legacyWatchRevisionRef.current += 1;
+          applyCanonical(null, activeWatch, activeWatch.latest_run);
         }
         const head = await transport.enqueueModelEnsembleAnalysis(activeWatch.watch.watch_id, controller.signal);
-        if (controller.signal.aborted) return;
+        if (!mutationIsCurrent(mutation)) return;
         const exactRun = await resolveCommandRun(head, controller.signal);
-        if (controller.signal.aborted) return;
+        if (!mutationIsCurrent(mutation)) return;
         setDefinitionsOutOfDate(null);
         applyCanonical(head, { watch: head.watch, latest_run: exactRun }, exactRun);
+        receiptAuthorityRef.current = "verified";
+        setReceiptAuthority("verified");
+        setDisconnected(false);
+        setLoadError("");
         followingLive.current = true;
         resumeDelay = canonicalHeadPollDelay(head);
       } else {
@@ -467,108 +598,139 @@ export function ModelEnsemblePanel({
           nextIdempotencyKey("model-ensemble"),
           controller.signal,
         );
-        if (!controller.signal.aborted) {
+        if (mutationIsCurrent(mutation)) {
+          legacyWatchRevisionRef.current += 1;
           setDefinitionsOutOfDate(null);
           runRef.current = outcome.run;
           setRun(outcome.run);
+          receiptAuthorityRef.current = "verified";
+          setReceiptAuthority("verified");
+          setDisconnected(false);
+          setLoadError("");
         }
       }
     } catch (runError) {
-      if (controller.signal.aborted) return;
+      if (!mutationIsCurrent(mutation)) return;
       if (runError instanceof MetricDefinitionsOutOfDateError) {
         refuseCommandDefinitions(runError.mismatch);
         return;
       }
       setError(runErrorCopy(runError));
     } finally {
-      if (!controller.signal.aborted) setRunning(false);
-      controllerRef.current = null;
+      finishMutation("start", controller);
       coordinator?.endCommand(resumeDelay);
     }
   }
 
   function cancelWait() {
-    controllerRef.current?.abort();
-    controllerRef.current = null;
-    setRunning(false);
+    if (pendingMutationRef.current !== "start") return;
+    const controller = controllerRef.current;
+    controller?.abort();
+    if (controller !== null) finishMutation("start", controller);
+    setNotice("Stopped waiting for the queue response. Durable work may already have started; checking the authoritative local status.");
   }
 
   async function cancelAnalysis() {
     if (
-      running
+      pendingMutationRef.current !== null
       || canonicalHead?.latest_attempt?.state !== "running"
       || transport.cancelModelEnsembleAnalysis === undefined
     ) return;
-    setRunning(true);
-    setError("");
+    const mutation = beginMutation("cancel");
+    if (mutation === null) return;
+    const { controller } = mutation;
     const coordinator = coordinatorRef.current;
     coordinator?.beginCommand();
     let resumeDelay: number | undefined;
     try {
-      const head = await transport.cancelModelEnsembleAnalysis(canonicalHead.watch.watch_id);
-      const exactRun = await resolveCommandRun(head);
+      const head = await transport.cancelModelEnsembleAnalysis(canonicalHead.watch.watch_id, controller.signal);
+      if (!mutationIsCurrent(mutation)) return;
+      const exactRun = await resolveCommandRun(head, controller.signal);
+      if (!mutationIsCurrent(mutation)) return;
+      legacyWatchRevisionRef.current += 1;
       setDefinitionsOutOfDate(null);
       applyCanonical(head, { watch: head.watch, latest_run: exactRun }, exactRun);
+      receiptAuthorityRef.current = "verified";
+      setReceiptAuthority("verified");
+      setDisconnected(false);
       resumeDelay = canonicalHeadPollDelay(head);
     } catch (cancelError) {
+      if (!mutationIsCurrent(mutation)) return;
       if (cancelError instanceof MetricDefinitionsOutOfDateError) {
         refuseCommandDefinitions(cancelError.mismatch);
       } else {
         setError("Cancellation could not be confirmed. The latest sealed snapshot remains visible.");
       }
     } finally {
-      setRunning(false);
+      finishMutation("cancel", controller);
       coordinator?.endCommand(resumeDelay);
     }
   }
 
   async function toggleWatch() {
-    if (watchChanging) return;
-    setWatchChanging(true);
-    setError("");
+    const currentWatch = watchRef.current;
+    const currentForSession = currentWatch?.watch.session_id === sessionId && currentWatch.watch.state !== "disabled";
+    if (
+      pendingMutationRef.current !== null
+      || (!currentForSession && (blocked !== null || definitionsOutOfDate !== null))
+    ) return;
+    const mutation = beginMutation("watch");
+    if (mutation === null) return;
+    const { controller } = mutation;
     const coordinator = coordinatorRef.current;
     coordinator?.beginCommand();
     let resumeDelay: number | undefined;
     try {
-      const currentWatch = watchRef.current;
-      const currentForSession = currentWatch?.watch.session_id === sessionId && currentWatch.watch.state !== "disabled";
       const snapshot = currentForSession
-        ? await transport.disableModelEnsembleWatch?.(currentWatch.watch.watch_id)
+        ? await transport.disableModelEnsembleWatch?.(currentWatch.watch.watch_id, controller.signal)
         : await transport.enableModelEnsembleWatch?.(sessionId, {
             project_id: projectId,
             max_messages: MODEL_ENSEMBLE_DEFAULT_MAX_MESSAGES,
             confirmation: "continuously_analyze_selected_redacted_session",
-          });
+          }, controller.signal);
+      if (!mutationIsCurrent(mutation)) return;
       if (snapshot !== undefined) {
         const disabled = snapshot.watch.state === "disabled";
-        // A parsed run (or no watch at all) supersedes an earlier refusal.
-        if (disabled || snapshot.latest_run !== null) setDefinitionsOutOfDate(null);
+        legacyWatchRevisionRef.current += 1;
         applyCanonical(null, disabled ? null : snapshot, snapshot.latest_run);
+        receiptAuthorityRef.current = "verified";
+        setReceiptAuthority("verified");
+        setDisconnected(false);
+        setLoadError("");
         resumeDelay = disabled ? CANONICAL_POLL_IDLE_MS : watchSnapshotPollDelay(snapshot);
       } else {
         setError("Continuous local analysis is available only in the integrated desktop app.");
       }
     } catch (watchChangeError) {
+      if (!mutationIsCurrent(mutation)) return;
       if (watchChangeError instanceof MetricDefinitionsOutOfDateError) {
         refuseCommandDefinitions(watchChangeError.mismatch);
       } else {
         setError("The continuous local watch could not be changed. No session text was retained.");
       }
     } finally {
-      setWatchChanging(false);
+      finishMutation("watch", controller);
       coordinator?.endCommand(resumeDelay);
     }
   }
 
   const durableAttemptRunning = canonicalHead?.watch.session_id === sessionId
     && canonicalHead.latest_attempt?.state === "running";
+  const currentAttempt = canonicalHead?.watch.session_id === sessionId
+    ? canonicalHead.latest_attempt
+    : null;
   const watchQueued = watch?.watch.session_id === sessionId
     && watch.watch.state === "queued"
     && !durableAttemptRunning;
   const legacyWatchBusy = canonicalHead === null
     && watch?.watch.session_id === sessionId
     && watch.watch.state === "running";
-  const visibleTrajectory = trajectory?.watch_id === trajectoryWatchId ? trajectory : null;
+  const watchActiveForSession = watch?.watch.session_id === sessionId
+    && watch.watch.state !== "disabled";
+  const visibleTrajectory = trajectory?.watch_id === trajectoryWatchId
+    && trajectory.head_run_id === trajectoryHeadRunId
+    ? trajectory
+    : null;
   const trajectoryPoints = visibleTrajectory?.points ?? [];
   const {
     selectedPoint,
@@ -579,6 +741,47 @@ export function ModelEnsemblePanel({
     comparisonRadarRun,
   } = useTrajectorySelection({ transport, points: trajectoryPoints, selectedRunId, headRun: run });
   const profileUsesHistoricalSelection = selectedPoint !== null && selectedPoint.run_id !== run?.run_id;
+  const policyBlocker = definitionsOutOfDate !== null
+    ? "Update this client before starting a new analysis or continuous watch. Existing local work can still be stopped."
+    : blocked;
+  const terminalStatus = terminalAttemptStatus(currentAttempt, run);
+  const statusCopy = definitionsOutOfDate !== null
+    ? pendingMutation === "cancel"
+      ? "Cancelling local analysis. Metric values remain withheld until this client is updated."
+      : pendingMutation === "watch"
+        ? "Stopping continuous updates. Metric values remain withheld until this client is updated."
+        : "New analysis and watch actions are paused; update this client. Existing local work can still be stopped."
+    : pendingMutation === "cancel"
+      ? "Cancelling the durable local analysis. The last sealed snapshot remains visible."
+      : pendingMutation === "watch"
+        ? watchActiveForSession
+          ? "Stopping continuous local updates and the current continuous attempt."
+          : "Starting continuous local updates for this session."
+        : pendingMutation === "start"
+          ? transport.enqueueModelEnsembleAnalysis === undefined
+            ? "Running the local factor pipeline one child at a time. Stopping only ends this browser wait."
+            : "Waiting for the durable queue response. Local work may start before this response returns."
+          : notice !== ""
+            ? notice
+            : disconnected
+              ? run === null
+                ? "Stored receipt availability is temporarily unknown while the local connection retries."
+                : "Live analysis updates are reconnecting. The last sealed snapshot remains visible."
+              : receiptAuthority === "checking"
+                ? "Checking for stored content-free local-analysis receipts."
+                : receiptAuthority === "unknown"
+                  ? "Stored receipt availability is unknown. No absence is inferred."
+                  : blocked !== null
+                    ? blocked
+                    : durableAttemptRunning
+                      ? `Durable local analysis is running · ${currentAttempt!.progress_completed}/${currentAttempt!.progress_total} pipeline steps. The last sealed snapshot remains visible.`
+                      : watchQueued
+                        ? "Analysis is queued for the serial local model lane. The last sealed snapshot remains visible."
+                        : legacyWatchBusy
+                          ? `The local watch is ${watch!.watch.state}. The last sealed snapshot remains visible while canonical stage status loads.`
+                          : terminalStatus ?? (run
+                            ? `Stored local analysis completed ${formatTimestamp(run.completed_at)}.`
+                            : "No measured + predictive analysis is stored for this session yet.");
 
   function selectTrajectoryRun(runId: string) {
     followingLive.current = runId === trajectoryHeadRunId;
@@ -586,11 +789,11 @@ export function ModelEnsemblePanel({
   }
 
   return (
-    <section aria-labelledby="model-ensemble-title" className="model-ensemble">
+    <section aria-busy={receiptAuthority === "checking"} aria-labelledby={titleId} className="model-ensemble">
       <header className="model-ensemble__header">
         <div>
           <p className="eyebrow">Typed evidence + experimental model ranges</p>
-          <h2 id="model-ensemble-title">Measure the analyzed window, then estimate every eligible axis locally</h2>
+          <h2 id={titleId}>Measure the analyzed window, then estimate every eligible axis locally</h2>
           <p>
             Typed evidence forms the solid radar. A gated multilingual factor lane
             runs pinned small models one at a time to produce a separate experimental
@@ -598,20 +801,35 @@ export function ModelEnsemblePanel({
           </p>
         </div>
         {durableAttemptRunning ? (
-          <button className="button button--secondary" disabled={running} onClick={() => void cancelAnalysis()} type="button">
-            {running ? "Cancelling…" : "Cancel analysis"}
+          <button
+            aria-busy={pendingMutation === "cancel"}
+            className="button button--secondary"
+            disabled={pendingMutation !== null}
+            onClick={() => void cancelAnalysis()}
+            type="button"
+          >
+            {pendingMutation === "cancel" ? "Cancelling…" : "Cancel analysis"}
           </button>
         ) : watchQueued ? (
-          <button className="button button--secondary" disabled type="button">Analysis queued</button>
+          <span className="model-ensemble__action-status">Analysis queued</span>
         ) : legacyWatchBusy ? (
-          <button className="button button--secondary" disabled type="button">Analysis active</button>
-        ) : running ? (
+          <span className="model-ensemble__action-status">Analysis active</span>
+        ) : pendingMutation === "start" ? (
           <button className="button button--secondary" onClick={cancelWait} type="button">
-            {transport.enqueueModelEnsembleAnalysis === undefined ? "Cancel browser wait" : "Cancel queue request"}
+            {transport.enqueueModelEnsembleAnalysis === undefined
+              ? "Stop browser wait"
+              : "Stop waiting for queue response"}
           </button>
         ) : (
-          <button className="button button--primary" disabled={blocked !== null} onClick={() => void start()} type="button">
-            Analyze metric ranges
+          <button
+            aria-describedby={policyBlocker === null ? undefined : statusId}
+            aria-disabled={policyBlocker === null ? undefined : true}
+            className="button button--primary"
+            disabled={pendingMutation !== null}
+            onClick={() => void start()}
+            type="button"
+          >
+            {currentAttempt?.state === "failed" ? "Retry analysis" : "Analyze metric ranges"}
           </button>
         )}
       </header>
@@ -648,38 +866,35 @@ export function ModelEnsemblePanel({
           </span>
         </div>
         <button
+          aria-busy={pendingMutation === "watch"}
+          aria-describedby={!watchActiveForSession && policyBlocker !== null ? statusId : undefined}
+          aria-disabled={!watchActiveForSession && policyBlocker !== null ? true : undefined}
           className="button button--secondary"
-          disabled={blocked !== null || watchChanging}
+          disabled={pendingMutation !== null}
           onClick={() => void toggleWatch()}
           type="button"
         >
-          {watchChanging
-            ? "Updating…"
-            : watch?.watch.session_id === sessionId && watch.watch.state !== "disabled"
+          {pendingMutation === "watch"
+            ? watchActiveForSession ? "Stopping…" : "Starting…"
+            : watchActiveForSession
               ? "Stop continuous updates"
               : "Watch this session"}
         </button>
       </div>
-      <p aria-live="polite" className="model-ensemble__status" role="status">
-        {durableAttemptRunning
-          ? `Durable local analysis is running · ${canonicalHead.latest_attempt!.progress_completed}/${canonicalHead.latest_attempt!.progress_total} pipeline steps. The last sealed snapshot remains visible.`
-          : watchQueued
-            ? "Analysis is queued for the serial local model lane. The last sealed snapshot remains visible."
-          : legacyWatchBusy
-            ? `The local watch is ${watch!.watch.state}. The last sealed snapshot remains visible while canonical stage status loads.`
-          : running
-          ? transport.enqueueModelEnsembleAnalysis === undefined
-            ? "Running the local factor pipeline one child at a time. Cancelling only stops this browser from waiting."
-            : "Queueing a durable local analysis. The last sealed snapshot remains visible."
-          : definitionsOutOfDate !== null
-            ? METRIC_DEFINITIONS_OUT_OF_DATE_TITLE
-          : blocked ?? (run
-            ? `Stored local analysis completed ${formatTimestamp(run.completed_at)}.`
-            : "No measured + predictive analysis is stored for this session yet.")}
+      <p
+        aria-live={definitionsOutOfDate === null ? "polite" : "off"}
+        className="model-ensemble__status"
+        id={statusId}
+        role="status"
+      >
+        {statusCopy}
       </p>
+      {loadError !== "" && (
+        <ErrorState message={loadError} onRetry={() => setLegacyLoadRevision((revision) => revision + 1)} />
+      )}
       {error && <p className="model-ensemble__error" role="alert">{error}</p>}
-      {loading ? (
-        <p className="model-ensemble__empty">Loading stored content-free receipts…</p>
+      {receiptAuthority === "checking" ? (
+        <p aria-hidden="true" className="model-ensemble__empty">Loading stored content-free receipts…</p>
       ) : definitionsOutOfDate !== null ? (
         <MetricDefinitionsOutOfDateAlert mismatch={definitionsOutOfDate} />
       ) : selectedRadarRun ? (
@@ -742,9 +957,13 @@ export function ModelEnsemblePanel({
             transport={transport}
           />
         </>
-      ) : (
+      ) : receiptAuthority === "verified" ? (
         <p className="model-ensemble__empty">
           Start one explicit run to create typed metric receipts plus content-free experimental ranges.
+        </p>
+      ) : (
+        <p className="model-ensemble__empty">
+          Stored receipt availability is temporarily unknown. The app will retry locally without treating missing data as zero or absence.
         </p>
       )}
     </section>

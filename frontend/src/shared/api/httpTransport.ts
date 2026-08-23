@@ -46,6 +46,7 @@ import type {
   MetricLifecycleDecisionRequest,
   MetricLifecycleProposal,
   RequirementPlanProposal,
+  RequirementActionProposal,
   MetricReadiness,
   MetricReadinessAction,
   ReviewCommand,
@@ -173,6 +174,17 @@ import {
   parseRequirementPlanProposalPage,
   parseRequirementPlanProposalReview,
 } from "./requirementPlanEvidenceContract";
+import {
+  REQUIREMENT_ACTION_MEDIA_TYPE,
+  RequirementActionEvidencePayloadError,
+  parseRequirementActionEvidenceContract,
+  parseRequirementActionEvidencePreview,
+  parseRequirementActionImport,
+  parseRequirementActionProposalOutcome,
+  parseRequirementActionProposalPage,
+  parseRequirementActionProposalReview,
+  requirementActionUtcMicrosecondKey,
+} from "./requirementActionEvidenceContract";
 import {
   DeclaredTaskProfilePayloadError,
   parseDeclaredTaskProfileCurrent,
@@ -3935,6 +3947,216 @@ export function createHttpTransport(options: {
         });
       } catch (error) {
         if (error instanceof RequirementPlanEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async getRequirementActionEvidenceContract(sessionId, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-action-evidence/contract`,
+        { method: "GET" },
+        signal,
+        true,
+        true,
+      );
+      try { return parseRequirementActionEvidenceContract(value, sessionId); }
+      catch (error) {
+        if (error instanceof RequirementActionEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async previewRequirementActionEvidence(sessionId, payload, signal) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-action-evidence/preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": REQUIREMENT_ACTION_MEDIA_TYPE },
+          body: payload,
+        },
+        signal,
+        true,
+        true,
+      );
+      try { return parseRequirementActionEvidencePreview(value, { sessionId }); }
+      catch (error) {
+        if (error instanceof RequirementActionEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async importRequirementActionEvidence(
+      sessionId,
+      payload,
+      preview,
+      confirmation,
+      idempotencyKey,
+      signal,
+    ) {
+      const value = await request<unknown>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-action-evidence/import`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": REQUIREMENT_ACTION_MEDIA_TYPE,
+            "Idempotency-Key": idempotencyKey,
+            "X-Requirement-Action-Confirmation": confirmation,
+            "X-Requirement-Action-Payload-SHA256": preview.payload_sha256,
+          },
+          body: payload,
+        },
+        signal,
+        true,
+        true,
+      );
+      try { return parseRequirementActionImport(value, preview); }
+      catch (error) {
+        if (error instanceof RequirementActionEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async listRequirementActionProposals(sessionId, signal) {
+      const limit = 200;
+      let offset = 0;
+      let total: number | null = null;
+      let stableSnapshot: import("./contracts").RequirementActionProposalPageSnapshot | null = null;
+      const proposals: RequirementActionProposal[] = [];
+      const identities = new Set<string>();
+      let previousCreatedAtKey: string | null = null;
+      let previousProposalId = "";
+      for (let pageIndex = 0; pageIndex < 120; pageIndex += 1) {
+        const snapshotParts = stableSnapshot === null ? [] : [
+          `snapshot_id=${encodeURIComponent(stableSnapshot.snapshot_id)}`,
+          `snapshot_total=${stableSnapshot.total}`,
+          `snapshot_decision_count=${stableSnapshot.decision_count}`,
+          ...(stableSnapshot.high_water_created_at === null ? [] : [
+            `snapshot_high_water_created_at=${encodeURIComponent(stableSnapshot.high_water_created_at)}`,
+            `snapshot_high_water_proposal_id=${encodeURIComponent(stableSnapshot.high_water_proposal_id!)}`,
+          ]),
+        ];
+        const query = [
+          `limit=${limit}`,
+          `offset=${offset}`,
+          ...snapshotParts,
+        ].join("&");
+        const value = await request<unknown>(
+          `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-action-evidence/proposal-page?${query}`,
+          { method: "GET" },
+          signal,
+          true,
+          true,
+        );
+        try {
+          const page = parseRequirementActionProposalPage(value, {
+            sessionId, limit, offset, snapshot: stableSnapshot,
+          });
+          if (total !== null && page.total !== total) throw new RequirementActionEvidencePayloadError();
+          total = page.total;
+          stableSnapshot = page.snapshot;
+          for (const proposal of page.proposals) {
+            if (identities.has(proposal.proposal_id)) throw new RequirementActionEvidencePayloadError();
+            const createdAtKey = requirementActionUtcMicrosecondKey(proposal.created_at);
+            if (
+              previousCreatedAtKey !== null
+              && (createdAtKey < previousCreatedAtKey
+                || (createdAtKey === previousCreatedAtKey && proposal.proposal_id <= previousProposalId))
+            ) throw new RequirementActionEvidencePayloadError();
+            identities.add(proposal.proposal_id);
+            proposals.push(proposal);
+            previousCreatedAtKey = createdAtKey;
+            previousProposalId = proposal.proposal_id;
+          }
+          if (page.complete) {
+            const boundary = proposals.at(-1);
+            if (
+              proposals.length !== total
+              || stableSnapshot.decision_count !== proposals.filter((proposal) => proposal.status !== "proposed").length
+              || (boundary === undefined) !== (stableSnapshot.total === 0)
+              || (boundary !== undefined && (
+                requirementActionUtcMicrosecondKey(stableSnapshot.high_water_created_at!)
+                  !== requirementActionUtcMicrosecondKey(boundary.created_at)
+                || stableSnapshot.high_water_proposal_id !== boundary.proposal_id
+              ))
+            ) throw new RequirementActionEvidencePayloadError();
+            return { session_id: sessionId, proposals, total, complete: true, snapshot: stableSnapshot };
+          }
+          if (typeof page.next_offset !== "number") throw new RequirementActionEvidencePayloadError();
+          offset = page.next_offset;
+        } catch (error) {
+          if (error instanceof RequirementActionEvidencePayloadError) {
+            throw new TransportError(error.message, 200);
+          }
+          throw error;
+        }
+      }
+      throw new TransportError("Requirement-action proposal list exceeded the reviewed page budget", 200);
+    },
+    async reviewRequirementActionProposal(
+      sessionId,
+      proposal,
+      contract,
+      reviewRequest,
+      signal,
+    ) {
+      const path = `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-action-evidence/proposals/${encodeURIComponent(proposal.proposal_id)}/review`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(reviewRequest),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseRequirementActionProposalReview(value, { sessionId, proposal, contract });
+      } catch (error) {
+        if (error instanceof RequirementActionEvidencePayloadError) {
+          throw new TransportError(error.message, 200);
+        }
+        throw error;
+      }
+    },
+    async decideRequirementActionProposal(
+      sessionId,
+      proposalId,
+      decisionRequest,
+      idempotencyKey,
+      signal,
+    ) {
+      const path = `/v1/sessions/${encodeURIComponent(sessionId)}/requirement-action-evidence/proposals/${encodeURIComponent(proposalId)}/decision`;
+      const value = await request<unknown>(
+        path,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(decisionRequest),
+        },
+        signal,
+        true,
+        true,
+        true,
+      );
+      try {
+        return parseRequirementActionProposalOutcome(value, {
+          sessionId,
+          proposalId,
+          sourceRunId: decisionRequest.expected_source_run_id,
+          decision: decisionRequest.decision,
+        });
+      } catch (error) {
+        if (error instanceof RequirementActionEvidencePayloadError) {
           throw new TransportError(error.message, 200);
         }
         throw error;

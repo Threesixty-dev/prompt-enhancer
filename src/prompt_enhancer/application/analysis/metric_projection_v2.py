@@ -78,6 +78,7 @@ METRIC_PROJECTION_V2_VERSION_3 = "metric-contract-v2-projection-3"
 METRIC_PROJECTION_V2_VERSION_4 = "metric-contract-v2-projection-4"
 METRIC_PROJECTION_V2_VERSION_5 = "metric-contract-v2-projection-5"
 METRIC_PROJECTION_V2_VERSION_6 = "metric-contract-v2-projection-6"
+METRIC_PROJECTION_V2_VERSION_7 = "metric-contract-v2-projection-7"
 #: The identity *this* producer stamps.  It stays at ``-2`` forever: rows it
 #: wrote must keep meaning what the producer that wrote them meant.
 METRIC_PROJECTION_V2_VERSION = METRIC_PROJECTION_V2_VERSION_2
@@ -90,6 +91,7 @@ SUPPORTED_METRIC_PROJECTION_V2_VERSIONS = (
     METRIC_PROJECTION_V2_VERSION_4,
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
+    METRIC_PROJECTION_V2_VERSION_7,
 )
 MetricProjectionV2Version = Literal[
     "metric-contract-v2-projection-1",
@@ -98,6 +100,7 @@ MetricProjectionV2Version = Literal[
     "metric-contract-v2-projection-4",
     "metric-contract-v2-projection-5",
     "metric-contract-v2-projection-6",
+    "metric-contract-v2-projection-7",
 ]
 METRIC_PROJECTION_V2_ALGORITHM_ID = "rules.en-pl.contract-v2-opportunities"
 METRIC_PROJECTION_V2_ALGORITHM_VERSION = "2"
@@ -223,7 +226,22 @@ class OpportunityStatistics(StrictModel):
         if total != self.eligible_count:
             raise ValueError("opportunity outcomes must partition the eligible set")
         if not self.capability_available and self.eligible_count:
-            raise ValueError("an unavailable opportunity family cannot be eligible")
+            r7_requirement_action_candidate = (
+                self.metric_key == "logic.requirement_action_traceability"
+                and self.denominator_basis
+                is DenominatorBasis.OBJECTIVE_OPPORTUNITIES
+                and self.opportunity_unit_kind is None
+                and self.source_complete
+                and self.met_count == 0
+                and self.not_met_count == 0
+                and self.pending_count == 0
+                and self.unknown_count == self.eligible_count
+                and self.distinct_owner_count == self.eligible_count
+            )
+            if not r7_requirement_action_candidate:
+                raise ValueError(
+                    "an unavailable opportunity family cannot be eligible"
+                )
         if (
             self.denominator_basis is DenominatorBasis.SEMANTIC_UNIT_OPPORTUNITIES
             and self.distinct_owner_count != self.eligible_count
@@ -279,6 +297,23 @@ class MetricStateV2(StrictModel):
     def validate_state(self) -> MetricStateV2:
         if self.statistics.metric_key != self.metric_key:
             raise ValueError("metric statistics belong to another metric")
+        if not self.statistics.capability_available and self.statistics.eligible_count:
+            r7_requirement_action_unavailable = (
+                self.projection_version == "metric-contract-v2-projection-7"
+                and self.metric_key == "logic.requirement_action_traceability"
+                and self.value_state is MetricValueStateV2.UNKNOWN
+                and self.explanation_code == "requirement_action_evidence_unavailable"
+                and self.statistics.source_complete
+                and self.statistics.unknown_count
+                == self.statistics.eligible_count
+                and self.statistics.met_count == 0
+                and self.statistics.not_met_count == 0
+                and self.statistics.pending_count == 0
+            )
+            if not r7_requirement_action_unavailable:
+                raise ValueError(
+                    "an unavailable opportunity family cannot be eligible"
+                )
         known = self.value_state is MetricValueStateV2.KNOWN
         if known != (self.numeric_value is not None):
             raise ValueError("only known metric states carry a point value")
@@ -313,6 +348,33 @@ class MetricStateV2(StrictModel):
             and self.statistics.pending_count == 0
         ):
             raise ValueError("pending metric states require a pending opportunity")
+        if self.value_state is MetricValueStateV2.PENDING:
+            statistics = self.statistics
+            exact_pending_bounds = (
+                statistics.capability_available
+                and statistics.source_complete
+                and statistics.eligible_count > 0
+                and statistics.unknown_count == 0
+                and self.censoring_lower_bound is not None
+                and self.censoring_upper_bound is not None
+                and abs(
+                    self.censoring_lower_bound
+                    - statistics.met_count / statistics.eligible_count
+                )
+                <= 1e-9
+                and abs(
+                    self.censoring_upper_bound
+                    - (
+                        statistics.met_count + statistics.pending_count
+                    )
+                    / statistics.eligible_count
+                )
+                <= 1e-9
+            )
+            if not exact_pending_bounds:
+                raise ValueError(
+                    "pending metric states require exact censoring bounds"
+                )
         if (
             self.value_state is MetricValueStateV2.NOT_APPLICABLE
             and self.statistics.eligible_count != 0
@@ -328,6 +390,88 @@ class MetricStateV2(StrictModel):
                 "objective contracts cannot be resolved by conversational material"
             )
         return self
+
+
+def reviewed_requirement_plan_denominator_is_authoritative(
+    state: MetricStateV2,
+) -> bool:
+    """Whether an r6/r7 decomposition row proves its reviewed denominator."""
+
+    contract = next(
+        item
+        for item in METRIC_CONTRACTS_V2
+        if item.metric_key == "logic.decomposition_coverage"
+    )
+    statistics = state.statistics
+    if (
+        state.metric_key != "logic.decomposition_coverage"
+        or state.contract_version != contract.contract_version
+        or state.contract_fingerprint != contract.fingerprint
+        or state.evidence_authority is not contract.evidence_authority
+        or state.projection_version
+        not in {METRIC_PROJECTION_V2_VERSION_6, METRIC_PROJECTION_V2_VERSION_7}
+        or statistics.metric_key != state.metric_key
+        or statistics.denominator_basis is not contract.denominator_basis
+        or statistics.opportunity_unit_kind is not contract.opportunity_unit_kind
+        or not statistics.capability_available
+        or not statistics.source_complete
+        or statistics.unknown_count != 0
+        or statistics.superseded_excluded_count != 0
+        or statistics.distinct_owner_count != statistics.eligible_count
+    ):
+        return False
+    eligible = statistics.eligible_count
+    met = statistics.met_count
+    pending = statistics.pending_count
+    exact_partition = (
+        met + statistics.not_met_count + pending == eligible
+    )
+    if not exact_partition:
+        return False
+    if state.value_state is MetricValueStateV2.KNOWN:
+        return (
+            state.explanation_code == "reviewed_requirement_plan_links"
+            and eligible > 0
+            and pending == 0
+            and state.numerator == met
+            and state.denominator == eligible
+            and state.numeric_value is not None
+            and state.censoring_lower_bound is not None
+            and state.censoring_upper_bound is not None
+            and abs(state.numeric_value - met / eligible) <= 1e-9
+            and abs(state.censoring_lower_bound - met / eligible) <= 1e-9
+            and abs(state.censoring_upper_bound - met / eligible) <= 1e-9
+        )
+    if state.value_state is MetricValueStateV2.PENDING:
+        return (
+            state.explanation_code == "opportunity_right_censored"
+            and eligible > 0
+            and pending > 0
+            and state.numerator is None
+            and state.denominator is None
+            and state.numeric_value is None
+            and state.censoring_lower_bound is not None
+            and state.censoring_upper_bound is not None
+            and abs(state.censoring_lower_bound - met / eligible) <= 1e-9
+            and abs(
+                state.censoring_upper_bound - (met + pending) / eligible
+            )
+            <= 1e-9
+        )
+    if state.value_state is MetricValueStateV2.NOT_APPLICABLE:
+        return (
+            state.explanation_code == "no_opportunity_observed"
+            and eligible == 0
+            and met == 0
+            and statistics.not_met_count == 0
+            and pending == 0
+            and state.numerator is None
+            and state.denominator is None
+            and state.numeric_value is None
+            and state.censoring_lower_bound is None
+            and state.censoring_upper_bound is None
+        )
+    return False
 
 
 class MetricStateProjectionV2(Sequence[MetricStateV2]):
@@ -1263,6 +1407,7 @@ __all__ = [
     "METRIC_PROJECTION_V2_VERSION_4",
     "METRIC_PROJECTION_V2_VERSION_5",
     "METRIC_PROJECTION_V2_VERSION_6",
+    "METRIC_PROJECTION_V2_VERSION_7",
     "MetricProjectionV2Version",
     "MetricStateV2",
     "OpportunityStatistics",

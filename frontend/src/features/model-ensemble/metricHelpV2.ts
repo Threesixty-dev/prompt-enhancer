@@ -20,7 +20,7 @@ import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile"
  * judgments. English is the only shipped UI locale; Polish entries are kept in
  * the registry for a future locale signal and are not surfaced by any UI path.
  */
-export const METRIC_HELP_V2_VERSION = "metric-help-v2.3.0";
+export const METRIC_HELP_V2_VERSION = "metric-help-v2.4.0";
 export const METRIC_HELP_V2_SHIPPED_LOCALES = ["en"] as const;
 
 const DECLARED_TASK_PROFILE_METRIC_KEYS = new Set([
@@ -74,25 +74,30 @@ const R3_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projectio
 const R4_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-4";
 const R5_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-5";
 const R6_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-6";
+const R7_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-7";
 const R3_PLUS_PROJECTIONS = new Set<MetricHelpProjectionVersion>([
   R3_PROJECTION,
   R4_PROJECTION,
   R5_PROJECTION,
   R6_PROJECTION,
+  R7_PROJECTION,
 ]);
 const R4_PLUS_PROJECTIONS = new Set<MetricHelpProjectionVersion>([
   R4_PROJECTION,
   R5_PROJECTION,
   R6_PROJECTION,
+  R7_PROJECTION,
 ]);
 const R5_PLUS_PROJECTIONS = new Set<MetricHelpProjectionVersion>([
   R5_PROJECTION,
   R6_PROJECTION,
+  R7_PROJECTION,
 ]);
 const REVIEWED_PROFILE_EVIDENCE_EN = "The value is a deterministic local, method-only comparison between the immutable reviewed task-profile revision and the canonical active user request; it is neither a model judgment nor objective proof of quality or task success.";
 const EXPLICIT_PLAN_EVIDENCE_EN = "The value comes from deterministic provider-declared message kinds and explicit supersedes_message_ids links in the bounded local window; no lexical similarity or model judgment supplies a closure, and the structural receipt is not objective proof that the plan or result was correct.";
 const CONFIRMED_LIFECYCLE_EVIDENCE_EN = "Only content-free lifecycle records explicitly confirmed by an authenticated local user can supply the enumeration, opportunity, and family-specific outcome link; proposals, model judgments, and transcript wording alone are not evidence, and the confirmation is not objective test proof of task success.";
 const REVIEWED_REQUIREMENT_PLAN_EVIDENCE_EN = "Only a complete native review that classifies every reviewable user request/feedback clause as active or excluded can establish the opportunity set; only active requirement clauses supply this denominator and its dispositions. One active coordinate is one opportunity: a compound active clause remains one opportunity and may coarsen multiple atomic requirements. Exclusions use the closed reason-and-basis rubric and never enter the metric. Coordinates are revalidated against the exact local source window; proposals, model judgments, transcript wording, and owned-native confirmation alone are not objective proof that a plan is adequate.";
+const REVIEWED_REQUIREMENT_ACTION_EVIDENCE_EN = "Only a complete native review bound to the exact r6 requirement authority and the complete application-issued safe-action candidate enumeration can establish requirement-to-action links. The review must display every active requirement clause, every candidate and its ephemeral redacted descriptor, every proposed membership, and every explicit empty link. The person must cross-check each safe-event reference in the selected session timeline: coarse metadata, a producer proposal, native confirmation, or an application-issued action state alone is not proof of semantic relevance, objective task success, or quality.";
 
 /**
  * Projection r5 changed the denominator contract for these receipt surfaces.
@@ -138,6 +143,18 @@ export const METRIC_HELP_V2_R6_REQUIREMENT_PLAN_EN: Readonly<Record<string, Metr
     counts: "Numerator: one native-reviewed active requirement clause with disposition linked and at least one reviewed plan index whose coordinate resolves to an agent PLAN clause at or after that clause.",
     doesNotCount: "Denominator: exactly the active_requirement clauses from the complete native-confirmed classification of every reviewable user request/feedback clause, not every candidate clause, excluded clauses, atomic requirements, or lexically detected requirements. One active coordinate is one opportunity: a compound active clause remains one opportunity and may coarsen multiple atomic requirements. not_linked is resolved not-met; pending stays right-censored. Proposed, rejected, unconfirmed, out-of-window, wrong-role, or invalid coordinates do not count. No confirmed active requirements yields Not applicable; missing or invalid review authority stays Unknown, never zero.",
     objectiveEvidence: REVIEWED_REQUIREMENT_PLAN_EVIDENCE_EN,
+  },
+};
+
+export const METRIC_HELP_V2_R7_REQUIREMENT_ACTION_EN: Readonly<Record<string, MetricHelpEntry>> = {
+  "logic.requirement_action_traceability": {
+    meaning: "Share of the exact native-reviewed active r6 requirement clauses linked to at least one application-issued safe action candidate whose application-issued state is completed.",
+    question: "For each reviewed active requirement clause, does the complete native-reviewed graph link a semantically relevant application-issued candidate that completed?",
+    observationUnit: "one native-reviewed active requirement clause",
+    direction: HIGHER_EN,
+    counts: "Numerator: one reviewed active requirement with at least one linked candidate in application-issued completed state. With no completed candidate, a linked started or unknown state stays right-censored pending.",
+    doesNotCount: "Denominator: exactly the active requirements from the bound r6 review, not detected prose or producer-created requirements. An explicit empty link, or failed/cancelled-only links, is resolved not-met only after complete requirement enumeration, complete safe-candidate enumeration, complete link classification, and exact native review. Missing, stale, incomplete, invalid, or overflowing authority remains Unknown; an exact empty requirement set is Not applicable; neither state is zero.",
+    objectiveEvidence: REVIEWED_REQUIREMENT_ACTION_EVIDENCE_EN,
   },
 };
 
@@ -228,6 +245,15 @@ const METRIC_HELP_V2_R6_REQUIREMENT_PLAN_MEASUREMENTS: Readonly<Record<string, M
     method: "Native-reviewed active requirement clauses with disposition linked to one or more revalidated later agent PLAN coordinates divided by the exact active_requirement subset of the complete native-confirmed user-clause classification.",
     limitation: "The opportunity unit is an active clause, not an atomic requirement: a compound active clause remains one opportunity and may coarsen multiple atomic requirements, while closed-rubric exclusions never enter the denominator. A pending disposition is right-censored, not failed. Missing confirmation stays Unknown, no active requirements is Not applicable, invalid coordinates fail closed as Unknown, and a valid structural link does not prove that the plan is sufficient or that the task succeeded.",
     objective: false,
+  },
+};
+
+const METRIC_HELP_V2_R7_REQUIREMENT_ACTION_MEASUREMENTS: Readonly<Record<string, MetricHelpMeasurement>> = {
+  "logic.requirement_action_traceability": {
+    definitionVersion: 2,
+    method: "Native-reviewed active r6 requirements with at least one semantically reviewed linked application-issued completed safe-action candidate divided by the exact bound active-requirement set; started or unknown-only links remain pending.",
+    limitation: "A negative is legal only under complete bounded enumeration and exact review. Redacted descriptors and source references help the person inspect semantic relevance but do not prove it automatically; completed state does not prove task success, correctness, or quality.",
+    objective: true,
   },
 };
 
@@ -397,7 +423,11 @@ export function metricHelpV2Measurement(
   metricKey: string,
   projectionVersion: MetricHelpProjectionVersion | null = null,
 ): MetricHelpMeasurement | null {
-  if (projectionVersion === R6_PROJECTION) {
+  if (projectionVersion === R7_PROJECTION) {
+    const reviewedRequirementAction = METRIC_HELP_V2_R7_REQUIREMENT_ACTION_MEASUREMENTS[metricKey];
+    if (reviewedRequirementAction !== undefined) return reviewedRequirementAction;
+  }
+  if (projectionVersion === R6_PROJECTION || projectionVersion === R7_PROJECTION) {
     const reviewedRequirementPlan = METRIC_HELP_V2_R6_REQUIREMENT_PLAN_MEASUREMENTS[metricKey];
     if (reviewedRequirementPlan !== undefined) return reviewedRequirementPlan;
   }
@@ -437,7 +467,8 @@ export interface ResolvedMetricHelp {
     | "r3_explicit_plan_lifecycle"
     | "r4_confirmed_lifecycle"
     | "r5_reviewed_profile"
-    | "r6_reviewed_requirement_plan";
+    | "r6_reviewed_requirement_plan"
+    | "r7_reviewed_requirement_action";
   projectionVersion: MetricHelpProjectionVersion | null;
   /** Shipped measurement source (English only). */
   measurement: MetricHelpMeasurement | null;
@@ -452,7 +483,8 @@ export function metricHelpV2DefinitionLabel(
     case "r3_explicit_plan_lifecycle": return `sealed ${projection} explicit-plan lifecycle`;
     case "r4_confirmed_lifecycle": return `sealed ${projection} confirmed-lifecycle`;
     case "r5_reviewed_profile": return `sealed ${projection} reviewed-profile`;
-    case "r6_reviewed_requirement_plan": return "sealed r6 reviewed requirement-plan";
+    case "r6_reviewed_requirement_plan": return `sealed ${projection} reviewed requirement-plan`;
+    case "r7_reviewed_requirement_action": return "sealed r7 reviewed requirement-action";
     default: return help.projectionVersion === null
       ? "unbound local candidate"
       : `sealed ${projection} candidate`;
@@ -469,7 +501,23 @@ export function metricHelpV2(
   const english = METRIC_HELP_V2.en[metricKey];
   if (english === undefined) return null;
   const measurement = metricHelpV2Measurement(metricKey, projectionVersion);
-  const r6RequirementPlan = projectionVersion === R6_PROJECTION
+  const r7RequirementAction = projectionVersion === R7_PROJECTION
+    ? METRIC_HELP_V2_R7_REQUIREMENT_ACTION_EN[metricKey]
+    : undefined;
+  if (r7RequirementAction !== undefined) {
+    return {
+      version: METRIC_HELP_V2_VERSION,
+      metricKey,
+      requestedLocale: locale,
+      locale: "en",
+      fallback: locale !== "en",
+      entry: r7RequirementAction,
+      definitionScope: "r7_reviewed_requirement_action",
+      projectionVersion,
+      measurement,
+    };
+  }
+  const r6RequirementPlan = (projectionVersion === R6_PROJECTION || projectionVersion === R7_PROJECTION)
     ? METRIC_HELP_V2_R6_REQUIREMENT_PLAN_EN[metricKey]
     : undefined;
   if (r6RequirementPlan !== undefined) {
@@ -738,7 +786,10 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
   const resolvedHelp = metricHelpV2(input.metricKey, "en", input.projectionVersion);
   const help = resolvedHelp?.entry;
   const r5ReviewedProfile = resolvedHelp?.definitionScope === "r5_reviewed_profile";
-  const reviewedProfileProjection = input.projectionVersion === R6_PROJECTION ? "r6" : "r5";
+  const reviewedProfileProjection = input.projectionVersion === R7_PROJECTION
+    ? "r7"
+    : input.projectionVersion === R6_PROJECTION ? "r6" : "r5";
+  const reviewedPlanProjection = input.projectionVersion === R7_PROJECTION ? "r7" : "r6";
   const projectionBoundDefinition = resolvedHelp !== null
     && resolvedHelp.definitionScope !== "historical_candidate";
   const definitionLabel = resolvedHelp === null
@@ -792,15 +843,30 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       action = `No action for this window: there was no eligible ${unitSingular} to change — verify: reassess only when a later comparable window contains an eligible opportunity.`;
       break;
     case "unknown":
-      if (input.explanationCode === "requirement_plan_evidence_unavailable") {
-        meaning = `Unknown: this sealed r6 runtime does not expose the reviewed requirement-plan service, so ${input.label} has no defensible denominator and was not converted to zero.`;
-        action = "Enable a runtime that exposes Reviewed requirement-to-plan evidence, then preview a canonical content-free file bound to the exact sealed source run, import it only as an unconfirmed proposal, inspect every local user and PLAN clause, and natively confirm the complete classification — verify: a fresh sealed r6 receipt binds that confirmed proposal before interpreting a value.";
+      if (input.explanationCode === "requirement_action_evidence_unavailable") {
+        meaning = `Unknown: this sealed r7 runtime does not expose reviewed requirement-action evidence, so ${input.label} has no defensible link classification and was not converted to zero.`;
+        action = "Use a runtime that composes the local r7 requirement-action service, retrieve the exact contract, and create only an inert candidate-index proposal — verify: the app can preview it locally but no value appears until a complete native review is bound to a fresh sealed r7 receipt.";
+      } else if (input.explanationCode === "requirement_action_evidence_confirmation_required") {
+        meaning = `Unknown: reviewed requirements and safe action candidates are available for this sealed r7 window, but no complete owned-native review of every clause, redacted candidate descriptor, membership, and explicit empty link is bound; this missing authority is not zero.`;
+        action = "Open Reviewed requirement-to-action evidence, cross-check each source_reference_id against its safe event/session timeline, inspect every ephemeral redacted descriptor and proposed membership, acknowledge the exact complete receipt, natively confirm it, then run a fresh analysis — verify: the new sealed r7 receipt reports the exact reviewed measured, right-censored, or no-opportunity state before interpreting it.";
+      } else if (input.explanationCode === "requirement_action_evidence_invalid") {
+        meaning = `Unknown: the confirmed requirement-action authority did not revalidate against this exact r6 predecessor, source window, candidate manifest, or complete graph, so ${input.label} failed closed rather than scoring stale links.`;
+        action = "Regenerate the inert proposal from the current r7 contract, cross-check every source receipt and descriptor in the session timeline, review every membership and empty link, then natively confirm a replacement — verify: a fresh sealed r7 receipt binds the exact new graph and candidate set.";
+      } else if (input.explanationCode === "requirement_action_evidence_overflow") {
+        meaning = `Unknown: the exact requirement, safe-candidate, or link set exceeded the bounded r7 receipt, so ${input.label} was withheld rather than truncated, sampled, or converted to zero.`;
+        action = "Analyze a smaller coherent sealed window without dropping individual items from its complete review — verify: the next r7 contract fits every requirement, candidate, and link within its published bounds before any proposal is confirmed.";
+      } else if (input.explanationCode === "requirement_action_candidate_source_incomplete") {
+        meaning = `Unknown: the provider adapter could not completely enumerate or decode the safe action candidates for this sealed r7 window, so ${input.label} was withheld rather than treating omitted actions as absent or failed.`;
+        action = "Update or enable an adapter that supports the complete typed action-event surface, then analyze a fresh sealed window — verify: the new r7 receipt reports a complete candidate source before creating or reviewing any membership proposal.";
+      } else if (input.explanationCode === "requirement_plan_evidence_unavailable") {
+        meaning = `Unknown: this sealed ${reviewedPlanProjection} runtime does not expose the reviewed requirement-plan service, so ${input.label} has no defensible denominator and was not converted to zero.`;
+        action = `Enable a runtime that exposes Reviewed requirement-to-plan evidence, then preview a canonical content-free file bound to the exact sealed source run, import it only as an unconfirmed proposal, inspect every local user and PLAN clause, and natively confirm the complete classification — verify: a fresh sealed ${reviewedPlanProjection} receipt binds that confirmed proposal before interpreting a value.`;
       } else if (input.explanationCode === "requirement_plan_evidence_confirmation_required") {
-        meaning = `Unknown: the reviewed requirement-plan service is available for this sealed r6 window, but no owned-native complete classification of every reviewable user request/feedback clause is bound yet, so ${input.label} has no defensible active-requirement denominator and was not converted to zero. One active coordinate is one opportunity; a compound active clause may coarsen multiple atomic requirements, while reviewed exclusions never enter the metric.`;
-        action = "Use Reviewed requirement-to-plan evidence below: preview a canonical content-free file bound to this exact source run, import it only as an unconfirmed proposal, open the exact local clause review, inspect every user and PLAN clause including omitted PLAN candidates, check every active disposition/link and every exclusion reason/basis, natively confirm it, then run a fresh analysis — verify: the new sealed r6 receipt binds that confirmed proposal before interpreting a value.";
+        meaning = `Unknown: the reviewed requirement-plan service is available for this sealed ${reviewedPlanProjection} window, but no owned-native complete classification of every reviewable user request/feedback clause is bound yet, so ${input.label} has no defensible active-requirement denominator and was not converted to zero. One active coordinate is one opportunity; a compound active clause may coarsen multiple atomic requirements, while reviewed exclusions never enter the metric.`;
+        action = `Use Reviewed requirement-to-plan evidence below: preview a canonical content-free file bound to this exact source run, import it only as an unconfirmed proposal, open the exact local clause review, inspect every user and PLAN clause including omitted PLAN candidates, check every active disposition/link and every exclusion reason/basis, natively confirm it, then run a fresh analysis — verify: the new sealed ${reviewedPlanProjection} receipt binds that confirmed proposal before interpreting a value.`;
       } else if (input.explanationCode === "requirement_plan_evidence_invalid") {
         meaning = `Unknown: the confirmed requirement-to-plan coordinates did not revalidate against this exact local source window, so ${input.label} failed closed instead of scoring stale or wrong-role links.`;
-        action = "Regenerate the content-free proposal from the current contract and source run, review every candidate classification, exclusion reason/basis, disposition, link, and included or omitted PLAN clause, then natively confirm the replacement — verify: a fresh sealed r6 receipt reports reviewed_requirement_plan_links before interpreting a value.";
+        action = `Regenerate the content-free proposal from the current contract and source run, review every candidate classification, exclusion reason/basis, disposition, link, and included or omitted PLAN clause, then natively confirm the replacement — verify: a fresh sealed ${reviewedPlanProjection} receipt reports the exact reviewed measured, right-censored, or no-opportunity state before interpreting it.`;
       } else if ((input.explanationCode ?? "").includes("objective_authority") || input.explanationCode === "typed_objective_absent") {
         meaning = `Unknown: the active provider adapter does not expose the authoritative opportunity links and typed receipts ${input.label} requires; prose and model estimates cannot substitute, so this is not a low value.`;
       } else if (input.explanationCode === "opportunity_family_unobservable") {

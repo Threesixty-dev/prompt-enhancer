@@ -16,6 +16,7 @@ from pydantic import field_validator, model_validator
 from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTERN, StrictModel
 from ..providers import DecoderDescriptor
 from .evidence_contracts import (
+    ActionState,
     EphemeralTypedEvidenceProjection,
     validate_projection_descriptor,
 )
@@ -35,15 +36,45 @@ from .model_ensemble import (
 )
 from .objective_metric_projection import project_objective_metric_overrides_v3
 from .metric_lifecycle_evidence import MetricLifecycleEvidenceSnapshot
+from .metric_contract_v2 import MetricValueStateV2
 from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
+    METRIC_PROJECTION_V2_VERSION_7,
+    MetricStateV2,
+    reviewed_requirement_plan_denominator_is_authoritative,
 )
-from .metric_projection_v6 import project_metric_states_v6
+from .metric_projection_v6 import (
+    REASON_REQUIREMENT_PLAN_CONFIRMATION_REQUIRED,
+    REASON_REQUIREMENT_PLAN_INVALID,
+    REASON_REQUIREMENT_PLAN_UNAVAILABLE,
+)
+from .metric_projection_v7 import (
+    REASON_REQUIREMENT_ACTION_CONFIRMATION_REQUIRED,
+    REASON_REQUIREMENT_ACTION_INVALID,
+    REASON_REQUIREMENT_ACTION_OVERFLOW,
+    REASON_REQUIREMENT_ACTION_SOURCE_INCOMPLETE,
+    REASON_REQUIREMENT_ACTION_UNAVAILABLE,
+    REASON_REVIEWED_REQUIREMENT_ACTION_LINKS,
+    project_metric_states_v7,
+)
 from .metric_publication_v2 import MetricPublicationV2, publish_metric_states_v2
-from .provider_evidence import bind_semantic_unit_opportunities
+from .provider_evidence import (
+    RequirementActionCandidateManifestOverflowError,
+    bind_semantic_unit_opportunities,
+)
+from .requirement_action_evidence import (
+    InMemoryRequirementActionReviewContextStore,
+    RequirementActionCandidateManifest,
+    RequirementActionEvidenceSnapshot,
+    requirement_action_candidate_manifest_fingerprint,
+    requirement_action_descriptor_matches_candidate_metadata,
+    requirement_action_evidence_snapshot_fingerprint,
+    requirement_plan_snapshot_fingerprint,
+)
 from .requirement_plan_evidence import (
     InMemoryRequirementPlanReviewContextStore,
+    RequirementDisposition,
     RequirementPlanEvidenceSnapshot,
 )
 from .semantic_units import (
@@ -88,6 +119,24 @@ REQUIREMENT_PLAN_AWAITING_REVIEW_SCHEMA_VERSION = (
     "requirement-plan-awaiting-review-v1"
 )
 REQUIREMENT_PLAN_UNAVAILABLE_POLICY_VERSION = "reviewed-requirement-plan-v1"
+REQUIREMENT_ACTION_UNAVAILABLE_SCHEMA_VERSION = (
+    "requirement-action-unavailable-v1"
+)
+REQUIREMENT_ACTION_AWAITING_REVIEW_SCHEMA_VERSION = (
+    "requirement-action-awaiting-review-v1"
+)
+REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_SCHEMA_VERSION = (
+    "requirement-action-candidate-manifest-overflow-v1"
+)
+REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_SCHEMA_VERSION = (
+    "requirement-action-candidate-source-incomplete-v1"
+)
+REQUIREMENT_ACTION_BINDING_INVALID_SCHEMA_VERSION = (
+    "requirement-action-binding-invalid-v1"
+)
+REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION = (
+    "reviewed-requirement-action-v1"
+)
 
 
 def requirement_plan_unavailable_fingerprint() -> str:
@@ -140,6 +189,154 @@ if (
 ):
     raise RuntimeError(
         "requirement-plan awaiting-review marker changed without a new identity"
+    )
+
+
+def requirement_action_unavailable_fingerprint() -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "binding_contract": "requirement-action-binding-v1",
+                "source": "unavailable",
+                "schema_version": REQUIREMENT_ACTION_UNAVAILABLE_SCHEMA_VERSION,
+                "policy_version": REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT = (
+    "9059e785839871abf94e1fea1c86c48e737621047a526cd3c9e94099a5b5e07f"
+)
+if (
+    requirement_action_unavailable_fingerprint()
+    != REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT
+):
+    raise RuntimeError(
+        "requirement-action unavailable marker changed without a new identity"
+    )
+
+
+def requirement_action_awaiting_review_fingerprint() -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "binding_contract": "requirement-action-binding-v1",
+                "source": "awaiting_review",
+                "schema_version": (
+                    REQUIREMENT_ACTION_AWAITING_REVIEW_SCHEMA_VERSION
+                ),
+                "policy_version": REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT = (
+    "0ca65041b98be25e41cbbba908641f116f0e81b45416f89fd7ddf177489add4a"
+)
+if (
+    requirement_action_awaiting_review_fingerprint()
+    != REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT
+):
+    raise RuntimeError(
+        "requirement-action awaiting-review marker changed without a new identity"
+    )
+
+
+def requirement_action_candidate_manifest_overflow_fingerprint() -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "binding_contract": "requirement-action-binding-v1",
+                "source": "candidate_manifest_overflow",
+                "schema_version": (
+                    REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_SCHEMA_VERSION
+                ),
+                "policy_version": REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT = (
+    "528224b052ffbec5c2b404b8970ab2ced61b84bc39cc20d70fd77320a059875f"
+)
+if (
+    requirement_action_candidate_manifest_overflow_fingerprint()
+    != REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT
+):
+    raise RuntimeError(
+        "requirement-action candidate-overflow marker changed without a new identity"
+    )
+
+
+def requirement_action_candidate_source_incomplete_fingerprint() -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "binding_contract": "requirement-action-binding-v1",
+                "source": "candidate_source_incomplete",
+                "schema_version": (
+                    REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_SCHEMA_VERSION
+                ),
+                "policy_version": REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_FINGERPRINT = (
+    "d44bd4fa494e3123c7cb6f23ada45473204a55736c8a0ae9e5305ba30d91c699"
+)
+if (
+    requirement_action_candidate_source_incomplete_fingerprint()
+    != REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_FINGERPRINT
+):
+    raise RuntimeError(
+        "requirement-action incomplete-source marker changed without a new identity"
+    )
+
+
+def requirement_action_binding_invalid_fingerprint() -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "binding_contract": "requirement-action-binding-v1",
+                "source": "binding_invalid",
+                "schema_version": (
+                    REQUIREMENT_ACTION_BINDING_INVALID_SCHEMA_VERSION
+                ),
+                "policy_version": REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT = (
+    "357ed7bbb833a8dfbd8f907e8309c363957460c6053d5b9d77d069bbbb7e55da"
+)
+if (
+    requirement_action_binding_invalid_fingerprint()
+    != REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT
+):
+    raise RuntimeError(
+        "requirement-action invalid-binding marker changed without a new identity"
     )
 
 
@@ -358,6 +555,83 @@ class _ResolvedRequirementPlanEvidence:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _ResolvedRequirementActionEvidence:
+    snapshot: RequirementActionEvidenceSnapshot | None
+    evidence_source: "RequirementActionEvidenceSource"
+
+    def request_identity(self) -> tuple[str, ...]:
+        snapshot = self.snapshot
+        if (
+            self.evidence_source
+            is not RequirementActionEvidenceSource.REVIEWED_REQUIREMENT_ACTION
+        ):
+            awaiting = (
+                self.evidence_source
+                is RequirementActionEvidenceSource.AWAITING_REVIEW
+            )
+            return (
+                self.evidence_source.value,
+                (
+                    REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT
+                    if awaiting
+                    else REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT
+                ),
+                (
+                    REQUIREMENT_ACTION_AWAITING_REVIEW_SCHEMA_VERSION
+                    if awaiting
+                    else REQUIREMENT_ACTION_UNAVAILABLE_SCHEMA_VERSION
+                ),
+                REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION,
+            )
+        if (
+            snapshot is None
+            or snapshot.confirmation_id is None
+            or snapshot.proposal_id is None
+            or snapshot.reviewed_descriptor_set_fingerprint is None
+            or snapshot.source_run_id is None
+            or snapshot.requirement_plan_confirmation_id is None
+            or snapshot.requirement_plan_evidence_fingerprint is None
+            or snapshot.candidate_manifest is None
+            or snapshot.evidence_fingerprint is None
+        ):
+            raise AssertionError("reviewed requirement-action evidence is absent")
+        return (
+            self.evidence_source.value,
+            snapshot.source_run_id,
+            snapshot.requirement_plan_confirmation_id,
+            snapshot.requirement_plan_evidence_fingerprint,
+            snapshot.candidate_manifest.manifest_fingerprint,
+            snapshot.confirmation_id,
+            snapshot.proposal_id,
+            snapshot.reviewed_descriptor_set_fingerprint,
+            snapshot.evidence_fingerprint,
+            snapshot.schema_version,
+            snapshot.policy_version,
+            snapshot.source_window_fingerprint,
+        )
+
+
+_RequirementActionCandidateStatus = Literal[
+    "unavailable",
+    "candidate_source_incomplete",
+    "bounded",
+    "candidate_manifest_overflow",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class _RequirementActionCandidatePreflight:
+    """One content-free safe-event snapshot used before request identity."""
+
+    status: _RequirementActionCandidateStatus
+    manifest: RequirementActionCandidateManifest | None
+
+    @property
+    def overflow(self) -> bool:
+        return self.status == "candidate_manifest_overflow"
+
+
 class SessionRequirementPlanEvidenceBinding(StrictModel):
     """Exact content-free requirement-plan authority used by one r6 run."""
 
@@ -433,6 +707,464 @@ class SessionRequirementPlanEvidenceBinding(StrictModel):
         return self
 
 
+class RequirementActionEvidenceSource(StrEnum):
+    UNAVAILABLE = "unavailable"
+    AWAITING_REVIEW = "awaiting_review"
+    CANDIDATE_MANIFEST_OVERFLOW = "candidate_manifest_overflow"
+    CANDIDATE_SOURCE_INCOMPLETE = "candidate_source_incomplete"
+    BINDING_INVALID = "binding_invalid"
+    REVIEWED_REQUIREMENT_ACTION = "reviewed_requirement_action"
+
+
+class SessionRequirementActionEvidenceBinding(StrictModel):
+    """Exact content-free requirement-action authority used by one r7 run."""
+
+    evidence_source: RequirementActionEvidenceSource
+    session_id: str
+    source_window_fingerprint: str
+    source_run_id: str | None = None
+    requirement_plan_confirmation_id: str | None = None
+    requirement_plan_evidence_fingerprint: str | None = None
+    candidate_manifest_fingerprint: str | None = None
+    confirmation_id: str | None = None
+    proposal_id: str | None = None
+    reviewed_descriptor_set_fingerprint: str | None = None
+    evidence_fingerprint: str
+    evidence_schema_version: str
+    evidence_policy_version: str
+    bound_at: datetime
+    local_only: Literal[True] = True
+    content_persisted: Literal[False] = False
+
+    _ids = field_validator(
+        "session_id", "source_window_fingerprint", "evidence_fingerprint"
+    )(_pseudonym)
+    _codes = field_validator(
+        "evidence_schema_version", "evidence_policy_version"
+    )(_safe_code)
+
+    @field_validator(
+        "source_run_id",
+        "requirement_plan_confirmation_id",
+        "requirement_plan_evidence_fingerprint",
+        "candidate_manifest_fingerprint",
+        "confirmation_id",
+        "proposal_id",
+        "reviewed_descriptor_set_fingerprint",
+    )
+    @classmethod
+    def optional_authority_id(cls, value: str | None) -> str | None:
+        return None if value is None else _pseudonym(value)
+
+    @field_validator("bound_at")
+    @classmethod
+    def utc_bound_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("requirement-action binding timestamp must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def exact_authority(self) -> "SessionRequirementActionEvidenceBinding":
+        source_authority = (
+            self.source_run_id,
+            self.requirement_plan_confirmation_id,
+            self.requirement_plan_evidence_fingerprint,
+            self.candidate_manifest_fingerprint,
+        )
+        if self.evidence_source is RequirementActionEvidenceSource.UNAVAILABLE:
+            if (
+                any(value is not None for value in source_authority)
+                or self.confirmation_id is not None
+                or self.proposal_id is not None
+                or self.reviewed_descriptor_set_fingerprint is not None
+                or self.evidence_fingerprint
+                != REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT
+                or self.evidence_schema_version
+                != REQUIREMENT_ACTION_UNAVAILABLE_SCHEMA_VERSION
+                or self.evidence_policy_version
+                != REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION
+            ):
+                raise ValueError("unavailable requirement-action marker is invalid")
+        elif (
+            self.evidence_source
+            is RequirementActionEvidenceSource.AWAITING_REVIEW
+        ):
+            if (
+                any(value is not None for value in source_authority)
+                or self.confirmation_id is not None
+                or self.proposal_id is not None
+                or self.reviewed_descriptor_set_fingerprint is not None
+                or self.evidence_fingerprint
+                != REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT
+                or self.evidence_schema_version
+                != REQUIREMENT_ACTION_AWAITING_REVIEW_SCHEMA_VERSION
+                or self.evidence_policy_version
+                != REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION
+            ):
+                raise ValueError(
+                    "awaiting-review requirement-action marker is invalid"
+                )
+        elif (
+            self.evidence_source
+            is RequirementActionEvidenceSource.CANDIDATE_MANIFEST_OVERFLOW
+        ):
+            if (
+                any(value is not None for value in source_authority)
+                or self.confirmation_id is not None
+                or self.proposal_id is not None
+                or self.reviewed_descriptor_set_fingerprint is not None
+                or self.evidence_fingerprint
+                != REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT
+                or self.evidence_schema_version
+                != REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_SCHEMA_VERSION
+                or self.evidence_policy_version
+                != REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION
+            ):
+                raise ValueError(
+                    "candidate-overflow requirement-action marker is invalid"
+                )
+        elif (
+            self.evidence_source
+            is RequirementActionEvidenceSource.CANDIDATE_SOURCE_INCOMPLETE
+        ):
+            if (
+                any(value is not None for value in source_authority)
+                or self.confirmation_id is not None
+                or self.proposal_id is not None
+                or self.reviewed_descriptor_set_fingerprint is not None
+                or self.evidence_fingerprint
+                != REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_FINGERPRINT
+                or self.evidence_schema_version
+                != REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_SCHEMA_VERSION
+                or self.evidence_policy_version
+                != REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION
+            ):
+                raise ValueError(
+                    "incomplete-source requirement-action marker is invalid"
+                )
+        elif (
+            self.evidence_source
+            is RequirementActionEvidenceSource.BINDING_INVALID
+        ):
+            if (
+                any(value is not None for value in source_authority)
+                or self.confirmation_id is not None
+                or self.proposal_id is not None
+                or self.reviewed_descriptor_set_fingerprint is not None
+                or self.evidence_fingerprint
+                != REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT
+                or self.evidence_schema_version
+                != REQUIREMENT_ACTION_BINDING_INVALID_SCHEMA_VERSION
+                or self.evidence_policy_version
+                != REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION
+            ):
+                raise ValueError(
+                    "invalid-binding requirement-action marker is invalid"
+                )
+        elif (
+            any(value is None for value in source_authority)
+            or self.confirmation_id is None
+            or self.proposal_id is None
+            or self.reviewed_descriptor_set_fingerprint is None
+            or self.evidence_fingerprint
+            in {
+                REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT,
+                REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT,
+                REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT,
+                REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_FINGERPRINT,
+                REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT,
+            }
+            or self.evidence_schema_version != "requirement-action-evidence-v1"
+            or self.evidence_policy_version != "reviewed-requirement-action-v1"
+        ):
+            raise ValueError(
+                "reviewed requirement-action authority is incomplete"
+            )
+        return self
+
+    def authority_identity(self) -> tuple[str, ...]:
+        """Stable trajectory identity; observation time is not semantics."""
+
+        return (
+            self.evidence_source.value,
+            self.session_id,
+            self.source_window_fingerprint,
+            self.source_run_id or "none",
+            self.requirement_plan_confirmation_id or "none",
+            self.requirement_plan_evidence_fingerprint or "none",
+            self.candidate_manifest_fingerprint or "none",
+            self.confirmation_id or "none",
+            self.proposal_id or "none",
+            self.reviewed_descriptor_set_fingerprint or "none",
+            self.evidence_fingerprint,
+            self.evidence_schema_version,
+            self.evidence_policy_version,
+        )
+
+
+def validate_requirement_action_binding_metric_state(
+    binding: SessionRequirementActionEvidenceBinding,
+    state: MetricStateV2,
+) -> None:
+    """Cross-bind one r7 authority marker to its exact action metric row."""
+
+    statistics = state.statistics
+    marker_shape = (
+        state.value_state is MetricValueStateV2.UNKNOWN
+        and state.numerator is None
+        and state.denominator is None
+        and state.numeric_value is None
+        and state.censoring_lower_bound is None
+        and state.censoring_upper_bound is None
+        and statistics.met_count == 0
+        and statistics.not_met_count == 0
+        and statistics.pending_count == 0
+        and statistics.unknown_count == statistics.eligible_count
+        and statistics.superseded_excluded_count == 0
+        and statistics.distinct_owner_count == statistics.eligible_count
+    )
+    marker_expectations = {
+        RequirementActionEvidenceSource.UNAVAILABLE: (
+            REASON_REQUIREMENT_ACTION_UNAVAILABLE,
+            False,
+            True,
+        ),
+        RequirementActionEvidenceSource.AWAITING_REVIEW: (
+            REASON_REQUIREMENT_ACTION_CONFIRMATION_REQUIRED,
+            True,
+            True,
+        ),
+        RequirementActionEvidenceSource.CANDIDATE_MANIFEST_OVERFLOW: (
+            REASON_REQUIREMENT_ACTION_OVERFLOW,
+            True,
+            True,
+        ),
+        RequirementActionEvidenceSource.CANDIDATE_SOURCE_INCOMPLETE: (
+            REASON_REQUIREMENT_ACTION_SOURCE_INCOMPLETE,
+            True,
+            False,
+        ),
+        RequirementActionEvidenceSource.BINDING_INVALID: (
+            REASON_REQUIREMENT_ACTION_INVALID,
+            True,
+            False,
+        ),
+    }
+    if binding.evidence_source in marker_expectations:
+        reason, capability_available, source_complete = marker_expectations[
+            binding.evidence_source
+        ]
+        valid = (
+            marker_shape
+            and state.explanation_code == reason
+            and statistics.capability_available is capability_available
+            and statistics.source_complete is source_complete
+        )
+    else:
+        reviewed_value_shape = (
+            state.value_state is MetricValueStateV2.KNOWN
+            and state.explanation_code == REASON_REVIEWED_REQUIREMENT_ACTION_LINKS
+            and statistics.eligible_count > 0
+            and statistics.pending_count == 0
+        ) or (
+            state.value_state is MetricValueStateV2.PENDING
+            and state.explanation_code == "opportunity_right_censored"
+            and statistics.eligible_count > 0
+            and statistics.pending_count > 0
+        ) or (
+            state.value_state is MetricValueStateV2.NOT_APPLICABLE
+            and state.explanation_code == "no_opportunity_observed"
+            and statistics.eligible_count == 0
+        )
+        valid = (
+            reviewed_value_shape
+            and statistics.capability_available
+            and statistics.source_complete
+            and statistics.unknown_count == 0
+            and statistics.superseded_excluded_count == 0
+            and statistics.distinct_owner_count == statistics.eligible_count
+        )
+    if (
+        state.projection_version != METRIC_PROJECTION_V2_VERSION_7
+        or state.metric_key != "logic.requirement_action_traceability"
+        or not valid
+    ):
+        raise ValueError(
+            "requirement-action binding disagrees with its r7 metric state"
+        )
+
+
+def validate_requirement_plan_binding_metric_state(
+    binding: SessionRequirementPlanEvidenceBinding,
+    state: MetricStateV2,
+) -> None:
+    """Cross-bind one r6/r7 plan authority marker to decomposition truth."""
+
+    statistics = state.statistics
+    empty_unknown = (
+        state.value_state is MetricValueStateV2.UNKNOWN
+        and state.numerator is None
+        and state.denominator is None
+        and state.numeric_value is None
+        and state.censoring_lower_bound is None
+        and state.censoring_upper_bound is None
+        and statistics.eligible_count == 0
+        and statistics.met_count == 0
+        and statistics.not_met_count == 0
+        and statistics.pending_count == 0
+        and statistics.unknown_count == 0
+        and statistics.superseded_excluded_count == 0
+        and statistics.distinct_owner_count == 0
+    )
+    if binding.evidence_source is RequirementPlanEvidenceSource.UNAVAILABLE:
+        valid = (
+            empty_unknown
+            and state.explanation_code == REASON_REQUIREMENT_PLAN_UNAVAILABLE
+            and not statistics.capability_available
+            and statistics.source_complete
+        )
+    elif binding.evidence_source is RequirementPlanEvidenceSource.AWAITING_REVIEW:
+        valid = (
+            empty_unknown
+            and state.explanation_code
+            == REASON_REQUIREMENT_PLAN_CONFIRMATION_REQUIRED
+            and statistics.capability_available
+            and statistics.source_complete
+        )
+    else:
+        reviewed_invalid = (
+            empty_unknown
+            and state.explanation_code == REASON_REQUIREMENT_PLAN_INVALID
+            and statistics.capability_available
+            and not statistics.source_complete
+        )
+        valid = reviewed_invalid or (
+            reviewed_requirement_plan_denominator_is_authoritative(state)
+        )
+    if (
+        state.projection_version
+        not in {METRIC_PROJECTION_V2_VERSION_6, METRIC_PROJECTION_V2_VERSION_7}
+        or state.metric_key != "logic.decomposition_coverage"
+        or not valid
+    ):
+        raise ValueError(
+            "requirement-plan binding disagrees with its decomposition metric state"
+        )
+
+
+def _validate_reviewed_opportunity_outcomes(
+    state: MetricStateV2,
+    *,
+    metric_key: str,
+    known_reason: str,
+    met_count: int,
+    not_met_count: int,
+    pending_count: int,
+) -> None:
+    eligible_count = met_count + not_met_count + pending_count
+    statistics = state.statistics
+    counts_match = (
+        statistics.capability_available
+        and statistics.source_complete
+        and statistics.eligible_count == eligible_count
+        and statistics.met_count == met_count
+        and statistics.not_met_count == not_met_count
+        and statistics.pending_count == pending_count
+        and statistics.unknown_count == 0
+        and statistics.superseded_excluded_count == 0
+        and statistics.distinct_owner_count == eligible_count
+    )
+    if eligible_count == 0:
+        result_matches = (
+            state.value_state is MetricValueStateV2.NOT_APPLICABLE
+            and state.explanation_code == "no_opportunity_observed"
+            and state.censoring_lower_bound is None
+            and state.censoring_upper_bound is None
+        )
+    elif pending_count:
+        result_matches = (
+            state.value_state is MetricValueStateV2.PENDING
+            and state.explanation_code == "opportunity_right_censored"
+            and state.censoring_lower_bound is not None
+            and state.censoring_upper_bound is not None
+            and abs(state.censoring_lower_bound - met_count / eligible_count)
+            <= 1e-9
+            and abs(
+                state.censoring_upper_bound
+                - (met_count + pending_count) / eligible_count
+            )
+            <= 1e-9
+        )
+    else:
+        result_matches = (
+            state.value_state is MetricValueStateV2.KNOWN
+            and state.explanation_code == known_reason
+            and state.numerator == met_count
+            and state.denominator == eligible_count
+            and state.numeric_value is not None
+            and abs(state.numeric_value - met_count / eligible_count) <= 1e-9
+        )
+    if state.metric_key != metric_key or not counts_match or not result_matches:
+        raise ValueError("reviewed evidence graph disagrees with its metric result")
+
+
+def validate_reviewed_requirement_plan_outcomes_metric_state(
+    dispositions: tuple[RequirementDisposition, ...],
+    state: MetricStateV2,
+) -> None:
+    _validate_reviewed_opportunity_outcomes(
+        state,
+        metric_key="logic.decomposition_coverage",
+        known_reason="reviewed_requirement_plan_links",
+        met_count=sum(item is RequirementDisposition.LINKED for item in dispositions),
+        not_met_count=sum(
+            item is RequirementDisposition.NOT_LINKED for item in dispositions
+        ),
+        pending_count=sum(
+            item is RequirementDisposition.PENDING for item in dispositions
+        ),
+    )
+
+
+def validate_reviewed_requirement_action_snapshot_metric_state(
+    snapshot: RequirementActionEvidenceSnapshot,
+    state: MetricStateV2,
+) -> None:
+    manifest = snapshot.candidate_manifest
+    if manifest is None:
+        raise ValueError("reviewed action snapshot has no candidate manifest")
+    actions = {item.action_id: item for item in manifest.actions}
+    if len(actions) != len(manifest.actions):
+        raise ValueError("reviewed action snapshot repeats a candidate")
+    links = {item.requirement_id: item.action_ids for item in snapshot.links}
+    requirement_ids = tuple(item.requirement_id for item in snapshot.requirements)
+    if (
+        len(links) != len(snapshot.links)
+        or tuple(item.requirement_id for item in snapshot.links) != requirement_ids
+    ):
+        raise ValueError("reviewed action snapshot does not exactly cover requirements")
+    met_count = not_met_count = pending_count = 0
+    for requirement_id in requirement_ids:
+        try:
+            linked_states = {actions[action_id].state for action_id in links[requirement_id]}
+        except KeyError as exc:
+            raise ValueError("reviewed action link names an unknown candidate") from exc
+        if ActionState.COMPLETED in linked_states:
+            met_count += 1
+        elif linked_states & {ActionState.STARTED, ActionState.UNKNOWN}:
+            pending_count += 1
+        else:
+            not_met_count += 1
+    _validate_reviewed_opportunity_outcomes(
+        state,
+        metric_key="logic.requirement_action_traceability",
+        known_reason=REASON_REVIEWED_REQUIREMENT_ACTION_LINKS,
+        met_count=met_count,
+        not_met_count=not_met_count,
+        pending_count=pending_count,
+    )
+
+
 class SessionModelEnsembleRunRecord(StrictModel):
     run_id: str
     session_id: str
@@ -448,6 +1180,9 @@ class SessionModelEnsembleRunRecord(StrictModel):
     metric_profile_binding: SessionMetricProfileBinding | None = None
     requirement_plan_evidence_binding: (
         SessionRequirementPlanEvidenceBinding | None
+    ) = None
+    requirement_action_evidence_binding: (
+        SessionRequirementActionEvidenceBinding | None
     ) = None
     receipt: SessionModelEnsembleReceipt
 
@@ -479,13 +1214,17 @@ class SessionModelEnsembleRunRecord(StrictModel):
             if publication.projection_version in {
                 METRIC_PROJECTION_V2_VERSION_5,
                 METRIC_PROJECTION_V2_VERSION_6,
+                METRIC_PROJECTION_V2_VERSION_7,
             }:
                 if binding is None:
                     raise ValueError("current metric publication requires a profile binding")
             elif binding is not None:
                 raise ValueError("legacy metric publication cannot carry an r5 profile")
             evidence_binding = self.requirement_plan_evidence_binding
-            if publication.projection_version == METRIC_PROJECTION_V2_VERSION_6:
+            if publication.projection_version in {
+                METRIC_PROJECTION_V2_VERSION_6,
+                METRIC_PROJECTION_V2_VERSION_7,
+            }:
                 if evidence_binding is None:
                     raise ValueError(
                         "r6 metric publication requires a requirement-plan binding"
@@ -498,11 +1237,51 @@ class SessionModelEnsembleRunRecord(StrictModel):
                     raise ValueError(
                         "requirement-plan evidence is bound to another source window"
                     )
+                decomposition_state = next(
+                    item.state
+                    for item in publication.metrics
+                    if item.state.metric_key == "logic.decomposition_coverage"
+                )
+                validate_requirement_plan_binding_metric_state(
+                    evidence_binding,
+                    decomposition_state,
+                )
             elif evidence_binding is not None:
                 raise ValueError(
                     "legacy metric publication cannot carry requirement-plan authority"
                 )
-        elif self.requirement_plan_evidence_binding is not None:
+            action_binding = self.requirement_action_evidence_binding
+            if publication.projection_version == METRIC_PROJECTION_V2_VERSION_7:
+                if action_binding is None:
+                    raise ValueError(
+                        "r7 metric publication requires a requirement-action binding"
+                    )
+                if (
+                    action_binding.session_id != self.session_id
+                    or action_binding.source_window_fingerprint
+                    != self.input_fingerprint
+                ):
+                    raise ValueError(
+                        "requirement-action evidence is bound to another source window"
+                    )
+                action_state = next(
+                    item.state
+                    for item in publication.metrics
+                    if item.state.metric_key
+                    == "logic.requirement_action_traceability"
+                )
+                validate_requirement_action_binding_metric_state(
+                    action_binding,
+                    action_state,
+                )
+            elif action_binding is not None:
+                raise ValueError(
+                    "pre-r7 metric publication cannot carry requirement-action authority"
+                )
+        elif (
+            self.requirement_plan_evidence_binding is not None
+            or self.requirement_action_evidence_binding is not None
+        ):
             raise ValueError("a run without a metric publication has no evidence binding")
         return self
 
@@ -574,6 +1353,16 @@ class SessionTypedEvidenceProjector(Protocol):
         session_id: str,
     ) -> EphemeralTypedEvidenceProjection | None: ...
 
+    def requirement_action_candidate_manifest(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        source_run_id: str,
+        source_window_fingerprint: str,
+        projection: EphemeralTypedEvidenceProjection | None = None,
+    ) -> RequirementActionCandidateManifest | None: ...
+
 
 class SessionMetricLifecycleEvidenceReader(Protocol):
     """Content-free confirmed lifecycle receipts for one exact source window."""
@@ -589,6 +1378,12 @@ class SessionRequirementPlanEvidenceReader(Protocol):
     """Latest content-free reviewed requirement-plan authority for a session."""
 
     def latest_snapshot(self, session_id: str) -> RequirementPlanEvidenceSnapshot: ...
+
+
+class SessionRequirementActionEvidenceReader(Protocol):
+    """Latest content-free native-reviewed requirement/action authority."""
+
+    def latest_snapshot(self, session_id: str) -> RequirementActionEvidenceSnapshot: ...
 
 
 class SessionModelEnsembleRepository(Protocol):
@@ -681,6 +1476,12 @@ class SessionModelEnsembleService:
         requirement_plan_review_contexts: (
             InMemoryRequirementPlanReviewContextStore | None
         ) = None,
+        requirement_action_evidence_reader: (
+            SessionRequirementActionEvidenceReader | None
+        ) = None,
+        requirement_action_review_contexts: (
+            InMemoryRequirementActionReviewContextStore | None
+        ) = None,
     ) -> None:
         self._access_policy = access_policy
         self._repository = repository
@@ -696,6 +1497,12 @@ class SessionModelEnsembleService:
         self._declared_task_profile_reader = declared_task_profile_reader
         self._requirement_plan_evidence_reader = requirement_plan_evidence_reader
         self._requirement_plan_review_contexts = requirement_plan_review_contexts
+        self._requirement_action_evidence_reader = (
+            requirement_action_evidence_reader
+        )
+        self._requirement_action_review_contexts = (
+            requirement_action_review_contexts
+        )
         self._lock = Lock()
 
     def run(
@@ -740,31 +1547,129 @@ class SessionModelEnsembleService:
             resolved_requirement_plan = self._resolve_requirement_plan_evidence(
                 session_id
             )
-            request_fingerprint = self._identifiers.fingerprint(
-                "session-model-ensemble-request-v4",
-                (
-                    provider.value,
-                    session_id,
-                    idempotency_key,
-                    MODEL_ENSEMBLE_POLICY_VERSION,
-                    str(max_messages),
-                    *resolved_profile.request_identity(),
-                    *resolved_requirement_plan.request_identity(),
-                ),
+            resolved_requirement_action = (
+                self._resolve_requirement_action_evidence(session_id)
             )
-            run_id = self._identifiers.fingerprint(
-                "session-model-ensemble-run-v1",
-                (session_id, request_fingerprint),
+            typed_evidence = self._project_typed_evidence(provider, session_id)
+            candidate_preflight = self._preflight_requirement_action_candidates(
+                provider=provider,
+                session_id=session_id,
+                typed_evidence=typed_evidence,
             )
-            existing = self._safe_get(run_id)
-            if existing is not None:
-                return SessionModelEnsembleOutcome(run=existing, applied=False)
+            action_service_available = (
+                resolved_requirement_action.evidence_source
+                is not RequirementActionEvidenceSource.UNAVAILABLE
+            )
+
+            def request_identity(
+                candidate_status: _RequirementActionCandidateStatus,
+            ) -> tuple[str, str]:
+                fingerprint = self._identifiers.fingerprint(
+                    "session-model-ensemble-request-v6",
+                    (
+                        provider.value,
+                        session_id,
+                        idempotency_key,
+                        MODEL_ENSEMBLE_POLICY_VERSION,
+                        str(max_messages),
+                        *resolved_profile.request_identity(),
+                        *resolved_requirement_plan.request_identity(),
+                        *resolved_requirement_action.request_identity(),
+                        candidate_status,
+                    ),
+                )
+                return fingerprint, self._identifiers.fingerprint(
+                    "session-model-ensemble-run-v1",
+                    (session_id, fingerprint),
+                )
+
+            if not action_service_available:
+                possible_candidate_statuses = ("unavailable",)
+            elif candidate_preflight.overflow:
+                possible_candidate_statuses = ("candidate_manifest_overflow",)
+            elif candidate_preflight.status != "bounded":
+                possible_candidate_statuses = ("candidate_source_incomplete",)
+            else:
+                # An exact replay can return before provider text is read. A
+                # new request resolves the descriptor half of this closed pair
+                # from the exact local context below.
+                possible_candidate_statuses = (
+                    "bounded",
+                    "candidate_source_incomplete",
+                )
+            existing_runs = tuple(
+                found
+                for status in possible_candidate_statuses
+                for _, candidate_run_id in (request_identity(status),)
+                for found in (self._safe_get(candidate_run_id),)
+                if found is not None
+            )
+            if len(existing_runs) > 1:
+                raise ModelEnsemblePersistenceError(
+                    "idempotent model ensemble request has conflicting source states"
+                )
+            if existing_runs:
+                return SessionModelEnsembleOutcome(
+                    run=existing_runs[0],
+                    applied=False,
+                )
             context = self._read_context(
                 provider,
                 session_id,
                 max_messages,
                 resolved_profile.task_profile,
             )
+            preflight_review_surface_complete = (
+                self._requirement_action_review_surface_complete(
+                    candidate_preflight.manifest,
+                    context,
+                )
+            )
+            if not action_service_available:
+                candidate_request_status: _RequirementActionCandidateStatus = (
+                    "unavailable"
+                )
+            elif candidate_preflight.overflow:
+                candidate_request_status = "candidate_manifest_overflow"
+            elif (
+                candidate_preflight.status == "bounded"
+                and preflight_review_surface_complete
+            ):
+                candidate_request_status = "bounded"
+            else:
+                candidate_request_status = "candidate_source_incomplete"
+            request_fingerprint, run_id = request_identity(candidate_request_status)
+            current_candidates = self._recheck_requirement_action_candidates(
+                provider=provider,
+                session_id=session_id,
+                source_run_id=run_id,
+                context=context,
+                typed_evidence=typed_evidence,
+                preflight=candidate_preflight,
+            )
+            candidate_review_surface_complete = (
+                self._requirement_action_review_surface_complete(
+                    current_candidates.manifest,
+                    context,
+                )
+            )
+            candidate_manifest_overflow = (
+                action_service_available and current_candidates.overflow
+            )
+            candidate_source_incomplete = (
+                action_service_available
+                and not candidate_manifest_overflow
+                and not candidate_review_surface_complete
+            )
+            if candidate_source_incomplete != (
+                candidate_request_status == "candidate_source_incomplete"
+            ) or (
+                candidate_manifest_overflow
+                != (candidate_request_status == "candidate_manifest_overflow")
+            ):
+                raise ModelEnsemblePersistenceError(
+                    "requirement-action review surface changed during analysis"
+                )
             metric_profile_binding = self._bind_metric_profile(
                 resolved_profile,
                 context,
@@ -776,7 +1681,20 @@ class SessionModelEnsembleService:
                 resolved_requirement_plan,
                 context,
             )
-            typed_evidence = self._project_typed_evidence(provider, session_id)
+            (
+                requirement_action_binding,
+                requirement_action_evidence,
+            ) = self._bind_requirement_action_evidence(
+                resolved_requirement_action,
+                context,
+                requirement_plan_binding,
+                requirement_plan_evidence,
+                candidate_manifest_overflow=candidate_manifest_overflow,
+                candidate_source_incomplete=candidate_source_incomplete,
+                candidate_review_surface_complete=(
+                    candidate_review_surface_complete
+                ),
+            )
             typed_metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...] | None = None
             metric_publication_v2: MetricPublicationV2 | None = None
             projection_completed_at: datetime | None = None
@@ -817,6 +1735,16 @@ class SessionModelEnsembleService:
                         latest.requirement_plan_evidence_binding,
                         requirement_plan_binding,
                     )
+                    and self._requirement_action_identity_matches(
+                        latest.requirement_action_evidence_binding,
+                        requirement_action_binding,
+                    )
+                    and not (
+                        resolved_requirement_action.evidence_source
+                        is RequirementActionEvidenceSource.REVIEWED_REQUIREMENT_ACTION
+                        and requirement_action_binding.evidence_source
+                        is not RequirementActionEvidenceSource.REVIEWED_REQUIREMENT_ACTION
+                    )
                 )
                 if latest is not None and not compatible:
                     latest = None
@@ -836,6 +1764,13 @@ class SessionModelEnsembleService:
                     semantic_projection,
                     typed_evidence,
                     requirement_plan_evidence,
+                    requirement_action_evidence,
+                    candidate_manifest_overflow,
+                    candidate_source_incomplete,
+                    (
+                        requirement_action_binding.evidence_source
+                        is RequirementActionEvidenceSource.BINDING_INVALID
+                    ),
                 )
                 semantic_units_reusable = (
                     semantic_projection is None
@@ -861,8 +1796,11 @@ class SessionModelEnsembleService:
                     ):
                         if progress_callback is not None:
                             progress_callback(10, 10)
-                        self._publish_requirement_plan_review_context(
-                            latest.run_id, context
+                        self._publish_review_contexts(
+                            latest,
+                            context,
+                            requirement_plan_evidence,
+                            current_candidates.manifest,
                         )
                         return SessionModelEnsembleOutcome(run=latest, applied=False)
                     if latest.receipt.metric_projection_version is None:
@@ -873,6 +1811,7 @@ class SessionModelEnsembleService:
                             projection_completed_at,
                             metric_profile_binding,
                             requirement_plan_binding,
+                            requirement_action_binding,
                         )
                         try:
                             self._repository.save_metric_projection(
@@ -899,8 +1838,11 @@ class SessionModelEnsembleService:
                             projected = race
                         if progress_callback is not None:
                             progress_callback(10, 10)
-                        self._publish_requirement_plan_review_context(
-                            projected.run_id, context
+                        self._publish_review_contexts(
+                            projected,
+                            context,
+                            requirement_plan_evidence,
+                            current_candidates.manifest,
                         )
                         return SessionModelEnsembleOutcome(
                             run=projected,
@@ -932,6 +1874,13 @@ class SessionModelEnsembleService:
                     semantic_projection,
                     typed_evidence,
                     requirement_plan_evidence,
+                    requirement_action_evidence,
+                    candidate_manifest_overflow,
+                    candidate_source_incomplete,
+                    (
+                        requirement_action_binding.evidence_source
+                        is RequirementActionEvidenceSource.BINDING_INVALID
+                    ),
                 )
             plan = build_ensemble_chunks(context)
             try:
@@ -968,6 +1917,9 @@ class SessionModelEnsembleService:
                     requirement_plan_evidence_binding=(
                         requirement_plan_binding
                     ),
+                    requirement_action_evidence_binding=(
+                        requirement_action_binding
+                    ),
                     receipt=projected_receipt,
                 )
             except SessionModelEnsembleError:
@@ -1001,27 +1953,75 @@ class SessionModelEnsembleService:
                             raise ModelEnsemblePersistenceError(
                                 "semantic-unit sidecar could not be stored"
                             ) from None
-                    self._publish_requirement_plan_review_context(
-                        race.run_id, context
+                    self._publish_review_contexts(
+                        race,
+                        context,
+                        requirement_plan_evidence,
+                        current_candidates.manifest,
                     )
                     return SessionModelEnsembleOutcome(run=race, applied=False)
                 raise ModelEnsemblePersistenceError(
                     "model ensemble result could not be stored"
                 ) from None
-            self._publish_requirement_plan_review_context(record.run_id, context)
+            self._publish_review_contexts(
+                record,
+                context,
+                requirement_plan_evidence,
+                current_candidates.manifest,
+            )
             return SessionModelEnsembleOutcome(run=record, applied=True)
 
-    def _publish_requirement_plan_review_context(
-        self, run_id: str, context: P1TextAnalysisInput
+    def _publish_review_contexts(
+        self,
+        run: SessionModelEnsembleRunRecord,
+        context: P1TextAnalysisInput,
+        requirement_plan_evidence: RequirementPlanEvidenceSnapshot | None,
+        candidate_manifest: RequirementActionCandidateManifest | None,
     ) -> None:
-        store = self._requirement_plan_review_contexts
-        if store is None:
+        plan_store = self._requirement_plan_review_contexts
+        if plan_store is not None:
+            try:
+                plan_store.publish(run.run_id, context)
+            except Exception:
+                raise ModelEnsemblePersistenceError(
+                    "ephemeral requirement-plan review context could not be prepared"
+                ) from None
+        action_store = self._requirement_action_review_contexts
+        plan_binding = run.requirement_plan_evidence_binding
+        if (
+            action_store is None
+            or candidate_manifest is None
+            or requirement_plan_evidence is None
+            or not requirement_plan_evidence.complete_user_clause_classification
+            or requirement_plan_evidence.confirmation_id is None
+            or plan_binding is None
+            or plan_binding.evidence_source
+            is not RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+        ):
             return
         try:
-            store.publish(run_id, context)
+            manifest = self._rebind_requirement_action_candidate_manifest(
+                candidate_manifest,
+                source_run_id=run.run_id,
+                source_window_fingerprint=context.analysis_window_fingerprint,
+            )
+            if (
+                not self._requirement_action_review_surface_complete(
+                    manifest,
+                    context,
+                )
+            ):
+                return
+            action_store.publish(
+                run.run_id,
+                context,
+                requirement_plan_evidence,
+                plan_binding.evidence_fingerprint,
+                manifest,
+            )
         except Exception:
             raise ModelEnsemblePersistenceError(
-                "ephemeral requirement-plan review context could not be prepared"
+                "ephemeral requirement-action review context could not be prepared"
             ) from None
 
     def latest(self, session_id: str) -> SessionModelEnsembleRunRecord | None:
@@ -1199,49 +2199,9 @@ class SessionModelEnsembleService:
                 ),
             )
         try:
-            fingerprint = self._identifiers.fingerprint(
-                "requirement-plan-evidence-snapshot-v1",
-                (
-                    snapshot.session_id,
-                    snapshot.source_window_fingerprint,
-                    snapshot.confirmation_id or "none",
-                    snapshot.proposal_id or "none",
-                    snapshot.schema_version,
-                    snapshot.policy_version,
-                    snapshot.review_rubric_version or "none",
-                    *(
-                        ()
-                        if snapshot.producer_receipt is None
-                        else (
-                            f"producer-kind:{snapshot.producer_receipt.kind}",
-                            "producer-claim:"
-                            f"{snapshot.producer_receipt.claim_fingerprint}",
-                            "producer-authority:"
-                            f"{snapshot.producer_receipt.authority}",
-                            "producer-raw-claim-persisted:"
-                            f"{str(snapshot.producer_receipt.raw_claim_persisted).lower()}",
-                        )
-                    ),
-                    *(
-                        f"plan:{item.plan_id}:{item.coordinate.message_sequence}:"
-                        f"{item.coordinate.clause_index}"
-                        for item in snapshot.plan_items
-                    ),
-                    *(
-                        f"requirement:{item.requirement_id}:"
-                        f"{item.coordinate.message_sequence}:"
-                        f"{item.coordinate.clause_index}:{item.disposition.value}:"
-                        f"{','.join(item.linked_plan_ids)}"
-                        for item in snapshot.requirements
-                    ),
-                    *(
-                        "excluded-user-clause:"
-                        f"{item.coordinate.message_sequence}:"
-                        f"{item.coordinate.clause_index}:{item.reason.value}:"
-                        f"{('none' if item.basis_coordinate is None else f'{item.basis_coordinate.message_sequence}:{item.basis_coordinate.clause_index}')}"
-                        for item in snapshot.excluded_user_clauses
-                    ),
-                ),
+            fingerprint = requirement_plan_snapshot_fingerprint(
+                snapshot,
+                self._identifiers,
             )
         except Exception:
             raise ModelEnsemblePersistenceError(
@@ -1334,6 +2294,202 @@ class SessionModelEnsembleService:
                 "requirement-plan binding could not be issued"
             ) from None
 
+    def _resolve_requirement_action_evidence(
+        self,
+        session_id: str,
+    ) -> _ResolvedRequirementActionEvidence:
+        reader = self._requirement_action_evidence_reader
+        if reader is None:
+            return _ResolvedRequirementActionEvidence(
+                snapshot=None,
+                evidence_source=RequirementActionEvidenceSource.UNAVAILABLE,
+            )
+        try:
+            snapshot = reader.latest_snapshot(session_id)
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "reviewed requirement-action evidence is unavailable"
+            ) from None
+        if snapshot.session_id != session_id:
+            raise ModelEnsemblePersistenceError(
+                "reviewed requirement-action evidence belongs elsewhere"
+            )
+        if snapshot.confirmation_id is None:
+            return _ResolvedRequirementActionEvidence(
+                snapshot=snapshot,
+                evidence_source=RequirementActionEvidenceSource.AWAITING_REVIEW,
+            )
+        try:
+            expected = requirement_action_evidence_snapshot_fingerprint(
+                snapshot, self._identifiers
+            )
+        except (TypeError, ValueError):
+            raise ModelEnsemblePersistenceError(
+                "reviewed requirement-action evidence is invalid"
+            ) from None
+        if snapshot.evidence_fingerprint != expected:
+            raise ModelEnsemblePersistenceError(
+                "reviewed requirement-action evidence fingerprint is invalid"
+            )
+        return _ResolvedRequirementActionEvidence(
+            snapshot=snapshot,
+            evidence_source=(
+                RequirementActionEvidenceSource.REVIEWED_REQUIREMENT_ACTION
+            ),
+        )
+
+    def _bind_requirement_action_evidence(
+        self,
+        resolved: _ResolvedRequirementActionEvidence,
+        context: P1TextAnalysisInput,
+        requirement_plan_binding: SessionRequirementPlanEvidenceBinding,
+        requirement_plan_evidence: RequirementPlanEvidenceSnapshot | None,
+        *,
+        candidate_manifest_overflow: bool,
+        candidate_source_incomplete: bool,
+        candidate_review_surface_complete: bool,
+    ) -> tuple[
+        SessionRequirementActionEvidenceBinding,
+        RequirementActionEvidenceSnapshot | None,
+    ]:
+        snapshot = resolved.snapshot
+        reviewed = (
+            snapshot
+            if not candidate_manifest_overflow
+            and not candidate_source_incomplete
+            and candidate_review_surface_complete
+            and snapshot is not None
+            and snapshot.confirmation_id is not None
+            and snapshot.source_window_fingerprint
+            == context.analysis_window_fingerprint
+            and snapshot.requirement_plan_confirmation_id
+            == requirement_plan_binding.confirmation_id
+            and snapshot.requirement_plan_evidence_fingerprint
+            == requirement_plan_binding.evidence_fingerprint
+            and requirement_plan_binding.evidence_source
+            is RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+            and requirement_plan_evidence is not None
+            and self._requirement_action_source_run_matches(
+                snapshot,
+                context,
+                requirement_plan_binding,
+            )
+            and self._requirement_action_manifest_matches(snapshot, context)
+            else None
+        )
+        try:
+            if reviewed is None:
+                service_available = (
+                    resolved.evidence_source
+                    is not RequirementActionEvidenceSource.UNAVAILABLE
+                )
+                binding_invalid = (
+                    resolved.evidence_source
+                    is RequirementActionEvidenceSource.REVIEWED_REQUIREMENT_ACTION
+                )
+                source = (
+                    RequirementActionEvidenceSource.CANDIDATE_MANIFEST_OVERFLOW
+                    if candidate_manifest_overflow
+                    else RequirementActionEvidenceSource.CANDIDATE_SOURCE_INCOMPLETE
+                    if candidate_source_incomplete
+                    else RequirementActionEvidenceSource.BINDING_INVALID
+                    if binding_invalid
+                    else RequirementActionEvidenceSource.AWAITING_REVIEW
+                    if service_available
+                    else RequirementActionEvidenceSource.UNAVAILABLE
+                )
+                return (
+                    SessionRequirementActionEvidenceBinding(
+                        evidence_source=source,
+                        session_id=context.session_id,
+                        source_window_fingerprint=(
+                            context.analysis_window_fingerprint
+                        ),
+                        evidence_fingerprint=(
+                            REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT
+                            if candidate_manifest_overflow
+                            else REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_FINGERPRINT
+                            if candidate_source_incomplete
+                            else REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT
+                            if binding_invalid
+                            else
+                            REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT
+                            if service_available
+                            else REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT
+                        ),
+                        evidence_schema_version=(
+                            REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_SCHEMA_VERSION
+                            if candidate_manifest_overflow
+                            else REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_SCHEMA_VERSION
+                            if candidate_source_incomplete
+                            else REQUIREMENT_ACTION_BINDING_INVALID_SCHEMA_VERSION
+                            if binding_invalid
+                            else
+                            REQUIREMENT_ACTION_AWAITING_REVIEW_SCHEMA_VERSION
+                            if service_available
+                            else REQUIREMENT_ACTION_UNAVAILABLE_SCHEMA_VERSION
+                        ),
+                        evidence_policy_version=(
+                            REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION
+                        ),
+                        bound_at=self._clock(),
+                    ),
+                    (
+                        RequirementActionEvidenceSnapshot(
+                            session_id=context.session_id,
+                            source_window_fingerprint=(
+                                context.analysis_window_fingerprint
+                            ),
+                        )
+                        if service_available
+                        else None
+                    ),
+                )
+            assert reviewed.source_run_id is not None
+            assert reviewed.requirement_plan_confirmation_id is not None
+            assert reviewed.requirement_plan_evidence_fingerprint is not None
+            assert reviewed.candidate_manifest is not None
+            assert reviewed.confirmation_id is not None
+            assert reviewed.proposal_id is not None
+            assert reviewed.reviewed_descriptor_set_fingerprint is not None
+            assert reviewed.evidence_fingerprint is not None
+            return (
+                SessionRequirementActionEvidenceBinding(
+                    evidence_source=(
+                        RequirementActionEvidenceSource
+                        .REVIEWED_REQUIREMENT_ACTION
+                    ),
+                    session_id=context.session_id,
+                    source_window_fingerprint=(
+                        context.analysis_window_fingerprint
+                    ),
+                    source_run_id=reviewed.source_run_id,
+                    requirement_plan_confirmation_id=(
+                        reviewed.requirement_plan_confirmation_id
+                    ),
+                    requirement_plan_evidence_fingerprint=(
+                        reviewed.requirement_plan_evidence_fingerprint
+                    ),
+                    candidate_manifest_fingerprint=(
+                        reviewed.candidate_manifest.manifest_fingerprint
+                    ),
+                    confirmation_id=reviewed.confirmation_id,
+                    proposal_id=reviewed.proposal_id,
+                    reviewed_descriptor_set_fingerprint=(
+                        reviewed.reviewed_descriptor_set_fingerprint
+                    ),
+                    evidence_fingerprint=reviewed.evidence_fingerprint,
+                    evidence_schema_version=reviewed.schema_version,
+                    evidence_policy_version=reviewed.policy_version,
+                    bound_at=self._clock(),
+                ),
+                reviewed,
+            )
+        except (TypeError, ValueError):
+            raise ModelEnsemblePersistenceError(
+                "requirement-action binding could not be issued"
+            ) from None
+
     @staticmethod
     def _metric_profile_identity_matches(
         stored: SessionMetricProfileBinding | None,
@@ -1351,6 +2507,111 @@ class SessionModelEnsembleService:
         return stored is not None and stored.model_dump(
             exclude={"bound_at"}
         ) == current.model_dump(exclude={"bound_at"})
+
+    @staticmethod
+    def _requirement_action_identity_matches(
+        stored: SessionRequirementActionEvidenceBinding | None,
+        current: SessionRequirementActionEvidenceBinding,
+    ) -> bool:
+        return stored is not None and stored.authority_identity() == (
+            current.authority_identity()
+        )
+
+    def _requirement_action_source_run_matches(
+        self,
+        snapshot: RequirementActionEvidenceSnapshot,
+        context: P1TextAnalysisInput,
+        requirement_plan_binding: SessionRequirementPlanEvidenceBinding,
+    ) -> bool:
+        """Require the reviewed graph's source to be one exact sealed r6/r7 run."""
+
+        source_run_id = snapshot.source_run_id
+        if source_run_id is None:
+            return False
+        try:
+            source_run = self._repository.get(source_run_id)
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "requirement-action source run is unavailable"
+            ) from None
+        if source_run is None:
+            return False
+        publication = source_run.receipt.metric_publication_v2
+        source_plan = source_run.requirement_plan_evidence_binding
+        return (
+            source_run.run_id == source_run_id
+            and source_run.session_id == context.session_id
+            and source_run.input_fingerprint
+            == context.analysis_window_fingerprint
+            and snapshot.source_window_fingerprint
+            == source_run.input_fingerprint
+            and publication is not None
+            and publication.projection_version
+            in {
+                METRIC_PROJECTION_V2_VERSION_6,
+                METRIC_PROJECTION_V2_VERSION_7,
+            }
+            and source_plan is not None
+            and source_plan.evidence_source
+            is RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+            and source_plan.session_id == context.session_id
+            and source_plan.source_window_fingerprint
+            == context.analysis_window_fingerprint
+            and source_plan.confirmation_id
+            == snapshot.requirement_plan_confirmation_id
+            and source_plan.evidence_fingerprint
+            == snapshot.requirement_plan_evidence_fingerprint
+            and self._requirement_plan_identity_matches(
+                source_plan,
+                requirement_plan_binding,
+            )
+        )
+
+    def _requirement_action_manifest_matches(
+        self,
+        snapshot: RequirementActionEvidenceSnapshot,
+        context: P1TextAnalysisInput,
+    ) -> bool:
+        """Reject an old review when the current safe action set has drifted."""
+
+        source_run_id = snapshot.source_run_id
+        reviewed_manifest = snapshot.candidate_manifest
+        projector = self._typed_evidence_projector
+        if source_run_id is None or reviewed_manifest is None or projector is None:
+            return False
+        try:
+            current_manifest = projector.requirement_action_candidate_manifest(
+                provider=context.provider,
+                session_id=context.session_id,
+                source_run_id=source_run_id,
+                source_window_fingerprint=(
+                    context.analysis_window_fingerprint
+                ),
+            )
+        except RequirementActionCandidateManifestOverflowError:
+            return False
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "current requirement-action manifest is unavailable"
+            ) from None
+        if (
+            current_manifest is None
+            or not current_manifest.extraction_complete
+            or not current_manifest.enumeration_complete
+        ):
+            return False
+        try:
+            current_fingerprint = (
+                requirement_action_candidate_manifest_fingerprint(
+                    current_manifest
+                )
+            )
+        except (TypeError, ValueError):
+            return False
+        return (
+            current_manifest.manifest_fingerprint == current_fingerprint
+            and current_manifest == reviewed_manifest
+        )
 
     def _read_context(
         self,
@@ -1428,6 +2689,10 @@ class SessionModelEnsembleService:
         semantic_projection: SemanticUnitProjection | None,
         typed_evidence: EphemeralTypedEvidenceProjection | None = None,
         requirement_plan_evidence: RequirementPlanEvidenceSnapshot | None = None,
+        requirement_action_evidence: RequirementActionEvidenceSnapshot | None = None,
+        candidate_manifest_overflow: bool = False,
+        candidate_source_incomplete: bool = False,
+        requirement_action_binding_invalid: bool = False,
     ) -> tuple[
         tuple[SessionModelEnsembleTypedMetricReceipt, ...],
         MetricPublicationV2,
@@ -1452,14 +2717,14 @@ class SessionModelEnsembleService:
             projected_at = self._clock()
             if projected_at.tzinfo is None or projected_at.utcoffset() != timedelta(0):
                 raise ValueError("metric projection clock must return UTC")
-            # Current code writes projection identity r6 only. Frozen earlier
+            # Current code writes projection identity r7 only. Frozen earlier
             # producers remain importable so historical rows retain the exact
             # meaning of the algorithm that wrote them.
             objective_overrides = project_objective_metric_overrides_v3(
                 typed_evidence,
                 self._objective_evidence_descriptor(context.provider),
             )
-            live_states = project_metric_states_v6(
+            live_states = project_metric_states_v7(
                 context=context,
                 reconciliation=(
                     None
@@ -1473,6 +2738,15 @@ class SessionModelEnsembleService:
                 objective_overrides=objective_overrides,
                 lifecycle_evidence=self._read_lifecycle_evidence(context),
                 requirement_plan_evidence=requirement_plan_evidence,
+                requirement_action_evidence=requirement_action_evidence,
+                requirement_action_descriptor=self._objective_evidence_descriptor(
+                    context.provider
+                ),
+                candidate_manifest_overflow=candidate_manifest_overflow,
+                candidate_source_incomplete=candidate_source_incomplete,
+                requirement_action_binding_invalid=(
+                    requirement_action_binding_invalid
+                ),
             )
             metric_publication_v2 = publish_metric_states_v2(live_states)
             projected_items: list[SessionModelEnsembleTypedMetricReceipt] = []
@@ -1615,6 +2889,178 @@ class SessionModelEnsembleService:
             # objective measurements, never discard deterministic text output.
             return None
 
+    @staticmethod
+    def _requirement_action_candidate_status(
+        manifest: RequirementActionCandidateManifest | None,
+    ) -> _RequirementActionCandidateStatus:
+        if manifest is None:
+            return "unavailable"
+        if not manifest.extraction_complete or not manifest.enumeration_complete:
+            return "candidate_source_incomplete"
+        return "bounded"
+
+    @staticmethod
+    def _requirement_action_review_surface_complete(
+        manifest: RequirementActionCandidateManifest | None,
+        context: P1TextAnalysisInput,
+    ) -> bool:
+        if (
+            manifest is None
+            or not manifest.extraction_complete
+            or not manifest.enumeration_complete
+            or not context.action_descriptor_extraction_complete
+            or context.action_descriptor_algorithm_version is None
+            or tuple(item.source_reference_id for item in manifest.actions)
+            != tuple(
+                item.source_reference_id for item in context.action_descriptors
+            )
+        ):
+            return False
+        return all(
+            not descriptor.invocation_truncated
+            and not descriptor.result_or_effect_truncated
+            and requirement_action_descriptor_matches_candidate_metadata(
+                candidate,
+                descriptor,
+            )
+            for candidate, descriptor in zip(
+                manifest.actions,
+                context.action_descriptors,
+                strict=True,
+            )
+        )
+
+    def _preflight_requirement_action_candidates(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        typed_evidence: EphemeralTypedEvidenceProjection | None,
+    ) -> _RequirementActionCandidatePreflight:
+        """Read the safe-event plane before minting the r7 request identity."""
+
+        projector = self._typed_evidence_projector
+        if projector is None or typed_evidence is None:
+            return _RequirementActionCandidatePreflight(
+                status="unavailable",
+                manifest=None,
+            )
+        try:
+            manifest = projector.requirement_action_candidate_manifest(
+                provider=provider,
+                session_id=session_id,
+                source_run_id="0" * 64,
+                source_window_fingerprint="0" * 64,
+                projection=typed_evidence,
+            )
+        except RequirementActionCandidateManifestOverflowError:
+            return _RequirementActionCandidatePreflight(
+                status="candidate_manifest_overflow",
+                manifest=None,
+            )
+        except Exception:
+            return _RequirementActionCandidatePreflight(
+                status="candidate_source_incomplete",
+                manifest=None,
+            )
+        return _RequirementActionCandidatePreflight(
+            status=self._requirement_action_candidate_status(manifest),
+            manifest=manifest,
+        )
+
+    def _recheck_requirement_action_candidates(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        source_run_id: str,
+        context: P1TextAnalysisInput,
+        typed_evidence: EphemeralTypedEvidenceProjection | None,
+        preflight: _RequirementActionCandidatePreflight,
+    ) -> _RequirementActionCandidatePreflight:
+        """Fail closed if the safe-event source changes after request identity."""
+
+        projector = self._typed_evidence_projector
+        if projector is None or typed_evidence is None:
+            current = _RequirementActionCandidatePreflight(
+                status="unavailable",
+                manifest=None,
+            )
+        else:
+            try:
+                manifest = projector.requirement_action_candidate_manifest(
+                    provider=provider,
+                    session_id=session_id,
+                    source_run_id=source_run_id,
+                    source_window_fingerprint=context.analysis_window_fingerprint,
+                    projection=typed_evidence,
+                )
+            except RequirementActionCandidateManifestOverflowError:
+                current = _RequirementActionCandidatePreflight(
+                    status="candidate_manifest_overflow",
+                    manifest=None,
+                )
+            except Exception:
+                current = _RequirementActionCandidatePreflight(
+                    status="candidate_source_incomplete",
+                    manifest=None,
+                )
+            else:
+                current = _RequirementActionCandidatePreflight(
+                    status=self._requirement_action_candidate_status(manifest),
+                    manifest=manifest,
+                )
+        if current.status != preflight.status:
+            raise ModelEnsemblePersistenceError(
+                "requirement-action candidate source changed during analysis"
+            )
+        if (current.manifest is None) != (preflight.manifest is None):
+            raise ModelEnsemblePersistenceError(
+                "requirement-action candidate source changed during analysis"
+            )
+        if current.manifest is not None and preflight.manifest is not None:
+            excluded = {
+                "source_run_id",
+                "source_window_fingerprint",
+                "manifest_fingerprint",
+            }
+            if current.manifest.model_dump(
+                mode="json", exclude=excluded
+            ) != preflight.manifest.model_dump(mode="json", exclude=excluded):
+                raise ModelEnsemblePersistenceError(
+                    "requirement-action candidate source changed during analysis"
+                )
+            expected_fingerprint = requirement_action_candidate_manifest_fingerprint(
+                current.manifest
+            )
+            if current.manifest.manifest_fingerprint != expected_fingerprint:
+                raise ModelEnsemblePersistenceError(
+                    "requirement-action candidate manifest is invalid"
+                )
+        return current
+
+    @staticmethod
+    def _rebind_requirement_action_candidate_manifest(
+        manifest: RequirementActionCandidateManifest,
+        *,
+        source_run_id: str,
+        source_window_fingerprint: str,
+    ) -> RequirementActionCandidateManifest:
+        provisional = RequirementActionCandidateManifest.model_validate(
+            {
+                **manifest.model_dump(mode="json"),
+                "source_run_id": source_run_id,
+                "source_window_fingerprint": source_window_fingerprint,
+                "manifest_fingerprint": "0" * 64,
+            }
+        )
+        return provisional.model_copy(
+            update={
+                "manifest_fingerprint": (
+                    requirement_action_candidate_manifest_fingerprint(provisional)
+                )
+            }
+        )
     def _objective_evidence_descriptor(
         self, provider: Provider | None = None
     ) -> DecoderDescriptor | None:
@@ -1726,6 +3172,7 @@ class SessionModelEnsembleService:
         completed_at: datetime,
         metric_profile_binding: SessionMetricProfileBinding,
         requirement_plan_evidence_binding: SessionRequirementPlanEvidenceBinding,
+        requirement_action_evidence_binding: SessionRequirementActionEvidenceBinding,
     ) -> SessionModelEnsembleRunRecord:
         receipt = SessionModelEnsembleReceipt.model_validate(
             {
@@ -1743,6 +3190,9 @@ class SessionModelEnsembleService:
                 "requirement_plan_evidence_binding": (
                     requirement_plan_evidence_binding
                 ),
+                "requirement_action_evidence_binding": (
+                    requirement_action_evidence_binding
+                ),
                 "receipt": receipt,
             }
         )
@@ -1756,6 +3206,23 @@ __all__ = [
     "LEGACY_MODEL_ENSEMBLE_CONFIRMATION",
     "MODEL_ENSEMBLE_CONFIRMATION",
     "MetricProfileSource",
+    "RequirementActionEvidenceSource",
+    "REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT",
+    "REQUIREMENT_ACTION_AWAITING_REVIEW_SCHEMA_VERSION",
+    "REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT",
+    "REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_SCHEMA_VERSION",
+    "REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_FINGERPRINT",
+    "REQUIREMENT_ACTION_CANDIDATE_SOURCE_INCOMPLETE_SCHEMA_VERSION",
+    "REQUIREMENT_ACTION_BINDING_INVALID_FINGERPRINT",
+    "REQUIREMENT_ACTION_BINDING_INVALID_SCHEMA_VERSION",
+    "REQUIREMENT_ACTION_UNAVAILABLE_FINGERPRINT",
+    "REQUIREMENT_ACTION_UNAVAILABLE_POLICY_VERSION",
+    "REQUIREMENT_ACTION_UNAVAILABLE_SCHEMA_VERSION",
+    "requirement_action_awaiting_review_fingerprint",
+    "requirement_action_candidate_manifest_overflow_fingerprint",
+    "requirement_action_candidate_source_incomplete_fingerprint",
+    "requirement_action_binding_invalid_fingerprint",
+    "requirement_action_unavailable_fingerprint",
     "RequirementPlanEvidenceSource",
     "REQUIREMENT_PLAN_AWAITING_REVIEW_FINGERPRINT",
     "REQUIREMENT_PLAN_AWAITING_REVIEW_SCHEMA_VERSION",
@@ -1775,6 +3242,7 @@ __all__ = [
     "SessionModelEnsembleOutcome",
     "SessionModelEnsemblePersistenceAuthority",
     "SessionMetricProfileBinding",
+    "SessionRequirementActionEvidenceBinding",
     "SessionRequirementPlanEvidenceBinding",
     "SessionModelEnsembleRepository",
     "SessionModelEnsembleRunRecord",

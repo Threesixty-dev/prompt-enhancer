@@ -396,9 +396,9 @@ RUBRIC_METRIC_KEYS = (
 
 
 def test_projection_identities_are_readable_but_only_the_newest_is_written() -> None:
-    # Every identity stays readable; ``-6`` is produced by ``metric_projection_v6``
-    # and is what current code writes. This frozen producer still stamps ``-2``
-    # so its historical rows keep meaning exactly what it meant.
+    # Every identity stays readable. ``-7`` has its own append-only producer;
+    # the current release composition still writes ``-6`` until that reviewed
+    # evidence path is wired. This frozen producer continues to stamp ``-2``.
     assert SUPPORTED_METRIC_PROJECTION_V2_VERSIONS == (
         "metric-contract-v2-projection-1",
         "metric-contract-v2-projection-2",
@@ -406,6 +406,7 @@ def test_projection_identities_are_readable_but_only_the_newest_is_written() -> 
         "metric-contract-v2-projection-4",
         "metric-contract-v2-projection-5",
         "metric-contract-v2-projection-6",
+        "metric-contract-v2-projection-7",
     )
     assert METRIC_PROJECTION_V2_VERSION == "metric-contract-v2-projection-2"
     context = _context(

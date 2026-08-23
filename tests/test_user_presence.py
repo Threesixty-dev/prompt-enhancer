@@ -72,3 +72,22 @@ def test_mismatch_burns_capability_and_unknown_actions_are_rejected() -> None:
         pass
     else:
         raise AssertionError("unreviewed action received an approval")
+
+
+def test_requirement_action_review_and_decision_are_the_only_new_safe_actions() -> None:
+    manager = UserPresenceApprovalManager()
+    base = (
+        f"/v1/sessions/{SESSION}/requirement-action-evidence/"
+        f"proposals/{PROPOSAL}"
+    )
+
+    assert manager.action_label("POST", f"{base}/review") == (
+        "Open exact local requirements plus redacted action invocation and effect "
+        "details for one review"
+    )
+    assert manager.action_label("POST", f"{base}/decision") == (
+        "Confirm or reject one reviewed requirement-to-action link proposal"
+    )
+    assert manager.action_label("GET", f"{base}/review") is None
+    assert manager.action_label("POST", f"{base}/import") is None
+    assert manager.action_label("POST", f"{base}/review/extra") is None

@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:local": "playwright test --config=playwright.local.config.ts",
-    "generate:api": "openapi-typescript ../docs/openapi.json -o src/shared/api/generated/openapi.ts"
+    "generate:api": "openapi-typescript ../docs/openapi.json -o src/shared/api/generated/openapi.ts",
+    "check:api": "openapi-typescript ../docs/openapi.json -o src/shared/api/generated/openapi.ts --check"
   },
   "dependencies": {
     "react": "19.2.8",

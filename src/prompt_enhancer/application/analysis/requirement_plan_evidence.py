@@ -44,6 +44,7 @@ from .metric_contract_v2 import (
 from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
+    METRIC_PROJECTION_V2_VERSION_7,
 )
 from .text_contracts import P1TextAnalysisInput, TextMessageKind, TextRole
 
@@ -563,6 +564,7 @@ class RequirementPlanEvidenceFileV1(StrictModel):
     source_projection_version: Literal[
         METRIC_PROJECTION_V2_VERSION_5,
         METRIC_PROJECTION_V2_VERSION_6,
+        METRIC_PROJECTION_V2_VERSION_7,
     ]
     clause_algorithm: Literal[REQUIREMENT_PLAN_CLAUSE_ALGORITHM]
     review_rubric_version: Literal[REQUIREMENT_PLAN_REVIEW_RUBRIC_VERSION]
@@ -1421,6 +1423,7 @@ class RequirementPlanEvidenceContract(StrictModel):
     source_projection_version: Literal[
         METRIC_PROJECTION_V2_VERSION_5,
         METRIC_PROJECTION_V2_VERSION_6,
+        METRIC_PROJECTION_V2_VERSION_7,
     ]
     clause_algorithm: Literal[REQUIREMENT_PLAN_CLAUSE_ALGORITHM] = (
         REQUIREMENT_PLAN_CLAUSE_ALGORITHM
@@ -2106,6 +2109,7 @@ def parse_requirement_plan_evidence_file(
             not in {
                 METRIC_PROJECTION_V2_VERSION_5,
                 METRIC_PROJECTION_V2_VERSION_6,
+                METRIC_PROJECTION_V2_VERSION_7,
             }
         ):
             raise RequirementPlanDefinitionsOutOfDateError(
@@ -2520,6 +2524,7 @@ class RequirementPlanEvidenceService:
             not in {
                 METRIC_PROJECTION_V2_VERSION_5,
                 METRIC_PROJECTION_V2_VERSION_6,
+                METRIC_PROJECTION_V2_VERSION_7,
             }
         ):
             raise RequirementPlanDefinitionsOutOfDateError(

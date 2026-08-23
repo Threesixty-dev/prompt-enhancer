@@ -12,7 +12,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol
 
-from ...domain import EventKind, Provider, SafeEvent, SafeSession, ToolCategory
+from ...domain import (
+    PSEUDONYM_PATTERN,
+    EventKind,
+    Provider,
+    SafeEvent,
+    SafeSession,
+    ToolCategory,
+)
 from ..providers import CapabilityKey, DecoderDescriptor
 from .evidence_contracts import (
     ActionEvidence,
@@ -29,6 +36,13 @@ from .evidence_contracts import (
     VerificationMethod,
     VerificationOutcome,
     validate_projection_descriptor,
+)
+from .requirement_action_evidence import (
+    MAX_REQUIREMENT_ACTION_CANDIDATES,
+    REQUIREMENT_ACTION_CANDIDATE_MANIFEST_VERSION,
+    RequirementActionCandidate,
+    RequirementActionCandidateManifest,
+    requirement_action_candidate_manifest_fingerprint,
 )
 from .semantic_units import (
     EXTRACTABLE_SEMANTIC_UNIT_KINDS,
@@ -80,6 +94,116 @@ CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES = frozenset(
 )
 
 
+class RequirementActionCandidateManifestOverflowError(ValueError):
+    """The exact safe-action set cannot fit in the bounded review contract."""
+
+
+def derive_requirement_action_candidate_manifest(
+    projection: EphemeralTypedEvidenceProjection,
+    *,
+    source_run_id: str,
+    source_window_fingerprint: str,
+    safe_events: tuple[SafeEvent, ...],
+) -> RequirementActionCandidateManifest:
+    """Derive the exact bounded action-review surface from safe event evidence.
+
+    The adapter copies only application-issued pseudonyms, ordering, coarse
+    event/tool categories, timing metadata, action family, and
+    provider-reported state. Command arguments, output, paths, transcript text,
+    and requirement links have no field in the result. A complete candidate
+    enumeration requires both a complete source extraction and an explicit
+    action-kind declaration; observing zero actions without either authority
+    is not an authoritative empty set.
+    """
+
+    if PSEUDONYM_PATTERN.fullmatch(source_run_id) is None:
+        raise ValueError("source run must be an installation-local pseudonym")
+    if PSEUDONYM_PATTERN.fullmatch(source_window_fingerprint) is None:
+        raise ValueError("source window must be an installation-local pseudonym")
+    actions = tuple(
+        record for record in projection.records if isinstance(record, ActionEvidence)
+    )
+    if len(actions) > MAX_REQUIREMENT_ACTION_CANDIDATES:
+        # Never truncate: an incomplete list could turn an unreviewed action
+        # into an apparently confirmed empty link.
+        raise RequirementActionCandidateManifestOverflowError(
+            "requirement-action candidate manifest exceeds its bound"
+        )
+    event_by_id: dict[str, SafeEvent] = {}
+    for event in safe_events:
+        if event.session_id != projection.session_id:
+            raise ValueError("safe action candidate belongs to another session")
+        if event.event_id in event_by_id:
+            raise ValueError("safe action candidate source repeats an event")
+        event_by_id[event.event_id] = event
+    action_events = tuple(
+        event
+        for event in safe_events
+        if event.kind
+        in {EventKind.TOOL_START, EventKind.TOOL_END, EventKind.ARTIFACT}
+    )
+    if {record.source_reference_id for record in actions} != {
+        event.event_id for event in action_events
+    } or len(actions) != len(action_events):
+        raise ValueError("safe action evidence does not exactly cover its event snapshot")
+    candidates = []
+    for index, record in enumerate(actions):
+        event = event_by_id.get(record.source_reference_id)
+        if (
+            event is None
+            or event.kind
+            not in {EventKind.TOOL_START, EventKind.TOOL_END, EventKind.ARTIFACT}
+            or record.sequence != event.sequence * 4
+            or record.family
+            is not requirement_action_family_for_tool_category(
+                event.tool_category
+            )
+            or record.state
+            is not requirement_action_state_for_event(
+                event.kind,
+                event.success,
+            )
+        ):
+            raise ValueError("safe action evidence disagrees with its source event")
+        candidates.append(
+            RequirementActionCandidate(
+                candidate_index=index,
+                action_id=record.evidence_id,
+                source_reference_id=record.source_reference_id,
+                sequence=record.sequence,
+                event_kind=event.kind,
+                tool_category=event.tool_category,
+                occurred_at=event.occurred_at,
+                duration_ms=event.duration_ms,
+                family=record.family,
+                state=record.state,
+            )
+        )
+    candidate_tuple = tuple(candidates)
+    extraction_complete = projection.provenance.extraction_complete
+    enumeration_complete = (
+        extraction_complete
+        and TypedEvidenceKind.ACTION in projection.declared_kinds
+    )
+    provisional = RequirementActionCandidateManifest(
+        session_id=projection.session_id,
+        source_run_id=source_run_id,
+        source_window_fingerprint=source_window_fingerprint,
+        provenance=projection.provenance,
+        extraction_complete=extraction_complete,
+        enumeration_complete=enumeration_complete,
+        actions=candidate_tuple,
+        manifest_fingerprint="0" * 64,
+    )
+    return provisional.model_copy(
+        update={
+            "manifest_fingerprint": (
+                requirement_action_candidate_manifest_fingerprint(provisional)
+            )
+        }
+    )
+
+
 class SafeEventEvidenceSource(Protocol):
     """Read an already-pseudonymized local metadata snapshot."""
 
@@ -110,7 +234,9 @@ class ReviewedTaskSource(Protocol):
     ) -> tuple[ReviewedTaskRevision, ...]: ...
 
 
-def _action_family(category: ToolCategory | None) -> ActionFamily:
+def requirement_action_family_for_tool_category(
+    category: ToolCategory | None,
+) -> ActionFamily:
     if category is ToolCategory.FILE_WRITE:
         return ActionFamily.FILE_CHANGE
     if category in {ToolCategory.FILE_READ, ToolCategory.SEARCH}:
@@ -122,12 +248,15 @@ def _action_family(category: ToolCategory | None) -> ActionFamily:
     return ActionFamily.TOOL
 
 
-def _action_state(event: SafeEvent) -> ActionState:
-    if event.kind is EventKind.TOOL_START:
+def requirement_action_state_for_event(
+    event_kind: EventKind,
+    success: bool | None,
+) -> ActionState:
+    if event_kind is EventKind.TOOL_START:
         return ActionState.STARTED
-    if event.success is True:
+    if success is True:
         return ActionState.COMPLETED
-    if event.success is False:
+    if success is False:
         return ActionState.FAILED
     return ActionState.UNKNOWN
 
@@ -334,8 +463,13 @@ class SafeEventTypedEvidenceProjector:
                         ),
                         sequence=base_sequence,
                         source_reference_id=event.event_id,
-                        family=_action_family(event.tool_category),
-                        state=_action_state(event),
+                        family=requirement_action_family_for_tool_category(
+                            event.tool_category
+                        ),
+                        state=requirement_action_state_for_event(
+                            event.kind,
+                            event.success,
+                        ),
                     )
                 )
             if event.kind is EventKind.DECISION:
@@ -416,6 +550,50 @@ class SafeEventTypedEvidenceProjector:
         )
         validate_projection_descriptor(projection, descriptor)
         return projection
+
+    def requirement_action_candidate_manifest(
+        self,
+        *,
+        provider: Provider,
+        session_id: str,
+        source_run_id: str,
+        source_window_fingerprint: str,
+        projection: EphemeralTypedEvidenceProjection | None = None,
+    ) -> RequirementActionCandidateManifest | None:
+        """Issue the complete content-free native-review candidate manifest.
+
+        The typed evidence projection deliberately omits timestamps and other
+        event metadata that are unnecessary for metric calculation.  A person
+        reviewing several opaque actions still needs to distinguish them, so
+        this method cross-binds every action receipt to the exact safe event
+        snapshot and copies only its already-persistable metadata.  Any growth
+        or mismatch between the two reads fails closed; callers may retry the
+        current source run instead of reviewing a mixed snapshot.
+        """
+
+        projection = (
+            projection
+            if projection is not None
+            else self.project(provider=provider, session_id=session_id)
+        )
+        if projection is None:
+            return None
+        if projection.session_id != session_id:
+            raise ValueError("safe action projection belongs to another session")
+        if projection.provenance.provider is not provider:
+            raise ValueError("safe action projection belongs to another provider")
+        events = tuple(
+            sorted(
+                self._source.get_session_events(session_id),
+                key=lambda item: (item.sequence, item.event_id),
+            )
+        )
+        return derive_requirement_action_candidate_manifest(
+            projection,
+            source_run_id=source_run_id,
+            source_window_fingerprint=source_window_fingerprint,
+            safe_events=events,
+        )
 
     def _evidence_id(
         self,
@@ -541,6 +719,8 @@ def bind_semantic_unit_opportunities(
 
 __all__ = [
     "CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES",
+    "REQUIREMENT_ACTION_CANDIDATE_MANIFEST_VERSION",
+    "RequirementActionCandidateManifestOverflowError",
     "SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION",
     "SAFE_EVENT_EVIDENCE_DECODER_KEY",
     "SAFE_EVENT_EVIDENCE_DECODER_VERSION",
@@ -554,4 +734,8 @@ __all__ = [
     "SafeEventEvidenceSource",
     "SafeEventTypedEvidenceProjector",
     "bind_semantic_unit_opportunities",
+    "derive_requirement_action_candidate_manifest",
+    "requirement_action_family_for_tool_category",
+    "requirement_action_candidate_manifest_fingerprint",
+    "requirement_action_state_for_event",
 ]

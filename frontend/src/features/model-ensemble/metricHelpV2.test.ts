@@ -174,7 +174,7 @@ describe("metricHelpV2 registry", () => {
         );
       }
     }
-    for (const projection of [5, 6] as const) {
+    for (const projection of [5, 6, 7] as const) {
       for (const [key, entry] of Object.entries(r5)) {
         const resolved = metricHelpV2(key, "en", `metric-contract-v2-projection-${projection}`);
         expect(resolved?.definitionScope).toBe("r5_reviewed_profile");
@@ -224,7 +224,7 @@ describe("metricHelpV2 registry", () => {
       expect(resolved?.entry).toEqual(historical);
       expect(resolved?.measurement).toEqual(historicalMeasurement);
     }
-    for (const projection of [3, 4, 5, 6] as const) {
+    for (const projection of [3, 4, 5, 6, 7] as const) {
       const resolved = metricHelpV2("logic.open_loop_closure", "en", `metric-contract-v2-projection-${projection}`);
       expect(resolved?.definitionScope).toBe("r3_explicit_plan_lifecycle");
       expect(resolved?.entry).toEqual(explicitPlan);
@@ -299,7 +299,7 @@ describe("metricHelpV2 registry", () => {
         expect(historical.entry.observationUnit).toBe(copy.historicalUnit);
         expect(historical.measurement?.method).toBe(copy.historicalMethod);
       }
-      for (const projection of [4, 5, 6] as const) {
+      for (const projection of [4, 5, 6, 7] as const) {
         const lifecycle = metricHelpV2(key, "en", `metric-contract-v2-projection-${projection}`)!;
         expect(lifecycle.definitionScope).toBe("r4_confirmed_lifecycle");
         expect(lifecycle.entry.meaning).toBe(copy.meaning);
@@ -353,6 +353,33 @@ describe("metricHelpV2 registry", () => {
       limitation: "The opportunity unit is an active clause, not an atomic requirement: a compound active clause remains one opportunity and may coarsen multiple atomic requirements, while closed-rubric exclusions never enter the denominator. A pending disposition is right-censored, not failed. Missing confirmation stays Unknown, no active requirements is Not applicable, invalid coordinates fail closed as Unknown, and a valid structural link does not prove that the plan is sufficient or that the task succeeded.",
       objective: false,
     });
+    const r7 = metricHelpV2(
+      "logic.decomposition_coverage",
+      "en",
+      "metric-contract-v2-projection-7",
+    );
+    expect(r7?.definitionScope).toBe("r6_reviewed_requirement_plan");
+    expect(r7?.entry).toEqual(r6?.entry);
+    expect(r7?.measurement).toEqual(r6?.measurement);
+  });
+
+  it("selects the exact r7 reviewed requirement-action definition without claiming semantic proof", () => {
+    const r7 = metricHelpV2(
+      "logic.requirement_action_traceability",
+      "en",
+      "metric-contract-v2-projection-7",
+    );
+
+    expect(r7?.definitionScope).toBe("r7_reviewed_requirement_action");
+    expect(r7?.entry.observationUnit).toBe("one native-reviewed active requirement clause");
+    expect(r7?.entry.counts).toMatch(/application-issued completed state/i);
+    expect(r7?.entry.counts).toMatch(/started or unknown state stays right-censored pending/i);
+    expect(r7?.entry.doesNotCount).toMatch(/explicit empty link.*resolved not-met/i);
+    expect(r7?.entry.doesNotCount).toMatch(/Unknown; an exact empty requirement set is Not applicable/i);
+    expect(r7?.entry.objectiveEvidence).toMatch(/ephemeral redacted descriptor/i);
+    expect(r7?.entry.objectiveEvidence).toMatch(/cross-check each safe-event reference/i);
+    expect(r7?.entry.objectiveEvidence).toMatch(/not proof of semantic relevance/i);
+    expect(r7?.measurement?.limitation).toMatch(/completed state does not prove task success/i);
   });
 });
 
@@ -490,6 +517,51 @@ describe("metricInspectorSentences", () => {
     expect(awaitingReview.action).toMatch(/every user and PLAN clause including omitted PLAN candidates/i);
     expect(awaitingReview.action).toMatch(/every exclusion reason\/basis/i);
     expect(awaitingReview.action).not.toMatch(/Enable a runtime/i);
+  });
+
+  it("keeps every unresolved r7 action state non-numeric and routes it to exact local review", () => {
+    for (const [explanationCode, expectedMeaning, expectedAction] of [
+      [
+        "requirement_action_evidence_unavailable",
+        /runtime does not expose reviewed requirement-action evidence/i,
+        /create only an inert candidate-index proposal/i,
+      ],
+      [
+        "requirement_action_evidence_confirmation_required",
+        /no complete owned-native review of every clause, redacted candidate descriptor, membership, and explicit empty link/i,
+        /cross-check each source_reference_id against its safe event\/session timeline/i,
+      ],
+      [
+        "requirement_action_evidence_invalid",
+        /failed closed rather than scoring stale links/i,
+        /review every membership and empty link/i,
+      ],
+      [
+        "requirement_action_evidence_overflow",
+        /withheld rather than truncated, sampled, or converted to zero/i,
+        /smaller coherent sealed window/i,
+      ],
+      [
+        "requirement_action_candidate_source_incomplete",
+        /provider adapter could not completely enumerate or decode the safe action candidates/i,
+        /supports the complete typed action-event surface/i,
+      ],
+    ] as const) {
+      const sentences = metricInspectorSentences({
+        metricKey: "logic.requirement_action_traceability",
+        label: "Requirement-to-action traceability",
+        projectionVersion: "metric-contract-v2-projection-7",
+        direction: "higher_is_better",
+        state: "unknown",
+        numericValue: null,
+        numerator: null,
+        denominator: null,
+        explanationCode,
+      });
+      expect(sentences.meaning).toMatch(expectedMeaning);
+      expect(sentences.action).toMatch(expectedAction);
+      expect(`${sentences.meaning} ${sentences.action}`).not.toMatch(/\b0(?:\.0+)?%?\b/u);
+    }
   });
 
   it("routes missing profile denominators to the shipped reviewed workflow", () => {

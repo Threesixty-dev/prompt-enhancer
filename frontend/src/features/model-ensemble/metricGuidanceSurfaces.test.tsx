@@ -446,6 +446,8 @@ describe("definitions-out-of-date compatibility gate on the live surfaces", () =
     expect(screen.queryByText("Objective measured")).toBeNull();
     expect(screen.queryByRole("navigation", { name: /metric axes/ })).toBeNull();
     expect(screen.getByRole("status").textContent).toMatch(/update this client/u);
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "off");
+    expect(screen.getAllByText("Metric definitions are out of date · update this client")).toHaveLength(1);
     expect(screen.getByRole("status").textContent).not.toMatch(/reconnect|could not be validated/iu);
   });
 });

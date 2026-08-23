@@ -454,6 +454,12 @@ class _SchemaRequirementPlanEvidenceService:
     pass
 
 
+class _SchemaRequirementActionEvidenceService:
+    """Non-executing stand-in for reviewed requirement-action routes."""
+
+    pass
+
+
 _BROWSER_CONTROL_PLANE_PATH = "/v1/control-plane/readiness"
 _COMPONENT_SCHEMA_PREFIX = "#/components/schemas/"
 
@@ -554,6 +560,7 @@ def _build_schema_app(*, include_control_plane: bool):
         local_agent_service=_SchemaLocalAgentService(),  # type: ignore[arg-type]
         declared_task_profile_service=_SchemaDeclaredTaskProfileService(),  # type: ignore[arg-type]
         requirement_plan_evidence_service=_SchemaRequirementPlanEvidenceService(),  # type: ignore[arg-type]
+        requirement_action_evidence_service=_SchemaRequirementActionEvidenceService(),  # type: ignore[arg-type]
         annotation_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         shared_folder_service=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
         peer_folder_client=_SchemaAnnotationSurface(),  # type: ignore[arg-type]
@@ -583,9 +590,10 @@ def export_openapi(output: Path) -> None:
         raise ValueError("OpenAPI output must be a JSON file")
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(".json.tmp")
-    temporary.write_text(
-        json.dumps(build_openapi_schema(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    temporary.write_bytes(
+        (json.dumps(build_openapi_schema(), indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
+        )
     )
     temporary.replace(output)
 

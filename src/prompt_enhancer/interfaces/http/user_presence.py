@@ -54,6 +54,23 @@ _SAFE_ACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/requirement-action-evidence/"
+            r"proposals/[a-f0-9]{64}/review$"
+        ),
+        (
+            "Open exact local requirements plus redacted action invocation "
+            "and effect details for one review"
+        ),
+    ),
+    (
+        re.compile(
+            r"^/v1/sessions/[a-f0-9]{64}/requirement-action-evidence/"
+            r"proposals/[a-f0-9]{64}/decision$"
+        ),
+        "Confirm or reject one reviewed requirement-to-action link proposal",
+    ),
+    (
+        re.compile(
             r"^/v1/agent/sessions/[a-f0-9]{32,64}/approvals/"
             r"[a-f0-9]{32,64}$"
         ),

@@ -446,8 +446,21 @@ describe("RequirementPlanEvidencePanel", () => {
       <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-5" sourceRunId={RUN_ID} transport={local} />,
     );
     expect(await screen.findByText(/bound to sealed run/i)).toBeVisible();
-    expect(screen.queryByText(/not bound to this exact sealed r5\/r6 run/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not bound to this exact sealed r5\/r6\/r7 run/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Choose canonical requirement-plan evidence file")).toBeEnabled();
+  });
+
+  it("accepts a fresh exact r7 source contract without weakening the native workflow", async () => {
+    const local = transport();
+    local.getRequirementPlanEvidenceContract = vi.fn().mockResolvedValue(
+      contract(RUN_ID, "metric-contract-v2-projection-7"),
+    );
+    render(
+      <RequirementPlanEvidencePanel compact={false} sessionId={SESSION_ID} sourceProjectionVersion="metric-contract-v2-projection-7" sourceRunId={RUN_ID} transport={local} />,
+    );
+    expect(await screen.findByText(/bound to sealed run/i)).toBeVisible();
+    expect(screen.getByLabelText("Choose canonical requirement-plan evidence file")).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Confirm evidence" })).not.toBeInTheDocument();
   });
 
   it("fails closed when the selected publication projection and source contract differ", async () => {

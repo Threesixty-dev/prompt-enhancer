@@ -15,9 +15,11 @@ from prompt_enhancer.application.analysis.metric_evidence_readiness_v2 import (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6,
     METRIC_EVIDENCE_REQUIREMENTS_V2,
     METRIC_EVIDENCE_REQUIREMENTS_V2_R4,
     METRIC_EVIDENCE_REQUIREMENTS_V2_R6,
+    METRIC_EVIDENCE_REQUIREMENTS_V2_R7,
     SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS,
     MetricEvidenceAvailabilityState,
     MetricEvidenceContributor,
@@ -657,12 +659,12 @@ def test_current_readiness_catalog_is_append_only_and_reads_r5_twenty_rows() -> 
     projection = _readiness_v5(_single_request_context())
 
     assert METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION == (
-        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5
+        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6
     )
     assert SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS[-3:] == (
-        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5,
+        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6,
     )
     assert projection.metric_projection_version == "metric-contract-v2-projection-5"
     assert len(projection.metrics) == 20

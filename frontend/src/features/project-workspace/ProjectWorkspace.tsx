@@ -1466,7 +1466,7 @@ export function ProjectWorkspace({
               <span>Live window</span>
             </button>
           </p>
-          <section aria-label="Canonical session metric workspace" className="project-canonical-metrics">
+          <div className="project-canonical-metrics">
             <ModelEnsemblePanel
               analysisCapability={analysisCapability}
               category={category}
@@ -1477,7 +1477,7 @@ export function ProjectWorkspace({
               sessionId={currentSession.session_id}
               transport={transport}
             />
-          </section>
+          </div>
           <SessionTimelinePane
             key={`timeline-${currentSession.session_id}`}
             sessionId={currentSession.session_id}

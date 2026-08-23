@@ -102,7 +102,141 @@ def test_scan_head_and_parse_are_deterministic_and_bounded(env) -> None:
     assert usage[0].usage.input_tokens == 1200 and usage[0].usage.cached_input_tokens == 800 and usage[0].usage.model_id == "claude-opus-5"
     assert all(e.sequence >= 3_000_000 for e in usage)
     assert parsed.complete is True and parsed.first_at == T0 and parsed.last_at == T0 + timedelta(seconds=40)
+
+
+@pytest.mark.parametrize(
+    "bad_record",
+    [
+        {
+            "type": "assistant",
+            "timestamp": (T0 + timedelta(seconds=1)).isoformat(),
+            "message": {"content": [{"type": "future_action", "payload": {}}]},
+        },
+        {
+            "type": "user",
+            "timestamp": (T0 + timedelta(seconds=1)).isoformat(),
+            "message": {"content": {"type": "text", "text": "bad shape"}},
+        },
+        {
+            "type": "user",
+            "timestamp": (T0 + timedelta(seconds=1)).isoformat(),
+            "message": {"content": [{"type": "text", "text": 123}]},
+        },
+        {
+            "type": "assistant",
+            "timestamp": (T0 + timedelta(seconds=1)).isoformat(),
+            "message": "bad shape",
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "example-tool-call",
+                        "name": "Bash",
+                        "input": {"command": "example-command"},
+                    }
+                ]
+            },
+        },
+        {
+            "type": "assistant",
+            "timestamp": (T0 + timedelta(seconds=1)).isoformat(),
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "example-tool-call",
+                        "name": "Bash",
+                        "input": "not-an-object",
+                    }
+                ]
+            },
+        },
+    ],
+)
+def test_unknown_malformed_or_untimed_action_rows_fail_closed(
+    tmp_path: Path,
+    bad_record: dict[str, object],
+) -> None:
+    path = tmp_path / "example-session.jsonl"
+    valid = json.loads(_rec("user", "Example request.", T0, SESSION_A))
+    path.write_text(
+        "\n".join(json.dumps(item) for item in (valid, bad_record)) + "\n",
+        encoding="utf-8",
+    )
+
+    parsed = parse_events(path, "example-session")
+
+    assert parsed.complete is False
+    assert parsed.action_descriptor_extraction_complete is False
     assert CANARY not in "".join(repr(e) for e in parsed.events)
+
+
+@pytest.mark.parametrize("result_between", [False, True])
+def test_duplicate_tool_use_identity_fails_action_completeness(
+    tmp_path: Path,
+    result_between: bool,
+) -> None:
+    """A provider ID cannot identify two different invocations/effects."""
+
+    duplicate_ref = "example-duplicate-tool"
+    first = _rec(
+        "assistant",
+        [{
+            "type": "tool_use",
+            "id": duplicate_ref,
+            "name": "Bash",
+            "input": {"command": "example-test-command"},
+        }],
+        T0,
+        SESSION_A,
+    )
+    result = _rec(
+        "user",
+        [{
+            "type": "tool_result",
+            "tool_use_id": duplicate_ref,
+            "content": "synthetic result",
+            "is_error": False,
+        }],
+        T0 + timedelta(seconds=1),
+        SESSION_A,
+    )
+    second = _rec(
+        "assistant",
+        [{
+            "type": "tool_use",
+            "id": duplicate_ref,
+            "name": "Read",
+            "input": {"file_path": "/srv/example/input.txt"},
+        }],
+        T0 + timedelta(seconds=2),
+        SESSION_A,
+    )
+    final_result = _rec(
+        "user",
+        [{
+            "type": "tool_result",
+            "tool_use_id": duplicate_ref,
+            "content": "synthetic final result",
+            "is_error": False,
+        }],
+        T0 + timedelta(seconds=3),
+        SESSION_A,
+    )
+    rows = [first]
+    if result_between:
+        rows.append(result)
+    rows.extend((second, final_result))
+    path = tmp_path / "example-duplicate-session.jsonl"
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    parsed = parse_events(path, "example-duplicate-session")
+
+    assert parsed.complete is False
+    assert parsed.action_descriptor_extraction_complete is False
 
 
 def test_adapter_lists_reads_and_ingests_history_with_titles_and_tokens(env) -> None:

@@ -34,7 +34,7 @@ from .metric_evidence_readiness_v2 import (
     METRIC_EVIDENCE_REQUIREMENTS_V2,
 )
 from .metric_lifecycle_evidence import MetricLifecycleFamily
-from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_6
+from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_7
 from .metric_projection_v3 import OPEN_LOOP_METRIC_KEY
 from .probabilistic_metrics import (
     EVIDENCE_LANE_METRIC_KEYS,
@@ -57,6 +57,7 @@ class MetricMeasuredPath(StrEnum):
     TYPED_OBJECTIVE = "typed_objective"
     SEMANTIC_UNIT_EXTRACTOR = "semantic_unit_extractor"
     REVIEWED_REQUIREMENT_PLAN = "reviewed_requirement_plan"
+    REVIEWED_REQUIREMENT_ACTION = "reviewed_requirement_action"
 
 
 class MetricShippedPathState(StrEnum):
@@ -77,6 +78,9 @@ class MetricNextStepCode(StrEnum):
     )
     ADD_REQUIREMENT_PLAN_EXTRACTOR = "add_requirement_plan_extractor"
     CONFIRM_REQUIREMENT_PLAN_EVIDENCE = "confirm_requirement_plan_evidence"
+    COMPOSE_REQUIREMENT_ACTION_EVIDENCE = (
+        "compose_requirement_action_evidence"
+    )
 
 
 class MetricOperabilityEntry(StrictModel):
@@ -100,8 +104,8 @@ class MetricOperabilityCatalog(StrictModel):
         METRIC_CONTRACT_REGISTRY_VERSION_V2
     )
     contract_set_fingerprint: str
-    projection_version: Literal[METRIC_PROJECTION_V2_VERSION_6] = (
-        METRIC_PROJECTION_V2_VERSION_6
+    projection_version: Literal[METRIC_PROJECTION_V2_VERSION_7] = (
+        METRIC_PROJECTION_V2_VERSION_7
     )
     readiness_catalog_version: Literal[
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION
@@ -175,6 +179,14 @@ def _entry(contract: MetricContractV2) -> MetricOperabilityEntry:
         measured_path = MetricMeasuredPath.REVIEWED_REQUIREMENT_PLAN
         state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
         next_step = MetricNextStepCode.CONFIRM_REQUIREMENT_PLAN_EVIDENCE
+    elif key == "logic.requirement_action_traceability":
+        # R7 is the current publication identity. Keep the path unavailable in
+        # this catalog until a production provider proves a complete safe-event
+        # and redacted-descriptor review surface; UI composition alone is not
+        # operability.
+        measured_path = MetricMeasuredPath.REVIEWED_REQUIREMENT_ACTION
+        state = MetricShippedPathState.PROVIDER_ADAPTER_REQUIRED
+        next_step = MetricNextStepCode.COMPOSE_REQUIREMENT_ACTION_EVIDENCE
     elif contract.denominator_basis is DenominatorBasis.RUBRIC_FACTORS:
         measured_path = MetricMeasuredPath.FOCUS_RUBRIC
         state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS

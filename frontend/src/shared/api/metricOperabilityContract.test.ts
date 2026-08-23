@@ -23,6 +23,11 @@ describe("metric operability catalog contract", () => {
       shipped_path_state: "available_when_evidence_exists",
       next_step_code: "confirm_requirement_plan_evidence",
     });
+    expect(result.entries.find((entry) => entry.metric_key === "logic.requirement_action_traceability")).toMatchObject({
+      measured_path: "reviewed_requirement_action",
+      shipped_path_state: "provider_adapter_required",
+      next_step_code: "compose_requirement_action_evidence",
+    });
     expect(result.experimental_model_path_count).toBe(8);
     expect(result.model_authoritative_metric_count).toBe(0);
     expect(result.entries.every((entry) => !entry.measured_value_may_use_model_output)).toBe(true);

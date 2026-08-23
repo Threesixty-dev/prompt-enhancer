@@ -19,7 +19,7 @@ It reports the exact counts below and is private/non-cacheable.
 |---|---:|
 | Shipped measured path when its evidence exists | 16 |
 | Task-profile configuration still required | 0 |
-| Provider/extractor adapter still required | 4 |
+| Provider/extractor or release composition still required | 4 |
 | Experimental model-estimate path | 8 |
 | Metrics for which a model may author the measured value | 0 |
 
@@ -41,7 +41,7 @@ It reports the exact counts below and is private/non-cacheable.
 | `logic.decomposition_coverage` | Native-confirmed complete user-clause classification plus active-requirement-to-plan evidence | Available when evidence exists | Yes |
 | `logic.hypothesis_test_linkage` | Typed opportunity, link, and outcome receipts | Provider adapter required | No |
 | `logic.decision_rationale_coverage` | Documented decision semantic units | Available when evidence exists | Yes |
-| `logic.requirement_action_traceability` | Typed opportunity, link, and outcome receipts | Provider adapter required | No |
+| `logic.requirement_action_traceability` | Native-reviewed r6 active requirements plus an app-issued complete safe-action manifest, ephemeral redacted action details, and reviewed links/outcomes | Provider adapter required (no promoted provider yet proves the complete review surface) | No |
 | `logic.open_loop_closure` | Explicit plan-to-superseding-action link | Available when evidence exists | No |
 | `outcome.agent_claim_grounding` | Typed opportunity, link, and outcome receipts | Provider adapter required | No |
 | `outcome.verification_strategy_adequacy` | Documented verification-strategy semantic units | Available when evidence exists | No |
@@ -103,6 +103,59 @@ coordinate against the ephemeral source window. Missing authority stays
 requirements is `not_applicable`; pending active requirements remain
 right-censored.
 
+Projection r7 adds a separate `requirement-action-evidence-file-v1` workflow for
+`logic.requirement_action_traceability` and preserves the other nineteen r6
+metrics. Its denominator is exactly the native-reviewed active-requirement set
+bound to r6. The application, not the file producer, issues the same-window safe
+action candidate manifest with complete extraction/enumeration provenance and
+closed content-free metadata. For native review only, process memory also holds
+the exact bounded redacted tool name, invocation, and result/effect descriptor
+for each candidate; those strings are never persisted. A local agent file may
+propose only the mapping
+from each requirement to zero or more candidate indexes. It has no field for an
+action state, objective proof, metric value, prose, or path. A bounded raw
+producer/model label remains only in the file and ephemeral preview; durable
+storage keeps an application-keyed opaque untrusted receipt.
+
+The first owned-native action reviews every r6 active-requirement clause, every
+candidate's redacted invocation/effect details, and every proposed membership.
+A frozen one-pass display encoding visibly escapes control, bidirectional, and
+layout characters without decoding literal escape text; the exact encoded view
+is part of the review receipt. Each action also carries a versioned,
+content-free metadata receipt derived from the same provider read as its
+descriptor and exactly matched to the indexed safe-event candidate.
+A second action confirms only the exact unexpired one-shot receipt and requires
+explicit acknowledgement that the complete set was displayed and every linked
+action's semantics were reviewed. Under that complete
+authority, a requirement with any completed linked action is `met`; one with a
+started or unknown-state linked action is `pending`; and a failed/cancelled-only
+set or an explicitly empty link is `not_met`. None of those action outcomes is
+objective proof of task success. A confirmed empty r6 active-requirement set is
+`not_applicable`.
+
+Every graph is bound to the exact r6 confirmation and evidence fingerprint,
+sealed source run and window, safe-event decoder provenance, candidate-manifest
+fingerprint, a process-keyed reviewed descriptor-set commitment that incorporates
+the ephemeral same-read candidate-metadata receipts, keyed native-decision
+authority, reviewed graph, and r7 confirmation. A stale source, changed r6
+denominator, incomplete extraction/enumeration/review, overflow, or candidate
+drift even under the same apparent window fails closed to a named `unknown`.
+An exact, null-authority `binding_invalid` run marker distinguishes a stale or
+incoherent prior confirmation from a proposal that has simply not been reviewed;
+the latter alone remains `awaiting_review`.
+Schema v56/Migration 56 is append-only: r1-r6 remain readable with their frozen
+meaning and the r7 graph stores no model-authored metric authority, objective
+proof, prose, or path. M56 also gives native r6 requirement-plan decisions an
+installation-keyed authority sidecar. Only decisions explicitly captured at the
+55-to-56 upgrade receive the one-time trusted-upgrade receipt; normal reads fail
+closed instead of manufacturing a missing receipt.
+
+This contract, API, and native review UI exist, but the release count above
+deliberately remains 16/0/4 until at least one production provider proves a
+complete safe-event enumeration and exact redacted descriptor surface. Codex's
+current resumable snapshots remain incomplete, so UI composition alone is not a
+shipped-path claim.
+
 Extending this file format is not a shortcut around evidence authority. The
 task-profile workflow is a separate, closed, native-confirmed editor: it stores an
 immutable reviewed revision containing only constraint kinds, expected outcome
@@ -120,7 +173,7 @@ encoders estimate factor evidence; the optional deep judge adjudicates selected
 disagreements. All model outputs remain uncalibrated and product-ineligible.
 The sealed measured publication is computed only from deterministic reviewed
 structure or typed receipts, so switching to a larger model cannot fill one of
-the four remaining provider/extractor authority gaps above.
+the four remaining provider/extractor or release-composition gaps above.
 
 The live factor router is deliberately smaller than the historical ten-slot
 compatibility graph:

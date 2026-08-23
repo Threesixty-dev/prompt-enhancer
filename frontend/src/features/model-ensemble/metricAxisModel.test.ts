@@ -105,7 +105,7 @@ function runWithV2(
       denominator_basis: identity.basis,
       opportunity_unit_kind: identity.unit,
       capability_available: capabilityAvailable,
-      source_complete: known,
+      source_complete: known || pending,
       eligible_count: known ? 2 : pending ? 1 : 0,
       met_count: known ? 1 : 0,
       not_met_count: known ? 1 : 0,

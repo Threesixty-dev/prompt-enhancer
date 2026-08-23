@@ -16,6 +16,8 @@ from prompt_enhancer.application.analysis.metric_contract_v2 import (
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_5,
+    METRIC_PROJECTION_V2_VERSION_6,
+    METRIC_PROJECTION_V2_VERSION_7,
 )
 from prompt_enhancer.application.analysis.requirement_plan_evidence import (
     REQUIREMENT_PLAN_FILE_CONSTRAINT_CODES,
@@ -809,6 +811,13 @@ def test_contract_exposes_the_exact_file_shape_and_all_parser_budgets() -> None:
     ]
     assert indexes_schema["uniqueItems"] is True
     assert indexes_schema["items"]["minimum"] == 0
+    assert contract.file_json_schema["properties"]["source_projection_version"][
+        "enum"
+    ] == [
+        METRIC_PROJECTION_V2_VERSION_5,
+        METRIC_PROJECTION_V2_VERSION_6,
+        METRIC_PROJECTION_V2_VERSION_7,
+    ]
 
     # An external consumer can fill the contract-owned identifiers and build
     # both the empty authoritative enumeration and a linked bounded example.

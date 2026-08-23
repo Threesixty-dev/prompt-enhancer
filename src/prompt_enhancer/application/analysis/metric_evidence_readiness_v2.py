@@ -46,12 +46,21 @@ from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_4,
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
+    METRIC_PROJECTION_V2_VERSION_7,
     MetricProjectionV2Version,
     MetricStateV2,
+)
+from .metric_projection_v7 import (
+    REASON_REQUIREMENT_ACTION_CONFIRMATION_REQUIRED,
+    REASON_REQUIREMENT_ACTION_INVALID,
+    REASON_REQUIREMENT_ACTION_OVERFLOW,
+    REASON_REQUIREMENT_ACTION_SOURCE_INCOMPLETE,
+    REASON_REQUIREMENT_ACTION_UNAVAILABLE,
 )
 from .metric_publication_v2 import (
     MetricPublicationSource,
     MetricPublicationV2,
+    _validate_r7_requirement_action_denominator,
     metric_publication_v2_fingerprint,
 )
 from .semantic_units import SemanticUnitKind
@@ -76,8 +85,13 @@ METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3 = "metric-evidence-readiness-v2-3
 #: Earlier projection identities retain their exact requirement routing.
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4 = "metric-evidence-readiness-v2-4"
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5 = "metric-evidence-readiness-v2-5"
+#: Identity 6 adds r7's separately reviewed requirement/action links and exact
+#: safe-action candidate enumeration. The four r7 UNKNOWN causes are a closed,
+#: projection-gated vocabulary because awaiting an exact empty denominator and
+#: bounded overflow are otherwise structurally indistinguishable.
+METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6 = "metric-evidence-readiness-v2-6"
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION = (
-    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6
 )
 SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS = (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1,
@@ -85,6 +99,7 @@ SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS = (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6,
 )
 
 
@@ -116,6 +131,8 @@ class MetricEvidenceContributor(StrEnum):
     REVIEWED_REQUIREMENT_PLAN_DISPOSITION = (
         "reviewed_requirement_plan_disposition"
     )
+    REVIEWED_REQUIREMENT_ACTION_LINK = "reviewed_requirement_action_link"
+    SAFE_ACTION_CANDIDATE_ENUMERATION = "safe_action_candidate_enumeration"
     TYPED_ACTION_EVIDENCE = "typed_action_evidence"
     TYPED_DECISION_EVIDENCE = "typed_decision_evidence"
     TYPED_VERIFICATION_RECEIPT = "typed_verification_receipt"
@@ -195,6 +212,15 @@ class MetricEvidenceReadinessReason(StrEnum):
     REVIEWED_REQUIREMENT_PLAN_BINDING_INVALID = (
         "reviewed_requirement_plan_binding_invalid"
     )
+    REVIEWED_REQUIREMENT_ACTION_SERVICE_REQUIRED = (
+        "reviewed_requirement_action_service_required"
+    )
+    REVIEWED_REQUIREMENT_ACTION_CONFIRMATION_REQUIRED = (
+        "reviewed_requirement_action_confirmation_required"
+    )
+    REVIEWED_REQUIREMENT_ACTION_BINDING_INVALID = (
+        "reviewed_requirement_action_binding_invalid"
+    )
     HYPOTHESIS_CHAIN_ADAPTER_CAPABILITIES_REQUIRED = (
         "hypothesis_chain_adapter_capabilities_required"
     )
@@ -210,6 +236,35 @@ class MetricEvidenceReadinessReason(StrEnum):
     REQUIREMENT_VERIFICATION_ADAPTER_CAPABILITIES_REQUIRED = (
         "requirement_verification_adapter_capabilities_required"
     )
+
+
+_R7_REQUIREMENT_ACTION_UNKNOWN_REASONS = MappingProxyType(
+    {
+        REASON_REQUIREMENT_ACTION_UNAVAILABLE: (
+            MetricEvidenceAvailabilityState.CAPABILITY_MISSING,
+            MetricEvidenceReadinessReason
+            .REVIEWED_REQUIREMENT_ACTION_SERVICE_REQUIRED,
+        ),
+        REASON_REQUIREMENT_ACTION_CONFIRMATION_REQUIRED: (
+            MetricEvidenceAvailabilityState.EVIDENCE_UNRESOLVED,
+            MetricEvidenceReadinessReason
+            .REVIEWED_REQUIREMENT_ACTION_CONFIRMATION_REQUIRED,
+        ),
+        REASON_REQUIREMENT_ACTION_INVALID: (
+            MetricEvidenceAvailabilityState.SOURCE_INCOMPLETE,
+            MetricEvidenceReadinessReason.REVIEWED_REQUIREMENT_ACTION_BINDING_INVALID,
+        ),
+        REASON_REQUIREMENT_ACTION_OVERFLOW: (
+            MetricEvidenceAvailabilityState.EVIDENCE_UNRESOLVED,
+            MetricEvidenceReadinessReason.OPPORTUNITY_SET_EXCEEDS_RECEIPT_BOUND,
+        ),
+        REASON_REQUIREMENT_ACTION_SOURCE_INCOMPLETE: (
+            MetricEvidenceAvailabilityState.SOURCE_INCOMPLETE,
+            MetricEvidenceReadinessReason
+            .REQUIREMENT_ACTION_ADAPTER_CAPABILITIES_REQUIRED,
+        ),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -442,12 +497,35 @@ _REQUIREMENTS_V6: dict[str, _EvidenceRequirement] = {
 }
 METRIC_EVIDENCE_REQUIREMENTS_V2_R6 = MappingProxyType(_REQUIREMENTS_V6)
 
+_REQUIREMENTS_V7: dict[str, _EvidenceRequirement] = {
+    "logic.requirement_action_traceability": _EvidenceRequirement(
+        denominator_contributor=(
+            MetricEvidenceContributor.REVIEWED_REQUIREMENT_ENUMERATION
+        ),
+        outcome_contributors=(
+            MetricEvidenceContributor.REVIEWED_REQUIREMENT_ACTION_LINK,
+            MetricEvidenceContributor.SAFE_ACTION_CANDIDATE_ENUMERATION,
+        ),
+        capability_missing_reason=(
+            MetricEvidenceReadinessReason
+            .REVIEWED_REQUIREMENT_ACTION_SERVICE_REQUIRED
+        ),
+        required_adapter_capabilities=(
+            CapabilityKey.REQUIREMENT_OPPORTUNITIES,
+            CapabilityKey.REQUIREMENT_EVIDENCE_LINKS,
+            CapabilityKey.TOOL_EVENTS,
+        ),
+    ),
+}
+METRIC_EVIDENCE_REQUIREMENTS_V2_R7 = MappingProxyType(_REQUIREMENTS_V7)
+
 _R3_REQUIREMENT_PROJECTIONS = frozenset(
     {
         METRIC_PROJECTION_V2_VERSION_3,
         METRIC_PROJECTION_V2_VERSION_4,
         METRIC_PROJECTION_V2_VERSION_5,
         METRIC_PROJECTION_V2_VERSION_6,
+        METRIC_PROJECTION_V2_VERSION_7,
     }
 )
 _R4_LIFECYCLE_PROJECTIONS = frozenset(
@@ -455,6 +533,7 @@ _R4_LIFECYCLE_PROJECTIONS = frozenset(
         METRIC_PROJECTION_V2_VERSION_4,
         METRIC_PROJECTION_V2_VERSION_5,
         METRIC_PROJECTION_V2_VERSION_6,
+        METRIC_PROJECTION_V2_VERSION_7,
     }
 )
 
@@ -468,6 +547,8 @@ if not set(METRIC_EVIDENCE_REQUIREMENTS_V2_R4) <= set(METRIC_EVIDENCE_REQUIREMEN
     raise RuntimeError("the r4 readiness overlay must refine known metrics only")
 if not set(METRIC_EVIDENCE_REQUIREMENTS_V2_R6) <= set(METRIC_EVIDENCE_REQUIREMENTS_V2):
     raise RuntimeError("the r6 readiness overlay must refine known metrics only")
+if not set(METRIC_EVIDENCE_REQUIREMENTS_V2_R7) <= set(METRIC_EVIDENCE_REQUIREMENTS_V2):
+    raise RuntimeError("the r7 readiness overlay must refine known metrics only")
 
 
 def metric_evidence_requirement(
@@ -476,7 +557,15 @@ def metric_evidence_requirement(
 ) -> _EvidenceRequirement:
     """The evidence one metric needed *under the identity that produced it*."""
 
-    if projection_version == METRIC_PROJECTION_V2_VERSION_6:
+    if projection_version == METRIC_PROJECTION_V2_VERSION_7:
+        overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R7.get(metric_key)
+        if overlay is not None:
+            return overlay
+
+    if projection_version in {
+        METRIC_PROJECTION_V2_VERSION_6,
+        METRIC_PROJECTION_V2_VERSION_7,
+    }:
         overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R6.get(metric_key)
         if overlay is not None:
             return overlay
@@ -515,6 +604,50 @@ def _availability(
             MetricEvidenceAvailabilityState.ABSTAINED,
             MetricEvidenceReadinessReason.CALCULATOR_ABSTAINED,
         )
+    if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_7
+        and state.metric_key == "logic.requirement_action_traceability"
+        and state.value_state is MetricValueStateV2.UNKNOWN
+    ):
+        refinement = _R7_REQUIREMENT_ACTION_UNKNOWN_REASONS.get(
+            state.explanation_code
+        )
+        if refinement is None:
+            raise ValueError(
+                "r7 requirement-action unknown has an unrecognized reason"
+            )
+        exact_shape = {
+            REASON_REQUIREMENT_ACTION_UNAVAILABLE: (
+                not statistics.capability_available
+                and statistics.source_complete
+                and statistics.unknown_count == statistics.eligible_count
+            ),
+            REASON_REQUIREMENT_ACTION_CONFIRMATION_REQUIRED: (
+                statistics.capability_available
+                and statistics.source_complete
+                and statistics.unknown_count == statistics.eligible_count
+            ),
+            REASON_REQUIREMENT_ACTION_INVALID: (
+                statistics.capability_available
+                and not statistics.source_complete
+                and statistics.unknown_count == statistics.eligible_count
+            ),
+            REASON_REQUIREMENT_ACTION_OVERFLOW: (
+                statistics.capability_available
+                and statistics.source_complete
+                and statistics.unknown_count == statistics.eligible_count
+            ),
+            REASON_REQUIREMENT_ACTION_SOURCE_INCOMPLETE: (
+                statistics.capability_available
+                and not statistics.source_complete
+                and statistics.unknown_count == statistics.eligible_count
+            ),
+        }[state.explanation_code]
+        if not exact_shape:
+            raise ValueError(
+                "r7 requirement-action reason disagrees with its statistics"
+            )
+        return refinement
     if state.value_state is MetricValueStateV2.KNOWN:
         if _superseded_rubric_identity(state):
             # The number stays measured and readable: refusing to report a
@@ -567,7 +700,10 @@ def _availability(
             requirement.capability_missing_reason,
         )
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_6
+        state.projection_version in {
+            METRIC_PROJECTION_V2_VERSION_6,
+            METRIC_PROJECTION_V2_VERSION_7,
+        }
         and state.metric_key == "logic.decomposition_coverage"
         and statistics.capability_available
         and not statistics.source_complete
@@ -577,7 +713,10 @@ def _availability(
             MetricEvidenceReadinessReason.REVIEWED_REQUIREMENT_PLAN_BINDING_INVALID,
         )
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_6
+        state.projection_version in {
+            METRIC_PROJECTION_V2_VERSION_6,
+            METRIC_PROJECTION_V2_VERSION_7,
+        }
         and state.metric_key == "logic.decomposition_coverage"
         and statistics.capability_available
         and statistics.source_complete
@@ -654,7 +793,29 @@ def _observed_contributors(
         return ()
     resolved = statistics.met_count + statistics.not_met_count
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_6
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_7
+        and state.metric_key == "logic.requirement_action_traceability"
+    ):
+        if state.value_state not in {
+            MetricValueStateV2.KNOWN,
+            MetricValueStateV2.PENDING,
+            MetricValueStateV2.NOT_APPLICABLE,
+        } or not statistics.source_complete:
+            return ()
+        # A numeric, right-censored, or exact-empty r7 row can only be issued
+        # after all three authorities passed together.  This includes an empty
+        # candidate set: completeness of the safe enumeration is the proof,
+        # not the presence of at least one tool event.
+        return (
+            MetricEvidenceContributor.REVIEWED_REQUIREMENT_ENUMERATION,
+            MetricEvidenceContributor.REVIEWED_REQUIREMENT_ACTION_LINK,
+            MetricEvidenceContributor.SAFE_ACTION_CANDIDATE_ENUMERATION,
+        )
+    if (
+        state.projection_version in {
+            METRIC_PROJECTION_V2_VERSION_6,
+            METRIC_PROJECTION_V2_VERSION_7,
+        }
         and state.metric_key == "logic.decomposition_coverage"
     ):
         observed: list[MetricEvidenceContributor] = []
@@ -690,7 +851,11 @@ def _observed_contributors(
         return tuple(observed)
     if (
         state.projection_version
-        in {METRIC_PROJECTION_V2_VERSION_5, METRIC_PROJECTION_V2_VERSION_6}
+        in {
+            METRIC_PROJECTION_V2_VERSION_5,
+            METRIC_PROJECTION_V2_VERSION_6,
+            METRIC_PROJECTION_V2_VERSION_7,
+        }
         and statistics.denominator_basis is DenominatorBasis.DECLARED_PROFILE_SLOTS
         and statistics.eligible_count == 0
     ):
@@ -794,7 +959,23 @@ class MetricEvidenceReadinessV2(StrictModel):
         if self.resolved_count != self.met_count + self.not_met_count:
             raise ValueError("resolved opportunities are the classified ones")
         if not self.capability_available and self.eligible_count:
-            raise ValueError("an unavailable family cannot be eligible")
+            r7_requirement_action_unavailable = (
+                self.metric_key == "logic.requirement_action_traceability"
+                and self.value_state is MetricValueStateV2.UNKNOWN
+                and self.availability_state
+                is MetricEvidenceAvailabilityState.CAPABILITY_MISSING
+                and self.reason_code
+                is MetricEvidenceReadinessReason
+                .REVIEWED_REQUIREMENT_ACTION_SERVICE_REQUIRED
+                and self.source_complete
+                and self.unknown_count == self.eligible_count
+                and self.met_count == 0
+                and self.not_met_count == 0
+                and self.pending_count == 0
+                and self.resolved_count == 0
+            )
+            if not r7_requirement_action_unavailable:
+                raise ValueError("an unavailable family cannot be eligible")
         if (self.censoring_lower_bound is None) != (
             self.censoring_upper_bound is None
         ):
@@ -917,6 +1098,13 @@ class MetricEvidenceReadinessProjectionV2(StrictModel):
                 raise ValueError("readiness availability counts are inconsistent")
         if sum(counts.values()) != len(METRIC_CONTRACTS_V2):
             raise ValueError("readiness states must partition the twenty metrics")
+        if self.metric_projection_version != METRIC_PROJECTION_V2_VERSION_7 and any(
+            not item.capability_available and item.eligible_count
+            for item in self.metrics
+        ):
+            raise ValueError(
+                "only r7 requirement-action readiness preserves unavailable eligibility"
+            )
         objective_rows = tuple(
             item
             for item in self.metrics
@@ -950,7 +1138,10 @@ def metric_evidence_readiness_row(
     observed = _observed_contributors(state, requirement)
     required = requirement.required_contributors
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_6
+        state.projection_version in {
+            METRIC_PROJECTION_V2_VERSION_6,
+            METRIC_PROJECTION_V2_VERSION_7,
+        }
         and state.metric_key == "logic.decomposition_coverage"
         and state.value_state is MetricValueStateV2.NOT_APPLICABLE
     ):
@@ -1014,6 +1205,10 @@ def project_metric_evidence_readiness_v2(
     and never recomputes a metric, so it cannot disagree with what was stored.
     """
 
+    _validate_r7_requirement_action_denominator(
+        projection_version=publication.projection_version,
+        metrics=publication.metrics,
+    )
     rows = tuple(
         metric_evidence_readiness_row(item.state) for item in publication.metrics
     )
@@ -1075,12 +1270,14 @@ __all__ = [
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_3",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5",
+    "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6",
     "METRIC_EVIDENCE_READINESS_V2_KEY",
     "METRIC_EVIDENCE_READINESS_V2_VERSION",
     "METRIC_EVIDENCE_REQUIREMENTS_V2",
     "METRIC_EVIDENCE_REQUIREMENTS_V2_R3",
     "METRIC_EVIDENCE_REQUIREMENTS_V2_R4",
     "METRIC_EVIDENCE_REQUIREMENTS_V2_R6",
+    "METRIC_EVIDENCE_REQUIREMENTS_V2_R7",
     "SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS",
     "metric_evidence_requirement",
     "MetricEvidenceAvailabilityState",

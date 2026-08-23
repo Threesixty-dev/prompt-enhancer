@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from io import StringIO
 import json
 from pathlib import Path
 
@@ -59,17 +60,23 @@ from ..codex_app_server.client import CodexServerInfo
 from ..codex_app_server.content_contracts import (
     CodexTextContentLimits,
     CodexTextItemKind,
+    RawCodexActionDescriptor,
     RawCodexTextFragment,
     RawCodexTextThread,
 )
 from ..codex_app_server.content_source import CodexTextAnalysisSource
-from .transcript_adapter import read_head, scan_transcripts
+from .transcript_adapter import parse_events, read_head, scan_transcripts
 from .transcript_reader import MAX_TRANSCRIPT_FILE_BYTES, MAX_TRANSCRIPT_LINES
 
 
 TEXT_ADAPTER_VERSION = "claude-code-transcripts-text-adapter-1"
 TEXT_SOURCE_SCHEMA_VERSION = "claude-code-transcripts.text.v1"
 PLAN_TOOL_NAMES = frozenset({"TodoWrite", "ExitPlanMode"})
+_KNOWN_NON_MESSAGE_TYPES = frozenset({"system", "summary", "queue-operation"})
+_USER_CONTENT_BLOCK_TYPES = frozenset({"text", "tool_result"})
+_ASSISTANT_CONTENT_BLOCK_TYPES = frozenset(
+    {"text", "thinking", "redacted_thinking", "tool_use"}
+)
 # Claude Code echoes slash commands and local command output as user rows.
 _ECHO_PREFIXES = (
     "<command-name>",
@@ -139,7 +146,13 @@ def _is_echo(text: str) -> bool:
     return any(stripped.startswith(prefix) for prefix in _ECHO_PREFIXES)
 
 
-def extract_fragments(path: Path, *, limits: CodexTextContentLimits) -> RawCodexTextThread:
+def extract_fragments(
+    path: Path,
+    *,
+    limits: CodexTextContentLimits,
+    snapshot_text: str | None = None,
+    snapshot_complete: bool = True,
+) -> RawCodexTextThread:
     """Read one transcript file into the shared raw-fragment thread shape."""
 
     fragments: list[RawCodexTextFragment] = []
@@ -148,10 +161,14 @@ def extract_fragments(path: Path, *, limits: CodexTextContentLimits) -> RawCodex
     # Anything the bounds drop or clip is an omission the window cannot
     # classify; only the fragment cap (oldest dropped) is older-history
     # truncation.  The thread contract requires exactly that partition.
-    omission = False
-    if path.stat().st_size > MAX_TRANSCRIPT_FILE_BYTES:
+    omission = not snapshot_complete
+    if snapshot_text is None and path.stat().st_size > MAX_TRANSCRIPT_FILE_BYTES:
         omission = True
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
+    with (
+        StringIO(snapshot_text)
+        if snapshot_text is not None
+        else path.open("r", encoding="utf-8", errors="replace")
+    ) as handle:
         for line_no, line in enumerate(handle):
             if line_no >= MAX_TRANSCRIPT_LINES:
                 omission = True
@@ -163,11 +180,20 @@ def extract_fragments(path: Path, *, limits: CodexTextContentLimits) -> RawCodex
             except ValueError:
                 omission = True
                 continue
-            if not isinstance(record, dict) or record.get("isMeta") is True:
+            if not isinstance(record, dict):
+                omission = True
+                continue
+            if record.get("isMeta") is True:
                 continue
             kind = record.get("type")
             message = record.get("message")
-            if kind not in ("user", "assistant") or not isinstance(message, dict):
+            if kind in _KNOWN_NON_MESSAGE_TYPES:
+                continue
+            if kind not in ("user", "assistant"):
+                omission = True
+                continue
+            if not isinstance(message, dict):
+                omission = True
                 continue
             content = message.get("content")
             blocks: list[tuple[CodexTextItemKind, str]] = []
@@ -177,10 +203,19 @@ def extract_fragments(path: Path, *, limits: CodexTextContentLimits) -> RawCodex
                 elif kind == "assistant":
                     blocks.append((CodexTextItemKind.AGENT_MESSAGE, content))
             elif isinstance(content, list):
+                allowed_block_types = (
+                    _USER_CONTENT_BLOCK_TYPES
+                    if kind == "user"
+                    else _ASSISTANT_CONTENT_BLOCK_TYPES
+                )
                 for block in content:
                     if not isinstance(block, dict):
+                        omission = True
                         continue
                     block_type = block.get("type")
+                    if block_type not in allowed_block_types:
+                        omission = True
+                        continue
                     if block_type == "text" and isinstance(block.get("text"), str):
                         text = block["text"]
                         if kind == "user":
@@ -194,6 +229,10 @@ def extract_fragments(path: Path, *, limits: CodexTextContentLimits) -> RawCodex
                             plan = _plan_text(name, block.get("input"))
                             if plan.strip():
                                 blocks.append((CodexTextItemKind.PLAN, plan))
+                    elif block_type == "text":
+                        omission = True
+            else:
+                omission = True
             if not blocks:
                 continue
             if any(item_kind is CodexTextItemKind.USER_MESSAGE for item_kind, _ in blocks):
@@ -259,6 +298,22 @@ class ClaudeTranscriptTextAnalysisSource(CodexTextAnalysisSource):
     def _no_client():  # pragma: no cover - the transcript source never opens a client
         raise TextSourceReadError(TextSourceFailureReason.PROVIDER_UNAVAILABLE)
 
+    @staticmethod
+    def _bounded_snapshot(path: Path) -> tuple[str, bool]:
+        """Capture one process-only transcript view for every downstream parser.
+
+        The extra byte distinguishes an exact bounded snapshot from a prefix.
+        Oversized input remains parseable only as explicitly incomplete; it is
+        never allowed to establish requirement-action review authority.
+        """
+
+        with path.open("rb") as handle:
+            payload = handle.read(MAX_TRANSCRIPT_FILE_BYTES + 1)
+        complete = len(payload) <= MAX_TRANSCRIPT_FILE_BYTES
+        if not complete:
+            payload = payload[:MAX_TRANSCRIPT_FILE_BYTES]
+        return payload.decode("utf-8", errors="replace"), complete
+
     def read(
         self,
         *,
@@ -274,10 +329,81 @@ class ClaudeTranscriptTextAnalysisSource(CodexTextAnalysisSource):
         if path is None:
             raise TextSourceReadError(TextSourceFailureReason.SELECTION_SNAPSHOT_MISS)
         try:
-            head = read_head(path)
-            thread = extract_fragments(path, limits=self._text_limits)
+            snapshot_text, snapshot_complete = self._bounded_snapshot(path)
+            head = read_head(path, snapshot_text=snapshot_text)
+            thread = extract_fragments(
+                path,
+                limits=self._text_limits,
+                snapshot_text=snapshot_text,
+                snapshot_complete=snapshot_complete,
+            )
+            parsed = parse_events(
+                path,
+                path.stem,
+                snapshot_text=snapshot_text,
+            )
         except OSError:
             raise TextSourceReadError(TextSourceFailureReason.PROVIDER_UNAVAILABLE) from None
+        stable = snapshot_complete
+        event_sequence_by_source = {
+            item.source_event_id.get_secret_value(): item.sequence
+            for item in parsed.events
+        }
+        ordered_action_details = tuple(
+            sorted(
+                parsed.action_details,
+                key=lambda item: event_sequence_by_source.get(
+                    item.source_event_id.get_secret_value(),
+                    4_000_000_001,
+                ),
+            )
+        )
+        descriptors_exactly_mapped = (
+            len(ordered_action_details) == len(parsed.action_details)
+            and all(
+                item.source_event_id.get_secret_value()
+                in event_sequence_by_source
+                for item in ordered_action_details
+            )
+        )
+        thread = thread.model_copy(
+            update={
+                "action_descriptors": tuple(
+                    RawCodexActionDescriptor(
+                        source_event_id=item.source_event_id,
+                        event_kind=item.event_kind.value,
+                        candidate_metadata_complete=True,
+                        candidate_sequence=(
+                            event_sequence_by_source[
+                                item.source_event_id.get_secret_value()
+                            ]
+                            * 4
+                        ),
+                        candidate_tool_category=item.tool_category,
+                        candidate_occurred_at=item.occurred_at,
+                        candidate_duration_ms=item.duration_ms,
+                        candidate_family=item.family,
+                        candidate_state=item.state,
+                        tool_name=item.tool_name,
+                        invocation_preview=item.invocation_preview,
+                        result_or_effect_preview=(
+                            item.result_or_effect_preview
+                        ),
+                        invocation_truncated=item.invocation_truncated,
+                        result_or_effect_truncated=(
+                            item.result_or_effect_truncated
+                        ),
+                    )
+                    for item in ordered_action_details
+                ),
+                "action_descriptor_extraction_complete": (
+                    stable
+                    and parsed.action_descriptor_extraction_complete
+                    and descriptors_exactly_mapped
+                    and thread.extraction_complete
+                ),
+            }
+        )
         return self._analysis_input(
             thread=thread,
             selection=selection,

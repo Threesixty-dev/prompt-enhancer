@@ -81,6 +81,7 @@ from .metric_guidance import (
 )
 from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION,
+    METRIC_PROJECTION_V2_VERSION_7,
     LiveMetricStateProjectionV2,
     MetricProjectionV2Version,
     MetricStateProjectionV2,
@@ -91,6 +92,7 @@ from .metric_projection_v2 import (
     _metric_state_projection_is_compatibility,
     _metric_state_projection_is_issued,
     objective_metric_state,
+    reviewed_requirement_plan_denominator_is_authoritative,
     resolve_metric_state,
 )
 from .objective_metric_projection import ObjectiveMetricOverride
@@ -395,6 +397,31 @@ class PublishedMetricV2(StrictModel):
         return self
 
 
+def _validate_r7_requirement_action_denominator(
+    *,
+    projection_version: MetricProjectionV2Version,
+    metrics: Iterable[PublishedMetricV2],
+) -> None:
+    """Cross-bind the r7 action denominator to reviewed r6 requirements."""
+
+    if projection_version != METRIC_PROJECTION_V2_VERSION_7:
+        return
+    states = {item.state.metric_key: item.state for item in metrics}
+    decomposition = states.get("logic.decomposition_coverage")
+    requirement_action = states.get("logic.requirement_action_traceability")
+    if decomposition is None or requirement_action is None:
+        return
+    expected_eligible = (
+        decomposition.statistics.eligible_count
+        if reviewed_requirement_plan_denominator_is_authoritative(decomposition)
+        else 0
+    )
+    if requirement_action.statistics.eligible_count != expected_eligible:
+        raise ValueError(
+            "r7 requirement-action eligibility must equal authoritative reviewed requirements"
+        )
+
+
 class MetricPublicationV2(StrictModel):
     """A complete twenty-metric publication with no absent key and no zero fill."""
 
@@ -448,6 +475,10 @@ class MetricPublicationV2(StrictModel):
             raise ValueError(
                 "a publication must restate the projection identity of its states"
             )
+        _validate_r7_requirement_action_denominator(
+            projection_version=self.projection_version,
+            metrics=self.metrics,
+        )
         if self.compatibility_preview != (
             self.source is MetricPublicationSource.V1_COMPATIBILITY_PREVIEW
         ):
