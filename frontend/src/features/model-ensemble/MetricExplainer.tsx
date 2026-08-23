@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type FocusEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   METRIC_EXPLAINER_PROVENANCE_LABELS,
   METRIC_HELP_V2_VERSION,
@@ -9,6 +9,9 @@ import {
 } from "./metricHelpV2";
 import {
   METRIC_CARD_ROLE,
+  metricKnowledgeAnchorFromElement,
+  metricKnowledgeCardViewportStyle,
+  useMetricKnowledgeOverlayViewport,
   type MetricKnowledgeCardController,
   type MetricKnowledgeSurface,
   type MetricKnowledgeTarget,
@@ -77,6 +80,14 @@ export function metricExplainerDescriptionId(
   return `${controller.idPrefix}explain-${surface}-${metricKey.replaceAll(".", "-")}`;
 }
 
+export function metricExplainerCardId(
+  controller: Pick<MetricKnowledgeCardController, "idPrefix">,
+  surface: MetricKnowledgeSurface,
+  metricKey: string,
+): string {
+  return `${controller.idPrefix}explain-card-${surface}-${metricKey.replaceAll(".", "-")}`;
+}
+
 /** Trigger props for the accessible control (button/tile) that a metric explainer describes. */
 export function metricExplainerTriggerProps(
   controller: MetricKnowledgeCardController,
@@ -86,11 +97,17 @@ export function metricExplainerTriggerProps(
   const target: MetricKnowledgeTarget = { surface, metricKey };
   const open = sameTarget(controller.target, target);
   return {
+    "aria-controls": metricExplainerCardId(controller, surface, metricKey),
     "aria-describedby": metricExplainerDescriptionId(controller, surface, metricKey),
+    "aria-expanded": open,
     "data-explainer-open": open ? (controller.pinned ? "pinned" : "preview") : undefined,
-    onPointerEnter: () => controller.preview(target),
+    onPointerEnter: (event: ReactPointerEvent<HTMLElement>) =>
+      controller.preview(target, metricKnowledgeAnchorFromElement(event.currentTarget)),
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) =>
+      controller.preview(target, metricKnowledgeAnchorFromElement(event.currentTarget)),
     onPointerLeave: () => controller.unpreview(target),
-    onFocus: () => controller.preview(target),
+    onFocus: (event: FocusEvent<HTMLElement>) =>
+      controller.preview(target, metricKnowledgeAnchorFromElement(event.currentTarget)),
     onBlur: () => controller.unpreview(target),
   } as const;
 }
@@ -128,6 +145,7 @@ export function MetricExplainerCardSlot({ controller, surface, entries, compact 
     : null;
   const staleTarget = target !== null && target.surface === surface && entry === null;
   const dismiss = controller.dismiss;
+  useMetricKnowledgeOverlayViewport(entry !== null);
   useEffect(() => {
     // The pinned key can disappear when the lens or scope changes; dismiss it so
     // the next pointer/focus preview is never blocked by an invisible target.
@@ -136,10 +154,12 @@ export function MetricExplainerCardSlot({ controller, surface, entries, compact 
   if (entry === null) return <div className="metric-explainer-slot" data-surface={surface} />;
   const sentences = guidanceFor(entry);
   const pinned = controller.pinned;
+  const cardId = metricExplainerCardId(controller, surface, entry.key);
+  const cardHeadingId = `${cardId}-heading`;
   return (
     <div className="metric-explainer-slot" data-surface={surface}>
       <div
-        aria-label={`${entry.label} explainer`}
+        aria-labelledby={cardHeadingId}
         className={`metric-explainer-card metric-explainer-card--viewport${compact ? " metric-explainer-card--compact" : ""}`}
         data-metric-key={entry.key}
         data-pinned={pinned ? "true" : "false"}
@@ -148,13 +168,18 @@ export function MetricExplainerCardSlot({ controller, surface, entries, compact 
         data-state={sentences.state}
         data-suppression-reason={sentences.suppressionReason ?? undefined}
         data-comparability={sentences.comparabilityState ?? undefined}
+        id={cardId}
+        onBlurCapture={() => controller.unpreview({ surface, metricKey: entry.key })}
+        onFocusCapture={() => controller.preview({ surface, metricKey: entry.key })}
         onPointerEnter={() => controller.preview({ surface, metricKey: entry.key })}
         onPointerLeave={() => controller.unpreview({ surface, metricKey: entry.key })}
         role={METRIC_CARD_ROLE}
+        style={metricKnowledgeCardViewportStyle(controller, compact ? 320 : 360)}
+        tabIndex={0}
       >
-        <header>
+        <header role="presentation">
           <div>
-            <strong>{entry.label}</strong>
+            <strong aria-label={`${entry.label} explainer`} id={cardHeadingId}>{entry.label}</strong>
             <span>{entry.valueLabel}</span>
           </div>
           <b data-provenance={entry.provenance}>{METRIC_EXPLAINER_PROVENANCE_LABELS[entry.provenance]}</b>

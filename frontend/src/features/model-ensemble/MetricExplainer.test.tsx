@@ -57,12 +57,14 @@ const ENTRIES: readonly MetricExplainerEntry[] = [
 
 function Harness({
   compact = false,
+  contextIdentity = "team-context-a",
   entries = ENTRIES,
 }: {
   compact?: boolean;
+  contextIdentity?: string;
   entries?: readonly MetricExplainerEntry[];
 }) {
-  const controller = useMetricKnowledgeCardController();
+  const controller = useMetricKnowledgeCardController(contextIdentity);
   return (
     <div>
       <MetricExplainerDescriptions controller={controller} entries={entries} surface="team-board" />
@@ -139,6 +141,83 @@ describe("MetricExplainer affordance", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(0);
+  });
+
+  it("binds a touch-pinned explainer to its trigger and positions it outside the row", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1024);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(768);
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Task definition coverage" });
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      bottom: 250,
+      height: 50,
+      left: 700,
+      right: 900,
+      top: 200,
+      width: 200,
+      x: 700,
+      y: 200,
+      toJSON: () => undefined,
+    });
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.pointerDown(trigger, { pointerType: "touch" });
+    fireEvent.click(trigger);
+
+    const card = screen.getByRole("region", { name: "Task definition coverage explainer" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(trigger.getAttribute("aria-controls")).toBe(card.id);
+    expect(card).toHaveAttribute("data-pinned", "true");
+    expect(card).toHaveAttribute("tabindex", "0");
+    expect(card.style.top).toBe("258px");
+    expect(card.style.left).toBe("652px");
+    expect(card.style.maxHeight).toBe("498px");
+  });
+
+  it("dismisses a pinned explainer whose metric disappears from the surface", () => {
+    const view = render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Task definition coverage" }));
+    expect(screen.getByRole("region", { name: "Task definition coverage explainer" }))
+      .toHaveAttribute("data-pinned", "true");
+
+    view.rerender(<Harness entries={[ENTRIES[1]]} />);
+    expect(screen.queryByRole("region", { name: /explainer/ })).toBeNull();
+    fireEvent.focus(screen.getByRole("button", { name: "Decision rationale coverage" }));
+    expect(screen.getByRole("region", { name: "Decision rationale coverage explainer" }))
+      .toHaveAttribute("data-provenance", "experimental");
+  });
+
+  it("dismisses pinned and preview cards before a same-key context changes provenance", () => {
+    const entryA = ENTRIES[0];
+    const entryB: MetricExplainerEntry = {
+      ...entryA,
+      provenance: "experimental",
+      numericValue: null,
+      valueLabel: "Experimental only",
+      evidenceAuthority: "Context B exposes model judgment only.",
+    };
+    const entryC: MetricExplainerEntry = {
+      ...entryA,
+      numericValue: 0.25,
+      valueLabel: "25% · 1/4",
+      evidenceAuthority: "Context C exposes a separate typed receipt.",
+    };
+    const view = render(<Harness contextIdentity="team-context-a" entries={[entryA]} />);
+    fireEvent.click(screen.getByRole("button", { name: entryA.label }));
+    expect(screen.getByRole("region", { name: `${entryA.label} explainer` }))
+      .toHaveAttribute("data-pinned", "true");
+
+    view.rerender(<Harness contextIdentity="team-context-b" entries={[entryB]} />);
+    expect(screen.queryByRole("region", { name: /explainer/ })).toBeNull();
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: entryB.label }));
+    const preview = screen.getByRole("region", { name: `${entryB.label} explainer` });
+    expect(preview).toHaveAttribute("data-pinned", "false");
+    expect(preview).toHaveAttribute("data-provenance", "experimental");
+    expect(preview).toHaveTextContent("Context B exposes model judgment only.");
+
+    view.rerender(<Harness contextIdentity="team-context-c" entries={[entryC]} />);
+    expect(screen.queryByRole("region", { name: /explainer/ })).toBeNull();
   });
 
   it("uses distinct description ids per surface", () => {

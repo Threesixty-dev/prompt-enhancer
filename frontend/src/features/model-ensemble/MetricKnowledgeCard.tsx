@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -38,12 +39,17 @@ export interface MetricKnowledgeAnchor {
   left: number;
   right: number;
   top: number;
+  /** Scroll offsets captured with the viewport-relative rectangle. */
+  viewportScrollX?: number;
+  viewportScrollY?: number;
 }
 
 export interface MetricKnowledgeCardController {
   idPrefix: string;
   target: MetricKnowledgeTarget | null;
   pinned: boolean;
+  /** True only when the open target belongs to the current owning context. */
+  contextIsCurrent: boolean;
   /** Plain viewport coordinates only; never retain the originating DOM node. */
   anchor?: MetricKnowledgeAnchor | null;
   preview: (target: MetricKnowledgeTarget, anchor?: MetricKnowledgeAnchor) => void;
@@ -65,9 +71,18 @@ export const METRIC_CARD_ROLE = "region" as const;
 const same = (left: MetricKnowledgeTarget | null, right: MetricKnowledgeTarget): boolean =>
   left !== null && left.surface === right.surface && left.metricKey === right.metricKey;
 
-const anchorFromElement = (element: Element): MetricKnowledgeAnchor => {
+const targetIdentity = (target: MetricKnowledgeTarget): string => `${target.surface}:${target.metricKey}`;
+
+export const metricKnowledgeAnchorFromElement = (element: Element): MetricKnowledgeAnchor => {
   const rect = element.getBoundingClientRect();
-  return { bottom: rect.bottom, left: rect.left, right: rect.right, top: rect.top };
+  return {
+    bottom: rect.bottom,
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    viewportScrollX: typeof window === "undefined" ? 0 : window.scrollX,
+    viewportScrollY: typeof window === "undefined" ? 0 : window.scrollY,
+  };
 };
 
 /**
@@ -85,28 +100,76 @@ export function metricKnowledgeCardViewportStyle(
   const gap = 8;
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
+  const scrollDeltaX = (anchor.viewportScrollX ?? window.scrollX) - window.scrollX;
+  const scrollDeltaY = (anchor.viewportScrollY ?? window.scrollY) - window.scrollY;
+  const anchorLeft = anchor.left + scrollDeltaX;
+  const anchorTop = anchor.top + scrollDeltaY;
+  const anchorBottom = anchor.bottom + scrollDeltaY;
   const width = Math.max(0, Math.min(preferredWidth, viewportWidth - margin * 2));
-  const left = Math.max(margin, Math.min(anchor.left, viewportWidth - margin - width));
-  const below = Math.max(0, viewportHeight - anchor.bottom - gap - margin);
-  const above = Math.max(0, anchor.top - gap - margin);
+  const left = Math.max(margin, Math.min(anchorLeft, viewportWidth - margin - width));
+  if (anchorBottom <= margin || anchorTop >= viewportHeight - margin) {
+    return {
+      bottom: "auto",
+      left,
+      maxHeight: Math.max(0, viewportHeight - margin * 2),
+      right: "auto",
+      top: margin,
+    };
+  }
+  const below = Math.max(0, viewportHeight - anchorBottom - gap - margin);
+  const above = Math.max(0, anchorTop - gap - margin);
   const placeBelow = below >= Math.min(240, viewportHeight * 0.45) || below >= above;
+  const availableHeight = placeBelow ? below : above;
+  // Extremely short viewports cannot keep the overlay outside the trigger and
+  // still expose meaningful content. In that case keep the complete card
+  // inside the viewport and let its own scroller preserve every field.
+  if (availableHeight < 96) {
+    return {
+      bottom: "auto",
+      left,
+      maxHeight: Math.max(0, viewportHeight - margin * 2),
+      right: "auto",
+      top: margin,
+    };
+  }
   return {
-    bottom: placeBelow ? "auto" : viewportHeight - anchor.top + gap,
+    bottom: placeBelow ? "auto" : viewportHeight - anchorTop + gap,
     left,
-    maxHeight: Math.max(96, placeBelow ? below : above),
+    maxHeight: Math.min(availableHeight, viewportHeight - margin * 2),
     right: "auto",
-    top: placeBelow ? anchor.bottom + gap : "auto",
+    top: placeBelow ? anchorBottom + gap : "auto",
   };
 }
 
-export function useMetricKnowledgeCardController(): MetricKnowledgeCardController {
+/** Re-render an open viewport overlay after zoom/resize/scroll changes. */
+export function useMetricKnowledgeOverlayViewport(active: boolean): void {
+  const [, setRevision] = useState(0);
+  useEffect(() => {
+    if (!active || typeof window === "undefined") return undefined;
+    const update = () => setRevision((current) => current + 1);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [active]);
+}
+
+export type MetricCardContextIdentity = string | number;
+
+export function useMetricKnowledgeCardController(
+  contextIdentity: MetricCardContextIdentity,
+): MetricKnowledgeCardController {
   const idPrefix = useId();
   const [state, setState] = useState<{
     target: MetricKnowledgeTarget | null;
     pinned: boolean;
     anchor: MetricKnowledgeAnchor | null;
-  }>({ target: null, pinned: false, anchor: null });
+    contextIdentity: MetricCardContextIdentity;
+  }>({ target: null, pinned: false, anchor: null, contextIdentity });
   const leaveTimer = useRef<number | null>(null);
+  const recentAnchors = useRef(new Map<string, MetricKnowledgeAnchor>());
   const clearLeave = () => {
     if (leaveTimer.current !== null) {
       window.clearTimeout(leaveTimer.current);
@@ -115,34 +178,50 @@ export function useMetricKnowledgeCardController(): MetricKnowledgeCardControlle
   };
   const preview = useCallback((target: MetricKnowledgeTarget, anchor?: MetricKnowledgeAnchor) => {
     clearLeave();
-    setState((current) => current.pinned ? current : {
+    if (anchor !== undefined) recentAnchors.current.set(targetIdentity(target), anchor);
+    setState((current) => current.pinned && Object.is(current.contextIdentity, contextIdentity) ? current : {
       target,
       pinned: false,
-      anchor: anchor ?? (same(current.target, target) ? current.anchor : null),
+      anchor: anchor ?? (Object.is(current.contextIdentity, contextIdentity) && same(current.target, target)
+        ? current.anchor
+        : null),
+      contextIdentity,
     });
-  }, []);
+  }, [contextIdentity]);
   const unpreview = useCallback((target: MetricKnowledgeTarget) => {
     clearLeave();
     leaveTimer.current = window.setTimeout(() => {
-      setState((current) => current.pinned || !same(current.target, target)
+      setState((current) => current.pinned || !Object.is(current.contextIdentity, contextIdentity) || !same(current.target, target)
         ? current
-        : { target: null, pinned: false, anchor: null });
+        : { target: null, pinned: false, anchor: null, contextIdentity });
     }, METRIC_KNOWLEDGE_CARD_LEAVE_DELAY_MS);
-  }, []);
+  }, [contextIdentity]);
   const togglePin = useCallback((target: MetricKnowledgeTarget, anchor?: MetricKnowledgeAnchor) => {
     clearLeave();
-    setState((current) => current.pinned && same(current.target, target)
-      ? { target: null, pinned: false, anchor: null }
+    const recentAnchor = recentAnchors.current.get(targetIdentity(target));
+    setState((current) => current.pinned
+      && Object.is(current.contextIdentity, contextIdentity)
+      && same(current.target, target)
+      ? { target: null, pinned: false, anchor: null, contextIdentity }
       : {
         target,
         pinned: true,
-        anchor: anchor ?? (same(current.target, target) ? current.anchor : null),
+        anchor: anchor ?? recentAnchor ?? (Object.is(current.contextIdentity, contextIdentity) && same(current.target, target)
+          ? current.anchor
+          : null),
+        contextIdentity,
       });
-  }, []);
+  }, [contextIdentity]);
   const dismiss = useCallback(() => {
     clearLeave();
-    setState({ target: null, pinned: false, anchor: null });
-  }, []);
+    setState({ target: null, pinned: false, anchor: null, contextIdentity });
+  }, [contextIdentity]);
+  const contextIsCurrent = Object.is(state.contextIdentity, contextIdentity);
+  useLayoutEffect(() => {
+    if (contextIsCurrent) return;
+    recentAnchors.current.clear();
+    dismiss();
+  }, [contextIsCurrent, dismiss]);
   useEffect(() => {
     if (state.target === null) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -154,9 +233,10 @@ export function useMetricKnowledgeCardController(): MetricKnowledgeCardControlle
   useEffect(() => () => clearLeave(), []);
   return {
     idPrefix,
-    target: state.target,
-    pinned: state.pinned,
-    anchor: state.anchor,
+    target: contextIsCurrent ? state.target : null,
+    pinned: contextIsCurrent && state.pinned,
+    contextIsCurrent,
+    anchor: contextIsCurrent ? state.anchor : null,
     preview,
     unpreview,
     togglePin,
@@ -168,6 +248,14 @@ export function metricKnowledgeDescriptionId(controller: Pick<MetricKnowledgeCar
   return `${controller.idPrefix}help-${metricKey.replaceAll(".", "-")}`;
 }
 
+export function metricKnowledgeCardId(
+  controller: Pick<MetricKnowledgeCardController, "idPrefix">,
+  surface: MetricKnowledgeSurface,
+  metricKey: string,
+): string {
+  return `${controller.idPrefix}help-card-${surface}-${metricKey.replaceAll(".", "-")}`;
+}
+
 /** Trigger props for the accessible controls (buttons/tiles) that describe a metric. */
 export function metricKnowledgeCardTriggerProps(
   controller: MetricKnowledgeCardController,
@@ -177,13 +265,19 @@ export function metricKnowledgeCardTriggerProps(
   const target = { surface, metricKey };
   const open = same(controller.target, target);
   return {
+    "aria-controls": metricKnowledgeCardId(controller, surface, metricKey),
     "aria-describedby": metricKnowledgeDescriptionId(controller, metricKey),
+    "aria-expanded": open,
     "data-help-open": open ? (controller.pinned ? "pinned" : "preview") : undefined,
     onPointerEnter: (event: ReactPointerEvent<HTMLElement>) =>
-      controller.preview(target, anchorFromElement(event.currentTarget)),
+      controller.preview(target, metricKnowledgeAnchorFromElement(event.currentTarget)),
+    // Touch does not guarantee a preceding pointer-enter. Capture its anchor
+    // before the consumer's click handler toggles the pinned state.
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) =>
+      controller.preview(target, metricKnowledgeAnchorFromElement(event.currentTarget)),
     onPointerLeave: () => controller.unpreview(target),
     onFocus: (event: FocusEvent<HTMLElement>) =>
-      controller.preview(target, anchorFromElement(event.currentTarget)),
+      controller.preview(target, metricKnowledgeAnchorFromElement(event.currentTarget)),
     onBlur: () => controller.unpreview(target),
   } as const;
 }
@@ -231,6 +325,7 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
     ? entries.find((candidate) => candidate.key === target.metricKey) ?? null
     : null;
   const staleTarget = target !== null && target.surface === surface && entry === null;
+  useMetricKnowledgeOverlayViewport(entry !== null);
   useEffect(() => {
     // A pinned key can disappear when the user changes lens.  Dismiss it so
     // the next pointer/focus preview is never blocked by an invisible target.
@@ -243,10 +338,12 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
     ? null
     : `${definitionLabel.charAt(0).toUpperCase()}${definitionLabel.slice(1)}`;
   const pinned = controller.pinned;
+  const cardId = metricKnowledgeCardId(controller, surface, entry.key);
+  const cardHeadingId = `${cardId}-heading`;
   return (
     <div className="metric-knowledge-slot" data-surface={surface}>
       <div
-        aria-label={`${entry.label} knowledge card`}
+        aria-labelledby={cardHeadingId}
         className={`metric-knowledge-card metric-knowledge-card--viewport${compact ? " metric-knowledge-card--compact" : ""}`}
         data-metric-key={entry.key}
         data-pinned={pinned ? "true" : "false"}
@@ -254,13 +351,17 @@ export function MetricKnowledgeCardSlot({ controller, surface, entries, compact 
         data-state={entry.guidance?.state}
         data-suppression-reason={entry.guidance?.suppressionReason ?? undefined}
         data-comparability={entry.guidance?.comparabilityState ?? undefined}
+        id={cardId}
+        onBlurCapture={() => controller.unpreview({ surface, metricKey: entry.key })}
+        onFocusCapture={() => controller.preview({ surface, metricKey: entry.key })}
         onPointerEnter={() => controller.preview({ surface, metricKey: entry.key })}
         onPointerLeave={() => controller.unpreview({ surface, metricKey: entry.key })}
         role={METRIC_CARD_ROLE}
         style={metricKnowledgeCardViewportStyle(controller, compact ? 320 : 360)}
+        tabIndex={0}
       >
-        <header>
-          <strong>{entry.label}</strong>
+        <header role="presentation">
+          <strong aria-label={`${entry.label} knowledge card`} id={cardHeadingId}>{entry.label}</strong>
           <span>{entry.status}</span>
         </header>
         {entry.guidance !== undefined && (

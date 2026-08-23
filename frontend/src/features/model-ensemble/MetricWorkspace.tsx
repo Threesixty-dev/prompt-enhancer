@@ -192,7 +192,7 @@ export function MetricWorkspace({
   onEvidenceChanged?: () => void;
 }) {
   const [selectedMetricKey, setSelectedMetricKey] = useState("");
-  const boardHelp = useMetricKnowledgeCardController();
+  const boardHelp = useMetricKnowledgeCardController(runId);
   const previousRunId = useRef(runId);
   const workspaceHeadingId = useId();
   const boardHeadingId = useId();
@@ -302,6 +302,7 @@ export function MetricWorkspace({
           compact={mode === "compact"}
           comparisonLabel={comparisonLabel}
           comparisonRun={comparisonRun}
+          contextIdentity={runId}
           detailRunId={runId}
           detailTransport={transport}
           helpController={boardHelp}

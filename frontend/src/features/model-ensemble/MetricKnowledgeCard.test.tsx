@@ -8,7 +8,9 @@ import {
 } from "../../test/metricPublicationV2Fixture";
 import { MetricWorkspace } from "./MetricWorkspace";
 import { ModelEnsembleRadar, type ModelEnsembleRadarData } from "./ModelEnsembleRadar";
-import { metricKnowledgeCardViewportStyle } from "./MetricKnowledgeCard";
+import {
+  metricKnowledgeCardViewportStyle,
+} from "./MetricKnowledgeCard";
 
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
 type ProjectionVersion = NonNullable<ModelEnsembleRun["metric_publication_v2"]>["projection_version"];
@@ -97,6 +99,22 @@ afterEach(() => {
 });
 
 describe("personal metric explainers", () => {
+  it("names the radar figure, focused inspector, and reading guide without changing metric truth", () => {
+    render(<ModelEnsembleRadar contextIdentity="example-run-0001" lensId="task-framing" run={run} snapshotLabel="Synthetic snapshot" />);
+
+    const figure = screen.getByRole("figure", { name: "Task framing" });
+    expect(within(figure).getByRole("heading", { level: 4, name: "Task framing" })).toBeVisible();
+    expect(within(figure).getByRole("group", { name: "Task framing radar summary" })).toBeVisible();
+    expect(within(figure).getByRole("region", { name: "Task definition coverage" })).toBeVisible();
+    expect(within(figure).getByRole("heading", { level: 5, name: "Task definition coverage" })).toBeVisible();
+    expect(within(figure).getByRole("group", { name: "Task definition coverage value and state" })).toBeVisible();
+    const caption = figure.querySelector("figcaption")!;
+    expect(figure.getAttribute("aria-describedby")).toBe(caption.id);
+    expect(caption.querySelectorAll(":scope > p")).toHaveLength(3);
+    expect(caption.textContent).toMatch(/gaps are unknown, not zero/i);
+    expect(caption.textContent).toMatch(/not one overall quality score/i);
+  });
+
   it("keeps the radar SVG presentation-only", () => {
     renderWorkspace("full");
     const svg = document.querySelector(".model-ensemble__radar svg")!;
@@ -186,7 +204,7 @@ describe("personal metric explainers", () => {
   });
 
   it("keeps a standalone radar working without a workspace controller", () => {
-    render(<ModelEnsembleRadar lensId="task-framing" run={run} />);
+    render(<ModelEnsembleRadar contextIdentity="example-run-0001" lensId="task-framing" run={run} />);
     fireEvent.pointerEnter(screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!);
     expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(1);
   });
@@ -200,6 +218,40 @@ describe("personal metric explainers", () => {
     expect(slot?.getAttribute("data-surface")).toBe("strip");
     expect(card.classList.contains("metric-knowledge-card--viewport")).toBe(true);
     expect(card.classList.contains("metric-knowledge-card--compact")).toBe(true);
+  });
+
+  it("exposes the open card relationship and captures a touch anchor before pinning", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1280);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(720);
+    renderWorkspace("full");
+    const trigger = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      bottom: 430,
+      height: 70,
+      left: 740,
+      right: 860,
+      top: 360,
+      width: 120,
+      x: 740,
+      y: 360,
+      toJSON: () => undefined,
+    });
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.pointerDown(trigger, { pointerType: "touch" });
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const card = screen.getByRole("region", { name: "Task definition coverage knowledge card" });
+    expect(trigger.getAttribute("aria-controls")).toBe(card.id);
+    expect(card).toHaveAttribute("data-pinned", "true");
+    expect(card).toHaveAttribute("tabindex", "0");
+    expect(card.style.top).toBe("438px");
+    expect(card.style.left).toBe("740px");
+    card.focus();
+    expect(card).toHaveFocus();
+    fireEvent.keyDown(card, { key: "Escape" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
   it("renders projection-r5 reviewed-profile numerators and denominators identically in full and compact knowledge surfaces", () => {
@@ -347,6 +399,68 @@ describe("personal metric explainers", () => {
     expect(720 - Number(above?.bottom)).toBeLessThan(lowRow.top);
   });
 
+  it("keeps an overlay inside narrow and extremely short viewports", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(280);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(100);
+    const style = metricKnowledgeCardViewportStyle({
+      anchor: { top: 40, bottom: 60, left: 260, right: 280 },
+    });
+
+    expect(style).toMatchObject({
+      top: 12,
+      bottom: "auto",
+      left: 12,
+      right: "auto",
+      maxHeight: 76,
+    });
+  });
+
+  it("keeps a pinned overlay visible after its captured anchor scrolls out of view", () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1024);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(600);
+    vi.spyOn(window, "scrollY", "get").mockReturnValue(500);
+    const style = metricKnowledgeCardViewportStyle({
+      anchor: {
+        top: 100,
+        bottom: 150,
+        left: 500,
+        right: 650,
+        viewportScrollX: 0,
+        viewportScrollY: 0,
+      },
+    });
+
+    expect(style).toMatchObject({ top: 12, bottom: "auto", left: 500, maxHeight: 576 });
+  });
+
+  it("repositions an open anchored card after the viewport changes", () => {
+    let viewportHeight = 720;
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(1280);
+    vi.spyOn(window, "innerHeight", "get").mockImplementation(() => viewportHeight);
+    renderWorkspace("full");
+    const trigger = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      bottom: 430,
+      height: 70,
+      left: 740,
+      right: 860,
+      top: 360,
+      width: 120,
+      x: 740,
+      y: 360,
+      toJSON: () => undefined,
+    });
+    fireEvent.pointerEnter(trigger);
+    const card = screen.getByRole("region", { name: "Task definition coverage knowledge card" });
+    expect(card.style.top).toBe("438px");
+
+    viewportHeight = 400;
+    fireEvent(window, new Event("resize"));
+    expect(card.style.top).toBe("auto");
+    expect(card.style.bottom).toBe("48px");
+    expect(card.style.maxHeight).toBe("340px");
+  });
+
   it("dismisses a pinned key when a lens change makes that target unavailable", () => {
     const view = renderWorkspace("full");
     const first = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
@@ -369,5 +483,57 @@ describe("personal metric explainers", () => {
     const next = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
     fireEvent.pointerEnter(next);
     expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(1);
+  });
+
+  it("dismisses pinned and preview cards before a same-key sealed-run context changes", () => {
+    const runB: ModelEnsembleRadarData = {
+      ...run,
+      typed_metrics: run.typed_metrics.map((metric) => metric.metric_key === "prompt.task_definition_coverage"
+        ? typedMetric(metric.metric_key, {
+          value_state: "unknown",
+          numeric_value: null,
+          numerator: null,
+          denominator: null,
+          explanation_code: "synthetic_context_b_unknown",
+        })
+        : metric),
+    };
+    const view = renderWorkspace("full");
+    const firstTrigger = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
+    fireEvent.click(firstTrigger);
+    expect(document.querySelector('[role="region"][data-metric-key="prompt.task_definition_coverage"]'))
+      .toHaveAttribute("data-pinned", "true");
+
+    view.rerender(
+      <MetricWorkspace
+        lensId="task-framing"
+        mode="full"
+        onLensChange={() => undefined}
+        run={runB}
+        runId="example-run-0002"
+        snapshotLabel="Synthetic snapshot B"
+        transport={transport}
+      />,
+    );
+    expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(0);
+
+    const nextTrigger = screen.getByRole("navigation", { name: /metric axes/ }).querySelector("button")!;
+    fireEvent.pointerEnter(nextTrigger);
+    const preview = document.querySelector('[role="region"][data-metric-key="prompt.task_definition_coverage"]')!;
+    expect(preview).toHaveAttribute("data-pinned", "false");
+    expect(preview).toHaveAttribute("data-state", "unknown");
+
+    view.rerender(
+      <MetricWorkspace
+        lensId="task-framing"
+        mode="full"
+        onLensChange={() => undefined}
+        run={run}
+        runId="example-run-0003"
+        snapshotLabel="Synthetic snapshot C"
+        transport={transport}
+      />,
+    );
+    expect(document.querySelectorAll('[role="region"][data-metric-key]')).toHaveLength(0);
   });
 });

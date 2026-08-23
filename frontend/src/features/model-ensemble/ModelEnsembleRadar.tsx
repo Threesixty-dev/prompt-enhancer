@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { PromptEnhancerTransport } from "../../shared/api/contracts";
 import { moveRovingFocus } from "../../shared/ui/rovingFocus";
 import type { MetricScopeContext } from "./metricContextFacts";
@@ -61,6 +61,7 @@ export function ModelEnsembleRadar({
   selectedMetricKey,
   onSelectedMetricKeyChange,
   helpController,
+  contextIdentity,
   scopeContext,
 }: {
   run: ModelEnsembleRadarData;
@@ -74,6 +75,8 @@ export function ModelEnsembleRadar({
   selectedMetricKey?: string;
   onSelectedMetricKeyChange?: (metricKey: string) => void;
   helpController?: MetricKnowledgeCardController;
+  /** Stable, content-free identity of the exact snapshot owning these cards. */
+  contextIdentity: string | number;
   /** Analytics scope shown in every knowledge card; defaults to the personal (Me) scope. */
   scopeContext?: MetricScopeContext;
 }) {
@@ -103,7 +106,7 @@ export function ModelEnsembleRadar({
   const size = compact ? 340 : 380;
   const center = size / 2;
   const radius = compact ? 96 : 108;
-  const ownHelpController = useMetricKnowledgeCardController();
+  const ownHelpController = useMetricKnowledgeCardController(contextIdentity);
   const helpCards = helpController ?? ownHelpController;
   const helpEntries = modelEnsembleKnowledgeEntries(axes, scopeContext);
   const point = (index: number, magnitude: number) => {
@@ -136,12 +139,19 @@ export function ModelEnsembleRadar({
   const displayDensityBins = predictiveDetail === null || selected === undefined
     ? []
     : modelEnsembleDensityBinsForDirection(predictiveDetail.density_bins, selected.direction);
+  const radarHeadingId = useId();
+  const focusedMetricHeadingId = useId();
+  const radarCaptionId = useId();
 
   return (
-    <figure className={`model-ensemble__radar${compact ? " model-ensemble__radar--compact" : ""}`}>
-      <header className="model-ensemble__radar-header">
+    <figure
+      aria-describedby={compact ? undefined : radarCaptionId}
+      aria-labelledby={radarHeadingId}
+      className={`model-ensemble__radar${compact ? " model-ensemble__radar--compact" : ""}`}
+    >
+      <header aria-label={`${lens.label} radar summary`} className="model-ensemble__radar-header" role="group">
         <div>
-          <strong>{lens.label}</strong>
+          <h4 id={radarHeadingId}>{lens.label}</h4>
           <span>
             {snapshotLabel} · {knownCount} numeric · {axes.length - knownCount} state-only
             {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
@@ -309,9 +319,9 @@ export function ModelEnsembleRadar({
       </nav>
       <MetricKnowledgeCardSlot compact={compact} controller={helpCards} entries={helpEntries} surface="strip" />
       {selected !== undefined && (
-        <section className="model-ensemble__focused-metric">
-          <header>
-            <div><strong>{selected.label}</strong><span>{stateLabel(selected.metric)}</span></div>
+        <section aria-labelledby={focusedMetricHeadingId} className="model-ensemble__focused-metric">
+          <header aria-label={`${selected.label} value and state`} role="group">
+            <div><h5 id={focusedMetricHeadingId}>{selected.label}</h5><span>{stateLabel(selected.metric)}</span></div>
             <b>{selectedPresentation.value}</b>
           </header>
           {(() => {
@@ -328,7 +338,7 @@ export function ModelEnsembleRadar({
           })()}
           {selectedPresentation.detail !== null && <p>{selectedPresentation.detail}</p>}
           {selected.prediction !== null && (
-            <aside className="model-ensemble__predictive-detail">
+            <aside aria-label={`${selected.label} experimental model detail`} className="model-ensemble__predictive-detail">
               <strong>{selected.prediction.state === "calibrated" ? "Predictive interval" : "Experimental estimate"}</strong>
               {selected.predictiveMedian === null ? (
                 <span>{selected.predictiveWithheldReason}</span>
@@ -361,7 +371,7 @@ export function ModelEnsembleRadar({
                     <path d={`M 0 36 ${displayDensityBins.map((mass, index) => `L ${index * (200 / 19)} ${36 - Math.min(34, mass * 180)}`).join(" ")} L 200 36 Z`} />
                   </svg>
                   <small>The density uses the same radar-quality direction as the diamond and whiskers.</small>
-                  <ul className="model-ensemble__factor-list">
+                  <ul aria-label={`${selected.label} predictive factors`} className="model-ensemble__factor-list" tabIndex={0}>
                     {predictiveDetail.factors.map((factor) => (
                       <li key={factor.factor_key}>
                         <span>{factor.factor_key.replaceAll("_", " ")}</span>
@@ -421,7 +431,7 @@ export function ModelEnsembleRadar({
               Aggregate-only history point; select the live head for its per-window trace.
             </div>
           ) : (
-            <div aria-label="Selected metric window trace" className="model-ensemble__chunk-trace">
+            <div aria-label="Selected metric window trace" className="model-ensemble__chunk-trace" role="group">
               <span>{usesTypedProjection ? "Model committee diagnostic" : "Window trace"}</span>
               {chunkTrace.map((chunk) => (
                 <i
@@ -438,22 +448,29 @@ export function ModelEnsembleRadar({
           )}
         </section>
       )}
-      <figcaption>
-        Axes and order stay fixed for this versioned lens. Solid segments connect
-        adjacent measured values only; gaps are unknown, not zero. N/A, pending,
-        unknown, error, and withheld markers sit in a state lane outside the numeric
-        scale; only a known radar-quality zero renders at the center (a raw zero for
-        higher-is-better, a raw rate of 100% for lower-is-better). A model estimate
-        appears as an independent diamond with per-axis whiskers only when
-        at least two small experts are proven and the 90% span is informative. Rings around known
-        points show resolved-versus-eligible opportunity coverage for canonical
-        V2 measurements (legacy typed receipts show source-message coverage;
-        legacy committee receipts show eligible-observation coverage). Structural
-        ownership cells are not analytic observations. The outline has no area fill because
-        these metrics are separate constructs, not one overall quality score.
-        {comparisonAxes?.some((axis) => axis.plotted !== null)
-          ? ` Dashed lines and diamonds show ${comparisonLabel.toLowerCase()} where numeric values exist.`
-          : ""}
+      <figcaption id={radarCaptionId}>
+        <p>
+          Axes and order stay fixed for this versioned lens. Solid segments connect
+          adjacent measured values only; gaps are unknown, not zero. N/A, pending,
+          unknown, error, and withheld markers sit in a state lane outside the numeric
+          scale; only a known radar-quality zero renders at the center (a raw zero for
+          higher-is-better, a raw rate of 100% for lower-is-better).
+        </p>
+        <p>
+          A model estimate appears as an independent diamond with per-axis whiskers only
+          when at least two small experts are proven and the 90% span is informative.
+          Rings around known points show resolved-versus-eligible opportunity coverage
+          for canonical V2 measurements (legacy typed receipts show source-message
+          coverage; legacy committee receipts show eligible-observation coverage).
+        </p>
+        <p>
+          Structural ownership cells are not analytic observations. The outline has no
+          area fill because these metrics are separate constructs, not one overall
+          quality score.
+          {comparisonAxes?.some((axis) => axis.plotted !== null)
+            ? ` Dashed lines and diamonds show ${comparisonLabel.toLowerCase()} where numeric values exist.`
+            : ""}
+        </p>
       </figcaption>
     </figure>
   );

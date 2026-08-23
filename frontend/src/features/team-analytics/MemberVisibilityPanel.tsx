@@ -69,12 +69,14 @@ export function MemberVisibilityPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clockNow, setClockNow] = useState(() => Date.now());
-  const explainer = useMetricKnowledgeCardController();
+  const [pageEpoch, setPageEpoch] = useState(0);
   const grantIdentity = memberVisibilityGrantIdentity(grant);
   const request = scopeAccess?.principal_id === port.principalId
     ? teamMemberVisibilityRequestForAccess(scope, scopeAccess, grant)
     : null;
   const requestIdentity = JSON.stringify(request);
+  const explainerContextIdentity = `${grantIdentity.length}:${grantIdentity}${requestIdentity.length}:${requestIdentity}:${pageEpoch}`;
+  const explainer = useMetricKnowledgeCardController(explainerContextIdentity);
   const allowed = memberVisibilityGrantIsUsable(grant, request, port.principalId, clockNow);
   const revealed = allowed
     && request !== null
@@ -157,6 +159,7 @@ export function MemberVisibilityPanel({
           request: snapshotTeamMemberVisibilityRequest(request),
           page: structuredClone(next),
         });
+        setPageEpoch((current) => current + 1);
       })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;

@@ -99,7 +99,8 @@ export function TeamAggregateBoard({
   const rows = useMemo(() => teamMetricRowsForLens(snapshot, lensId), [lensId, snapshot]);
   const summary = useMemo(() => teamSnapshotSummary(snapshot), [snapshot]);
   const lens = MODEL_ENSEMBLE_LENSES.find((candidate) => candidate.id === lensId);
-  const explainer = useMetricKnowledgeCardController();
+  const explainerContextIdentity = `${snapshot.request.query_id.length}:${snapshot.request.query_id}:${snapshot.generated_at}`;
+  const explainer = useMetricKnowledgeCardController(explainerContextIdentity);
   const entries: MetricExplainerEntry[] = rows.map((row) => ({
     key: row.key,
     label: row.label,
