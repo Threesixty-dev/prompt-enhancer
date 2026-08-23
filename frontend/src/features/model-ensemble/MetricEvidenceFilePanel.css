@@ -7,6 +7,12 @@
   background: var(--surface-raised, var(--pa-127-127-127-60));
 }
 
+.metric-evidence-file--generic {
+  container-name: metric-evidence-file;
+  container-type: inline-size;
+  min-width: 0;
+}
+
 .metric-evidence-file header,
 .metric-evidence-file header > div,
 .metric-evidence-file label,
@@ -14,6 +20,42 @@
 .metric-evidence-file li > span {
   display: grid;
   gap: 0.25rem;
+}
+
+.metric-evidence-file--generic header {
+  grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.65fr);
+  align-items: start;
+  min-width: 0;
+  gap: 0.55rem 1rem;
+}
+
+.metric-evidence-file--generic header > div,
+.metric-evidence-file--generic li > span {
+  min-width: 0;
+}
+
+.metric-evidence-file--generic header > small {
+  padding-inline-start: 0.75rem;
+  border-inline-start: 2px solid var(--border-subtle, var(--pa-127-127-127-350));
+}
+
+.metric-evidence-file__picker {
+  padding: 0.7rem;
+  border: 1px dashed var(--border-subtle, var(--pa-127-127-127-350));
+  border-radius: 0.7rem;
+  background: var(--surface, Canvas);
+}
+
+.metric-evidence-file__picker > span {
+  font-weight: 650;
+}
+
+.metric-evidence-file__picker input[type="file"] {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.35rem;
+  color: inherit;
 }
 
 .metric-evidence-file ul {
@@ -36,10 +78,121 @@
 }
 
 .metric-evidence-file li > div,
-.metric-evidence-file__preview {
+.metric-evidence-file--generic .metric-evidence-file__preview {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+}
+
+.metric-evidence-file__preview {
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--accent, var(--teal-700, currentColor));
+  border-radius: 0.7rem;
+  background: var(--surface, Canvas);
+}
+
+.metric-evidence-file--generic .metric-evidence-file__preview > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+}
+
+.metric-evidence-file__safe-metadata {
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.metric-evidence-file__proposal-actions {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.metric-evidence-file__state,
+.metric-evidence-file__notice,
+.metric-evidence-file__decision-summary,
+.metric-evidence-file__error {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-subtle, var(--pa-127-127-127-280));
+  border-radius: 0.65rem;
+  background: var(--surface, Canvas);
+}
+
+.metric-evidence-file__state--error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.metric-evidence-file--generic .metric-evidence-file__state--error > .metric-evidence-file__error {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.metric-evidence-file__notice {
+  border-color: var(--accent, var(--teal-700, currentColor));
+}
+
+.metric-evidence-file__decision-summary,
+.metric-evidence-file__footnote {
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.metric-evidence-file__footnote {
+  color: var(--text-muted, inherit);
+}
+
+.metric-evidence-file__proposals {
+  display: grid;
+  min-width: 0;
+  gap: 0.55rem;
+}
+
+.metric-evidence-file__section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.metric-evidence-file__section-heading > span {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border-subtle, var(--pa-127-127-127-280));
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.metric-evidence-file--generic h3,
+.metric-evidence-file--generic h4,
+.metric-evidence-file--generic p {
+  margin: 0;
+}
+
+.metric-evidence-file--generic h3 {
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.metric-evidence-file--generic h4 {
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.metric-evidence-file--generic small {
+  min-width: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.metric-evidence-file--generic :where(span, strong, small, p, h3, h4) {
+  overflow-wrap: anywhere;
 }
 
 .metric-evidence-file li.metric-evidence-file__review-proposal {
@@ -203,8 +356,22 @@
   min-height: 44px;
 }
 
+.metric-evidence-file--generic button {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.metric-evidence-file--generic :where(button, input, [tabindex="-1"]):focus-visible {
+  outline: 3px solid var(--focus-ring, Highlight);
+  outline-offset: 2px;
+}
+
 .metric-evidence-file__error {
   color: var(--danger, var(--p-c73a45));
+}
+
+.metric-evidence-file--generic .metric-evidence-file__error {
+  border-color: currentColor;
 }
 
 .metric-evidence-file--compact {
@@ -230,10 +397,56 @@
   }
 }
 
+.metric-evidence-file--generic.metric-evidence-file--compact h3 {
+  font-size: 0.86rem;
+}
+
+@container metric-evidence-file (max-width: 42rem) {
+  .metric-evidence-file--generic header {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-evidence-file--generic header > small {
+    padding-block-start: 0.45rem;
+    padding-inline-start: 0;
+    border-block-start: 2px solid var(--border-subtle, var(--pa-127-127-127-350));
+    border-inline-start: 0;
+  }
+
+  .metric-evidence-file--generic li,
+  .metric-evidence-file--generic .metric-evidence-file__preview,
+  .metric-evidence-file--generic .metric-evidence-file__state--error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .metric-evidence-file--generic .metric-evidence-file__proposal-actions,
+  .metric-evidence-file--generic .metric-evidence-file__decision-confirmation > div {
+    justify-content: stretch;
+  }
+
+  .metric-evidence-file--generic .metric-evidence-file__proposal-actions > button,
+  .metric-evidence-file--generic .metric-evidence-file__decision-confirmation > div > button,
+  .metric-evidence-file--generic .metric-evidence-file__preview > button,
+  .metric-evidence-file--generic .metric-evidence-file__state--error > button {
+    flex: 1 1 12rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .metric-evidence-file * { scroll-behavior: auto; }
 }
 
 @media (forced-colors: active) {
-  .metric-evidence-file { border-color: CanvasText; }
+  .metric-evidence-file--generic,
+  .metric-evidence-file--generic header > small,
+  .metric-evidence-file--generic .metric-evidence-file__picker,
+  .metric-evidence-file--generic .metric-evidence-file__preview,
+  .metric-evidence-file--generic .metric-evidence-file__state,
+  .metric-evidence-file--generic .metric-evidence-file__notice,
+  .metric-evidence-file--generic .metric-evidence-file__decision-summary,
+  .metric-evidence-file--generic .metric-evidence-file__error,
+  .metric-evidence-file--generic .metric-evidence-file__decision-confirmation {
+    border-color: CanvasText;
+  }
 }
