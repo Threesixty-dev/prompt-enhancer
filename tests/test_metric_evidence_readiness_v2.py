@@ -16,6 +16,7 @@ from prompt_enhancer.application.analysis.metric_evidence_readiness_v2 import (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_7,
     METRIC_EVIDENCE_REQUIREMENTS_V2,
     METRIC_EVIDENCE_REQUIREMENTS_V2_R4,
     METRIC_EVIDENCE_REQUIREMENTS_V2_R6,
@@ -25,9 +26,13 @@ from prompt_enhancer.application.analysis.metric_evidence_readiness_v2 import (
     MetricEvidenceContributor,
     MetricEvidenceReadinessProjectionV2,
     MetricEvidenceReadinessReason,
+    metric_evidence_readiness_row,
     project_metric_evidence_readiness_v2,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
+    METRIC_PROJECTION_V2_VERSION_8,
+    MetricStateV2,
+    OpportunityStatistics,
     _issue_metric_state_projection,
     project_metric_states_v2,
 )
@@ -659,12 +664,12 @@ def test_current_readiness_catalog_is_append_only_and_reads_r5_twenty_rows() -> 
     projection = _readiness_v5(_single_request_context())
 
     assert METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION == (
-        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6
+        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_7
     )
     assert SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS[-3:] == (
-        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5,
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6,
+        METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_7,
     )
     assert projection.metric_projection_version == "metric-contract-v2-projection-5"
     assert len(projection.metrics) == 20
@@ -1111,4 +1116,47 @@ def test_r1_known_rubric_readiness_does_not_claim_focus_ownership() -> None:
     assert (
         MetricEvidenceContributor.FOCUS_OWNED_REQUEST_REVISION
         in item.missing_contributors
+    )
+def test_r8_verified_requirement_readiness_never_invents_a_verifier_receipt() -> None:
+    contract = next(
+        item
+        for item in METRIC_CONTRACTS_V2
+        if item.metric_key == "outcome.verified_requirement_coverage"
+    )
+    state = MetricStateV2(
+        metric_key=contract.metric_key,
+        contract_version=contract.contract_version,
+        contract_fingerprint=contract.fingerprint,
+        evidence_authority=contract.evidence_authority,
+        value_state=MetricValueStateV2.KNOWN,
+        explanation_code="app_issued_verified_requirement_coverage",
+        numerator=1,
+        denominator=1,
+        numeric_value=1.0,
+        censoring_lower_bound=1.0,
+        censoring_upper_bound=1.0,
+        statistics=OpportunityStatistics(
+            metric_key=contract.metric_key,
+            denominator_basis=contract.denominator_basis,
+            opportunity_unit_kind=contract.opportunity_unit_kind,
+            capability_available=True,
+            source_complete=True,
+            eligible_count=1,
+            met_count=1,
+            not_met_count=0,
+            pending_count=0,
+            unknown_count=0,
+            superseded_excluded_count=0,
+            distinct_owner_count=1,
+        ),
+        projection_version=METRIC_PROJECTION_V2_VERSION_8,
+    )
+
+    row = metric_evidence_readiness_row(state)
+
+    assert row.observed_contributors == (
+        MetricEvidenceContributor.DECLARED_OBJECTIVE_OPPORTUNITY_SET,
+    )
+    assert MetricEvidenceContributor.TYPED_VERIFICATION_RECEIPT in (
+        row.missing_contributors
     )

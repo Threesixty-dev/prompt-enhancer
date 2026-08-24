@@ -1092,6 +1092,9 @@ class LocalApplication:
             requirement_action_review_contexts=(
                 requirement_action_review_contexts
             ),
+            requirement_verification_reader=(
+                self.database.requirement_verification_evidence_repository()
+            ),
         )
 
     def create_project_quality_aggregation_service(

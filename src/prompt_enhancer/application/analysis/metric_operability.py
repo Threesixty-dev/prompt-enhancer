@@ -34,7 +34,7 @@ from .metric_evidence_readiness_v2 import (
     METRIC_EVIDENCE_REQUIREMENTS_V2,
 )
 from .metric_lifecycle_evidence import MetricLifecycleFamily
-from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_7
+from .metric_projection_v2 import METRIC_PROJECTION_V2_VERSION_8
 from .metric_projection_v3 import OPEN_LOOP_METRIC_KEY
 from .probabilistic_metrics import (
     EVIDENCE_LANE_METRIC_KEYS,
@@ -44,7 +44,7 @@ from .provider_evidence import CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES
 from .semantic_units import EXTRACTABLE_SEMANTIC_UNIT_KINDS
 
 
-METRIC_OPERABILITY_CATALOG_VERSION = "metric-operability-v3"
+METRIC_OPERABILITY_CATALOG_VERSION = "metric-operability-v4"
 
 
 class MetricMeasuredPath(StrEnum):
@@ -104,8 +104,8 @@ class MetricOperabilityCatalog(StrictModel):
         METRIC_CONTRACT_REGISTRY_VERSION_V2
     )
     contract_set_fingerprint: str
-    projection_version: Literal[METRIC_PROJECTION_V2_VERSION_7] = (
-        METRIC_PROJECTION_V2_VERSION_7
+    projection_version: Literal[METRIC_PROJECTION_V2_VERSION_8] = (
+        METRIC_PROJECTION_V2_VERSION_8
     )
     readiness_catalog_version: Literal[
         METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION
@@ -180,7 +180,7 @@ def _entry(contract: MetricContractV2) -> MetricOperabilityEntry:
         state = MetricShippedPathState.AVAILABLE_WHEN_EVIDENCE_EXISTS
         next_step = MetricNextStepCode.CONFIRM_REQUIREMENT_PLAN_EVIDENCE
     elif key == "logic.requirement_action_traceability":
-        # R7 is the current publication identity. Keep the path unavailable in
+        # R8 is the current publication identity. Keep the path unavailable in
         # this catalog until a production provider proves a complete safe-event
         # and redacted-descriptor review surface; UI composition alone is not
         # operability.

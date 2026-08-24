@@ -195,7 +195,7 @@ def test_v5_session_projection_upgrades_with_truthful_unknown_pack(tmp_path) -> 
     database.initialize()
 
     metrics = database.get_session_metrics(SESSION_ID)
-    assert database.summary()["schema_version"] == SCHEMA_VERSION == 58
+    assert database.summary()["schema_version"] == SCHEMA_VERSION == 59
     [legacy_metric] = metrics
     assert legacy_metric["key"] == EVENT_COUNT_DEFINITION.key
     assert legacy_metric["version"] == EVENT_COUNT_DEFINITION.version

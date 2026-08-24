@@ -47,6 +47,7 @@ from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
     METRIC_PROJECTION_V2_VERSION_7,
+    METRIC_PROJECTION_V2_VERSION_8,
     MetricProjectionV2Version,
     MetricStateV2,
 )
@@ -90,8 +91,9 @@ METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5 = "metric-evidence-readiness-v2-5
 #: projection-gated vocabulary because awaiting an exact empty denominator and
 #: bounded overflow are otherwise structurally indistinguishable.
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6 = "metric-evidence-readiness-v2-6"
+METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_7 = "metric-evidence-readiness-v2-7"
 METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION = (
-    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_7
 )
 SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS = (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_1,
@@ -100,6 +102,7 @@ SUPPORTED_METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSIONS = (
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5,
     METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6,
+    METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_7,
 )
 
 
@@ -526,6 +529,7 @@ _R3_REQUIREMENT_PROJECTIONS = frozenset(
         METRIC_PROJECTION_V2_VERSION_5,
         METRIC_PROJECTION_V2_VERSION_6,
         METRIC_PROJECTION_V2_VERSION_7,
+        METRIC_PROJECTION_V2_VERSION_8,
     }
 )
 _R4_LIFECYCLE_PROJECTIONS = frozenset(
@@ -534,6 +538,7 @@ _R4_LIFECYCLE_PROJECTIONS = frozenset(
         METRIC_PROJECTION_V2_VERSION_5,
         METRIC_PROJECTION_V2_VERSION_6,
         METRIC_PROJECTION_V2_VERSION_7,
+        METRIC_PROJECTION_V2_VERSION_8,
     }
 )
 
@@ -557,7 +562,10 @@ def metric_evidence_requirement(
 ) -> _EvidenceRequirement:
     """The evidence one metric needed *under the identity that produced it*."""
 
-    if projection_version == METRIC_PROJECTION_V2_VERSION_7:
+    if projection_version in {
+        METRIC_PROJECTION_V2_VERSION_7,
+        METRIC_PROJECTION_V2_VERSION_8,
+    }:
         overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R7.get(metric_key)
         if overlay is not None:
             return overlay
@@ -565,6 +573,7 @@ def metric_evidence_requirement(
     if projection_version in {
         METRIC_PROJECTION_V2_VERSION_6,
         METRIC_PROJECTION_V2_VERSION_7,
+        METRIC_PROJECTION_V2_VERSION_8,
     }:
         overlay = METRIC_EVIDENCE_REQUIREMENTS_V2_R6.get(metric_key)
         if overlay is not None:
@@ -605,7 +614,8 @@ def _availability(
             MetricEvidenceReadinessReason.CALCULATOR_ABSTAINED,
         )
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_7
+        state.projection_version
+        in {METRIC_PROJECTION_V2_VERSION_7, METRIC_PROJECTION_V2_VERSION_8}
         and state.metric_key == "logic.requirement_action_traceability"
         and state.value_state is MetricValueStateV2.UNKNOWN
     ):
@@ -614,7 +624,7 @@ def _availability(
         )
         if refinement is None:
             raise ValueError(
-                "r7 requirement-action unknown has an unrecognized reason"
+                "r7/r8 requirement-action unknown has an unrecognized reason"
             )
         exact_shape = {
             REASON_REQUIREMENT_ACTION_UNAVAILABLE: (
@@ -645,7 +655,7 @@ def _availability(
         }[state.explanation_code]
         if not exact_shape:
             raise ValueError(
-                "r7 requirement-action reason disagrees with its statistics"
+                "r7/r8 requirement-action reason disagrees with its statistics"
             )
         return refinement
     if state.value_state is MetricValueStateV2.KNOWN:
@@ -703,6 +713,7 @@ def _availability(
         state.projection_version in {
             METRIC_PROJECTION_V2_VERSION_6,
             METRIC_PROJECTION_V2_VERSION_7,
+            METRIC_PROJECTION_V2_VERSION_8,
         }
         and state.metric_key == "logic.decomposition_coverage"
         and statistics.capability_available
@@ -716,6 +727,7 @@ def _availability(
         state.projection_version in {
             METRIC_PROJECTION_V2_VERSION_6,
             METRIC_PROJECTION_V2_VERSION_7,
+            METRIC_PROJECTION_V2_VERSION_8,
         }
         and state.metric_key == "logic.decomposition_coverage"
         and statistics.capability_available
@@ -793,7 +805,8 @@ def _observed_contributors(
         return ()
     resolved = statistics.met_count + statistics.not_met_count
     if (
-        state.projection_version == METRIC_PROJECTION_V2_VERSION_7
+        state.projection_version
+        in {METRIC_PROJECTION_V2_VERSION_7, METRIC_PROJECTION_V2_VERSION_8}
         and state.metric_key == "logic.requirement_action_traceability"
     ):
         if state.value_state not in {
@@ -802,7 +815,7 @@ def _observed_contributors(
             MetricValueStateV2.NOT_APPLICABLE,
         } or not statistics.source_complete:
             return ()
-        # A numeric, right-censored, or exact-empty r7 row can only be issued
+        # A numeric, right-censored, or exact-empty r7/r8 row can only be issued
         # after all three authorities passed together.  This includes an empty
         # candidate set: completeness of the safe enumeration is the proof,
         # not the presence of at least one tool event.
@@ -812,9 +825,27 @@ def _observed_contributors(
             MetricEvidenceContributor.SAFE_ACTION_CANDIDATE_ENUMERATION,
         )
     if (
+        state.projection_version == METRIC_PROJECTION_V2_VERSION_8
+        and state.metric_key == "outcome.verified_requirement_coverage"
+    ):
+        # The sealed metric row cannot distinguish an app-issued objective
+        # result from a separately owned native-acceptance authority. Preserve
+        # only denominator provenance here; the run binding owns the exact
+        # authority partition and readiness must not invent a verifier receipt.
+        return (
+            (requirement.denominator_contributor,)
+            if statistics.source_complete
+            and (
+                statistics.eligible_count > 0
+                or state.value_state is MetricValueStateV2.NOT_APPLICABLE
+            )
+            else ()
+        )
+    if (
         state.projection_version in {
             METRIC_PROJECTION_V2_VERSION_6,
             METRIC_PROJECTION_V2_VERSION_7,
+            METRIC_PROJECTION_V2_VERSION_8,
         }
         and state.metric_key == "logic.decomposition_coverage"
     ):
@@ -855,6 +886,7 @@ def _observed_contributors(
             METRIC_PROJECTION_V2_VERSION_5,
             METRIC_PROJECTION_V2_VERSION_6,
             METRIC_PROJECTION_V2_VERSION_7,
+            METRIC_PROJECTION_V2_VERSION_8,
         }
         and statistics.denominator_basis is DenominatorBasis.DECLARED_PROFILE_SLOTS
         and statistics.eligible_count == 0
@@ -1098,12 +1130,15 @@ class MetricEvidenceReadinessProjectionV2(StrictModel):
                 raise ValueError("readiness availability counts are inconsistent")
         if sum(counts.values()) != len(METRIC_CONTRACTS_V2):
             raise ValueError("readiness states must partition the twenty metrics")
-        if self.metric_projection_version != METRIC_PROJECTION_V2_VERSION_7 and any(
+        if self.metric_projection_version not in {
+            METRIC_PROJECTION_V2_VERSION_7,
+            METRIC_PROJECTION_V2_VERSION_8,
+        } and any(
             not item.capability_available and item.eligible_count
             for item in self.metrics
         ):
             raise ValueError(
-                "only r7 requirement-action readiness preserves unavailable eligibility"
+                "only r7/r8 requirement-action readiness preserves unavailable eligibility"
             )
         objective_rows = tuple(
             item
@@ -1141,6 +1176,7 @@ def metric_evidence_readiness_row(
         state.projection_version in {
             METRIC_PROJECTION_V2_VERSION_6,
             METRIC_PROJECTION_V2_VERSION_7,
+            METRIC_PROJECTION_V2_VERSION_8,
         }
         and state.metric_key == "logic.decomposition_coverage"
         and state.value_state is MetricValueStateV2.NOT_APPLICABLE
@@ -1271,6 +1307,7 @@ __all__ = [
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_4",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_5",
     "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_6",
+    "METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION_7",
     "METRIC_EVIDENCE_READINESS_V2_KEY",
     "METRIC_EVIDENCE_READINESS_V2_VERSION",
     "METRIC_EVIDENCE_REQUIREMENTS_V2",

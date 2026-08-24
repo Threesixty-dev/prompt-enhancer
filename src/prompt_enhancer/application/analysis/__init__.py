@@ -214,9 +214,13 @@ from .model_link_experiments import (
 from .session_model_ensemble import (
     LEGACY_MODEL_ENSEMBLE_CONFIRMATION,
     MODEL_ENSEMBLE_CONFIRMATION,
+    REQUIREMENT_VERIFICATION_BINDING_SCHEMA_VERSION,
+    RequirementVerificationEvidenceSource,
     SessionModelEnsembleOutcome,
     SessionModelEnsembleRunRecord,
     SessionModelEnsembleService,
+    SessionRequirementVerificationEvidenceBinding,
+    VERIFIED_REQUIREMENT_METRIC_ALGORITHM_ID,
 )
 from .model_ensemble_watch import (
     MODEL_ENSEMBLE_WATCH_CONFIRMATION,
@@ -283,6 +287,12 @@ from .metric_evidence_readiness_v2 import (
     MetricEvidenceReadinessV2,
     project_metric_evidence_readiness_v2,
 )
+from .metric_projection_v8 import (
+    METRIC_PROJECTION_V8_ALGORITHM_ID,
+    METRIC_PROJECTION_V8_ALGORITHM_VERSION,
+    METRIC_PROJECTION_V8_VERSION,
+    project_metric_states_v8,
+)
 from .metric_operability import (
     METRIC_OPERABILITY_CATALOG_VERSION,
     MetricMeasuredPath,
@@ -328,6 +338,11 @@ __all__ = [
     "METRIC_PROJECTION_V3_ALGORITHM_ID",
     "METRIC_PROJECTION_V3_ALGORITHM_VERSION",
     "METRIC_PROJECTION_V3_VERSION",
+    "METRIC_PROJECTION_V8_ALGORITHM_ID",
+    "METRIC_PROJECTION_V8_ALGORITHM_VERSION",
+    "METRIC_PROJECTION_V8_VERSION",
+    "REQUIREMENT_VERIFICATION_BINDING_SCHEMA_VERSION",
+    "VERIFIED_REQUIREMENT_METRIC_ALGORITHM_ID",
     "SESSION_METRIC_PUBLICATION_KEY",
     "SESSION_METRIC_PUBLICATION_LIMITS",
     "SESSION_METRIC_PUBLICATION_VERSION",
@@ -356,6 +371,7 @@ __all__ = [
     "PublishedMetricV2",
     "project_metric_evidence_readiness_v2",
     "project_metric_states_v3",
+    "project_metric_states_v8",
     "SessionMetricPublication",
     "SessionMetricPublicationError",
     "SessionMetricPublicationService",
@@ -492,6 +508,8 @@ __all__ = [
     "SessionModelEnsembleOutcome",
     "SessionModelEnsembleRunRecord",
     "SessionModelEnsembleService",
+    "SessionRequirementVerificationEvidenceBinding",
+    "RequirementVerificationEvidenceSource",
     "ModelEnsembleWatchRecord",
     "ModelEnsembleWatchService",
     "ModelEnsembleWatchState",

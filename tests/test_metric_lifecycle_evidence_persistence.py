@@ -566,7 +566,7 @@ def test_decision_insert_rejects_changed_window_race_but_allows_same_window(
         "same-window-decision",
     )
     assert decided.status is MetricLifecycleProposalStatus.CONFIRMED
-    assert database2.summary()["schema_version"] == 58
+    assert database2.summary()["schema_version"] == 59
 
 
 def test_run_and_session_privacy_cascades_purge_the_whole_receipt_graph(

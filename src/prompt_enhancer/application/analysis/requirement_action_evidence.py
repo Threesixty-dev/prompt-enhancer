@@ -1133,6 +1133,7 @@ class RequirementActionEvidenceContract(StrictModel):
     source_projection_version: Literal[
         "metric-contract-v2-projection-6",
         "metric-contract-v2-projection-7",
+        "metric-contract-v2-projection-8",
     ]
     requirement_plan_confirmation_id: str
     requirement_plan_evidence_fingerprint: str
@@ -1234,6 +1235,7 @@ class RequirementActionSourceContract(StrictModel):
     projection_version: Literal[
         "metric-contract-v2-projection-6",
         "metric-contract-v2-projection-7",
+        "metric-contract-v2-projection-8",
     ]
     requirement_plan_evidence: RequirementPlanEvidenceSnapshot
     candidate_manifest: RequirementActionCandidateManifest
@@ -1603,6 +1605,7 @@ class InMemoryRequirementActionReviewContextStore:
         projection_version: Literal[
             "metric-contract-v2-projection-6",
             "metric-contract-v2-projection-7",
+            "metric-contract-v2-projection-8",
         ],
     ) -> RequirementActionSourceContract:
         contract, _fingerprint = self._source_contract_with_binding(
@@ -1617,6 +1620,7 @@ class InMemoryRequirementActionReviewContextStore:
         projection_version: Literal[
             "metric-contract-v2-projection-6",
             "metric-contract-v2-projection-7",
+            "metric-contract-v2-projection-8",
         ],
     ) -> tuple[RequirementActionSourceContract, str]:
         _pseudonym(session_id)
@@ -2113,7 +2117,7 @@ class RequirementActionSealedRunRepository(Protocol):
 
 
 class SealedRunRequirementActionSource:
-    """Cross-check a live review context against the latest sealed r6/r7 run."""
+    """Cross-check a live review context against the latest sealed r6-r8 run."""
 
     def __init__(
         self,
@@ -2137,12 +2141,13 @@ class SealedRunRequirementActionSource:
             ) from None
         if latest is None or latest.receipt.metric_publication_v2 is None:
             raise RequirementActionNotFoundError(
-                "a sealed r6 or r7 metric publication is required"
+                "a sealed r6, r7, or r8 metric publication is required"
             )
         publication = latest.receipt.metric_publication_v2
         if publication.projection_version not in {
             "metric-contract-v2-projection-6",
             "metric-contract-v2-projection-7",
+            "metric-contract-v2-projection-8",
         }:
             raise RequirementActionDefinitionsOutOfDateError(
                 "latest sealed publication cannot source requirement actions"

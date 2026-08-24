@@ -79,6 +79,7 @@ METRIC_PROJECTION_V2_VERSION_4 = "metric-contract-v2-projection-4"
 METRIC_PROJECTION_V2_VERSION_5 = "metric-contract-v2-projection-5"
 METRIC_PROJECTION_V2_VERSION_6 = "metric-contract-v2-projection-6"
 METRIC_PROJECTION_V2_VERSION_7 = "metric-contract-v2-projection-7"
+METRIC_PROJECTION_V2_VERSION_8 = "metric-contract-v2-projection-8"
 #: The identity *this* producer stamps.  It stays at ``-2`` forever: rows it
 #: wrote must keep meaning what the producer that wrote them meant.
 METRIC_PROJECTION_V2_VERSION = METRIC_PROJECTION_V2_VERSION_2
@@ -92,6 +93,7 @@ SUPPORTED_METRIC_PROJECTION_V2_VERSIONS = (
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
     METRIC_PROJECTION_V2_VERSION_7,
+    METRIC_PROJECTION_V2_VERSION_8,
 )
 MetricProjectionV2Version = Literal[
     "metric-contract-v2-projection-1",
@@ -101,6 +103,7 @@ MetricProjectionV2Version = Literal[
     "metric-contract-v2-projection-5",
     "metric-contract-v2-projection-6",
     "metric-contract-v2-projection-7",
+    "metric-contract-v2-projection-8",
 ]
 METRIC_PROJECTION_V2_ALGORITHM_ID = "rules.en-pl.contract-v2-opportunities"
 METRIC_PROJECTION_V2_ALGORITHM_VERSION = "2"
@@ -299,7 +302,11 @@ class MetricStateV2(StrictModel):
             raise ValueError("metric statistics belong to another metric")
         if not self.statistics.capability_available and self.statistics.eligible_count:
             r7_requirement_action_unavailable = (
-                self.projection_version == "metric-contract-v2-projection-7"
+                self.projection_version
+                in {
+                    "metric-contract-v2-projection-7",
+                    "metric-contract-v2-projection-8",
+                }
                 and self.metric_key == "logic.requirement_action_traceability"
                 and self.value_state is MetricValueStateV2.UNKNOWN
                 and self.explanation_code == "requirement_action_evidence_unavailable"
@@ -395,7 +402,7 @@ class MetricStateV2(StrictModel):
 def reviewed_requirement_plan_denominator_is_authoritative(
     state: MetricStateV2,
 ) -> bool:
-    """Whether an r6/r7 decomposition row proves its reviewed denominator."""
+    """Whether an r6-r8 decomposition row proves its reviewed denominator."""
 
     contract = next(
         item
@@ -409,7 +416,11 @@ def reviewed_requirement_plan_denominator_is_authoritative(
         or state.contract_fingerprint != contract.fingerprint
         or state.evidence_authority is not contract.evidence_authority
         or state.projection_version
-        not in {METRIC_PROJECTION_V2_VERSION_6, METRIC_PROJECTION_V2_VERSION_7}
+        not in {
+            METRIC_PROJECTION_V2_VERSION_6,
+            METRIC_PROJECTION_V2_VERSION_7,
+            METRIC_PROJECTION_V2_VERSION_8,
+        }
         or statistics.metric_key != state.metric_key
         or statistics.denominator_basis is not contract.denominator_basis
         or statistics.opportunity_unit_kind is not contract.opportunity_unit_kind
@@ -1408,6 +1419,7 @@ __all__ = [
     "METRIC_PROJECTION_V2_VERSION_5",
     "METRIC_PROJECTION_V2_VERSION_6",
     "METRIC_PROJECTION_V2_VERSION_7",
+    "METRIC_PROJECTION_V2_VERSION_8",
     "MetricProjectionV2Version",
     "MetricStateV2",
     "OpportunityStatistics",

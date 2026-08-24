@@ -55,9 +55,9 @@ def test_populated_v57_upgrades_to_v58_without_backfill_or_frozen_drift(
         versions = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 58
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 58
-        assert tuple(row[0] for row in versions) == tuple(range(1, 59))
+        assert SCHEMA_VERSION == 59
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 59
+        assert tuple(row[0] for row in versions) == tuple(range(1, 60))
         assert versions[56][1] == MIGRATION_57_FROZEN_SHA256
         assert versions[57][1] == hashlib.sha256(
             migrations.MIGRATION_58.encode()
@@ -152,7 +152,7 @@ def test_m58_tables_are_strict_content_free_and_append_only(tmp_path) -> None:
 
 def test_registry_appends_m58_after_byte_frozen_m57() -> None:
     source = inspect.getsource(migrations)
-    assert SCHEMA_VERSION == 58
+    assert SCHEMA_VERSION == 59
     assert hashlib.sha256(migrations.MIGRATION_57.encode()).hexdigest() == (
         MIGRATION_57_FROZEN_SHA256
     )

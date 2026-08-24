@@ -40,6 +40,7 @@ from ...application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
     METRIC_PROJECTION_V2_VERSION_7,
+    METRIC_PROJECTION_V2_VERSION_8,
     MetricStateV2,
     OpportunityStatistics,
 )
@@ -210,6 +211,7 @@ def _metric_v2_seal(connection, run_id: str) -> tuple[object, str] | None:
                 METRIC_PROJECTION_V2_VERSION_5,
                 METRIC_PROJECTION_V2_VERSION_6,
                 METRIC_PROJECTION_V2_VERSION_7,
+                METRIC_PROJECTION_V2_VERSION_8,
             }
             else ""
         )
@@ -223,6 +225,7 @@ def _metric_v2_seal(connection, run_id: str) -> tuple[object, str] | None:
             if version in {
                 METRIC_PROJECTION_V2_VERSION_6,
                 METRIC_PROJECTION_V2_VERSION_7,
+                METRIC_PROJECTION_V2_VERSION_8,
             }
             else ""
         )
@@ -241,13 +244,30 @@ def _metric_v2_seal(connection, run_id: str) -> tuple[object, str] | None:
             "seal.requirement_action_evidence_fingerprint,"
             "seal.requirement_action_schema_version,"
             "seal.requirement_action_policy_version"
-            if version == METRIC_PROJECTION_V2_VERSION_7
+            if version in {
+                METRIC_PROJECTION_V2_VERSION_7,
+                METRIC_PROJECTION_V2_VERSION_8,
+            }
             else ""
         )
         action_join = (
             " JOIN session_model_ensemble_requirement_action_bindings "
             "AS action_binding ON action_binding.run_id=seal.run_id"
-            if version == METRIC_PROJECTION_V2_VERSION_7
+            if version in {
+                METRIC_PROJECTION_V2_VERSION_7,
+                METRIC_PROJECTION_V2_VERSION_8,
+            }
+            else ""
+        )
+        verification_columns = (
+            ",seal.requirement_verification_source,"
+            "seal.requirement_verification_requirement_plan_confirmation_id,"
+            "seal.requirement_verification_requirement_plan_evidence_fingerprint,"
+            "seal.requirement_verification_opportunity_set_fingerprint,"
+            "seal.requirement_verification_evidence_set_fingerprint,"
+            "seal.requirement_verification_through_revision,"
+            "seal.requirement_verification_binding_fingerprint"
+            if version == METRIC_PROJECTION_V2_VERSION_8
             else ""
         )
         seal = connection.execute(
@@ -256,7 +276,7 @@ def _metric_v2_seal(connection, run_id: str) -> tuple[object, str] | None:
                        guidance_contract_version,guidance_template_catalog_version,
                        source,canonical_live_snapshot,model_stage_consumed,
                        compatibility_preview{profile_columns}{evidence_columns}
-                       {action_columns}
+                       {action_columns}{verification_columns}
                 FROM {seals_table} AS seal{action_join} WHERE seal.run_id=?""",
             (run_id,),
         ).fetchone()
@@ -301,8 +321,9 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
         METRIC_PROJECTION_V2_VERSION_5,
         METRIC_PROJECTION_V2_VERSION_6,
         METRIC_PROJECTION_V2_VERSION_7,
+        METRIC_PROJECTION_V2_VERSION_8,
     }:
-        return (*identity, *(None for _ in range(25)))
+        return (*identity, *(None for _ in range(32)))
     profile_identity = (
         *identity,
         seal["profile_source"],
@@ -313,7 +334,7 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
         seal["profile_policy_version"],
     )
     if seal["projection_version"] == METRIC_PROJECTION_V2_VERSION_5:
-        return (*profile_identity, *(None for _ in range(19)))
+        return (*profile_identity, *(None for _ in range(26)))
     requirement_plan_identity = (
         *profile_identity,
         seal["requirement_plan_source"],
@@ -324,8 +345,8 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
         seal["requirement_plan_policy_version"],
     )
     if seal["projection_version"] == METRIC_PROJECTION_V2_VERSION_6:
-        return (*requirement_plan_identity, *(None for _ in range(13)))
-    return (
+        return (*requirement_plan_identity, *(None for _ in range(20)))
+    requirement_action_identity = (
         *requirement_plan_identity,
         seal["requirement_action_source"],
         seal["requirement_action_session_id"],
@@ -340,6 +361,18 @@ def _metric_v2_identity(connection, run_id: str | None) -> tuple[object, ...] | 
         seal["requirement_action_evidence_fingerprint"],
         seal["requirement_action_schema_version"],
         seal["requirement_action_policy_version"],
+    )
+    if seal["projection_version"] == METRIC_PROJECTION_V2_VERSION_7:
+        return (*requirement_action_identity, *(None for _ in range(7)))
+    return (
+        *requirement_action_identity,
+        seal["requirement_verification_source"],
+        seal["requirement_verification_requirement_plan_confirmation_id"],
+        seal["requirement_verification_requirement_plan_evidence_fingerprint"],
+        seal["requirement_verification_opportunity_set_fingerprint"],
+        seal["requirement_verification_evidence_set_fingerprint"],
+        seal["requirement_verification_through_revision"],
+        seal["requirement_verification_binding_fingerprint"],
     )
 
 
@@ -408,28 +441,42 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
         connection: object,
         run_id: str,
     ) -> None:
-        """Fail closed unless an r7 trajectory point has exact keyed authority."""
+        """Fail closed unless an r7/r8 trajectory point has exact authority."""
 
         self._run_authority.validate_requirement_plan_run_authority(
             connection,
             run_id,
         )
-        seal = connection.execute(  # type: ignore[attr-defined]
-            """SELECT requirement_action_source,
-                      requirement_action_source_run_id,
-                      requirement_action_requirement_plan_confirmation_id,
-                      requirement_action_requirement_plan_evidence_fingerprint,
-                      requirement_action_candidate_manifest_fingerprint,
-                      requirement_action_reviewed_descriptor_set_fingerprint,
-                      requirement_action_confirmation_id,
-                      requirement_action_proposal_id,
-                      requirement_action_evidence_fingerprint,
-                      requirement_action_schema_version,
-                      requirement_action_policy_version
-               FROM session_model_ensemble_metric_publication_v2_seals_r7
-               WHERE run_id=?""",
-            (run_id,),
-        ).fetchone()
+        seal = None
+        seal_version = None
+        for version, table in (
+            (
+                METRIC_PROJECTION_V2_VERSION_8,
+                "session_model_ensemble_metric_publication_v2_seals_r8",
+            ),
+            (
+                METRIC_PROJECTION_V2_VERSION_7,
+                "session_model_ensemble_metric_publication_v2_seals_r7",
+            ),
+        ):
+            seal = connection.execute(  # type: ignore[attr-defined]
+                f"""SELECT requirement_action_source,
+                           requirement_action_source_run_id,
+                           requirement_action_requirement_plan_confirmation_id,
+                           requirement_action_requirement_plan_evidence_fingerprint,
+                           requirement_action_candidate_manifest_fingerprint,
+                           requirement_action_reviewed_descriptor_set_fingerprint,
+                           requirement_action_confirmation_id,
+                           requirement_action_proposal_id,
+                           requirement_action_evidence_fingerprint,
+                           requirement_action_schema_version,
+                           requirement_action_policy_version
+                    FROM {table} WHERE run_id=?""",
+                (run_id,),
+            ).fetchone()
+            if seal is not None:
+                seal_version = version
+                break
         binding = self._run_authority.validate_requirement_action_run_authority(
             connection,
             run_id,
@@ -458,6 +505,59 @@ class SqliteModelEnsembleWatchRepository(ModelEnsembleWatchRepository):
         ):
             raise DatabaseInvariantError(
                 "trajectory requirement-action authority is invalid"
+            )
+        verification_binding = (
+            self._run_authority.validate_requirement_verification_run_authority(
+                connection,
+                run_id,
+            )
+        )
+        if seal_version != METRIC_PROJECTION_V2_VERSION_8:
+            if verification_binding is not None:
+                raise DatabaseInvariantError(
+                    "trajectory requirement-verification authority is invalid"
+                )
+            return
+        verification_seal = connection.execute(  # type: ignore[attr-defined]
+            """SELECT requirement_verification_source,
+                      requirement_verification_requirement_plan_confirmation_id,
+                      requirement_verification_requirement_plan_evidence_fingerprint,
+                      requirement_verification_opportunity_set_fingerprint,
+                      requirement_verification_evidence_set_fingerprint,
+                      requirement_verification_through_revision,
+                      requirement_verification_binding_fingerprint
+               FROM session_model_ensemble_metric_publication_v2_seals_r8
+               WHERE run_id=?""",
+            (run_id,),
+        ).fetchone()
+        if (
+            verification_binding is None
+            or verification_seal is None
+            or verification_seal["requirement_verification_source"]
+            != verification_binding.evidence_source.value
+            or verification_seal[
+                "requirement_verification_requirement_plan_confirmation_id"
+            ]
+            != verification_binding.requirement_plan_confirmation_id
+            or verification_seal[
+                "requirement_verification_requirement_plan_evidence_fingerprint"
+            ]
+            != verification_binding.requirement_plan_evidence_fingerprint
+            or verification_seal[
+                "requirement_verification_opportunity_set_fingerprint"
+            ]
+            != verification_binding.opportunity_set_fingerprint
+            or verification_seal[
+                "requirement_verification_evidence_set_fingerprint"
+            ]
+            != verification_binding.evidence_set_fingerprint
+            or verification_seal["requirement_verification_through_revision"]
+            != verification_binding.through_revision
+            or verification_seal["requirement_verification_binding_fingerprint"]
+            != verification_binding.binding_fingerprint
+        ):
+            raise DatabaseInvariantError(
+                "trajectory requirement-verification authority is invalid"
             )
 
     @staticmethod

@@ -83,9 +83,9 @@ def test_populated_v55_upgrades_through_v57_without_frozen_byte_drift(
         versions = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert SCHEMA_VERSION == 58
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 58
-        assert tuple(row[0] for row in versions) == tuple(range(1, 59))
+        assert SCHEMA_VERSION == 59
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 59
+        assert tuple(row[0] for row in versions) == tuple(range(1, 60))
         assert versions[53][1] == MIGRATION_54_FROZEN_SHA256
         assert versions[54][1] == MIGRATION_55_FROZEN_SHA256
         assert versions[55][1] == MIGRATION_56_FROZEN_SHA256
@@ -115,8 +115,8 @@ def test_populated_v56_upgrades_to_v57_and_installs_only_graph_guards(
         versions = connection.execute(
             "SELECT version,checksum FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 58
-        assert tuple(row[0] for row in versions) == tuple(range(1, 59))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 59
+        assert tuple(row[0] for row in versions) == tuple(range(1, 60))
         assert versions[53][1] == MIGRATION_54_FROZEN_SHA256
         assert versions[54][1] == MIGRATION_55_FROZEN_SHA256
         assert versions[55][1] == MIGRATION_56_FROZEN_SHA256
@@ -231,7 +231,7 @@ def test_migration_checksum_mismatch_fails_closed_before_m56(tmp_path) -> None:
 
 def test_database_registry_appends_m57_after_byte_frozen_m56() -> None:
     source = inspect.getsource(migrations)
-    assert SCHEMA_VERSION == 58
+    assert SCHEMA_VERSION == 59
     assert hashlib.sha256(migrations.MIGRATION_54.encode()).hexdigest() == (
         MIGRATION_54_FROZEN_SHA256
     )

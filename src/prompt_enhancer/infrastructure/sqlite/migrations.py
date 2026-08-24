@@ -16364,3 +16364,708 @@ BEGIN SELECT RAISE(ABORT,'requirement-verification authority seal requires paren
 COMMIT;
 """
 
+
+MIGRATION_59 = r"""
+BEGIN IMMEDIATE;
+
+-- Projection r8 binds the exact durable requirement-verification prefix used
+-- by one live publication.  This graph remains content-free: it stores only
+-- keyed identifiers, closed versions/states, bounded counts, and UTC server
+-- times.  M1-M58 remain byte-frozen and historical r1-r7 rows are not
+-- backfilled or reinterpreted.
+CREATE TABLE session_model_ensemble_requirement_verification_bindings (
+    run_id TEXT PRIMARY KEY
+      REFERENCES session_model_ensemble_runs(run_id) ON DELETE CASCADE,
+    evidence_source TEXT NOT NULL CHECK(evidence_source IN (
+      'unavailable','opportunity_bound_exceeded','awaiting_evidence',
+      'persisted_evidence'
+    )),
+    session_id TEXT NOT NULL
+      CHECK(length(session_id)=64 AND session_id NOT GLOB '*[^0-9a-f]*'),
+    source_window_fingerprint TEXT NOT NULL
+      CHECK(length(source_window_fingerprint)=64
+            AND source_window_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_confirmation_id TEXT
+      CHECK(requirement_plan_confirmation_id IS NULL OR
+            (length(requirement_plan_confirmation_id)=64
+             AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_plan_proposal_id TEXT
+      CHECK(requirement_plan_proposal_id IS NULL OR
+            (length(requirement_plan_proposal_id)=64
+             AND requirement_plan_proposal_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_plan_evidence_fingerprint TEXT
+      CHECK(requirement_plan_evidence_fingerprint IS NULL OR
+            (length(requirement_plan_evidence_fingerprint)=64
+             AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_plan_schema_version TEXT
+      CHECK(requirement_plan_schema_version IS NULL OR
+            requirement_plan_schema_version='requirement-plan-evidence-v1'),
+    requirement_plan_policy_version TEXT
+      CHECK(requirement_plan_policy_version IS NULL OR
+            requirement_plan_policy_version='reviewed-requirement-plan-v1'),
+    requirement_plan_review_rubric_version TEXT
+      CHECK(requirement_plan_review_rubric_version IS NULL OR
+            requirement_plan_review_rubric_version=
+              'active-requirement-plan-review-rubric-v1'),
+    opportunity_count INTEGER
+      CHECK(opportunity_count IS NULL OR opportunity_count BETWEEN 0 AND 1000),
+    -- Awaiting/overflow bindings carry the deterministic would-be set
+    -- fingerprint while deliberately proving that no M58 set exists.  A
+    -- conditional foreign key cannot express that partition, so the insert
+    -- trigger and repository validate the real-evidence relation atomically.
+    opportunity_set_fingerprint TEXT
+      CHECK(opportunity_set_fingerprint IS NULL OR
+            (length(opportunity_set_fingerprint)=64
+             AND opportunity_set_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    evidence_set_fingerprint TEXT
+      CHECK(evidence_set_fingerprint IS NULL OR
+            (length(evidence_set_fingerprint)=64
+             AND evidence_set_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    through_revision INTEGER
+      CHECK(through_revision IS NULL OR through_revision BETWEEN 0 AND 32000),
+    authority_head_count INTEGER
+      CHECK(authority_head_count IS NULL OR authority_head_count BETWEEN 0 AND 1000),
+    objective_result_count INTEGER
+      CHECK(objective_result_count IS NULL OR objective_result_count BETWEEN 0 AND 1000),
+    native_acceptance_count INTEGER
+      CHECK(native_acceptance_count IS NULL OR native_acceptance_count BETWEEN 0 AND 1000),
+    resolved_opportunity_count INTEGER
+      CHECK(resolved_opportunity_count IS NULL OR resolved_opportunity_count BETWEEN 0 AND 1000),
+    met_requirement_count INTEGER
+      CHECK(met_requirement_count IS NULL OR met_requirement_count BETWEEN 0 AND 1000),
+    opportunity_issuer_version TEXT NOT NULL
+      CHECK(opportunity_issuer_version=
+            'reviewed-r6-requirement-opportunity-issuer-v1'),
+    result_issuer_version TEXT NOT NULL
+      CHECK(result_issuer_version=
+            'local-objective-verification-result-issuer-v1'),
+    acceptance_issuer_version TEXT NOT NULL
+      CHECK(acceptance_issuer_version=
+            'native-explicit-requirement-acceptance-issuer-v1'),
+    evidence_schema_version TEXT NOT NULL
+      CHECK(evidence_schema_version='requirement-verification-evidence-v1'),
+    evidence_policy_version TEXT NOT NULL
+      CHECK(evidence_policy_version=
+            'app-issued-reviewed-requirement-verification-v1'),
+    persistence_schema_version TEXT NOT NULL
+      CHECK(persistence_schema_version=
+            'requirement-verification-persistence-v1'),
+    evidence_projection_version TEXT NOT NULL
+      CHECK(evidence_projection_version=
+            'reviewed-requirement-verification-objective-projection-v1'),
+    objective_projection_version TEXT NOT NULL
+      CHECK(objective_projection_version=
+            'reviewed-requirement-verification-objective-projection-v1'),
+    binding_schema_version TEXT NOT NULL
+      CHECK(binding_schema_version=
+            'session-requirement-verification-evidence-binding-v1'),
+    bound_at TEXT NOT NULL
+      CHECK(length(bound_at)=32 AND substr(bound_at,27)='+00:00'),
+    binding_fingerprint TEXT NOT NULL
+      CHECK(length(binding_fingerprint)=64
+            AND binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    CHECK(authority_head_count IS NULL OR
+          authority_head_count=objective_result_count+native_acceptance_count),
+    CHECK(through_revision IS NULL OR authority_head_count IS NULL OR
+          through_revision>=authority_head_count),
+    CHECK(resolved_opportunity_count IS NULL OR
+          resolved_opportunity_count<=authority_head_count),
+    CHECK(met_requirement_count IS NULL OR
+          met_requirement_count<=resolved_opportunity_count),
+    CHECK(opportunity_count IS NULL OR authority_head_count IS NULL OR
+          authority_head_count<=opportunity_count),
+    CHECK(
+      (evidence_source='unavailable'
+       AND requirement_plan_confirmation_id IS NULL
+       AND requirement_plan_proposal_id IS NULL
+       AND requirement_plan_evidence_fingerprint IS NULL
+       AND requirement_plan_schema_version IS NULL
+       AND requirement_plan_policy_version IS NULL
+       AND requirement_plan_review_rubric_version IS NULL
+       AND opportunity_count IS NULL
+       AND opportunity_set_fingerprint IS NULL
+       AND evidence_set_fingerprint IS NULL AND through_revision IS NULL
+       AND authority_head_count IS NULL AND objective_result_count IS NULL
+       AND native_acceptance_count IS NULL
+       AND resolved_opportunity_count IS NULL
+       AND met_requirement_count IS NULL)
+      OR
+      (evidence_source='opportunity_bound_exceeded'
+       AND requirement_plan_confirmation_id IS NOT NULL
+       AND requirement_plan_proposal_id IS NOT NULL
+       AND requirement_plan_evidence_fingerprint IS NOT NULL
+       AND requirement_plan_schema_version='requirement-plan-evidence-v1'
+       AND requirement_plan_policy_version='reviewed-requirement-plan-v1'
+       AND requirement_plan_review_rubric_version=
+           'active-requirement-plan-review-rubric-v1'
+       AND opportunity_count BETWEEN 101 AND 1000
+       AND opportunity_set_fingerprint IS NOT NULL
+       AND evidence_set_fingerprint IS NULL AND through_revision IS NULL
+       AND authority_head_count IS NULL AND objective_result_count IS NULL
+       AND native_acceptance_count IS NULL
+       AND resolved_opportunity_count IS NULL
+       AND met_requirement_count IS NULL)
+      OR
+      (evidence_source='awaiting_evidence'
+       AND requirement_plan_confirmation_id IS NOT NULL
+       AND requirement_plan_proposal_id IS NOT NULL
+       AND requirement_plan_evidence_fingerprint IS NOT NULL
+       AND requirement_plan_schema_version='requirement-plan-evidence-v1'
+       AND requirement_plan_policy_version='reviewed-requirement-plan-v1'
+       AND requirement_plan_review_rubric_version=
+           'active-requirement-plan-review-rubric-v1'
+       AND opportunity_count BETWEEN 0 AND 100
+       AND opportunity_set_fingerprint IS NOT NULL
+       AND evidence_set_fingerprint IS NULL AND through_revision IS NULL
+       AND authority_head_count=0 AND objective_result_count=0
+       AND native_acceptance_count=0 AND resolved_opportunity_count=0
+       AND met_requirement_count=0)
+      OR
+      (evidence_source='persisted_evidence'
+       AND requirement_plan_confirmation_id IS NOT NULL
+       AND requirement_plan_proposal_id IS NOT NULL
+       AND requirement_plan_evidence_fingerprint IS NOT NULL
+       AND requirement_plan_schema_version='requirement-plan-evidence-v1'
+       AND requirement_plan_policy_version='reviewed-requirement-plan-v1'
+       AND requirement_plan_review_rubric_version=
+           'active-requirement-plan-review-rubric-v1'
+       AND opportunity_count BETWEEN 0 AND 100
+       AND opportunity_set_fingerprint IS NOT NULL
+       AND evidence_set_fingerprint IS NOT NULL
+       AND through_revision IS NOT NULL
+       AND authority_head_count IS NOT NULL
+       AND objective_result_count IS NOT NULL
+       AND native_acceptance_count IS NOT NULL
+       AND resolved_opportunity_count IS NOT NULL
+       AND met_requirement_count IS NOT NULL)
+    )
+) STRICT;
+
+-- R8 is an append-only publication identity.  Its row shape remains the r7
+-- contract shape; only the producer identity and exact verification binding
+-- are new.
+CREATE TABLE session_model_ensemble_metric_states_v2_r8 (
+    run_id TEXT NOT NULL,
+    metric_ordinal INTEGER NOT NULL CHECK(metric_ordinal BETWEEN 0 AND 19),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-8'),
+    metric_key TEXT NOT NULL CHECK(length(metric_key) BETWEEN 1 AND 128 AND metric_key NOT GLOB '*[^a-z0-9._-]*'),
+    contract_version TEXT NOT NULL CHECK(contract_version='probabilistic-metric-contract-v2'),
+    contract_fingerprint TEXT NOT NULL CHECK(length(contract_fingerprint)=64 AND contract_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    evidence_authority TEXT NOT NULL CHECK(evidence_authority IN ('conversation','objective_receipt')),
+    value_state TEXT NOT NULL CHECK(value_state IN ('known','pending','unknown','not_applicable','abstained','execution_error')),
+    explanation_code TEXT NOT NULL CHECK(length(explanation_code) BETWEEN 1 AND 128 AND explanation_code NOT GLOB '*[^A-Za-z0-9._:-]*'),
+    numerator INTEGER CHECK(numerator BETWEEN 0 AND 1000000),
+    denominator INTEGER CHECK(denominator BETWEEN 1 AND 1000000),
+    numeric_value REAL CHECK(numeric_value BETWEEN 0.0 AND 1.0),
+    censoring_lower_bound REAL CHECK(censoring_lower_bound BETWEEN 0.0 AND 1.0),
+    censoring_upper_bound REAL CHECK(censoring_upper_bound BETWEEN 0.0 AND 1.0),
+    denominator_basis TEXT NOT NULL CHECK(denominator_basis IN ('rubric_factors','semantic_unit_opportunities','declared_profile_slots','objective_opportunities')),
+    opportunity_unit_kind TEXT CHECK(opportunity_unit_kind IN (
+      'request_revision','requirement','constraint','deliverable','ambiguity',
+      'clarification','scope_change','feedback','hypothesis','decision',
+      'open_loop','action','verification'
+    )),
+    capability_available INTEGER NOT NULL CHECK(capability_available IN (0,1)),
+    source_complete INTEGER NOT NULL CHECK(source_complete IN (0,1)),
+    eligible_count INTEGER NOT NULL CHECK(eligible_count BETWEEN 0 AND 1000000),
+    met_count INTEGER NOT NULL CHECK(met_count BETWEEN 0 AND 1000000),
+    not_met_count INTEGER NOT NULL CHECK(not_met_count BETWEEN 0 AND 1000000),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 1000000),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 1000000),
+    superseded_excluded_count INTEGER NOT NULL CHECK(superseded_excluded_count BETWEEN 0 AND 1000000),
+    distinct_owner_count INTEGER NOT NULL CHECK(distinct_owner_count BETWEEN 0 AND 1000000),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    PRIMARY KEY(run_id,metric_key),
+    UNIQUE(run_id,metric_ordinal),
+    FOREIGN KEY(run_id,metric_key)
+      REFERENCES session_model_ensemble_metrics(run_id,metric_key) ON DELETE CASCADE,
+    FOREIGN KEY(run_id)
+      REFERENCES session_model_ensemble_requirement_verification_bindings(run_id)
+      ON DELETE CASCADE,
+    CHECK(met_count+not_met_count+pending_count+unknown_count=eligible_count),
+    CHECK(
+      capability_available=1 OR eligible_count=0 OR (
+        metric_key='logic.requirement_action_traceability'
+        AND value_state='unknown'
+        AND explanation_code='requirement_action_evidence_unavailable'
+        AND source_complete=1 AND met_count=0 AND not_met_count=0
+        AND pending_count=0 AND unknown_count=eligible_count
+      )
+    ),
+    CHECK(denominator_basis NOT IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NOT NULL),
+    CHECK(denominator_basis IN ('semantic_unit_opportunities','rubric_factors')
+          OR opportunity_unit_kind IS NULL),
+    CHECK((censoring_lower_bound IS NULL)=(censoring_upper_bound IS NULL)),
+    CHECK(censoring_lower_bound IS NULL OR censoring_lower_bound<=censoring_upper_bound),
+    CHECK(
+      (value_state='known' AND numerator IS NOT NULL AND denominator IS NOT NULL
+       AND numeric_value IS NOT NULL AND numerator<=denominator
+       AND abs(numeric_value-(CAST(numerator AS REAL)/denominator))<=0.000000001
+       AND censoring_lower_bound IS NOT NULL
+       AND abs(censoring_lower_bound-numeric_value)<=0.000000001
+       AND abs(censoring_upper_bound-numeric_value)<=0.000000001)
+      OR
+      (value_state<>'known' AND numerator IS NULL AND denominator IS NULL
+       AND numeric_value IS NULL)
+    ),
+    CHECK(value_state<>'pending' OR pending_count>0),
+    CHECK(value_state<>'pending' OR (
+      capability_available=1 AND source_complete=1
+      AND eligible_count>0 AND unknown_count=0
+      AND censoring_lower_bound IS NOT NULL
+      AND censoring_upper_bound IS NOT NULL
+      AND abs(censoring_lower_bound-(CAST(met_count AS REAL)/eligible_count))<=0.000000001
+      AND abs(censoring_upper_bound-
+              (CAST(met_count+pending_count AS REAL)/eligible_count))<=0.000000001
+    )),
+    CHECK(value_state<>'not_applicable' OR eligible_count=0),
+    CHECK(evidence_authority<>'objective_receipt' OR value_state<>'known'
+          OR denominator_basis='objective_opportunities')
+) STRICT;
+
+CREATE TABLE session_model_ensemble_metric_publication_v2_seals_r8 (
+    run_id TEXT PRIMARY KEY
+      REFERENCES session_model_ensemble_requirement_verification_bindings(run_id)
+      ON DELETE CASCADE,
+    publication_key TEXT NOT NULL CHECK(publication_key='metric.contract-v2.publication'),
+    publication_version INTEGER NOT NULL CHECK(publication_version=2),
+    registry_version TEXT NOT NULL CHECK(registry_version='all-20-factor-contracts-v2'),
+    contract_set_fingerprint TEXT NOT NULL CHECK(length(contract_set_fingerprint)=64 AND contract_set_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projection_version TEXT NOT NULL CHECK(projection_version='metric-contract-v2-projection-8'),
+    guidance_contract_version TEXT NOT NULL CHECK(guidance_contract_version='metric-guidance-contract-v1'),
+    guidance_template_catalog_version TEXT NOT NULL CHECK(guidance_template_catalog_version='metric-guidance-templates-v1'),
+    source TEXT NOT NULL CHECK(source='live_projection'),
+    canonical_live_snapshot INTEGER NOT NULL CHECK(canonical_live_snapshot=1),
+    model_stage_consumed INTEGER NOT NULL CHECK(model_stage_consumed=0),
+    compatibility_preview INTEGER NOT NULL CHECK(compatibility_preview=0),
+    metric_count INTEGER NOT NULL CHECK(metric_count=20),
+    known_count INTEGER NOT NULL CHECK(known_count BETWEEN 0 AND 20),
+    pending_count INTEGER NOT NULL CHECK(pending_count BETWEEN 0 AND 20),
+    unknown_count INTEGER NOT NULL CHECK(unknown_count BETWEEN 0 AND 20),
+    not_applicable_count INTEGER NOT NULL CHECK(not_applicable_count BETWEEN 0 AND 20),
+    abstained_count INTEGER NOT NULL CHECK(abstained_count BETWEEN 0 AND 20),
+    execution_error_count INTEGER NOT NULL CHECK(execution_error_count BETWEEN 0 AND 20),
+    objective_measured_count INTEGER NOT NULL CHECK(objective_measured_count BETWEEN 0 AND 5),
+    projection_fingerprint TEXT NOT NULL CHECK(length(projection_fingerprint)=64 AND projection_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    profile_source TEXT NOT NULL CHECK(profile_source IN ('coaching_profile_v1_unconfigured','declared_task_profile')),
+    profile_id TEXT CHECK(profile_id IS NULL OR (length(profile_id)=64 AND profile_id NOT GLOB '*[^0-9a-f]*')),
+    profile_revision INTEGER CHECK(profile_revision IS NULL OR profile_revision BETWEEN 1 AND 1000000),
+    profile_fingerprint TEXT NOT NULL CHECK(length(profile_fingerprint)=64 AND profile_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    profile_schema_version TEXT NOT NULL CHECK(profile_schema_version IN ('coaching-profile-v1-unconfigured','declared-task-profile-v1')),
+    profile_policy_version TEXT NOT NULL CHECK(profile_policy_version IN ('server-preset-v1','authenticated-local-user-v1')),
+    profile_binding_fingerprint TEXT NOT NULL CHECK(length(profile_binding_fingerprint)=64 AND profile_binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    publication_profile_fingerprint TEXT NOT NULL CHECK(length(publication_profile_fingerprint)=64 AND publication_profile_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_source TEXT NOT NULL CHECK(requirement_plan_source IN ('unavailable','awaiting_review','reviewed_requirement_plan')),
+    requirement_plan_confirmation_id TEXT CHECK(requirement_plan_confirmation_id IS NULL OR (length(requirement_plan_confirmation_id)=64 AND requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_plan_proposal_id TEXT CHECK(requirement_plan_proposal_id IS NULL OR (length(requirement_plan_proposal_id)=64 AND requirement_plan_proposal_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_plan_evidence_fingerprint TEXT NOT NULL CHECK(length(requirement_plan_evidence_fingerprint)=64 AND requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_plan_schema_version TEXT NOT NULL CHECK(requirement_plan_schema_version IN ('requirement-plan-unavailable-v1','requirement-plan-awaiting-review-v1','requirement-plan-evidence-v1')),
+    requirement_plan_policy_version TEXT NOT NULL CHECK(requirement_plan_policy_version='reviewed-requirement-plan-v1'),
+    requirement_plan_binding_fingerprint TEXT NOT NULL CHECK(length(requirement_plan_binding_fingerprint)=64 AND requirement_plan_binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    publication_requirement_plan_fingerprint TEXT NOT NULL CHECK(length(publication_requirement_plan_fingerprint)=64 AND publication_requirement_plan_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_action_source TEXT NOT NULL CHECK(requirement_action_source IN ('unavailable','awaiting_review','candidate_manifest_overflow','candidate_source_incomplete','binding_invalid','reviewed_requirement_action')),
+    requirement_action_source_run_id TEXT CHECK(requirement_action_source_run_id IS NULL OR (length(requirement_action_source_run_id)=64 AND requirement_action_source_run_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_requirement_plan_confirmation_id TEXT CHECK(requirement_action_requirement_plan_confirmation_id IS NULL OR (length(requirement_action_requirement_plan_confirmation_id)=64 AND requirement_action_requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_requirement_plan_evidence_fingerprint TEXT CHECK(requirement_action_requirement_plan_evidence_fingerprint IS NULL OR (length(requirement_action_requirement_plan_evidence_fingerprint)=64 AND requirement_action_requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_candidate_manifest_fingerprint TEXT CHECK(requirement_action_candidate_manifest_fingerprint IS NULL OR (length(requirement_action_candidate_manifest_fingerprint)=64 AND requirement_action_candidate_manifest_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_reviewed_descriptor_set_fingerprint TEXT CHECK(requirement_action_reviewed_descriptor_set_fingerprint IS NULL OR (length(requirement_action_reviewed_descriptor_set_fingerprint)=64 AND requirement_action_reviewed_descriptor_set_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_confirmation_id TEXT CHECK(requirement_action_confirmation_id IS NULL OR (length(requirement_action_confirmation_id)=64 AND requirement_action_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_proposal_id TEXT CHECK(requirement_action_proposal_id IS NULL OR (length(requirement_action_proposal_id)=64 AND requirement_action_proposal_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_action_evidence_fingerprint TEXT NOT NULL CHECK(length(requirement_action_evidence_fingerprint)=64 AND requirement_action_evidence_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_action_schema_version TEXT NOT NULL CHECK(requirement_action_schema_version IN ('requirement-action-unavailable-v1','requirement-action-awaiting-review-v1','requirement-action-candidate-manifest-overflow-v1','requirement-action-candidate-source-incomplete-v1','requirement-action-binding-invalid-v1','requirement-action-evidence-v1')),
+    requirement_action_policy_version TEXT NOT NULL CHECK(requirement_action_policy_version='reviewed-requirement-action-v1'),
+    requirement_action_binding_fingerprint TEXT NOT NULL CHECK(length(requirement_action_binding_fingerprint)=64 AND requirement_action_binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    publication_requirement_action_fingerprint TEXT NOT NULL CHECK(length(publication_requirement_action_fingerprint)=64 AND publication_requirement_action_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    requirement_verification_source TEXT NOT NULL CHECK(requirement_verification_source IN ('unavailable','opportunity_bound_exceeded','awaiting_evidence','persisted_evidence')),
+    requirement_verification_requirement_plan_confirmation_id TEXT CHECK(requirement_verification_requirement_plan_confirmation_id IS NULL OR (length(requirement_verification_requirement_plan_confirmation_id)=64 AND requirement_verification_requirement_plan_confirmation_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_verification_requirement_plan_proposal_id TEXT CHECK(requirement_verification_requirement_plan_proposal_id IS NULL OR (length(requirement_verification_requirement_plan_proposal_id)=64 AND requirement_verification_requirement_plan_proposal_id NOT GLOB '*[^0-9a-f]*')),
+    requirement_verification_requirement_plan_evidence_fingerprint TEXT CHECK(requirement_verification_requirement_plan_evidence_fingerprint IS NULL OR (length(requirement_verification_requirement_plan_evidence_fingerprint)=64 AND requirement_verification_requirement_plan_evidence_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_verification_requirement_plan_schema_version TEXT,
+    requirement_verification_requirement_plan_policy_version TEXT,
+    requirement_verification_requirement_plan_review_rubric_version TEXT,
+    requirement_verification_opportunity_count INTEGER CHECK(requirement_verification_opportunity_count IS NULL OR requirement_verification_opportunity_count BETWEEN 0 AND 1000),
+    requirement_verification_opportunity_set_fingerprint TEXT CHECK(requirement_verification_opportunity_set_fingerprint IS NULL OR (length(requirement_verification_opportunity_set_fingerprint)=64 AND requirement_verification_opportunity_set_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_verification_evidence_set_fingerprint TEXT CHECK(requirement_verification_evidence_set_fingerprint IS NULL OR (length(requirement_verification_evidence_set_fingerprint)=64 AND requirement_verification_evidence_set_fingerprint NOT GLOB '*[^0-9a-f]*')),
+    requirement_verification_through_revision INTEGER CHECK(requirement_verification_through_revision IS NULL OR requirement_verification_through_revision BETWEEN 0 AND 32000),
+    requirement_verification_authority_head_count INTEGER CHECK(requirement_verification_authority_head_count IS NULL OR requirement_verification_authority_head_count BETWEEN 0 AND 1000),
+    requirement_verification_objective_result_count INTEGER CHECK(requirement_verification_objective_result_count IS NULL OR requirement_verification_objective_result_count BETWEEN 0 AND 1000),
+    requirement_verification_native_acceptance_count INTEGER CHECK(requirement_verification_native_acceptance_count IS NULL OR requirement_verification_native_acceptance_count BETWEEN 0 AND 1000),
+    requirement_verification_resolved_opportunity_count INTEGER CHECK(requirement_verification_resolved_opportunity_count IS NULL OR requirement_verification_resolved_opportunity_count BETWEEN 0 AND 1000),
+    requirement_verification_met_requirement_count INTEGER CHECK(requirement_verification_met_requirement_count IS NULL OR requirement_verification_met_requirement_count BETWEEN 0 AND 1000),
+    requirement_verification_opportunity_issuer_version TEXT NOT NULL CHECK(requirement_verification_opportunity_issuer_version='reviewed-r6-requirement-opportunity-issuer-v1'),
+    requirement_verification_result_issuer_version TEXT NOT NULL CHECK(requirement_verification_result_issuer_version='local-objective-verification-result-issuer-v1'),
+    requirement_verification_acceptance_issuer_version TEXT NOT NULL CHECK(requirement_verification_acceptance_issuer_version='native-explicit-requirement-acceptance-issuer-v1'),
+    requirement_verification_evidence_schema_version TEXT NOT NULL CHECK(requirement_verification_evidence_schema_version='requirement-verification-evidence-v1'),
+    requirement_verification_evidence_policy_version TEXT NOT NULL CHECK(requirement_verification_evidence_policy_version='app-issued-reviewed-requirement-verification-v1'),
+    requirement_verification_persistence_schema_version TEXT NOT NULL CHECK(requirement_verification_persistence_schema_version='requirement-verification-persistence-v1'),
+    requirement_verification_evidence_projection_version TEXT NOT NULL CHECK(requirement_verification_evidence_projection_version='reviewed-requirement-verification-objective-projection-v1'),
+    requirement_verification_objective_projection_version TEXT NOT NULL CHECK(requirement_verification_objective_projection_version='reviewed-requirement-verification-objective-projection-v1'),
+    requirement_verification_binding_schema_version TEXT NOT NULL CHECK(requirement_verification_binding_schema_version='session-requirement-verification-evidence-binding-v1'),
+    requirement_verification_binding_fingerprint TEXT NOT NULL CHECK(length(requirement_verification_binding_fingerprint)=64 AND requirement_verification_binding_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    publication_requirement_verification_fingerprint TEXT NOT NULL CHECK(length(publication_requirement_verification_fingerprint)=64 AND publication_requirement_verification_fingerprint NOT GLOB '*[^0-9a-f]*'),
+    projected_at TEXT NOT NULL CHECK(length(projected_at)=32 AND substr(projected_at,27)='+00:00'),
+    local_only INTEGER NOT NULL CHECK(local_only=1),
+    content_persisted INTEGER NOT NULL CHECK(content_persisted=0),
+    product_metric_eligible INTEGER NOT NULL CHECK(product_metric_eligible=0),
+    CHECK(known_count+pending_count+unknown_count+not_applicable_count+
+          abstained_count+execution_error_count=metric_count)
+) STRICT;
+
+-- A future objective observation for the same opportunity must move forward.
+-- Existing M58 rows remain readable, but repository hydration also validates
+-- this ordering so a pre-M59 or trigger-bypassed malformed history fails shut.
+CREATE TRIGGER requirement_verification_objective_sequence_monotonic_m59
+BEFORE INSERT ON requirement_verification_authority_records
+WHEN NEW.authority_kind='objective_result' AND EXISTS(
+  SELECT 1 FROM requirement_verification_authority_records prior
+  WHERE prior.opportunity_set_fingerprint=NEW.opportunity_set_fingerprint
+    AND prior.opportunity_id=NEW.opportunity_id
+    AND prior.authority_kind='objective_result'
+    AND prior.observed_sequence>=NEW.observed_sequence
+)
+BEGIN SELECT RAISE(ABORT,'requirement-verification observation did not advance'); END;
+
+-- The binding is inserted after the frozen run/profile/r6/r7 seals but before
+-- any r8 state.  Bound evidence must still be the exact current dense M58 head;
+-- awaiting evidence proves exact absence, while unavailable records an
+-- uncomposed verification reader without claiming plan-authority absence.
+-- Keyed fingerprints are recomputed by the repository in this transaction.
+CREATE TRIGGER session_model_ensemble_requirement_verification_binding_exact
+BEFORE INSERT ON session_model_ensemble_requirement_verification_bindings
+WHEN NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_runs run
+       JOIN session_model_ensemble_seals run_seal ON run_seal.run_id=run.run_id
+       JOIN session_model_ensemble_requirement_plan_bindings plan
+         ON plan.run_id=run.run_id
+       JOIN session_model_ensemble_requirement_action_bindings action
+         ON action.run_id=run.run_id
+       WHERE run.run_id=NEW.run_id
+         AND run.session_id=NEW.session_id
+         AND run.input_fingerprint=NEW.source_window_fingerprint
+         AND run.source_window_fingerprint=NEW.source_window_fingerprint
+     )
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r6 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r6 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+ OR (
+   NEW.evidence_source<>'unavailable' AND NOT EXISTS(
+     SELECT 1
+     FROM session_model_ensemble_requirement_plan_bindings plan
+     JOIN requirement_plan_evidence_decisions decision
+       ON decision.decision_id=NEW.requirement_plan_confirmation_id
+     JOIN requirement_plan_evidence_proposals proposal
+       ON proposal.proposal_id=NEW.requirement_plan_proposal_id
+     JOIN requirement_plan_evidence_proposal_seals proposal_seal
+       ON proposal_seal.proposal_id=proposal.proposal_id
+     WHERE plan.run_id=NEW.run_id
+       AND plan.evidence_source='reviewed_requirement_plan'
+       AND plan.confirmation_id=NEW.requirement_plan_confirmation_id
+       AND plan.proposal_id=NEW.requirement_plan_proposal_id
+       AND plan.evidence_fingerprint=NEW.requirement_plan_evidence_fingerprint
+       AND proposal.session_id=NEW.session_id
+       AND proposal.source_window_fingerprint=NEW.source_window_fingerprint
+       AND proposal.requirement_count=NEW.opportunity_count
+       AND decision.decision='confirm'
+       AND decision.proposal_id=proposal.proposal_id
+       AND NOT EXISTS(
+         SELECT 1 FROM requirement_plan_evidence_decisions child_decision
+         JOIN requirement_plan_evidence_proposals child
+           ON child.proposal_id=child_decision.proposal_id
+         WHERE child_decision.decision='confirm'
+           AND child.expected_predecessor_confirmation_id=decision.decision_id
+       )
+   )
+ )
+ OR (
+   NEW.evidence_source IN ('opportunity_bound_exceeded','awaiting_evidence')
+   AND EXISTS(
+     SELECT 1 FROM requirement_verification_opportunity_sets evidence
+     JOIN requirement_verification_opportunity_set_seals evidence_seal
+       ON evidence_seal.opportunity_set_fingerprint=
+          evidence.opportunity_set_fingerprint
+     WHERE evidence.session_id=NEW.session_id
+       AND evidence.requirement_plan_confirmation_id=
+           NEW.requirement_plan_confirmation_id
+   )
+ )
+ OR (
+   NEW.evidence_source='persisted_evidence' AND NOT EXISTS(
+     SELECT 1
+     FROM requirement_verification_opportunity_sets evidence
+     JOIN requirement_verification_opportunity_set_seals evidence_seal
+       ON evidence_seal.opportunity_set_fingerprint=
+          evidence.opportunity_set_fingerprint
+     WHERE evidence.opportunity_set_fingerprint=
+           NEW.opportunity_set_fingerprint
+       AND evidence.session_id=NEW.session_id
+       AND evidence.source_window_fingerprint=NEW.source_window_fingerprint
+       AND evidence.requirement_plan_confirmation_id=
+           NEW.requirement_plan_confirmation_id
+       AND evidence.requirement_plan_proposal_id=
+           NEW.requirement_plan_proposal_id
+       AND evidence.requirement_plan_evidence_fingerprint=
+           NEW.requirement_plan_evidence_fingerprint
+       AND evidence.opportunity_count=NEW.opportunity_count
+       AND evidence.opportunity_issuer_version=NEW.opportunity_issuer_version
+       AND evidence.evidence_schema_version=NEW.evidence_schema_version
+       AND evidence.evidence_policy_version=NEW.evidence_policy_version
+       AND evidence.persistence_schema_version=NEW.persistence_schema_version
+       AND (SELECT COUNT(*)
+            FROM requirement_verification_authority_records authority
+            WHERE authority.opportunity_set_fingerprint=
+                  evidence.opportunity_set_fingerprint)=NEW.through_revision
+       AND (SELECT COUNT(*)
+            FROM requirement_verification_authority_records authority
+            JOIN requirement_verification_authority_record_seals seal
+              ON seal.authority_record_id=authority.authority_record_id
+            WHERE authority.opportunity_set_fingerprint=
+                  evidence.opportunity_set_fingerprint)=NEW.through_revision
+   )
+ )
+BEGIN SELECT RAISE(ABORT,'requirement-verification run authority changed'); END;
+
+CREATE TRIGGER session_metric_r8_states_exact
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r8
+WHEN NOT EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r2 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r3 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r4 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r5 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r6 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r6 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r7 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r7 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_metric_r8_seal_complete
+BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r8
+WHEN NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_runs run
+       JOIN session_model_ensemble_seals seal ON seal.run_id=run.run_id
+       WHERE run.run_id=NEW.run_id AND run.metric_count=NEW.metric_count
+     )
+ OR NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_metric_profile_bindings binding
+       WHERE binding.run_id=NEW.run_id
+         AND binding.profile_source=NEW.profile_source
+         AND binding.profile_id IS NEW.profile_id
+         AND binding.profile_revision IS NEW.profile_revision
+         AND binding.profile_fingerprint=NEW.profile_fingerprint
+         AND binding.profile_schema_version=NEW.profile_schema_version
+         AND binding.profile_policy_version=NEW.profile_policy_version
+         AND binding.binding_fingerprint=NEW.profile_binding_fingerprint
+     )
+ OR NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_requirement_plan_bindings binding
+       WHERE binding.run_id=NEW.run_id
+         AND binding.evidence_source=NEW.requirement_plan_source
+         AND binding.confirmation_id IS NEW.requirement_plan_confirmation_id
+         AND binding.proposal_id IS NEW.requirement_plan_proposal_id
+         AND binding.evidence_fingerprint=NEW.requirement_plan_evidence_fingerprint
+         AND binding.evidence_schema_version=NEW.requirement_plan_schema_version
+         AND binding.evidence_policy_version=NEW.requirement_plan_policy_version
+         AND binding.binding_fingerprint=NEW.requirement_plan_binding_fingerprint
+     )
+ OR NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_requirement_action_bindings binding
+       WHERE binding.run_id=NEW.run_id
+         AND binding.evidence_source=NEW.requirement_action_source
+         AND binding.source_run_id IS NEW.requirement_action_source_run_id
+         AND binding.requirement_plan_confirmation_id IS
+             NEW.requirement_action_requirement_plan_confirmation_id
+         AND binding.requirement_plan_evidence_fingerprint IS
+             NEW.requirement_action_requirement_plan_evidence_fingerprint
+         AND binding.candidate_manifest_fingerprint IS
+             NEW.requirement_action_candidate_manifest_fingerprint
+         AND binding.reviewed_descriptor_set_fingerprint IS
+             NEW.requirement_action_reviewed_descriptor_set_fingerprint
+         AND binding.confirmation_id IS NEW.requirement_action_confirmation_id
+         AND binding.proposal_id IS NEW.requirement_action_proposal_id
+         AND binding.evidence_fingerprint=NEW.requirement_action_evidence_fingerprint
+         AND binding.evidence_schema_version=NEW.requirement_action_schema_version
+         AND binding.evidence_policy_version=NEW.requirement_action_policy_version
+         AND binding.binding_fingerprint=NEW.requirement_action_binding_fingerprint
+     )
+ OR NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_requirement_verification_bindings binding
+       WHERE binding.run_id=NEW.run_id
+         AND binding.evidence_source=NEW.requirement_verification_source
+         AND binding.requirement_plan_confirmation_id IS NEW.requirement_verification_requirement_plan_confirmation_id
+         AND binding.requirement_plan_proposal_id IS NEW.requirement_verification_requirement_plan_proposal_id
+         AND binding.requirement_plan_evidence_fingerprint IS NEW.requirement_verification_requirement_plan_evidence_fingerprint
+         AND binding.requirement_plan_schema_version IS NEW.requirement_verification_requirement_plan_schema_version
+         AND binding.requirement_plan_policy_version IS NEW.requirement_verification_requirement_plan_policy_version
+         AND binding.requirement_plan_review_rubric_version IS NEW.requirement_verification_requirement_plan_review_rubric_version
+         AND binding.opportunity_count IS NEW.requirement_verification_opportunity_count
+         AND binding.opportunity_set_fingerprint IS NEW.requirement_verification_opportunity_set_fingerprint
+         AND binding.evidence_set_fingerprint IS NEW.requirement_verification_evidence_set_fingerprint
+         AND binding.through_revision IS NEW.requirement_verification_through_revision
+         AND binding.authority_head_count IS NEW.requirement_verification_authority_head_count
+         AND binding.objective_result_count IS NEW.requirement_verification_objective_result_count
+         AND binding.native_acceptance_count IS NEW.requirement_verification_native_acceptance_count
+         AND binding.resolved_opportunity_count IS NEW.requirement_verification_resolved_opportunity_count
+         AND binding.met_requirement_count IS NEW.requirement_verification_met_requirement_count
+         AND binding.opportunity_issuer_version=NEW.requirement_verification_opportunity_issuer_version
+         AND binding.result_issuer_version=NEW.requirement_verification_result_issuer_version
+         AND binding.acceptance_issuer_version=NEW.requirement_verification_acceptance_issuer_version
+         AND binding.evidence_schema_version=NEW.requirement_verification_evidence_schema_version
+         AND binding.evidence_policy_version=NEW.requirement_verification_evidence_policy_version
+         AND binding.persistence_schema_version=NEW.requirement_verification_persistence_schema_version
+         AND binding.evidence_projection_version=NEW.requirement_verification_evidence_projection_version
+         AND binding.objective_projection_version=NEW.requirement_verification_objective_projection_version
+         AND binding.binding_schema_version=NEW.requirement_verification_binding_schema_version
+         AND binding.binding_fingerprint=NEW.requirement_verification_binding_fingerprint
+     )
+ OR NOT EXISTS(
+       SELECT 1 FROM session_model_ensemble_typed_metric_seals typed_seal
+       WHERE typed_seal.run_id=NEW.run_id
+         AND typed_seal.projection_version='coaching-typed-projection-v1'
+         AND typed_seal.metric_count=20
+     )
+ OR (SELECT COUNT(*) FROM session_model_ensemble_typed_metrics
+     WHERE run_id=NEW.run_id
+       AND projection_version='coaching-typed-projection-v1')<>20
+ OR NOT EXISTS(
+       SELECT 1
+       FROM session_model_ensemble_typed_metrics typed
+       JOIN session_model_ensemble_metric_states_v2_r8 state
+         ON state.run_id=typed.run_id
+        AND state.metric_key=typed.metric_key
+       WHERE typed.run_id=NEW.run_id
+         AND typed.projection_version='coaching-typed-projection-v1'
+         AND typed.metric_key='outcome.verified_requirement_coverage'
+         AND typed.value_state=state.value_state
+         AND typed.numerator IS state.numerator
+         AND typed.denominator IS state.denominator
+         AND typed.numeric_value IS state.numeric_value
+         AND typed.observed_message_count=state.met_count+state.not_met_count
+         AND typed.eligible_message_count=state.eligible_count
+         AND abs(typed.coverage-
+           CASE WHEN state.eligible_count=0 THEN 0.0
+                ELSE CAST(state.met_count+state.not_met_count AS REAL)
+                     /state.eligible_count END)<=0.000000000001
+         AND typed.explanation_code=state.explanation_code
+         AND typed.error_code IS NULL
+         AND typed.engine_version=
+             'reviewed-requirement-verification-objective-projection-v1'
+         AND typed.algorithm_id=
+             'reviewed-requirement-verification-authority'
+         AND typed.algorithm_version='4'
+         AND typed.rubric_version='objective-evidence-no-rubric-v4'
+     )
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id)<>20
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id AND value_state='known')<>NEW.known_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id AND value_state='pending')<>NEW.pending_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id AND value_state='unknown')<>NEW.unknown_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id AND value_state='not_applicable')<>NEW.not_applicable_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id AND value_state='abstained')<>NEW.abstained_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id AND value_state='execution_error')<>NEW.execution_error_count
+ OR (SELECT COUNT(*) FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id AND evidence_authority='objective_receipt' AND value_state='known')<>NEW.objective_measured_count
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r8
+           WHERE run_id=NEW.run_id AND
+             (registry_version<>NEW.registry_version OR projection_version<>NEW.projection_version))
+BEGIN SELECT RAISE(ABORT,'metric V2 r8 publication is incomplete'); END;
+
+-- Existing publication identities reject r8 in the opposite insertion order.
+CREATE TRIGGER session_metric_r1_states_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_states_v2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r8 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r1_seals_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_states_v2_r8 WHERE run_id=NEW.run_id)
+ OR EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r8 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r2_states_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r2_seals_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r2
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r3_states_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r3
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r3_seals_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r3
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r4_states_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r4
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r4_seals_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r4
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r5_states_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r5
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r5_seals_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r5
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r6_states_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r6
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r6_seals_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r6
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r7_states_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_states_v2_r7
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+CREATE TRIGGER session_metric_r7_seals_reject_r8 BEFORE INSERT ON session_model_ensemble_metric_publication_v2_seals_r7
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 projection identity conflict'); END;
+
+CREATE TRIGGER session_metric_r8_states_sealed_insert
+BEFORE INSERT ON session_model_ensemble_metric_states_v2_r8
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_metric_publication_v2_seals_r8 WHERE run_id=NEW.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r8 publication is sealed'); END;
+CREATE TRIGGER session_model_ensemble_requirement_verification_bindings_no_update
+BEFORE UPDATE ON session_model_ensemble_requirement_verification_bindings
+BEGIN SELECT RAISE(ABORT,'requirement-verification bindings are immutable'); END;
+CREATE TRIGGER session_metric_r8_states_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_states_v2_r8
+BEGIN SELECT RAISE(ABORT,'metric V2 r8 states are immutable'); END;
+CREATE TRIGGER session_metric_r8_seals_no_update
+BEFORE UPDATE ON session_model_ensemble_metric_publication_v2_seals_r8
+BEGIN SELECT RAISE(ABORT,'metric V2 r8 seals are immutable'); END;
+CREATE TRIGGER session_model_ensemble_requirement_verification_bindings_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_requirement_verification_bindings
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_runs WHERE run_id=OLD.run_id)
+ AND EXISTS(SELECT 1 FROM sessions WHERE session_id=OLD.session_id)
+ AND (OLD.requirement_plan_proposal_id IS NULL OR EXISTS(
+       SELECT 1 FROM requirement_plan_evidence_proposals
+       WHERE proposal_id=OLD.requirement_plan_proposal_id
+     ))
+BEGIN SELECT RAISE(ABORT,'requirement-verification binding requires parent privacy deletion'); END;
+CREATE TRIGGER session_metric_r8_states_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_states_v2_r8
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r8 states require parent privacy deletion'); END;
+CREATE TRIGGER session_metric_r8_seals_privacy_delete_only
+BEFORE DELETE ON session_model_ensemble_metric_publication_v2_seals_r8
+WHEN EXISTS(SELECT 1 FROM session_model_ensemble_requirement_verification_bindings WHERE run_id=OLD.run_id)
+BEGIN SELECT RAISE(ABORT,'metric V2 r8 seal requires parent privacy deletion'); END;
+
+COMMIT;
+"""
+

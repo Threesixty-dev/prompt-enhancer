@@ -237,7 +237,7 @@ def test_current_readiness_preserves_r4_service_and_enumeration_actions() -> Non
     )
 
     assert METRIC_EVIDENCE_READINESS_V2_CATALOG_VERSION == (
-        "metric-evidence-readiness-v2-6"
+        "metric-evidence-readiness-v2-7"
     )
     assert absent.availability_state is (
         MetricEvidenceAvailabilityState.CAPABILITY_MISSING

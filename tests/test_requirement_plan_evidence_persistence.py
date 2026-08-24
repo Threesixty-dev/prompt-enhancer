@@ -78,6 +78,7 @@ def _downgrade_synthetic_copy_to_v55(path) -> None:  # type: ignore[no-untyped-d
             migrations.MIGRATION_56,
             migrations.MIGRATION_57,
             migrations.MIGRATION_58,
+            migrations.MIGRATION_59,
         )
         for kind, name in re.findall(
             r"CREATE\s+(?:(?:UNIQUE)\s+)?(TABLE|INDEX|TRIGGER)\s+([a-z0-9_]+)",
@@ -1510,7 +1511,7 @@ def test_schema_55_is_content_free_and_migration_54_is_unchanged(tmp_path) -> No
     database, _session_id, _run, _repository, _service = _setup(tmp_path)
     from prompt_enhancer.infrastructure.sqlite import migrations
 
-    assert database.summary()["schema_version"] == 58
+    assert database.summary()["schema_version"] == 59
     assert hashlib.sha256(migrations.MIGRATION_54.encode()).hexdigest() == (
         "aafd1c1cc0c121db267d02f7cf14c1a05e6a796af5affda2988fa700216576ac"
     )

@@ -13,6 +13,7 @@ from ...application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
     METRIC_PROJECTION_V2_VERSION_7,
+    METRIC_PROJECTION_V2_VERSION_8,
 )
 from ...application.analysis.requirement_plan_evidence import (
     RequirementPlanDecisionKind,
@@ -58,6 +59,7 @@ _SUPPORTED_PROJECTIONS = frozenset(
         METRIC_PROJECTION_V2_VERSION_5,
         METRIC_PROJECTION_V2_VERSION_6,
         METRIC_PROJECTION_V2_VERSION_7,
+        METRIC_PROJECTION_V2_VERSION_8,
     }
 )
 
@@ -102,6 +104,9 @@ class SqliteCurrentRequirementPlanSourceWindowAuthority:
                          UNION ALL
                          SELECT run_id,projection_version,contract_set_fingerprint
                          FROM session_model_ensemble_metric_publication_v2_seals_r7
+                         UNION ALL
+                         SELECT run_id,projection_version,contract_set_fingerprint
+                         FROM session_model_ensemble_metric_publication_v2_seals_r8
                        ) publication ON publication.run_id=latest.run_id""",
                     (session_id,),
                 ).fetchall()
@@ -493,16 +498,130 @@ class SqliteRequirementVerificationEvidenceRepository:
             self._validate_stored_set(set_record)
         return result
 
+    def snapshot_for_requirement_plan(
+        self,
+        session_id: str,
+        requirement_plan_confirmation_id: str,
+    ) -> RequirementVerificationEvidenceSnapshot | None:
+        """Return the exact current M58 head for one reviewed r6 authority.
+
+        The lookup, r6 revalidation, and M58 head hydration share one SQLite
+        read snapshot.  Callers therefore cannot accidentally combine a set
+        identity from one point in time with authority rows from another.
+        """
+
+        self._ensure_initialized()
+        require_safe_id(session_id)
+        require_safe_id(requirement_plan_confirmation_id)
+        with self._connection_scope(readonly=True) as connection:
+            connection.execute("BEGIN")
+            try:
+                result = self._snapshot_for_requirement_plan_tx(
+                    connection,
+                    session_id,
+                    requirement_plan_confirmation_id,
+                )
+                connection.commit()
+                return result
+            except Exception:
+                connection.rollback()
+                raise
+
+    def _snapshot_for_requirement_plan_tx(
+        self,
+        connection: sqlite3.Connection,
+        session_id: str,
+        requirement_plan_confirmation_id: str,
+    ) -> RequirementVerificationEvidenceSnapshot | None:
+        rows = connection.execute(
+            """SELECT opportunity_set_fingerprint
+               FROM requirement_verification_opportunity_sets
+               WHERE session_id=? AND requirement_plan_confirmation_id=?
+               ORDER BY opportunity_set_fingerprint LIMIT 2""",
+            (session_id, requirement_plan_confirmation_id),
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise DatabaseInvariantError(
+                "requirement-verification plan authority is ambiguous"
+            )
+        return self._snapshot_for_binding_tx(
+            connection,
+            session_id,
+            str(rows[0]["opportunity_set_fingerprint"]),
+            through_revision=None,
+            require_current=True,
+        )
+
+    def _snapshot_for_binding_tx(
+        self,
+        connection: sqlite3.Connection,
+        session_id: str,
+        opportunity_set_fingerprint: str,
+        *,
+        through_revision: int | None,
+        require_current: bool,
+    ) -> RequirementVerificationEvidenceSnapshot | None:
+        """Hydrate and validate a binding without opening another connection.
+
+        Saves use ``require_current`` while holding ``BEGIN IMMEDIATE``.
+        Ordinary run hydration passes ``False`` so an immutable old run keeps
+        describing its historical prefix after later evidence is appended.
+        """
+
+        set_record = self._set_record_tx(connection, opportunity_set_fingerprint)
+        if (
+            set_record is None
+            or set_record.opportunities.session_id != session_id
+        ):
+            return None
+        self._validate_stored_set_tx(connection, set_record)
+        snapshot = self._snapshot_tx(
+            connection,
+            session_id,
+            opportunity_set_fingerprint,
+            through_revision=through_revision,
+        )
+        if snapshot is None:
+            return None
+        if require_current and through_revision is not None:
+            current = self._snapshot_tx(
+                connection,
+                session_id,
+                opportunity_set_fingerprint,
+                through_revision=None,
+            )
+            if current is None or current.revision != through_revision:
+                raise DatabaseInvariantError(
+                    "requirement-verification run authority changed"
+                )
+        return snapshot
+
     def _validate_stored_set(
         self, record: RequirementVerificationOpportunitySetRecord
+    ) -> None:
+        with self._connection_scope(readonly=True) as connection:
+            connection.execute("BEGIN")
+            try:
+                self._validate_stored_set_tx(connection, record)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def _validate_stored_set_tx(
+        self,
+        connection: sqlite3.Connection,
+        record: RequirementVerificationOpportunitySetRecord,
     ) -> None:
         plan_repository = SqliteRequirementPlanEvidenceRepository(
             self._connection_scope,
             self._ensure_initialized,
             identifiers=self._identifiers,
         )
-        view = plan_repository.get_proposal(
-            record.opportunities.requirement_plan_proposal_id
+        view = plan_repository._get_view(
+            connection, record.opportunities.requirement_plan_proposal_id
         )
         if (
             view is None
@@ -946,6 +1065,20 @@ class SqliteRequirementVerificationEvidenceRepository:
             if len({item.kind for item in history}) != 1:
                 raise DatabaseInvariantError(
                     "requirement-verification authority kind changed"
+                )
+            objective_sequences = tuple(
+                item.result.observed_sequence
+                for item in history
+                if item.result is not None
+            )
+            if any(
+                current <= previous
+                for previous, current in zip(
+                    objective_sequences, objective_sequences[1:]
+                )
+            ):
+                raise DatabaseInvariantError(
+                    "requirement-verification observation did not advance"
                 )
             for index, item in enumerate(history):
                 predecessor = None if index == 0 else history[index - 1].authority_record_id

@@ -54,10 +54,15 @@ from prompt_enhancer.application.analysis.session_model_ensemble import (
     SessionModelEnsembleService,
     RequirementActionEvidenceSource,
     RequirementPlanEvidenceSource,
+    RequirementVerificationEvidenceSource,
+    VERIFIED_REQUIREMENT_METRIC_ALGORITHM_ID,
+    VERIFIED_REQUIREMENT_METRIC_ALGORITHM_VERSION,
+    VERIFIED_REQUIREMENT_METRIC_RUBRIC_VERSION,
 )
 from prompt_enhancer.application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_6,
     METRIC_PROJECTION_V2_VERSION_7,
+    METRIC_PROJECTION_V2_VERSION_8,
 )
 from prompt_enhancer.application.analysis.provider_evidence import (
     RequirementActionCandidateManifestOverflowError,
@@ -1024,7 +1029,7 @@ def test_denominator_authority_without_outcome_capability_stays_unknown() -> Non
     assert publication.objective_measured_count == 0
 
 
-def test_unchanged_legacy_head_gets_typed_projection_without_a_new_model_run() -> None:
+def test_unchanged_legacy_head_gets_a_new_revision_bound_r8_run() -> None:
     service, source, repository = _service()
     first = service.run(
         provider=Provider.CODEX,
@@ -1052,9 +1057,10 @@ def test_unchanged_legacy_head_gets_typed_projection_without_a_new_model_run() -
         prior_run_id=first.run.run_id,
     )
 
-    assert upgraded.applied is False
-    assert upgraded.run.run_id == first.run.run_id
+    assert upgraded.applied is True
+    assert upgraded.run.run_id != first.run.run_id
     assert len(upgraded.run.receipt.typed_metrics) == 20
+    assert upgraded.run.requirement_verification_evidence_binding is not None
     assert source.read_count == 2
 
 
@@ -1842,6 +1848,54 @@ def _r7_candidate_test_service(
     return service, repository, action_contexts
 
 
+def test_r8_reviewed_plan_without_verification_reader_is_unavailable() -> None:
+    service, repository, _ = _r7_candidate_test_service(_R7ActionProjector())
+
+    result = service.run(
+        provider=Provider.CODEX,
+        session_id=SESSION_ID,
+        confirmation=MODEL_ENSEMBLE_CONFIRMATION,
+        idempotency_key="example-r8-no-verification-reader-0001",
+    )
+
+    run = result.run
+    assert repository.get(run.run_id) == run
+    assert run.requirement_plan_evidence_binding is not None
+    assert (
+        run.requirement_plan_evidence_binding.evidence_source
+        is RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+    )
+    binding = run.requirement_verification_evidence_binding
+    assert binding is not None
+    assert (
+        binding.evidence_source
+        is RequirementVerificationEvidenceSource.UNAVAILABLE
+    )
+    publication = run.receipt.metric_publication_v2
+    assert publication is not None
+    assert publication.projection_version == METRIC_PROJECTION_V2_VERSION_8
+    state = next(
+        metric.state
+        for metric in publication.metrics
+        if metric.state.metric_key == "outcome.verified_requirement_coverage"
+    )
+    assert state.value_state.value == "unknown"
+    assert state.numeric_value is None
+    assert state.explanation_code == "requirement_verification_evidence_unavailable"
+    assert state.statistics.eligible_count == 1
+    typed = next(
+        metric
+        for metric in run.receipt.typed_metrics
+        if metric.metric_key == "outcome.verified_requirement_coverage"
+    )
+    assert typed.engine_version == (
+        "reviewed-requirement-verification-objective-projection-v1"
+    )
+    assert typed.algorithm_id == VERIFIED_REQUIREMENT_METRIC_ALGORITHM_ID
+    assert typed.algorithm_version == VERIFIED_REQUIREMENT_METRIC_ALGORITHM_VERSION
+    assert typed.rubric_version == VERIFIED_REQUIREMENT_METRIC_RUBRIC_VERSION
+
+
 def test_session_r7_candidate_overflow_is_bound_and_preflight_races_fail_closed() -> None:
     overflow_projector = _R7ActionProjector()
     overflow_projector.overflow_from_manifest_call = 1
@@ -2012,7 +2066,7 @@ def test_fresh_r7_run_accepts_native_reviewed_plan_for_the_next_exact_run(
     )
     first_publication = first.run.receipt.metric_publication_v2
     assert first_publication is not None
-    assert first_publication.projection_version == METRIC_PROJECTION_V2_VERSION_7
+    assert first_publication.projection_version == METRIC_PROJECTION_V2_VERSION_8
     assert first.run.requirement_plan_evidence_binding is not None
     assert (
         first.run.requirement_plan_evidence_binding.evidence_source
@@ -2045,7 +2099,7 @@ def test_fresh_r7_run_accepts_native_reviewed_plan_for_the_next_exact_run(
     )
     contract = plan_service.contract(SESSION_ID)
     assert contract.expected_source_run_id == first.run.run_id
-    assert contract.source_projection_version == METRIC_PROJECTION_V2_VERSION_7
+    assert contract.source_projection_version == METRIC_PROJECTION_V2_VERSION_8
     database = Database(tmp_path / "fresh-r7-plan.sqlite3")
     database.initialize()
     app = create_app(
@@ -2205,7 +2259,7 @@ def test_fresh_r7_run_accepts_native_reviewed_plan_for_the_next_exact_run(
 
     assert contract_response.status_code == 200
     assert contract_response.json()["source_projection_version"] == (
-        METRIC_PROJECTION_V2_VERSION_7
+        METRIC_PROJECTION_V2_VERSION_8
     )
     for mismatch in (mismatched_projection, mismatched_source):
         assert mismatch.status_code == 409
@@ -2237,7 +2291,7 @@ def test_fresh_r7_run_accepts_native_reviewed_plan_for_the_next_exact_run(
     assert next_run.run.run_id != first.run.run_id
     next_publication = next_run.run.receipt.metric_publication_v2
     assert next_publication is not None
-    assert next_publication.projection_version == METRIC_PROJECTION_V2_VERSION_7
+    assert next_publication.projection_version == METRIC_PROJECTION_V2_VERSION_8
     binding = next_run.run.requirement_plan_evidence_binding
     assert binding is not None
     assert (
@@ -2320,7 +2374,7 @@ def test_session_r7_review_context_authority_and_reuse_are_exact() -> None:
 
     first_publication = first.run.receipt.metric_publication_v2
     assert first_publication is not None
-    assert first_publication.projection_version == METRIC_PROJECTION_V2_VERSION_7
+    assert first_publication.projection_version == METRIC_PROJECTION_V2_VERSION_8
     assert first.run.requirement_plan_evidence_binding is not None
     assert (
         first.run.requirement_plan_evidence_binding.evidence_source

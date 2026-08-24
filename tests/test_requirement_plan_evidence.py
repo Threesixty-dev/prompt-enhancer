@@ -18,6 +18,7 @@ from prompt_enhancer.application.analysis.metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
     METRIC_PROJECTION_V2_VERSION_7,
+    METRIC_PROJECTION_V2_VERSION_8,
 )
 from prompt_enhancer.application.analysis.requirement_plan_evidence import (
     REQUIREMENT_PLAN_FILE_CONSTRAINT_CODES,
@@ -817,6 +818,7 @@ def test_contract_exposes_the_exact_file_shape_and_all_parser_budgets() -> None:
         METRIC_PROJECTION_V2_VERSION_5,
         METRIC_PROJECTION_V2_VERSION_6,
         METRIC_PROJECTION_V2_VERSION_7,
+        METRIC_PROJECTION_V2_VERSION_8,
     ]
 
     # An external consumer can fill the contract-owned identifiers and build

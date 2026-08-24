@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass
 from enum import StrEnum
@@ -11,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from threading import Lock
 from typing import Callable, Literal, Protocol
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from ...domain import DataTier, PSEUDONYM_PATTERN, Provider, SAFE_VERSION_PATTERN, StrictModel
 from ..providers import DecoderDescriptor
@@ -34,13 +35,17 @@ from .model_ensemble import (
     build_ensemble_chunks,
     coaching_ensemble_metric_specs,
 )
-from .objective_metric_projection import project_objective_metric_overrides_v3
+from .objective_metric_projection import (
+    OBJECTIVE_METRIC_PROJECTION_V4_VERSION,
+    project_objective_metric_overrides_v4,
+)
 from .metric_lifecycle_evidence import MetricLifecycleEvidenceSnapshot
-from .metric_contract_v2 import MetricValueStateV2
+from .metric_contract_v2 import METRIC_CONTRACTS_V2, MetricValueStateV2
 from .metric_projection_v2 import (
     METRIC_PROJECTION_V2_VERSION_5,
     METRIC_PROJECTION_V2_VERSION_6,
     METRIC_PROJECTION_V2_VERSION_7,
+    METRIC_PROJECTION_V2_VERSION_8,
     MetricStateV2,
     reviewed_requirement_plan_denominator_is_authoritative,
 )
@@ -56,8 +61,8 @@ from .metric_projection_v7 import (
     REASON_REQUIREMENT_ACTION_SOURCE_INCOMPLETE,
     REASON_REQUIREMENT_ACTION_UNAVAILABLE,
     REASON_REVIEWED_REQUIREMENT_ACTION_LINKS,
-    project_metric_states_v7,
 )
+from .metric_projection_v8 import project_metric_states_v8
 from .metric_publication_v2 import MetricPublicationV2, publish_metric_states_v2
 from .provider_evidence import (
     RequirementActionCandidateManifestOverflowError,
@@ -74,8 +79,32 @@ from .requirement_action_evidence import (
 )
 from .requirement_plan_evidence import (
     InMemoryRequirementPlanReviewContextStore,
+    REQUIREMENT_PLAN_EVIDENCE_POLICY_VERSION,
+    REQUIREMENT_PLAN_EVIDENCE_SCHEMA_VERSION,
+    REQUIREMENT_PLAN_REVIEW_RUBRIC_VERSION,
     RequirementDisposition,
     RequirementPlanEvidenceSnapshot,
+)
+from .requirement_verification_evidence import (
+    AppIssuedRequirementVerificationOpportunitySet,
+    MAX_REQUIREMENT_VERIFICATION_OPPORTUNITIES,
+    REQUIREMENT_ACCEPTANCE_AUTHORITY_ISSUER_VERSION,
+    REQUIREMENT_VERIFICATION_EVIDENCE_POLICY_VERSION,
+    REQUIREMENT_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+    REQUIREMENT_VERIFICATION_OPPORTUNITY_ISSUER_VERSION,
+    REQUIREMENT_VERIFICATION_PROJECTION_VERSION,
+    REQUIREMENT_VERIFICATION_RESULT_ISSUER_VERSION,
+    VERIFIED_REQUIREMENT_METRIC_KEY,
+    RequirementAcceptanceOutcome,
+    RequirementVerificationEvidenceSet,
+    RequirementVerificationOutcome,
+    issue_requirement_verification_opportunities,
+    validate_requirement_verification_evidence_set,
+)
+from .requirement_verification_persistence import (
+    REQUIREMENT_VERIFICATION_PERSISTENCE_SCHEMA_VERSION,
+    CurrentRequirementVerificationEvidenceReader,
+    RequirementVerificationEvidenceSnapshot,
 )
 from .semantic_units import (
     SemanticUnitProjection,
@@ -717,7 +746,7 @@ class RequirementActionEvidenceSource(StrEnum):
 
 
 class SessionRequirementActionEvidenceBinding(StrictModel):
-    """Exact content-free requirement-action authority used by one r7 run."""
+    """Exact content-free requirement-action authority used by one r7/r8 run."""
 
     evidence_source: RequirementActionEvidenceSource
     session_id: str
@@ -902,11 +931,497 @@ class SessionRequirementActionEvidenceBinding(StrictModel):
         )
 
 
+REQUIREMENT_VERIFICATION_BINDING_SCHEMA_VERSION = (
+    "session-requirement-verification-evidence-binding-v1"
+)
+VERIFIED_REQUIREMENT_METRIC_ALGORITHM_ID = (
+    "reviewed-requirement-verification-authority"
+)
+VERIFIED_REQUIREMENT_METRIC_ALGORITHM_VERSION = "4"
+VERIFIED_REQUIREMENT_METRIC_RUBRIC_VERSION = "objective-evidence-no-rubric-v4"
+
+
+class RequirementVerificationEvidenceSource(StrEnum):
+    UNAVAILABLE = "unavailable"
+    OPPORTUNITY_BOUND_EXCEEDED = "opportunity_bound_exceeded"
+    AWAITING_EVIDENCE = "awaiting_evidence"
+    PERSISTED_EVIDENCE = "persisted_evidence"
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedRequirementVerificationEvidence:
+    evidence_source: RequirementVerificationEvidenceSource
+    opportunities: AppIssuedRequirementVerificationOpportunitySet | None = None
+    snapshot: RequirementVerificationEvidenceSnapshot | None = None
+
+    def request_identity(self) -> tuple[str, ...]:
+        opportunities = self.opportunities
+        snapshot = self.snapshot
+        return (
+            self.evidence_source.value,
+            (
+                "none"
+                if opportunities is None
+                else opportunities.requirement_plan_confirmation_id
+            ),
+            (
+                "none"
+                if opportunities is None
+                else opportunities.requirement_plan_proposal_id
+            ),
+            (
+                "none"
+                if opportunities is None
+                else opportunities.requirement_plan_evidence_fingerprint
+            ),
+            (
+                "none"
+                if opportunities is None
+                else str(len(opportunities.opportunities))
+            ),
+            (
+                "none"
+                if opportunities is None
+                else opportunities.opportunity_set_fingerprint
+            ),
+            "none" if snapshot is None else str(snapshot.revision),
+            (
+                "none"
+                if snapshot is None
+                else snapshot.evidence.evidence_set_fingerprint
+            ),
+            REQUIREMENT_VERIFICATION_OPPORTUNITY_ISSUER_VERSION,
+            REQUIREMENT_VERIFICATION_RESULT_ISSUER_VERSION,
+            REQUIREMENT_ACCEPTANCE_AUTHORITY_ISSUER_VERSION,
+            REQUIREMENT_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+            REQUIREMENT_VERIFICATION_EVIDENCE_POLICY_VERSION,
+            REQUIREMENT_VERIFICATION_PERSISTENCE_SCHEMA_VERSION,
+            REQUIREMENT_VERIFICATION_PROJECTION_VERSION,
+            OBJECTIVE_METRIC_PROJECTION_V4_VERSION,
+            REQUIREMENT_VERIFICATION_BINDING_SCHEMA_VERSION,
+        )
+
+
+class SessionRequirementVerificationEvidenceBinding(StrictModel):
+    """Exact content-free M58 revision authority used by one r8 run."""
+
+    evidence_source: RequirementVerificationEvidenceSource
+    session_id: str
+    source_window_fingerprint: str
+    requirement_plan_confirmation_id: str | None = None
+    requirement_plan_proposal_id: str | None = None
+    requirement_plan_evidence_fingerprint: str | None = None
+    requirement_plan_schema_version: str | None = None
+    requirement_plan_policy_version: str | None = None
+    requirement_plan_review_rubric_version: str | None = None
+    opportunity_count: int | None = Field(default=None, ge=0, le=1_000)
+    opportunity_set_fingerprint: str | None = None
+    evidence_set_fingerprint: str | None = None
+    through_revision: int | None = Field(default=None, ge=0, le=32_000)
+    authority_head_count: int | None = Field(default=None, ge=0, le=1_000)
+    objective_result_count: int | None = Field(default=None, ge=0, le=1_000)
+    native_acceptance_count: int | None = Field(default=None, ge=0, le=1_000)
+    resolved_opportunity_count: int | None = Field(default=None, ge=0, le=1_000)
+    met_requirement_count: int | None = Field(default=None, ge=0, le=1_000)
+    opportunity_issuer_version: str
+    result_issuer_version: str
+    acceptance_issuer_version: str
+    evidence_schema_version: str
+    evidence_policy_version: str
+    persistence_schema_version: str
+    evidence_projection_version: str
+    objective_projection_version: str
+    binding_schema_version: str = REQUIREMENT_VERIFICATION_BINDING_SCHEMA_VERSION
+    binding_fingerprint: str
+    bound_at: datetime
+    local_only: Literal[True] = True
+    content_persisted: Literal[False] = False
+
+    _ids = field_validator(
+        "session_id", "source_window_fingerprint", "binding_fingerprint"
+    )(_pseudonym)
+
+    @field_validator(
+        "requirement_plan_confirmation_id",
+        "requirement_plan_proposal_id",
+        "requirement_plan_evidence_fingerprint",
+        "opportunity_set_fingerprint",
+        "evidence_set_fingerprint",
+    )
+    @classmethod
+    def optional_authority_id(cls, value: str | None) -> str | None:
+        return None if value is None else _pseudonym(value)
+
+    @field_validator(
+        "requirement_plan_schema_version",
+        "requirement_plan_policy_version",
+        "requirement_plan_review_rubric_version",
+    )
+    @classmethod
+    def optional_version(cls, value: str | None) -> str | None:
+        return None if value is None else _safe_code(value)
+
+    _versions = field_validator(
+        "opportunity_issuer_version",
+        "result_issuer_version",
+        "acceptance_issuer_version",
+        "evidence_schema_version",
+        "evidence_policy_version",
+        "persistence_schema_version",
+        "evidence_projection_version",
+        "objective_projection_version",
+        "binding_schema_version",
+    )(_safe_code)
+
+    @field_validator("bound_at")
+    @classmethod
+    def utc_bound_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("requirement-verification binding timestamp must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def exact_authority(self) -> "SessionRequirementVerificationEvidenceBinding":
+        expected_versions = (
+            REQUIREMENT_VERIFICATION_OPPORTUNITY_ISSUER_VERSION,
+            REQUIREMENT_VERIFICATION_RESULT_ISSUER_VERSION,
+            REQUIREMENT_ACCEPTANCE_AUTHORITY_ISSUER_VERSION,
+            REQUIREMENT_VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+            REQUIREMENT_VERIFICATION_EVIDENCE_POLICY_VERSION,
+            REQUIREMENT_VERIFICATION_PERSISTENCE_SCHEMA_VERSION,
+            REQUIREMENT_VERIFICATION_PROJECTION_VERSION,
+            OBJECTIVE_METRIC_PROJECTION_V4_VERSION,
+            REQUIREMENT_VERIFICATION_BINDING_SCHEMA_VERSION,
+        )
+        actual_versions = (
+            self.opportunity_issuer_version,
+            self.result_issuer_version,
+            self.acceptance_issuer_version,
+            self.evidence_schema_version,
+            self.evidence_policy_version,
+            self.persistence_schema_version,
+            self.evidence_projection_version,
+            self.objective_projection_version,
+            self.binding_schema_version,
+        )
+        if actual_versions != expected_versions:
+            raise ValueError("requirement-verification binding versions are invalid")
+        plan_authority = (
+            self.requirement_plan_confirmation_id,
+            self.requirement_plan_proposal_id,
+            self.requirement_plan_evidence_fingerprint,
+            self.requirement_plan_schema_version,
+            self.requirement_plan_policy_version,
+            self.requirement_plan_review_rubric_version,
+        )
+        evidence_statistics = (
+            self.authority_head_count,
+            self.objective_result_count,
+            self.native_acceptance_count,
+            self.resolved_opportunity_count,
+            self.met_requirement_count,
+        )
+        if self.evidence_source is RequirementVerificationEvidenceSource.UNAVAILABLE:
+            if (
+                any(value is not None for value in plan_authority)
+                or self.opportunity_count is not None
+                or self.opportunity_set_fingerprint is not None
+                or self.evidence_set_fingerprint is not None
+                or self.through_revision is not None
+                or any(value is not None for value in evidence_statistics)
+            ):
+                raise ValueError("unavailable verification binding has authority")
+            return self
+        if any(value is None for value in plan_authority):
+            raise ValueError("verification binding lacks reviewed r6 authority")
+        if (
+            self.requirement_plan_schema_version
+            != REQUIREMENT_PLAN_EVIDENCE_SCHEMA_VERSION
+            or self.requirement_plan_policy_version
+            != REQUIREMENT_PLAN_EVIDENCE_POLICY_VERSION
+            or self.requirement_plan_review_rubric_version
+            != REQUIREMENT_PLAN_REVIEW_RUBRIC_VERSION
+            or self.opportunity_count is None
+            or self.opportunity_set_fingerprint is None
+        ):
+            raise ValueError("verification opportunity authority is invalid")
+        if (
+            self.evidence_source
+            is RequirementVerificationEvidenceSource.OPPORTUNITY_BOUND_EXCEEDED
+        ):
+            if (
+                self.opportunity_count
+                <= MAX_REQUIREMENT_VERIFICATION_OPPORTUNITIES
+                or self.evidence_set_fingerprint is not None
+                or self.through_revision is not None
+                or any(value is not None for value in evidence_statistics)
+            ):
+                raise ValueError("verification opportunity-bound marker is invalid")
+            return self
+        if self.opportunity_count > MAX_REQUIREMENT_VERIFICATION_OPPORTUNITIES:
+            raise ValueError("verification evidence exceeds the receipt bound")
+        if self.evidence_source is RequirementVerificationEvidenceSource.AWAITING_EVIDENCE:
+            if (
+                self.evidence_set_fingerprint is not None
+                or self.through_revision is not None
+                or evidence_statistics != (0, 0, 0, 0, 0)
+            ):
+                raise ValueError("awaiting verification marker is invalid")
+            return self
+        if (
+            self.evidence_set_fingerprint is None
+            or self.through_revision is None
+            or any(value is None for value in evidence_statistics)
+        ):
+            raise ValueError("persisted verification authority is incomplete")
+        assert self.authority_head_count is not None
+        assert self.through_revision is not None
+        assert self.objective_result_count is not None
+        assert self.native_acceptance_count is not None
+        assert self.resolved_opportunity_count is not None
+        assert self.met_requirement_count is not None
+        if (
+            self.authority_head_count
+            != self.objective_result_count + self.native_acceptance_count
+            or self.through_revision < self.authority_head_count
+            or self.authority_head_count > self.opportunity_count
+            or self.resolved_opportunity_count > self.authority_head_count
+            or self.met_requirement_count > self.resolved_opportunity_count
+        ):
+            raise ValueError("persisted verification counts are inconsistent")
+        return self
+
+    def authority_identity(self) -> tuple[str, ...]:
+        """Stable revision identity; observation time is not semantics."""
+
+        values = self.model_dump(
+            mode="python", exclude={"bound_at", "binding_fingerprint"}
+        )
+        return tuple(
+            "none" if value is None else str(value.value if isinstance(value, StrEnum) else value)
+            for value in values.values()
+        )
+
+
+def validate_requirement_verification_binding_metric_state(
+    binding: SessionRequirementVerificationEvidenceBinding,
+    state: MetricStateV2,
+) -> None:
+    """Cross-bind one r8 M58 source partition to the published metric row."""
+
+    if (
+        state.metric_key != "outcome.verified_requirement_coverage"
+        or state.projection_version != METRIC_PROJECTION_V2_VERSION_8
+    ):
+        raise ValueError("verification binding belongs to another metric state")
+    statistics = state.statistics
+    nonnumeric = (
+        state.numerator is None
+        and state.denominator is None
+        and state.numeric_value is None
+    )
+    no_bounds = (
+        state.censoring_lower_bound is None
+        and state.censoring_upper_bound is None
+    )
+    exact_owner_shape = (
+        statistics.superseded_excluded_count == 0
+        and statistics.distinct_owner_count == statistics.eligible_count
+    )
+    if (
+        binding.evidence_source
+        is RequirementVerificationEvidenceSource.OPPORTUNITY_BOUND_EXCEEDED
+    ):
+        if (
+            state.value_state is not MetricValueStateV2.UNKNOWN
+            or state.explanation_code
+            != "typed_objective_opportunity_count_exceeds_receipt_bound"
+            or statistics.eligible_count != 0
+            or not statistics.capability_available
+            or not statistics.source_complete
+            or not nonnumeric
+            or not no_bounds
+            or not exact_owner_shape
+        ):
+            raise ValueError("verification opportunity-bound state is invalid")
+        return
+    if binding.evidence_source is RequirementVerificationEvidenceSource.UNAVAILABLE:
+        expected_authority_flags = {
+            "reviewed_requirement_authority_unavailable": (False, True),
+            "reviewed_requirement_authority_invalid": (True, False),
+            "requirement_verification_evidence_unavailable": (True, True),
+        }
+        authority_absent = state.explanation_code in {
+            "reviewed_requirement_authority_unavailable",
+            "reviewed_requirement_authority_invalid",
+        }
+        exact_unavailable_bounds = (
+            no_bounds
+            if authority_absent
+            else state.censoring_lower_bound == 0.0
+            and state.censoring_upper_bound == 1.0
+        )
+        if (
+            state.value_state is not MetricValueStateV2.UNKNOWN
+            or state.explanation_code not in expected_authority_flags
+            or (
+                statistics.capability_available,
+                statistics.source_complete,
+            )
+            != expected_authority_flags[state.explanation_code]
+            or statistics.eligible_count != (0 if authority_absent else statistics.unknown_count)
+            or (not authority_absent and statistics.eligible_count == 0)
+            or not nonnumeric
+            or not exact_unavailable_bounds
+            or not exact_owner_shape
+        ):
+            raise ValueError("unavailable verification state is invalid")
+        return
+    assert binding.opportunity_count is not None
+    if binding.opportunity_count == 0:
+        if (
+            state.value_state is not MetricValueStateV2.NOT_APPLICABLE
+            or state.explanation_code != "reviewed_requirement_set_empty"
+            or statistics.eligible_count != 0
+            or not statistics.capability_available
+            or not statistics.source_complete
+            or not nonnumeric
+            or not no_bounds
+            or not exact_owner_shape
+        ):
+            raise ValueError("empty verification state is invalid")
+        return
+    if binding.evidence_source is RequirementVerificationEvidenceSource.AWAITING_EVIDENCE:
+        if (
+            state.value_state is not MetricValueStateV2.UNKNOWN
+            or state.explanation_code
+            != "requirement_verification_evidence_unavailable"
+            or statistics.eligible_count != binding.opportunity_count
+            or statistics.unknown_count != binding.opportunity_count
+            or not statistics.capability_available
+            or not statistics.source_complete
+            or not nonnumeric
+            or state.censoring_lower_bound != 0.0
+            or state.censoring_upper_bound != 1.0
+            or not exact_owner_shape
+        ):
+            raise ValueError("awaiting verification state is invalid")
+        return
+    assert binding.resolved_opportunity_count is not None
+    assert binding.met_requirement_count is not None
+    expected_unresolved = (
+        binding.opportunity_count - binding.resolved_opportunity_count
+    )
+    if (
+        statistics.eligible_count != binding.opportunity_count
+        or not statistics.capability_available
+        or not statistics.source_complete
+        or statistics.met_count != binding.met_requirement_count
+        or statistics.not_met_count
+        != binding.resolved_opportunity_count - binding.met_requirement_count
+        or statistics.pending_count != 0
+        or statistics.unknown_count != expected_unresolved
+        or not exact_owner_shape
+    ):
+        raise ValueError("persisted verification statistics are inconsistent")
+    if expected_unresolved:
+        if (
+            state.value_state is not MetricValueStateV2.UNKNOWN
+            or state.explanation_code
+            != "app_issued_requirement_verification_pending"
+            or not nonnumeric
+            or state.censoring_lower_bound
+            != binding.met_requirement_count / binding.opportunity_count
+            or state.censoring_upper_bound
+            != (
+                binding.met_requirement_count + expected_unresolved
+            )
+            / binding.opportunity_count
+        ):
+            raise ValueError("pending verification state is invalid")
+    elif (
+        state.value_state is not MetricValueStateV2.KNOWN
+        or state.explanation_code != "app_issued_verified_requirement_coverage"
+        or state.numerator != binding.met_requirement_count
+        or state.denominator != binding.opportunity_count
+    ):
+        raise ValueError("resolved verification state is invalid")
+
+
+def validate_r8_typed_metric_projection(
+    receipt: SessionModelEnsembleReceipt,
+) -> None:
+    """Require the complete typed sidecar and exact verified r8 provenance."""
+
+    publication = receipt.metric_publication_v2
+    if (
+        publication is None
+        or publication.projection_version != METRIC_PROJECTION_V2_VERSION_8
+    ):
+        return
+    canonical_keys = {item.metric_key for item in METRIC_CONTRACTS_V2}
+    typed_by_key = {item.metric_key: item for item in receipt.typed_metrics}
+    if (
+        len(receipt.typed_metrics) != len(METRIC_CONTRACTS_V2)
+        or len(typed_by_key) != len(METRIC_CONTRACTS_V2)
+        or set(typed_by_key) != canonical_keys
+    ):
+        raise ValueError("r8 publication requires all twenty typed metric receipts")
+    states_by_key = {item.state.metric_key: item.state for item in publication.metrics}
+    try:
+        state = states_by_key[VERIFIED_REQUIREMENT_METRIC_KEY]
+        typed = typed_by_key[VERIFIED_REQUIREMENT_METRIC_KEY]
+    except KeyError as exc:  # pragma: no cover - publication model also pins this
+        raise ValueError("r8 verified-requirement receipt is missing") from exc
+    resolved_count = state.statistics.met_count + state.statistics.not_met_count
+    expected_coverage = (
+        0.0
+        if state.statistics.eligible_count == 0
+        else resolved_count / state.statistics.eligible_count
+    )
+    numeric_matches = (
+        typed.numeric_value is None and state.numeric_value is None
+    ) or (
+        typed.numeric_value is not None
+        and state.numeric_value is not None
+        and math.isclose(
+            typed.numeric_value,
+            state.numeric_value,
+            rel_tol=0,
+            abs_tol=1e-12,
+        )
+    )
+    if (
+        typed.value_state.value != state.value_state.value
+        or typed.numerator != state.numerator
+        or typed.denominator != state.denominator
+        or not numeric_matches
+        or typed.observed_message_count != resolved_count
+        or typed.eligible_message_count != state.statistics.eligible_count
+        or not math.isclose(
+            typed.coverage,
+            expected_coverage,
+            rel_tol=0,
+            abs_tol=1e-12,
+        )
+        or typed.explanation_code != state.explanation_code
+        or typed.error_code is not None
+        or typed.engine_version != OBJECTIVE_METRIC_PROJECTION_V4_VERSION
+        or typed.algorithm_id != VERIFIED_REQUIREMENT_METRIC_ALGORITHM_ID
+        or typed.algorithm_version
+        != VERIFIED_REQUIREMENT_METRIC_ALGORITHM_VERSION
+        or typed.rubric_version != VERIFIED_REQUIREMENT_METRIC_RUBRIC_VERSION
+    ):
+        raise ValueError(
+            "r8 verified-requirement typed receipt disagrees with its canonical state"
+        )
+
+
 def validate_requirement_action_binding_metric_state(
     binding: SessionRequirementActionEvidenceBinding,
     state: MetricStateV2,
 ) -> None:
-    """Cross-bind one r7 authority marker to its exact action metric row."""
+    """Cross-bind one r7/r8 authority marker to its exact action metric row."""
 
     statistics = state.statistics
     marker_shape = (
@@ -985,12 +1500,13 @@ def validate_requirement_action_binding_metric_state(
             and statistics.distinct_owner_count == statistics.eligible_count
         )
     if (
-        state.projection_version != METRIC_PROJECTION_V2_VERSION_7
+        state.projection_version
+        not in {METRIC_PROJECTION_V2_VERSION_7, METRIC_PROJECTION_V2_VERSION_8}
         or state.metric_key != "logic.requirement_action_traceability"
         or not valid
     ):
         raise ValueError(
-            "requirement-action binding disagrees with its r7 metric state"
+            "requirement-action binding disagrees with its r7/r8 metric state"
         )
 
 
@@ -998,7 +1514,7 @@ def validate_requirement_plan_binding_metric_state(
     binding: SessionRequirementPlanEvidenceBinding,
     state: MetricStateV2,
 ) -> None:
-    """Cross-bind one r6/r7 plan authority marker to decomposition truth."""
+    """Cross-bind one r6-r8 plan authority marker to decomposition truth."""
 
     statistics = state.statistics
     empty_unknown = (
@@ -1043,7 +1559,11 @@ def validate_requirement_plan_binding_metric_state(
         )
     if (
         state.projection_version
-        not in {METRIC_PROJECTION_V2_VERSION_6, METRIC_PROJECTION_V2_VERSION_7}
+        not in {
+            METRIC_PROJECTION_V2_VERSION_6,
+            METRIC_PROJECTION_V2_VERSION_7,
+            METRIC_PROJECTION_V2_VERSION_8,
+        }
         or state.metric_key != "logic.decomposition_coverage"
         or not valid
     ):
@@ -1184,6 +1704,9 @@ class SessionModelEnsembleRunRecord(StrictModel):
     requirement_action_evidence_binding: (
         SessionRequirementActionEvidenceBinding | None
     ) = None
+    requirement_verification_evidence_binding: (
+        SessionRequirementVerificationEvidenceBinding | None
+    ) = None
     receipt: SessionModelEnsembleReceipt
 
     _ids = field_validator(
@@ -1211,10 +1734,12 @@ class SessionModelEnsembleRunRecord(StrictModel):
             raise ValueError("metric profile is bound to another source window")
         publication = self.receipt.metric_publication_v2
         if publication is not None:
+            validate_r8_typed_metric_projection(self.receipt)
             if publication.projection_version in {
                 METRIC_PROJECTION_V2_VERSION_5,
                 METRIC_PROJECTION_V2_VERSION_6,
                 METRIC_PROJECTION_V2_VERSION_7,
+                METRIC_PROJECTION_V2_VERSION_8,
             }:
                 if binding is None:
                     raise ValueError("current metric publication requires a profile binding")
@@ -1224,6 +1749,7 @@ class SessionModelEnsembleRunRecord(StrictModel):
             if publication.projection_version in {
                 METRIC_PROJECTION_V2_VERSION_6,
                 METRIC_PROJECTION_V2_VERSION_7,
+                METRIC_PROJECTION_V2_VERSION_8,
             }:
                 if evidence_binding is None:
                     raise ValueError(
@@ -1251,10 +1777,13 @@ class SessionModelEnsembleRunRecord(StrictModel):
                     "legacy metric publication cannot carry requirement-plan authority"
                 )
             action_binding = self.requirement_action_evidence_binding
-            if publication.projection_version == METRIC_PROJECTION_V2_VERSION_7:
+            if publication.projection_version in {
+                METRIC_PROJECTION_V2_VERSION_7,
+                METRIC_PROJECTION_V2_VERSION_8,
+            }:
                 if action_binding is None:
                     raise ValueError(
-                        "r7 metric publication requires a requirement-action binding"
+                        "r7/r8 metric publication requires a requirement-action binding"
                     )
                 if (
                     action_binding.session_id != self.session_id
@@ -1278,9 +1807,38 @@ class SessionModelEnsembleRunRecord(StrictModel):
                 raise ValueError(
                     "pre-r7 metric publication cannot carry requirement-action authority"
                 )
+            verification_binding = self.requirement_verification_evidence_binding
+            if publication.projection_version == METRIC_PROJECTION_V2_VERSION_8:
+                if verification_binding is None:
+                    raise ValueError(
+                        "r8 metric publication requires a requirement-verification binding"
+                    )
+                if (
+                    verification_binding.session_id != self.session_id
+                    or verification_binding.source_window_fingerprint
+                    != self.input_fingerprint
+                ):
+                    raise ValueError(
+                        "requirement-verification evidence is bound to another source window"
+                    )
+                verification_state = next(
+                    item.state
+                    for item in publication.metrics
+                    if item.state.metric_key
+                    == "outcome.verified_requirement_coverage"
+                )
+                validate_requirement_verification_binding_metric_state(
+                    verification_binding,
+                    verification_state,
+                )
+            elif verification_binding is not None:
+                raise ValueError(
+                    "pre-r8 metric publication cannot carry requirement-verification authority"
+                )
         elif (
             self.requirement_plan_evidence_binding is not None
             or self.requirement_action_evidence_binding is not None
+            or self.requirement_verification_evidence_binding is not None
         ):
             raise ValueError("a run without a metric publication has no evidence binding")
         return self
@@ -1482,6 +2040,9 @@ class SessionModelEnsembleService:
         requirement_action_review_contexts: (
             InMemoryRequirementActionReviewContextStore | None
         ) = None,
+        requirement_verification_reader: (
+            CurrentRequirementVerificationEvidenceReader | None
+        ) = None,
     ) -> None:
         self._access_policy = access_policy
         self._repository = repository
@@ -1503,6 +2064,7 @@ class SessionModelEnsembleService:
         self._requirement_action_review_contexts = (
             requirement_action_review_contexts
         )
+        self._requirement_verification_reader = requirement_verification_reader
         self._lock = Lock()
 
     def run(
@@ -1550,6 +2112,12 @@ class SessionModelEnsembleService:
             resolved_requirement_action = (
                 self._resolve_requirement_action_evidence(session_id)
             )
+            resolved_requirement_verification = (
+                self._resolve_requirement_verification_evidence(
+                    session_id,
+                    resolved_requirement_plan,
+                )
+            )
             typed_evidence = self._project_typed_evidence(provider, session_id)
             candidate_preflight = self._preflight_requirement_action_candidates(
                 provider=provider,
@@ -1564,8 +2132,10 @@ class SessionModelEnsembleService:
             def request_identity(
                 candidate_status: _RequirementActionCandidateStatus,
             ) -> tuple[str, str]:
+                # The current namespace includes the revision-bound verification
+                # identity. Historical request fingerprints remain stored verbatim.
                 fingerprint = self._identifiers.fingerprint(
-                    "session-model-ensemble-request-v6",
+                    "session-model-ensemble-request-v8",
                     (
                         provider.value,
                         session_id,
@@ -1575,6 +2145,7 @@ class SessionModelEnsembleService:
                         *resolved_profile.request_identity(),
                         *resolved_requirement_plan.request_identity(),
                         *resolved_requirement_action.request_identity(),
+                        *resolved_requirement_verification.request_identity(),
                         candidate_status,
                     ),
                 )
@@ -1695,6 +2266,15 @@ class SessionModelEnsembleService:
                     candidate_review_surface_complete
                 ),
             )
+            (
+                requirement_verification_binding,
+                requirement_verification_evidence,
+            ) = self._bind_requirement_verification_evidence(
+                resolved_requirement_verification,
+                context,
+                requirement_plan_binding,
+                requirement_plan_evidence,
+            )
             typed_metrics: tuple[SessionModelEnsembleTypedMetricReceipt, ...] | None = None
             metric_publication_v2: MetricPublicationV2 | None = None
             projection_completed_at: datetime | None = None
@@ -1739,6 +2319,10 @@ class SessionModelEnsembleService:
                         latest.requirement_action_evidence_binding,
                         requirement_action_binding,
                     )
+                    and self._requirement_verification_identity_matches(
+                        latest.requirement_verification_evidence_binding,
+                        requirement_verification_binding,
+                    )
                     and not (
                         resolved_requirement_action.evidence_source
                         is RequirementActionEvidenceSource.REVIEWED_REQUIREMENT_ACTION
@@ -1765,6 +2349,7 @@ class SessionModelEnsembleService:
                     typed_evidence,
                     requirement_plan_evidence,
                     requirement_action_evidence,
+                    requirement_verification_evidence,
                     candidate_manifest_overflow,
                     candidate_source_incomplete,
                     (
@@ -1803,51 +2388,8 @@ class SessionModelEnsembleService:
                             current_candidates.manifest,
                         )
                         return SessionModelEnsembleOutcome(run=latest, applied=False)
-                    if latest.receipt.metric_projection_version is None:
-                        projected = self._with_metric_projection(
-                            latest,
-                            typed_metrics,
-                            metric_publication_v2,
-                            projection_completed_at,
-                            metric_profile_binding,
-                            requirement_plan_binding,
-                            requirement_action_binding,
-                        )
-                        try:
-                            self._repository.save_metric_projection(
-                                projected,
-                                authority=(
-                                    None
-                                    if persistence_authority is None
-                                    else persistence_authority()
-                                ),
-                            )
-                        except Exception:
-                            race = self._safe_get(latest.run_id)
-                            if (
-                                race is None
-                                or race.receipt.metric_projection_version
-                                != MODEL_ENSEMBLE_METRIC_PROJECTION_VERSION
-                                or race.receipt.typed_metrics != typed_metrics
-                                or race.receipt.metric_publication_v2
-                                != metric_publication_v2
-                            ):
-                                raise ModelEnsemblePersistenceError(
-                                    "typed metric projection could not be stored"
-                                ) from None
-                            projected = race
-                        if progress_callback is not None:
-                            progress_callback(10, 10)
-                        self._publish_review_contexts(
-                            projected,
-                            context,
-                            requirement_plan_evidence,
-                            current_candidates.manifest,
-                        )
-                        return SessionModelEnsembleOutcome(
-                            run=projected,
-                            applied=False,
-                        )
+                    # R8 is revision-bound at run creation. It must never be
+                    # appended to a pre-r8 sealed run that has no M59 binding.
                     # Provider event evidence is a second, content-free input
                     # plane. It may change while the bounded text window stays
                     # byte-identical, so a new run must be published instead
@@ -1875,6 +2417,7 @@ class SessionModelEnsembleService:
                     typed_evidence,
                     requirement_plan_evidence,
                     requirement_action_evidence,
+                    requirement_verification_evidence,
                     candidate_manifest_overflow,
                     candidate_source_incomplete,
                     (
@@ -1919,6 +2462,9 @@ class SessionModelEnsembleService:
                     ),
                     requirement_action_evidence_binding=(
                         requirement_action_binding
+                    ),
+                    requirement_verification_evidence_binding=(
+                        requirement_verification_binding
                     ),
                     receipt=projected_receipt,
                 )
@@ -2213,6 +2759,86 @@ class SessionModelEnsembleService:
             evidence_fingerprint=fingerprint,
         )
 
+    def _resolve_requirement_verification_evidence(
+        self,
+        session_id: str,
+        requirement_plan: _ResolvedRequirementPlanEvidence,
+    ) -> _ResolvedRequirementVerificationEvidence:
+        reader = self._requirement_verification_reader
+        snapshot = requirement_plan.snapshot
+        if (
+            reader is None
+            or snapshot is None
+            or requirement_plan.evidence_source
+            is not RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+            or not snapshot.complete_user_clause_classification
+            or snapshot.confirmation_id is None
+            or snapshot.proposal_id is None
+            or snapshot.producer_receipt is None
+        ):
+            return _ResolvedRequirementVerificationEvidence(
+                evidence_source=RequirementVerificationEvidenceSource.UNAVAILABLE
+            )
+        try:
+            opportunities = issue_requirement_verification_opportunities(
+                snapshot,
+                self._identifiers,
+            )
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "reviewed requirement-verification denominator is invalid"
+            ) from None
+        if (
+            len(opportunities.opportunities)
+            > MAX_REQUIREMENT_VERIFICATION_OPPORTUNITIES
+        ):
+            return _ResolvedRequirementVerificationEvidence(
+                evidence_source=(
+                    RequirementVerificationEvidenceSource.OPPORTUNITY_BOUND_EXCEEDED
+                ),
+                opportunities=opportunities,
+            )
+        try:
+            persisted = reader.snapshot_for_requirement_plan(
+                session_id,
+                snapshot.confirmation_id,
+            )
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "requirement-verification evidence is unavailable"
+            ) from None
+        if persisted is None:
+            return _ResolvedRequirementVerificationEvidence(
+                evidence_source=(
+                    RequirementVerificationEvidenceSource.AWAITING_EVIDENCE
+                ),
+                opportunities=opportunities,
+            )
+        try:
+            validated_snapshot = RequirementVerificationEvidenceSnapshot.model_validate(
+                persisted.model_dump(mode="python")
+            )
+            validated_evidence = validate_requirement_verification_evidence_set(
+                validated_snapshot.evidence,
+                snapshot,
+                self._identifiers,
+            )
+            if (
+                validated_snapshot.evidence != validated_evidence
+                or validated_evidence.opportunities != opportunities
+                or validated_evidence.opportunities.session_id != session_id
+            ):
+                raise ValueError("verification snapshot belongs elsewhere")
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "requirement-verification evidence is invalid"
+            ) from None
+        return _ResolvedRequirementVerificationEvidence(
+            evidence_source=RequirementVerificationEvidenceSource.PERSISTED_EVIDENCE,
+            opportunities=opportunities,
+            snapshot=validated_snapshot,
+        )
+
     def _bind_requirement_plan_evidence(
         self,
         resolved: _ResolvedRequirementPlanEvidence,
@@ -2490,6 +3116,180 @@ class SessionModelEnsembleService:
                 "requirement-action binding could not be issued"
             ) from None
 
+    def _bind_requirement_verification_evidence(
+        self,
+        resolved: _ResolvedRequirementVerificationEvidence,
+        context: P1TextAnalysisInput,
+        requirement_plan_binding: SessionRequirementPlanEvidenceBinding,
+        requirement_plan_evidence: RequirementPlanEvidenceSnapshot | None,
+    ) -> tuple[
+        SessionRequirementVerificationEvidenceBinding,
+        RequirementVerificationEvidenceSet | None,
+    ]:
+        opportunities = resolved.opportunities
+        reviewed = (
+            requirement_plan_evidence
+            if requirement_plan_evidence is not None
+            and requirement_plan_evidence.complete_user_clause_classification
+            and requirement_plan_evidence.confirmation_id is not None
+            and requirement_plan_evidence.proposal_id is not None
+            and requirement_plan_binding.evidence_source
+            is RequirementPlanEvidenceSource.REVIEWED_REQUIREMENT_PLAN
+            else None
+        )
+        if reviewed is None or resolved.evidence_source is (
+            RequirementVerificationEvidenceSource.UNAVAILABLE
+        ):
+            source = RequirementVerificationEvidenceSource.UNAVAILABLE
+            opportunities = None
+        else:
+            source = resolved.evidence_source
+            if (
+                opportunities is None
+                or opportunities.session_id != context.session_id
+                or opportunities.source_window_fingerprint
+                != context.analysis_window_fingerprint
+                or opportunities.requirement_plan_confirmation_id
+                != reviewed.confirmation_id
+                or opportunities.requirement_plan_proposal_id
+                != reviewed.proposal_id
+                or opportunities.requirement_plan_evidence_fingerprint
+                != requirement_plan_binding.evidence_fingerprint
+            ):
+                raise ModelEnsemblePersistenceError(
+                    "requirement-verification authority changed during analysis"
+                )
+        persisted = (
+            resolved.snapshot
+            if source is RequirementVerificationEvidenceSource.PERSISTED_EVIDENCE
+            else None
+        )
+        evidence = None if persisted is None else persisted.evidence
+        objective_result_count = (
+            None if evidence is None else len(evidence.verification_results)
+        )
+        native_acceptance_count = (
+            None if evidence is None else len(evidence.acceptance_authorities)
+        )
+        resolved_count = (
+            None
+            if evidence is None
+            else sum(
+                item.outcome is not RequirementVerificationOutcome.UNKNOWN
+                for item in evidence.verification_results
+            )
+            + sum(
+                item.outcome is not RequirementAcceptanceOutcome.UNKNOWN
+                for item in evidence.acceptance_authorities
+            )
+        )
+        met_count = (
+            None
+            if evidence is None
+            else sum(
+                item.outcome is RequirementVerificationOutcome.PASSED
+                for item in evidence.verification_results
+            )
+            + sum(
+                item.outcome is RequirementAcceptanceOutcome.ACCEPTED
+                for item in evidence.acceptance_authorities
+            )
+        )
+        if source is RequirementVerificationEvidenceSource.AWAITING_EVIDENCE:
+            authority_head_count = 0
+            objective_result_count = 0
+            native_acceptance_count = 0
+            resolved_count = 0
+            met_count = 0
+        elif persisted is None:
+            authority_head_count = None
+        else:
+            authority_head_count = len(persisted.authority_heads)
+        data = {
+            "evidence_source": source,
+            "session_id": context.session_id,
+            "source_window_fingerprint": context.analysis_window_fingerprint,
+            "requirement_plan_confirmation_id": (
+                None if opportunities is None else opportunities.requirement_plan_confirmation_id
+            ),
+            "requirement_plan_proposal_id": (
+                None if opportunities is None else opportunities.requirement_plan_proposal_id
+            ),
+            "requirement_plan_evidence_fingerprint": (
+                None if opportunities is None else opportunities.requirement_plan_evidence_fingerprint
+            ),
+            "requirement_plan_schema_version": (
+                None if opportunities is None else opportunities.requirement_plan_schema_version
+            ),
+            "requirement_plan_policy_version": (
+                None if opportunities is None else opportunities.requirement_plan_policy_version
+            ),
+            "requirement_plan_review_rubric_version": (
+                None
+                if opportunities is None
+                else opportunities.requirement_plan_review_rubric_version
+            ),
+            "opportunity_count": (
+                None if opportunities is None else len(opportunities.opportunities)
+            ),
+            "opportunity_set_fingerprint": (
+                None if opportunities is None else opportunities.opportunity_set_fingerprint
+            ),
+            "evidence_set_fingerprint": (
+                None if evidence is None else evidence.evidence_set_fingerprint
+            ),
+            "through_revision": (
+                None if persisted is None else persisted.revision
+            ),
+            "authority_head_count": authority_head_count,
+            "objective_result_count": objective_result_count,
+            "native_acceptance_count": native_acceptance_count,
+            "resolved_opportunity_count": resolved_count,
+            "met_requirement_count": met_count,
+            "opportunity_issuer_version": (
+                REQUIREMENT_VERIFICATION_OPPORTUNITY_ISSUER_VERSION
+            ),
+            "result_issuer_version": REQUIREMENT_VERIFICATION_RESULT_ISSUER_VERSION,
+            "acceptance_issuer_version": (
+                REQUIREMENT_ACCEPTANCE_AUTHORITY_ISSUER_VERSION
+            ),
+            "evidence_schema_version": (
+                REQUIREMENT_VERIFICATION_EVIDENCE_SCHEMA_VERSION
+            ),
+            "evidence_policy_version": (
+                REQUIREMENT_VERIFICATION_EVIDENCE_POLICY_VERSION
+            ),
+            "persistence_schema_version": (
+                REQUIREMENT_VERIFICATION_PERSISTENCE_SCHEMA_VERSION
+            ),
+            "evidence_projection_version": (
+                REQUIREMENT_VERIFICATION_PROJECTION_VERSION
+            ),
+            "objective_projection_version": OBJECTIVE_METRIC_PROJECTION_V4_VERSION,
+            "binding_schema_version": (
+                REQUIREMENT_VERIFICATION_BINDING_SCHEMA_VERSION
+            ),
+            "bound_at": self._clock(),
+        }
+        try:
+            draft = SessionRequirementVerificationEvidenceBinding(
+                **data,
+                binding_fingerprint="0" * 64,
+            )
+            binding_fingerprint = self._identifiers.fingerprint(
+                REQUIREMENT_VERIFICATION_BINDING_SCHEMA_VERSION,
+                draft.authority_identity(),
+            )
+            binding = SessionRequirementVerificationEvidenceBinding(
+                **data,
+                binding_fingerprint=binding_fingerprint,
+            )
+        except Exception:
+            raise ModelEnsemblePersistenceError(
+                "requirement-verification binding could not be issued"
+            ) from None
+        return binding, evidence
+
     @staticmethod
     def _metric_profile_identity_matches(
         stored: SessionMetricProfileBinding | None,
@@ -2517,13 +3317,22 @@ class SessionModelEnsembleService:
             current.authority_identity()
         )
 
+    @staticmethod
+    def _requirement_verification_identity_matches(
+        stored: SessionRequirementVerificationEvidenceBinding | None,
+        current: SessionRequirementVerificationEvidenceBinding,
+    ) -> bool:
+        return stored is not None and stored.authority_identity() == (
+            current.authority_identity()
+        )
+
     def _requirement_action_source_run_matches(
         self,
         snapshot: RequirementActionEvidenceSnapshot,
         context: P1TextAnalysisInput,
         requirement_plan_binding: SessionRequirementPlanEvidenceBinding,
     ) -> bool:
-        """Require the reviewed graph's source to be one exact sealed r6/r7 run."""
+        """Require the reviewed graph's source to be one exact sealed r6-r8 run."""
 
         source_run_id = snapshot.source_run_id
         if source_run_id is None:
@@ -2550,6 +3359,7 @@ class SessionModelEnsembleService:
             in {
                 METRIC_PROJECTION_V2_VERSION_6,
                 METRIC_PROJECTION_V2_VERSION_7,
+                METRIC_PROJECTION_V2_VERSION_8,
             }
             and source_plan is not None
             and source_plan.evidence_source
@@ -2690,6 +3500,9 @@ class SessionModelEnsembleService:
         typed_evidence: EphemeralTypedEvidenceProjection | None = None,
         requirement_plan_evidence: RequirementPlanEvidenceSnapshot | None = None,
         requirement_action_evidence: RequirementActionEvidenceSnapshot | None = None,
+        requirement_verification_evidence: (
+            RequirementVerificationEvidenceSet | None
+        ) = None,
         candidate_manifest_overflow: bool = False,
         candidate_source_incomplete: bool = False,
         requirement_action_binding_invalid: bool = False,
@@ -2717,16 +3530,21 @@ class SessionModelEnsembleService:
             projected_at = self._clock()
             if projected_at.tzinfo is None or projected_at.utcoffset() != timedelta(0):
                 raise ValueError("metric projection clock must return UTC")
-            # Current code writes projection identity r7 only. Frozen earlier
+            # Current code writes projection identity r8 only. Frozen earlier
             # producers remain importable so historical rows retain the exact
             # meaning of the algorithm that wrote them.
-            objective_overrides = project_objective_metric_overrides_v3(
+            objective_overrides = project_objective_metric_overrides_v4(
                 typed_evidence,
                 self._objective_evidence_descriptor(
                     context.provider, typed_evidence
                 ),
+                requirement_plan_evidence=requirement_plan_evidence,
+                requirement_verification_evidence=(
+                    requirement_verification_evidence
+                ),
+                identifiers=self._identifiers,
             )
-            live_states = project_metric_states_v7(
+            live_states = project_metric_states_v8(
                 context=context,
                 reconciliation=(
                     None
@@ -2754,6 +3572,9 @@ class SessionModelEnsembleService:
             projected_items: list[SessionModelEnsembleTypedMetricReceipt] = []
             for result in results:
                 objective_override = objective_overrides.get(result.observation.key)
+                persisted_verification_override = (
+                    result.observation.key == VERIFIED_REQUIREMENT_METRIC_KEY
+                )
                 objective_eligible_count = (
                     0
                     if objective_override is None
@@ -2831,22 +3652,30 @@ class SessionModelEnsembleService:
                     projection_source="deterministic_typed_contract",
                     metric_schema_version=result.provenance.metric_schema_version,
                     engine_version=(
-                        "typed-objective-evidence-v2"
+                        OBJECTIVE_METRIC_PROJECTION_V4_VERSION
+                        if persisted_verification_override
+                        else "typed-objective-evidence-v2"
                         if objective_override is not None
                         else self._metric_engine.engine_version
                     ),
                     algorithm_id=(
-                        "typed-objective-evidence"
+                        VERIFIED_REQUIREMENT_METRIC_ALGORITHM_ID
+                        if persisted_verification_override
+                        else "typed-objective-evidence"
                         if objective_override is not None
                         else result.provenance.algorithm_id
                     ),
                     algorithm_version=(
-                        "2"
+                        VERIFIED_REQUIREMENT_METRIC_ALGORITHM_VERSION
+                        if persisted_verification_override
+                        else "2"
                         if objective_override is not None
                         else result.provenance.algorithm_version
                     ),
                     rubric_version=(
-                        "objective-evidence-no-rubric-v2"
+                        VERIFIED_REQUIREMENT_METRIC_RUBRIC_VERSION
+                        if persisted_verification_override
+                        else "objective-evidence-no-rubric-v2"
                         if objective_override is not None
                         else self._metric_engine.rubric_version
                     ),
@@ -2939,7 +3768,7 @@ class SessionModelEnsembleService:
         session_id: str,
         typed_evidence: EphemeralTypedEvidenceProjection | None,
     ) -> _RequirementActionCandidatePreflight:
-        """Read the safe-event plane before minting the r7 request identity."""
+        """Read the safe-event plane before minting the current request identity."""
 
         projector = self._typed_evidence_projector
         if projector is None or typed_evidence is None:
@@ -3225,6 +4054,8 @@ __all__ = [
     "MODEL_ENSEMBLE_CONFIRMATION",
     "MetricProfileSource",
     "RequirementActionEvidenceSource",
+    "RequirementVerificationEvidenceSource",
+    "REQUIREMENT_VERIFICATION_BINDING_SCHEMA_VERSION",
     "REQUIREMENT_ACTION_AWAITING_REVIEW_FINGERPRINT",
     "REQUIREMENT_ACTION_AWAITING_REVIEW_SCHEMA_VERSION",
     "REQUIREMENT_ACTION_CANDIDATE_MANIFEST_OVERFLOW_FINGERPRINT",
@@ -3262,9 +4093,14 @@ __all__ = [
     "SessionMetricProfileBinding",
     "SessionRequirementActionEvidenceBinding",
     "SessionRequirementPlanEvidenceBinding",
+    "SessionRequirementVerificationEvidenceBinding",
+    "VERIFIED_REQUIREMENT_METRIC_ALGORITHM_ID",
+    "VERIFIED_REQUIREMENT_METRIC_ALGORITHM_VERSION",
+    "VERIFIED_REQUIREMENT_METRIC_RUBRIC_VERSION",
     "SessionModelEnsembleRepository",
     "SessionModelEnsembleRunRecord",
     "SessionModelEnsembleRunner",
     "SessionModelEnsembleService",
     "SessionTypedEvidenceProjector",
+    "validate_r8_typed_metric_projection",
 ]

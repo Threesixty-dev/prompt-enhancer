@@ -264,6 +264,16 @@ class RequirementVerificationRepository(Protocol):
     ) -> RequirementVerificationEvidenceSnapshot | None: ...
 
 
+class CurrentRequirementVerificationEvidenceReader(Protocol):
+    """Read-only current M58 authority for one exact reviewed r6 plan."""
+
+    def snapshot_for_requirement_plan(
+        self,
+        session_id: str,
+        requirement_plan_confirmation_id: str,
+    ) -> RequirementVerificationEvidenceSnapshot | None: ...
+
+
 class CurrentRequirementPlanAuthority(Protocol):
     def current_snapshot(self, session_id: str) -> RequirementPlanEvidenceSnapshot: ...
 
@@ -694,6 +704,7 @@ __all__ = (
     "CurrentRequirementPlanAuthority",
     "CurrentRequirementPlanSourceWindowAuthority",
     "CurrentRequirementPlanSnapshotAuthority",
+    "CurrentRequirementVerificationEvidenceReader",
     "MAX_REQUIREMENT_VERIFICATION_HISTORY_PER_OPPORTUNITY",
     "MAX_REQUIREMENT_VERIFICATION_REVISIONS",
     "MAX_REQUIREMENT_VERIFICATION_IDEMPOTENCY_KEY_LENGTH",

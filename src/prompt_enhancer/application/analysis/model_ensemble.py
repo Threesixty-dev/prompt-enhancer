@@ -583,6 +583,13 @@ class SessionModelEnsembleReceipt(StrictModel):
             != (self.metric_projection_completed_at is None)
         ):
             raise ValueError("typed metric projection identity must be complete")
+        if (
+            self.metric_publication_v2 is not None
+            and self.metric_publication_v2.projection_version
+            == "metric-contract-v2-projection-8"
+            and len(self.typed_metrics) != 20
+        ):
+            raise ValueError("r8 publication requires all twenty typed metric receipts")
         if self.typed_metrics:
             typed_keys = tuple(item.metric_key for item in self.typed_metrics)
             metric_keys = tuple(item.metric_key for item in self.metrics)
