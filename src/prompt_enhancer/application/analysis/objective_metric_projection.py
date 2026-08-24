@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from ..providers import CapabilityKey, DecoderDescriptor
 from .evidence_contracts import (
@@ -28,6 +29,13 @@ from .evidence_contracts import (
 )
 from .text_contracts import MetricValueState
 
+if TYPE_CHECKING:
+    from .requirement_plan_evidence import RequirementPlanEvidenceSnapshot
+    from .requirement_verification_evidence import (
+        RequirementVerificationEvidenceSet,
+        RequirementVerificationIdFactory,
+    )
+
 
 OBJECTIVE_EVIDENCE_METRIC_KEYS = (
     "logic.hypothesis_test_linkage",
@@ -40,6 +48,9 @@ OBJECTIVE_EVIDENCE_METRIC_KEYS = (
 # message counts and bounds the observed side at 100. Larger authoritative
 # opportunity sets must fail closed instead of overflowing or being truncated.
 MAX_OBJECTIVE_RECEIPT_OPPORTUNITIES = 100
+OBJECTIVE_METRIC_PROJECTION_V4_VERSION = (
+    "reviewed-requirement-verification-objective-projection-v1"
+)
 
 
 class ObjectiveWithholdingCause(StrEnum):
@@ -870,11 +881,168 @@ def project_objective_metric_overrides_v3(
     return overrides
 
 
+def project_verified_requirement_coverage(
+    *,
+    requirement_plan_evidence: RequirementPlanEvidenceSnapshot | None,
+    verification_evidence: RequirementVerificationEvidenceSet | None,
+    identifiers: RequirementVerificationIdFactory,
+) -> ObjectiveMetricOverride:
+    """Resolve the verified-requirement metric from r6 plus app authority.
+
+    The denominator is never re-enumerated from provider events.  A complete
+    native-reviewed r6 snapshot owns it.  Objective verifier results and
+    explicit native-user acceptance are separate keyed record types; neither
+    an action completion nor any assistant/model statement is accepted here.
+    """
+
+    # Local imports keep the frozen r2/r3 module importable by
+    # ``metric_projection_v2`` without introducing an r6 -> r2 cycle.
+    from .requirement_action_evidence import requirement_plan_snapshot_fingerprint
+    from .requirement_plan_evidence import RequirementPlanEvidenceSnapshot
+    from .requirement_verification_evidence import (
+        MAX_REQUIREMENT_VERIFICATION_OPPORTUNITIES,
+        RequirementAcceptanceOutcome,
+        RequirementVerificationOutcome,
+        validate_requirement_verification_evidence_set,
+    )
+
+    if requirement_plan_evidence is None:
+        return _unknown(
+            "reviewed_requirement_authority_unavailable",
+            resolved=0,
+            eligible=0,
+            cause=ObjectiveWithholdingCause.AUTHORITY_MISSING,
+        )
+    try:
+        reviewed = RequirementPlanEvidenceSnapshot.model_validate(
+            requirement_plan_evidence.model_dump(mode="python")
+        )
+        if (
+            not reviewed.complete_user_clause_classification
+            or reviewed.confirmation_id is None
+            or reviewed.proposal_id is None
+            or reviewed.producer_receipt is None
+        ):
+            raise ValueError("reviewed requirement authority is incomplete")
+        # Reuse the exact installation-keyed identity already frozen for r6.
+        requirement_plan_snapshot_fingerprint(reviewed, identifiers)
+    except (AttributeError, TypeError, ValueError):
+        return _unknown(
+            "reviewed_requirement_authority_invalid",
+            resolved=0,
+            eligible=0,
+            cause=ObjectiveWithholdingCause.AUTHORITY_MISSING,
+        )
+
+    eligible = len(reviewed.requirements)
+    if eligible == 0:
+        return _not_applicable(
+            "reviewed_requirement_set_empty",
+            cause=ObjectiveWithholdingCause.NOT_WITHHELD,
+        )
+    if eligible > MAX_REQUIREMENT_VERIFICATION_OPPORTUNITIES:
+        return _receipt_bound_unknown(
+            cause=ObjectiveWithholdingCause.OPPORTUNITY_BOUND_EXCEEDED
+        )
+    if verification_evidence is None:
+        return _unknown(
+            "requirement_verification_evidence_unavailable",
+            resolved=0,
+            eligible=eligible,
+            cause=ObjectiveWithholdingCause.AUTHORITY_MISSING,
+        )
+
+    try:
+        evidence = validate_requirement_verification_evidence_set(
+            verification_evidence,
+            reviewed,
+            identifiers,
+        )
+    except (AttributeError, TypeError, ValueError):
+        return _unknown(
+            "requirement_verification_authority_invalid",
+            resolved=0,
+            eligible=eligible,
+            cause=ObjectiveWithholdingCause.AUTHORITY_MISSING,
+        )
+
+    verification_by_opportunity = {
+        item.opportunity_id: item for item in evidence.verification_results
+    }
+    acceptance_by_opportunity = {
+        item.opportunity_id: item for item in evidence.acceptance_authorities
+    }
+    resolved = 0
+    met = 0
+    for opportunity in evidence.opportunities.opportunities:
+        verification = verification_by_opportunity.get(opportunity.opportunity_id)
+        acceptance = acceptance_by_opportunity.get(opportunity.opportunity_id)
+        if verification is not None:
+            if verification.outcome is RequirementVerificationOutcome.UNKNOWN:
+                continue
+            resolved += 1
+            if verification.outcome is RequirementVerificationOutcome.PASSED:
+                met += 1
+            continue
+        if acceptance is not None:
+            if acceptance.outcome is RequirementAcceptanceOutcome.UNKNOWN:
+                continue
+            resolved += 1
+            if acceptance.outcome is RequirementAcceptanceOutcome.ACCEPTED:
+                met += 1
+
+    if resolved != eligible:
+        return _unknown(
+            "app_issued_requirement_verification_pending",
+            resolved=resolved,
+            eligible=eligible,
+            met=met,
+            cause=ObjectiveWithholdingCause.EVIDENCE_UNRESOLVED,
+        )
+    return _known(
+        "app_issued_verified_requirement_coverage",
+        numerator=met,
+        denominator=eligible,
+        cause=ObjectiveWithholdingCause.NOT_WITHHELD,
+    )
+
+
+def project_objective_metric_overrides_v4(
+    projection: EphemeralTypedEvidenceProjection | None,
+    descriptor: DecoderDescriptor | None,
+    *,
+    requirement_plan_evidence: RequirementPlanEvidenceSnapshot | None,
+    requirement_verification_evidence: RequirementVerificationEvidenceSet | None,
+    identifiers: RequirementVerificationIdFactory,
+) -> dict[str, ObjectiveMetricOverride]:
+    """Append-only objective integration using reviewed requirements for one key.
+
+    V3 remains frozen.  V4 preserves its other four metric outputs and replaces
+    only ``outcome.verified_requirement_coverage`` with the native-reviewed
+    authority path.  This pure integration is not the live r8 issuer.
+    """
+
+    from .requirement_verification_evidence import VERIFIED_REQUIREMENT_METRIC_KEY
+
+    overrides = project_objective_metric_overrides_v3(projection, descriptor)
+    overrides[VERIFIED_REQUIREMENT_METRIC_KEY] = (
+        project_verified_requirement_coverage(
+            requirement_plan_evidence=requirement_plan_evidence,
+            verification_evidence=requirement_verification_evidence,
+            identifiers=identifiers,
+        )
+    )
+    return overrides
+
+
 __all__ = [
     "MAX_OBJECTIVE_RECEIPT_OPPORTUNITIES",
+    "OBJECTIVE_METRIC_PROJECTION_V4_VERSION",
     "OBJECTIVE_EVIDENCE_METRIC_KEYS",
     "ObjectiveMetricOverride",
     "ObjectiveWithholdingCause",
     "project_objective_metric_overrides",
     "project_objective_metric_overrides_v3",
+    "project_objective_metric_overrides_v4",
+    "project_verified_requirement_coverage",
 ]

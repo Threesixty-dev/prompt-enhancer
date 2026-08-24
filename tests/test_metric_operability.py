@@ -9,6 +9,7 @@ from prompt_enhancer.application.analysis.metric_contract_v2 import (
 from prompt_enhancer.application.analysis.metric_operability import (
     METRIC_OPERABILITY_CATALOG_VERSION,
     MetricMeasuredPath,
+    MetricNextStepCode,
     MetricShippedPathState,
     metric_operability_catalog,
 )
@@ -131,6 +132,23 @@ def test_default_safe_event_authority_is_explicit_and_minimal() -> None:
             CapabilityKey.VERIFICATION_TASK_EVIDENCE_LINKS,
         }
     )
+
+
+def test_pure_verified_requirement_contract_does_not_promote_live_operability() -> None:
+    """The first contract slice is not persistence, provider, or r8 authority."""
+
+    entry = next(
+        item
+        for item in metric_operability_catalog().entries
+        if item.metric_key == "outcome.verified_requirement_coverage"
+    )
+
+    assert entry.measured_path is MetricMeasuredPath.TYPED_OBJECTIVE
+    assert entry.shipped_path_state is MetricShippedPathState.PROVIDER_ADAPTER_REQUIRED
+    assert entry.next_step_code is (
+        MetricNextStepCode.ADD_OBJECTIVE_OPPORTUNITY_LINK_ADAPTER
+    )
+    assert entry.measured_value_may_use_model_output is False
 
 
 def test_live_model_router_is_exactly_three_small_experts_plus_optional_qwen() -> None:
