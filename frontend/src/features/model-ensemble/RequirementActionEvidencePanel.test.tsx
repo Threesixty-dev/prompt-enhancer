@@ -985,7 +985,7 @@ describe("RequirementActionEvidencePanel", () => {
     await screen.findByText("Create the synthetic artifact.");
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
     fireEvent.click(screen.getByRole("button", { name: "Confirm exact reviewed graph" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply exact confirmation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply exact confirmation" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/decision receipt did not preserve the exact proposal/i);
     expect(changed).not.toHaveBeenCalled();
