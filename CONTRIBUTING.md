@@ -25,6 +25,10 @@ git config --get user.email
 
 The email printed by the final command will be public. Use a deliberate public/noreply identity.
 
+The complete local and CI command set, including operating-system ownership of
+the link and subprocess cleanup security tests, is documented in
+[the CI quality gate](docs/ci-quality-gate.md).
+
 ## Fixtures
 
 Fixtures must be obviously synthetic and must not be lightly edited copies of real conversations. Use reserved domains and example paths. Include synthetic secrets only when they are labeled canaries and guaranteed invalid.
