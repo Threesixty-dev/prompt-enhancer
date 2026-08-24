@@ -797,6 +797,7 @@ describe("RequirementActionEvidencePanel", () => {
     />);
     fireEvent.click(await screen.findByRole("button", { name: "Inspect every item" }));
     expect(await screen.findByText(/Create the synthetic artifact\./)).toBeVisible();
+    await act(async () => {});
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
     expect(screen.getByRole("button", { name: "Confirm exact reviewed graph" })).toBeEnabled();
 
@@ -853,6 +854,7 @@ describe("RequirementActionEvidencePanel", () => {
       />);
       fireEvent.click(await screen.findByRole("button", { name: "Inspect every item" }));
       expect(await screen.findByText(/Create the synthetic artifact\./)).toBeVisible();
+      await act(async () => {});
       fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
       expect(screen.getByRole("button", { name: "Confirm exact reviewed graph" })).toBeEnabled();
 
