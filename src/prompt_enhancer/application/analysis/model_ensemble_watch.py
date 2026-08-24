@@ -47,6 +47,10 @@ MODEL_ENSEMBLE_WATCH_MAX_BACKOFF_SECONDS = 60 * 60
 MODEL_ENSEMBLE_WATCH_STREAK_EXHAUSTED = "watch_failure_streak_exhausted"
 MODEL_ENSEMBLE_WATCH_LEASE_RECOVERED = "watch_lease_recovered"
 MODEL_ENSEMBLE_WATCH_CONSENT_REVOKED = "redacted_content_consent_revoked"
+_WORKER_START_FAILURE = "worker_start_failed"
+_WORKER_STOP_IN_PROGRESS = "worker_stop_in_progress"
+_WORKER_STOP_FAILURE = "worker_stop_failed"
+_WORKER_STOP_TIMEOUT = "worker_stop_timeout"
 
 # Failures that no amount of retrying can repair without a user action.  A
 # watch that hits one of these is quarantined immediately instead of being
@@ -1066,14 +1070,31 @@ class ModelEnsembleWatchWorker:
     def start(self) -> None:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
+                if self._stop.is_set():
+                    raise RuntimeError(_WORKER_STOP_IN_PROGRESS)
                 return
-            self._stop.clear()
-            self._thread = Thread(
-                target=self._run,
-                name="model-ensemble-watch-worker",
-                daemon=True,
-            )
-            self._thread.start()
+            self._thread = None
+            start_failed = False
+            try:
+                self._stop.clear()
+                thread = Thread(
+                    target=self._run,
+                    name="model-ensemble-watch-worker",
+                    daemon=True,
+                )
+                thread.start()
+            except Exception:
+                self._stop.set()
+                start_failed = True
+            if start_failed:
+                raise RuntimeError(_WORKER_START_FAILURE)
+            self._thread = thread
+
+    def is_alive(self) -> bool:
+        """Return thread liveness without exposing watch details."""
+
+        with self._lock:
+            return self._thread is not None and self._thread.is_alive()
 
     def recover(self) -> int:
         """Run the durable startup recovery sweep once, swallowing detail text."""
@@ -1091,9 +1112,18 @@ class ModelEnsembleWatchWorker:
             if thread is None:
                 return
             self._stop.set()
-        thread.join(timeout=timeout)
-        with self._lock:
-            if self._thread is thread and not thread.is_alive():
+            stop_failed = False
+            timed_out = False
+            try:
+                thread.join(timeout=timeout)
+                timed_out = thread.is_alive()
+            except Exception:
+                stop_failed = True
+            if stop_failed:
+                raise RuntimeError(_WORKER_STOP_FAILURE)
+            if timed_out:
+                raise RuntimeError(_WORKER_STOP_TIMEOUT)
+            if self._thread is thread:
                 self._thread = None
 
     def run_once(self) -> ModelEnsembleWatchRecord | None:

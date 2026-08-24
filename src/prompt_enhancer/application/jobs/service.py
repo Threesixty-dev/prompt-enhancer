@@ -37,6 +37,10 @@ from .contracts import (
 
 DEFAULT_ANALYSIS_JOB_LEASE = timedelta(seconds=30)
 DEFAULT_ANALYSIS_JOB_POLL_SECONDS = 1.0
+_WORKER_START_FAILURE = "worker_start_failed"
+_WORKER_STOP_IN_PROGRESS = "worker_stop_in_progress"
+_WORKER_STOP_FAILURE = "worker_stop_failed"
+_WORKER_STOP_TIMEOUT = "worker_stop_timeout"
 
 
 class AnalysisJobServiceError(RuntimeError):
@@ -643,17 +647,34 @@ class AnalysisJobWorker:
     def start(self) -> None:
         with self._lifecycle_lock:
             if self._thread is not None and self._thread.is_alive():
+                if self._stop_event.is_set():
+                    raise RuntimeError(_WORKER_STOP_IN_PROGRESS)
                 return
-            now = self._clock()
-            self._execution_recovery_callback(now)
-            self._repository.recover_expired(now=now)
-            self._stop_event.clear()
-            self._thread = Thread(
-                target=self._run,
-                name="analysis-job-worker",
-                daemon=True,
-            )
-            self._thread.start()
+            self._thread = None
+            start_failed = False
+            try:
+                now = self._clock()
+                self._execution_recovery_callback(now)
+                self._repository.recover_expired(now=now)
+                self._stop_event.clear()
+                thread = Thread(
+                    target=self._run,
+                    name="analysis-job-worker",
+                    daemon=True,
+                )
+                thread.start()
+            except Exception:
+                self._stop_event.set()
+                start_failed = True
+            if start_failed:
+                raise RuntimeError(_WORKER_START_FAILURE)
+            self._thread = thread
+
+    def is_alive(self) -> bool:
+        """Return thread liveness without exposing work or failure details."""
+
+        with self._lifecycle_lock:
+            return self._thread is not None and self._thread.is_alive()
 
     def stop(self, *, timeout: float = 5.0) -> None:
         with self._lifecycle_lock:
@@ -661,14 +682,30 @@ class AnalysisJobWorker:
             if thread is None:
                 return
             self._stop_event.set()
-        thread.join(timeout=timeout)
-        with self._lifecycle_lock:
-            if self._thread is thread and not thread.is_alive():
+            stop_failed = False
+            timed_out = False
+            try:
+                thread.join(timeout=timeout)
+                timed_out = thread.is_alive()
+            except Exception:
+                stop_failed = True
+            if stop_failed:
+                raise RuntimeError(_WORKER_STOP_FAILURE)
+            if timed_out:
+                raise RuntimeError(_WORKER_STOP_TIMEOUT)
+            if self._thread is thread:
                 self._thread = None
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
-            worked = self.run_once()
+            try:
+                worked = self.run_once()
+            except Exception:
+                # Repository and recovery failures may carry private details.
+                # Keep the worker alive and retry only after the reviewed poll
+                # interval without logging or retaining the exception.
+                self._stop_event.wait(self._poll_seconds)
+                continue
             if not worked:
                 self._stop_event.wait(self._poll_seconds)
 

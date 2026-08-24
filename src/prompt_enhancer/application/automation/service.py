@@ -26,6 +26,10 @@ from .contracts import (
 
 AUTOMATION_POLL_LIMIT = 100
 DEFAULT_AUTOMATION_WORKER_POLL_SECONDS = 60.0
+_WORKER_START_FAILURE = "worker_start_failed"
+_WORKER_STOP_IN_PROGRESS = "worker_stop_in_progress"
+_WORKER_STOP_FAILURE = "worker_stop_failed"
+_WORKER_STOP_TIMEOUT = "worker_stop_timeout"
 COACHING_AUTOMATION_METRIC_KEYS = frozenset(
     definition.key for definition in COACHING_METRIC_DEFINITIONS
 )
@@ -429,14 +433,31 @@ class AutomationGrantWorker:
     def start(self) -> None:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
+                if self._stop_event.is_set():
+                    raise RuntimeError(_WORKER_STOP_IN_PROGRESS)
                 return
-            self._stop_event.clear()
-            self._thread = Thread(
-                target=self._run,
-                name="automation-grant-worker",
-                daemon=True,
-            )
-            self._thread.start()
+            self._thread = None
+            start_failed = False
+            try:
+                self._stop_event.clear()
+                thread = Thread(
+                    target=self._run,
+                    name="automation-grant-worker",
+                    daemon=True,
+                )
+                thread.start()
+            except Exception:
+                self._stop_event.set()
+                start_failed = True
+            if start_failed:
+                raise RuntimeError(_WORKER_START_FAILURE)
+            self._thread = thread
+
+    def is_alive(self) -> bool:
+        """Return thread liveness without exposing scheduler details."""
+
+        with self._lock:
+            return self._thread is not None and self._thread.is_alive()
 
     def stop(self, *, timeout: float = 5.0) -> None:
         with self._lock:
@@ -444,9 +465,18 @@ class AutomationGrantWorker:
             if thread is None:
                 return
             self._stop_event.set()
-        thread.join(timeout=timeout)
-        with self._lock:
-            if self._thread is thread and not thread.is_alive():
+            stop_failed = False
+            timed_out = False
+            try:
+                thread.join(timeout=timeout)
+                timed_out = thread.is_alive()
+            except Exception:
+                stop_failed = True
+            if stop_failed:
+                raise RuntimeError(_WORKER_STOP_FAILURE)
+            if timed_out:
+                raise RuntimeError(_WORKER_STOP_TIMEOUT)
+            if self._thread is thread:
                 self._thread = None
 
     def run_once(self) -> AutomationPollResult:
