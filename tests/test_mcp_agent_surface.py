@@ -174,6 +174,13 @@ def test_cli_refuses_without_acknowledgement_and_serves_with_it(tmp_path: Path) 
     application = bootstrap_local_application(settings)
     application.database.initialize()
     env = {**os.environ, "PROMPT_ENHANCER_HOME": str(home), CONTEXT_EGRESS_ACKNOWLEDGEMENT_ENV: ""}
+    source_root = str(Path(__file__).resolve().parents[1] / "src")
+    inherited_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        source_root
+        if not inherited_pythonpath
+        else os.pathsep.join((source_root, inherited_pythonpath))
+    )
     env.pop(CONTEXT_EGRESS_ACKNOWLEDGEMENT_ENV)
     refused = subprocess.run(
         [sys.executable, "-m", "prompt_enhancer", "mcp"], input="", capture_output=True, text=True, env=env, timeout=120,
