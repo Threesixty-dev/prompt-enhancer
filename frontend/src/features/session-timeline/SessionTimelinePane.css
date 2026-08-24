@@ -16,8 +16,12 @@
 .session-timeline__filter[data-category="version_control"] i { background: var(--p-9a86d6); }
 .session-timeline__filter[data-category="network"] i, .session-timeline__filter[data-category="mcp"] i { background: var(--p-5d9bd6); }
 .session-timeline__filter[data-category="subagent"] i { background: var(--p-5fb8ad); }
-.session-timeline__reset { border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 10px; background: var(--surface-soft); color: var(--ink-800); font-size: 0.72rem; cursor: pointer; }
+.session-timeline__view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.session-timeline__view-controls button { min-height: 32px; border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 10px; background: var(--surface-soft); color: var(--ink-800); font: inherit; font-size: 0.72rem; cursor: pointer; }
+.session-timeline__view-controls button:disabled { cursor: default; opacity: 0.48; }
+.session-timeline__view-status { min-width: 9rem; color: var(--ink-500); font-size: 0.7rem; font-variant-numeric: tabular-nums; }
 .session-timeline__chart { position: relative; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 0 8px; align-items: stretch; cursor: crosshair; touch-action: pan-y; }
+.session-timeline__chart:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 4px; border-radius: 8px; }
 .session-timeline__chart svg { grid-column: 2; display: block; overflow: visible; }
 .session-timeline__lanes { grid-column: 1; grid-row: 1; list-style: none; margin: 0; padding: 12px 0 0; display: block; font-size: 0.7rem; color: var(--ink-500); letter-spacing: 0.04em; text-transform: uppercase; }
 .session-timeline__lanes li { display: flex; align-items: center; }

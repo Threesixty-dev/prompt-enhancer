@@ -214,13 +214,49 @@ export function SessionTimelinePane({
     const fraction = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
     setBrush([brush[0], fraction]);
   };
+  const minimumViewSpan = Math.min(model.span, Math.max(1000, model.span / 64));
+  const boundedView = (candidateStart: number, candidateSpan: number): [number, number] | null => {
+    const span = Math.min(model.span, Math.max(minimumViewSpan, candidateSpan));
+    if (span >= model.span) return null;
+    const start = Math.min(model.end - span, Math.max(model.start, candidateStart));
+    return [start, start + span];
+  };
   const endBrush = () => {
     if (!brush) return;
     const [a, b] = [Math.min(...brush), Math.max(...brush)];
     setBrush(null);
     if (b - a < 0.02) return; // a click, not a drag
-    setView([viewStart + a * viewSpan, viewStart + b * viewSpan]);
+    const selectedStart = viewStart + a * viewSpan;
+    const selectedSpan = (b - a) * viewSpan;
+    const boundedStart = selectedStart - Math.max(0, minimumViewSpan - selectedSpan) / 2;
+    setView(boundedView(boundedStart, selectedSpan));
   };
+  const zoomBy = (factor: number) => {
+    const nextSpan = viewSpan * factor;
+    const center = viewStart + viewSpan / 2;
+    setView(boundedView(center - nextSpan / 2, nextSpan));
+  };
+  const panBy = (direction: -1 | 1) => {
+    if (!view) return;
+    setView(boundedView(viewStart + direction * viewSpan * 0.25, viewSpan));
+  };
+  const canZoomIn = viewSpan > minimumViewSpan;
+  const canZoomOut = view !== null;
+  const canPanEarlier = view !== null && viewStart > model.start;
+  const canPanLater = view !== null && viewEnd < model.end;
+  const handleChartKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if ((event.key === "+" || event.key === "=") && canZoomIn) zoomBy(0.5);
+    else if ((event.key === "-" || event.key === "_") && canZoomOut) zoomBy(2);
+    else if (event.key === "ArrowLeft" && canPanEarlier) panBy(-1);
+    else if (event.key === "ArrowRight" && canPanLater) panBy(1);
+    else if (event.key === "Home" && view !== null) setView(null);
+    else return;
+    event.preventDefault();
+  };
+  const viewPosition = view
+    ? `Showing ${formatDuration(viewSpan)} of ${formatDuration(model.span)}, from ${formatDuration(viewStart - model.start)} to ${formatDuration(viewEnd - model.start)}`
+    : `Showing full timeline, from 0s to ${formatDuration(model.span)}`;
 
   return (
     <section aria-labelledby="session-timeline-title" className="session-timeline">
@@ -262,17 +298,24 @@ export function SessionTimelinePane({
             </button>
           ))}
         </div>
-        {view && (
-          <button className="session-timeline__reset" onClick={() => setView(null)} type="button">
-            Showing {formatDuration(viewSpan)} of {formatDuration(model.span)} · reset zoom
-          </button>
-        )}
+        <div aria-label="Timeline view controls" className="session-timeline__view-controls" role="group">
+          <button disabled={!canZoomIn} onClick={() => zoomBy(0.5)} type="button">Zoom in</button>
+          <button disabled={!canZoomOut} onClick={() => zoomBy(2)} type="button">Zoom out</button>
+          <button disabled={!canPanEarlier} onClick={() => panBy(-1)} type="button">Earlier</button>
+          <button disabled={!canPanLater} onClick={() => panBy(1)} type="button">Later</button>
+          <button disabled={view === null} onClick={() => setView(null)} type="button">Full timeline</button>
+          <span className="session-timeline__view-status" role="status">
+            {viewPosition}
+          </span>
+        </div>
       </div>
       <div
         className="session-timeline__chart"
         ref={chartRef}
         role="group"
-        aria-label={`Timeline with ${counts.turns} turns, ${counts.tools} tool calls and ${verifications.length} checks. Drag horizontally to zoom.`}
+        aria-label={`Timeline with ${counts.turns} turns, ${counts.tools} tool calls and ${verifications.length} checks. Drag horizontally to zoom, or use plus and minus to zoom, Left and Right arrows to move, and Home to reset.`}
+        tabIndex={0}
+        onKeyDown={handleChartKeyDown}
         onPointerDown={(event) => { if (event.button === 0) { event.currentTarget.setPointerCapture(event.pointerId); beginBrush(event.clientX); } }}
         onPointerMove={(event) => moveBrush(event.clientX)}
         onPointerUp={endBrush}

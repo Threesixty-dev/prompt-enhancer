@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionTimeline } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
 import { SessionTimelinePane, safeTimeline } from "./SessionTimelinePane";
@@ -34,6 +34,8 @@ function timeline(): SessionTimeline {
 }
 
 describe("SessionTimelinePane", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("validates the contract", () => {
     expect(safeTimeline(timeline())).toBe(true);
     expect(safeTimeline({ ...timeline(), contract_version: "nope" })).toBe(false);
@@ -56,6 +58,91 @@ describe("SessionTimelinePane", () => {
     expect(container.querySelectorAll(".session-timeline__marker--compaction").length).toBe(1);
     // Nothing textual beyond labels: no command, path or prompt text is rendered.
     expect(container.textContent).not.toMatch(/pytest|\/srv\//);
+  });
+
+  it("offers bounded keyboard zoom, directional pan and reset controls with announced position", async () => {
+    const getSessionTimeline = vi.fn(async () => timeline());
+    render(<SessionTimelinePane sessionId={SESSION} transport={{ getSessionTimeline }} />);
+    const chart = await screen.findByRole("group", { name: /use plus and minus to zoom/i });
+    const viewControls = screen.getByRole("group", { name: "Timeline view controls" });
+    const status = screen.getByRole("status");
+
+    expect(chart).toHaveAttribute("tabindex", "0");
+    expect(status).toHaveTextContent("Showing full timeline, from 0s to 10m 0s");
+    expect(screen.getByRole("button", { name: "Zoom out" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Earlier" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Later" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Full timeline" })).toBeDisabled();
+
+    chart.focus();
+    fireEvent.keyDown(chart, { key: "+" });
+    expect(status).toHaveTextContent("Showing 5m 0s of 10m 0s, from 2m 30s to 7m 30s");
+    expect(screen.getByRole("button", { name: "Zoom out" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Earlier" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Later" })).toBeEnabled();
+
+    fireEvent.keyDown(chart, { key: "ArrowRight" });
+    expect(status).toHaveTextContent("Showing 5m 0s of 10m 0s, from 3m 45s to 8m 45s");
+
+    fireEvent.click(screen.getByRole("button", { name: "Earlier" }));
+    expect(status).toHaveTextContent("from 2m 30s to 7m 30s");
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    expect(status).toHaveTextContent("from 5m 0s to 10m 0s");
+    expect(screen.getByRole("button", { name: "Later" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+    expect(status).toHaveTextContent("Showing full timeline, from 0s to 10m 0s");
+
+    const zoomIn = screen.getByRole("button", { name: "Zoom in" });
+    for (let step = 0; step < 6; step += 1) fireEvent.click(zoomIn);
+    expect(status).toHaveTextContent("Showing 9s of 10m 0s, from 4m 55s to 5m 5s");
+    expect(zoomIn).toBeDisabled();
+    expect(fireEvent.keyDown(chart, { key: "+" })).toBe(true);
+
+    expect(fireEvent.keyDown(chart, { key: "Home" })).toBe(false);
+    expect(status).toHaveTextContent("Showing full timeline, from 0s to 10m 0s");
+    expect(viewControls).toBeVisible();
+  });
+
+  it("applies the same minimum view boundary to pointer brushing", async () => {
+    class TestPointerEvent extends MouseEvent {
+      readonly pointerId: number;
+
+      constructor(type: string, init: PointerEventInit = {}) {
+        super(type, init);
+        this.pointerId = init.pointerId ?? 0;
+      }
+    }
+    vi.stubGlobal("PointerEvent", TestPointerEvent);
+    const getSessionTimeline = vi.fn(async () => timeline());
+    render(<SessionTimelinePane sessionId={SESSION} transport={{ getSessionTimeline }} />);
+    const chart = await screen.findByRole("group", { name: /drag horizontally to zoom/i });
+    const status = screen.getByRole("status");
+    const svg = chart.querySelector("svg")!;
+    const setPointerCapture = vi.fn();
+    Object.defineProperty(chart, "setPointerCapture", { configurable: true, value: setPointerCapture });
+    vi.spyOn(svg, "getBoundingClientRect").mockReturnValue({
+      bottom: 100,
+      height: 100,
+      left: 0,
+      right: 1000,
+      top: 0,
+      width: 1000,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    fireEvent.pointerDown(chart, { button: 0, clientX: 400, pointerId: 1 });
+    expect(setPointerCapture).toHaveBeenCalledWith(1);
+    fireEvent.pointerMove(chart, { clientX: 425, pointerId: 1 });
+    expect(Number(chart.querySelector(".session-timeline__brush")?.getAttribute("width"))).toBeCloseTo(25);
+    fireEvent.pointerUp(chart, { clientX: 425, pointerId: 1 });
+
+    expect(status).toHaveTextContent("Showing 9s of 10m 0s, from 4m 29s to 4m 38s");
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeDisabled();
   });
 
   it("hides itself when the runtime has no timeline and reports verification failures", async () => {
