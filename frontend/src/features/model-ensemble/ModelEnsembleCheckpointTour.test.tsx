@@ -152,7 +152,9 @@ describe("UI-03 through UI-07 synthetic integration tour", () => {
     const history = screen.getByText("History").closest("details");
     expect(history).not.toBeNull();
     fireEvent.click(within(history!).getByText("History"));
-    expect(within(history!).getByText("1 of 2 loaded snapshots have a numeric receipt.", { exact: false })).toBeVisible();
+    expect(
+      await within(history!).findByText("1 of 2 loaded snapshots have a numeric receipt.", { exact: false }),
+    ).toBeVisible();
     expect(within(history!).getByRole("img", { name: "Selected metric history" })).toHaveAttribute(
       "data-numeric-count",
       "1",

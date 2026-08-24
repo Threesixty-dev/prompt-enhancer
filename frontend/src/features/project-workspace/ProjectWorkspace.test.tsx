@@ -728,7 +728,11 @@ describe("ProjectWorkspace", () => {
     const deckHeading = await screen.findByRole("heading", {
       name: "What do you want to review?",
     });
-    expect(document.title).toBe("Metric deck · Example Observatory · Prompt Enhancer");
+    await waitFor(() =>
+      expect(document.title).toBe(
+        "Metric deck · Example Observatory · Prompt Enhancer",
+      ),
+    );
     expect(deckHeading).not.toHaveFocus();
 
     fireEvent.click(screen.getByRole("link", { name: "Sessions, 2 indexed" }));

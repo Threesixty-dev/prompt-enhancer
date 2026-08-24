@@ -556,7 +556,7 @@ describe("RequirementActionEvidencePanel", () => {
     expect(await screen.findByText(/Create the synthetic artifact\./)).toBeVisible();
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
     fireEvent.click(screen.getByRole("button", { name: "Confirm exact reviewed graph" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply exact confirmation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply exact confirmation" }));
     await waitFor(() => expect(local.decideRequirementActionProposal).toHaveBeenCalledWith(
       SESSION,
       PROPOSAL,
