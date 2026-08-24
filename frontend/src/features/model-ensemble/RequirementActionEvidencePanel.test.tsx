@@ -507,6 +507,7 @@ describe("RequirementActionEvidencePanel", () => {
     expect(screen.getByText(DESCRIPTOR_SET, { exact: true })).toBeVisible();
     const confirm = screen.getByRole("button", { name: "Confirm exact reviewed graph" });
     expect(confirm).toBeDisabled();
+    await act(async () => {});
     fireEvent.click(screen.getByLabelText(/I cross-checked and reviewed every displayed requirement/i));
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);

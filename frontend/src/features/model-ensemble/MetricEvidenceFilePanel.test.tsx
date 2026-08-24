@@ -200,7 +200,9 @@ describe("MetricEvidenceFilePanel", () => {
     fireEvent.click(apply);
 
     await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
-    expect(screen.getByText(/Evidence confirmed for this sealed run/i)).toHaveFocus();
+    await waitFor(() => {
+      expect(screen.getByText(/Evidence confirmed for this sealed run/i)).toHaveFocus();
+    });
     expect(screen.getByText(/1 confirmed · 0 rejected decision recorded/i)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Import agent metric evidence" })).toHaveAttribute("data-state", "confirmed");
     expect(local.previewAgentMetricEvidence).toHaveBeenCalledWith(sessionId, expect.anything(), expect.anything());
