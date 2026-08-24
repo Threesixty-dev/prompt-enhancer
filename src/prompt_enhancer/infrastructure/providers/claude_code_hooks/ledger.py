@@ -16,9 +16,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import hashlib
+import hmac
+import json
 from pathlib import Path
 import sqlite3
+from typing import TYPE_CHECKING
+
+from pydantic import Field, field_validator, model_validator
 
 from ....domain import DataTier, EventKind, Provider, StrictModel, ToolCategory
 from ....privacy import Pseudonymizer
@@ -36,10 +43,14 @@ from .contracts import (
     SessionStartSource,
 )
 
+if TYPE_CHECKING:
+    from .telemetry import TelemetryRequestView, TelemetrySessionView
+
 
 LEDGER_SCHEMA_VERSION = 45
 RECEIVER_BUSY_TIMEOUT_MS = 250
 _CONSENT_TIER = DataTier.REDACTED_CONTENT
+LEDGER_READ_BOUNDARY_VERSION = "claude-code-hooks.admitted-read-boundary.v1"
 
 
 class HookLedgerUnavailable(RuntimeError):
@@ -48,6 +59,10 @@ class HookLedgerUnavailable(RuntimeError):
 
 class HookLedgerConsentInactive(RuntimeError):
     """No active claude_code local-history consent; nothing may be written."""
+
+
+class HookLedgerSnapshotError(RuntimeError):
+    """The admitted ledger rows cannot form one exact, ordered read boundary."""
 
 
 class LedgerSession(StrictModel):
@@ -85,6 +100,54 @@ class AppendOutcome(StrictModel):
     hook_event_id: str
     sequence: int
     paired_duration_ms: int | None = None
+
+
+class LedgerReadBoundary(StrictModel):
+    """Content-free identity of one atomic admitted-row ledger snapshot.
+
+    ``admitted_events_enumerated`` speaks only for rows already accepted by the
+    receiver. It is deliberately not a claim that Claude Code delivered every
+    hook invocation that existed in the provider session.
+    """
+
+    boundary_version: str = LEDGER_READ_BOUNDARY_VERSION
+    hook_session_id: str
+    event_count: int = Field(ge=0, le=MAX_HOOK_EVENTS_PER_SESSION)
+    telemetry_request_count: int = Field(ge=0, le=MAX_HOOK_EVENTS_PER_SESSION)
+    first_event_sequence: int | None = Field(default=None, ge=0)
+    last_event_sequence: int | None = Field(default=None, ge=0)
+    admitted_events_enumerated: bool
+    receiver_clock_order_unambiguous: bool
+    boundary_fingerprint: str
+
+    _ids = field_validator("hook_session_id", "boundary_fingerprint")(
+        require_safe_id
+    )
+
+    @model_validator(mode="after")
+    def exact_shape(self) -> "LedgerReadBoundary":
+        if self.event_count == 0:
+            if self.first_event_sequence is not None or self.last_event_sequence is not None:
+                raise ValueError("empty hook boundaries cannot name an event sequence")
+        elif (
+            self.first_event_sequence != 0
+            or self.last_event_sequence != self.event_count - 1
+        ):
+            raise ValueError("hook boundary sequence endpoints are incoherent")
+        if not self.admitted_events_enumerated:
+            raise ValueError("ledger read boundaries must enumerate every admitted row")
+        return self
+
+
+@dataclass(frozen=True, slots=True)
+class LedgerSessionSnapshot:
+    """One SQLite read transaction spanning hooks and joined telemetry."""
+
+    session: LedgerSession
+    events: tuple[LedgerEvent, ...]
+    telemetry: "TelemetrySessionView | None"
+    telemetry_requests: tuple["TelemetryRequestView", ...]
+    boundary: LedgerReadBoundary
 
 
 def _event_identity(
@@ -155,6 +218,159 @@ def _row_event(row: sqlite3.Row) -> LedgerEvent:
     )
 
 
+def _validate_admitted_rows(
+    session: LedgerSession,
+    events: tuple[LedgerEvent, ...],
+    telemetry: "TelemetrySessionView | None",
+    telemetry_requests: tuple["TelemetryRequestView", ...],
+) -> bool:
+    """Validate exact admitted-row counts/order; return clock-order clarity."""
+
+    if len(events) != session.event_count:
+        raise HookLedgerSnapshotError("hook snapshot event count is incoherent")
+    event_sequences = tuple(item.sequence for item in events)
+    if event_sequences != tuple(range(len(events))):
+        raise HookLedgerSnapshotError("hook snapshot event order is incoherent")
+    event_ids = tuple(item.hook_event_id for item in events)
+    if len(set(event_ids)) != len(event_ids):
+        raise HookLedgerSnapshotError("hook snapshot repeats an event identity")
+    if any(item.hook_session_id != session.hook_session_id for item in events):
+        raise HookLedgerSnapshotError("hook snapshot crosses a session boundary")
+
+    if telemetry is not None:
+        if (
+            telemetry.hook_session_id != session.hook_session_id
+            or telemetry.hook_project_id != session.hook_project_id
+        ):
+            raise HookLedgerSnapshotError(
+                "telemetry summary crosses the hook session boundary"
+            )
+        counters = telemetry.counters
+        if counters is not None and (
+            counters.hook_session_id != session.hook_session_id
+            or counters.hook_project_id != session.hook_project_id
+        ):
+            raise HookLedgerSnapshotError(
+                "telemetry counters cross the hook session boundary"
+            )
+
+    expected_requests = 0 if telemetry is None else telemetry.request_count
+    if len(telemetry_requests) != expected_requests:
+        raise HookLedgerSnapshotError("telemetry snapshot request count is incoherent")
+    request_sequences = tuple(item.sequence for item in telemetry_requests)
+    if request_sequences != tuple(range(len(telemetry_requests))):
+        raise HookLedgerSnapshotError("telemetry snapshot request order is incoherent")
+    request_ids = tuple(item.request_id for item in telemetry_requests)
+    if len(set(request_ids)) != len(request_ids):
+        raise HookLedgerSnapshotError("telemetry snapshot repeats a request identity")
+    if any(
+        item.hook_session_id != session.hook_session_id
+        for item in telemetry_requests
+    ):
+        raise HookLedgerSnapshotError("telemetry snapshot crosses a session boundary")
+
+    # Sequence is the stable order. Receipt timestamps are additionally useful
+    # only when they are strictly increasing; parallel receiver processes can
+    # stamp before either obtains the append lock, so equality or inversion is
+    # an explicit clock ambiguity rather than something to sort away.
+    return all(
+        earlier.received_at < later.received_at
+        for earlier, later in zip(events, events[1:])
+    )
+
+
+def ledger_read_boundary_fingerprint(
+    session: LedgerSession,
+    events: tuple[LedgerEvent, ...],
+    telemetry: "TelemetrySessionView | None",
+    telemetry_requests: tuple["TelemetryRequestView", ...],
+) -> str:
+    """Canonical content-free fingerprint of one atomic provider read.
+
+    Private display labels are intentionally excluded. Telemetry values are
+    already minimized provider counters; they remain local and are included so
+    the adapter cannot mix one hook boundary with a later usage read.
+    """
+
+    payload = {
+        "boundary_version": LEDGER_READ_BOUNDARY_VERSION,
+        "session": {
+            "hook_session_id": session.hook_session_id,
+            "hook_project_id": session.hook_project_id,
+            "contract_version": session.contract_version,
+            "receiver_version": session.receiver_version,
+            "first_received_at": session.first_received_at.isoformat(),
+            "last_received_at": session.last_received_at.isoformat(),
+            "session_start_source": (
+                None
+                if session.session_start_source is None
+                else session.session_start_source.value
+            ),
+            "session_end_reason": (
+                None
+                if session.session_end_reason is None
+                else session.session_end_reason.value
+            ),
+            "ended_at": (
+                None if session.ended_at is None else session.ended_at.isoformat()
+            ),
+            "event_count": session.event_count,
+        },
+        "events": [item.model_dump(mode="json") for item in events],
+        "telemetry": (
+            None if telemetry is None else telemetry.model_dump(mode="json")
+        ),
+        "telemetry_requests": [
+            item.model_dump(mode="json") for item in telemetry_requests
+        ],
+    }
+    return hashlib.sha256(
+        b"prompt-enhancer/claude-hook-admitted-read-boundary/v1\0"
+        + json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("ascii")
+    ).hexdigest()
+
+
+def validate_ledger_session_snapshot(snapshot: LedgerSessionSnapshot) -> bool:
+    """Revalidate an atomic snapshot and its exact content-free commitment."""
+
+    if not isinstance(snapshot, LedgerSessionSnapshot):
+        raise HookLedgerSnapshotError("hook snapshot contract is invalid")
+    clock_order_unambiguous = _validate_admitted_rows(
+        snapshot.session,
+        snapshot.events,
+        snapshot.telemetry,
+        snapshot.telemetry_requests,
+    )
+    boundary = snapshot.boundary
+    if (
+        boundary.hook_session_id != snapshot.session.hook_session_id
+        or boundary.event_count != len(snapshot.events)
+        or boundary.telemetry_request_count != len(snapshot.telemetry_requests)
+        or boundary.first_event_sequence
+        != (None if not snapshot.events else snapshot.events[0].sequence)
+        or boundary.last_event_sequence
+        != (None if not snapshot.events else snapshot.events[-1].sequence)
+        or not boundary.admitted_events_enumerated
+        or boundary.receiver_clock_order_unambiguous
+        is not clock_order_unambiguous
+    ):
+        raise HookLedgerSnapshotError("hook snapshot boundary metadata is incoherent")
+    expected = ledger_read_boundary_fingerprint(
+        snapshot.session,
+        snapshot.events,
+        snapshot.telemetry,
+        snapshot.telemetry_requests,
+    )
+    if not hmac.compare_digest(expected, boundary.boundary_fingerprint):
+        raise HookLedgerSnapshotError("hook snapshot boundary fingerprint is invalid")
+    return clock_order_unambiguous
+
+
 def _append(
     connection: sqlite3.Connection,
     pseudonymizer: Pseudonymizer,
@@ -164,7 +380,8 @@ def _append(
 
     received_iso = to_iso(event.received_at)
     session_row = connection.execute(
-        """SELECT event_count, first_received_at FROM claude_code_hook_sessions
+        """SELECT hook_project_id, event_count, first_received_at
+           FROM claude_code_hook_sessions
            WHERE hook_session_id=?""",
         (event.hook_session_id,),
     ).fetchone()
@@ -193,10 +410,50 @@ def _append(
             ),
         )
         sequence = 0
+        authoritative_project_id = event.hook_project_id
     else:
         sequence = int(session_row["event_count"])
+        authoritative_project_id = str(session_row["hook_project_id"])
         if sequence >= MAX_HOOK_EVENTS_PER_SESSION:
             raise HookLedgerUnavailable("hook session event bound reached")
+
+    # OTLP has no cwd and therefore starts with a deterministic, content-free
+    # project placeholder.  Reconcile only that exact placeholder, only for the
+    # same already-pseudonymized provider session.  A different non-placeholder
+    # identity is a closed conflict, never something this receiver may relabel.
+    from .telemetry import (
+        TELEMETRY_SCHEMA_VERSION,
+        _telemetry_placeholder_project_id,
+    )
+
+    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    if version >= TELEMETRY_SCHEMA_VERSION:
+        telemetry_row = connection.execute(
+            """SELECT hook_project_id FROM claude_code_telemetry_sessions
+               WHERE hook_session_id=?""",
+            (event.hook_session_id,),
+        ).fetchone()
+        if telemetry_row is not None:
+            telemetry_project_id = str(telemetry_row["hook_project_id"])
+            placeholder_project_id = _telemetry_placeholder_project_id(
+                pseudonymizer, event.hook_session_id
+            )
+            if hmac.compare_digest(
+                telemetry_project_id, authoritative_project_id
+            ):
+                pass
+            elif hmac.compare_digest(
+                telemetry_project_id, placeholder_project_id
+            ):
+                connection.execute(
+                    """UPDATE claude_code_telemetry_sessions
+                       SET hook_project_id=? WHERE hook_session_id=?""",
+                    (authoritative_project_id, event.hook_session_id),
+                )
+            else:
+                raise HookLedgerUnavailable(
+                    "telemetry project identity conflicts with the hook session"
+                )
 
     paired_duration: int | None = None
     if (
@@ -423,6 +680,92 @@ class SqliteClaudeHookLedger:
             ).fetchall()
         return tuple(_row_event(row) for row in rows)
 
+    def read_session_snapshot(
+        self, hook_session_id: str
+    ) -> LedgerSessionSnapshot | None:
+        """Read hooks, telemetry, and their content-free boundary atomically.
+
+        SQLite's snapshot is explicitly opened before the first SELECT. This
+        prevents a hook append or OTLP batch from landing between the session,
+        event, and usage queries. The method validates dense admitted-row
+        sequences and counts; it never upgrades those rows to a claim that the
+        external hook configuration delivered the provider's complete stream.
+        """
+
+        from .telemetry import row_telemetry_request, row_telemetry_session
+
+        self._ensure_initialized()
+        require_safe_id(hook_session_id)
+        with self._connection_scope(readonly=True) as connection:
+            connection.execute("BEGIN")
+            try:
+                session_row = connection.execute(
+                    f"SELECT * FROM ({self._SESSION_UNION}) WHERE hook_session_id=?",
+                    (hook_session_id,),
+                ).fetchone()
+                if session_row is None:
+                    connection.rollback()
+                    return None
+                event_rows = connection.execute(
+                    """SELECT * FROM claude_code_hook_events
+                       WHERE hook_session_id=? ORDER BY sequence ASC""",
+                    (hook_session_id,),
+                ).fetchall()
+                telemetry_row = connection.execute(
+                    """SELECT * FROM claude_code_telemetry_sessions
+                       WHERE hook_session_id=?""",
+                    (hook_session_id,),
+                ).fetchone()
+                request_rows = connection.execute(
+                    """SELECT * FROM claude_code_telemetry_requests
+                       WHERE hook_session_id=? ORDER BY sequence ASC""",
+                    (hook_session_id,),
+                ).fetchall()
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+        session = _row_session(session_row)
+        events = tuple(_row_event(row) for row in event_rows)
+        telemetry = (
+            None
+            if telemetry_row is None
+            else row_telemetry_session(telemetry_row)
+        )
+        telemetry_requests = tuple(
+            row_telemetry_request(row) for row in request_rows
+        )
+        clock_order_unambiguous = _validate_admitted_rows(
+            session,
+            events,
+            telemetry,
+            telemetry_requests,
+        )
+        fingerprint = ledger_read_boundary_fingerprint(
+            session,
+            events,
+            telemetry,
+            telemetry_requests,
+        )
+        boundary = LedgerReadBoundary(
+            hook_session_id=session.hook_session_id,
+            event_count=len(events),
+            telemetry_request_count=len(telemetry_requests),
+            first_event_sequence=None if not events else events[0].sequence,
+            last_event_sequence=None if not events else events[-1].sequence,
+            admitted_events_enumerated=True,
+            receiver_clock_order_unambiguous=clock_order_unambiguous,
+            boundary_fingerprint=fingerprint,
+        )
+        return LedgerSessionSnapshot(
+            session=session,
+            events=events,
+            telemetry=telemetry,
+            telemetry_requests=telemetry_requests,
+            boundary=boundary,
+        )
+
     def summary(self) -> dict[str, int]:
         self._ensure_initialized()
         with self._connection_scope(readonly=True) as connection:
@@ -525,10 +868,16 @@ __all__ = (
     "AppendOutcome",
     "HOOK_INSTALLATION_MARKER",
     "HookLedgerConsentInactive",
+    "HookLedgerSnapshotError",
     "HookLedgerUnavailable",
     "LEDGER_SCHEMA_VERSION",
+    "LEDGER_READ_BOUNDARY_VERSION",
     "LedgerEvent",
+    "LedgerReadBoundary",
     "LedgerSession",
+    "LedgerSessionSnapshot",
     "SqliteClaudeHookLedger",
+    "ledger_read_boundary_fingerprint",
     "receiver_append",
+    "validate_ledger_session_snapshot",
 )

@@ -850,7 +850,7 @@ class LocalApplication:
                 if projection is None:
                     return None
                 return project_objective_metric_overrides_v3(
-                    projection, projector.descriptor_for(provider)
+                    projection, projector.descriptor_for_projection(projection)
                 )
             except Exception:
                 return None
@@ -875,6 +875,7 @@ class LocalApplication:
         )
 
         from .application.providers import (
+            CapabilityKey,
             DecoderDescriptor,
             ProviderIdentity,
             ProviderSurface,
@@ -884,19 +885,19 @@ class LocalApplication:
         from .domain import Provider
         from .infrastructure.identifiers import LocalArtifactIdFactory
         from .infrastructure.providers.codex_app_server.contracts import (
-            ADAPTER_VERSION,
-            SOURCE_SCHEMA_VERSION,
+            ADAPTER_VERSION as CODEX_ADAPTER_VERSION,
+            SOURCE_SCHEMA_VERSION as CODEX_SOURCE_SCHEMA_VERSION,
         )
 
         safe_event_capabilities = CURRENT_SAFE_EVENT_EVIDENCE_CAPABILITIES
         safe_event_descriptor = DecoderDescriptor(
             provider=ProviderIdentity(key="codex"),
             surface=ProviderSurface.OPERATIONAL_EVENTS,
-            adapter_version=ADAPTER_VERSION,
+            adapter_version=CODEX_ADAPTER_VERSION,
             decoder_key=SAFE_EVENT_EVIDENCE_DECODER_KEY,
             decoder_version=SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION,
             wire_schema_family="codex.app-server.v2.safe-events",
-            canonical_schema_version=SOURCE_SCHEMA_VERSION,
+            canonical_schema_version=CODEX_SOURCE_SCHEMA_VERSION,
             schema_artifact=SchemaArtifactProvenance(
                 artifact_key="codex.safe-event-index",
                 artifact_version="1",
@@ -924,6 +925,30 @@ class LocalApplication:
             ),
             capabilities=safe_event_capabilities,
         )
+        from .infrastructure.providers.claude_code_hooks.contracts import (
+            ADAPTER_VERSION as CLAUDE_HOOK_ADAPTER_VERSION,
+            SOURCE_SCHEMA_VERSION as CLAUDE_HOOK_SOURCE_SCHEMA_VERSION,
+        )
+
+        # The hook ledger authorizes action receipts only. It does not classify
+        # shell invocations into test/build verification receipts and cannot
+        # enumerate a complete provider stream, so no stronger evidence or
+        # denominator capability is borrowed from the transcript descriptor.
+        claude_hook_safe_event_descriptor = DecoderDescriptor(
+            provider=ProviderIdentity(key="claude_code"),
+            surface=ProviderSurface.OPERATIONAL_EVENTS,
+            adapter_version=CLAUDE_HOOK_ADAPTER_VERSION,
+            decoder_key=SAFE_EVENT_EVIDENCE_DECODER_KEY,
+            decoder_version=SAFE_EVENT_EVIDENCE_DECODER_CURRENT_VERSION,
+            wire_schema_family="claude-code.hooks.v1.safe-events",
+            canonical_schema_version=CLAUDE_HOOK_SOURCE_SCHEMA_VERSION,
+            schema_artifact=SchemaArtifactProvenance(
+                artifact_key="claude-code.hook-safe-event-index",
+                artifact_version="1",
+                kind=SchemaArtifactKind.DOCUMENTED,
+            ),
+            capabilities=(CapabilityKey.TOOL_EVENTS,),
+        )
 
         return SafeEventTypedEvidenceProjector(
             self.database,
@@ -931,6 +956,23 @@ class LocalApplication:
             safe_event_descriptor,
             tasks=self.database.task_repository(),
             descriptors={Provider.CLAUDE_CODE: claude_safe_event_descriptor},
+            source_descriptors={
+                (
+                    Provider.CODEX,
+                    CODEX_ADAPTER_VERSION,
+                    CODEX_SOURCE_SCHEMA_VERSION,
+                ): safe_event_descriptor,
+                (
+                    Provider.CLAUDE_CODE,
+                    TRANSCRIPT_ADAPTER_VERSION,
+                    TRANSCRIPT_SOURCE_SCHEMA_VERSION,
+                ): claude_safe_event_descriptor,
+                (
+                    Provider.CLAUDE_CODE,
+                    CLAUDE_HOOK_ADAPTER_VERSION,
+                    CLAUDE_HOOK_SOURCE_SCHEMA_VERSION,
+                ): claude_hook_safe_event_descriptor,
+            },
         )
 
     def create_declared_task_profile_service(self):

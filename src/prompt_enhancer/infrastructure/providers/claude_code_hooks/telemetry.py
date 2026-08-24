@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+import hmac
 import sqlite3
 from typing import Any, Literal
 
@@ -258,12 +259,21 @@ def _identity(
 ) -> tuple[str, str]:
     session = pseudonymizer.pseudonymize(PSEUDONYM_NAMESPACE_SESSION, raw_session_id)
     # OTLP carries no working directory; the project identity is the same
-    # missing-cwd sentinel the hook receiver derives, so a session captured by
-    # both channels resolves to one project.
-    project = pseudonymizer.pseudonymize(
-        PSEUDONYM_NAMESPACE_PROJECT, project_identity_material(None, raw_session_id)
-    )
+    # content-free missing-cwd placeholder for this already-pseudonymized
+    # provider session.  Basing the placeholder on the pseudonym (not retained
+    # raw input) lets the ledger recognize it after restart and replace only
+    # that placeholder when the exact hook session supplies a project identity.
+    project = _telemetry_placeholder_project_id(pseudonymizer, session)
     return session, project
+
+
+def _telemetry_placeholder_project_id(
+    pseudonymizer: Pseudonymizer, hook_session_id: str
+) -> str:
+    return pseudonymizer.pseudonymize(
+        PSEUDONYM_NAMESPACE_PROJECT,
+        project_identity_material(None, hook_session_id),
+    )
 
 
 def parse_logs_export(
@@ -443,13 +453,35 @@ def _request_identity(pseudonymizer: Pseudonymizer, session_id: str, sequence: i
 def _ensure_session(
     connection: sqlite3.Connection,
     *,
+    pseudonymizer: Pseudonymizer,
     hook_session_id: str,
     hook_project_id: str,
     provider_version: str | None,
     received_iso: str,
 ) -> None:
+    placeholder_project_id = _telemetry_placeholder_project_id(
+        pseudonymizer, hook_session_id
+    )
+    hook_row = connection.execute(
+        """SELECT hook_project_id FROM claude_code_hook_sessions
+           WHERE hook_session_id=?""",
+        (hook_session_id,),
+    ).fetchone()
+    effective_project_id = hook_project_id
+    if hook_row is not None:
+        authoritative_project_id = str(hook_row["hook_project_id"])
+        if not (
+            hmac.compare_digest(hook_project_id, placeholder_project_id)
+            or hmac.compare_digest(hook_project_id, authoritative_project_id)
+        ):
+            raise HookLedgerUnavailable(
+                "telemetry project identity conflicts with the hook session"
+            )
+        effective_project_id = authoritative_project_id
+
     row = connection.execute(
-        "SELECT request_count FROM claude_code_telemetry_sessions WHERE hook_session_id=?",
+        """SELECT request_count, hook_project_id
+           FROM claude_code_telemetry_sessions WHERE hook_session_id=?""",
         (hook_session_id,),
     ).fetchone()
     if row is None:
@@ -460,7 +492,7 @@ def _ensure_session(
                VALUES (?,?,?,?,?,?,0)""",
             (
                 hook_session_id,
-                hook_project_id,
+                effective_project_id,
                 TELEMETRY_CONTRACT_VERSION,
                 provider_version,
                 received_iso,
@@ -468,11 +500,25 @@ def _ensure_session(
             ),
         )
     else:
+        stored_project_id = str(row["hook_project_id"])
+        if not hmac.compare_digest(stored_project_id, effective_project_id):
+            if hook_row is None or not hmac.compare_digest(
+                stored_project_id, placeholder_project_id
+            ):
+                raise HookLedgerUnavailable(
+                    "telemetry session has a conflicting project identity"
+                )
         connection.execute(
             """UPDATE claude_code_telemetry_sessions
-               SET last_received_at=?, provider_version=COALESCE(provider_version, ?)
+               SET hook_project_id=?, last_received_at=?,
+                   provider_version=COALESCE(provider_version, ?)
                WHERE hook_session_id=?""",
-            (received_iso, provider_version, hook_session_id),
+            (
+                effective_project_id,
+                received_iso,
+                provider_version,
+                hook_session_id,
+            ),
         )
 
 
@@ -490,6 +536,7 @@ def append_batch(
     for record in batch.usage:
         _ensure_session(
             connection,
+            pseudonymizer=pseudonymizer,
             hook_session_id=record.hook_session_id,
             hook_project_id=record.hook_project_id,
             provider_version=record.provider_version,
@@ -535,6 +582,7 @@ def append_batch(
     for counters in batch.counters:
         _ensure_session(
             connection,
+            pseudonymizer=pseudonymizer,
             hook_session_id=counters.hook_session_id,
             hook_project_id=counters.hook_project_id,
             provider_version=counters.provider_version,

@@ -369,15 +369,26 @@ class ClaudeCodeHookAdapter(ProviderAdapter):
         listed = self._listed.get(hook_session_id)
         if listed is None or listed != session:
             raise ClaudeHookScopeError("session is not part of the current listed snapshot")
-        events = [_source_event(event) for event in ledger.list_events(hook_session_id)]
-        requests = ledger.list_telemetry_requests(hook_session_id)
+        atomic = ledger.read_session_snapshot(hook_session_id)
+        if atomic is None:
+            raise ClaudeHookScopeError("session left the admitted source boundary")
+        current = _source_session(atomic.session, atomic.telemetry)
+        if (
+            current.source_installation_id != listed.source_installation_id
+            or current.source_project_id != listed.source_project_id
+            or current.source_session_id != listed.source_session_id
+            or current.started_at != listed.started_at
+        ):
+            raise ClaudeHookScopeError("session identity changed across the source boundary")
+        events = [_source_event(event) for event in atomic.events]
+        requests = atomic.telemetry_requests
         if requests:
             events.extend(_usage_event(request) for request in requests)
         else:
-            telemetry = ledger.get_telemetry_session(hook_session_id)
+            telemetry = atomic.telemetry
             if telemetry is not None and telemetry.counters is not None:
                 events.append(_cumulative_usage_event(hook_session_id, telemetry.counters))
-        return SourceSessionSnapshot(session=session, events=tuple(events))
+        return SourceSessionSnapshot(session=current, events=tuple(events))
 
     def read_events(self, session: SourceSession) -> Iterator[SourceEvent]:
         yield from self.read_session(session).events
@@ -448,24 +459,54 @@ class ClaudeCodeHooksCompatibilityProbe:
             provider_version = self.ledger.latest_provider_version() or UNKNOWN_PROVIDER_VERSION
         except Exception:
             provider_version = UNKNOWN_PROVIDER_VERSION
-        reason = (
+        version_reason = (
             CompatibilityReasonCode.PROVIDER_VERSION_UNKNOWN
             if provider_version == UNKNOWN_PROVIDER_VERSION
             else CompatibilityReasonCode.PROVIDER_VERSION_UNTESTED
         )
+        telemetry_observed = int(summary.get("telemetry_sessions", 0)) > 0
+        reasons = [
+            CompatibilityReason(code=version_reason),
+            CompatibilityReason(
+                code=CompatibilityReasonCode.COMPLETE_DELIVERY_UNPROVEN
+            ),
+            CompatibilityReason(
+                code=CompatibilityReasonCode.EPHEMERAL_DESCRIPTORS_UNAVAILABLE
+            ),
+        ]
+        if not telemetry_observed:
+            reasons.append(
+                CompatibilityReason(
+                    code=CompatibilityReasonCode.OPTIONAL_CAPABILITY_MISSING
+                )
+            )
         return ProviderCompatibilityReport(
             descriptor=self.descriptor,
             provider_version=provider_version,
             state=CompatibilityState.DEGRADED,
             capabilities=tuple(
-                CapabilityObservation(key=capability, state=CapabilityState.SUPPORTED)
+                CapabilityObservation(
+                    key=capability,
+                    state=(
+                        CapabilityState.UNKNOWN
+                        if capability is CapabilityKey.TOKEN_USAGE
+                        and not telemetry_observed
+                        else CapabilityState.SUPPORTED
+                    ),
+                    reason_code=(
+                        CompatibilityReasonCode.OPTIONAL_CAPABILITY_MISSING
+                        if capability is CapabilityKey.TOKEN_USAGE
+                        and not telemetry_observed
+                        else None
+                    ),
+                )
                 for capability in self.descriptor.capabilities
             ),
             extraction=ExtractionCompleteness(
                 state=ExtractionCompletenessState.UNKNOWN,
                 observed_units=min(int(summary["events"]), 10_000_000),
             ),
-            reasons=(CompatibilityReason(code=reason),),
+            reasons=tuple(reasons),
             checked_at=checked_at,
         )
 

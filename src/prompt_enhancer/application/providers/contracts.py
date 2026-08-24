@@ -135,6 +135,10 @@ class CompatibilityReasonCode(StrEnum):
     RESOURCE_LIMIT = "resource_limit"
     TIMEOUT = "timeout"
     DECODER_FAILED = "decoder_failed"
+    COMPLETE_DELIVERY_UNPROVEN = "complete_delivery_unproven"
+    EPHEMERAL_DESCRIPTORS_UNAVAILABLE = "ephemeral_descriptors_unavailable"
+    SOURCE_BOUNDARY_INVALID = "source_boundary_invalid"
+    RECEIVER_CLOCK_AMBIGUOUS = "receiver_clock_ambiguous"
 
 
 class ProviderIdentity(StrictModel):

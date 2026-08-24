@@ -296,10 +296,23 @@ class SafeEventTypedEvidenceProjector:
         *,
         tasks: ReviewedTaskSource | None = None,
         descriptors: Mapping[Provider, DecoderDescriptor] | None = None,
+        source_descriptors: Mapping[
+            tuple[Provider, str, str], DecoderDescriptor
+        ]
+        | None = None,
     ) -> None:
         self._source = source
         self._identifiers = identifiers
         self._tasks = tasks
+        if not isinstance(descriptor, DecoderDescriptor):
+            raise ValueError("typed evidence requires a trusted decoder descriptor")
+        if descriptor.decoder_key != SAFE_EVENT_EVIDENCE_DECODER_KEY:
+            raise ValueError("typed evidence descriptor names another decoder")
+        if (
+            descriptor.decoder_version
+            not in SUPPORTED_SAFE_EVENT_EVIDENCE_DECODER_VERSIONS
+        ):
+            raise ValueError("typed evidence decoder version is unsupported")
         # Optional per-provider descriptors (same decoder key and version,
         # different adapter/schema identities); ``descriptor`` stays the default.
         self._descriptors: dict[Provider, DecoderDescriptor] = {}
@@ -313,21 +326,75 @@ class SafeEventTypedEvidenceProjector:
             ):
                 raise ValueError("typed evidence provider descriptor does not match the decoder")
             self._descriptors[provider] = candidate
-        if not isinstance(descriptor, DecoderDescriptor):
-            raise ValueError("typed evidence requires a trusted decoder descriptor")
-        if descriptor.decoder_key != SAFE_EVENT_EVIDENCE_DECODER_KEY:
-            raise ValueError("typed evidence descriptor names another decoder")
-        if (
-            descriptor.decoder_version
-            not in SUPPORTED_SAFE_EVENT_EVIDENCE_DECODER_VERSIONS
-        ):
-            raise ValueError("typed evidence decoder version is unsupported")
+        self._source_descriptors: dict[
+            tuple[Provider, str, str], DecoderDescriptor
+        ] = {}
+        for identity, candidate in (source_descriptors or {}).items():
+            if (
+                not isinstance(identity, tuple)
+                or len(identity) != 3
+                or not isinstance(identity[0], Provider)
+                or not isinstance(identity[1], str)
+                or not isinstance(identity[2], str)
+                or not isinstance(candidate, DecoderDescriptor)
+            ):
+                raise ValueError("typed evidence source descriptor identity is invalid")
+            provider, adapter_version, source_schema_version = identity
+            if (
+                candidate.decoder_key != SAFE_EVENT_EVIDENCE_DECODER_KEY
+                or candidate.decoder_version != descriptor.decoder_version
+                or candidate.provider.key != provider.value
+                or candidate.adapter_version != adapter_version
+                or candidate.canonical_schema_version != source_schema_version
+            ):
+                raise ValueError(
+                    "typed evidence source descriptor does not match its provenance"
+                )
+            self._source_descriptors[identity] = candidate
         self._descriptor = descriptor
 
-    def descriptor_for(self, provider: Provider) -> DecoderDescriptor:
-        """The descriptor that speaks for one provider (default otherwise)."""
+    def descriptor_for(
+        self,
+        provider: Provider,
+        *,
+        adapter_version: str | None = None,
+        source_schema_version: str | None = None,
+    ) -> DecoderDescriptor:
+        """Resolve a provider default or one exact adapter/schema provenance."""
 
+        if (adapter_version is None) != (source_schema_version is None):
+            raise ValueError("typed evidence source provenance must be complete")
+        if adapter_version is not None and source_schema_version is not None:
+            exact = self._source_descriptors.get(
+                (provider, adapter_version, source_schema_version)
+            )
+            if exact is not None:
+                return exact
+            fallback = self._descriptors.get(provider, self._descriptor)
+            if (
+                fallback.provider.key == provider.value
+                and fallback.adapter_version == adapter_version
+                and fallback.canonical_schema_version == source_schema_version
+            ):
+                return fallback
+            raise ValueError("typed evidence source provenance is not registered")
         return self._descriptors.get(provider, self._descriptor)
+
+    def descriptor_for_projection(
+        self, projection: EphemeralTypedEvidenceProjection
+    ) -> DecoderDescriptor:
+        """Resolve only the exact descriptor stamped into a built projection."""
+
+        if not isinstance(projection, EphemeralTypedEvidenceProjection):
+            raise ValueError("typed evidence projection contract is invalid")
+        provenance = projection.provenance
+        descriptor = self.descriptor_for(
+            provenance.provider,
+            adapter_version=provenance.adapter_version,
+            source_schema_version=provenance.source_schema_version,
+        )
+        validate_projection_descriptor(projection, descriptor)
+        return descriptor
 
     @property
     def _emits_verification_task_identity(self) -> bool:
@@ -391,7 +458,11 @@ class SafeEventTypedEvidenceProjector:
         session = self._source.get_session(session_id)
         if session is None or session.provider is not provider:
             return None
-        descriptor = self.descriptor_for(provider)
+        descriptor = self.descriptor_for(
+            provider,
+            adapter_version=session.adapter_version,
+            source_schema_version=session.source_schema_version,
+        )
         events = tuple(
             sorted(
                 self._source.get_session_events(session_id),

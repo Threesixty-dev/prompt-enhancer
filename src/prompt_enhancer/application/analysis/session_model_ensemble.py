@@ -2722,7 +2722,9 @@ class SessionModelEnsembleService:
             # meaning of the algorithm that wrote them.
             objective_overrides = project_objective_metric_overrides_v3(
                 typed_evidence,
-                self._objective_evidence_descriptor(context.provider),
+                self._objective_evidence_descriptor(
+                    context.provider, typed_evidence
+                ),
             )
             live_states = project_metric_states_v7(
                 context=context,
@@ -2740,7 +2742,7 @@ class SessionModelEnsembleService:
                 requirement_plan_evidence=requirement_plan_evidence,
                 requirement_action_evidence=requirement_action_evidence,
                 requirement_action_descriptor=self._objective_evidence_descriptor(
-                    context.provider
+                    context.provider, typed_evidence
                 ),
                 candidate_manifest_overflow=candidate_manifest_overflow,
                 candidate_source_incomplete=candidate_source_incomplete,
@@ -2881,7 +2883,7 @@ class SessionModelEnsembleService:
                 raise ValueError("typed evidence belongs to another session")
             validate_projection_descriptor(
                 projection,
-                self._objective_evidence_descriptor(provider),
+                self._objective_evidence_descriptor(provider, projection),
             )
             return projection
         except Exception:
@@ -3062,11 +3064,26 @@ class SessionModelEnsembleService:
             }
         )
     def _objective_evidence_descriptor(
-        self, provider: Provider | None = None
+        self,
+        provider: Provider | None = None,
+        projection: EphemeralTypedEvidenceProjection | None = None,
     ) -> DecoderDescriptor | None:
         if self._typed_evidence_projector is None:
             return None
         try:
+            if projection is not None:
+                descriptor_for_projection = getattr(
+                    self._typed_evidence_projector,
+                    "descriptor_for_projection",
+                    None,
+                )
+                if callable(descriptor_for_projection):
+                    descriptor = descriptor_for_projection(projection)
+                    return (
+                        descriptor
+                        if isinstance(descriptor, DecoderDescriptor)
+                        else None
+                    )
             descriptor_for = getattr(self._typed_evidence_projector, "descriptor_for", None)
             descriptor = (
                 descriptor_for(provider)
@@ -3089,7 +3106,8 @@ class SessionModelEnsembleService:
                 if semantic_projection is None
                 else semantic_projection.reconciliation,
                 self._objective_evidence_descriptor(
-                    None if projection is None else projection.provenance.provider
+                    None if projection is None else projection.provenance.provider,
+                    projection,
                 ),
             )
         except Exception:

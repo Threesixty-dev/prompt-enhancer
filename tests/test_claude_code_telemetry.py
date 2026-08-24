@@ -30,9 +30,17 @@ from prompt_enhancer.infrastructure.providers.claude_code_hooks.adapter import (
     ClaudeCodeHookAdapter,
     ClaudeCodeHooksCompatibilityProbe,
 )
-from prompt_enhancer.infrastructure.providers.claude_code_hooks.receiver import receive
+from prompt_enhancer.infrastructure.providers.claude_code_hooks.contracts import (
+    PSEUDONYM_NAMESPACE_PROJECT,
+    PSEUDONYM_NAMESPACE_SESSION,
+)
+from prompt_enhancer.infrastructure.providers.claude_code_hooks.receiver import (
+    ReceiverStatus,
+    receive,
+)
 from prompt_enhancer.infrastructure.providers.claude_code_hooks.telemetry import (
     ALLOWED_ATTRIBUTE_KEYS,
+    TELEMETRY_CONTRACT_VERSION,
     TelemetryParseError,
     TelemetryUsageRecord,
     parse_logs_export,
@@ -315,7 +323,11 @@ def test_end_to_end_usage_reaches_token_metrics_without_canary(composed) -> None
     assert checked["provider_version"] == "2.1.0" and checked["state"] == "degraded"
     ledger = application.database.claude_hook_ledger()
     report = ClaudeCodeHooksCompatibilityProbe(ledger).check()
-    assert [r.code for r in report.reasons] == [CompatibilityReasonCode.PROVIDER_VERSION_UNTESTED]
+    assert [r.code for r in report.reasons] == [
+        CompatibilityReasonCode.PROVIDER_VERSION_UNTESTED,
+        CompatibilityReasonCode.COMPLETE_DELIVERY_UNPROVEN,
+        CompatibilityReasonCode.EPHEMERAL_DESCRIPTORS_UNAVAILABLE,
+    ]
     assert CapabilityKey.TOKEN_USAGE in CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR.capabilities
 
     # Whole-database canary sweep, including the token stored on disk.
@@ -326,6 +338,199 @@ def test_end_to_end_usage_reaches_token_metrics_without_canary(composed) -> None
         connection.close()
     _no_canary(dump)
     assert otlp["Authorization"].split()[1] not in dump
+
+
+@pytest.mark.parametrize("write_order", ("hook_first", "telemetry_first"))
+def test_missing_cwd_project_reconciles_in_both_write_orders_and_survives_restart(
+    composed,
+    write_order: str,
+) -> None:
+    client, _, otlp, settings, application = composed
+    Database(settings.database_path).grant_consent(
+        Provider.CLAUDE_CODE, DataTier.REDACTED_CONTENT
+    )
+    raw_cwd = "/srv/example/CANARY-RECONCILE-PROJECT"
+
+    def append_hook() -> None:
+        outcome = receive(
+            io.BytesIO(
+                json.dumps(
+                    {
+                        "session_id": CANARY_SESSION,
+                        "cwd": raw_cwd,
+                        "hook_event_name": "SessionStart",
+                        "source": "startup",
+                    }
+                ).encode()
+            ),
+            settings=settings,
+            now=lambda: T0,
+        )
+        assert outcome.status is ReceiverStatus.APPENDED
+
+    def append_telemetry() -> None:
+        assert client.post(
+            "/otlp/v1/logs", content=json.dumps(logs_export()), headers=otlp
+        ).status_code == 200
+        assert client.post(
+            "/otlp/v1/metrics",
+            content=json.dumps(metrics_export()),
+            headers=otlp,
+        ).status_code == 200
+
+    first = append_hook if write_order == "hook_first" else append_telemetry
+    second = append_telemetry if write_order == "hook_first" else append_hook
+    first()
+    ledger = application.database.claude_hook_ledger()
+    before_session = ledger.list_sessions(limit=2)[0]
+    before = ledger.read_session_snapshot(before_session.hook_session_id)
+    assert before is not None
+    second()
+
+    # A new database/ledger instance models a process restart.  The reconciled
+    # boundary remains exact without retaining either raw source identifier.
+    reopened = Database(settings.database_path).claude_hook_ledger()
+    session = reopened.list_sessions(limit=2)[0]
+    after = reopened.read_session_snapshot(session.hook_session_id)
+    assert after is not None and after.telemetry is not None
+    assert after.boundary.boundary_fingerprint != before.boundary.boundary_fingerprint
+    assert after.telemetry.hook_session_id == after.session.hook_session_id
+    assert after.telemetry.hook_project_id == after.session.hook_project_id
+    assert after.telemetry.counters is not None
+    assert after.telemetry.counters.hook_session_id == after.session.hook_session_id
+    assert after.telemetry.counters.hook_project_id == after.session.hook_project_id
+
+    connection = sqlite3.connect(settings.database_path)
+    try:
+        provider_dump = "\n".join(
+            repr(row)
+            for table in (
+                "claude_code_hook_sessions",
+                "claude_code_hook_events",
+                "claude_code_telemetry_sessions",
+                "claude_code_telemetry_requests",
+            )
+            for row in connection.execute(f'SELECT * FROM "{table}"').fetchall()
+        )
+    finally:
+        connection.close()
+    assert CANARY_SESSION not in provider_dump
+    assert raw_cwd not in provider_dump
+
+
+def test_project_reconciliation_never_crosses_an_unrelated_session(composed) -> None:
+    client, _, otlp, settings, application = composed
+    Database(settings.database_path).grant_consent(
+        Provider.CLAUDE_CODE, DataTier.REDACTED_CONTENT
+    )
+    assert client.post(
+        "/otlp/v1/logs", content=json.dumps(logs_export()), headers=otlp
+    ).status_code == 200
+    ledger = application.database.claude_hook_ledger()
+    telemetry_only = ledger.list_sessions(limit=2)[0]
+    before = ledger.read_session_snapshot(telemetry_only.hook_session_id)
+    assert before is not None
+
+    unrelated_raw_session = "synthetic-unrelated-provider-session"
+    outcome = receive(
+        io.BytesIO(
+            json.dumps(
+                {
+                    "session_id": unrelated_raw_session,
+                    "cwd": "/srv/example/synthetic-unrelated-project",
+                    "hook_event_name": "SessionStart",
+                    "source": "startup",
+                }
+            ).encode()
+        ),
+        settings=settings,
+        now=lambda: T0,
+    )
+    assert outcome.status is ReceiverStatus.APPENDED
+
+    reopened = Database(settings.database_path).claude_hook_ledger()
+    after = reopened.read_session_snapshot(telemetry_only.hook_session_id)
+    assert after is not None
+    assert after.boundary == before.boundary
+    assert len(reopened.list_sessions(limit=3)) == 2
+
+
+def test_two_nonplaceholder_projects_for_one_session_fail_closed(composed) -> None:
+    _, _, _, settings, application = composed
+    Database(settings.database_path).grant_consent(
+        Provider.CLAUDE_CODE, DataTier.REDACTED_CONTENT
+    )
+    raw_session = "synthetic-conflicting-provider-session"
+    raw_cwd = "/srv/example/synthetic-conflicting-hook-project"
+    hook_session_id = application.pseudonymizer.pseudonymize(
+        PSEUDONYM_NAMESPACE_SESSION, raw_session
+    )
+    foreign_project_id = application.pseudonymizer.pseudonymize(
+        PSEUDONYM_NAMESPACE_PROJECT,
+        "synthetic-nonplaceholder-telemetry-project",
+    )
+    connection = sqlite3.connect(settings.database_path)
+    try:
+        connection.execute(
+            """INSERT INTO claude_code_telemetry_sessions(
+                   hook_session_id, hook_project_id, contract_version,
+                   provider_version, first_received_at, last_received_at,
+                   request_count)
+               VALUES (?,?,?,?,?,?,0)""",
+            (
+                hook_session_id,
+                foreign_project_id,
+                TELEMETRY_CONTRACT_VERSION,
+                "synthetic-provider-v1",
+                T0.isoformat(),
+                T0.isoformat(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    outcome = receive(
+        io.BytesIO(
+            json.dumps(
+                {
+                    "session_id": raw_session,
+                    "cwd": raw_cwd,
+                    "hook_event_name": "SessionStart",
+                    "source": "startup",
+                }
+            ).encode()
+        ),
+        settings=settings,
+        now=lambda: T0,
+    )
+    assert outcome.status is ReceiverStatus.STORE_UNAVAILABLE
+
+    connection = sqlite3.connect(settings.database_path)
+    try:
+        stored_project_id = connection.execute(
+            """SELECT hook_project_id FROM claude_code_telemetry_sessions
+               WHERE hook_session_id=?""",
+            (hook_session_id,),
+        ).fetchone()[0]
+        hook_count = connection.execute(
+            """SELECT COUNT(*) FROM claude_code_hook_sessions
+               WHERE hook_session_id=?""",
+            (hook_session_id,),
+        ).fetchone()[0]
+        provider_dump = "\n".join(
+            repr(row)
+            for table in (
+                "claude_code_hook_sessions",
+                "claude_code_telemetry_sessions",
+            )
+            for row in connection.execute(f'SELECT * FROM "{table}"').fetchall()
+        )
+    finally:
+        connection.close()
+    assert stored_project_id == foreign_project_id
+    assert hook_count == 0
+    assert raw_session not in provider_dump and raw_cwd not in provider_dump
 
 
 def test_telemetry_only_session_is_listed_with_cumulative_usage(composed) -> None:

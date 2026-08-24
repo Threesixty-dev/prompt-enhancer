@@ -272,8 +272,22 @@ def test_compatibility_probe_reports_degraded_unknown_completeness_and_registers
     assert report.extraction.state is ExtractionCompletenessState.UNKNOWN
     assert report.extraction.observed_units == 7
     assert {c.key for c in report.capabilities} == set(CLAUDE_CODE_HOOKS_DECODER_DESCRIPTOR.capabilities)
-    assert all(c.state is CapabilityState.SUPPORTED for c in report.capabilities)
-    assert [r.code for r in report.reasons] == [CompatibilityReasonCode.PROVIDER_VERSION_UNKNOWN]
+    token_usage = next(
+        item for item in report.capabilities if item.key is CapabilityKey.TOKEN_USAGE
+    )
+    assert token_usage.state is CapabilityState.UNKNOWN
+    assert token_usage.reason_code is CompatibilityReasonCode.OPTIONAL_CAPABILITY_MISSING
+    assert all(
+        item.state is CapabilityState.SUPPORTED
+        for item in report.capabilities
+        if item.key is not CapabilityKey.TOKEN_USAGE
+    )
+    assert [r.code for r in report.reasons] == [
+        CompatibilityReasonCode.PROVIDER_VERSION_UNKNOWN,
+        CompatibilityReasonCode.COMPLETE_DELIVERY_UNPROVEN,
+        CompatibilityReasonCode.EPHEMERAL_DESCRIPTORS_UNAVAILABLE,
+        CompatibilityReasonCode.OPTIONAL_CAPABILITY_MISSING,
+    ]
     # No opportunity, link, or message-content capability is ever claimed.
     forbidden = {k for k in CapabilityKey if k.value.endswith(("_opportunities", "_links"))} | {
         CapabilityKey.USER_MESSAGES, CapabilityKey.AGENT_MESSAGES, CapabilityKey.PLAN_MESSAGES,
