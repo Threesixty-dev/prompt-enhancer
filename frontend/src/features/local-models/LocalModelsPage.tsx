@@ -89,6 +89,22 @@ function defaultAlias(filename: string): string {
   return filename.toLowerCase().replace(/\.gguf$/, "").replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").slice(0, 60) || "model";
 }
 
+function LocalModelsHeader() {
+  return (
+    <header className="local-models__head">
+      <div>
+        <p className="eyebrow">Local models · on this machine only</p>
+        <h1 id="local-models-title">Models</h1>
+        <p className="local-models__lede">
+          Install a model once, activate it on the GPU, CPU, or split between them, and it gets its own local
+          endpoint: usable as a regular LLM for small tasks and by the metric judge. Once installed, prompts and
+          responses stay on this machine; looking up or downloading a Hub model is an explicit Hugging Face request.
+        </p>
+      </div>
+    </header>
+  );
+}
+
 /**
  * Installed local models: hardware, runtime detection, per-model device
  * activation and the loopback endpoint each model gets. Adding a model from
@@ -190,24 +206,35 @@ export function LocalModelsPage({
     && selectedRemote?.eligible && selectedRemote.sha256 && selectedRemote.size_bytes,
   );
 
-  if (state === "loading") return <section className="local-models"><p className="local-models__note">Looking at this machine…</p></section>;
-  if (state === "unavailable") return <section className="local-models"><p className="local-models__note">Local models are not available in this runtime.</p></section>;
-  if (state === "error" || !overview) return <section className="local-models"><p className="local-models__note" role="alert">The model list could not be verified.</p></section>;
+  if (state === "loading") {
+    return (
+      <section aria-labelledby="local-models-title" className="local-models">
+        <LocalModelsHeader />
+        <p className="local-models__note">Looking at this machine…</p>
+      </section>
+    );
+  }
+  if (state === "unavailable") {
+    return (
+      <section aria-labelledby="local-models-title" className="local-models">
+        <LocalModelsHeader />
+        <p className="local-models__note">Local models are not available in this runtime.</p>
+      </section>
+    );
+  }
+  if (state === "error" || !overview) {
+    return (
+      <section aria-labelledby="local-models-title" className="local-models">
+        <LocalModelsHeader />
+        <p className="local-models__note" role="alert">The model list could not be verified.</p>
+      </section>
+    );
+  }
 
   const hw = overview.hardware;
   return (
     <section aria-labelledby="local-models-title" className="local-models">
-      <header className="local-models__head">
-        <div>
-          <p className="eyebrow">Local models · on this machine only</p>
-          <h1 id="local-models-title">Models</h1>
-          <p className="local-models__lede">
-            Install a model once, activate it on the GPU, CPU, or split between them, and it gets its own local
-            endpoint: usable as a regular LLM for small tasks and by the metric judge. Once installed, prompts and
-            responses stay on this machine; looking up or downloading a Hub model is an explicit Hugging Face request.
-          </p>
-        </div>
-      </header>
+      <LocalModelsHeader />
 
       <div className="local-models__grid">
         <article className="local-models__card">

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { LocalModelRecord, LocalModelStatus, LocalModelsOverview, PromptEnhancerTransport, RemoteRepoFiles } from "../../shared/api/contracts";
+import { TransportError } from "../../shared/api/httpTransport";
 import { LocalModelsPage, provenanceLine, safeOverview } from "./LocalModelsPage";
 
 const REVISION = "0123456789abcdef0123456789abcdef01234567";
@@ -48,10 +49,54 @@ function remoteFiles(overrides: Partial<RemoteRepoFiles> = {}): RemoteRepoFiles 
   };
 }
 
+function transportWithOverview(getLocalModels: PromptEnhancerTransport["getLocalModels"]) {
+  return {
+    getLocalModels,
+    activateLocalModel: vi.fn(),
+    deactivateLocalModel: vi.fn(),
+    removeLocalModel: vi.fn(),
+    getLocalModelRemoteFiles: vi.fn(),
+    startLocalModelDownload: vi.fn(),
+    addLocalModel: vi.fn(),
+    streamLocalModelChat: vi.fn(),
+  };
+}
+
 describe("LocalModelsPage", () => {
   it("validates the overview contract", () => {
     expect(safeOverview(overview())).toBe(true);
     expect(safeOverview({ contract_version: "other" })).toBe(false);
+  });
+
+  it("keeps the Models heading and labelled boundary while loading", () => {
+    render(<LocalModelsPage transport={transportWithOverview(
+      vi.fn(() => new Promise<LocalModelsOverview>(() => undefined)),
+    )} />);
+
+    expect(screen.getByRole("region", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Models" })).toBeInTheDocument();
+    expect(screen.getByText("Looking at this machine…")).toBeInTheDocument();
+  });
+
+  it("keeps the Models heading and labelled boundary when unavailable", async () => {
+    render(<LocalModelsPage transport={transportWithOverview(
+      vi.fn(async () => { throw new TransportError("unavailable", 404); }),
+    )} />);
+
+    await screen.findByText("Local models are not available in this runtime.");
+    expect(screen.getByRole("region", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Models" })).toBeInTheDocument();
+  });
+
+  it("keeps the Models heading and labelled boundary for invalid responses", async () => {
+    render(<LocalModelsPage transport={transportWithOverview(
+      vi.fn(async () => ({ contract_version: "other" } as unknown as LocalModelsOverview)),
+    )} />);
+
+    await screen.findByRole("alert");
+    expect(screen.getByRole("region", { name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Models" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("The model list could not be verified.");
   });
 
   it("shows hardware, the model with its endpoint, and activates on the chosen device", async () => {
