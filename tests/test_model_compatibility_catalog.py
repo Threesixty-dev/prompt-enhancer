@@ -554,53 +554,163 @@ def test_accelerator_child_timeout_is_typed_unknown(monkeypatch) -> None:
     assert discovered.discovery_reason_codes == ("cuda_inventory_unknown",)
 
 
+def test_accelerator_cleanup_unconfirmed_is_typed_unknown(monkeypatch) -> None:
+    def cleanup_unconfirmed(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("accelerator_probe_cleanup_unconfirmed")
+
+    monkeypatch.setattr(
+        catalog_module,
+        "_read_bounded_accelerator_probe",
+        cleanup_unconfirmed,
+    )
+    monkeypatch.setattr(catalog_module.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(catalog_module.os, "cpu_count", lambda: 16)
+    monkeypatch.setattr(catalog_module, "_system_ram_mib", lambda: 15_360)
+    monkeypatch.setattr(catalog_module, "_cache_free_disk_mib", lambda _path: 65_536)
+
+    discovered = discover_runtime_inventory()
+
+    assert discovered.cuda_state == "unknown"
+    assert discovered.discovery_reason_codes == ("cuda_inventory_unknown",)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows taskkill race contract")
+def test_windows_accelerator_cleanup_does_not_bless_a_surviving_descendant(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    release_root = tmp_path / "synthetic-release-root"
+    descendant_marker = tmp_path / "synthetic-descendant-survived"
+    grandchild = (
+        "import pathlib,time; time.sleep(0.5); "
+        f"pathlib.Path({str(descendant_marker)!r}).write_text('synthetic','utf-8')"
+    )
+    script = tmp_path / "synthetic_natural_root_exit.py"
+    script.write_text(
+        "import pathlib,subprocess,sys,time\n"
+        "subprocess.Popen([sys.executable, '-c', "
+        f"{grandchild!r}], stdin=subprocess.DEVNULL, "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        f"release = pathlib.Path({str(release_root)!r})\n"
+        "while not release.exists(): time.sleep(0.01)\n",
+        encoding="utf-8",
+    )
+    process = catalog_module.subprocess.Popen(
+        [sys.executable, "-I", str(script)],
+        cwd=tmp_path,
+        env=catalog_module._accelerator_probe_environment(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+    def no_op_taskkill(*args, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        assert args[0] == (
+            "taskkill.exe",
+            "/PID",
+            str(process.pid),
+            "/T",
+            "/F",
+        )
+        assert process.poll() is None
+        release_root.write_text("synthetic", encoding="utf-8")
+        process.wait(timeout=2.0)
+        return catalog_module.subprocess.CompletedProcess(
+            args=args[0],
+            returncode=255,
+        )
+
+    monkeypatch.setattr(catalog_module.subprocess, "run", no_op_taskkill)
+
+    confirmed = catalog_module._terminate_accelerator_probe_process_tree(process)
+
+    assert confirmed is False
+    marker_deadline = time.monotonic() + 2.0
+    while time.monotonic() < marker_deadline and not descendant_marker.exists():
+        time.sleep(0.01)
+    assert descendant_marker.exists() is True
+
+
 def test_accelerator_reader_kills_child_after_2049_bytes(tmp_path) -> None:
+    root_marker = tmp_path / "synthetic-overflow-root-survived"
+    descendant_marker = tmp_path / "synthetic-overflow-descendant-survived"
+    grandchild = (
+        "import pathlib,time; time.sleep(1.5); "
+        f"pathlib.Path({str(descendant_marker)!r}).write_text('unexpected','utf-8')"
+    )
     script = tmp_path / "synthetic_oversized_probe.py"
     script.write_text(
-        "import os,time\n"
-        "os.write(1, b'x' * (4 * 1024 * 1024))\n"
+        "import os,pathlib,subprocess,sys,time\n"
+        "subprocess.Popen([sys.executable, '-c', "
+        f"{grandchild!r}], stdin=subprocess.DEVNULL, "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        "try:\n"
+        "    os.write(1, b'x' * (4 * 1024 * 1024))\n"
+        "except OSError:\n"
+        "    pass\n"
+        f"pathlib.Path({str(root_marker)!r}).write_text('unexpected','utf-8')\n"
         "time.sleep(5)\n",
         encoding="utf-8",
     )
 
     started = time.monotonic()
-    output = catalog_module._read_bounded_accelerator_probe(
-        [sys.executable, "-I", str(script)],
-        root=tmp_path,
-        environment=catalog_module._accelerator_probe_environment(),
-        timeout_seconds=2.0,
-    )
+    try:
+        output = catalog_module._read_bounded_accelerator_probe(
+            [sys.executable, "-I", str(script)],
+            root=tmp_path,
+            environment=catalog_module._accelerator_probe_environment(),
+            timeout_seconds=2.0,
+        )
+    except RuntimeError as error:
+        assert os.name == "nt"
+        assert str(error) == "accelerator_probe_cleanup_unconfirmed"
+        output = None
+    cleanup_elapsed = time.monotonic() - started
 
     assert output is None
-    assert time.monotonic() - started < 4.0
+    assert cleanup_elapsed < 4.0
+    time.sleep(1.7)
+    assert root_marker.exists() is False
+    assert descendant_marker.exists() is False
 
 
 def test_accelerator_reader_timeout_kills_the_synthetic_child_tree(
     tmp_path,
 ) -> None:
-    marker = tmp_path / "synthetic-grandchild-survived"
+    root_marker = tmp_path / "synthetic-timeout-root-survived"
+    descendant_marker = tmp_path / "synthetic-timeout-descendant-survived"
     grandchild = (
         "import pathlib,time; time.sleep(1.5); "
-        f"pathlib.Path({str(marker)!r}).write_text('unexpected','utf-8')"
+        f"pathlib.Path({str(descendant_marker)!r}).write_text('unexpected','utf-8')"
     )
     script = tmp_path / "synthetic_timeout_probe.py"
     script.write_text(
-        "import subprocess,sys,time\n"
+        "import pathlib,subprocess,sys,time\n"
         f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n"
+        "time.sleep(1.5)\n"
+        f"pathlib.Path({str(root_marker)!r}).write_text('unexpected','utf-8')\n"
         "time.sleep(5)\n",
         encoding="utf-8",
     )
 
-    output = catalog_module._read_bounded_accelerator_probe(
-        [sys.executable, "-I", str(script)],
-        root=tmp_path,
-        environment=catalog_module._accelerator_probe_environment(),
-        timeout_seconds=0.5,
-    )
+    try:
+        output = catalog_module._read_bounded_accelerator_probe(
+            [sys.executable, "-I", str(script)],
+            root=tmp_path,
+            environment=catalog_module._accelerator_probe_environment(),
+            timeout_seconds=0.5,
+        )
+    except RuntimeError as error:
+        assert os.name == "nt"
+        assert str(error) == "accelerator_probe_cleanup_unconfirmed"
+        output = None
 
     assert output is None
     time.sleep(1.7)
-    assert marker.exists() is False
+    assert root_marker.exists() is False
+    assert descendant_marker.exists() is False
 
 
 def test_runtime_inventory_cache_single_flights_concurrent_callers() -> None:
