@@ -532,7 +532,8 @@ export function ProjectWorkspace({
   const compatibilityRequestGeneration = useRef(0);
   const mastheadSentinelRef = useRef<HTMLSpanElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
-  const settledRouteIdentity = useRef<string | null>(null);
+  const observedRouteIdentity = useRef<string | null>(null);
+  const pendingFocusRouteIdentity = useRef<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -996,9 +997,11 @@ export function ProjectWorkspace({
   const qualityProfileOwnsTitle =
     qualityCategory &&
     route.name === "project_metrics" &&
-        !projectSessionsTruncated &&
-        !qualityAggregateLoading &&
-        !qualityAggregateError;
+    sessions !== null &&
+    projectSessions.length > 0 &&
+    !projectSessionsTruncated &&
+    !qualityAggregateLoading &&
+    !qualityAggregateError;
   useEffect(() => {
     if (sessions === null) return;
     if (qualityProfileOwnsTitle) return;
@@ -1018,14 +1021,16 @@ export function ProjectWorkspace({
   ]);
 
   useLayoutEffect(() => {
-    if (sessions === null) return;
-    const previousRouteIdentity = settledRouteIdentity.current;
-    settledRouteIdentity.current = routeIdentity;
-
-    if (previousRouteIdentity === null || previousRouteIdentity === routeIdentity) {
+    const previousRouteIdentity = observedRouteIdentity.current;
+    observedRouteIdentity.current = routeIdentity;
+    if (previousRouteIdentity !== null && previousRouteIdentity !== routeIdentity) {
+      pendingFocusRouteIdentity.current = routeIdentity;
+    }
+    if (pendingFocusRouteIdentity.current !== routeIdentity || sessions === null) return;
+    if (qualityProfileOwnsTitle) {
+      pendingFocusRouteIdentity.current = null;
       return;
     }
-    if (qualityCategory && route.name === "project_metrics") return;
 
     const headingId =
       route.name === "project_overview"
@@ -1039,10 +1044,14 @@ export function ProjectWorkspace({
             : categoryPlanned
               ? "metric-plan-title"
               : "session-metrics-title";
-    workspaceRef.current?.querySelector<HTMLElement>(`#${headingId}`)?.focus();
+    const heading = workspaceRef.current?.querySelector<HTMLElement>(`#${headingId}`);
+    if (!heading) return;
+    heading.focus();
+    pendingFocusRouteIdentity.current = null;
   }, [
     categoryPlanned,
     qualityCategory,
+    qualityProfileOwnsTitle,
     route.name,
     routeIdentity,
     sessions,

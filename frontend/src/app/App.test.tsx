@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createSyntheticTransport } from "../shared/api/syntheticTransport";
 import {
@@ -75,6 +75,66 @@ describe("App discovery navigation", () => {
     expect(screen.getByLabelText("Synthetic demo fixture ready")).toBeVisible();
     expect(screen.getByText("Synthetic demo · Fixture ready")).toBeVisible();
   });
+
+  it("sets an exact initial title without stealing focus, then focuses main on click navigation only", async () => {
+    document.title = "Prompt Enhancer";
+    render(
+      <App
+        runtime={syntheticRuntime()}
+        platform={createMemoryPlatform()}
+      />,
+    );
+
+    const main = document.querySelector<HTMLElement>("#main-content")!;
+    expect(document.title).toBe("Discovery · Prompt Enhancer");
+    expect(main).not.toHaveFocus();
+    await screen.findByRole("heading", { name: "Discovery inbox" }, { timeout: 5_000 });
+
+    const sessionsNavigation = screen.getByRole("button", { name: "Sessions" });
+    sessionsNavigation.focus();
+    fireEvent.click(sessionsNavigation);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Sessions" }, { timeout: 5_000 })).toBeVisible();
+    await waitFor(() => expect(main).toHaveFocus());
+    expect(document.title).toBe("Sessions · Prompt Enhancer");
+
+    const search = screen.getByRole("searchbox", { name: "Search sessions by project or title" });
+    search.focus();
+    fireEvent.change(search, { target: { value: "fictional" } });
+    expect(search).toHaveFocus();
+    expect(document.title).toBe("Sessions · Prompt Enhancer");
+  }, 10_000);
+
+  it("leaves project-workspace titles and subsequent heading focus to the finer route policy", async () => {
+    render(
+      <App
+        platform={createMemoryPlatform({
+          name: "project_overview",
+          projectId: SYNTHETIC_QUALITY_PROJECT_ID,
+        })}
+        runtime={syntheticRuntime()}
+      />,
+    );
+
+    const deckHeading = await screen.findByRole(
+      "heading",
+      { name: "What do you want to review?" },
+      { timeout: 5_000 },
+    );
+    await waitFor(() => expect(document.title).toBe("Metric deck · Synthetic Metric Lab · Prompt Enhancer"));
+    expect(deckHeading).not.toHaveFocus();
+
+    const projectNavigation = screen.getByRole("navigation", { name: "Project sections" });
+    fireEvent.click(within(projectNavigation).getByRole("link", { name: /Sessions, 1 indexed/ }));
+
+    const sessionsHeading = await screen.findByRole(
+      "heading",
+      { level: 2, name: "Sessions" },
+      { timeout: 5_000 },
+    );
+    await waitFor(() => expect(sessionsHeading).toHaveFocus());
+    expect(document.title).toBe("Sessions · Synthetic Metric Lab · Prompt Enhancer");
+  }, 10_000);
 
   it("keeps the sidebar review count synchronized after a decision", async () => {
     render(

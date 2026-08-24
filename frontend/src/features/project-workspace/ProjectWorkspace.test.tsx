@@ -23,6 +23,12 @@ import type { ProjectWorkspaceRoute } from "./ProjectWorkspace";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 
 const projectId = "a".repeat(64);
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
+}
 const sessionId = "b".repeat(64);
 const secondSessionId = "c".repeat(64);
 const otherProjectId = "d".repeat(64);
@@ -765,6 +771,81 @@ describe("ProjectWorkspace", () => {
     expect(document.title).toBe(
       "Tool reliability signals · Example Observatory · Prompt Enhancer",
     );
+  });
+
+  it("retains a pending route heading focus while the project index is loading", async () => {
+    const { transport } = workspaceTransport();
+    const projectIndex = deferred<Awaited<ReturnType<PromptEnhancerTransport["listProjectSessions"]>>>();
+    transport.listProjectSessions = vi.fn(() => projectIndex.promise);
+    const { rerender } = render(
+      <ProjectWorkspace
+        navigate={vi.fn()}
+        route={{ name: "project_overview", projectId }}
+        transport={transport}
+      />,
+    );
+    await screen.findByText("Loading this project's stored session index...");
+
+    const sessionsNavigation = screen.getByRole("link", { name: "Sessions" });
+    sessionsNavigation.focus();
+    rerender(
+      <ProjectWorkspace
+        navigate={vi.fn()}
+        route={{ name: "project_sessions", projectId }}
+        transport={transport}
+      />,
+    );
+    expect(sessionsNavigation).toHaveFocus();
+
+    await act(async () => {
+      projectIndex.resolve({
+        sessions,
+        limit: 100,
+        offset: 0,
+        total: sessions.length,
+        has_more: false,
+      });
+      await projectIndex.promise;
+    });
+
+    const sessionsHeading = await screen.findByRole("heading", { level: 2, name: "Sessions" });
+    await waitFor(() => expect(sessionsHeading).toHaveFocus());
+  });
+
+  it("focuses the bounded quality heading instead of delegating a truncated project route", async () => {
+    const { transport } = workspaceTransport();
+    const truncatedSessions = Array.from({ length: 100 }, (_, index) => ({
+      ...sessions[0],
+      session_id: index.toString(16).padStart(64, "0"),
+    }));
+    transport.listProjectSessions = vi.fn(async () => ({
+      sessions: truncatedSessions,
+      limit: 100,
+      offset: 0,
+      total: 101,
+      has_more: true,
+    }));
+    const { rerender } = render(
+      <ProjectWorkspace
+        navigate={vi.fn()}
+        route={{ name: "project_overview", projectId }}
+        transport={transport}
+      />,
+    );
+    await screen.findByRole("heading", { name: "What do you want to review?" });
+
+    const promptQualityCard = screen.getByRole("button", { name: /Prompt quality/i });
+    promptQualityCard.focus();
+    rerender(
+      <ProjectWorkspace
+        navigate={vi.fn()}
+        route={{ name: "project_metrics", projectId, category: "prompt-quality" }}
+        transport={transport}
+      />,
+    );
+
+    const boundaryHeading = await screen.findByRole("heading", { name: "Choose at most 100 sessions" });
+    await waitFor(() => expect(boundaryHeading).toHaveFocus());
   });
 
   it("sets a useful route title for a valid project with no indexed sessions", async () => {

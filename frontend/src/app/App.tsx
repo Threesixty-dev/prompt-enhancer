@@ -4,7 +4,9 @@ import {
   Suspense,
   lazy,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -255,6 +257,11 @@ export function App({
     [runtime.mode, socialHub],
   );
   const [route, setRoute] = useState<AppRoute>(() => platform.currentRoute());
+  const routeIdentity = routePath(route);
+  const routeContextRef = useRef({
+    identity: routeIdentity,
+    projectWorkspace: isProjectWorkspaceRoute(route),
+  });
   const [navigationNotice, setNavigationNotice] = useState("");
   const [undecidedCount, setUndecidedCount] = useState<number | null>(null);
   const [serviceState, setServiceState] = useState<RuntimeServiceState>(() =>
@@ -265,6 +272,19 @@ export function App({
     runtime.mode === "synthetic_demo" ? "synthetic" : "codex";
 
   useEffect(() => platform.subscribe(setRoute), [platform]);
+
+  useLayoutEffect(() => {
+    document.title = `${routeTitle(route)} · Prompt Enhancer`;
+    const previous = routeContextRef.current;
+    const projectWorkspace = isProjectWorkspaceRoute(route);
+    routeContextRef.current = { identity: routeIdentity, projectWorkspace };
+
+    // Initial routes retain the browser's natural focus start for the skip link.
+    if (previous.identity === routeIdentity) return;
+    // ProjectWorkspace owns precise heading focus between its own subroutes.
+    if (previous.projectWorkspace && projectWorkspace) return;
+    document.getElementById("main-content")?.focus();
+  }, [routeIdentity]);
 
   useEffect(() => {
     if (runtime.mode === "synthetic_demo") {
@@ -308,7 +328,7 @@ export function App({
     return (
       <div className="app-shell app-shell--live app-shell--agent-window" data-layout="agent-window">
         <main id="main-content" tabIndex={-1}>
-          <RouteErrorBoundary onExit={() => navigate({ name: "agent" })} resetKey={routePath(route)}>
+          <RouteErrorBoundary onExit={() => navigate({ name: "agent" })} resetKey={routeIdentity}>
             <Suspense fallback={<RouteLoading route={route} />}>
               <AgentScreen sessionId={route.sessionId} transport={transport} windowMode />
             </Suspense>
@@ -323,7 +343,7 @@ export function App({
     return (
       <div className="app-shell app-shell--live" data-layout="live-window">
         <main id="main-content" tabIndex={-1}>
-          <RouteErrorBoundary onExit={() => navigate({ name: "discovery" })} resetKey={routePath(route)}>
+          <RouteErrorBoundary onExit={() => navigate({ name: "discovery" })} resetKey={routeIdentity}>
             <Suspense fallback={<RouteLoading route={route} />}>
               <LiveMiniWindowScreen projectId={route.projectId} sessionId={route.sessionId} transport={transport} />
             </Suspense>
@@ -551,7 +571,7 @@ export function App({
         <main id="main-content" tabIndex={-1}>
           <RouteErrorBoundary
             onExit={() => navigate({ name: "discovery" })}
-            resetKey={routePath(route)}
+            resetKey={routeIdentity}
           >
             <Suspense fallback={<RouteLoading route={route} />}>
               {route.name === "discovery" ? (

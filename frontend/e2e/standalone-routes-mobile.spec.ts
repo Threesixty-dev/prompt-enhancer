@@ -60,6 +60,7 @@ for (const route of ROUTES) {
 
     const main = page.locator("#main-content");
     await expect(main).toBeVisible();
+    await expect(page).toHaveTitle(`${route.routeTitle} · Prompt Enhancer`);
     await expect(page.locator(".topbar__trail strong")).toHaveText(route.routeTitle);
     await expect(page.getByRole("button", { exact: true, name: route.navName })).toHaveAttribute(
       "aria-current",
@@ -103,4 +104,28 @@ test("mobile primary navigation remains keyboard-visible and usable", async ({ p
   await expect(page).toHaveURL(/\/sessions$/);
   await expect(page.locator("#main-content").getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
   await expect(sessions).toHaveAttribute("aria-current", "page");
+});
+
+test("click and browser-history route changes update exact title and main focus", async ({ page }) => {
+  await page.goto("/overview");
+  const main = page.locator("#main-content");
+  await expect(page.getByRole("heading", { level: 1, name: "Everything the app did on its own" })).toBeVisible();
+  await expect(page).toHaveTitle("Overview · Prompt Enhancer");
+  await expect(main).not.toBeFocused();
+
+  await page.getByRole("button", { exact: true, name: "Sessions" }).click();
+  await expect(page).toHaveURL(/\/sessions$/);
+  await expect(page).toHaveTitle("Sessions · Prompt Enhancer");
+  await expect(main.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+  await expect(main).toBeFocused();
+
+  const search = page.getByRole("searchbox", { name: "Search sessions by project or title" });
+  await search.focus();
+  await expect(search).toBeFocused();
+  await page.goBack();
+
+  await expect(page).toHaveURL(/\/overview$/);
+  await expect(page).toHaveTitle("Overview · Prompt Enhancer");
+  await expect(page.getByRole("heading", { level: 1, name: "Everything the app did on its own" })).toBeVisible();
+  await expect(main).toBeFocused();
 });
