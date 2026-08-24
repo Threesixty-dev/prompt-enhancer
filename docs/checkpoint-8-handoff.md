@@ -33,7 +33,8 @@ read-only review.
 | --- | --- |
 | `5c8d49c` | M59 atomic verification binding, r8 projection, persistence, and focused tests |
 | `57b8086` | HTTP/frontend contract synchronization and adversarial integration coverage |
-| this commit | WP-25, campaign inventory, and Checkpoint 8 handoff |
+| `38c5552` | WP-25, campaign inventory, and Checkpoint 8 handoff |
+| this follow-up commit | `/calibration` validation correction and strict SPA/static routing hardening |
 
 ## Accepted implementation results
 
@@ -164,6 +165,33 @@ repair.
 - The verified repository service was reloaded hidden. Exactly one listener
   remained on `127.0.0.1:8765`; `/` and `/health` returned HTTP 200.
 
+## Post-handoff routing validation and static-boundary correction
+
+- The first command-line `/calibration` probe omitted a browser navigation
+  `Accept: text/html` header and therefore received the intentionally strict
+  generic-client 404. It did not reproduce a browser refresh.
+- A browser-shaped GET and HEAD both return the SPA shell with HTTP 200, and an
+  actual in-app browser reload stayed on `/calibration` and rendered the
+  Calibration page. The generic `Accept: */*` request remains HTTP 404 by
+  design, so arbitrary clients cannot turn an allowlisted history path into an
+  HTML response accidentally.
+- The follow-up adversarial review found three adjacent pre-existing boundary
+  defects: Starlette could normalize an encoded `assets/../index.html` alias
+  before the SPA allowlist, bare `/live` was server-allowlisted although the
+  frontend owns only `/live/projects/<pseudonym>`, and HTML Accept matching did
+  not honor case or `q=0` quality.
+- Static paths are now lexically rejected before file resolution when they
+  contain empty, dot, dot-dot, backslash, or control-character segments. The
+  bare `/live` aliases are no longer navigation routes. HTML fallback now
+  requires an exact, case-insensitive `text/html` media range with positive,
+  valid quality. Valid static assets, the root shell, trailing-slash client
+  routes, reserved APIs, and JSON health behavior remain unchanged.
+- The static-hosting regression pins `/calibration` and `/calibration/` across
+  browser GET/HEAD and generic-client behavior, encoded and double-encoded
+  traversal variants, Accept quality, bare `/live`, and POST/PUT/PATCH/DELETE/
+  OPTIONS non-shell behavior. The focused backend routing/API gate passed 46
+  tests and the frontend route gate passed 30 tests.
+
 ## Accepted non-blocking limitations
 
 - The release partition remains 16/0/4; durable verification authority is not
@@ -172,18 +200,12 @@ repair.
   product-ineligible. No model authors a measured metric.
 - Native acceptance is a valid explicit authority but is not an objective test
   receipt and must remain labeled separately.
-- A direct server refresh of the client route `/calibration` returned HTTP 404
-  during final reload validation even though navigation from `/` works. This
-  SPA deep-link fallback is recorded as a separate routing checkpoint rather
-  than being folded into the M59/r8 authority change.
 - User visual review of UI-03 through UI-10 remains pending.
 
 ## Next dependency-safe trajectory
 
-1. Repair and validate direct SPA-route reloads, including `/calibration`,
-   without changing API 404 behavior under `/v1`.
-2. Review the canonical quality-profile surroundings and navigation hierarchy.
-3. Walk UI-03 through UI-10 card by card on localhost, recording each approved
+1. Review the canonical quality-profile surroundings and navigation hierarchy.
+2. Walk UI-03 through UI-10 card by card on localhost, recording each approved
    visual/interaction repair as a separate checkpoint.
-4. Do not change the 16/0/4 release inventory without new production-provider
+3. Do not change the 16/0/4 release inventory without new production-provider
    evidence and an explicit operability review.

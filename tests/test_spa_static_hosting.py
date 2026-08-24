@@ -52,6 +52,8 @@ def test_spa_route_allowlist_matches_frontend_history_shapes() -> None:
         "",
         "local-sources",
         "analysis-jobs",
+        "calibration",
+        "calibration/",
         "projects",
         "research/methods",
         "social",
@@ -73,6 +75,8 @@ def test_spa_route_allowlist_matches_frontend_history_shapes() -> None:
         "social.json",
         "missing.js",
         ".env",
+        "live",
+        "live/",
         "projects/example-label/overview",
         "projects/example-label/automation",
         f"projects/{PROJECT_ID}/automation/extra",
@@ -91,6 +95,8 @@ def test_browser_get_and_head_refresh_allowlisted_deep_routes(tmp_path: Path) ->
     deep_routes = [
         "/local-sources",
         "/analysis-jobs",
+        "/calibration",
+        "/calibration/",
         "/projects",
         "/research/methods",
         "/social",
@@ -126,7 +132,15 @@ def test_spa_fallback_rejects_unknown_malformed_and_extension_paths(tmp_path: Pa
         "/social.json",
         "/missing.js",
         "/.env",
+        "/live",
+        "/live/",
         "/%2e%2e/private",
+        "/assets/%2e%2e/index.html",
+        "/assets/%2E%2E/index.html",
+        "/assets/%2e./index.html",
+        "/assets/%5c..%5cindex.html",
+        "/assets/%252e%252e/index.html",
+        f"/assets//{MODULE_ASSET.removeprefix('assets/')}",
         "/local-sources/extra",
         "/projects/example-label/overview",
         f"/projects/{PROJECT_ID}/metrics/not-registered",
@@ -140,12 +154,60 @@ def test_spa_fallback_rejects_unknown_malformed_and_extension_paths(tmp_path: Pa
             assert response.status_code == 404
 
         non_browser = client.get("/local-sources", headers={"Accept": "*/*"})
+        calibration_non_browser = client.get(
+            "/calibration", headers={"Accept": "*/*"}
+        )
         asset = client.get(f"/{MODULE_ASSET}", headers={"Accept": "*/*"})
 
     assert non_browser.status_code == 404
+    assert calibration_non_browser.status_code == 404
     assert asset.status_code == 200
     assert "synthetic" in asset.text
     assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+def test_spa_html_accept_negotiation_is_case_insensitive_and_honors_zero_quality(
+    tmp_path: Path,
+) -> None:
+    app = _build_static_app(tmp_path)
+
+    with TestClient(app, base_url=ORIGIN) as client:
+        accepted = client.get(
+            "/calibration?synthetic=1", headers={"Accept": "Text/HTML"}
+        )
+        rejected = [
+            client.get("/calibration", headers={"Accept": value})
+            for value in (
+                "text/html;q=0",
+                "text/html;q=0.000,application/xhtml+xml",
+                "text/html;q=invalid",
+                "application/xhtml+xml,*/*;q=0.8",
+            )
+        ]
+
+    assert accepted.status_code == 200
+    assert "Synthetic dashboard" in accepted.text
+    assert all(response.status_code == 404 for response in rejected)
+    assert all("Synthetic dashboard" not in response.text for response in rejected)
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+def test_spa_fallback_never_serves_html_for_unsupported_methods(
+    tmp_path: Path,
+    method: str,
+) -> None:
+    app = _build_static_app(tmp_path)
+
+    with TestClient(app, base_url=ORIGIN) as client:
+        response = client.request(
+            method,
+            "/calibration",
+            headers={"Accept": BROWSER_ACCEPT},
+        )
+
+    assert response.status_code == 405
+    assert "Synthetic dashboard" not in response.text
+    assert response.headers["content-type"].startswith("application/json")
 
 
 def test_app_revision_get_and_head_are_content_free_and_not_spa_fallback(

@@ -165,6 +165,42 @@ _HASHED_STATIC_ASSET_PATTERN = re.compile(
 _HASHED_MODULE_ASSET_PATTERN = re.compile(
     r"/?(assets/[A-Za-z0-9][A-Za-z0-9._-]{0,95}-[A-Za-z0-9_-]{8,64}\.js)"
 )
+_HTML_ACCEPT_QUALITY_PATTERN = re.compile(r"(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)")
+
+
+def _accepts_html_navigation(accept: str) -> bool:
+    """Return whether an exact HTML media range has positive quality."""
+
+    for media_range in accept.split(","):
+        parts = [part.strip() for part in media_range.split(";")]
+        if not parts or parts[0].casefold() != "text/html":
+            continue
+        quality = 1.0
+        valid = True
+        for parameter in parts[1:]:
+            name, separator, value = parameter.partition("=")
+            if name.strip().casefold() != "q":
+                continue
+            normalized = value.strip()
+            if separator != "=" or _HTML_ACCEPT_QUALITY_PATTERN.fullmatch(
+                normalized
+            ) is None:
+                valid = False
+                break
+            quality = float(normalized)
+        if valid and quality > 0:
+            return True
+    return False
+
+
+def _safe_static_request_path(path: str) -> bool:
+    """Reject normalized aliases before Starlette resolves a static path."""
+
+    if path == "":
+        return True
+    if "\\" in path or any(ord(character) < 32 for character in path):
+        return False
+    return all(segment not in {"", ".", ".."} for segment in path.split("/"))
 
 
 class _ModuleScriptCollector(HTMLParser):
@@ -1153,15 +1189,18 @@ def create_app(
             if first_segment in {"v1", "auth", "health"}:
                 raise HTTPException(status_code=404, detail="not found")
             requested = asset_path or "index.html"
-            try:
-                response = await static_files.get_response(requested, request.scope)
-            except StarletteHTTPException as error:
-                if error.status_code != 404:
-                    raise
-                response = None
+            response = None
+            if _safe_static_request_path(asset_path):
+                try:
+                    response = await static_files.get_response(
+                        requested, request.scope
+                    )
+                except StarletteHTTPException as error:
+                    if error.status_code != 404:
+                        raise
             if response is not None and response.status_code != 404:
                 return response
-            if "text/html" not in request.headers.get("accept", ""):
+            if not _accepts_html_navigation(request.headers.get("accept", "")):
                 raise HTTPException(status_code=404, detail="not found")
             if not is_spa_navigation_path(asset_path):
                 raise HTTPException(status_code=404, detail="not found")

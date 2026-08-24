@@ -54,8 +54,6 @@ def is_spa_navigation_path(path: str) -> bool:
         "sessions/",
         "calibration",
         "calibration/",
-        "live",
-        "live/",
         "models",
         "models/",
         "prompt-checks",
