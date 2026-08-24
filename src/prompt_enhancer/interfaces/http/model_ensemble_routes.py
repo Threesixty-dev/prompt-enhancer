@@ -56,6 +56,7 @@ from ...application.analysis.probabilistic_metrics import (
     PredictiveMetricTarget,
 )
 from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider, StrictModel
+from .session_provider_contracts import SessionProviderFailureResponse
 
 
 _PRIVATE_HEADERS = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
@@ -873,6 +874,58 @@ class ModelEnsembleOutcomeDto(StrictModel):
     applied: bool
 
 
+class ModelEnsembleSelectionFailureDetail(StrictModel):
+    code: Literal["session_not_in_safe_index"]
+    message: Literal["selected session is not indexed"]
+
+
+class ModelEnsembleSelectionFailureResponse(StrictModel):
+    detail: ModelEnsembleSelectionFailureDetail
+
+
+ModelEnsembleUnavailableCode = Literal[
+    "source_schema_unsupported",
+    "provider_protocol_rejected",
+    "provider_unavailable",
+    "local_model_ensemble_execution_failed",
+    "model_ensemble_persistence_failed",
+]
+ModelEnsembleUnavailableMessage = Literal[
+    "bounded local source read failed",
+    "local model ensemble execution failed",
+    "local model ensemble persistence failed",
+]
+
+_MODEL_ENSEMBLE_UNAVAILABLE_MESSAGES: dict[
+    str, ModelEnsembleUnavailableMessage
+] = {
+    "source_schema_unsupported": "bounded local source read failed",
+    "provider_protocol_rejected": "bounded local source read failed",
+    "provider_unavailable": "bounded local source read failed",
+    "local_model_ensemble_execution_failed": (
+        "local model ensemble execution failed"
+    ),
+    "model_ensemble_persistence_failed": (
+        "local model ensemble persistence failed"
+    ),
+}
+
+
+class ModelEnsembleUnavailableFailureDetail(StrictModel):
+    code: ModelEnsembleUnavailableCode
+    message: ModelEnsembleUnavailableMessage
+
+    @model_validator(mode="after")
+    def matching_message(self) -> ModelEnsembleUnavailableFailureDetail:
+        if self.message != _MODEL_ENSEMBLE_UNAVAILABLE_MESSAGES[self.code]:
+            raise ValueError("model-ensemble failure code and message do not match")
+        return self
+
+
+class ModelEnsembleUnavailableFailureResponse(StrictModel):
+    detail: ModelEnsembleUnavailableFailureDetail
+
+
 def _failure(error: Exception) -> HTTPException:
     if isinstance(error, ModelEnsembleConsentError):
         return HTTPException(403, detail={"code": error.code, "message": "redacted-content consent required"})
@@ -904,7 +957,7 @@ def _failure(error: Exception) -> HTTPException:
 def create_model_ensemble_router(
     require_local_auth: Callable[..., None],
     service: ModelEnsembleCommand,
-    provider_resolver: Callable[[str], Provider] | None = None,
+    provider_resolver: Callable[[str], Provider],
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
@@ -913,11 +966,25 @@ def create_model_ensemble_router(
     )
 
     def provider_of(session_id: str) -> Provider:
-        return provider_resolver(session_id) if provider_resolver is not None else Provider.CODEX
+        return provider_resolver(session_id)
 
     @router.post(
         "/sessions/{session_id}/model-ensemble-runs",
         response_model=ModelEnsembleOutcomeDto,
+        responses={
+            404: {
+                "model": (
+                    ModelEnsembleSelectionFailureResponse
+                    | SessionProviderFailureResponse
+                )
+            },
+            503: {
+                "model": (
+                    ModelEnsembleUnavailableFailureResponse
+                    | SessionProviderFailureResponse
+                )
+            },
+        },
     )
     def run_model_ensemble(
         payload: ModelEnsembleRequest,

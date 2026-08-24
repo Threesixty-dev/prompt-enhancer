@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -23,6 +23,7 @@ from ...application.local_models import (
     ScanFolderRequest,
     ScanFolderResult,
 )
+from ...domain import StrictModel
 
 import json
 
@@ -36,6 +37,8 @@ _STATUS_FOR_CODE = {
     "runtime_spawn_failed": 502,
     "runtime_not_healthy": 502,
     "runtime_unreachable": 502,
+    "runtime_activation_superseded": 409,
+    "runtime_stop_failed": 503,
     "model_not_active": 409,
     "chat_body_invalid": 422,
     "chat_body_too_large": 413,
@@ -46,6 +49,42 @@ _STATUS_FOR_CODE = {
     "provenance_mismatch": 409,
     "file_not_eligible": 409,
 }
+
+
+class LocalModelNotFoundFailureDetail(StrictModel):
+    code: Literal["model_not_found"]
+
+
+class LocalModelNotFoundFailureResponse(StrictModel):
+    detail: LocalModelNotFoundFailureDetail
+
+
+class LocalModelActivationConflictFailureDetail(StrictModel):
+    code: Literal[
+        "model_file_missing",
+        "runtime_unavailable",
+        "runtime_activation_superseded",
+    ]
+
+
+class LocalModelActivationConflictFailureResponse(StrictModel):
+    detail: LocalModelActivationConflictFailureDetail
+
+
+class LocalModelActivationFailureDetail(StrictModel):
+    code: Literal["runtime_spawn_failed", "runtime_not_healthy"]
+
+
+class LocalModelActivationFailureResponse(StrictModel):
+    detail: LocalModelActivationFailureDetail
+
+
+class LocalModelStopFailureDetail(StrictModel):
+    code: Literal["runtime_stop_failed"]
+
+
+class LocalModelStopFailureResponse(StrictModel):
+    detail: LocalModelStopFailureDetail
 
 
 def _failure(error: LocalModelError) -> HTTPException:
@@ -96,7 +135,14 @@ def create_local_model_router(require_local_auth: Callable[..., None], service: 
         except LocalModelError as error:
             raise _failure(error) from None
 
-    @router.delete("/{alias}", status_code=204)
+    @router.delete(
+        "/{alias}",
+        status_code=204,
+        responses={
+            404: {"model": LocalModelNotFoundFailureResponse},
+            503: {"model": LocalModelStopFailureResponse},
+        },
+    )
     def remove(
         alias: Annotated[str, Path(pattern=ALIAS_PATTERN.pattern)],
         delete_weights: Annotated[bool, Query()] = False,
@@ -107,7 +153,16 @@ def create_local_model_router(require_local_auth: Callable[..., None], service: 
             raise _failure(error) from None
         return Response(status_code=204)
 
-    @router.post("/{alias}/activate", response_model=LocalModelStatus)
+    @router.post(
+        "/{alias}/activate",
+        response_model=LocalModelStatus,
+        responses={
+            404: {"model": LocalModelNotFoundFailureResponse},
+            409: {"model": LocalModelActivationConflictFailureResponse},
+            502: {"model": LocalModelActivationFailureResponse},
+            503: {"model": LocalModelStopFailureResponse},
+        },
+    )
     def activate(
         alias: Annotated[str, Path(pattern=ALIAS_PATTERN.pattern)],
         payload: ActivateLocalModel | None = None,
@@ -117,7 +172,14 @@ def create_local_model_router(require_local_auth: Callable[..., None], service: 
         except LocalModelError as error:
             raise _failure(error) from None
 
-    @router.post("/{alias}/deactivate", response_model=LocalModelStatus)
+    @router.post(
+        "/{alias}/deactivate",
+        response_model=LocalModelStatus,
+        responses={
+            404: {"model": LocalModelNotFoundFailureResponse},
+            503: {"model": LocalModelStopFailureResponse},
+        },
+    )
     def deactivate(alias: Annotated[str, Path(pattern=ALIAS_PATTERN.pattern)]) -> LocalModelStatus:
         try:
             service.deactivate(alias)

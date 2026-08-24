@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 
 from fastapi.testclient import TestClient
@@ -23,6 +24,7 @@ from prompt_enhancer.application.local_models import (
     DownloadRequest,
     HardwareSummary,
     LICENSE_POLICY_VERSION,
+    LlamaServerProcess,
     LocalModelError,
     LocalModelService,
     RuntimeState,
@@ -227,6 +229,441 @@ def test_activation_fails_closed_without_runtime_or_weights(tmp_path: Path) -> N
         assert error.code == "model_file_missing"
     else:
         raise AssertionError("activated without weights")
+
+
+class _FakeRuntimeProcess:
+    _next_pid = 1000
+
+    def __init__(self, *, stoppable: bool = True) -> None:
+        type(self)._next_pid += 1
+        self.pid = type(self)._next_pid
+        self.returncode: int | None = None
+        self.stoppable = stoppable
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def terminate(self) -> None:
+        if self.stoppable:
+            self.returncode = -15
+
+    def kill(self) -> None:
+        if self.stoppable:
+            self.returncode = -9
+
+    def wait(self, timeout: float | None = None) -> int:
+        if self.returncode is None:
+            raise subprocess.TimeoutExpired("synthetic-runtime", timeout)
+        return self.returncode
+
+
+def _fake_runtime_service(
+    tmp_path: Path,
+    processes: list[_FakeRuntimeProcess],
+    *,
+    stoppable: bool = True,
+) -> LocalModelService:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    binary = tmp_path / "synthetic-llama-server"
+    binary.write_text("synthetic", encoding="utf-8")
+
+    def popen(_command, **_kwargs):
+        process = _FakeRuntimeProcess(stoppable=stoppable)
+        processes.append(process)
+        return process
+
+    service = LocalModelService(
+        tmp_path / "local-models",
+        llama_server=lambda: binary,
+        hardware=lambda _binary: HardwareSummary(),
+        popen=popen,
+        clock=lambda: T0,
+        health_timeout_seconds=0.1,
+    )
+    service.add(AddLocalModel(alias="owned", path=str(_weights(tmp_path))))
+    return service
+
+
+def _delay_registry_upsert(
+    service: LocalModelService,
+    *,
+    thread_name: str,
+) -> tuple[threading.Event, threading.Event]:
+    entered = threading.Event()
+    release = threading.Event()
+    original_upsert = service.registry.upsert
+
+    def delayed_upsert(record) -> None:
+        if threading.current_thread().name == thread_name:
+            entered.set()
+            assert release.wait(timeout=5)
+        original_upsert(record)
+
+    service.registry.upsert = delayed_upsert  # type: ignore[method-assign]
+    return entered, release
+
+
+def test_concurrent_activation_cannot_remove_the_newer_live_runtime(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    first_waiting = threading.Event()
+    release_first = threading.Event()
+
+    def wait_healthy(handle: LlamaServerProcess) -> bool:
+        if handle.process is processes[0]:
+            first_waiting.set()
+            assert release_first.wait(timeout=5)
+            return False
+        return True
+
+    service._wait_healthy = wait_healthy  # type: ignore[method-assign]  # noqa: SLF001
+    first_error: list[str] = []
+
+    def activate_first() -> None:
+        try:
+            service.activate("owned")
+        except LocalModelError as error:
+            first_error.append(error.code)
+
+    first = threading.Thread(target=activate_first, daemon=True)
+    first.start()
+    assert first_waiting.wait(timeout=5)
+    second = service.activate("owned")
+    assert second.runtime.state is RuntimeState.RUNNING
+    release_first.set()
+    first.join(timeout=5)
+
+    assert not first.is_alive()
+    assert first_error == ["runtime_activation_superseded"]
+    assert len(processes) == 2 and processes[0].poll() is not None
+    assert service.running_aliases() == ("owned",)
+    assert service._processes["owned"].process is processes[1]  # noqa: SLF001
+    service.shutdown()
+
+
+def test_status_reaping_own_starting_handle_is_not_a_newer_activation(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    health_wait_started = threading.Event()
+    release_health_wait = threading.Event()
+
+    def wait_healthy(_handle: LlamaServerProcess) -> bool:
+        health_wait_started.set()
+        assert release_health_wait.wait(timeout=5)
+        return False
+
+    service._wait_healthy = wait_healthy  # type: ignore[method-assign]  # noqa: SLF001
+    activation_errors: list[str] = []
+
+    def activate() -> None:
+        try:
+            service.activate("owned", ActivateLocalModel(fast_attention=False))
+        except LocalModelError as error:
+            activation_errors.append(error.code)
+
+    activation = threading.Thread(target=activate, daemon=True)
+    activation.start()
+    assert health_wait_started.wait(timeout=5)
+    assert len(processes) == 1
+    processes[0].returncode = 1
+
+    observed = service.status("owned")
+    assert observed.runtime.state is RuntimeState.FAILED
+    assert observed.runtime.last_error_code == "runtime_exited"
+    assert "owned" not in service._processes  # noqa: SLF001
+
+    release_health_wait.set()
+    activation.join(timeout=5)
+    assert not activation.is_alive()
+    assert activation_errors == ["runtime_not_healthy"]
+    assert service.status("owned").runtime.last_error_code == "runtime_not_healthy"
+
+
+def test_deactivate_cancels_activation_before_runtime_ownership(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    hardware_started = threading.Event()
+    release_hardware = threading.Event()
+
+    def blocking_hardware(_binary: Path | None) -> HardwareSummary:
+        hardware_started.set()
+        assert release_hardware.wait(timeout=5)
+        return HardwareSummary()
+
+    service._hardware = blocking_hardware  # type: ignore[method-assign]  # noqa: SLF001
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    activation_errors: list[str] = []
+
+    def activate() -> None:
+        try:
+            service.activate("owned")
+        except LocalModelError as error:
+            activation_errors.append(error.code)
+
+    activation = threading.Thread(target=activate, daemon=True)
+    activation.start()
+    assert hardware_started.wait(timeout=5)
+    service.deactivate("owned")
+    release_hardware.set()
+    activation.join(timeout=5)
+
+    assert not activation.is_alive()
+    assert activation_errors == ["runtime_activation_superseded"]
+    assert processes == []
+    assert service.running_aliases() == ()
+
+
+def test_deactivate_cancels_activation_during_health_wait(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    health_wait_started = threading.Event()
+    release_health_wait = threading.Event()
+
+    def wait_healthy(_handle: LlamaServerProcess) -> bool:
+        health_wait_started.set()
+        assert release_health_wait.wait(timeout=5)
+        return False
+
+    service._wait_healthy = wait_healthy  # type: ignore[method-assign]  # noqa: SLF001
+    activation_errors: list[str] = []
+
+    def activate() -> None:
+        try:
+            service.activate("owned")
+        except LocalModelError as error:
+            activation_errors.append(error.code)
+
+    activation = threading.Thread(target=activate, daemon=True)
+    activation.start()
+    assert health_wait_started.wait(timeout=5)
+    service.deactivate("owned")
+    release_health_wait.set()
+    activation.join(timeout=5)
+
+    assert not activation.is_alive()
+    assert activation_errors == ["runtime_activation_superseded"]
+    assert len(processes) == 1 and processes[0].poll() is not None
+    assert service.running_aliases() == ()
+
+
+def test_shutdown_cancels_activation_before_runtime_ownership(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    hardware_started = threading.Event()
+    release_hardware = threading.Event()
+
+    def blocking_hardware(_binary: Path | None) -> HardwareSummary:
+        hardware_started.set()
+        assert release_hardware.wait(timeout=5)
+        return HardwareSummary()
+
+    service._hardware = blocking_hardware  # type: ignore[method-assign]  # noqa: SLF001
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    activation_errors: list[str] = []
+
+    def activate() -> None:
+        try:
+            service.activate("owned")
+        except LocalModelError as error:
+            activation_errors.append(error.code)
+
+    activation = threading.Thread(target=activate, daemon=True)
+    activation.start()
+    assert hardware_started.wait(timeout=5)
+    service.shutdown()
+    release_hardware.set()
+    activation.join(timeout=5)
+
+    assert not activation.is_alive()
+    assert activation_errors == ["runtime_activation_superseded"]
+    assert processes == []
+    assert service.running_aliases() == ()
+
+
+def test_internal_health_fallback_keeps_its_activation_ownership(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    handles: list[LlamaServerProcess] = []
+
+    def wait_healthy(handle: LlamaServerProcess) -> bool:
+        handles.append(handle)
+        return len(handles) == 2
+
+    service._wait_healthy = wait_healthy  # type: ignore[method-assign]  # noqa: SLF001
+    activated = service.activate("owned")
+    assert activated.runtime.state is RuntimeState.RUNNING
+    assert len(handles) == 2
+    assert handles[0].activation_generation == handles[1].activation_generation
+    assert processes[0].poll() is not None
+    assert service._processes["owned"] is handles[1]  # noqa: SLF001
+    service.shutdown()
+
+
+def test_remove_waits_for_remember_write_and_cannot_be_undone(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    remember_entered, release_remember = _delay_registry_upsert(
+        service,
+        thread_name="synthetic-old-activation",
+    )
+    activation_errors: list[str] = []
+    remove_errors: list[str] = []
+    remove_started = threading.Event()
+    remove_returned = threading.Event()
+
+    def activate_old() -> None:
+        try:
+            service.activate(
+                "owned",
+                ActivateLocalModel(
+                    device=DeviceMode.CPU,
+                    context_size=1024,
+                    remember=True,
+                    fast_attention=False,
+                ),
+            )
+        except LocalModelError as error:
+            activation_errors.append(error.code)
+
+    def remove_newer() -> None:
+        remove_started.set()
+        try:
+            service.remove("owned")
+        except LocalModelError as error:
+            remove_errors.append(error.code)
+        finally:
+            remove_returned.set()
+
+    activation = threading.Thread(
+        target=activate_old,
+        name="synthetic-old-activation",
+        daemon=True,
+    )
+    activation.start()
+    assert remember_entered.wait(timeout=5)
+    removal = threading.Thread(target=remove_newer, daemon=True)
+    removal.start()
+    assert remove_started.wait(timeout=5)
+    remove_was_serialized = not remove_returned.wait(timeout=0.05)
+    release_remember.set()
+    activation.join(timeout=5)
+    removal.join(timeout=5)
+
+    assert remove_was_serialized is True
+    assert not activation.is_alive() and not removal.is_alive()
+    assert remove_errors == []
+    assert activation_errors in ([], ["runtime_activation_superseded"])
+    assert service.registry.get("owned") is None
+    assert service.running_aliases() == ()
+    assert all(process.poll() is not None for process in processes)
+
+
+def test_newer_remember_defaults_cannot_be_overwritten_by_older_activation(tmp_path: Path) -> None:
+    processes: list[_FakeRuntimeProcess] = []
+    service = _fake_runtime_service(tmp_path, processes)
+    newer_reached_hardware = threading.Event()
+
+    def hardware(_binary: Path | None) -> HardwareSummary:
+        if threading.current_thread().name == "synthetic-newer-activation":
+            newer_reached_hardware.set()
+        return HardwareSummary()
+
+    service._hardware = hardware  # type: ignore[method-assign]  # noqa: SLF001
+    service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    remember_entered, release_remember = _delay_registry_upsert(
+        service,
+        thread_name="synthetic-old-activation",
+    )
+    activation_errors: dict[str, str] = {}
+
+    def activate_old() -> None:
+        try:
+            service.activate(
+                "owned",
+                ActivateLocalModel(
+                    device=DeviceMode.CPU,
+                    context_size=1024,
+                    remember=True,
+                    fast_attention=False,
+                ),
+            )
+        except LocalModelError as error:
+            activation_errors["old"] = error.code
+
+    def activate_newer() -> None:
+        try:
+            service.activate(
+                "owned",
+                ActivateLocalModel(
+                    device=DeviceMode.SPLIT,
+                    gpu_layers=7,
+                    context_size=2048,
+                    remember=True,
+                    fast_attention=False,
+                ),
+            )
+        except LocalModelError as error:
+            activation_errors["newer"] = error.code
+
+    old = threading.Thread(
+        target=activate_old,
+        name="synthetic-old-activation",
+        daemon=True,
+    )
+    old.start()
+    assert remember_entered.wait(timeout=5)
+    newer = threading.Thread(
+        target=activate_newer,
+        name="synthetic-newer-activation",
+        daemon=True,
+    )
+    newer.start()
+    newer_was_serialized = not newer_reached_hardware.wait(timeout=0.05)
+    release_remember.set()
+    old.join(timeout=5)
+    newer.join(timeout=5)
+
+    assert newer_was_serialized is True
+    assert not old.is_alive() and not newer.is_alive()
+    assert "newer" not in activation_errors
+    assert activation_errors.get("old") in (None, "runtime_activation_superseded")
+    remembered = service.registry.get("owned")
+    assert remembered is not None
+    assert remembered.default_device is DeviceMode.SPLIT
+    assert remembered.default_gpu_layers == 7
+    assert remembered.context_size == 2048
+    assert service.running_aliases() == ("owned",)
+    service.shutdown()
+
+
+def test_dead_and_unstoppable_runtimes_are_never_advertised_as_running(tmp_path: Path) -> None:
+    dead_processes: list[_FakeRuntimeProcess] = []
+    dead_service = _fake_runtime_service(tmp_path / "dead", dead_processes)
+    dead_service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    assert dead_service.activate("owned").runtime.state is RuntimeState.RUNNING
+    dead_processes[0].returncode = 1
+    assert dead_service.running_aliases() == ()
+    assert dead_service.status("owned").runtime.last_error_code == "runtime_exited"
+
+    stuck_processes: list[_FakeRuntimeProcess] = []
+    stuck_service = _fake_runtime_service(tmp_path / "stuck", stuck_processes, stoppable=False)
+    stuck_service._wait_healthy = lambda _handle: True  # type: ignore[method-assign]  # noqa: SLF001
+    assert stuck_service.activate("owned").runtime.state is RuntimeState.RUNNING
+    try:
+        stuck_service.deactivate("owned")
+    except LocalModelError as error:
+        assert error.code == "runtime_stop_failed"
+    else:
+        raise AssertionError("an unconfirmed runtime stop was reported as successful")
+    assert stuck_service.running_aliases() == ()
+    assert stuck_service._processes["owned"].process is stuck_processes[0]  # noqa: SLF001
+    try:
+        stuck_service.shutdown()
+    except LocalModelError as error:
+        assert error.code == "runtime_shutdown_failed"
+    else:
+        raise AssertionError("an incomplete runtime shutdown was reported as successful")
 
 
 def test_download_verifies_the_pinned_artifact_and_records_its_provenance(tmp_path: Path) -> None:

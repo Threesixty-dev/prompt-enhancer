@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from enum import StrEnum
 import json
 import re
 import threading
@@ -29,6 +30,7 @@ from .text_source import TextAnalysisPurpose, TextAnalysisSelection, TextSourceA
 
 
 MODEL_JUDGE_CONTRACT_VERSION = "model-judge.v1"
+MODEL_JUDGE_CATALOG_UNAVAILABLE = "model_judge_catalog_unavailable"
 JUDGE_PROMPT_VERSION = "judge-v1"
 #: ~4k tokens of transcript so prompt + window stay well inside an 8192 context.
 MAX_WINDOW_CHARACTERS = 15_000
@@ -151,6 +153,21 @@ class JudgeAgreementReport(StrictModel):
     )
 
 
+class ModelJudgeSweepFailureCode(StrEnum):
+    """The complete content-free failure vocabulary exposed by sweep status."""
+
+    NO_ACTIVE_MODEL = "no_active_model"
+    SESSION_NOT_FOUND = "session_not_found"
+    CONSENT_REQUIRED = "consent_required"
+    WINDOW_UNAVAILABLE = "window_unavailable"
+    MODEL_UNREACHABLE = "model_unreachable"
+    MODEL_NOT_ACTIVE = "model_not_active"
+    MODEL_ERROR = "model_error"
+    MODEL_REPLY_INVALID = "model_reply_invalid"
+    CATALOG_UNAVAILABLE = MODEL_JUDGE_CATALOG_UNAVAILABLE
+    JUDGE_FAILED = "judge_failed"
+
+
 class JudgeSweepStatus(StrictModel):
     contract_version: Literal[MODEL_JUDGE_CONTRACT_VERSION] = MODEL_JUDGE_CONTRACT_VERSION
     running: bool
@@ -158,7 +175,7 @@ class JudgeSweepStatus(StrictModel):
     total: int = Field(ge=0)
     done: int = Field(ge=0)
     failed: int = Field(ge=0)
-    last_error_code: str | None = None
+    last_error_code: ModelJudgeSweepFailureCode | None = None
 
 
 class ModelJudgmentRepository(Protocol):
@@ -175,6 +192,36 @@ class ModelJudgeError(RuntimeError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
+
+
+_PUBLIC_ADAPTER_FAILURE_CODES: dict[str, ModelJudgeSweepFailureCode] = {
+    "model_unreachable": ModelJudgeSweepFailureCode.MODEL_UNREACHABLE,
+    "runtime_unreachable": ModelJudgeSweepFailureCode.MODEL_UNREACHABLE,
+    "model_not_active": ModelJudgeSweepFailureCode.MODEL_NOT_ACTIVE,
+    "model_error": ModelJudgeSweepFailureCode.MODEL_ERROR,
+}
+
+
+def _public_adapter_failure_code(code: object) -> ModelJudgeSweepFailureCode:
+    """Map a local-runtime exception to one fixed public model failure."""
+
+    if not isinstance(code, str):
+        return ModelJudgeSweepFailureCode.MODEL_UNREACHABLE
+    return _PUBLIC_ADAPTER_FAILURE_CODES.get(
+        code,
+        ModelJudgeSweepFailureCode.MODEL_ERROR,
+    )
+
+
+def _public_sweep_failure_code(code: object) -> ModelJudgeSweepFailureCode:
+    """Close every asynchronous failure over the public sweep vocabulary."""
+
+    if code == "runtime_unreachable":
+        return ModelJudgeSweepFailureCode.MODEL_UNREACHABLE
+    try:
+        return ModelJudgeSweepFailureCode(code)
+    except (TypeError, ValueError):
+        return ModelJudgeSweepFailureCode.MODEL_ERROR
 
 
 def render_window(context: P1TextAnalysisInput, *, max_characters: int = MAX_WINDOW_CHARACTERS) -> str:
@@ -255,6 +302,31 @@ class ModelJudgeService:
     def session_lookup(self):
         return self._session_lookup
 
+    def _resolve_active_model(self) -> tuple[str, str] | None:
+        """Read the local-model catalog without turning failure into absence."""
+
+        catalog_failed = False
+        try:
+            active = self._active_model()
+        except Exception:
+            catalog_failed = True
+            active = None
+        if catalog_failed:
+            raise ModelJudgeError(MODEL_JUDGE_CATALOG_UNAVAILABLE)
+        if active is None:
+            return None
+        if (
+            not isinstance(active, tuple)
+            or len(active) != 2
+            or not isinstance(active[0], str)
+            or not active[0]
+            or len(active[0]) > 64
+            or not isinstance(active[1], str)
+            or not active[1]
+        ):
+            raise ModelJudgeError(MODEL_JUDGE_CATALOG_UNAVAILABLE)
+        return active
+
     def window_for(self, provider: Provider, session_id: str) -> P1TextAnalysisInput:
         """Public window reader for the annotation surfaces."""
 
@@ -277,7 +349,7 @@ class ModelJudgeService:
         return source.read(selection=selection, grant=grant, task_profile=TextTaskProfile(applicability=()))  # type: ignore[attr-defined]
 
     def judge(self, session_id: str) -> JudgeOutcome:
-        active = self._active_model()
+        active = self._resolve_active_model()
         if active is None:
             raise ModelJudgeError("no_active_model")
         alias, identity = active
@@ -306,8 +378,8 @@ class ModelJudgeService:
         try:
             status, payload, _ = self._chat(alias, body)
         except Exception as error:
-            code = getattr(error, "code", None)
-            raise ModelJudgeError(code if isinstance(code, str) else "model_unreachable") from None
+            code = _public_adapter_failure_code(getattr(error, "code", None))
+            raise ModelJudgeError(code.value) from None
         if status != 200:
             # llama-server answers 400 when prompt + completion exceed the context;
             # retry once with a much smaller window before giving up.
@@ -356,49 +428,81 @@ class ModelJudgeService:
     # ----- sweep -----
 
     def sweep_status(self) -> JudgeSweepStatus:
-        return self._sweep
+        with self._sweep_lock:
+            return self._sweep
 
     def start_sweep(self, session_ids: tuple[str, ...]) -> JudgeSweepStatus:
-        active = self._active_model()
+        active = self._resolve_active_model()
         if active is None:
             raise ModelJudgeError("no_active_model")
         alias = active[0]
+        launch_failed = False
         with self._sweep_lock:
             if self._sweep.running:
                 return self._sweep
             already = {j.session_id for j in self._repository.list(model_alias=alias)}
             pending = tuple(sid for sid in session_ids if sid not in already)
             self._sweep = JudgeSweepStatus(running=bool(pending), model_alias=alias, total=len(pending), done=0, failed=0)
-        if not pending:
-            return self._sweep
-        worker = threading.Thread(target=self._run_sweep, args=(pending,), name="model-judge-sweep", daemon=True)
-        worker.start()
-        return self._sweep
+            if not pending:
+                return self._sweep
+            try:
+                worker = threading.Thread(
+                    target=self._run_sweep,
+                    args=(pending,),
+                    name="model-judge-sweep",
+                    daemon=True,
+                )
+                worker.start()
+            except Exception:
+                self._sweep = self._sweep.model_copy(
+                    update={
+                        "running": False,
+                        "last_error_code": ModelJudgeSweepFailureCode.JUDGE_FAILED,
+                    }
+                )
+                launch_failed = True
+            snapshot = self._sweep
+        if launch_failed:
+            raise ModelJudgeError("model_error")
+        return snapshot
 
     def _run_sweep(self, session_ids: tuple[str, ...]) -> None:
         for session_id in session_ids:
             try:
                 outcome = self.judge(session_id)
                 ok = outcome.raw_valid
-                code = None if ok else "model_reply_invalid"
+                code = (
+                    None
+                    if ok
+                    else ModelJudgeSweepFailureCode.MODEL_REPLY_INVALID
+                )
             except ModelJudgeError as error:
-                ok, code = False, error.code
-                if error.code in {"no_active_model", "model_unreachable", "model_not_active"}:
-                    self._sweep = self._sweep.model_copy(update={"running": False, "failed": self._sweep.failed + 1, "last_error_code": code})
+                ok = False
+                code = _public_sweep_failure_code(error.code)
+                if code in {
+                    ModelJudgeSweepFailureCode.NO_ACTIVE_MODEL,
+                    ModelJudgeSweepFailureCode.MODEL_UNREACHABLE,
+                    ModelJudgeSweepFailureCode.MODEL_NOT_ACTIVE,
+                    ModelJudgeSweepFailureCode.CATALOG_UNAVAILABLE,
+                }:
+                    with self._sweep_lock:
+                        self._sweep = self._sweep.model_copy(update={"running": False, "failed": self._sweep.failed + 1, "last_error_code": code})
                     return
             except Exception:
-                ok, code = False, "judge_failed"
-            self._sweep = self._sweep.model_copy(
-                update={"done": self._sweep.done + 1, "failed": self._sweep.failed + (0 if ok else 1), "last_error_code": code or self._sweep.last_error_code}
-            )
-        self._sweep = self._sweep.model_copy(update={"running": False})
+                ok, code = False, ModelJudgeSweepFailureCode.JUDGE_FAILED
+            with self._sweep_lock:
+                self._sweep = self._sweep.model_copy(
+                    update={"done": self._sweep.done + 1, "failed": self._sweep.failed + (0 if ok else 1), "last_error_code": code or self._sweep.last_error_code}
+                )
+        with self._sweep_lock:
+            self._sweep = self._sweep.model_copy(update={"running": False})
 
     # ----- agreement -----
 
     def interpret(self, session_id: str) -> SessionInterpretation:
         """Ask the active model to read the session's metrics (and redacted window) in plain language."""
 
-        active = self._active_model()
+        active = self._resolve_active_model()
         if active is None:
             raise ModelJudgeError("no_active_model")
         alias, _ = active
@@ -483,7 +587,7 @@ class ModelJudgeService:
 
         if PSEUDONYM_PATTERN.fullmatch(session_id) is None:
             raise ModelJudgeError("session_not_found")
-        active = self._active_model()
+        active = self._resolve_active_model()
         rows = tuple(sorted(self._repository.list(session_id=session_id), key=lambda j: (j.model_alias, j.metric_key)))
         return SessionJudgments(
             session_id=session_id,
@@ -499,7 +603,7 @@ class ModelJudgeService:
 
     def agreement(self, model_alias: str | None = None) -> JudgeAgreementReport:
         if model_alias is None:
-            active = self._active_model()
+            active = self._resolve_active_model()
             alias = active[0] if active else None
         else:
             alias = model_alias
@@ -534,6 +638,7 @@ class ModelJudgeService:
 __all__ = (
     "JUDGE_PROMPT_VERSION",
     "LEGACY_WINDOW_FINGERPRINT_CONTEXT",
+    "MODEL_JUDGE_CATALOG_UNAVAILABLE",
     "ZERO_WINDOW_FINGERPRINT",
     "JudgeAgreementReport",
     "JudgeOutcome",
@@ -541,6 +646,7 @@ __all__ = (
     "MODEL_JUDGE_CONTRACT_VERSION",
     "MetricAgreement",
     "ModelJudgeError",
+    "ModelJudgeSweepFailureCode",
     "ModelJudgeService",
     "ModelJudgment",
     "SessionInterpretation",

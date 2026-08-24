@@ -32,6 +32,7 @@ from ...application.analysis.declared_task_profiles import (
 )
 from ...application.analysis.text_contracts import ConstraintKind, DeliverableSlot
 from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider, StrictModel
+from .session_provider_contracts import SessionProviderFailureResponse
 
 
 _PRIVATE_HEADERS = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
@@ -93,6 +94,24 @@ class DeclaredTaskProfileOutcomeDto(StrictModel):
     applied: bool
 
 
+class DeclaredTaskProfileNotFoundFailureDetail(StrictModel):
+    code: Literal["declared_task_profile_session_not_found"]
+    message: Literal["declared task profile session was not found"]
+
+
+class DeclaredTaskProfileNotFoundFailureResponse(StrictModel):
+    detail: DeclaredTaskProfileNotFoundFailureDetail
+
+
+class DeclaredTaskProfileUnavailableFailureDetail(StrictModel):
+    code: Literal["declared_task_profile_persistence_failed"]
+    message: Literal["declared task profile is unavailable"]
+
+
+class DeclaredTaskProfileUnavailableFailureResponse(StrictModel):
+    detail: DeclaredTaskProfileUnavailableFailureDetail
+
+
 def _failure(error: Exception) -> HTTPException:
     if isinstance(error, DeclaredTaskProfileInputError):
         return HTTPException(
@@ -139,7 +158,7 @@ def create_declared_task_profile_router(
     require_local_auth: Callable[..., None],
     require_user_confirmation: Callable[..., None],
     service: DeclaredTaskProfileCommandPort,
-    provider_resolver: Callable[[str], Provider] | None = None,
+    provider_resolver: Callable[[str], Provider],
     *,
     confirmation_available: bool,
 ) -> APIRouter:
@@ -150,15 +169,20 @@ def create_declared_task_profile_router(
     )
 
     def provider_of(session_id: str) -> Provider:
-        return (
-            provider_resolver(session_id)
-            if provider_resolver is not None
-            else Provider.CODEX
-        )
+        return provider_resolver(session_id)
 
     @router.get(
         "/sessions/{session_id}/declared-task-profile",
         response_model=DeclaredTaskProfileCurrentDto,
+        responses={
+            404: {"model": SessionProviderFailureResponse},
+            503: {
+                "model": (
+                    DeclaredTaskProfileUnavailableFailureResponse
+                    | SessionProviderFailureResponse
+                )
+            },
+        },
     )
     def current_profile(
         response: Response,
@@ -186,6 +210,20 @@ def create_declared_task_profile_router(
         "/sessions/{session_id}/declared-task-profile",
         response_model=DeclaredTaskProfileOutcomeDto,
         dependencies=[Depends(require_user_confirmation)],
+        responses={
+            404: {
+                "model": (
+                    DeclaredTaskProfileNotFoundFailureResponse
+                    | SessionProviderFailureResponse
+                )
+            },
+            503: {
+                "model": (
+                    DeclaredTaskProfileUnavailableFailureResponse
+                    | SessionProviderFailureResponse
+                )
+            },
+        },
     )
     def save_profile(
         payload: DeclaredTaskProfileCommand,

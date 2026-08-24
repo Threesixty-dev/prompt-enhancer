@@ -5128,6 +5128,40 @@
         "title": "DeclaredTaskProfileDto",
         "type": "object"
       },
+      "DeclaredTaskProfileNotFoundFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "declared_task_profile_session_not_found",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "const": "declared task profile session was not found",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "DeclaredTaskProfileNotFoundFailureDetail",
+        "type": "object"
+      },
+      "DeclaredTaskProfileNotFoundFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/DeclaredTaskProfileNotFoundFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "DeclaredTaskProfileNotFoundFailureResponse",
+        "type": "object"
+      },
       "DeclaredTaskProfileOutcomeDto": {
         "additionalProperties": false,
         "properties": {
@@ -5144,6 +5178,40 @@
           "applied"
         ],
         "title": "DeclaredTaskProfileOutcomeDto",
+        "type": "object"
+      },
+      "DeclaredTaskProfileUnavailableFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "declared_task_profile_persistence_failed",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "const": "declared task profile is unavailable",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "DeclaredTaskProfileUnavailableFailureDetail",
+        "type": "object"
+      },
+      "DeclaredTaskProfileUnavailableFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/DeclaredTaskProfileUnavailableFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "DeclaredTaskProfileUnavailableFailureResponse",
         "type": "object"
       },
       "DeliverableSlot": {
@@ -5182,6 +5250,8 @@
         "enum": [
           "codex_cli_on_path",
           "claude_transcript_root",
+          "claude_transcript_enumeration_unavailable",
+          "claude_transcript_count_capped",
           "not_found"
         ],
         "title": "DetectionSignal",
@@ -5944,13 +6014,12 @@
           "last_error_code": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/ModelJudgeSweepFailureCode"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Last Error Code"
+            ]
           },
           "model_alias": {
             "anyOf": [
@@ -6086,6 +6155,97 @@
         ],
         "title": "LicenseAdmission",
         "type": "string"
+      },
+      "LocalModelActivationConflictFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "model_file_missing",
+              "runtime_unavailable",
+              "runtime_activation_superseded"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "LocalModelActivationConflictFailureDetail",
+        "type": "object"
+      },
+      "LocalModelActivationConflictFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/LocalModelActivationConflictFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "LocalModelActivationConflictFailureResponse",
+        "type": "object"
+      },
+      "LocalModelActivationFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "runtime_spawn_failed",
+              "runtime_not_healthy"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "LocalModelActivationFailureDetail",
+        "type": "object"
+      },
+      "LocalModelActivationFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/LocalModelActivationFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "LocalModelActivationFailureResponse",
+        "type": "object"
+      },
+      "LocalModelNotFoundFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "model_not_found",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "LocalModelNotFoundFailureDetail",
+        "type": "object"
+      },
+      "LocalModelNotFoundFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/LocalModelNotFoundFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "LocalModelNotFoundFailureResponse",
+        "type": "object"
       },
       "LocalModelRecord": {
         "additionalProperties": false,
@@ -6274,6 +6434,34 @@
           "endpoint_path"
         ],
         "title": "LocalModelStatus",
+        "type": "object"
+      },
+      "LocalModelStopFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "runtime_stop_failed",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "LocalModelStopFailureDetail",
+        "type": "object"
+      },
+      "LocalModelStopFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/LocalModelStopFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "LocalModelStopFailureResponse",
         "type": "object"
       },
       "LocalModelsOverview": {
@@ -10786,6 +10974,40 @@
         "title": "ModelEnsembleRunDto",
         "type": "object"
       },
+      "ModelEnsembleSelectionFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "session_not_in_safe_index",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "const": "selected session is not indexed",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ModelEnsembleSelectionFailureDetail",
+        "type": "object"
+      },
+      "ModelEnsembleSelectionFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ModelEnsembleSelectionFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ModelEnsembleSelectionFailureResponse",
+        "type": "object"
+      },
       "ModelEnsembleTrajectoryPage": {
         "additionalProperties": false,
         "properties": {
@@ -11143,6 +11365,50 @@
         "title": "ModelEnsembleTypedMetricDto",
         "type": "object"
       },
+      "ModelEnsembleUnavailableFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "source_schema_unsupported",
+              "provider_protocol_rejected",
+              "provider_unavailable",
+              "local_model_ensemble_execution_failed",
+              "model_ensemble_persistence_failed"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "enum": [
+              "bounded local source read failed",
+              "local model ensemble execution failed",
+              "local model ensemble persistence failed"
+            ],
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ModelEnsembleUnavailableFailureDetail",
+        "type": "object"
+      },
+      "ModelEnsembleUnavailableFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ModelEnsembleUnavailableFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ModelEnsembleUnavailableFailureResponse",
+        "type": "object"
+      },
       "ModelEnsembleVoteDto": {
         "additionalProperties": false,
         "properties": {
@@ -11369,6 +11635,40 @@
         "title": "ModelEnsembleWatchRequest",
         "type": "object"
       },
+      "ModelEnsembleWatchSelectionFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "session_not_in_safe_index",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "const": "selected session is not indexed",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ModelEnsembleWatchSelectionFailureDetail",
+        "type": "object"
+      },
+      "ModelEnsembleWatchSelectionFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ModelEnsembleWatchSelectionFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ModelEnsembleWatchSelectionFailureResponse",
+        "type": "object"
+      },
       "ModelEnsembleWatchSnapshotDto": {
         "additionalProperties": false,
         "properties": {
@@ -11391,6 +11691,40 @@
           "latest_run"
         ],
         "title": "ModelEnsembleWatchSnapshotDto",
+        "type": "object"
+      },
+      "ModelEnsembleWatchUnavailableFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "model_ensemble_persistence_failed",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "const": "model ensemble result is unavailable",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ModelEnsembleWatchUnavailableFailureDetail",
+        "type": "object"
+      },
+      "ModelEnsembleWatchUnavailableFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ModelEnsembleWatchUnavailableFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ModelEnsembleWatchUnavailableFailureResponse",
         "type": "object"
       },
       "ModelEvaluationJobDto": {
@@ -11571,6 +11905,64 @@
           "gguf"
         ],
         "title": "ModelFormat",
+        "type": "string"
+      },
+      "ModelJudgeFailureCode": {
+        "enum": [
+          "no_active_model",
+          "session_not_found",
+          "consent_required",
+          "window_unavailable",
+          "model_unreachable",
+          "model_not_active",
+          "model_error",
+          "model_reply_invalid",
+          "model_judge_catalog_unavailable"
+        ],
+        "title": "ModelJudgeFailureCode",
+        "type": "string"
+      },
+      "ModelJudgeFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ModelJudgeFailureCode"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "ModelJudgeFailureDetail",
+        "type": "object"
+      },
+      "ModelJudgeFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ModelJudgeFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ModelJudgeFailureResponse",
+        "type": "object"
+      },
+      "ModelJudgeSweepFailureCode": {
+        "description": "The complete content-free failure vocabulary exposed by sweep status.",
+        "enum": [
+          "no_active_model",
+          "session_not_found",
+          "consent_required",
+          "window_unavailable",
+          "model_unreachable",
+          "model_not_active",
+          "model_error",
+          "model_reply_invalid",
+          "model_judge_catalog_unavailable",
+          "judge_failed"
+        ],
+        "title": "ModelJudgeSweepFailureCode",
         "type": "string"
       },
       "ModelJudgment": {
@@ -13508,9 +13900,17 @@
             "type": "array"
           },
           "indexed_sessions": {
-            "minimum": 0.0,
-            "title": "Indexed Sessions",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed Sessions"
           },
           "status": {
             "$ref": "#/components/schemas/OnboardingStatus"
@@ -13571,6 +13971,7 @@
             "type": "array"
           },
           "refresh_interval_seconds": {
+            "maximum": 9007199254740991.0,
             "minimum": 60.0,
             "title": "Refresh Interval Seconds",
             "type": "integer"
@@ -13580,7 +13981,8 @@
           "providers",
           "any_installed",
           "needs_onboarding",
-          "refresh_interval_seconds"
+          "refresh_interval_seconds",
+          "last_refresh_at"
         ],
         "title": "OnboardingStatus",
         "type": "object"
@@ -15123,9 +15525,17 @@
             "type": "boolean"
           },
           "indexed_sessions": {
-            "minimum": 0.0,
-            "title": "Indexed Sessions",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed Sessions"
           },
           "installed": {
             "title": "Installed",
@@ -15145,6 +15555,7 @@
           "transcript_files": {
             "anyOf": [
               {
+                "maximum": 9007199254740991.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -15160,7 +15571,8 @@
           "installed",
           "signal",
           "consent_active",
-          "indexed_sessions"
+          "indexed_sessions",
+          "transcript_files"
         ],
         "title": "ProviderDetection",
         "type": "object"
@@ -19248,6 +19660,75 @@
         "title": "ReviewedAutomationResourcePolicyRequest",
         "type": "object"
       },
+      "RuntimeComponentLivenessDto": {
+        "additionalProperties": false,
+        "properties": {
+          "alive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alive"
+          },
+          "component": {
+            "enum": [
+              "analysis_job_worker",
+              "automation_grant_worker",
+              "model_ensemble_watch_worker",
+              "local_source_refresh_worker"
+            ],
+            "title": "Component",
+            "type": "string"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "component",
+          "configured",
+          "alive"
+        ],
+        "title": "RuntimeComponentLivenessDto",
+        "type": "object"
+      },
+      "RuntimeLivenessDto": {
+        "additionalProperties": false,
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/RuntimeComponentLivenessDto"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "contract_version": {
+            "const": "runtime-liveness.v1",
+            "default": "runtime-liveness.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "components"
+        ],
+        "title": "RuntimeLivenessDto",
+        "type": "object"
+      },
       "RuntimeState": {
         "enum": [
           "stopped",
@@ -21019,6 +21500,49 @@
           "contract_fingerprint"
         ],
         "title": "SessionPredictiveMetricSummary",
+        "type": "object"
+      },
+      "SessionProviderFailureCode": {
+        "enum": [
+          "session_not_found",
+          "session_catalog_unavailable"
+        ],
+        "title": "SessionProviderFailureCode",
+        "type": "string"
+      },
+      "SessionProviderFailureDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/SessionProviderFailureCode"
+          },
+          "message": {
+            "enum": [
+              "selected session is not indexed",
+              "session catalog is unavailable"
+            ],
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "SessionProviderFailureDetail",
+        "type": "object"
+      },
+      "SessionProviderFailureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/SessionProviderFailureDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "SessionProviderFailureResponse",
         "type": "object"
       },
       "SessionQualityAggregate": {
@@ -28953,6 +29477,16 @@
           "204": {
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelNotFoundFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -28962,6 +29496,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelStopFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Remove",
@@ -29118,6 +29662,26 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelNotFoundFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelActivationConflictFailureResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -29127,6 +29691,26 @@
               }
             },
             "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelActivationFailureResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelStopFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Activate",
@@ -29267,6 +29851,16 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelNotFoundFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -29276,6 +29870,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalModelStopFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Deactivate",
@@ -30857,6 +31461,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Agreement",
@@ -30932,6 +31546,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Session Judgments",
@@ -30996,6 +31620,36 @@
             },
             "description": "Successful Response"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -31005,6 +31659,26 @@
               }
             },
             "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Judge Session",
@@ -31071,6 +31745,36 @@
             },
             "description": "Successful Response"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -31080,6 +31784,26 @@
               }
             },
             "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Interpret Session",
@@ -31153,7 +31877,7 @@
         ]
       },
       "post": {
-        "description": "Judge the calibration sample (default) or every indexed session with the active model.",
+        "description": "Judge the sample or every indexed session with the active model.",
         "operationId": "sweep_v1_model_judge_sweep_post",
         "parameters": [
           {
@@ -31214,6 +31938,16 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -31223,6 +31957,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelJudgeFailureResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Sweep",
@@ -33190,6 +33934,78 @@
         ]
       }
     },
+    "/v1/runtime-liveness": {
+      "get": {
+        "operationId": "runtime_liveness_v1_runtime_liveness_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Prompt-Enhancer-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Prompt-Enhancer-Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeLivenessDto"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeLivenessDto"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Runtime Liveness"
+      }
+    },
     "/v1/sessions": {
       "get": {
         "operationId": "sessions_v1_sessions_get",
@@ -33690,6 +34506,16 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -33699,6 +34525,24 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DeclaredTaskProfileUnavailableFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 503 Current Profile V1 Sessions  Session Id  Declared Task Profile Get"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Current Profile",
@@ -33799,6 +34643,24 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DeclaredTaskProfileNotFoundFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 404 Save Profile V1 Sessions  Session Id  Declared Task Profile Post"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -33808,6 +34670,24 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DeclaredTaskProfileUnavailableFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 503 Save Profile V1 Sessions  Session Id  Declared Task Profile Post"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Save Profile",
@@ -34446,6 +35326,24 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelEnsembleSelectionFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 404 Run Model Ensemble V1 Sessions  Session Id  Model Ensemble Runs Post"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -34455,6 +35353,24 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelEnsembleUnavailableFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 503 Run Model Ensemble V1 Sessions  Session Id  Model Ensemble Runs Post"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Run Model Ensemble",
@@ -34606,6 +35522,24 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelEnsembleWatchSelectionFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 404 Enable Watch V1 Sessions  Session Id  Model Ensemble Watch Put"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -34615,6 +35549,24 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelEnsembleWatchUnavailableFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 503 Enable Watch V1 Sessions  Session Id  Model Ensemble Watch Put"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Enable Watch",
@@ -34715,7 +35667,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 404 Start Experiment V1 Sessions  Session Id  Model Link Experiments Post"
                 }
               }
             },
@@ -34763,7 +35723,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelLinkFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 503 Start Experiment V1 Sessions  Session Id  Model Link Experiments Post"
                 }
               }
             },
@@ -34963,7 +35931,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 404 Prepare Session Analysis Preview V1 Sessions  Session Id  Quality Analysis Previews Post"
                 }
               }
             },
@@ -35011,7 +35987,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 503 Prepare Session Analysis Preview V1 Sessions  Session Id  Quality Analysis Previews Post"
                 }
               }
             },
@@ -35222,7 +36206,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 404 Start Session Analysis V1 Sessions  Session Id  Quality Analysis Runs Post"
                 }
               }
             },
@@ -35270,7 +36262,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SessionTextAnalysisFailureResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionProviderFailureResponse"
+                    }
+                  ],
+                  "title": "Response 503 Start Session Analysis V1 Sessions  Session Id  Quality Analysis Runs Post"
                 }
               }
             },

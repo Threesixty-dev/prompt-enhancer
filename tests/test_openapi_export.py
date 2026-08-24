@@ -182,6 +182,115 @@ def test_exporter_writes_reproducible_json_without_runtime_state(tmp_path) -> No
     assert "openapi.json" not in document["paths"]
 
 
+def test_onboarding_schema_keeps_unknowns_explicit_and_json_safe() -> None:
+    schemas = build_openapi_schema()["components"]["schemas"]
+    status = schemas["OnboardingStatus"]
+    provider = schemas["ProviderDetection"]
+    result = schemas["OnboardingResult"]
+
+    assert {"last_refresh_at", "refresh_interval_seconds"}.issubset(
+        status["required"]
+    )
+    assert status["properties"]["refresh_interval_seconds"] == {
+        "maximum": 9_007_199_254_740_991,
+        "minimum": 60,
+        "title": "Refresh Interval Seconds",
+        "type": "integer",
+    }
+    assert "transcript_files" in provider["required"]
+    for field in ("indexed_sessions", "transcript_files"):
+        choices = provider["properties"][field]["anyOf"]
+        assert {choice.get("type") for choice in choices} == {"integer", "null"}
+        integer = next(choice for choice in choices if choice.get("type") == "integer")
+        assert integer["minimum"] == 0
+        assert integer["maximum"] == 9_007_199_254_740_991
+    result_choices = result["properties"]["indexed_sessions"]["anyOf"]
+    assert {choice.get("type") for choice in result_choices} == {"integer", "null"}
+    result_integer = next(
+        choice for choice in result_choices if choice.get("type") == "integer"
+    )
+    assert result_integer["minimum"] == 0
+    assert result_integer["maximum"] == 9_007_199_254_740_991
+    assert "claude_transcript_count_capped" in schemas["DetectionSignal"]["enum"]
+
+
+def test_overlapping_provider_and_domain_failures_remain_in_openapi() -> None:
+    paths = build_openapi_schema()["paths"]
+
+    def refs(path: str, method: str, status: int) -> set[str]:
+        response_schema = paths[path][method]["responses"][str(status)][
+            "content"
+        ]["application/json"]["schema"]
+        choices = response_schema.get("anyOf", [response_schema])
+        return {choice["$ref"] for choice in choices}
+
+    provider = "#/components/schemas/SessionProviderFailureResponse"
+    assert refs(
+        "/v1/sessions/{session_id}/model-ensemble-runs", "post", 404
+    ) == {
+        provider,
+        "#/components/schemas/ModelEnsembleSelectionFailureResponse",
+    }
+    assert refs(
+        "/v1/sessions/{session_id}/model-ensemble-runs", "post", 503
+    ) == {
+        provider,
+        "#/components/schemas/ModelEnsembleUnavailableFailureResponse",
+    }
+    assert refs(
+        "/v1/sessions/{session_id}/model-ensemble-watch", "put", 404
+    ) == {
+        provider,
+        "#/components/schemas/ModelEnsembleWatchSelectionFailureResponse",
+    }
+    assert refs(
+        "/v1/sessions/{session_id}/model-ensemble-watch", "put", 503
+    ) == {
+        provider,
+        "#/components/schemas/ModelEnsembleWatchUnavailableFailureResponse",
+    }
+    profile_path = "/v1/sessions/{session_id}/declared-task-profile"
+    assert refs(profile_path, "get", 404) == {provider}
+    assert refs(profile_path, "get", 503) == {
+        provider,
+        "#/components/schemas/DeclaredTaskProfileUnavailableFailureResponse",
+    }
+    assert refs(profile_path, "post", 404) == {
+        provider,
+        "#/components/schemas/DeclaredTaskProfileNotFoundFailureResponse",
+    }
+    assert refs(profile_path, "post", 503) == {
+        provider,
+        "#/components/schemas/DeclaredTaskProfileUnavailableFailureResponse",
+    }
+
+
+def test_local_model_lifecycle_failures_are_declared_in_openapi() -> None:
+    paths = build_openapi_schema()["paths"]
+    base = "/v1/local-models/{alias}"
+
+    def ref(operation: dict[str, object], status: int) -> str:
+        return operation["responses"][str(status)]["content"][
+            "application/json"
+        ]["schema"]["$ref"]
+
+    remove = paths[base]["delete"]
+    assert ref(remove, 404).endswith("/LocalModelNotFoundFailureResponse")
+    assert ref(remove, 503).endswith("/LocalModelStopFailureResponse")
+
+    activate = paths[f"{base}/activate"]["post"]
+    assert ref(activate, 404).endswith("/LocalModelNotFoundFailureResponse")
+    assert ref(activate, 409).endswith(
+        "/LocalModelActivationConflictFailureResponse"
+    )
+    assert ref(activate, 502).endswith("/LocalModelActivationFailureResponse")
+    assert ref(activate, 503).endswith("/LocalModelStopFailureResponse")
+
+    deactivate = paths[f"{base}/deactivate"]["post"]
+    assert ref(deactivate, 404).endswith("/LocalModelNotFoundFailureResponse")
+    assert ref(deactivate, 503).endswith("/LocalModelStopFailureResponse")
+
+
 def test_committed_openapi_artifact_is_byte_exact_to_current_schema() -> None:
     expected = (
         json.dumps(build_openapi_schema(), indent=2, sort_keys=True) + "\n"

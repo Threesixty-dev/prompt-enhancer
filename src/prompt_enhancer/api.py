@@ -73,7 +73,7 @@ from .config import (
     path_has_symlink_component,
     prepare_app_home,
 )
-from .domain import PSEUDONYM_PATTERN, Provider
+from .domain import PSEUDONYM_PATTERN, Provider, StrictModel
 from .application.control_plane import ControlPlaneService, PrincipalResolver
 from .application.paid_product.contracts import ProductReadiness
 from .application.social.contracts import SocialReadiness
@@ -152,11 +152,37 @@ from .interfaces.http.dto import (
     SessionCatalogItemDto,
     SessionCatalogListResponse,
 )
+from .interfaces.http.session_provider_contracts import (
+    SessionProviderFailureCode,
+    session_provider_failure_detail,
+)
 from .interfaces.http.spa_routes import is_spa_navigation_path
 from .privacy import load_or_create_api_token
 
 
 API_TOKEN_HEADER = "X-Prompt-Enhancer-Token"
+RUNTIME_LIVENESS_CONTRACT_VERSION = "runtime-liveness.v1"
+
+RuntimeComponentName = Literal[
+    "analysis_job_worker",
+    "automation_grant_worker",
+    "model_ensemble_watch_worker",
+    "local_source_refresh_worker",
+]
+
+
+class RuntimeComponentLivenessDto(StrictModel):
+    component: RuntimeComponentName
+    configured: bool
+    alive: bool | None
+
+
+class RuntimeLivenessDto(StrictModel):
+    contract_version: Literal["runtime-liveness.v1"] = (
+        RUNTIME_LIVENESS_CONTRACT_VERSION
+    )
+    status: Literal["ok", "degraded"]
+    components: tuple[RuntimeComponentLivenessDto, ...]
 
 _HASHED_STATIC_ASSET_PATTERN = re.compile(
     r"assets/[A-Za-z0-9][A-Za-z0-9._-]{0,95}-[A-Za-z0-9_-]{8,64}"
@@ -373,6 +399,61 @@ def _json_records(records: Sequence[Mapping[str, Any] | Any]) -> list[Any]:
     return encoded
 
 
+_SESSION_PROVIDER_HEADERS = {
+    "Cache-Control": "no-store, private",
+    "Pragma": "no-cache",
+}
+
+
+def _session_provider_failure(
+    code: SessionProviderFailureCode,
+) -> HTTPException:
+    status_code = {
+        SessionProviderFailureCode.SESSION_NOT_FOUND: 404,
+        SessionProviderFailureCode.SESSION_CATALOG_UNAVAILABLE: 503,
+    }[code]
+    return HTTPException(
+        status_code=status_code,
+        detail=session_provider_failure_detail(code),
+        headers=_SESSION_PROVIDER_HEADERS,
+    )
+
+
+def _resolve_session_provider(database: Any, session_id: str) -> Provider:
+    """Resolve one exact safe-catalog provider without inventing a fallback."""
+
+    catalog_failed = False
+    try:
+        record = database.get_session(session_id)
+    except Exception:
+        catalog_failed = True
+        record = None
+    if catalog_failed:
+        raise _session_provider_failure(
+            SessionProviderFailureCode.SESSION_CATALOG_UNAVAILABLE,
+        )
+    if record is None:
+        raise _session_provider_failure(
+            SessionProviderFailureCode.SESSION_NOT_FOUND,
+        )
+    provider: Provider | None = None
+    provider_read_failed = False
+    try:
+        provider_value = (
+            record.get("provider")
+            if isinstance(record, Mapping)
+            else getattr(record, "provider", None)
+        )
+        provider = Provider(provider_value)
+    except Exception:
+        provider_read_failed = True
+    if provider_read_failed or provider is None:
+        raise _session_provider_failure(
+            SessionProviderFailureCode.SESSION_CATALOG_UNAVAILABLE,
+        )
+    return provider
+
+
 def create_app(
     settings: AppSettings | None = None,
     database: ReadStore | None = None,
@@ -465,33 +546,53 @@ def create_app(
     if len(resolved_token) < 32:
         raise ValueError("local API token is unexpectedly short")
 
+    runtime_workers: tuple[tuple[RuntimeComponentName, Any | None], ...] = (
+        ("analysis_job_worker", analysis_job_worker),
+        ("automation_grant_worker", automation_grant_worker),
+        ("model_ensemble_watch_worker", model_ensemble_watch_worker),
+        ("local_source_refresh_worker", local_source_refresh_worker),
+    )
+
     @asynccontextmanager
     async def local_lifespan(_app: FastAPI):
-        if analysis_job_worker is not None:
-            analysis_job_worker.start()
-        if automation_grant_worker is not None:
-            automation_grant_worker.start()
-        if model_ensemble_watch_worker is not None:
-            model_ensemble_watch_worker.start()
-        if local_source_refresh_worker is not None:
-            local_source_refresh_worker.start()
+        started: list[Any] = []
+        primary_failed = False
         try:
+            for _name, worker in runtime_workers:
+                if worker is None:
+                    continue
+                # Stop is required to be idempotent, so registering before
+                # start also covers a start method that launches and then fails.
+                started.append(worker)
+                start_failed = False
+                try:
+                    worker.start()
+                except Exception:
+                    start_failed = True
+                if start_failed:
+                    raise RuntimeError("runtime_component_start_failed")
             yield
+        except BaseException:
+            primary_failed = True
+            raise
         finally:
-            if local_source_refresh_worker is not None:
-                local_source_refresh_worker.stop()
-            if model_ensemble_watch_worker is not None:
-                model_ensemble_watch_worker.stop()
-            if automation_grant_worker is not None:
-                automation_grant_worker.stop()
-            if analysis_job_worker is not None:
-                analysis_job_worker.stop()
+            cleanup_failed = False
+            for worker in reversed(started):
+                try:
+                    worker.stop()
+                except Exception:
+                    # Cleanup remains exhaustive and exception text may carry
+                    # private adapter details. Report only one fixed failure
+                    # after every configured component has been attempted.
+                    cleanup_failed = True
             if local_model_service is not None:
                 # Never leave a model runtime running after the app exits.
                 try:
                     local_model_service.shutdown()
                 except Exception:
-                    pass
+                    cleanup_failed = True
+            if cleanup_failed and not primary_failed:
+                raise RuntimeError("runtime_component_shutdown_failed")
 
     app = FastAPI(
         title="Prompt Enhancer Local API",
@@ -505,15 +606,10 @@ def create_app(
 
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.state.database = database
+    app.state.runtime_workers = runtime_workers
 
     def _session_provider(session_id: str) -> Provider:
-        """The catalog's provider for a session (Codex when unknown)."""
-
-        try:
-            record = database.get_session(session_id) if database is not None else None
-        except Exception:
-            record = None
-        return record.provider if record is not None else Provider.CODEX
+        return _resolve_session_provider(database, session_id)
     app.state.api_token = resolved_token
     app.state.settings = resolved_settings
     app.state.browser_sessions = browser_session_manager or BrowserSessionManager()
@@ -718,6 +814,44 @@ def create_app(
             ),
             "user_presence_confirmation_mode": resolved_user_presence_mode,
         }
+
+    @app.get(
+        "/v1/runtime-liveness",
+        response_model=RuntimeLivenessDto,
+        responses={503: {"model": RuntimeLivenessDto}},
+        dependencies=[authenticated],
+    )
+    def runtime_liveness(response: Response) -> RuntimeLivenessDto:
+        components: list[RuntimeComponentLivenessDto] = []
+        degraded = False
+        for name, worker in runtime_workers:
+            if worker is None:
+                components.append(
+                    RuntimeComponentLivenessDto(
+                        component=name,
+                        configured=False,
+                        alive=None,
+                    )
+                )
+                continue
+            try:
+                alive = bool(worker.is_alive())
+            except Exception:
+                alive = False
+            degraded = degraded or not alive
+            components.append(
+                RuntimeComponentLivenessDto(
+                    component=name,
+                    configured=True,
+                    alive=alive,
+                )
+            )
+        if degraded:
+            response.status_code = 503
+        return RuntimeLivenessDto(
+            status="degraded" if degraded else "ok",
+            components=tuple(components),
+        )
 
     @app.get(DESKTOP_IDENTITY_PATH, include_in_schema=False)
     def desktop_identity(
@@ -1130,16 +1264,14 @@ def create_app(
         from .interfaces.http.model_judge_routes import create_model_judge_router
 
         def _sample_ids():
-            try:
-                return tuple(calibration_sample_session_ids()) if calibration_sample_session_ids is not None else ()
-            except Exception:
-                return ()
+            if calibration_sample_session_ids is None:
+                raise RuntimeError("model judge sample catalog unavailable")
+            return tuple(calibration_sample_session_ids())
 
         def _all_ids():
-            try:
-                return tuple(all_session_ids()) if all_session_ids is not None else ()
-            except Exception:
-                return ()
+            if all_session_ids is None:
+                raise RuntimeError("model judge session catalog unavailable")
+            return tuple(all_session_ids())
 
         app.include_router(create_model_judge_router(require_local_token, model_judge_service, _sample_ids, _all_ids))
     if calibration_rating_service is not None:

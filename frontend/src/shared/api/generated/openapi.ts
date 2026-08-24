@@ -1323,7 +1323,7 @@ export interface paths {
         put?: never;
         /**
          * Sweep
-         * @description Judge the calibration sample (default) or every indexed session with the active model.
+         * @description Judge the sample or every indexed session with the active model.
          */
         post: operations["sweep_v1_model_judge_sweep_post"];
         delete?: never;
@@ -1725,6 +1725,23 @@ export interface paths {
         };
         /** Get Text Model Runtime */
         get: operations["get_text_model_runtime_v1_research_text_model_runtime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runtime-liveness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Runtime Liveness */
+        get: operations["runtime_liveness_v1_runtime_liveness_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4937,11 +4954,45 @@ export interface components {
             /** Session Id */
             session_id: string;
         };
+        /** DeclaredTaskProfileNotFoundFailureDetail */
+        DeclaredTaskProfileNotFoundFailureDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "declared_task_profile_session_not_found";
+            /**
+             * Message
+             * @constant
+             */
+            message: "declared task profile session was not found";
+        };
+        /** DeclaredTaskProfileNotFoundFailureResponse */
+        DeclaredTaskProfileNotFoundFailureResponse: {
+            detail: components["schemas"]["DeclaredTaskProfileNotFoundFailureDetail"];
+        };
         /** DeclaredTaskProfileOutcomeDto */
         DeclaredTaskProfileOutcomeDto: {
             /** Applied */
             applied: boolean;
             profile: components["schemas"]["DeclaredTaskProfileDto"];
+        };
+        /** DeclaredTaskProfileUnavailableFailureDetail */
+        DeclaredTaskProfileUnavailableFailureDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "declared_task_profile_persistence_failed";
+            /**
+             * Message
+             * @constant
+             */
+            message: "declared task profile is unavailable";
+        };
+        /** DeclaredTaskProfileUnavailableFailureResponse */
+        DeclaredTaskProfileUnavailableFailureResponse: {
+            detail: components["schemas"]["DeclaredTaskProfileUnavailableFailureDetail"];
         };
         /**
          * DeliverableSlot
@@ -4967,7 +5018,7 @@ export interface components {
          * DetectionSignal
          * @enum {string}
          */
-        DetectionSignal: "codex_cli_on_path" | "claude_transcript_root" | "not_found";
+        DetectionSignal: "codex_cli_on_path" | "claude_transcript_root" | "claude_transcript_enumeration_unavailable" | "claude_transcript_count_capped" | "not_found";
         /**
          * DeviceMode
          * @enum {string}
@@ -5324,8 +5375,7 @@ export interface components {
             done: number;
             /** Failed */
             failed: number;
-            /** Last Error Code */
-            last_error_code?: string | null;
+            last_error_code?: components["schemas"]["ModelJudgeSweepFailureCode"] | null;
             /** Model Alias */
             model_alias?: string | null;
             /** Running */
@@ -5399,6 +5449,42 @@ export interface components {
          * @enum {string}
          */
         LicenseAdmission: "allowed" | "not_allowed" | "unreviewed" | "unavailable";
+        /** LocalModelActivationConflictFailureDetail */
+        LocalModelActivationConflictFailureDetail: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "model_file_missing" | "runtime_unavailable" | "runtime_activation_superseded";
+        };
+        /** LocalModelActivationConflictFailureResponse */
+        LocalModelActivationConflictFailureResponse: {
+            detail: components["schemas"]["LocalModelActivationConflictFailureDetail"];
+        };
+        /** LocalModelActivationFailureDetail */
+        LocalModelActivationFailureDetail: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "runtime_spawn_failed" | "runtime_not_healthy";
+        };
+        /** LocalModelActivationFailureResponse */
+        LocalModelActivationFailureResponse: {
+            detail: components["schemas"]["LocalModelActivationFailureDetail"];
+        };
+        /** LocalModelNotFoundFailureDetail */
+        LocalModelNotFoundFailureDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "model_not_found";
+        };
+        /** LocalModelNotFoundFailureResponse */
+        LocalModelNotFoundFailureResponse: {
+            detail: components["schemas"]["LocalModelNotFoundFailureDetail"];
+        };
         /** LocalModelRecord */
         LocalModelRecord: {
             /**
@@ -5451,6 +5537,18 @@ export interface components {
             endpoint_path: string;
             record: components["schemas"]["LocalModelRecord"];
             runtime: components["schemas"]["RuntimeStatus"];
+        };
+        /** LocalModelStopFailureDetail */
+        LocalModelStopFailureDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "runtime_stop_failed";
+        };
+        /** LocalModelStopFailureResponse */
+        LocalModelStopFailureResponse: {
+            detail: components["schemas"]["LocalModelStopFailureDetail"];
         };
         /** LocalModelsOverview */
         LocalModelsOverview: {
@@ -7239,6 +7337,23 @@ export interface components {
             /** Votes */
             votes: components["schemas"]["ModelEnsembleVoteDto"][];
         };
+        /** ModelEnsembleSelectionFailureDetail */
+        ModelEnsembleSelectionFailureDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "session_not_in_safe_index";
+            /**
+             * Message
+             * @constant
+             */
+            message: "selected session is not indexed";
+        };
+        /** ModelEnsembleSelectionFailureResponse */
+        ModelEnsembleSelectionFailureResponse: {
+            detail: components["schemas"]["ModelEnsembleSelectionFailureDetail"];
+        };
         /** ModelEnsembleTrajectoryPage */
         ModelEnsembleTrajectoryPage: {
             /**
@@ -7364,6 +7479,23 @@ export interface components {
              */
             value_state: "known" | "unknown" | "not_applicable" | "abstained" | "execution_error";
         };
+        /** ModelEnsembleUnavailableFailureDetail */
+        ModelEnsembleUnavailableFailureDetail: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "source_schema_unsupported" | "provider_protocol_rejected" | "provider_unavailable" | "local_model_ensemble_execution_failed" | "model_ensemble_persistence_failed";
+            /**
+             * Message
+             * @enum {string}
+             */
+            message: "bounded local source read failed" | "local model ensemble execution failed" | "local model ensemble persistence failed";
+        };
+        /** ModelEnsembleUnavailableFailureResponse */
+        ModelEnsembleUnavailableFailureResponse: {
+            detail: components["schemas"]["ModelEnsembleUnavailableFailureDetail"];
+        };
         /** ModelEnsembleVoteDto */
         ModelEnsembleVoteDto: {
             /** Chunk Ordinal */
@@ -7478,10 +7610,44 @@ export interface components {
             /** Project Id */
             project_id: string;
         };
+        /** ModelEnsembleWatchSelectionFailureDetail */
+        ModelEnsembleWatchSelectionFailureDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "session_not_in_safe_index";
+            /**
+             * Message
+             * @constant
+             */
+            message: "selected session is not indexed";
+        };
+        /** ModelEnsembleWatchSelectionFailureResponse */
+        ModelEnsembleWatchSelectionFailureResponse: {
+            detail: components["schemas"]["ModelEnsembleWatchSelectionFailureDetail"];
+        };
         /** ModelEnsembleWatchSnapshotDto */
         ModelEnsembleWatchSnapshotDto: {
             latest_run: components["schemas"]["ModelEnsembleRunDto"] | null;
             watch: components["schemas"]["ModelEnsembleWatchDto"];
+        };
+        /** ModelEnsembleWatchUnavailableFailureDetail */
+        ModelEnsembleWatchUnavailableFailureDetail: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "model_ensemble_persistence_failed";
+            /**
+             * Message
+             * @constant
+             */
+            message: "model ensemble result is unavailable";
+        };
+        /** ModelEnsembleWatchUnavailableFailureResponse */
+        ModelEnsembleWatchUnavailableFailureResponse: {
+            detail: components["schemas"]["ModelEnsembleWatchUnavailableFailureDetail"];
         };
         /** ModelEvaluationJobDto */
         ModelEvaluationJobDto: {
@@ -7550,6 +7716,25 @@ export interface components {
          * @enum {string}
          */
         ModelFormat: "gguf";
+        /**
+         * ModelJudgeFailureCode
+         * @enum {string}
+         */
+        ModelJudgeFailureCode: "no_active_model" | "session_not_found" | "consent_required" | "window_unavailable" | "model_unreachable" | "model_not_active" | "model_error" | "model_reply_invalid" | "model_judge_catalog_unavailable";
+        /** ModelJudgeFailureDetail */
+        ModelJudgeFailureDetail: {
+            code: components["schemas"]["ModelJudgeFailureCode"];
+        };
+        /** ModelJudgeFailureResponse */
+        ModelJudgeFailureResponse: {
+            detail: components["schemas"]["ModelJudgeFailureDetail"];
+        };
+        /**
+         * ModelJudgeSweepFailureCode
+         * @description The complete content-free failure vocabulary exposed by sweep status.
+         * @enum {string}
+         */
+        ModelJudgeSweepFailureCode: "no_active_model" | "session_not_found" | "consent_required" | "window_unavailable" | "model_unreachable" | "model_not_active" | "model_error" | "model_reply_invalid" | "model_judge_catalog_unavailable" | "judge_failed";
         /** ModelJudgment */
         ModelJudgment: {
             /**
@@ -8248,7 +8433,7 @@ export interface components {
             /** Granted */
             granted: ("codex" | "claude_code")[];
             /** Indexed Sessions */
-            indexed_sessions: number;
+            indexed_sessions: number | null;
             status: components["schemas"]["OnboardingStatus"];
         };
         /** OnboardingStatus */
@@ -8267,7 +8452,7 @@ export interface components {
              */
             contract_version: "onboarding.v1";
             /** Last Refresh At */
-            last_refresh_at?: string | null;
+            last_refresh_at: string | null;
             /**
              * Last Refresh Error
              * @default false
@@ -8857,7 +9042,7 @@ export interface components {
             /** Consent Active */
             consent_active: boolean;
             /** Indexed Sessions */
-            indexed_sessions: number;
+            indexed_sessions: number | null;
             /** Installed */
             installed: boolean;
             /**
@@ -8867,7 +9052,7 @@ export interface components {
             provider: "codex" | "claude_code";
             signal: components["schemas"]["DetectionSignal"];
             /** Transcript Files */
-            transcript_files?: number | null;
+            transcript_files: number | null;
         };
         /** ProviderMetricCapability */
         ProviderMetricCapability: {
@@ -10957,6 +11142,34 @@ export interface components {
              */
             route: "balanced";
         };
+        /** RuntimeComponentLivenessDto */
+        RuntimeComponentLivenessDto: {
+            /** Alive */
+            alive: boolean | null;
+            /**
+             * Component
+             * @enum {string}
+             */
+            component: "analysis_job_worker" | "automation_grant_worker" | "model_ensemble_watch_worker" | "local_source_refresh_worker";
+            /** Configured */
+            configured: boolean;
+        };
+        /** RuntimeLivenessDto */
+        RuntimeLivenessDto: {
+            /** Components */
+            components: components["schemas"]["RuntimeComponentLivenessDto"][];
+            /**
+             * Contract Version
+             * @default runtime-liveness.v1
+             * @constant
+             */
+            contract_version: "runtime-liveness.v1";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "degraded";
+        };
         /**
          * RuntimeState
          * @enum {string}
@@ -11573,6 +11786,24 @@ export interface components {
             q95?: number | null;
             state: components["schemas"]["PredictiveMetricState"];
             target: components["schemas"]["PredictiveMetricTarget"];
+        };
+        /**
+         * SessionProviderFailureCode
+         * @enum {string}
+         */
+        SessionProviderFailureCode: "session_not_found" | "session_catalog_unavailable";
+        /** SessionProviderFailureDetail */
+        SessionProviderFailureDetail: {
+            code: components["schemas"]["SessionProviderFailureCode"];
+            /**
+             * Message
+             * @enum {string}
+             */
+            message: "selected session is not indexed" | "session catalog is unavailable";
+        };
+        /** SessionProviderFailureResponse */
+        SessionProviderFailureResponse: {
+            detail: components["schemas"]["SessionProviderFailureDetail"];
         };
         /**
          * SessionQualityAggregate
@@ -14937,6 +15168,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelNotFoundFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -14944,6 +15184,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelStopFailureResponse"];
                 };
             };
         };
@@ -14975,6 +15224,24 @@ export interface operations {
                     "application/json": components["schemas"]["LocalModelStatus"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelNotFoundFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelActivationConflictFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -14982,6 +15249,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelActivationFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelStopFailureResponse"];
                 };
             };
         };
@@ -15043,6 +15328,15 @@ export interface operations {
                     "application/json": components["schemas"]["LocalModelStatus"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelNotFoundFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -15050,6 +15344,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalModelStopFailureResponse"];
                 };
             };
         };
@@ -15794,6 +16097,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
         };
     };
     session_judgments_v1_model_judge_sessions__session_id__get: {
@@ -15828,6 +16140,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
         };
     };
     judge_session_v1_model_judge_sessions__session_id__post: {
@@ -15853,6 +16174,33 @@ export interface operations {
                     "application/json": components["schemas"]["JudgeOutcome"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -15860,6 +16208,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
                 };
             };
         };
@@ -15887,6 +16253,33 @@ export interface operations {
                     "application/json": components["schemas"]["SessionInterpretation"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -15894,6 +16287,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
                 };
             };
         };
@@ -15953,6 +16364,15 @@ export interface operations {
                     "application/json": components["schemas"]["JudgeSweepStatus"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -15960,6 +16380,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelJudgeFailureResponse"];
                 };
             };
         };
@@ -16878,6 +17307,47 @@ export interface operations {
             };
         };
     };
+    runtime_liveness_v1_runtime_liveness_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Prompt-Enhancer-Token"?: string | null;
+                "X-Prompt-Enhancer-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLivenessDto"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLivenessDto"];
+                };
+            };
+        };
+    };
     sessions_v1_sessions_get: {
         parameters: {
             query?: {
@@ -17083,6 +17553,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeclaredTaskProfileCurrentDto"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionProviderFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -17090,6 +17569,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclaredTaskProfileUnavailableFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
         };
@@ -17123,6 +17611,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeclaredTaskProfileOutcomeDto"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclaredTaskProfileNotFoundFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -17130,6 +17627,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclaredTaskProfileUnavailableFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
         };
@@ -17399,6 +17905,15 @@ export interface operations {
                     "application/json": components["schemas"]["ModelEnsembleOutcomeDto"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleSelectionFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -17406,6 +17921,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleUnavailableFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
         };
@@ -17471,6 +17995,15 @@ export interface operations {
                     "application/json": components["schemas"]["ModelEnsembleWatchSnapshotDto"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleWatchSelectionFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -17478,6 +18011,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEnsembleWatchUnavailableFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
         };
@@ -17525,7 +18067,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
             /** @description Conflict */
@@ -17561,7 +18103,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ModelLinkFailureResponse"];
+                    "application/json": components["schemas"]["ModelLinkFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
             /** @description Gateway Timeout */
@@ -17669,7 +18211,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
             /** @description Conflict */
@@ -17705,7 +18247,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
             /** @description Gateway Timeout */
@@ -17799,7 +18341,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
             /** @description Conflict */
@@ -17835,7 +18377,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"];
+                    "application/json": components["schemas"]["SessionTextAnalysisFailureResponse"] | components["schemas"]["SessionProviderFailureResponse"];
                 };
             };
             /** @description Gateway Timeout */

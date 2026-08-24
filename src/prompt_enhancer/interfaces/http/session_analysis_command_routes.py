@@ -45,6 +45,7 @@ from ...application.analysis.text_contracts import (
 from ...application.analysis.text_source import TextSourceFailureReason
 from ...application.persistence import AnalysisRunStatus
 from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider, StrictModel
+from .session_provider_contracts import SessionProviderFailureResponse
 
 
 _PRIVATE_NO_STORE_HEADERS = {
@@ -359,7 +360,7 @@ def _analysis_failure(error: Exception) -> HTTPException:
 def create_session_analysis_command_router(
     require_local_auth: Callable[..., None],
     service: SessionTextAnalysisCommand,
-    provider_resolver: Callable[[str], Provider] | None = None,
+    provider_resolver: Callable[[str], Provider],
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
@@ -368,9 +369,8 @@ def create_session_analysis_command_router(
     )
 
     def provider_of(session_id: str) -> Provider:
-        # The session's own provider decides which local text source is read;
-        # without a resolver the historical Codex default applies.
-        return provider_resolver(session_id) if provider_resolver is not None else Provider.CODEX
+        # The exact catalog row decides which local text source is read.
+        return provider_resolver(session_id)
 
     @router.post(
         "/sessions/{session_id}/quality-analysis-previews",
@@ -378,7 +378,19 @@ def create_session_analysis_command_router(
         responses={
             **{
                 status: {"model": SessionTextAnalysisFailureResponse}
-                for status in (403, 404, 409, 413, 503, 504)
+                for status in (403, 409, 413, 504)
+            },
+            404: {
+                "model": (
+                    SessionTextAnalysisFailureResponse
+                    | SessionProviderFailureResponse
+                )
+            },
+            503: {
+                "model": (
+                    SessionTextAnalysisFailureResponse
+                    | SessionProviderFailureResponse
+                )
             },
             422: {
                 "model": (
@@ -477,7 +489,19 @@ def create_session_analysis_command_router(
         responses={
             **{
                 status: {"model": SessionTextAnalysisFailureResponse}
-                for status in (403, 404, 409, 413, 503, 504)
+                for status in (403, 409, 413, 504)
+            },
+            404: {
+                "model": (
+                    SessionTextAnalysisFailureResponse
+                    | SessionProviderFailureResponse
+                )
+            },
+            503: {
+                "model": (
+                    SessionTextAnalysisFailureResponse
+                    | SessionProviderFailureResponse
+                )
             },
             422: {
                 "model": (

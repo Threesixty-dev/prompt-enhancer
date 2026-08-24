@@ -31,6 +31,7 @@ from ...application.analysis.model_link_experiments import (
 )
 from ...application.analysis.text_source import TextSourceFailureReason
 from ...domain import PSEUDONYM_PATTERN, SAFE_VERSION_PATTERN, Provider, StrictModel
+from .session_provider_contracts import SessionProviderFailureResponse
 
 
 class ModelLinkExperimentCommand(Protocol):
@@ -268,7 +269,7 @@ def _failure(status_code: int, code: ModelLinkFailureCode, message: str) -> HTTP
 def create_model_link_experiment_router(
     require_local_auth: Callable[..., None],
     service: ModelLinkExperimentCommand,
-    provider_resolver: Callable[[str], Provider] | None = None,
+    provider_resolver: Callable[[str], Provider],
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
@@ -277,7 +278,7 @@ def create_model_link_experiment_router(
     )
 
     def provider_of(session_id: str) -> Provider:
-        return provider_resolver(session_id) if provider_resolver is not None else Provider.CODEX
+        return provider_resolver(session_id)
 
     @router.post(
         "/sessions/{session_id}/model-link-experiments",
@@ -285,7 +286,13 @@ def create_model_link_experiment_router(
         responses={
             **{
                 status: {"model": ModelLinkFailureResponse}
-                for status in (403, 404, 409, 413, 503, 504)
+                for status in (403, 409, 413, 504)
+            },
+            404: {
+                "model": ModelLinkFailureResponse | SessionProviderFailureResponse
+            },
+            503: {
+                "model": ModelLinkFailureResponse | SessionProviderFailureResponse
             },
             422: {
                 "model": (

@@ -133,7 +133,14 @@ from prompt_enhancer.application.analysis.text_contracts import (
 from prompt_enhancer.application.analysis.text_source import TextAnalysisPurpose
 from prompt_enhancer.config import AppSettings
 from prompt_enhancer.database import Database
-from prompt_enhancer.domain import DataTier, EventKind, Provider, ToolCategory
+from prompt_enhancer.domain import (
+    DataTier,
+    EventKind,
+    Provider,
+    SafeSession,
+    SessionState,
+    ToolCategory,
+)
 from prompt_enhancer.infrastructure.text_models.model_ensemble import (
     MODEL_ENSEMBLE_RUNNER_SCHEMA_VERSION,
     SerialModelEnsembleRunner,
@@ -148,6 +155,24 @@ from prompt_enhancer.interfaces.http.requirement_plan_evidence_routes import (
 
 
 SESSION_ID = "a" * 64
+
+
+def _persist_api_session(database: Database) -> None:
+    database.persist_session(
+        SafeSession(
+            provider=Provider.CODEX,
+            installation_id="b" * 64,
+            project_id="c" * 64,
+            session_id=SESSION_ID,
+            provider_version="example-provider-1",
+            adapter_version="example-adapter-1",
+            source_schema_version="example-schema-1",
+            started_at=datetime(2040, 1, 1, tzinfo=UTC),
+            terminal_state=SessionState.UNKNOWN,
+            events_complete=False,
+        ),
+        (),
+    )
 WINDOW_ID = "b" * 64
 TOKEN = "example_model_ensemble_api_token_1234567890"
 
@@ -1119,6 +1144,7 @@ def test_private_api_returns_only_content_free_shadow_receipts(tmp_path) -> None
     service, source, _ = _service()
     database = Database(tmp_path / "metrics.sqlite3")
     database.initialize()
+    _persist_api_session(database)
     app = create_app(
         settings=AppSettings(home=tmp_path),
         database=database,
@@ -1196,6 +1222,7 @@ def test_private_watch_api_enables_without_reading_and_can_be_disabled(tmp_path)
     )
     database = Database(tmp_path / "metrics.sqlite3")
     database.initialize()
+    _persist_api_session(database)
     app = create_app(
         settings=AppSettings(home=tmp_path),
         database=database,
@@ -1486,6 +1513,7 @@ class _FailingService:
 def test_api_discards_model_exception_details(tmp_path) -> None:
     database = Database(tmp_path / "metrics.sqlite3")
     database.initialize()
+    _persist_api_session(database)
     app = create_app(
         settings=AppSettings(home=tmp_path),
         database=database,

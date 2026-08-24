@@ -30,6 +30,7 @@ from ...application.analysis.session_model_ensemble import (
 )
 from ...domain import PSEUDONYM_PATTERN, Provider, StrictModel
 from .model_ensemble_routes import ModelEnsembleRunDto
+from .session_provider_contracts import SessionProviderFailureResponse
 
 
 _PRIVATE_HEADERS = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
@@ -196,6 +197,24 @@ class ModelEnsembleRunReader(Protocol):
     def get(self, run_id: str) -> SessionModelEnsembleRunRecord | None: ...
 
 
+class ModelEnsembleWatchSelectionFailureDetail(StrictModel):
+    code: Literal["session_not_in_safe_index"]
+    message: Literal["selected session is not indexed"]
+
+
+class ModelEnsembleWatchSelectionFailureResponse(StrictModel):
+    detail: ModelEnsembleWatchSelectionFailureDetail
+
+
+class ModelEnsembleWatchUnavailableFailureDetail(StrictModel):
+    code: Literal["model_ensemble_persistence_failed"]
+    message: Literal["model ensemble result is unavailable"]
+
+
+class ModelEnsembleWatchUnavailableFailureResponse(StrictModel):
+    detail: ModelEnsembleWatchUnavailableFailureDetail
+
+
 def _watch_failure(error: Exception) -> HTTPException:
     if isinstance(error, ModelEnsembleConsentError):
         return HTTPException(403, detail={"code": error.code, "message": "redacted-content consent required"})
@@ -218,7 +237,7 @@ def create_model_ensemble_watch_router(
     require_local_auth: Callable[..., None],
     service: ModelEnsembleWatchService,
     ensemble: ModelEnsembleRunReader,
-    provider_resolver: Callable[[str], Provider] | None = None,
+    provider_resolver: Callable[[str], Provider],
 ) -> APIRouter:
     router = APIRouter(
         prefix="/v1",
@@ -252,6 +271,20 @@ def create_model_ensemble_watch_router(
     @router.put(
         "/sessions/{session_id}/model-ensemble-watch",
         response_model=ModelEnsembleWatchSnapshotDto,
+        responses={
+            404: {
+                "model": (
+                    ModelEnsembleWatchSelectionFailureResponse
+                    | SessionProviderFailureResponse
+                )
+            },
+            503: {
+                "model": (
+                    ModelEnsembleWatchUnavailableFailureResponse
+                    | SessionProviderFailureResponse
+                )
+            },
+        },
     )
     def enable_watch(
         payload: ModelEnsembleWatchRequest,
@@ -261,7 +294,7 @@ def create_model_ensemble_watch_router(
         response.headers.update(_PRIVATE_HEADERS)
         try:
             record = service.enable(
-                provider=provider_resolver(session_id) if provider_resolver is not None else Provider.CODEX,
+                provider=provider_resolver(session_id),
                 project_id=payload.project_id,
                 session_id=session_id,
                 max_messages=payload.max_messages,

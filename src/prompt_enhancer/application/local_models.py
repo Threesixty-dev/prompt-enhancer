@@ -825,10 +825,18 @@ class LocalModelRegistry:
 class LlamaServerProcess:
     """One running llama-server bound to loopback."""
 
-    def __init__(self, *, process: subprocess.Popen, port: int, status: RuntimeStatus) -> None:
+    def __init__(
+        self,
+        *,
+        process: subprocess.Popen,
+        port: int,
+        status: RuntimeStatus,
+        activation_generation: int,
+    ) -> None:
         self.process = process
         self.port = port
         self.status = status
+        self.activation_generation = activation_generation
 
     @property
     def base_url(self) -> str:
@@ -857,6 +865,9 @@ class LocalModelService:
         self._downloader = downloader
         self._model_info = model_info
         self._processes: dict[str, LlamaServerProcess] = {}
+        self._runtime_command_generations: dict[str, int] = {}
+        self._reaped_activation_generations: dict[str, int] = {}
+        self._shutdown_generation = 0
         self._failures: dict[str, str] = {}
         self._downloads: dict[str, DownloadStatus] = {}
         self._lock = threading.RLock()
@@ -959,6 +970,7 @@ class LocalModelService:
             if process is not None:
                 if process.process.poll() is not None:
                     self._failures[alias] = "runtime_exited"
+                    self._reaped_activation_generations[alias] = process.activation_generation
                     del self._processes[alias]
                     runtime = RuntimeStatus(state=RuntimeState.FAILED, last_error_code="runtime_exited")
                 else:
@@ -972,6 +984,11 @@ class LocalModelService:
 
     def activate(self, alias: str, request: ActivateLocalModel | None = None) -> LocalModelStatus:
         request = request or ActivateLocalModel()
+        with self._lock:
+            observed_command_generation = self._runtime_command_generations.get(
+                alias, 0
+            )
+            observed_shutdown_generation = self._shutdown_generation
         record = self._registry.get(alias)
         if record is None:
             raise LocalModelError("model_not_found")
@@ -1000,24 +1017,39 @@ class LocalModelService:
                     gpu_memory_free_mb=hardware.gpu_memory_free_mb,
                     context_size=context,
                 )
-        if request.remember:
-            self._registry.upsert(
-                record.model_copy(
-                    update={
-                        "default_device": device,
-                        "default_gpu_layers": gpu_layers if device is DeviceMode.SPLIT else record.default_gpu_layers,
-                        "context_size": context,
-                    }
+        with self._lock:
+            if (
+                self._shutdown_generation != observed_shutdown_generation
+                or self._runtime_command_generations.get(alias, 0)
+                != observed_command_generation
+            ):
+                raise LocalModelError("runtime_activation_superseded")
+            activation_generation = observed_command_generation + 1
+            self._runtime_command_generations[alias] = activation_generation
+            if request.remember:
+                self._registry.upsert(
+                    record.model_copy(
+                        update={
+                            "default_device": device,
+                            "default_gpu_layers": gpu_layers if device is DeviceMode.SPLIT else record.default_gpu_layers,
+                            "context_size": context,
+                        }
+                    )
                 )
-            )
-            record = self._registry.get(alias) or record
+                record = self._registry.get(alias) or record
         attempts = [(request.fast_attention, request.tool_calling)]
         if request.fast_attention:
             attempts.append((False, request.tool_calling))  # older builds or CPU-only: retry plain
         last_error = "runtime_not_healthy"
         for fast_attention, tool_calling in attempts:
             with self._lock:
-                self.deactivate(alias)
+                if (
+                    self._shutdown_generation != observed_shutdown_generation
+                    or self._runtime_command_generations.get(alias, 0)
+                    > activation_generation
+                ):
+                    raise LocalModelError("runtime_activation_superseded")
+                self._deactivate_locked(alias)
                 port = free_loopback_port()
                 command = [
                     str(binary), "-m", str(path), "--host", "127.0.0.1", "--port", str(port),
@@ -1036,19 +1068,56 @@ class LocalModelService:
                 handle = LlamaServerProcess(
                     process=process,
                     port=port,
+                    activation_generation=activation_generation,
                     status=RuntimeStatus(
                         state=RuntimeState.STARTING, device=device, gpu_layers=gpu_layers, context_size=context,
                         started_at=started_at, pid=process.pid, fast_attention=fast_attention, tool_calling=tool_calling,
                     ),
                 )
                 self._processes[alias] = handle
+                self._reaped_activation_generations.pop(alias, None)
                 self._failures.pop(alias, None)
-            if self._wait_healthy(handle):
-                handle.status = handle.status.model_copy(update={"state": RuntimeState.RUNNING})
-                return self.status(alias, record=record)
+            healthy = self._wait_healthy(handle)
             with self._lock:
-                self._stop(handle)
-                self._processes.pop(alias, None)
+                current = self._processes.get(alias)
+                if (
+                    self._shutdown_generation != observed_shutdown_generation
+                    or self._runtime_command_generations.get(alias, 0)
+                    > activation_generation
+                ):
+                    self._stop(handle)
+                    if current is handle:
+                        del self._processes[alias]
+                    raise LocalModelError("runtime_activation_superseded")
+                reaped_own_handle = (
+                    current is None
+                    and self._reaped_activation_generations.get(alias)
+                    == activation_generation
+                )
+                if healthy and current is handle and handle.process.poll() is None:
+                    handle.status = handle.status.model_copy(update={"state": RuntimeState.RUNNING})
+                    return self.status(alias, record=record)
+                if current is not handle and not reaped_own_handle:
+                    self._stop(handle)
+                    raise LocalModelError(last_error)
+                try:
+                    self._stop(handle)
+                except LocalModelError:
+                    handle.status = handle.status.model_copy(
+                        update={
+                            "state": RuntimeState.FAILED,
+                            "last_error_code": "runtime_stop_failed",
+                        }
+                    )
+                    self._failures[alias] = "runtime_stop_failed"
+                    raise
+                if self._processes.get(alias) is handle:
+                    del self._processes[alias]
+                if (
+                    self._reaped_activation_generations.get(alias)
+                    == activation_generation
+                ):
+                    del self._reaped_activation_generations[alias]
                 self._failures[alias] = last_error
         raise LocalModelError(last_error)
 
@@ -1068,28 +1137,71 @@ class LocalModelService:
 
     def deactivate(self, alias: str) -> None:
         with self._lock:
-            handle = self._processes.pop(alias, None)
-            if handle is not None:
+            self._runtime_command_generations[alias] = (
+                self._runtime_command_generations.get(alias, 0) + 1
+            )
+            self._deactivate_locked(alias)
+
+    def _deactivate_locked(self, alias: str) -> None:
+        """Stop one alias without superseding an activation's internal retry."""
+
+        self._reaped_activation_generations.pop(alias, None)
+        handle = self._processes.get(alias)
+        if handle is not None:
+            try:
                 self._stop(handle)
-            self._failures.pop(alias, None)
+            except LocalModelError:
+                handle.status = handle.status.model_copy(
+                    update={
+                        "state": RuntimeState.FAILED,
+                        "last_error_code": "runtime_stop_failed",
+                    }
+                )
+                self._failures[alias] = "runtime_stop_failed"
+                raise
+            if self._processes.get(alias) is handle:
+                del self._processes[alias]
+        self._failures.pop(alias, None)
 
     @staticmethod
     def _stop(handle: LlamaServerProcess) -> None:
         process = handle.process
-        if process.poll() is None:
+        if process.poll() is not None:
+            return
+        try:
+            process.terminate()
+        except Exception:
+            pass
+        try:
+            process.wait(timeout=10)
+        except Exception:
             try:
-                process.terminate()
+                process.kill()
+            except Exception:
+                pass
+            try:
                 process.wait(timeout=10)
             except Exception:
-                try:
-                    process.kill()
-                except Exception:
-                    pass
+                pass
+        if process.poll() is None:
+            raise LocalModelError("runtime_stop_failed")
 
     def shutdown(self) -> None:
+        failed = False
         with self._lock:
+            self._shutdown_generation += 1
+            aliases = set(self._runtime_command_generations) | set(self._processes)
+            for alias in aliases:
+                self._runtime_command_generations[alias] = (
+                    self._runtime_command_generations.get(alias, 0) + 1
+                )
             for alias in list(self._processes):
-                self.deactivate(alias)
+                try:
+                    self._deactivate_locked(alias)
+                except LocalModelError:
+                    failed = True
+        if failed:
+            raise LocalModelError("runtime_shutdown_failed")
 
     # ----- chat proxy -----
 
@@ -1097,15 +1209,34 @@ class LocalModelService:
         """Aliases whose runtime is healthy right now (for the OpenAI-style model list)."""
 
         with self._lock:
-            return tuple(sorted(alias for alias, handle in self._processes.items() if handle.status.state is RuntimeState.RUNNING))
+            running: list[str] = []
+            for alias, handle in tuple(self._processes.items()):
+                if handle.process.poll() is not None:
+                    if self._processes.get(alias) is handle:
+                        del self._processes[alias]
+                        self._reaped_activation_generations[alias] = (
+                            handle.activation_generation
+                        )
+                    self._failures[alias] = "runtime_exited"
+                elif handle.status.state is RuntimeState.RUNNING:
+                    running.append(alias)
+            return tuple(sorted(running))
 
     def _prepare_chat(self, alias: str, body: bytes) -> tuple[LlamaServerProcess, dict[str, object]]:
         if len(body) > MAX_CHAT_BODY_BYTES:
             raise LocalModelError("chat_body_too_large")
         with self._lock:
             handle = self._processes.get(alias)
-        if handle is None or handle.status.state is not RuntimeState.RUNNING:
-            raise LocalModelError("model_not_active")
+            if handle is not None and handle.process.poll() is not None:
+                if self._processes.get(alias) is handle:
+                    del self._processes[alias]
+                    self._reaped_activation_generations[alias] = (
+                        handle.activation_generation
+                    )
+                self._failures[alias] = "runtime_exited"
+                handle = None
+            if handle is None or handle.status.state is not RuntimeState.RUNNING:
+                raise LocalModelError("model_not_active")
         try:
             payload = json.loads(body.decode("utf-8"))
         except (ValueError, UnicodeDecodeError):

@@ -318,10 +318,7 @@ class LocalApplication:
         calibration = calibration_service or self.create_calibration_rating_service()
 
         def active_model():
-            try:
-                overview = models.overview()
-            except Exception:
-                return None
+            overview = models.overview()
             for item in overview.models:
                 if item.runtime.state is RuntimeState.RUNNING:
                     identity = item.record.source_file or Path(item.record.path).name
