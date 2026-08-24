@@ -4,6 +4,7 @@ import {
   type MetricOpportunityStatus,
   type OpportunityMetricDirection,
 } from "./metricOpportunityCatalog";
+import { useId } from "react";
 import "./MetricOpportunityMap.css";
 
 const STATUS_COPY: Record<MetricOpportunityStatus, string> = {
@@ -20,6 +21,7 @@ const DIRECTION_COPY: Record<OpportunityMetricDirection, string> = {
 
 export function MetricOpportunityMap() {
   const priorities = ["P0", "P1"] as const;
+  const instanceId = useId();
   return (
     <details className="metric-opportunity-map">
       <summary>
@@ -44,16 +46,17 @@ export function MetricOpportunityMap() {
           const families = METRIC_OPPORTUNITY_FAMILIES.filter(
             (family) => family.priority === priority,
           );
+          const titleId = `${instanceId}-metric-opportunity-${priority}`;
           return (
             <section
-              aria-labelledby={`metric-opportunity-${priority}`}
+              aria-labelledby={titleId}
               className="metric-opportunity-map__priority"
               key={priority}
             >
               <header>
                 <div>
                   <span>{priority}</span>
-                  <h3 id={`metric-opportunity-${priority}`}>
+                  <h3 id={titleId}>
                     {priority === "P0"
                       ? "Next evidence for real user benefit"
                       : "Task-specific and private extensions"}

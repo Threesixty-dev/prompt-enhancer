@@ -359,6 +359,26 @@ describe("QualityRadar", () => {
     expect(longName.closest("button")?.querySelector('[role="progressbar"]')).toBeNull();
   });
 
+  it("drops a same-key pin synchronously when metric provenance and values change", () => {
+    const first = promptAndCollaborationMetrics();
+    const second = promptAndCollaborationMetrics();
+    second[0] = {
+      ...second[0],
+      ratio: 0.9,
+      fractionNumerator: 9,
+      algorithmVersion: "synthetic-revision-b",
+      computedAt: "2040-01-02T00:00:00Z",
+    };
+    const { rerender } = render(<QualityRadar metrics={first} />);
+    fireEvent.click(screen.getByRole("button", { name: /Evidence full metric name/i }));
+    expect(screen.getByRole("button", { name: "Clear pin" })).toBeVisible();
+
+    rerender(<QualityRadar metrics={second} />);
+
+    expect(screen.queryByRole("button", { name: "Clear pin" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Task full metric name/i })).toHaveTextContent("90%");
+  });
+
   it("uses one exact-value control rail without redundant plot controls", () => {
     const { container } = render(
       <QualityRadar metrics={promptAndCollaborationMetrics()} />,
@@ -366,7 +386,14 @@ describe("QualityRadar", () => {
 
     const rail = container.querySelector(".quality-radar__rail");
     expect(rail).toBeVisible();
-    expect(rail?.querySelectorAll(".quality-board")).toHaveLength(1);
+    expect(rail?.querySelectorAll(".quality-board")).toHaveLength(0);
+    const exactBoard = container.querySelector(".quality-radar__explorer > .quality-board");
+    const workspace = container.querySelector(".quality-radar__workspace--secondary");
+    expect(exactBoard).toBeVisible();
+    expect(workspace).toBeVisible();
+    expect(
+      exactBoard!.compareDocumentPosition(workspace!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(container.querySelector(".quality-radar__axis-list")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /focus plot/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /zoom/i })).not.toBeInTheDocument();
@@ -720,5 +747,28 @@ describe("QualityRadar", () => {
     expect(card).toHaveTextContent("80%");
     expect(card).toHaveTextContent("Readiness metadata mismatch");
     expect(screen.getByLabelText("Compatible exact-value bars")).toHaveTextContent("80%");
+  });
+
+  it("shows exact known readiness and its no-action receipt without changing the value", () => {
+    const metric = syntheticMetric({
+      key: "prompt.task_definition_coverage",
+      label: "Task",
+      ratio: 0.8,
+    });
+    const readiness = syntheticReadiness(metric, {
+      state: "known",
+      reason_code: "measured",
+      next_actions: ["none"],
+    });
+
+    render(<QualityRadar metrics={[metric]} readiness={[readiness]} />);
+
+    const card = screen.getByRole("button", { name: /Task full metric name/i });
+    expect(card).toHaveTextContent("80%");
+    expect(card).toHaveTextContent("Stored value is authoritative");
+    expect(card).toHaveTextContent("No action needed");
+    expect(screen.getByRole("complementary")).toHaveTextContent(
+      "No user action is requested for this state",
+    );
   });
 });

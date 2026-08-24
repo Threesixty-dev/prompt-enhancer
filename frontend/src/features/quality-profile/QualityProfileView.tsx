@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { formatPercent } from "../../shared/lib/format";
 import type {
   ProviderCompatibilityStatus,
@@ -8,6 +15,7 @@ import type {
   SessionQualityAnalysisPreviewRequest,
   SessionTextAnalysisCapability,
 } from "../../shared/api/contracts";
+import { parseSessionMetricReadinessReport } from "../../shared/api/httpTransport";
 import {
   promptTextCompatibilityBlocker,
   ProviderCompatibilityCard,
@@ -86,7 +94,9 @@ function signalValue(
   if (status === "detected") return "Detected";
   if (status === "missing") return "Missing";
   if (status === "unknown") return "Unknown";
-  return `${count ?? 0}`;
+  return count !== null && Number.isSafeInteger(count) && count >= 0
+    ? `${count}`
+    : "Count unavailable";
 }
 
 function explanationLine(metric: QualityMetricObservation): string | null {
@@ -169,6 +179,7 @@ function denominatorSource(metric: QualityMetricObservation): string {
 }
 
 function summary(metrics: readonly QualityMetricObservation[]): string {
+  if (metrics.length === 0) return "No metric observations supplied";
   const observed = metrics.filter((metric) => metric.state === "observed").length;
   const partial = metrics.filter((metric) => metric.state === "partial").length;
   const notSelected = metrics.filter((metric) => metric.state === "not-selected").length;
@@ -196,6 +207,18 @@ function coverageLine(metric: QualityMetricObservation): string {
     return "Not in the selected metric scope; excluded from analysis coverage.";
   }
   if (metric.eligible === 0) return "No eligible observations were available for this snapshot.";
+  if (
+    !Number.isSafeInteger(metric.observed) ||
+    !Number.isSafeInteger(metric.eligible) ||
+    metric.observed < 0 ||
+    metric.eligible < 1 ||
+    metric.observed > metric.eligible ||
+    !Number.isFinite(metric.coverage) ||
+    metric.coverage < 0 ||
+    metric.coverage > 1
+  ) {
+    return "Window coverage is unavailable because the stored counts are not valid.";
+  }
   return `${metric.observed} of ${metric.eligible} eligible observations were usable (${formatPercent(metric.coverage)} coverage).`;
 }
 
@@ -205,7 +228,12 @@ function fractionLine(metric: QualityMetricObservation): string {
   }
   if (
     metric.fractionNumerator === null ||
-    metric.fractionDenominator === null
+    metric.fractionDenominator === null ||
+    !Number.isSafeInteger(metric.fractionNumerator) ||
+    !Number.isSafeInteger(metric.fractionDenominator) ||
+    metric.fractionNumerator < 0 ||
+    metric.fractionDenominator < 1 ||
+    metric.fractionNumerator > metric.fractionDenominator
   ) {
     return "No metric fraction was produced for this state.";
   }
@@ -250,22 +278,7 @@ function analysisCapabilityCopy(
   return "Capability status could not be verified, so local analysis stays disabled.";
 }
 
-export function QualityProfileView({
-  profile,
-  onAnalyzeLocally,
-  analysisCapability,
-  onRetryMetricReadiness,
-  providerCompatibility,
-  compatibilityLoading = false,
-  onCheckProviderCompatibility,
-  onUpdateProvider,
-  primaryContent,
-  metricReadiness,
-  metricReadinessError = "",
-  metricReadinessLoading = false,
-  sessionDescriptor,
-  manageDocumentContext = true,
-}: {
+interface QualityProfileViewProps {
   profile: QualityMetricProfile;
   onAnalyzeLocally?: AnalyzeLocallyHandler;
   /** Null or omitted means capability has not been verified yet. */
@@ -285,11 +298,146 @@ export function QualityProfileView({
   sessionDescriptor?: string;
   /** False when this profile is embedded as a demoted legacy disclosure. */
   manageDocumentContext?: boolean;
-}) {
+}
+
+function numericOwnerIdentity(value: number | null): readonly [string, number?] {
+  if (value === null) return ["null"];
+  if (Number.isNaN(value)) return ["nan"];
+  if (value === Number.POSITIVE_INFINITY) return ["positive-infinity"];
+  if (value === Number.NEGATIVE_INFINITY) return ["negative-infinity"];
+  if (Object.is(value, -0)) return ["negative-zero"];
+  return ["finite", value];
+}
+
+function profileOwnerIdentity(
+  profile: QualityMetricProfile,
+  exactSessionId: string | undefined,
+): string {
+  function snapshotIdentity(snapshot: QualityMetricProfile["latest"]) {
+    return {
+      kind: snapshot.kind,
+      integrity: snapshot.integrity,
+      pack: snapshot.metricPackVersion,
+      scope: snapshot.scope,
+      metrics: snapshot.metrics.map((metric) => ({
+        key: metric.definition.key,
+        version: metric.definition.version,
+        direction: metric.definition.direction,
+        state: metric.state,
+        ratio: numericOwnerIdentity(metric.ratio),
+        numerator: numericOwnerIdentity(metric.fractionNumerator),
+        denominator: numericOwnerIdentity(metric.fractionDenominator),
+        observed: numericOwnerIdentity(metric.observed),
+        eligible: numericOwnerIdentity(metric.eligible),
+        coverage: numericOwnerIdentity(metric.coverage),
+        notSelectedRuns: numericOwnerIdentity(metric.notSelectedRuns),
+        unknownScopeRuns: numericOwnerIdentity(metric.unknownScopeRuns),
+        schema: metric.metricSchemaVersion,
+        explanation: metric.explanationCode,
+        algorithm: metric.algorithmId,
+        algorithmVersion: metric.algorithmVersion,
+        model: metric.modelId,
+        error: metric.errorCode,
+        definitionVersion: metric.definitionVersion,
+        computedAt: metric.computedAt,
+        signals: metric.signals.map((signal) => [
+          signal.code,
+          signal.status,
+          numericOwnerIdentity(signal.count),
+        ]),
+      })),
+    };
+  }
+  return JSON.stringify({
+    session: exactSessionId ?? null,
+    kind: profile.kind,
+    analysisProfile: profile.analysisProfile?.state ?? null,
+    initial: snapshotIdentity(profile.initial),
+    latest: snapshotIdentity(profile.latest),
+  });
+}
+
+function readinessBelongsToProfile(
+  report: SessionMetricReadinessReport,
+  profile: QualityMetricProfile,
+  exactSessionId: string | undefined,
+  providerCompatibility: ProviderCompatibilityStatus | null | undefined,
+): boolean {
+  return (
+    exactSessionId !== undefined &&
+    report.session_id === exactSessionId &&
+    profile.analysisProfile?.state === "coaching" &&
+    report.preset_id === "coaching_profile_v1" &&
+    report.analysis_profile_key === "coaching_profile" &&
+    report.analysis_profile_version === 1 &&
+    report.metric_pack_key === "experimental.redacted-text.coaching" &&
+    report.metric_pack_version === profile.latest.metricPackVersion &&
+    report.capability_report.provider === report.provider &&
+    providerCompatibility != null &&
+    providerCompatibility.capability === "session_text_analysis" &&
+    providerCompatibility.provider === report.provider
+  );
+}
+
+function validatedMetricReadiness(
+  report: SessionMetricReadinessReport | null | undefined,
+): SessionMetricReadinessReport | null {
+  if (report == null) return null;
+  try {
+    return parseSessionMetricReadinessReport(report);
+  } catch {
+    return null;
+  }
+}
+
+interface CapturedAnalysisContext {
+  handler: AnalyzeLocallyHandler;
+  onCheckCompatibility?: (signal: AbortSignal) => Promise<void>;
+  ownerIdentity: string;
+  sessionDescriptor?: string;
+}
+
+export function QualityProfileView(props: QualityProfileViewProps) {
+  const ownerIdentity = profileOwnerIdentity(
+    props.profile,
+    props.onAnalyzeLocally?.exactSessionId,
+  );
+  return <QualityProfileViewOwned {...props} ownerIdentity={ownerIdentity} />;
+}
+
+function QualityProfileViewOwned({
+  profile,
+  onAnalyzeLocally,
+  analysisCapability,
+  onRetryMetricReadiness,
+  providerCompatibility,
+  compatibilityLoading = false,
+  onCheckProviderCompatibility,
+  onUpdateProvider,
+  primaryContent,
+  metricReadiness,
+  metricReadinessError = "",
+  metricReadinessLoading = false,
+  sessionDescriptor,
+  manageDocumentContext = true,
+  ownerIdentity,
+}: QualityProfileViewProps & { ownerIdentity: string }) {
   const [snapshotKind, setSnapshotKind] = useState<QualitySnapshotKind>("latest");
   const [shareOpen, setShareOpen] = useState(false);
-  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [analysisContext, setAnalysisContext] =
+    useState<CapturedAnalysisContext | null>(null);
+  const [providerCheckState, setProviderCheckState] = useState<{
+    failed: boolean;
+    pending: boolean;
+  }>({ failed: false, pending: false });
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const providerCheckControllerRef = useRef<AbortController | null>(null);
+  const activeOwnerIdentityRef = useRef(ownerIdentity);
+  const id = useId();
+  const profileTitleId = `${id}-quality-profile-title`;
+  const analysisCapabilityId = `${id}-quality-analysis-capability`;
+  const pipelineTitleId = `${id}-quality-pipeline-title`;
+  const metricDetailsTitleId = `${id}-quality-metric-details-title`;
   const snapshot = snapshotKind === "initial" ? profile.initial : profile.latest;
   const initialAvailable = profile.initial.integrity !== "unavailable";
   // Every current qualitative pack is explicitly uncalibrated. Export stays
@@ -299,10 +447,10 @@ export function QualityProfileView({
     snapshot.integrity === "invalid-contract" ||
     snapshot.integrity === "mixed-provenance";
   const stalePack = snapshot.integrity === "stale-pack";
-  const allNotSelected = snapshot.metrics.every(
+  const allNotSelected = snapshot.metrics.length > 0 && snapshot.metrics.every(
     (metric) => metric.state === "not-selected",
   );
-  const allUnavailable = snapshot.metrics.every(
+  const allUnavailable = snapshot.metrics.length > 0 && snapshot.metrics.every(
     (metric) => metric.state === "unavailable",
   );
   const allLegacyScopeUnknown = allUnavailable && snapshot.metrics.every(
@@ -314,15 +462,60 @@ export function QualityProfileView({
       : snapshot.integrity !== "coherent"
         ? "Sharing is blocked until metric provenance is coherent"
         : "Sharing is blocked until coaching candidates are human calibrated";
+  const providerCheckPending = providerCheckState.pending;
   const capabilityMessage =
     analysisCapability == null
       ? "Checking whether this local installation supports bounded text analysis."
       : analysisCapabilityCopy(analysisCapability);
-  const compatibilityMessage = compatibilityLoading
+  const compatibilityMessage = compatibilityLoading || providerCheckPending
     ? "Provider compatibility is being checked, so prompt-text analysis stays disabled."
     : promptTextCompatibilityBlocker(providerCompatibility ?? null);
   const analysisBlocker = capabilityMessage ?? compatibilityMessage;
   const analysisDisabled = analysisBlocker !== null;
+  const validatedReadiness = validatedMetricReadiness(metricReadiness);
+  const readinessOwned =
+    validatedReadiness !== null &&
+    readinessBelongsToProfile(
+      validatedReadiness,
+      profile,
+      onAnalyzeLocally?.exactSessionId,
+      providerCompatibility,
+    );
+  const ownedReadiness = readinessOwned ? validatedReadiness : null;
+  const readinessStale = metricReadiness != null && !readinessOwned;
+
+  async function checkProviderCompatibility(
+    handler: (signal: AbortSignal) => Promise<void>,
+  ) {
+    if (providerCheckPending) {
+      return;
+    }
+    const requestOwnerIdentity = ownerIdentity;
+    const controller = new AbortController();
+    providerCheckControllerRef.current?.abort();
+    providerCheckControllerRef.current = controller;
+    setProviderCheckState({ failed: false, pending: true });
+    try {
+      await handler(controller.signal);
+    } catch {
+      if (
+        !controller.signal.aborted &&
+        activeOwnerIdentityRef.current === requestOwnerIdentity
+      ) {
+        setProviderCheckState({ failed: true, pending: false });
+      }
+    } finally {
+      if (providerCheckControllerRef.current === controller) {
+        providerCheckControllerRef.current = null;
+      }
+      if (
+        !controller.signal.aborted &&
+        activeOwnerIdentityRef.current === requestOwnerIdentity
+      ) {
+        setProviderCheckState((current) => ({ ...current, pending: false }));
+      }
+    }
+  }
 
   useEffect(() => {
     if (!manageDocumentContext) return undefined;
@@ -335,16 +528,31 @@ export function QualityProfileView({
     };
   }, [manageDocumentContext, profile.title]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (activeOwnerIdentityRef.current === ownerIdentity) return;
+    activeOwnerIdentityRef.current = ownerIdentity;
+    providerCheckControllerRef.current?.abort();
+    providerCheckControllerRef.current = null;
     setSnapshotKind("latest");
-  }, [profile.kind]);
+    setShareOpen(false);
+    setAnalysisContext(null);
+    setProviderCheckState({ failed: false, pending: false });
+  }, [ownerIdentity]);
+
+  useLayoutEffect(
+    () => () => providerCheckControllerRef.current?.abort(),
+    [],
+  );
 
   return (
-    <section className={`quality-profile quality-profile--${profile.kind}`} aria-labelledby="quality-profile-title">
+    <section
+      aria-labelledby={profileTitleId}
+      className={`quality-profile quality-profile--${profile.kind}`}
+    >
       <header className="quality-profile__header">
         <div>
           <p className="eyebrow">{profile.eyebrow}</p>
-          <h2 id="quality-profile-title" ref={headingRef} tabIndex={-1}>{profile.title}</h2>
+          <h2 id={profileTitleId} ref={headingRef} tabIndex={-1}>{profile.title}</h2>
           <p>{profile.question}</p>
         </div>
         <div className="quality-profile__actions">
@@ -369,32 +577,46 @@ export function QualityProfileView({
           {onAnalyzeLocally && compatibilityMessage && onCheckProviderCompatibility && (
             <button
               className="button button--secondary button--compact"
-              disabled={compatibilityLoading}
+              disabled={compatibilityLoading || providerCheckPending}
               onClick={() => {
-                const controller = new AbortController();
-                void onCheckProviderCompatibility(controller.signal).catch(() => undefined);
+                void checkProviderCompatibility(onCheckProviderCompatibility);
               }}
               title="Check the installed provider schema before local analysis"
               type="button"
             >
-              {compatibilityLoading ? "Checking provider…" : "Check provider"}
+              {compatibilityLoading || providerCheckPending
+                ? "Checking provider…"
+                : "Check provider"}
             </button>
           )}
           {onAnalyzeLocally && (
             <div className="quality-profile__analysis-action">
               <button
-                aria-describedby={analysisDisabled ? "quality-analysis-capability" : undefined}
+                aria-describedby={analysisDisabled ? analysisCapabilityId : undefined}
                 className="button button--primary button--compact"
                 disabled={analysisDisabled}
-                onClick={() => setAnalysisOpen(true)}
+                onClick={() => {
+                  const currentHandler = onAnalyzeLocally;
+                  setAnalysisContext({
+                    handler: currentHandler,
+                    onCheckCompatibility: onCheckProviderCompatibility,
+                    ownerIdentity,
+                    sessionDescriptor,
+                  });
+                }}
                 title={analysisBlocker ?? undefined}
                 type="button"
               >
                 Analyze locally
               </button>
               {analysisBlocker && (
-                <span id="quality-analysis-capability" role="status">
+                <span id={analysisCapabilityId} role="status">
                   {analysisBlocker}
+                </span>
+              )}
+              {providerCheckState.failed && (
+                <span className="quality-profile__action-error" role="alert">
+                  The content-free provider check could not be completed. No session content was read.
                 </span>
               )}
             </div>
@@ -439,12 +661,12 @@ export function QualityProfileView({
               : "Invalid metric contract"}
           </span>
         )}
-        {snapshotKind === "latest" && metricReadinessLoading && (
+        {snapshotKind === "latest" && metricReadinessLoading && !metricReadinessError && (
           <span>Checking content-free metric readiness</span>
         )}
         {snapshotKind === "latest" && metricReadinessError && (
           <span className="quality-profile__snapshot-alert">
-            {metricReadinessError} Stored metric values are unchanged.
+            Content-free metric readiness could not be loaded. Stored metric values are unchanged.
             {onRetryMetricReadiness && (
               <button
                 className="button button--secondary button--compact"
@@ -456,13 +678,23 @@ export function QualityProfileView({
             )}
           </span>
         )}
+        {snapshotKind === "latest" && readinessStale && (
+          <span className="quality-profile__snapshot-alert" role="status">
+            Readiness metadata was withheld because its complete exact session, preset, metric-pack, analysis-profile, and current-provider ownership could not be verified. Stored metric values remain authoritative.
+          </span>
+        )}
+        {snapshotKind === "latest" && readinessOwned && !metricReadinessLoading && (
+          <span className="quality-profile__readiness-owner">
+            Readiness verified for this exact session and metric pack · {ownedReadiness?.metrics.length ?? 0} metric records
+          </span>
+        )}
       </div>
       <details className="quality-profile__radar-panel" open>
         <summary>
           <span className="quality-profile__radar-summary-copy">
             <span className="quality-profile__radar-kicker">Visual overview</span>
             <strong>{profile.kind === "prompt" ? "Prompt-quality radar" : "Logic & decisions radar"}</strong>
-            <small>Measured axes only · one shared 0–100% scale</small>
+            <small>Exact values first · measured higher-is-better axes only · fixed 0–100%</small>
           </span>
           <span aria-hidden="true" className="quality-profile__radar-toggle">
             <span className="quality-profile__radar-toggle--open">Hide radar</span>
@@ -471,8 +703,14 @@ export function QualityProfileView({
         </summary>
         <div className="quality-profile__radar-content">
           <QualityRadar
+            contextIdentity={JSON.stringify({
+              owner: profileOwnerIdentity(profile, onAnalyzeLocally?.exactSessionId),
+              snapshot: snapshotKind,
+              readinessSession: ownedReadiness?.session_id ?? null,
+              readinessRuns: ownedReadiness?.metrics.map((metric) => metric.latest_run_id) ?? [],
+            })}
             metrics={snapshot.metrics}
-            readiness={snapshotKind === "latest" ? metricReadiness?.metrics : null}
+            readiness={snapshotKind === "latest" ? ownedReadiness?.metrics : null}
           />
         </div>
       </details>
@@ -506,10 +744,10 @@ export function QualityProfileView({
             </div>
           </div>
 
-          <section aria-labelledby="quality-pipeline-title" className="quality-pipeline">
+          <section aria-labelledby={pipelineTitleId} className="quality-pipeline">
             <header>
               <p className="eyebrow">Active scoring path</p>
-              <h3 id="quality-pipeline-title">How these percentages are produced</h3>
+              <h3 id={pipelineTitleId}>How these percentages are produced</h3>
             </header>
             <ol>
               <li><strong>Size-limited local read</strong><span>Codex currently returns the selected session before the smaller preview window is selected; oversized responses fail closed.</span></li>
@@ -530,10 +768,10 @@ export function QualityProfileView({
             {profile.analysisProfile && <span>{profile.analysisProfile.label}</span>}
           </div>
 
-          <section aria-labelledby="quality-metric-details-title" className="quality-methods">
+          <section aria-labelledby={metricDetailsTitleId} className="quality-methods">
             <header>
               <p className="eyebrow">Metric receipts</p>
-              <h3 id="quality-metric-details-title">How each value was produced</h3>
+              <h3 id={metricDetailsTitleId}>How each value was produced</h3>
             </header>
             <div className="quality-methods__grid">
               {snapshot.metrics.map((metric) => (
@@ -662,14 +900,14 @@ export function QualityProfileView({
           snapshotKind={snapshotKind}
         />
       )}
-      {analysisOpen && onAnalyzeLocally && (
+      {analysisContext?.ownerIdentity === ownerIdentity && (
         <AnalyzeLocallyDialog
-          exactSessionId={onAnalyzeLocally.exactSessionId}
-          onApprovePreview={onAnalyzeLocally.approvePreview}
-          onCheckCompatibility={onCheckProviderCompatibility}
-          onClose={() => setAnalysisOpen(false)}
-          onPreparePreview={onAnalyzeLocally.preparePreview}
-          sessionDescriptor={sessionDescriptor}
+          exactSessionId={analysisContext.handler.exactSessionId}
+          onApprovePreview={analysisContext.handler.approvePreview}
+          onCheckCompatibility={analysisContext.onCheckCompatibility}
+          onClose={() => setAnalysisContext(null)}
+          onPreparePreview={analysisContext.handler.preparePreview}
+          sessionDescriptor={analysisContext.sessionDescriptor}
         />
       )}
     </section>

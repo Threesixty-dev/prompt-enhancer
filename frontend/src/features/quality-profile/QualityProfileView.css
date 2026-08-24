@@ -96,6 +96,47 @@
   max-width: 100%;
 }
 
+.quality-profile,
+.quality-profile > *,
+.quality-profile__header > *,
+.quality-profile__snapshot-line > *,
+.quality-profile__method-content,
+.quality-profile__method-content code,
+.analysis-dialog__panel,
+.analysis-dialog__panel *,
+.share-dialog__panel,
+.share-dialog__panel * {
+  min-width: 0;
+}
+
+.quality-profile__snapshot-line > span,
+.quality-profile__method-content span,
+.quality-profile__method-content dd,
+.quality-profile__action-error,
+.quality-profile__readiness-owner,
+.analysis-dialog__panel code,
+.analysis-dialog__panel p,
+.analysis-dialog__panel dd,
+.share-dialog__panel p,
+.share-dialog__panel span {
+  overflow-wrap: anywhere;
+}
+
+.quality-profile__action-error {
+  max-width: 24rem;
+  color: var(--red-700);
+}
+
+.quality-profile__readiness-owner {
+  color: var(--teal-700);
+}
+
+.analysis-dialog__panel:focus-visible,
+.share-dialog__panel:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: -3px;
+}
+
 .quality-profile__snapshot-refresh {
   color: var(--p-7a4b00);
   background: var(--p-fff3cf);
@@ -115,6 +156,43 @@
   .quality-profile__radar-content {
     padding: 0.2rem;
   }
+
+  .quality-profile__header,
+  .quality-profile__actions,
+  .quality-profile__snapshot-line {
+    align-items: stretch;
+  }
+
+  .quality-profile__actions,
+  .quality-profile__snapshot-line {
+    width: 100%;
+  }
+
+  .quality-profile__actions .button,
+  .quality-profile__analysis-action,
+  .quality-profile__switch {
+    max-width: 100%;
+  }
+
+  .quality-profile__radar-panel {
+    margin-inline: 0;
+  }
+
+  .analysis-dialog__panel > header,
+  .share-dialog__panel > header {
+    align-items: flex-start;
+  }
+
+  .analysis-dialog__panel form > footer,
+  .share-dialog__panel > footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analysis-dialog__panel form > footer .button,
+  .share-dialog__panel > footer .button {
+    width: 100%;
+    min-height: 44px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -130,5 +208,34 @@
   .quality-profile__radar-toggle,
   .quality-profile__snapshot-refresh {
     border: 1px solid CanvasText;
+  }
+
+  .analysis-dialog__panel,
+  .share-dialog__panel,
+  .analysis-dialog__preset,
+  .analysis-dialog__binding,
+  .analysis-dialog__metrics,
+  .analysis-dialog__preview,
+  .analysis-dialog__privacy,
+  .analysis-dialog__success,
+  .analysis-dialog__error,
+  .share-dialog__warning,
+  .share-dialog__preview {
+    color: CanvasText;
+    border-color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+
+  .analysis-dialog__scrim,
+  .share-dialog__scrim {
+    background: CanvasText;
+    opacity: 0.75;
+  }
+
+  .analysis-dialog__panel button:focus-visible,
+  .share-dialog__panel button:focus-visible {
+    outline: 3px solid Highlight;
+    forced-color-adjust: none;
   }
 }

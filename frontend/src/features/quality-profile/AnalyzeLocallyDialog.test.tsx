@@ -80,6 +80,115 @@ afterEach(() => {
 });
 
 describe("AnalyzeLocallyDialog", () => {
+  it("fails closed when transport callbacks swap and a detached approval is clicked", async () => {
+    const first = dialogProps();
+    const second = dialogProps({
+      onPreparePreview: vi.fn(async () => preview()),
+      onApprovePreview: vi.fn(async () => undefined),
+      onClose: first.onClose,
+    });
+    const { rerender } = render(
+      <div className="app-shell"><AnalyzeLocallyDialog {...first} /></div>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+    const detachedApproval = await screen.findByRole("button", {
+      name: "Approve once and analyze",
+    });
+
+    rerender(
+      <div className="app-shell"><AnalyzeLocallyDialog {...second} /></div>,
+    );
+    fireEvent.click(detachedApproval);
+
+    await waitFor(() => expect(first.onClose).toHaveBeenCalledTimes(1));
+    expect(first.onApprovePreview).not.toHaveBeenCalled();
+    expect(second.onApprovePreview).not.toHaveBeenCalled();
+    expect(screen.queryByText(PREVIEW_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("ignores a delayed preparation completion after close and revokes its actionable state", async () => {
+    let resolvePreview!: (value: SessionQualityAnalysisPreview) => void;
+    const props = dialogProps({
+      onPreparePreview: vi.fn(() => new Promise<SessionQualityAnalysisPreview>((resolve) => {
+        resolvePreview = resolve;
+      })),
+    });
+    const { unmount } = render(
+      <div className="app-shell"><AnalyzeLocallyDialog {...props} /></div>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel request" }));
+    unmount();
+    resolvePreview(preview());
+    await Promise.resolve();
+
+    expect(props.onApprovePreview).not.toHaveBeenCalled();
+    expect(document.body).not.toHaveTextContent(PREVIEW_TEXT);
+  });
+
+  it("rejects a preview whose local no-cost ephemeral binding is contradictory", async () => {
+    const malformed = preview();
+    malformed.binding.destination = "remote";
+    const props = dialogProps({ onPreparePreview: vi.fn(async () => malformed) });
+    render(<div className="app-shell"><AnalyzeLocallyDialog {...props} /></div>);
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/binding could not be verified/i);
+    expect(screen.queryByText(PREVIEW_TEXT)).not.toBeInTheDocument();
+    expect(props.onApprovePreview).not.toHaveBeenCalled();
+  });
+
+  it("renders long escaped synthetic preview text as text and keeps it wrap-safe", async () => {
+    const longText = `<script>fictional-example-only</script>${" bounded-redacted-example".repeat(120)}`;
+    const prepared = preview();
+    prepared.messages = [{
+      role: "user",
+      kind: "request",
+      language: "en",
+      text: longText,
+    }];
+    prepared.binding.character_count = Array.from(longText).length;
+    const props = dialogProps({ onPreparePreview: vi.fn(async () => prepared) });
+    const { container } = render(
+      <div className="app-shell"><AnalyzeLocallyDialog {...props} /></div>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+
+    const text = await screen.findByText(longText);
+    expect(text).toBeVisible();
+    expect(container.querySelector("script")).toBeNull();
+    expect(getComputedStyle(text).overflowWrap).toBe("anywhere");
+  });
+
+  it("ignores a delayed approval completion after the dialog closes", async () => {
+    let resolveApproval!: () => void;
+    const approve = vi.fn(() => new Promise<void>((resolve) => {
+      resolveApproval = resolve;
+    }));
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      const props = dialogProps({
+        onApprovePreview: approve,
+        onClose: () => setOpen(false),
+      });
+      return (
+        <div className="app-shell">
+          {open && <AnalyzeLocallyDialog {...props} />}
+        </div>
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve once and analyze" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel request" }));
+    resolveApproval();
+    await Promise.resolve();
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Analysis completed and stored locally/i)).not.toBeInTheDocument();
+    expect(approve).toHaveBeenCalledTimes(1);
+  });
+
   it("prepares first, then shows the exact local binding, metric set, and redacted text", async () => {
     const props = dialogProps();
     render(<div className="app-shell"><AnalyzeLocallyDialog {...props} /></div>);

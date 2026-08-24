@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type {
   SessionQualityAnalysisPreview,
@@ -10,6 +10,8 @@ import {
   COACHING_ANALYSIS_PRESET,
   COACHING_ANALYSIS_PREVIEW_REQUEST,
 } from "./standardEngineeringAnalysisPreset";
+import { QUALITY_ANALYSIS_DEFINITIONS } from "./qualityProfile";
+import "./QualityProfileView.css";
 
 type PendingAction = "preview" | "approval" | "compatibility" | null;
 
@@ -20,6 +22,57 @@ const TERMINAL_SOURCE_LIMIT_REASONS = new Set([
   "source_preview_window_limit",
   "source_resource_limit",
 ]);
+const EXPECTED_METRIC_KEYS = new Set(
+  QUALITY_ANALYSIS_DEFINITIONS.map((definition) => definition.key),
+);
+const HEX_64 = /^[a-f0-9]{64}$/iu;
+const MAX_PREVIEW_LIFETIME_MS = 600_000;
+
+function isBoundedVersion(value: string): boolean {
+  return value.length > 0 && value.length <= 160;
+}
+
+function hasExactLocalPreviewContract(
+  preview: SessionQualityAnalysisPreview,
+  exactSessionId: string,
+): boolean {
+  const createdAt = Date.parse(preview.created_at);
+  const expiresAt = Date.parse(preview.expires_at);
+  const metricKeys = preview.binding.metric_keys;
+  const characterCount = preview.messages.reduce(
+    (total, message) => total + Array.from(message.text).length,
+    0,
+  );
+  return (
+    HEX_64.test(preview.preview_id) &&
+    HEX_64.test(preview.binding.analysis_window_fingerprint) &&
+    preview.binding.session_id === exactSessionId &&
+    preview.binding.destination === "local" &&
+    preview.binding.exact_model === "none" &&
+    preview.binding.retention_class === "local_ephemeral" &&
+    preview.binding.cost_state === "not_applicable" &&
+    preview.binding.estimated_cost_microunits === null &&
+    preview.binding.cost_currency === null &&
+    isBoundedVersion(preview.binding.redactor_version) &&
+    isBoundedVersion(preview.binding.estimator_plan_version) &&
+    Number.isFinite(createdAt) &&
+    Number.isFinite(expiresAt) &&
+    expiresAt > Date.now() &&
+    expiresAt > createdAt &&
+    expiresAt - createdAt <= MAX_PREVIEW_LIFETIME_MS &&
+    Number.isSafeInteger(preview.binding.message_count) &&
+    preview.binding.message_count > 0 &&
+    preview.binding.message_count <= COACHING_ANALYSIS_PRESET.maxMessages &&
+    preview.binding.message_count === preview.messages.length &&
+    Number.isSafeInteger(preview.binding.character_count) &&
+    preview.binding.character_count > 0 &&
+    preview.binding.character_count <= COACHING_ANALYSIS_PRESET.maxCharacters &&
+    preview.binding.character_count === characterCount &&
+    metricKeys.length === EXPECTED_METRIC_KEYS.size &&
+    new Set(metricKeys).size === metricKeys.length &&
+    metricKeys.every((key) => EXPECTED_METRIC_KEYS.has(key))
+  );
+}
 
 function isTerminalSourceLimit(reasonCode: string | null): boolean {
   return reasonCode !== null && TERMINAL_SOURCE_LIMIT_REASONS.has(reasonCode);
@@ -174,31 +227,67 @@ export function AnalyzeLocallyDialog({
   const panelRef = useRef<HTMLElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const approvalKeyRef = useRef("");
+  const approvalStartedRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  const openRef = useRef(true);
+  const closeNotifiedRef = useRef(false);
+  const requestEpochRef = useRef(0);
+  const previewRef = useRef<SessionQualityAnalysisPreview | null>(preview);
+  previewRef.current = preview;
   const initialSessionIdRef = useRef(exactSessionId);
   const initialDescriptorRef = useRef(sessionDescriptor);
   const onCloseRef = useRef(onClose);
+  const onPreparePreviewRef = useRef(onPreparePreview);
+  const onApprovePreviewRef = useRef(onApprovePreview);
+  const onCheckCompatibilityRef = useRef(onCheckCompatibility);
+  const id = useId();
+  const titleId = `${id}-analyze-locally-title`;
+  const summaryId = `${id}-analyze-locally-summary`;
+  const completedTitleId = `${id}-analysis-completed-title`;
+  const presetTitleId = `${id}-analysis-preset-title`;
+  const bindingTitleId = `${id}-preview-binding-title`;
+  const metricsTitleId = `${id}-preview-metrics-title`;
+  const previewTitleId = `${id}-redacted-preview-title`;
+  const ownsContext =
+    exactSessionId === initialSessionIdRef.current &&
+    onPreparePreview === onPreparePreviewRef.current &&
+    onApprovePreview === onApprovePreviewRef.current &&
+    onCheckCompatibility === onCheckCompatibilityRef.current;
+  const ownsContextRef = useRef(ownsContext);
+  ownsContextRef.current = ownsContext;
   const terminalPreparationFailure = isTerminalSourceLimit(failureReason);
 
+  function canInteract(): boolean {
+    return mountedRef.current && openRef.current && ownsContextRef.current;
+  }
+
   function clearPreview() {
+    previewRef.current = null;
     setPreview(null);
     approvalKeyRef.current = "";
+    approvalStartedRef.current = null;
   }
 
   function close() {
+    if (!openRef.current) return;
+    openRef.current = false;
+    requestEpochRef.current += 1;
     requestControllerRef.current?.abort();
+    requestControllerRef.current = null;
     clearPreview();
-    onCloseRef.current();
+    if (!closeNotifiedRef.current) {
+      closeNotifiedRef.current = true;
+      onCloseRef.current();
+    }
   }
 
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
+  useLayoutEffect(() => {
+    if (!ownsContext) close();
+  }, [ownsContext]);
 
-  useEffect(() => {
-    if (exactSessionId !== initialSessionIdRef.current) close();
-  }, [exactSessionId]);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    if (!closeNotifiedRef.current) openRef.current = true;
     const previous =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const appShell = document.querySelector<HTMLElement>(".app-shell");
@@ -208,6 +297,8 @@ export function AnalyzeLocallyDialog({
 
     function keydown(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         close();
         return;
       }
@@ -232,14 +323,18 @@ export function AnalyzeLocallyDialog({
     window.addEventListener("keydown", keydown);
     return () => {
       window.removeEventListener("keydown", keydown);
+      mountedRef.current = false;
+      openRef.current = false;
+      requestEpochRef.current += 1;
       requestControllerRef.current?.abort();
+      requestControllerRef.current = null;
       if (appShell) appShell.inert = wasInert;
-      previous?.focus();
+      if (previous?.isConnected) previous.focus();
     };
   }, []);
 
   useEffect(() => {
-    if (!preview) return;
+    if (!preview || !canInteract()) return;
     primaryRef.current?.focus();
     const remaining = Date.parse(preview.expires_at) - Date.now();
     if (remaining <= 0) {
@@ -248,6 +343,7 @@ export function AnalyzeLocallyDialog({
       return;
     }
     const timeout = window.setTimeout(() => {
+      if (!canInteract() || previewRef.current !== preview) return;
       clearPreview();
       setError("The ten-minute in-memory preview expired. Prepare a fresh preview before approving.");
     }, remaining);
@@ -255,15 +351,18 @@ export function AnalyzeLocallyDialog({
   }, [preview]);
 
   useEffect(() => {
-    if (terminalPreparationFailure) primaryRef.current?.focus();
+    if (terminalPreparationFailure && canInteract()) primaryRef.current?.focus();
   }, [terminalPreparationFailure]);
 
   useEffect(() => {
-    if (completed) primaryRef.current?.focus();
+    if (completed && canInteract()) primaryRef.current?.focus();
   }, [completed]);
 
   async function preparePreview() {
-    if (pendingAction !== null) return;
+    if (!canInteract() || pendingAction !== null || requestControllerRef.current) {
+      return;
+    }
+    const epoch = ++requestEpochRef.current;
     const controller = new AbortController();
     requestControllerRef.current = controller;
     setError("");
@@ -274,44 +373,88 @@ export function AnalyzeLocallyDialog({
     setPendingAction("preview");
     cancelRef.current?.focus();
     try {
-      const nextPreview = await onPreparePreview(
+      const nextPreview = await onPreparePreviewRef.current(
         initialSessionIdRef.current,
         COACHING_ANALYSIS_PREVIEW_REQUEST,
         controller.signal,
       );
-      if (controller.signal.aborted) return;
-      if (nextPreview.binding.session_id !== initialSessionIdRef.current) {
-        throw new Error("preview identity mismatch");
+      if (
+        controller.signal.aborted ||
+        !canInteract() ||
+        requestEpochRef.current !== epoch ||
+        requestControllerRef.current !== controller
+      ) {
+        return;
+      }
+      if (!hasExactLocalPreviewContract(nextPreview, initialSessionIdRef.current)) {
+        clearPreview();
+        setError(
+          "The prepared preview binding could not be verified as the exact local, no-cost, ephemeral Coaching v1 contract. Nothing can be approved; prepare a fresh preview.",
+        );
+        return;
       }
       approvalKeyRef.current = nextIdempotencyKey("quality-preview-approval");
+      previewRef.current = nextPreview;
       setPreview(nextPreview);
     } catch (nextError) {
-      if (!controller.signal.aborted) {
+      if (
+        !controller.signal.aborted &&
+        canInteract() &&
+        requestEpochRef.current === epoch &&
+        requestControllerRef.current === controller
+      ) {
         setFailureReason(reasonCodeOf(nextError));
         setError(safeError(nextError));
       }
     } finally {
-      if (!controller.signal.aborted) setPendingAction(null);
-      requestControllerRef.current = null;
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null;
+      }
+      if (
+        !controller.signal.aborted &&
+        canInteract() &&
+        requestEpochRef.current === epoch
+      ) {
+        setPendingAction(null);
+      }
     }
   }
 
   async function approvePreview() {
-    if (!preview || pendingAction !== null) return;
+    if (
+      !canInteract() ||
+      !preview ||
+      previewRef.current !== preview ||
+      pendingAction !== null ||
+      requestControllerRef.current ||
+      approvalStartedRef.current === preview.preview_id ||
+      approvalKeyRef.current.length === 0
+    ) {
+      return;
+    }
     if (Date.now() >= Date.parse(preview.expires_at)) {
       clearPreview();
       setError("The ten-minute in-memory preview expired. Prepare a fresh preview before approving.");
       return;
     }
+    if (!hasExactLocalPreviewContract(preview, initialSessionIdRef.current)) {
+      clearPreview();
+      setError(
+        "The prepared preview binding could not be verified as the exact local, no-cost, ephemeral Coaching v1 contract. Nothing was approved; prepare a fresh preview.",
+      );
+      return;
+    }
     const approvedPreview = preview;
+    const epoch = ++requestEpochRef.current;
     const controller = new AbortController();
     requestControllerRef.current = controller;
+    approvalStartedRef.current = approvedPreview.preview_id;
     setError("");
     setFailureReason(null);
     setPendingAction("approval");
     cancelRef.current?.focus();
     try {
-      await onApprovePreview(
+      await onApprovePreviewRef.current(
         initialSessionIdRef.current,
         approvedPreview.preview_id,
         {
@@ -321,7 +464,13 @@ export function AnalyzeLocallyDialog({
         approvalKeyRef.current,
         controller.signal,
       );
-      if (!controller.signal.aborted) {
+      if (
+        !controller.signal.aborted &&
+        canInteract() &&
+        requestEpochRef.current === epoch &&
+        requestControllerRef.current === controller &&
+        previewRef.current === approvedPreview
+      ) {
         // Approval resolves only after the immutable completed run has been
         // fetched and validated by the workspace. Drop the sensitive preview
         // immediately, but keep a content-free completion receipt visible so
@@ -330,7 +479,12 @@ export function AnalyzeLocallyDialog({
         setCompleted(true);
       }
     } catch (nextError) {
-      if (!controller.signal.aborted) {
+      if (
+        !controller.signal.aborted &&
+        canInteract() &&
+        requestEpochRef.current === epoch &&
+        requestControllerRef.current === controller
+      ) {
         // Approval is atomic and one-shot. Never offer a second click against
         // the same preview after an ambiguous or failed response.
         clearPreview();
@@ -344,30 +498,66 @@ export function AnalyzeLocallyDialog({
         setError(safeError(nextError));
       }
     } finally {
-      if (!controller.signal.aborted) setPendingAction(null);
-      requestControllerRef.current = null;
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null;
+      }
+      if (
+        !controller.signal.aborted &&
+        canInteract() &&
+        requestEpochRef.current === epoch
+      ) {
+        setPendingAction(null);
+      }
     }
   }
 
   async function recheckCompatibility() {
-    if (!onCheckCompatibility || pendingAction !== null) return;
+    if (
+      !canInteract() ||
+      !onCheckCompatibilityRef.current ||
+      pendingAction !== null ||
+      requestControllerRef.current
+    ) {
+      return;
+    }
+    const epoch = ++requestEpochRef.current;
     const controller = new AbortController();
     requestControllerRef.current = controller;
     setError("");
     setPendingAction("compatibility");
     cancelRef.current?.focus();
     try {
-      await onCheckCompatibility(controller.signal);
-      if (!controller.signal.aborted) setFailureReason(null);
+      await onCheckCompatibilityRef.current(controller.signal);
+      if (
+        !controller.signal.aborted &&
+        canInteract() &&
+        requestEpochRef.current === epoch &&
+        requestControllerRef.current === controller
+      ) {
+        setFailureReason(null);
+      }
     } catch {
-      if (!controller.signal.aborted) {
+      if (
+        !controller.signal.aborted &&
+        canInteract() &&
+        requestEpochRef.current === epoch &&
+        requestControllerRef.current === controller
+      ) {
         setError(
           "The content-free compatibility check could not be completed. Retry the check or cancel; no session content was included in this error.",
         );
       }
     } finally {
-      if (!controller.signal.aborted) setPendingAction(null);
-      requestControllerRef.current = null;
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null;
+      }
+      if (
+        !controller.signal.aborted &&
+        canInteract() &&
+        requestEpochRef.current === epoch
+      ) {
+        setPendingAction(null);
+      }
     }
   }
 
@@ -392,10 +582,12 @@ export function AnalyzeLocallyDialog({
                     ? "Prepare fresh preview"
                     : "Prepare redacted preview";
 
+  if (!ownsContext) return null;
+
   return createPortal(
     <div
-      aria-describedby="analyze-locally-summary"
-      aria-labelledby="analyze-locally-title"
+      aria-describedby={summaryId}
+      aria-labelledby={titleId}
       aria-modal="true"
       className="analysis-dialog"
       role="dialog"
@@ -405,10 +597,10 @@ export function AnalyzeLocallyDialog({
         <header>
           <div>
             <p className="eyebrow">One session · local only · approval bound</p>
-            <h2 id="analyze-locally-title">
+            <h2 id={titleId}>
               {completed ? "Analysis completed" : "Ready to analyze"}
             </h2>
-            <p id="analyze-locally-summary">
+            <p id={summaryId}>
               {completed
                 ? "The immutable result was stored locally and loaded into this session view."
                 : preview
@@ -439,11 +631,11 @@ export function AnalyzeLocallyDialog({
         >
           {completed && (
             <section
-              aria-labelledby="analysis-completed-title"
+              aria-labelledby={completedTitleId}
               className="analysis-dialog__success"
               role="status"
             >
-              <strong id="analysis-completed-title">Analysis completed and stored locally</strong>
+              <strong id={completedTitleId}>Analysis completed and stored locally</strong>
               <span>
                 The result is now visible behind this dialog. Individual metrics may still be
                 Unknown or Abstained when the bounded window lacks their required evidence;
@@ -454,11 +646,11 @@ export function AnalyzeLocallyDialog({
 
           {!completed && (
             <>
-          <section className="analysis-dialog__preset" aria-labelledby="analysis-preset-title">
+          <section className="analysis-dialog__preset" aria-labelledby={presetTitleId}>
             <div className="analysis-dialog__preset-heading">
               <span aria-hidden="true">S1</span>
               <div>
-                <strong id="analysis-preset-title">
+                <strong id={presetTitleId}>
                   {COACHING_ANALYSIS_PRESET.label} v{COACHING_ANALYSIS_PRESET.version}
                 </strong>
                 <small>Fixed local scope; remote destinations remain disabled</small>
@@ -492,10 +684,10 @@ export function AnalyzeLocallyDialog({
 
           {preview && (
             <>
-              <section className="analysis-dialog__binding" aria-labelledby="preview-binding-title">
+              <section className="analysis-dialog__binding" aria-labelledby={bindingTitleId}>
                 <div>
                   <p className="eyebrow">Approval contract</p>
-                  <h3 id="preview-binding-title">Exact preview binding</h3>
+                  <h3 id={bindingTitleId}>Exact preview binding</h3>
                 </div>
                 <dl>
                   <div><dt>Provider</dt><dd><code>{preview.binding.provider}</code> · local adapter</dd></div>
@@ -514,10 +706,10 @@ export function AnalyzeLocallyDialog({
                 </dl>
               </section>
 
-              <section className="analysis-dialog__metrics" aria-labelledby="preview-metrics-title">
+              <section className="analysis-dialog__metrics" aria-labelledby={metricsTitleId}>
                 <div>
                   <p className="eyebrow">Selected metric set</p>
-                  <h3 id="preview-metrics-title">{preview.binding.metric_keys.length} version-bound metric attempts</h3>
+                  <h3 id={metricsTitleId}>{preview.binding.metric_keys.length} version-bound metric attempts</h3>
                 </div>
                 <ul>
                   {preview.binding.metric_keys.map((key) => (
@@ -526,10 +718,10 @@ export function AnalyzeLocallyDialog({
                 </ul>
               </section>
 
-              <section className="analysis-dialog__preview" aria-labelledby="redacted-preview-title">
+              <section className="analysis-dialog__preview" aria-labelledby={previewTitleId}>
                 <div>
                   <p className="eyebrow">Sensitive · memory only</p>
-                  <h3 id="redacted-preview-title">Exact redacted text window</h3>
+                  <h3 id={previewTitleId}>Exact redacted text window</h3>
                   <p>Review every item below. Text is not written to browser storage, logs, analytics, or the metrics database.</p>
                 </div>
                 <ol>

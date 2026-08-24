@@ -1,8 +1,12 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ProviderCompatibilityStatus } from "../../shared/api/contracts";
+import type {
+  ProviderCompatibilityStatus,
+  SessionMetricReadinessReport,
+} from "../../shared/api/contracts";
 import {
   SYNTHETIC_QUALITY_SESSION_ID,
+  SYNTHETIC_SESSION_METRIC_READINESS,
   SYNTHETIC_SESSION_QUALITY_RUN,
 } from "../../shared/api/syntheticFixtures";
 import { createQualityMetricProfile } from "./qualityProfile";
@@ -50,6 +54,16 @@ function analysisFlow(): AnalyzeLocallyHandler {
   };
 }
 
+function coachingPromptProfile() {
+  const profile = promptProfile();
+  profile.analysisProfile = {
+    state: "coaching",
+    label: "Coaching profile v1",
+  };
+  profile.latest.metricPackVersion = 3;
+  return profile;
+}
+
 const EXACT_COMPATIBILITY: ProviderCompatibilityStatus = {
   provider: "codex",
   capability: "session_text_analysis",
@@ -69,7 +83,241 @@ const EXACT_COMPATIBILITY: ProviderCompatibilityStatus = {
   update_target: null,
 };
 
+const SYNTHETIC_EXACT_COMPATIBILITY: ProviderCompatibilityStatus = {
+  ...EXACT_COMPATIBILITY,
+  provider: "synthetic",
+  provider_family: "synthetic_provider",
+  source_schema_family: "synthetic_session",
+};
+
 describe("QualityProfileView", () => {
+  it("keeps an open analysis review bound to the transport captured by its opener", () => {
+    const first = analysisFlow();
+    const second = analysisFlow();
+    const profile = promptProfile();
+    const common = {
+      analysisCapability: {
+        available: true,
+        reason_code: "available",
+        data_tier: "redacted_content",
+        content_persistence: false,
+        network_inference: false,
+        raw_transcripts: false,
+      } as const,
+      profile,
+      providerCompatibility: EXACT_COMPATIBILITY,
+    };
+    const { rerender } = render(
+      <QualityProfileView {...common} onAnalyzeLocally={first} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Analyze locally" }));
+
+    rerender(<QualityProfileView {...common} onAnalyzeLocally={second} />);
+    fireEvent.click(screen.getByRole("button", { name: "Prepare redacted preview" }));
+
+    expect(first.preparePreview).toHaveBeenCalledTimes(1);
+    expect(second.preparePreview).not.toHaveBeenCalled();
+  });
+
+  it("does not turn malformed counted signals or an empty profile into zero-state claims", () => {
+    const profile = promptProfile();
+    profile.latest.metrics[0].signals = [{
+      code: "goal.action",
+      status: "counted",
+      count: null,
+    }];
+    const { rerender } = render(<QualityProfileView profile={profile} />);
+    fireEvent.click(screen.getByText("Methods & details"));
+    expect(screen.getByText("Count unavailable")).toBeVisible();
+
+    const empty = promptProfile();
+    empty.latest.metrics = [];
+    rerender(<QualityProfileView profile={empty} />);
+    expect(screen.getByText("No metric observations supplied")).toBeVisible();
+    expect(screen.queryByText(/No metric in this view was selected/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No compatible Coaching v1 analysis run is available/i)).not.toBeInTheDocument();
+  });
+
+  it("synchronously resets initial-snapshot and pinned state when a same-kind profile changes", () => {
+    const first = promptProfile();
+    first.initial = {
+      ...structuredClone(first.latest),
+      kind: "initial",
+    };
+    const second = promptProfile();
+    second.initial = {
+      ...structuredClone(second.latest),
+      kind: "initial",
+    };
+    second.latest.metrics[0].ratio = 0.5;
+    second.latest.metrics[0].fractionNumerator = 1;
+    second.latest.metrics[0].fractionDenominator = 2;
+    second.latest.metrics[0].algorithmVersion = "synthetic-revision-b";
+    second.latest.metrics[0].computedAt = "2040-01-02T00:00:00Z";
+
+    const { rerender } = render(<QualityProfileView profile={first} />);
+    fireEvent.click(screen.getByRole("button", { name: "Initial request" }));
+    fireEvent.click(screen.getByRole("button", { name: /Checkability cue coverage/i }));
+    expect(screen.getByRole("button", { name: "Clear pin" })).toBeVisible();
+
+    rerender(<QualityProfileView profile={second} />);
+
+    expect(screen.getByRole("button", { name: "Latest analysis window" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.queryByRole("button", { name: "Clear pin" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Goal cue coverage/i })).toHaveTextContent("50%");
+  });
+
+  it("withholds cross-session readiness and never renders an arbitrary readiness error", () => {
+    const readiness = structuredClone(SYNTHETIC_SESSION_METRIC_READINESS);
+    readiness.session_id = "d".repeat(64);
+    const privateError = "PRIVATE-READINESS-DETAIL-CANARY";
+
+    render(
+      <QualityProfileView
+        analysisCapability={{
+          available: true,
+          reason_code: "available",
+          data_tier: "redacted_content",
+          content_persistence: false,
+          network_inference: false,
+          raw_transcripts: false,
+        }}
+        metricReadiness={readiness}
+        metricReadinessError={privateError}
+        onAnalyzeLocally={analysisFlow()}
+        profile={promptProfile()}
+        providerCompatibility={EXACT_COMPATIBILITY}
+      />,
+    );
+
+    expect(screen.getByText(/content-free metric readiness could not be loaded/i)).toBeVisible();
+    expect(screen.getByText(/current-provider ownership could not be verified/i)).toBeVisible();
+    expect(document.body).not.toHaveTextContent(privateError);
+    expect(screen.queryByText(/Missing evidence channels:/i)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      label: "foreign metric-pack key",
+      mutate: (report: SessionMetricReadinessReport) => {
+        report.metric_pack_key = "experimental.redacted-text.foreign";
+      },
+      compatibility: SYNTHETIC_EXACT_COMPATIBILITY,
+    },
+    {
+      label: "foreign preset",
+      mutate: (report: SessionMetricReadinessReport) => {
+        report.preset_id = "standard_engineering_v1";
+      },
+      compatibility: SYNTHETIC_EXACT_COMPATIBILITY,
+    },
+    {
+      label: "current-provider mismatch",
+      mutate: (_report: SessionMetricReadinessReport) => undefined,
+      compatibility: EXACT_COMPATIBILITY,
+    },
+  ])("withholds readiness with a $label", ({ mutate, compatibility }) => {
+    const readiness = structuredClone(SYNTHETIC_SESSION_METRIC_READINESS);
+    mutate(readiness);
+
+    render(
+      <QualityProfileView
+        metricReadiness={readiness}
+        onAnalyzeLocally={analysisFlow()}
+        profile={coachingPromptProfile()}
+        providerCompatibility={compatibility}
+      />,
+    );
+
+    expect(screen.getByText(/readiness metadata was withheld/i)).toBeVisible();
+    expect(screen.queryByText(/readiness verified/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Checkability cue coverage/i })).toHaveTextContent(
+      "50%",
+    );
+  });
+
+  it("fails closed when no current-provider compatibility context is available", () => {
+    render(
+      <QualityProfileView
+        metricReadiness={structuredClone(SYNTHETIC_SESSION_METRIC_READINESS)}
+        onAnalyzeLocally={analysisFlow()}
+        profile={coachingPromptProfile()}
+      />,
+    );
+
+    expect(screen.getByText(/readiness metadata was withheld/i)).toBeVisible();
+    expect(screen.queryByText(/readiness verified/i)).not.toBeInTheDocument();
+  });
+
+  it("accepts readiness only for the exact coaching profile and current provider context", () => {
+    render(
+      <QualityProfileView
+        metricReadiness={structuredClone(SYNTHETIC_SESSION_METRIC_READINESS)}
+        onAnalyzeLocally={analysisFlow()}
+        profile={coachingPromptProfile()}
+        providerCompatibility={SYNTHETIC_EXACT_COMPATIBILITY}
+      />,
+    );
+
+    expect(screen.getByText(/readiness verified for this exact session and metric pack/i)).toHaveTextContent(
+      "20 metric records",
+    );
+    expect(screen.queryByText(/readiness metadata was withheld/i)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      label: "null metrics",
+      mutate: (report: Record<string, unknown>) => {
+        report.metrics = null;
+      },
+    },
+    {
+      label: "non-array metrics",
+      mutate: (report: Record<string, unknown>) => {
+        report.metrics = { metric_key: "prompt.goal_definition" };
+      },
+    },
+    {
+      label: "null capability report",
+      mutate: (report: Record<string, unknown>) => {
+        report.capability_report = null;
+      },
+    },
+    {
+      label: "malformed metric record",
+      mutate: (report: Record<string, unknown>) => {
+        const metrics = [...(report.metrics as unknown[])];
+        metrics[0] = null;
+        report.metrics = metrics;
+      },
+    },
+  ])("bounds a prop-supplied readiness report with $label", ({ mutate }) => {
+    const readiness = structuredClone(
+      SYNTHETIC_SESSION_METRIC_READINESS,
+    ) as unknown as Record<string, unknown>;
+    mutate(readiness);
+
+    render(
+      <QualityProfileView
+        metricReadiness={readiness as unknown as SessionMetricReadinessReport}
+        onAnalyzeLocally={analysisFlow()}
+        profile={coachingPromptProfile()}
+        providerCompatibility={SYNTHETIC_EXACT_COMPATIBILITY}
+      />,
+    );
+
+    expect(screen.getByText(/readiness metadata was withheld/i)).toBeVisible();
+    expect(screen.queryByText(/readiness verified/i)).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("0 metric records");
+    expect(screen.getByRole("button", { name: /Checkability cue coverage/i })).toHaveTextContent(
+      "50%",
+    );
+  });
+
   it("summarizes valid incompatibility separately and preserves compatible metric cards", () => {
     const profile = promptProfile();
     profile.latest.integrity = "mixed-provenance";

@@ -249,6 +249,7 @@
   color: var(--ink-650, var(--ink-650));
   font-size: 0.68rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .metric-opportunity-map__guardrail {
@@ -259,6 +260,14 @@
 }
 
 @media (max-width: 700px) {
+  .metric-opportunity-map > summary {
+    display: grid;
+  }
+
+  .metric-opportunity-map__count {
+    justify-self: start;
+  }
+
   .metric-opportunity-map > summary,
   .metric-opportunity-map__priority > header {
     align-items: flex-start;
@@ -270,6 +279,15 @@
 
   .metric-opportunity-map__priority > header p {
     text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metric-opportunity-map,
+  .metric-opportunity-map * {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }
 

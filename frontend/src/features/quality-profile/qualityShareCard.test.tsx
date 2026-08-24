@@ -82,6 +82,133 @@ function runtimeFixture() {
 }
 
 describe("privacy-safe quality share card", () => {
+  it("fails closed when share capabilities throw", async () => {
+    const { runtime } = runtimeFixture();
+    runtime.canCopy = vi.fn(() => {
+      throw new Error("PRIVATE-CAPABILITY-CANARY");
+    });
+    runtime.canShare = vi.fn(() => {
+      throw new Error("PRIVATE-CAPABILITY-CANARY");
+    });
+
+    render(
+      <div className="app-shell">
+        <ProfileShareDialog
+          onClose={vi.fn()}
+          profile={profileFixture()}
+          runtime={runtime}
+          snapshotKind="latest"
+        />
+      </div>,
+    );
+
+    await screen.findByAltText(/minimized local prompt/i);
+    expect(screen.getByRole("button", { name: "Copy image" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Share/ })).toBeDisabled();
+    expect(document.body).not.toHaveTextContent("PRIVATE-CAPABILITY-CANARY");
+  });
+
+  it("blocks detached share actions after the dialog closes", async () => {
+    const { runtime } = runtimeFixture();
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <div className="app-shell">
+          {open && (
+            <ProfileShareDialog
+              onClose={() => setOpen(false)}
+              profile={profileFixture()}
+              runtime={runtime}
+              snapshotKind="latest"
+            />
+          )}
+        </div>
+      );
+    }
+    render(<Harness />);
+    const previewImage = await screen.findByAltText(/minimized local prompt/i);
+    expect(previewImage).toBeVisible();
+    const detachedCopy = screen.getByRole("button", { name: "Copy image" });
+    const detachedDownload = screen.getByRole("button", { name: "Download PNG" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(detachedCopy);
+    fireEvent.click(detachedDownload);
+
+    expect(runtime.copy).not.toHaveBeenCalled();
+    expect(runtime.download).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the share runtime swaps during an open preview", async () => {
+    const first = runtimeFixture();
+    const second = runtimeFixture();
+    const onClose = vi.fn();
+    const profile = profileFixture();
+    const { rerender } = render(
+      <div className="app-shell">
+        <ProfileShareDialog
+          onClose={onClose}
+          profile={profile}
+          runtime={first.runtime}
+          snapshotKind="latest"
+        />
+      </div>,
+    );
+    await screen.findByAltText(/minimized local prompt metric/i);
+    const detachedDownload = screen.getByRole("button", { name: "Download PNG" });
+
+    rerender(
+      <div className="app-shell">
+        <ProfileShareDialog
+          onClose={onClose}
+          profile={profile}
+          runtime={second.runtime}
+          snapshotKind="latest"
+        />
+      </div>,
+    );
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(first.runtime.revoke).toHaveBeenCalledWith(first.asset);
+    expect(second.runtime.render).not.toHaveBeenCalled();
+    fireEvent.click(detachedDownload);
+    expect(first.runtime.download).not.toHaveBeenCalled();
+    expect(second.runtime.download).not.toHaveBeenCalled();
+  });
+
+  it("does not publish a delayed share completion after close", async () => {
+    let resolveCopy!: () => void;
+    const { runtime } = runtimeFixture();
+    runtime.copy = vi.fn(() => new Promise<void>((resolve) => {
+      resolveCopy = resolve;
+    }));
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <div className="app-shell">
+          {open && (
+            <ProfileShareDialog
+              onClose={() => setOpen(false)}
+              profile={profileFixture()}
+              runtime={runtime}
+              snapshotKind="latest"
+            />
+          )}
+        </div>
+      );
+    }
+    render(<Harness />);
+    await screen.findByAltText(/minimized local prompt metric/i);
+    fireEvent.click(screen.getByRole("button", { name: "Copy image" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    resolveCopy();
+    await Promise.resolve();
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText(/PNG copied/i)).not.toBeInTheDocument();
+    expect(runtime.copy).toHaveBeenCalledTimes(1);
+  });
+
   it("uses only allowlisted derived fields and keeps fraction separate from evidence coverage", () => {
     const profile = profileFixture();
     profile.latest.scope = {
@@ -251,7 +378,7 @@ describe("privacy-safe quality share card", () => {
     expect(runtime.download).not.toHaveBeenCalled();
 
     await screen.findByAltText(
-      /minimized local prompt & collaboration coaching share card preview/i,
+      /minimized local prompt metric share card preview/i,
     );
     const download = screen.getByRole("button", { name: "Download PNG" });
     download.focus();

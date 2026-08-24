@@ -16,6 +16,7 @@ import {
   explainMetricReadiness,
   indexMetricReadiness,
 } from "./metricReadiness";
+import "./QualityRadar.css";
 
 const CENTER = 280;
 const RADIUS = 192;
@@ -38,6 +39,31 @@ const STATE_LABELS: Record<QualityMetricState, string> = {
 
 function clampRatio(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function hasValidFraction(metric: QualityMetricObservation): boolean {
+  return (
+    metric.fractionNumerator !== null &&
+    metric.fractionDenominator !== null &&
+    Number.isSafeInteger(metric.fractionNumerator) &&
+    Number.isSafeInteger(metric.fractionDenominator) &&
+    metric.fractionNumerator >= 0 &&
+    metric.fractionDenominator > 0 &&
+    metric.fractionNumerator <= metric.fractionDenominator
+  );
+}
+
+function hasValidCoverage(metric: QualityMetricObservation): boolean {
+  return (
+    Number.isSafeInteger(metric.observed) &&
+    Number.isSafeInteger(metric.eligible) &&
+    metric.observed >= 0 &&
+    metric.eligible > 0 &&
+    metric.observed <= metric.eligible &&
+    Number.isFinite(metric.coverage) &&
+    metric.coverage >= 0 &&
+    metric.coverage <= 1
+  );
 }
 
 function point(index: number, count: number, radius: number) {
@@ -69,10 +95,7 @@ export function radarRingPoints(count: number, ratio: number): string {
 }
 
 function fullFraction(metric: QualityMetricObservation): string {
-  if (
-    metric.fractionNumerator === null ||
-    metric.fractionDenominator === null
-  ) {
+  if (!hasValidFraction(metric)) {
     return "No fraction was produced for this state.";
   }
   return `${metric.fractionNumerator} of ${metric.fractionDenominator}`;
@@ -80,21 +103,21 @@ function fullFraction(metric: QualityMetricObservation): string {
 
 function coverageLabel(metric: QualityMetricObservation): string {
   if (metric.eligible === 0) return "No eligible input";
+  if (!hasValidCoverage(metric)) return "Coverage unavailable";
   return `${metric.observed}/${metric.eligible} usable · ${formatPercent(metric.coverage)}`;
 }
 
 function compactFraction(metric: QualityMetricObservation): string {
-  if (
-    metric.fractionNumerator === null ||
-    metric.fractionDenominator === null
-  ) {
+  if (!hasValidFraction(metric)) {
     return "unavailable";
   }
   return `${metric.fractionNumerator}/${metric.fractionDenominator}`;
 }
 
 function coverageRingDasharray(metric: QualityMetricObservation): string {
-  const covered = COVERAGE_RING_CIRCUMFERENCE * clampRatio(metric.coverage);
+  const covered =
+    COVERAGE_RING_CIRCUMFERENCE *
+    (hasValidCoverage(metric) ? clampRatio(metric.coverage) : 0);
   return `${covered} ${COVERAGE_RING_CIRCUMFERENCE}`;
 }
 
@@ -343,13 +366,19 @@ function RadarPlot({
             <g aria-hidden="true" key={`${metric.definition.key}-visible-point`}>
               <circle
                 className={
-                  metric.coverage < 1 || metric.state === "partial"
+                  !hasValidCoverage(metric) ||
+                  metric.coverage < 1 ||
+                  metric.state === "partial"
                     ? "quality-radar__coverage-ring quality-radar__coverage-ring--partial"
                     : "quality-radar__coverage-ring"
                 }
                 cx={value.x}
                 cy={value.y}
-                data-input-coverage={formatPercent(metric.coverage)}
+                data-input-coverage={
+                  hasValidCoverage(metric)
+                    ? formatPercent(metric.coverage)
+                    : "unavailable"
+                }
                 r={COVERAGE_RING_RADIUS}
                 strokeDasharray={coverageRingDasharray(metric)}
                 transform={`rotate(-90 ${value.x} ${value.y})`}
@@ -427,7 +456,7 @@ function MetricInspector({
           {candidateCaveat(metric)}
         </p>
       )}
-      {readinessExplanation !== null && readinessExplanation.state !== "known" && (
+      {readinessExplanation !== null && (
         <section
           aria-label="Metric readiness explanation"
           className={`quality-readiness quality-readiness--${readinessExplanation.state}`}
@@ -615,7 +644,10 @@ function MetricBoard({
   return (
     <section aria-label={compatibilityRegion} className="quality-board">
       <header className="quality-board__header">
-        <h3 id="quality-metric-board-title">Metrics</h3>
+        <div>
+          <p className="eyebrow">Authoritative values</p>
+          <h3>Metrics</h3>
+        </div>
         <p className="quality-board__summary">
           {measured}/{lens.metrics.length} measured · v{lens.definition.version}
         </p>
@@ -699,7 +731,7 @@ function MetricBoard({
                 )}
                 {caveat && <small>{caveat}</small>}
               </span>
-              {readinessExplanation !== null && readinessExplanation.state !== "known" && (
+              {readinessExplanation !== null && (
                 <span
                   className={`quality-board__readiness quality-board__readiness--${readinessExplanation.state}`}
                   data-readiness-state={readinessExplanation.state}
@@ -720,14 +752,78 @@ function MetricBoard({
   );
 }
 
-export function QualityRadar({
-  metrics,
-  readiness,
-}: {
+interface QualityRadarProps {
   metrics: readonly QualityMetricObservation[];
   readiness?: readonly MetricReadiness[] | null;
-}) {
+  /** Stable, content-free owner identity supplied by an exact host context. */
+  contextIdentity?: string;
+}
+
+function numericOwnerIdentity(value: number | null): readonly [string, number?] {
+  if (value === null) return ["null"];
+  if (Number.isNaN(value)) return ["nan"];
+  if (value === Number.POSITIVE_INFINITY) return ["positive-infinity"];
+  if (value === Number.NEGATIVE_INFINITY) return ["negative-infinity"];
+  if (Object.is(value, -0)) return ["negative-zero"];
+  return ["finite", value];
+}
+
+function qualityRadarIdentity(
+  metrics: readonly QualityMetricObservation[],
+  readiness: readonly MetricReadiness[] | null | undefined,
+): string {
+  return JSON.stringify({
+    metrics: metrics.map((metric) => ({
+      key: metric.definition.key,
+      version: metric.definition.version,
+      direction: metric.definition.direction,
+      state: metric.state,
+      ratio: numericOwnerIdentity(metric.ratio),
+      numerator: numericOwnerIdentity(metric.fractionNumerator),
+      denominator: numericOwnerIdentity(metric.fractionDenominator),
+      observed: numericOwnerIdentity(metric.observed),
+      eligible: numericOwnerIdentity(metric.eligible),
+      coverage: numericOwnerIdentity(metric.coverage),
+      notSelectedRuns: numericOwnerIdentity(metric.notSelectedRuns),
+      unknownScopeRuns: numericOwnerIdentity(metric.unknownScopeRuns),
+      schema: metric.metricSchemaVersion,
+      explanation: metric.explanationCode,
+      algorithm: metric.algorithmId,
+      algorithmVersion: metric.algorithmVersion,
+      model: metric.modelId,
+      error: metric.errorCode,
+      definitionVersion: metric.definitionVersion,
+      computedAt: metric.computedAt,
+      signals: metric.signals.map((signal) => [
+        signal.code,
+        signal.status,
+        numericOwnerIdentity(signal.count),
+      ]),
+    })),
+    readiness: (readiness ?? []).map((metric) => ({
+      key: metric.metric_key,
+      version: metric.metric_version,
+      state: metric.state,
+      reason: metric.reason_code,
+      run: metric.latest_run_id,
+      missing: metric.missing_capabilities,
+      actions: metric.next_actions,
+    })),
+  });
+}
+
+export function QualityRadar(props: QualityRadarProps) {
+  const contextIdentity =
+    props.contextIdentity ?? qualityRadarIdentity(props.metrics, props.readiness);
+  return <QualityRadarOwned key={contextIdentity} {...props} />;
+}
+
+function QualityRadarOwned({
+  metrics,
+  readiness,
+}: QualityRadarProps) {
   const descriptionId = useId();
+  const titleId = useId();
   const lenses = useMemo(() => qualityLensesFor(metrics), [metrics]);
   const readinessIndex = useMemo(() => indexMetricReadiness(readiness), [readiness]);
   const [selectedLensId, setSelectedLensId] = useState<QualityLensId | null>(
@@ -834,11 +930,11 @@ export function QualityRadar({
         if (event.key === "Escape") clearSelection();
       }}
     >
-      <section aria-labelledby="quality-radar-title" className="quality-radar__explorer">
+      <section aria-labelledby={titleId} className="quality-radar__explorer">
         <header className="quality-radar__header">
           <div>
             <p className="eyebrow">{profileTitle}</p>
-            <h3 id="quality-radar-title">{selectedLens.definition.label}</h3>
+            <h3 id={titleId}>{selectedLens.definition.label}</h3>
             <p>{selectedLens.definition.question}</p>
           </div>
         </header>
@@ -886,7 +982,23 @@ export function QualityRadar({
           </div>
         </div>
 
-        <div className="quality-radar__workspace">
+        <MetricBoard
+          activeKey={activeKey}
+          lens={selectedLens}
+          onClear={clearSelection}
+          onPin={(key) => {
+            setPinnedKey(key);
+            setPreviewKey(null);
+          }}
+          onPreviewEnd={(key) =>
+            setPreviewKey((current) => (current === key ? null : current))
+          }
+          onPreviewStart={setPreviewKey}
+          pinnedKey={pinnedKey}
+          readiness={readinessIndex}
+        />
+
+        <div className="quality-radar__workspace quality-radar__workspace--secondary">
           {radarReady ? (
             <RadarPlot
               activeKey={activeKey}
@@ -916,21 +1028,6 @@ export function QualityRadar({
               readiness={readinessIndex.get(
                 `${activeMetric.definition.key}@${activeMetric.definition.version}`,
               )}
-            />
-            <MetricBoard
-              activeKey={activeKey}
-              lens={selectedLens}
-              onClear={clearSelection}
-              onPin={(key) => {
-                setPinnedKey(key);
-                setPreviewKey(null);
-              }}
-              onPreviewEnd={(key) =>
-                setPreviewKey((current) => (current === key ? null : current))
-              }
-              onPreviewStart={setPreviewKey}
-              pinnedKey={pinnedKey}
-              readiness={readinessIndex}
             />
           </div>
         </div>

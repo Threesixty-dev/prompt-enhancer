@@ -122,6 +122,23 @@ const EXPECTED_READINESS_STATES: Record<QualityMetricState, readonly MetricReadi
   "execution-error": ["failed"],
 };
 
+const EXPECTED_REASONS: Record<MetricReadinessState, readonly MetricReadinessReason[]> = {
+  known: ["measured"],
+  unknown: [
+    "analysis_not_run",
+    "analysis_in_progress",
+    "result_unknown",
+    "provider_compatibility_unverified",
+    "metric_not_selected",
+    "metric_scope_unknown",
+  ],
+  unsupported: ["provider_capability_missing", "provider_adapter_unavailable"],
+  abstained: ["result_abstained"],
+  incompatible: ["provider_incompatible"],
+  not_applicable: ["explicitly_not_applicable"],
+  failed: ["provider_unavailable", "analysis_failed", "result_failed", "result_missing"],
+};
+
 export interface MetricReadinessExplanation {
   readonly actionCopy: readonly string[];
   readonly compactActionCopy: string;
@@ -143,8 +160,69 @@ export function readinessIdentity(metric: {
 export function indexMetricReadiness(
   metrics: readonly MetricReadiness[] | null | undefined,
 ): ReadonlyMap<string, MetricReadiness> {
-  return new Map(
-    (metrics ?? []).map((metric) => [readinessIdentity(metric), metric] as const),
+  const index = new Map<string, MetricReadiness>();
+  const duplicates = new Set<string>();
+  for (const metric of metrics ?? []) {
+    if (
+      typeof metric?.metric_key !== "string" ||
+      metric.metric_key.length === 0 ||
+      !Number.isSafeInteger(metric.metric_version) ||
+      metric.metric_version < 1
+    ) {
+      continue;
+    }
+    const identity = readinessIdentity(metric);
+    if (index.has(identity)) {
+      duplicates.add(identity);
+      index.delete(identity);
+    } else if (!duplicates.has(identity)) {
+      index.set(identity, metric);
+    }
+  }
+  return index;
+}
+
+function isKnownCapability(value: unknown): value is MetricEvidenceCapability {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(CAPABILITY_LABELS, value)
+  );
+}
+
+function isKnownAction(value: unknown): value is MetricReadinessAction {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(ACTION_COPY, value)
+  );
+}
+
+function readinessMetadataIsWellFormed(readiness: MetricReadiness): boolean {
+  const actions = readiness.next_actions;
+  const missingCapabilities = readiness.missing_capabilities;
+  const availableCapabilities = readiness.available_capabilities;
+  const capabilityGroups = readiness.capability_groups;
+  return (
+    Object.prototype.hasOwnProperty.call(STATE_LABELS, readiness.state) &&
+    Object.prototype.hasOwnProperty.call(REASON_COPY, readiness.reason_code) &&
+    EXPECTED_REASONS[readiness.state]?.includes(readiness.reason_code) === true &&
+    Array.isArray(actions) &&
+    actions.length > 0 &&
+    new Set(actions).size === actions.length &&
+    actions.every(isKnownAction) &&
+    (!actions.includes("none") || actions.length === 1) &&
+    Array.isArray(missingCapabilities) &&
+    new Set(missingCapabilities).size === missingCapabilities.length &&
+    missingCapabilities.every(isKnownCapability) &&
+    Array.isArray(availableCapabilities) &&
+    new Set(availableCapabilities).size === availableCapabilities.length &&
+    availableCapabilities.every(isKnownCapability) &&
+    Array.isArray(capabilityGroups) &&
+    capabilityGroups.every(
+      (group) =>
+        Array.isArray(group) &&
+        new Set(group).size === group.length &&
+        group.every(isKnownCapability),
+    )
   );
 }
 
@@ -214,7 +292,10 @@ export function explainMetricReadiness(
     return null;
   }
 
-  if (!EXPECTED_READINESS_STATES[observation.state].includes(readiness.state)) {
+  if (
+    !EXPECTED_READINESS_STATES[observation.state].includes(readiness.state) ||
+    !readinessMetadataIsWellFormed(readiness)
+  ) {
     return {
       actionCopy: [
         "Refresh readiness metadata or rerun the compatible local analysis before acting on it.",
@@ -233,7 +314,9 @@ export function explainMetricReadiness(
 
   return {
     actionCopy: readiness.next_actions.map((action) => ACTION_COPY[action]),
-    compactActionCopy: COMPACT_ACTION_COPY[readiness.next_actions[0]],
+    compactActionCopy:
+      COMPACT_ACTION_COPY[readiness.next_actions[0]] ??
+      "Refresh readiness metadata.",
     compactEvidenceCopy: compactEvidenceCopy(readiness),
     compactReasonCopy: COMPACT_REASON_COPY[readiness.reason_code],
     evidenceCopy: evidenceCopy(readiness),

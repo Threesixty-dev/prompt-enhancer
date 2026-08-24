@@ -7,6 +7,16 @@ import {
 } from "./metricOpportunityCatalog";
 
 describe("MetricOpportunityMap", () => {
+  it("uses unique labelled-by identities when two maps are embedded", () => {
+    render(<><MetricOpportunityMap /><MetricOpportunityMap /></>);
+    const sections = screen.getAllByRole("region", {
+      name: "Next evidence for real user benefit",
+    });
+    const ids = sections.map((section) => section.getAttribute("aria-labelledby"));
+    expect(ids.every(Boolean)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it("keeps future metric specifications separate from measured values", () => {
     const { container } = render(<MetricOpportunityMap />);
 
