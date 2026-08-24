@@ -47,6 +47,10 @@ export default defineConfig(({ mode }) => ({
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
     environment: "jsdom",
+    // Keep the locked quality gate stable on high-core hosts: each JSDOM file
+    // worker is memory- and transform-heavy, and unbounded fan-out can make
+    // otherwise deterministic five-second interaction tests starve.
+    maxWorkers: 4,
     setupFiles: ["./src/test/setup.ts"],
     css: true,
     coverage: {
