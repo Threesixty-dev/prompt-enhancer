@@ -24,22 +24,23 @@ local runtime artifacts must never be added here.
 | P3 | Deferred; P3a contracts only | Optional cloud identity, pairing, entitlements, payments, and usage ledger. P3a adds development-only control-plane contracts, default-deny policy, signed content-free snapshot envelopes, cursored deltas, tombstones, audit evidence, and an in-memory adapter behind ports | Tenant isolation, revocation, deletion, balanced ledger, webhook replay, spend caps, and offline-local behavior | Owner approval and completed P2 required. P3a adds no deployment: no production identity provider, no Ed25519 adapter, no PostgreSQL adapter, no credential issuance, no billing, and no producer pipeline |
 | P4 | Deferred | Teams, governance, aggregate-only sharing, RBAC, and privacy-preserving boards | RBAC, isolation, consent withdrawal, cohort-inference defense, deletion propagation, and accessibility | Requires P3 control plane and a separately reviewed sharing policy |
 
-## Current all-20 operability truth (2026-08-21)
+## Current all-20 operability truth (2026-08-24)
 
 The versioned, authenticated
-[`metric-operability-v3`](metric-operability.md) catalog derives its result from
-the reviewed V2 contract registry, current r7 evidence-bound projection,
+[`metric-operability-v4`](metric-operability.md) catalog derives its result from
+the reviewed V2 contract registry, current r8 evidence-bound projection,
 lifecycle registry, semantic-unit extractor set, objective evidence
 requirements, and the exact capabilities and native workflows composed for the
 current safe-event decoder. It still reports 16 metrics with a defensible
 shipped path when evidence exists, none blocked on missing task-profile
 configuration, four blocked on provider/extractor authority, and eight with a
-separate experimental model-estimate path. R7/M56 implements the
-requirement-action authority contract and native review UI, but that path is not
-promoted until a production provider proves a complete safe-event and redacted-
-descriptor review surface. No model stage may author any measured
-value. Older checkpoint counts below are retained as historical evidence and
-must not be read as the current release state.
+separate experimental model-estimate path. Schema 59 and projection r8 append
+an atomic exact-M58-revision binding and activate reviewed objective projection
+v4 only for verified-requirement coverage. That durable authority does not by
+itself prove a complete production-provider evidence surface or calibrate a
+model path, so the release partition remains exactly 16/0/4 and no model stage
+may author any measured value. Older checkpoint counts below are retained as
+historical evidence and must not be read as the current release state.
 
 ### Reviewed task-profile and r5 evidence tranche (2026-08-21)
 
@@ -164,6 +165,36 @@ next logical evidence tranche is `outcome.verified_requirement_coverage`: reuse
 the reviewed requirement identity, then add app-issued typed passing
 verification or explicit acceptance authority. R7 action completion and model
 or assistant completion claims are insufficient for that future metric.
+
+### Reviewed requirement verification and r8 evidence tranche (2026-08-24)
+
+Schema v58/Migration 58 durably records the exact app-issued verification
+opportunity set and dense objective-result or owned-native-acceptance authority
+history. Schema v59/Migration 59 then appends the content-free model-run binding,
+dedicated r8 state sidecar, and r8 publication seal without rewriting M1-M58 or
+reinterpreting r1-r7 history. Every new r8 run seals one closed source partition:
+`unavailable`, `opportunity_bound_exceeded`, `awaiting_evidence`, or
+`persisted_evidence`. A persisted binding includes the exact r6 identities,
+opportunity and evidence fingerprints, through-revision (including revision
+zero), current-head/result/acceptance/resolution/met counts, and all relevant
+issuer/schema/policy/projection versions.
+
+Projection r8 preserves nineteen r7 states and replaces only
+`outcome.verified_requirement_coverage` through reviewed objective projection
+v4. The complete app-issued r6 requirement-opportunity set owns the denominator;
+only a current app-issued objective result or separately typed owned-native
+acceptance can resolve an opportunity. Missing and partial evidence remains
+nonnumeric, an empty reviewed set is no-opportunity, and neither action
+completion nor assistant/model completion claims are accepted as proof. All
+twenty typed receipts and the exact v4 provenance of the verified-requirement
+typed row are sealed with the run.
+
+Readiness catalog `metric-evidence-readiness-v2-7` names the r8 source,
+revision, availability, pending, and bound conditions without describing native
+acceptance as an objective verifier receipt. Operability catalog
+`metric-operability-v4` points at r8 while deliberately retaining the exact
+16 shipped / 0 task-profile-gap / 4 provider-or-composition-gap partition and
+zero model-authoritative measured metrics.
 
 ## Baseline evidence
 
@@ -1635,9 +1666,9 @@ the application composes no control-plane service and exposes no route.
 | Deterministic coaching pack | `core.redacted-text.prompt-logic` v1; engine `text-rules-en-pl-1`; rubric `prompt-logic-rubric-1` | Local deterministic observations only; missing objective evidence abstains |
 | Historical ten-model shadow graph | `local-shadow-ensemble-v1`; `append-stable-redacted-v3`; `owned-observation-v1`; `coaching-shadow-prompt-v4`; exact ten-model inventory in code-owned immutable manifests | Immutable/readable compatibility history; not executed by the live v35 estimator |
 | All-20 predictive sidecar | `local-probabilistic-radar-v1`; active `local-factor-router-v3` / `small-factor-router-v5`, historical v2 readable; experimental calibration; versioned twenty-metric contract set | Local content-free ranges beside measured values; uncalibrated and product-ineligible; objective outcome boundary retained |
-| Canonical all-20 measured publication | `metric.contract-v2.publication` v2; registry `all-20-factor-contracts-v2`; current projection `metric-contract-v2-projection-7`; schema v56 sealed profile, requirement-plan, and requirement-action bindings plus `_r7` sidecar, with r1-r6 rows still readable | Canonical for new model-ensemble snapshots; r7 changes only requirement-action traceability, using the exact r6 native-reviewed denominator plus a complete app-issued safe-action manifest and exact native review; values still require reviewed opportunity ownership or typed objective authority |
-| Per-metric evidence readiness | `metric.contract-v2.evidence-readiness` v1; catalog `metric-evidence-readiness-v2-6` | Derived on read from the exact sealed publication; adds no datum, schema, or persistence; r7 requirement-action, r6 requirement-plan, r5 profile, r4 lifecycle, source/capability/receipt-bound reasons, and explicit censoring bounds |
-| All-20 operability catalog | `metric-operability-v3`; authenticated `GET /v1/metric-contracts/v2/operability-catalog` | Content-free release gate derived from the reviewed contracts and composed capabilities: 16 shipped conditional paths, 0 task-profile gaps, 4 provider/extractor gaps, 8 experimental model paths, 0 model-authoritative metrics; the r7 path is not promoted until a production provider proves complete safe-event and redacted-descriptor review authority |
+| Canonical all-20 measured publication | `metric.contract-v2.publication` v2; registry `all-20-factor-contracts-v2`; current projection `metric-contract-v2-projection-8`; schema v59 exact M58 revision binding plus `_r8` state/seal sidecars, inheriting sealed profile, requirement-plan, and requirement-action authority; r1-r7 rows remain readable | Canonical for new model-ensemble snapshots; r8 preserves nineteen r7 rows and replaces only verified-requirement coverage through objective projection v4, using the exact app-issued reviewed-r6 opportunity set and current objective-result or separately typed owned-native-acceptance authority; missing evidence remains nonnumeric and all model paths remain non-authoritative |
+| Per-metric evidence readiness | `metric.contract-v2.evidence-readiness` v1; catalog `metric-evidence-readiness-v2-7` | Derived on read from the exact sealed publication; adds no datum or persistence; includes r8 verification source/revision/bound reasons while preserving r7 requirement-action, r6 requirement-plan, r5 profile, r4 lifecycle, capability, and censoring distinctions |
+| All-20 operability catalog | `metric-operability-v4`; authenticated `GET /v1/metric-contracts/v2/operability-catalog` | Content-free release gate derived from the reviewed contracts and composed capabilities: 16 shipped conditional paths, 0 task-profile gaps, 4 provider/extractor or release-composition gaps, 8 experimental model paths, 0 model-authoritative metrics; the r8 binding is not a provider-readiness or calibration promotion |
 | Redactor | `deterministic-local-redactor-v1` | Local risk reduction; not sufficient by itself for remote disclosure |
 | E5-base retrieval challenger | `intfloat/multilingual-e5-base` at `d128750597153bb5987e10b1c3493a34e5a4502a` | Synthetic exploratory challenger; not promoted or product-enabled |
 | BGE-M3 dense challenger | `BAAI/bge-m3` at `142964af7e05de16511657561de8e8750fc153a0` | Safe superseding pin evaluated; trails the current retrieval Pareto set and remains disabled |
