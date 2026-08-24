@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { LocalModelRecord, LocalModelStatus, LocalModelsOverview, PromptEnhancerTransport, RemoteRepoFiles } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
@@ -62,6 +62,21 @@ function transportWithOverview(getLocalModels: PromptEnhancerTransport["getLocal
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, reject, resolve };
+}
+
+function namedOverview(name: string, models: LocalModelStatus[] = [model()]): LocalModelsOverview {
+  const value = overview(models);
+  return { ...value, hardware: { ...value.hardware, gpu_name: name } };
+}
+
 describe("LocalModelsPage", () => {
   it("validates the overview contract", () => {
     expect(safeOverview(overview())).toBe(true);
@@ -97,6 +112,126 @@ describe("LocalModelsPage", () => {
     expect(screen.getByRole("region", { name: "Models" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Models" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("The model list could not be verified.");
+  });
+
+  it("does not let a poll started before a command overwrite the command reload", async () => {
+    vi.useFakeTimers();
+    const initial = deferred<LocalModelsOverview>();
+    const poll = deferred<LocalModelsOverview>();
+    const activation = deferred<LocalModelStatus>();
+    const commandReload = deferred<LocalModelsOverview>();
+    const signals: AbortSignal[] = [];
+    const getLocalModels = vi.fn((signal?: AbortSignal) => {
+      if (signal) signals.push(signal);
+      return [initial.promise, poll.promise, commandReload.promise][getLocalModels.mock.calls.length - 1];
+    });
+    const transport = {
+      ...transportWithOverview(getLocalModels),
+      activateLocalModel: vi.fn(() => activation.promise),
+    };
+    const view = render(<LocalModelsPage transport={transport} />);
+
+    try {
+      await act(async () => { initial.resolve(namedOverview("Initial GPU")); await initial.promise; });
+      expect(screen.getByText("Initial GPU")).toBeInTheDocument();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(getLocalModels).toHaveBeenCalledTimes(2);
+      fireEvent.click(screen.getByRole("button", { name: "Activate" }));
+      await act(async () => { activation.resolve(model("running")); await activation.promise; });
+
+      expect(getLocalModels).toHaveBeenCalledTimes(3);
+      expect(signals[1].aborted).toBe(true);
+      await act(async () => {
+        commandReload.resolve(namedOverview("Command GPU", [model("running")]));
+        await commandReload.promise;
+      });
+      expect(screen.getByText("Command GPU")).toBeInTheDocument();
+      expect(screen.getByText(/running · split · 52 GPU layers/)).toBeInTheDocument();
+
+      await act(async () => { poll.resolve(namedOverview("Stale poll GPU")); await poll.promise; });
+      expect(screen.getByText("Command GPU")).toBeInTheDocument();
+      expect(screen.queryByText("Stale poll GPU")).toBeNull();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the current reload failure truthful when an older poll later succeeds", async () => {
+    vi.useFakeTimers();
+    const initial = deferred<LocalModelsOverview>();
+    const poll = deferred<LocalModelsOverview>();
+    const activation = deferred<LocalModelStatus>();
+    const commandReload = deferred<LocalModelsOverview>();
+    const getLocalModels = vi.fn(() => (
+      [initial.promise, poll.promise, commandReload.promise][getLocalModels.mock.calls.length - 1]
+    ));
+    const transport = {
+      ...transportWithOverview(getLocalModels),
+      activateLocalModel: vi.fn(() => activation.promise),
+    };
+    const view = render(<LocalModelsPage transport={transport} />);
+
+    try {
+      await act(async () => { initial.resolve(namedOverview("Initial GPU")); await initial.promise; });
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      fireEvent.click(screen.getByRole("button", { name: "Activate" }));
+      await act(async () => { activation.resolve(model("running")); await activation.promise; });
+      expect(getLocalModels).toHaveBeenCalledTimes(3);
+
+      await act(async () => {
+        commandReload.reject(new TransportError("current reload failed", 500));
+        await commandReload.promise.catch(() => undefined);
+      });
+      expect(screen.getByRole("alert")).toHaveTextContent("The model list could not be verified.");
+
+      await act(async () => { poll.resolve(namedOverview("Stale poll GPU")); await poll.promise; });
+      expect(screen.getByRole("alert")).toHaveTextContent("The model list could not be verified.");
+      expect(screen.queryByText("Stale poll GPU")).toBeNull();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it("aborts and ignores an unresolved overview load when unmounted", async () => {
+    const pending = deferred<LocalModelsOverview>();
+    let signal: AbortSignal | undefined;
+    const getLocalModels = vi.fn((candidate?: AbortSignal) => {
+      signal = candidate;
+      return pending.promise;
+    });
+    const view = render(<LocalModelsPage transport={transportWithOverview(getLocalModels)} />);
+
+    expect(getLocalModels).toHaveBeenCalledTimes(1);
+    view.unmount();
+    expect(signal?.aborted).toBe(true);
+    await act(async () => { pending.resolve(namedOverview("Unmounted GPU")); await pending.promise; });
+    expect(getLocalModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an old transport context overwrite the current one", async () => {
+    const previous = deferred<LocalModelsOverview>();
+    const current = deferred<LocalModelsOverview>();
+    let previousSignal: AbortSignal | undefined;
+    const previousTransport = transportWithOverview(vi.fn((signal?: AbortSignal) => {
+      previousSignal = signal;
+      return previous.promise;
+    }));
+    const currentTransport = transportWithOverview(vi.fn(() => current.promise));
+    const view = render(<LocalModelsPage transport={previousTransport} />);
+
+    view.rerender(<LocalModelsPage transport={currentTransport} />);
+    expect(previousSignal?.aborted).toBe(true);
+    expect(screen.getByText("Looking at this machine…")).toBeInTheDocument();
+    await act(async () => { current.resolve(namedOverview("Current context GPU")); await current.promise; });
+    expect(screen.getByText("Current context GPU")).toBeInTheDocument();
+
+    await act(async () => { previous.resolve(namedOverview("Previous context GPU")); await previous.promise; });
+    expect(screen.getByText("Current context GPU")).toBeInTheDocument();
+    expect(screen.queryByText("Previous context GPU")).toBeNull();
+    view.unmount();
   });
 
   it("shows hardware, the model with its endpoint, and activates on the chosen device", async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   DeviceMode,
   LocalModelRecord,
@@ -48,6 +48,14 @@ const DEVICES: readonly { value: DeviceMode; title: string; hint: string }[] = [
   { value: "split", title: "GPU / CPU", hint: "Fits what it can on the GPU, rest on CPU" },
   { value: "cpu", title: "CPU", hint: "No offload; slow but always works" },
 ];
+
+type OverviewLoadKind = "poll" | "reload";
+
+interface ActiveOverviewLoad {
+  context: number;
+  controller: AbortController;
+  generation: number;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -131,35 +139,88 @@ export function LocalModelsPage({
   const [alias, setAlias] = useState<string>("");
   const [localPath, setLocalPath] = useState<string>("");
   const [folderPath, setFolderPath] = useState<string>("");
+  const mounted = useRef(false);
+  const contextGeneration = useRef(0);
+  const loadGeneration = useRef(0);
+  const commandGeneration = useRef(0);
+  const activeLoad = useRef<ActiveOverviewLoad | null>(null);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const isCurrentContext = useCallback((context: number) => (
+    mounted.current && contextGeneration.current === context
+  ), []);
+
+  const load = useCallback(async (kind: OverviewLoadKind, context: number) => {
+    if (!isCurrentContext(context)) return;
+    if (kind === "poll" && activeLoad.current !== null) return;
+
+    activeLoad.current?.controller.abort();
+    const ticket: ActiveOverviewLoad = {
+      context,
+      controller: new AbortController(),
+      generation: loadGeneration.current + 1,
+    };
+    loadGeneration.current = ticket.generation;
+    activeLoad.current = ticket;
+    const ownsResult = () => (
+      isCurrentContext(context)
+      && !ticket.controller.signal.aborted
+      && activeLoad.current === ticket
+      && loadGeneration.current === ticket.generation
+    );
     try {
-      const value = await transport.getLocalModels(signal);
-      if (signal?.aborted) return;
+      const value = await transport.getLocalModels(ticket.controller.signal);
+      if (!ownsResult()) return;
       if (!safeOverview(value)) { setState("error"); return; }
       setOverview(value);
       setState("ready");
     } catch (caught) {
-      if (signal?.aborted) return;
+      if (!ownsResult()) return;
       setState(caught instanceof TransportError && caught.status === 404 ? "unavailable" : "error");
+    } finally {
+      if (activeLoad.current === ticket) activeLoad.current = null;
     }
-  }, [transport]);
+  }, [isCurrentContext, transport]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void load(controller.signal);
-    const handle = window.setInterval(() => void load(controller.signal), 5000);
-    return () => { controller.abort(); window.clearInterval(handle); };
+    const context = contextGeneration.current + 1;
+    contextGeneration.current = context;
+    mounted.current = true;
+    commandGeneration.current += 1;
+    activeLoad.current?.controller.abort();
+    activeLoad.current = null;
+    setOverview(null);
+    setState("loading");
+    setBusy("");
+    setMessage("");
+    void load("reload", context);
+    const handle = window.setInterval(() => void load("poll", context), 5000);
+    return () => {
+      window.clearInterval(handle);
+      if (contextGeneration.current === context) {
+        mounted.current = false;
+        commandGeneration.current += 1;
+      }
+      if (activeLoad.current?.context === context) {
+        activeLoad.current.controller.abort();
+        activeLoad.current = null;
+      }
+    };
   }, [load]);
 
   async function run(label: string, action: () => Promise<unknown>, okMessage: string | null) {
+    const context = contextGeneration.current;
+    const command = commandGeneration.current + 1;
+    commandGeneration.current = command;
+    if (!isCurrentContext(context)) return;
     setBusy(label);
     setMessage("");
     try {
       await action();
+      if (!isCurrentContext(context) || commandGeneration.current !== command) return;
       if (okMessage) setMessage(okMessage);
-      await load();
+      await load("reload", context);
     } catch (caught) {
+      if (!isCurrentContext(context) || commandGeneration.current !== command) return;
       const status = caught instanceof TransportError ? caught.status : null;
       setMessage(status === 409 && label !== "download"
         ? "llama-server is not installed or not on PATH (or that alias already exists); see the runtime card."
@@ -170,7 +231,7 @@ export function LocalModelsPage({
             : status === 409 ? "The download was refused and nothing was downloaded or registered: the repository's revision, digest or licence no longer matches what you confirmed, the file is not admitted by the download policy, or that alias already exists. Look the repository up again."
               : "That did not work. Nothing was changed.");
     } finally {
-      setBusy("");
+      if (isCurrentContext(context) && commandGeneration.current === command) setBusy("");
     }
   }
 

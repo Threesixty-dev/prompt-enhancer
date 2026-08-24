@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CalibrationProgress,
   CalibrationRating,
@@ -12,6 +12,7 @@ import type {
   RatingLabel,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
+import { Dialog } from "../../shared/ui/Dialog";
 import { Icon } from "../../shared/ui/Icon";
 import { ProviderBadge } from "../../shared/ui/ProviderBadge";
 import { SessionTranscriptPane } from "../session-reader/SessionTranscriptPane";
@@ -40,19 +41,111 @@ const METRIC_COPY: Record<string, { title: string; question: string }> = {
   },
 };
 
+const PSEUDONYM = /^[a-f0-9]{64}$/;
+const PROVIDERS = new Set(["codex", "claude_code", "synthetic"]);
+const ISO_DATETIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
+const MAX_SAMPLE_SIZE = 1_000;
+
+type OwnedRequestKind = "load" | "command";
+type OwnedRequest = {
+  controller: AbortController;
+  kind: OwnedRequestKind;
+  pending: boolean;
+};
+type OwnedRequestRef = { current: OwnedRequest | null };
+
+function beginOwnedRequest(ref: OwnedRequestRef, kind: OwnedRequestKind): OwnedRequest | null {
+  if (kind === "load" && ref.current?.kind === "command" && ref.current.pending) return null;
+  ref.current?.controller.abort();
+  const request = { controller: new AbortController(), kind, pending: true };
+  ref.current = request;
+  return request;
+}
+
+function ownsRequest(ref: OwnedRequestRef, request: OwnedRequest): boolean {
+  return ref.current === request && !request.controller.signal.aborted;
+}
+
+function finishOwnedRequest(ref: OwnedRequestRef, request: OwnedRequest): void {
+  if (ref.current === request) request.pending = false;
+}
+
+function cancelOwnedRequest(ref: OwnedRequestRef): void {
+  ref.current?.controller.abort();
+  ref.current = null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isBoundedString(value: unknown, maximumLength: number, allowEmpty = false): value is string {
+  return typeof value === "string"
+    && Array.from(value).length <= maximumLength
+    && (allowEmpty || value.trim().length > 0);
+}
+
+function isOptionalBoundedString(value: unknown, maximumLength: number): value is string | null | undefined {
+  return value === undefined || value === null || isBoundedString(value, maximumLength, true);
+}
+
+function isDateTime(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 64) return false;
+  const match = ISO_DATETIME.exec(value);
+  if (!match) return false;
+  const [year, month, day, hour, minute, second, offsetHour, offsetMinute] = match.slice(1).map(Number);
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  if ((offsetHour !== undefined && offsetHour > 23) || (offsetMinute !== undefined && offsetMinute > 59)) return false;
+  const calendarDate = new Date(0);
+  calendarDate.setUTCHours(0, 0, 0, 0);
+  calendarDate.setUTCFullYear(year, month - 1, day);
+  if (
+    calendarDate.getUTCFullYear() !== year
+    || calendarDate.getUTCMonth() !== month - 1
+    || calendarDate.getUTCDate() !== day
+  ) return false;
+  return Number.isFinite(Date.parse(value));
+}
+
 export function safeCalibrationSample(value: unknown): value is CalibrationSample {
   if (!isRecord(value) || value.contract_version !== "calibration-ratings.v1") return false;
-  if (typeof value.sample_id !== "string" || !Array.isArray(value.members) || !Array.isArray(value.metric_keys)) return false;
-  return value.members.every((member) =>
-    isRecord(member)
-    && typeof member.session_id === "string" && /^[a-f0-9]{64}$/.test(member.session_id)
-    && typeof member.provider === "string"
-    && Array.isArray(member.rated_metric_keys),
-  );
+  if (
+    typeof value.sample_id !== "string" || !PSEUDONYM.test(value.sample_id)
+    || !isBoundedString(value.sample_version, 120)
+    || !isDateTime(value.created_at)
+    || typeof value.target_size !== "number" || !Number.isInteger(value.target_size) || value.target_size < 1 || value.target_size > MAX_SAMPLE_SIZE
+    || !Array.isArray(value.metric_keys)
+    || !Array.isArray(value.members)
+  ) return false;
+
+  const metricKeys = value.metric_keys;
+  if (
+    metricKeys.length === 0
+    || !metricKeys.every((key) => isBoundedString(key, 120) && Object.hasOwn(METRIC_COPY, key))
+  ) return false;
+  const metricKeySet = new Set(metricKeys);
+  if (metricKeySet.size !== metricKeys.length) return false;
+  if (value.members.length > value.target_size) return false;
+
+  const positions = new Set<number>();
+  const sessionIds = new Set<string>();
+  for (const member of value.members) {
+    if (!isRecord(member)) return false;
+    if (typeof member.position !== "number" || !Number.isInteger(member.position) || member.position < 0) return false;
+    if (positions.has(member.position)) return false;
+    positions.add(member.position);
+    if (typeof member.session_id !== "string" || !PSEUDONYM.test(member.session_id) || sessionIds.has(member.session_id)) return false;
+    sessionIds.add(member.session_id);
+    if (typeof member.provider !== "string" || !PROVIDERS.has(member.provider)) return false;
+    if (typeof member.project_id !== "string" || !PSEUDONYM.test(member.project_id)) return false;
+    if (!isOptionalBoundedString(member.project_display_name, 120)) return false;
+    if (!isOptionalBoundedString(member.session_display_name, 160)) return false;
+    if (member.started_at !== undefined && member.started_at !== null && !isDateTime(member.started_at)) return false;
+    if (!Array.isArray(member.rated_metric_keys)) return false;
+    if (!member.rated_metric_keys.every((key) => typeof key === "string" && metricKeySet.has(key))) return false;
+    if (new Set(member.rated_metric_keys).size !== member.rated_metric_keys.length) return false;
+  }
+  return true;
 }
 
 function memberTitle(member: CalibrationSampleMember): string {
@@ -99,6 +192,10 @@ export function CalibrationPage({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [exportText, setExportText] = useState("");
+  const judgeRequestRef = useRef<OwnedRequest | null>(null);
+  const allowanceRequestRef = useRef<OwnedRequest | null>(null);
+  const remoteRequestRef = useRef<OwnedRequest | null>(null);
+  const remoteCancelRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     // Keep the list on screen while a rater change refreshes the rated marks.
@@ -130,53 +227,101 @@ export function CalibrationPage({
     return () => controller.abort();
   }, [load]);
 
-  const loadJudge = useCallback(async (signal?: AbortSignal) => {
+  const loadJudge = useCallback(async () => {
     if (!transport.getModelJudgeAgreement || !transport.getModelJudgeSweep) return;
+    const request = beginOwnedRequest(judgeRequestRef, "load");
+    if (!request) return;
     try {
-      const [report, status] = await Promise.all([transport.getModelJudgeAgreement(signal), transport.getModelJudgeSweep(signal)]);
-      if (transport.getAnnotationAllowance) {
-        try {
-          setAllowance(await transport.getAnnotationAllowance(signal));
-        } catch {
-          setAllowance(null);
-        }
-      }
-      if (signal?.aborted) return;
+      const [report, status] = await Promise.all([
+        transport.getModelJudgeAgreement(request.controller.signal),
+        transport.getModelJudgeSweep(request.controller.signal),
+      ]);
+      if (!ownsRequest(judgeRequestRef, request)) return;
       setAgreement(report);
       setSweep(status);
     } catch {
       /* judge lane absent in this runtime */
+    } finally {
+      finishOwnedRequest(judgeRequestRef, request);
+    }
+  }, [transport]);
+
+  const loadAllowance = useCallback(async () => {
+    if (!transport.getAnnotationAllowance) return;
+    const request = beginOwnedRequest(allowanceRequestRef, "load");
+    if (!request) return;
+    try {
+      const current = await transport.getAnnotationAllowance(request.controller.signal);
+      if (ownsRequest(allowanceRequestRef, request)) setAllowance(current);
+    } catch {
+      if (ownsRequest(allowanceRequestRef, request)) setAllowance(null);
+    } finally {
+      finishOwnedRequest(allowanceRequestRef, request);
     }
   }, [transport]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void loadJudge(controller.signal);
-    const handle = window.setInterval(() => void loadJudge(controller.signal), 15000);
-    return () => { controller.abort(); window.clearInterval(handle); };
-  }, [loadJudge]);
+    void loadJudge();
+    void loadAllowance();
+    const handle = window.setInterval(() => {
+      void loadJudge();
+      void loadAllowance();
+    }, 15000);
+    return () => {
+      window.clearInterval(handle);
+      cancelOwnedRequest(judgeRequestRef);
+      cancelOwnedRequest(allowanceRequestRef);
+    };
+  }, [loadAllowance, loadJudge]);
+
+  useEffect(() => {
+    setAgreement(null);
+    setSweep(null);
+    setJudgeMessage("");
+    setAllowance(null);
+    setAnnotationMessage("");
+    setRemoteBusy(false);
+    setRemoteConfirm(false);
+    setRemoteResult(null);
+    return () => cancelOwnedRequest(remoteRequestRef);
+  }, [transport]);
 
   async function judgeCurrent() {
     if (!current || !transport.judgeSessionWithModel) return;
+    const request = beginOwnedRequest(judgeRequestRef, "command");
+    if (!request) return;
     setJudgeMessage("");
     try {
-      const outcome = await transport.judgeSessionWithModel(current.session_id);
+      const outcome = await transport.judgeSessionWithModel(current.session_id, request.controller.signal);
+      if (!ownsRequest(judgeRequestRef, request)) return;
       setJudgeMessage(outcome.raw_valid ? `Model judged this session (${outcome.model_alias}); your own rating stays blind to it.` : "The model did not answer in the required format.");
+      finishOwnedRequest(judgeRequestRef, request);
       await loadJudge();
     } catch (caught) {
-      setJudgeMessage(caught instanceof TransportError && caught.message.includes("no_active_model") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
+      if (ownsRequest(judgeRequestRef, request)) {
+        setJudgeMessage(caught instanceof TransportError && caught.message.includes("no_active_model") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
+      }
+    } finally {
+      finishOwnedRequest(judgeRequestRef, request);
     }
   }
 
   async function judgeSample(scope: "sample" | "all" = "sample") {
     if (!transport.startModelJudgeSweep) return;
+    const request = beginOwnedRequest(judgeRequestRef, "command");
+    if (!request) return;
     setJudgeMessage("");
     try {
-      const status = await transport.startModelJudgeSweep(undefined, scope);
+      const status = await transport.startModelJudgeSweep(request.controller.signal, scope);
+      if (!ownsRequest(judgeRequestRef, request)) return;
       setSweep(status);
       setJudgeMessage(status.total === 0 ? (scope === "all" ? "Every indexed session is already judged by this model." : "Every sampled session is already judged by this model.") : `Judging ${status.total} sessions in the background.`);
     } catch (caught) {
-      setJudgeMessage(caught instanceof TransportError && caught.message.includes("no_active_model") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
+      if (ownsRequest(judgeRequestRef, request)) {
+        setJudgeMessage(caught instanceof TransportError && caught.message.includes("no_active_model") ? "No local model is active - activate one on the Models page." : "The model judge is not available right now.");
+      }
+    } finally {
+      finishOwnedRequest(judgeRequestRef, request);
     }
   }
 
@@ -241,11 +386,20 @@ export function CalibrationPage({
 
   const toggleAllowance = async () => {
     if (!transport.setAnnotationAllowance || !allowance) return;
+    const request = beginOwnedRequest(allowanceRequestRef, "command");
+    if (!request) return;
     try {
-      setAllowance(await transport.setAnnotationAllowance(!allowance.agent_allowed));
-      setAnnotationMessage("");
+      const current = await transport.setAnnotationAllowance(!allowance.agent_allowed, request.controller.signal);
+      if (ownsRequest(allowanceRequestRef, request)) {
+        setAllowance(current);
+        setAnnotationMessage("");
+      }
     } catch (error) {
-      setAnnotationMessage(error instanceof Error ? error.message : "Could not update the allowance.");
+      if (ownsRequest(allowanceRequestRef, request)) {
+        setAnnotationMessage(error instanceof Error ? error.message : "Could not update the allowance.");
+      }
+    } finally {
+      finishOwnedRequest(allowanceRequestRef, request);
     }
   };
 
@@ -281,10 +435,13 @@ export function CalibrationPage({
 
   const annotateRemotely = async () => {
     if (!transport.annotateRemotely) return;
+    const request = beginOwnedRequest(remoteRequestRef, "command");
+    if (!request) return;
     setRemoteBusy(true);
     setAnnotationMessage("");
     try {
-      const result = await transport.annotateRemotely(5);
+      const result = await transport.annotateRemotely(5, request.controller.signal);
+      if (!ownsRequest(remoteRequestRef, request)) return;
       setRemoteResult(result);
       setRemoteConfirm(false);
       setAnnotationMessage(
@@ -294,10 +451,17 @@ export function CalibrationPage({
       );
       void loadJudge();
     } catch (error) {
-      setAnnotationMessage(error instanceof Error ? error.message : "Remote annotation failed.");
+      if (ownsRequest(remoteRequestRef, request)) {
+        setAnnotationMessage(error instanceof Error ? error.message : "Remote annotation failed.");
+      }
     } finally {
-      setRemoteBusy(false);
+      if (ownsRequest(remoteRequestRef, request)) setRemoteBusy(false);
+      finishOwnedRequest(remoteRequestRef, request);
     }
+  };
+
+  const closeRemoteConfirm = () => {
+    if (!remoteBusy) setRemoteConfirm(false);
   };
 
   return (
@@ -505,23 +669,37 @@ export function CalibrationPage({
               <p className="calibration__note">
                 Sends up to 5 not-yet-submitted sessions - redacted windows plus pseudonymous session and project ids, never raw transcripts - to the central annotation server, which annotates them with its strongest model and keeps the submissions as the training dataset.
               </p>
-              {!remoteConfirm ? (
-                <div className="calibration__actions">
-                  <button className="button button--ghost" disabled={remoteBusy} onClick={() => setRemoteConfirm(true)} type="button">
-                    Annotate remotely…
-                  </button>
+              <div className="calibration__actions">
+                <button className="button button--ghost" disabled={remoteBusy} onClick={() => setRemoteConfirm(true)} type="button">
+                  Annotate remotely…
+                </button>
+              </div>
+              <Dialog
+                closeLabel="Cancel remote annotation"
+                description="Nothing is sent until you explicitly choose Send."
+                footer={(
+                  <>
+                    <button className="button button--ghost" disabled={remoteBusy} onClick={closeRemoteConfirm} ref={remoteCancelRef} type="button">
+                      Cancel
+                    </button>
+                    <button className="button" disabled={remoteBusy} onClick={() => void annotateRemotely()} type="button">
+                      {remoteBusy ? "Sending…" : "Send"}
+                    </button>
+                  </>
+                )}
+                initialFocusRef={remoteCancelRef}
+                onClose={closeRemoteConfirm}
+                open={remoteConfirm}
+                title="Send sessions for remote annotation?"
+                tone="danger"
+              >
+                <div className="calibration__remote-confirmation">
+                  <p className="calibration__note">Destination: embedded central server (this machine).</p>
+                  <p className="calibration__note">
+                    Up to 5 not-yet-submitted redacted windows and their pseudonymous session and project ids will be retained as the central annotation training dataset. Raw transcripts are never sent.
+                  </p>
                 </div>
-              ) : (
-                <div className="calibration__actions" role="alertdialog" aria-label="Confirm remote annotation">
-                  <span className="calibration__note">Destination: embedded central server (this machine). Send now?</span>
-                  <button className="button" disabled={remoteBusy} onClick={() => void annotateRemotely()} type="button">
-                    {remoteBusy ? "Sending…" : "Send"}
-                  </button>
-                  <button className="button button--ghost" disabled={remoteBusy} onClick={() => setRemoteConfirm(false)} type="button">
-                    Cancel
-                  </button>
-                </div>
-              )}
+              </Dialog>
               {remoteResult && remoteResult.stored_locally_as && (
                 <p className="calibration__note">Central labels stored locally as <code>{remoteResult.stored_locally_as}</code>.</p>
               )}

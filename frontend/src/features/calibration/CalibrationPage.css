@@ -74,3 +74,8 @@
 .calibration__annotation-path code {
   font-size: 0.85em;
 }
+
+.calibration__remote-confirmation {
+  display: grid;
+  gap: var(--space-2, 0.5rem);
+}

@@ -1,10 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CalibrationProgress,
   CalibrationRating,
   CalibrationSample,
+  JudgeAgreementReport,
+  JudgeSweepStatus,
   RatingSubmission,
+  RemoteAnnotationResult,
   SessionTranscript,
 } from "../../shared/api/contracts";
 import { TransportError } from "../../shared/api/httpTransport";
@@ -14,6 +17,17 @@ const SESSION_A = "a".repeat(64);
 const SESSION_B = "b".repeat(64);
 const PROJECT = "c".repeat(64);
 const METRICS = ["prompt.task_definition_coverage", "prompt.context_sufficiency", "outcome.verification_strategy_adequacy"];
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+};
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
+}
 
 function sample(rated: Record<string, string[]> = {}): CalibrationSample {
   return {
@@ -51,15 +65,120 @@ const transcript: SessionTranscript = {
   turn_count: 1,
 } as unknown as SessionTranscript;
 
+function agreement(overrides: Partial<JudgeAgreementReport> = {}): JudgeAgreementReport {
+  return {
+    contract_version: "model-judge.v1",
+    model_alias: "example-local-model",
+    judged_sessions: 0,
+    metrics: [],
+    caveat: "Judgments are opinions, never product metrics.",
+    ...overrides,
+  };
+}
+
+function sweep(overrides: Partial<JudgeSweepStatus> = {}): JudgeSweepStatus {
+  return {
+    contract_version: "model-judge.v1",
+    running: false,
+    total: 0,
+    done: 0,
+    failed: 0,
+    ...overrides,
+  };
+}
+
+function baseTransport(sampleValue: unknown = sample()) {
+  return {
+    getCalibrationSample: vi.fn(async () => sampleValue as CalibrationSample),
+    submitCalibrationRatings: vi.fn(),
+    getCalibrationRatings: vi.fn(async () => [] as CalibrationRating[]),
+    getCalibrationProgress: vi.fn(async () => progress(0)),
+    getCalibrationExport: vi.fn(),
+    getSessionTranscript: vi.fn(async () => transcript),
+  };
+}
+
+function annotationTransport(
+  annotateRemotely: (limit: number, signal?: AbortSignal) => Promise<RemoteAnnotationResult>,
+) {
+  return {
+    ...baseTransport(),
+    getModelJudgeAgreement: vi.fn(async () => agreement({ model_alias: null })),
+    getModelJudgeSweep: vi.fn(async () => sweep()),
+    getAnnotationAllowance: vi.fn(async () => ({
+      contract_version: "annotation.v1" as const,
+      agent_allowed: false,
+      note: "Whatever model the agent runs on will see that content.",
+    })),
+    annotateRemotely,
+  } as never;
+}
+
 describe("CalibrationPage", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it("validates the sample shape", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("strictly validates every sample and member field used by the page", () => {
+    const validWithUnknownLabels = sample();
+    validWithUnknownLabels.members[0] = {
+      ...validWithUnknownLabels.members[0],
+      project_display_name: undefined,
+      session_display_name: null,
+      started_at: null,
+    };
+    const validUnicodeLabels = sample();
+    validUnicodeLabels.members[0] = {
+      ...validUnicodeLabels.members[0],
+      project_display_name: "🚀".repeat(100),
+      session_display_name: "🧪".repeat(150),
+    };
     expect(safeCalibrationSample(sample())).toBe(true);
-    expect(safeCalibrationSample({ ...sample(), contract_version: "other" })).toBe(false);
-    expect(safeCalibrationSample({ ...sample(), members: [{ session_id: "nope" }] })).toBe(false);
+    expect(safeCalibrationSample(validWithUnknownLabels)).toBe(true);
+    expect(safeCalibrationSample(validUnicodeLabels)).toBe(true);
+
+    const first = sample().members[0];
+    const malformed: unknown[] = [
+      { ...sample(), contract_version: "other" },
+      { ...sample(), sample_id: "not-a-pseudonym" },
+      { ...sample(), sample_version: "" },
+      { ...sample(), created_at: "not-a-date" },
+      { ...sample(), created_at: "2026-03-01T09:00:00" },
+      { ...sample(), created_at: "2026-02-31T09:00:00Z" },
+      { ...sample(), target_size: 0 },
+      { ...sample(), metric_keys: [...METRICS, METRICS[0]] },
+      { ...sample(), metric_keys: [METRICS[0], null] },
+      { ...sample(), metric_keys: [] },
+      { ...sample(), metric_keys: ["not-supported-by-this-contract"] },
+      { ...sample(), members: [{ ...first, position: -1 }] },
+      { ...sample(), members: [{ ...first, session_id: "nope" }] },
+      { ...sample(), members: [{ ...first, provider: "other" }] },
+      { ...sample(), members: [{ ...first, project_id: null }] },
+      { ...sample(), members: [{ ...first, project_display_name: { trim: "not-a-function" } }] },
+      { ...sample(), members: [{ ...first, session_display_name: 7 }] },
+      { ...sample(), members: [{ ...first, started_at: "not-a-date" }] },
+      { ...sample(), members: [{ ...first, started_at: "2026-03-01T09:00:00" }] },
+      { ...sample(), members: [{ ...first, rated_metric_keys: ["not-in-the-sample"] }] },
+      { ...sample(), members: [{ ...first, rated_metric_keys: [METRICS[0], METRICS[0]] }] },
+      { ...sample(), members: [{ ...first }, { ...first, position: 1 }] },
+      { ...sample(), members: [{ ...first }, { ...first, session_id: SESSION_B }] },
+    ];
+    for (const value of malformed) expect(safeCalibrationSample(value)).toBe(false);
+  });
+
+  it("rejects a malformed member before rendering can access it", async () => {
+    const invalid = {
+      ...sample(),
+      members: [{ ...sample().members[0], project_display_name: { trim: "not-a-function" } }],
+    };
+    render(<CalibrationPage transport={baseTransport(invalid)} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The sample could not be verified.");
+    expect(screen.queryByLabelText("Calibration sample")).not.toBeInTheDocument();
   });
 
   it("lists the frozen sample, rates a session blind, and advances", async () => {
@@ -126,6 +245,157 @@ describe("CalibrationPage", () => {
     await screen.findByText(/not available in this runtime/);
   });
 
+  it("does not let an earlier polling load overwrite a command result", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const stale = deferred<JudgeSweepStatus>();
+    let sweepLoadCount = 0;
+    const getModelJudgeSweep = vi.fn((_signal?: AbortSignal) => {
+      sweepLoadCount += 1;
+      return sweepLoadCount === 1 ? Promise.resolve(sweep()) : stale.promise;
+    });
+    const startModelJudgeSweep = vi.fn(async (_signal?: AbortSignal) => sweep({ running: true, total: 2 }));
+    const transport = {
+      ...baseTransport(),
+      getModelJudgeAgreement: vi.fn(async () => agreement()),
+      getModelJudgeSweep,
+      startModelJudgeSweep,
+    } as never;
+
+    render(<CalibrationPage transport={transport} />);
+    await screen.findByRole("heading", { level: 2, name: "How often does the local model agree with you?" });
+    const poll = intervalSpy.mock.calls.find((call) => call[1] === 15000)?.[0];
+    act(() => {
+      if (typeof poll !== "function") throw new Error("judge polling interval was not installed");
+      poll();
+    });
+    await waitFor(() => expect(getModelJudgeSweep).toHaveBeenCalledTimes(2));
+    const staleSignal = getModelJudgeSweep.mock.calls[1][0];
+
+    fireEvent.click(screen.getByRole("button", { name: "Judge the whole sample" }));
+    await screen.findByText("Judging 2 sessions in the background.");
+    expect(startModelJudgeSweep).toHaveBeenCalledWith(expect.any(AbortSignal), "sample");
+    expect(staleSignal?.aborted).toBe(true);
+    expect(screen.getByText(/Sweep running: 0\/2/)).toBeInTheDocument();
+
+    await act(async () => {
+      stale.resolve(sweep());
+      await stale.promise;
+    });
+    expect(screen.getByText(/Sweep running: 0\/2/)).toBeInTheDocument();
+    expect(screen.getByText("Judging 2 sessions in the background.")).toBeInTheDocument();
+  });
+
+  it("does not let the polling interval supersede a pending command", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const pending = deferred<JudgeSweepStatus>();
+    const getModelJudgeAgreement = vi.fn(async () => agreement());
+    const getModelJudgeSweep = vi.fn(async () => sweep());
+    const startModelJudgeSweep = vi.fn((_signal?: AbortSignal) => pending.promise);
+    const transport = {
+      ...baseTransport(),
+      getModelJudgeAgreement,
+      getModelJudgeSweep,
+      startModelJudgeSweep,
+    } as never;
+
+    render(<CalibrationPage transport={transport} />);
+    await screen.findByRole("heading", { level: 2, name: "How often does the local model agree with you?" });
+    const poll = intervalSpy.mock.calls.find((call) => call[1] === 15000)?.[0];
+    fireEvent.click(screen.getByRole("button", { name: "Judge the whole sample" }));
+    await waitFor(() => expect(startModelJudgeSweep).toHaveBeenCalledTimes(1));
+    const commandSignal = startModelJudgeSweep.mock.calls[0][0];
+
+    await act(async () => {
+      if (typeof poll !== "function") throw new Error("judge polling interval was not installed");
+      poll();
+      await Promise.resolve();
+    });
+    expect(commandSignal?.aborted).toBe(false);
+    expect(getModelJudgeAgreement).toHaveBeenCalledTimes(1);
+    expect(getModelJudgeSweep).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      pending.resolve(sweep({ running: true, total: 3 }));
+      await pending.promise;
+    });
+    expect(screen.getByText(/Sweep running: 0\/3/)).toBeInTheDocument();
+    expect(screen.getByText("Judging 3 sessions in the background.")).toBeInTheDocument();
+  });
+
+  it("aborts an owned judge command on unmount and ignores its late result", async () => {
+    const pending = deferred<JudgeSweepStatus>();
+    const startModelJudgeSweep = vi.fn((_signal?: AbortSignal) => pending.promise);
+    const transport = {
+      ...baseTransport(),
+      getModelJudgeAgreement: vi.fn(async () => agreement()),
+      getModelJudgeSweep: vi.fn(async () => sweep()),
+      startModelJudgeSweep,
+    } as never;
+    const view = render(<CalibrationPage transport={transport} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Judge the whole sample" }));
+    await waitFor(() => expect(startModelJudgeSweep).toHaveBeenCalledTimes(1));
+    const commandSignal = startModelJudgeSweep.mock.calls[0][0];
+    expect(commandSignal?.aborted).toBe(false);
+    view.unmount();
+    expect(commandSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      pending.resolve(sweep({ running: true, total: 4 }));
+      await pending.promise;
+    });
+  });
+
+  it("aborts a remote command and unlocks confirmation when the transport context changes", async () => {
+    const pending = deferred<RemoteAnnotationResult>();
+    const firstRemote = vi.fn((_limit: number, _signal?: AbortSignal) => pending.promise);
+    const secondRemote = vi.fn(async () => ({
+      contract_version: "annotation.v1" as const,
+      destination: "second synthetic destination",
+      submitted: 2,
+      annotated: 2,
+      model_identity: "second-synthetic-model",
+      stored_locally_as: "central:second-synthetic-model",
+    }));
+    const view = render(<CalibrationPage transport={annotationTransport(firstRemote)} />);
+    await screen.findByText("More ways to annotate");
+
+    fireEvent.click(screen.getByRole("button", { name: /Annotate remotely/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+    await waitFor(() => expect(firstRemote).toHaveBeenCalledTimes(1));
+    const firstSignal = firstRemote.mock.calls[0][1];
+    expect(firstSignal?.aborted).toBe(false);
+
+    const secondTransport = annotationTransport(secondRemote);
+    view.rerender(<CalibrationPage transport={secondTransport} />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(firstSignal?.aborted).toBe(true);
+    expect(screen.getByRole("button", { name: /Annotate remotely/ })).toBeEnabled();
+
+    await act(async () => {
+      pending.resolve({
+        contract_version: "annotation.v1",
+        destination: "stale destination",
+        submitted: 1,
+        annotated: 1,
+        model_identity: "stale-model",
+        stored_locally_as: "central:stale-model",
+      });
+      await pending.promise;
+    });
+    expect(screen.queryByText(/stale destination/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Annotate remotely/ })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Annotate remotely/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+    await screen.findByText(/Sent 2 sessions to second synthetic destination/);
+    expect(screen.getByText("central:second-synthetic-model")).toBeInTheDocument();
+
+    view.rerender(<CalibrationPage transport={annotationTransport(vi.fn())} />);
+    await waitFor(() => expect(screen.queryByText(/second synthetic destination/)).not.toBeInTheDocument());
+    expect(screen.queryByText("central:second-synthetic-model")).not.toBeInTheDocument();
+  });
+
   it("gates the agent path on the allowance and confirms before annotating remotely", async () => {
     const agreement = {
       contract_version: "model-judge.v1",
@@ -135,11 +405,11 @@ describe("CalibrationPage", () => {
       caveat: "Judgments are opinions, never product metrics.",
     };
     let allowed = false;
-    const setAnnotationAllowance = vi.fn(async (next: boolean) => {
+    const setAnnotationAllowance = vi.fn(async (next: boolean, _signal?: AbortSignal) => {
       allowed = next;
       return { contract_version: "annotation.v1" as const, agent_allowed: allowed, note: "Whatever model the agent runs on will see that content." };
     });
-    const annotateRemotely = vi.fn(async (_limit: number) => ({
+    const annotateRemotely = vi.fn(async (_limit: number, _signal?: AbortSignal) => ({
       contract_version: "annotation.v1" as const,
       destination: "embedded central server (this machine)",
       submitted: 2,
@@ -170,15 +440,40 @@ describe("CalibrationPage", () => {
     expect(screen.queryByRole("button", { name: /Copy agent instructions/ })).toBeNull();
     fireEvent.click(toggle);
     await screen.findByRole("button", { name: /Agent annotation is ON/ });
-    expect(setAnnotationAllowance).toHaveBeenCalledWith(true);
+    expect(setAnnotationAllowance).toHaveBeenCalledWith(true, expect.any(AbortSignal));
     expect(screen.getByRole("button", { name: /Copy agent instructions/ })).toBeTruthy();
 
-    // Annotate remotely: explicit confirm with the destination named before anything is sent.
-    fireEvent.click(screen.getByRole("button", { name: /Annotate remotely/ }));
+    // Annotate remotely: the safe action owns initial focus, traps it, and Escape sends nothing.
+    const trigger = screen.getByRole("button", { name: /Annotate remotely/ });
+    trigger.focus();
+    fireEvent.click(trigger);
     expect(annotateRemotely).not.toHaveBeenCalled();
-    await screen.findByText(/Destination: embedded central server \(this machine\)/);
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(annotateRemotely).toHaveBeenCalledWith(5));
+    const dialog = await screen.findByRole("dialog", { name: "Send sessions for remote annotation?" });
+    expect(dialog).toHaveAccessibleDescription("Nothing is sent until you explicitly choose Send.");
+    expect(screen.getByText(/Destination: embedded central server \(this machine\)/)).toBeInTheDocument();
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    await waitFor(() => expect(cancel).toHaveFocus());
+    const send = screen.getByRole("button", { name: "Send" });
+    send.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(screen.getByRole("button", { name: "Cancel remote annotation" })).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+    expect(annotateRemotely).not.toHaveBeenCalled();
+
+    // Cancel is also inert and restores the opener.
+    fireEvent.click(trigger);
+    const reopenedCancel = await screen.findByRole("button", { name: "Cancel" });
+    fireEvent.click(reopenedCancel);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+    expect(annotateRemotely).not.toHaveBeenCalled();
+
+    // Only the explicit Send action crosses the remote boundary.
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+    await waitFor(() => expect(annotateRemotely).toHaveBeenCalledWith(5, expect.any(AbortSignal)));
     await screen.findByText(/Sent 2 sessions to embedded central server/);
     await screen.findByText("central:orca27b-iq3m");
   });
