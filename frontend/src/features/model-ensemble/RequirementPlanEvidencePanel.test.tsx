@@ -714,7 +714,7 @@ describe("RequirementPlanEvidencePanel", () => {
     );
     expect(screen.getByRole("region", { name: "Review requirement-to-plan evidence" }))
       .toHaveAttribute("data-state", "loading");
-    expect(screen.getByText(/loading the fresh exact r5\/r6\/r7 contract/i)).toBeVisible();
+    expect(screen.getByText(/loading the fresh exact r6 contract/i)).toBeVisible();
     loading.unmount();
 
     const empty = render(
@@ -1125,5 +1125,28 @@ describe("RequirementPlanEvidencePanel", () => {
     );
     expect(await screen.findByRole("button", { name: "Reject" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Open exact local clause review" })).toBeDisabled();
+  });
+
+  it("labels the inherited requirement-plan boundary with the selected r8 projection", () => {
+    const pending = vi.fn(() => new Promise<never>(() => undefined));
+    render(
+      <RequirementPlanEvidencePanel
+        compact={false}
+        sessionId={SESSION_ID}
+        sourceProjectionVersion="metric-contract-v2-projection-8"
+        sourceRunId={RUN_ID}
+        transport={{
+          getRequirementPlanEvidenceContract: pending,
+          previewRequirementPlanEvidence: vi.fn(),
+          importRequirementPlanEvidence: vi.fn(),
+          listRequirementPlanProposals: pending,
+          reviewRequirementPlanProposal: vi.fn(),
+          decideRequirementPlanProposal: vi.fn(),
+        } as never}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(/fresh exact r8 contract/i);
+    expect(screen.getByRole("status")).not.toHaveTextContent(/r5\/r6\/r7/i);
   });
 });

@@ -373,6 +373,10 @@ export function RequirementActionEvidencePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
+  const sourceProjectionLabel = sourceProjectionVersion.replace(
+    "metric-contract-v2-projection-",
+    "r",
+  );
   const operationRef = useRef<AbortController | null>(null);
   const reviewRegionRef = useRef<HTMLElement | null>(null);
   const reviewInitiatorRef = useRef<HTMLButtonElement | null>(null);
@@ -443,7 +447,7 @@ export function RequirementActionEvidencePanel({
         || collection.proposals.some((proposal) => proposal.session_id !== sessionId)
         || !presenceCurrent(presence)
       ) {
-        setError("Requirement-action review is not bound to this exact sealed r7 run and source window.");
+        setError(`Requirement-action review is not bound to this exact sealed ${sourceProjectionLabel} run and source window.`);
         return;
       }
       setContract(loadedContract);
@@ -894,7 +898,7 @@ export function RequirementActionEvidencePanel({
           ? bindingInvalid
             ? `${undecided.filter((proposal) => proposalCurrent(proposal, currentContract)).length} current recovery proposal${undecided.filter((proposal) => proposalCurrent(proposal, currentContract)).length === 1 ? "" : "s"} · prior binding invalid`
             : `${undecided.length} proposal${undecided.length === 1 ? "" : "s"} awaiting native decision${confirmedCount > 0 ? ` · ${confirmedCount} confirmed` : ""}${rejectedCount > 0 ? ` · ${rejectedCount} rejected` : ""}`
-          : "Exact r7 review unavailable"}</span>
+          : `Exact ${sourceProjectionLabel} review unavailable`}</span>
         <small>{publicEvidenceStateLabel(publicEvidenceSource)}</small>
         <small>{currentConfirmationAvailable
           ? "Open the full dashboard to inspect every requirement, content-free action receipt, and proposed membership."
@@ -915,16 +919,16 @@ export function RequirementActionEvidencePanel({
       </header>
       <p className="requirement-action-evidence__public-state">{publicEvidenceStateLabel(publicEvidenceSource)}</p>
       {!capabilities ? (
-        <p className="metric-evidence-file__state" role="status">This local runtime does not expose the complete r7 requirement-action boundary. Preview, import, review, and decisions are unavailable.</p>
+        <p className="metric-evidence-file__state" role="status">This local runtime does not expose the complete {sourceProjectionLabel} requirement-action boundary. Preview, import, review, and decisions are unavailable.</p>
       ) : currentContract === null ? (
         <p className={`metric-evidence-file__state${currentError === "" ? "" : " metric-evidence-file__state--error"}`} role={currentError === "" ? "status" : "alert"}>{currentError === ""
-          ? "Loading the exact content-free r7 contract…"
+          ? `Loading the exact content-free ${sourceProjectionLabel} contract…`
           : currentError}</p>
       ) : (
         <>
           <p>Bound to sealed run <code className="metric-evidence-file__opaque-id">{sourceRunId}</code>, projection <code>{sourceProjectionVersion}</code>, reviewed r6 requirements, and {currentContract.candidate_manifest.actions.length} application-issued safe action candidate{currentContract.candidate_manifest.actions.length === 1 ? "" : "s"}. Unknown is never rendered as zero.</p>
           {bindingInvalid && (
-            <p className="metric-evidence-file__notice">The prior sealed r7 requirement-action binding is invalid, not merely awaiting review. An exact current replacement proposal may be reviewed and confirmed as the recovery path; non-current proposals remain stale and rejection-only.</p>
+            <p className="metric-evidence-file__notice">The prior sealed {sourceProjectionLabel} requirement-action binding is invalid, not merely awaiting review. An exact current replacement proposal may be reviewed and confirmed as the recovery path; non-current proposals remain stale and rejection-only.</p>
           )}
           {publicEvidenceBinding !== undefined && (
             <details className="requirement-action-evidence__receipts">

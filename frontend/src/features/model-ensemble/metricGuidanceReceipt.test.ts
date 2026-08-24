@@ -42,13 +42,17 @@ function scenarioFor(stateClass: MetricGuidanceStateClass, objective: boolean): 
   }
 }
 
-function sentencesFor(metricKey: typeof METRIC_V2_KEYS[number], scenario: MetricScenarioV2) {
+function sentencesFor(
+  metricKey: typeof METRIC_V2_KEYS[number],
+  scenario: MetricScenarioV2,
+  projectionVersion: Parameters<typeof metricGuidanceReceiptSentences>[0]["projectionVersion"] = "metric-contract-v2-projection-1",
+) {
   const published = syntheticPublishedMetricV2(metricKey, scenario);
   return metricGuidanceReceiptSentences({
     metricKey,
     label: LABELS.get(metricKey) ?? metricKey,
     direction: DIRECTIONS.get(metricKey) ?? "higher_is_better",
-    projectionVersion: "metric-contract-v2-projection-1",
+    projectionVersion,
     guidance: published.guidance as never,
     evidenceAuthority: published.state.evidence_authority,
     explanationCode: published.state.explanation_code,
@@ -187,6 +191,50 @@ describe("metric guidance receipt sentences", () => {
     const unresolved = sentencesFor("outcome.verified_requirement_coverage", { value_state: "unknown", eligible: 2, unknown: 1, capability_available: true });
     expect(unresolved.meaning).toMatch(/^Objective evidence unresolved: a typed receipt exists .+ leaves 1 of 2 .+ unresolved/u);
     expect(unresolved.action).toMatch(/^Resolve the opportunities the existing typed receipt leaves open/u);
+  });
+
+  it("renders exact r8 unknown bounds without mislabeling native acceptance authority", () => {
+    const unavailable = sentencesFor(
+      "outcome.verified_requirement_coverage",
+      {
+        value_state: "unknown", eligible: 2, unknown: 2,
+        capability_available: true, source_complete: true,
+        censoring_lower_bound: 0, censoring_upper_bound: 1,
+        explanation_code: "requirement_verification_evidence_unavailable",
+      },
+      "metric-contract-v2-projection-8",
+    );
+    expect(unavailable.meaning).toMatch(/reviewed denominator contains 2/i);
+    expect(unavailable.meaning).toMatch(/exact right-censored interval is 0%–100%/i);
+    expect(unavailable.meaning).toMatch(/app-issued verification results or separately typed native human acceptances/i);
+    expect(unavailable.meaning).toMatch(/assistant completion claims never count/i);
+    expect(unavailable.action).not.toMatch(/existing typed receipt leaves open/i);
+
+    const published = syntheticPublishedMetricV2(
+      "outcome.verified_requirement_coverage",
+      {
+        value_state: "unknown", eligible: 4, unknown: 2,
+        capability_available: true, source_complete: true,
+        censoring_lower_bound: 0.25, censoring_upper_bound: 0.75,
+        explanation_code: "app_issued_requirement_verification_pending",
+      },
+    );
+    published.guidance.met_count = 1;
+    published.guidance.not_met_count = 1;
+    const partial = metricGuidanceReceiptSentences({
+      metricKey: "outcome.verified_requirement_coverage",
+      label: "Verified requirement coverage",
+      direction: "higher_is_better",
+      projectionVersion: "metric-contract-v2-projection-8",
+      guidance: published.guidance as never,
+      evidenceAuthority: published.state.evidence_authority,
+      explanationCode: "app_issued_requirement_verification_pending",
+      capabilityAvailable: true,
+    });
+    expect(partial.meaning).toMatch(/resolves 2 of 4/i);
+    expect(partial.meaning).toMatch(/exact right-censored interval is 25%–75%/i);
+    expect(partial.meaning).not.toMatch(/a typed receipt exists/i);
+    expect(partial.action).toMatch(/fresh sealed r8 receipt reaches zero unresolved/i);
   });
 
   it("keeps an available adapter with absent objective evidence distinct from an adapter capability gap", () => {

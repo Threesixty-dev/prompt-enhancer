@@ -6938,8 +6938,8 @@
             "type": "integer"
           },
           "catalog_version": {
-            "const": "metric-evidence-readiness-v2-6",
-            "default": "metric-evidence-readiness-v2-6",
+            "const": "metric-evidence-readiness-v2-7",
+            "default": "metric-evidence-readiness-v2-7",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -6989,7 +6989,8 @@
               "metric-contract-v2-projection-4",
               "metric-contract-v2-projection-5",
               "metric-contract-v2-projection-6",
-              "metric-contract-v2-projection-7"
+              "metric-contract-v2-projection-7",
+              "metric-contract-v2-projection-8"
             ],
             "title": "Metric Projection Version",
             "type": "string"
@@ -8197,8 +8198,8 @@
         "additionalProperties": false,
         "properties": {
           "catalog_version": {
-            "const": "metric-operability-v3",
-            "default": "metric-operability-v3",
+            "const": "metric-operability-v4",
+            "default": "metric-operability-v4",
             "title": "Catalog Version",
             "type": "string"
           },
@@ -8240,8 +8241,8 @@
             "type": "integer"
           },
           "projection_version": {
-            "const": "metric-contract-v2-projection-7",
-            "default": "metric-contract-v2-projection-7",
+            "const": "metric-contract-v2-projection-8",
+            "default": "metric-contract-v2-projection-8",
             "title": "Projection Version",
             "type": "string"
           },
@@ -8252,8 +8253,8 @@
             "type": "integer"
           },
           "readiness_catalog_version": {
-            "const": "metric-evidence-readiness-v2-6",
-            "default": "metric-evidence-readiness-v2-6",
+            "const": "metric-evidence-readiness-v2-7",
+            "default": "metric-evidence-readiness-v2-7",
             "title": "Readiness Catalog Version",
             "type": "string"
           },
@@ -8453,7 +8454,8 @@
               "metric-contract-v2-projection-4",
               "metric-contract-v2-projection-5",
               "metric-contract-v2-projection-6",
-              "metric-contract-v2-projection-7"
+              "metric-contract-v2-projection-7",
+              "metric-contract-v2-projection-8"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -8955,7 +8957,8 @@
               "metric-contract-v2-projection-4",
               "metric-contract-v2-projection-5",
               "metric-contract-v2-projection-6",
-              "metric-contract-v2-projection-7"
+              "metric-contract-v2-projection-7",
+              "metric-contract-v2-projection-8"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -10709,6 +10712,16 @@
               }
             ]
           },
+          "requirement_verification_evidence_binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelRequirementVerificationEvidenceBindingDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "run_id": {
             "pattern": "^[a-f0-9]{64}$",
             "title": "Run Id",
@@ -10758,6 +10771,7 @@
           "metric_profile_binding",
           "requirement_plan_evidence_binding",
           "requirement_action_evidence_binding",
+          "requirement_verification_evidence_binding",
           "metric_evidence_readiness_v2",
           "predictive_projection_version",
           "predictive_projected_at",
@@ -12700,7 +12714,7 @@
       },
       "ModelRequirementActionEvidenceBindingDto": {
         "additionalProperties": false,
-        "description": "Minimized reviewed requirement-to-action authority for one r7 run.",
+        "description": "Minimized reviewed requirement-to-action authority for one r7/r8 run.",
         "properties": {
           "candidate_manifest_fingerprint": {
             "anyOf": [
@@ -12903,6 +12917,294 @@
           "content_persisted"
         ],
         "title": "ModelRequirementPlanEvidenceBindingDto",
+        "type": "object"
+      },
+      "ModelRequirementVerificationEvidenceBindingDto": {
+        "additionalProperties": false,
+        "description": "Minimized content-free verification authority bound to one r8 run.",
+        "properties": {
+          "acceptance_issuer_version": {
+            "const": "native-explicit-requirement-acceptance-issuer-v1",
+            "title": "Acceptance Issuer Version",
+            "type": "string"
+          },
+          "authority_head_count": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority Head Count"
+          },
+          "binding_fingerprint": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Binding Fingerprint",
+            "type": "string"
+          },
+          "binding_schema_version": {
+            "const": "session-requirement-verification-evidence-binding-v1",
+            "title": "Binding Schema Version",
+            "type": "string"
+          },
+          "content_persisted": {
+            "const": false,
+            "title": "Content Persisted",
+            "type": "boolean"
+          },
+          "evidence_policy_version": {
+            "const": "app-issued-reviewed-requirement-verification-v1",
+            "title": "Evidence Policy Version",
+            "type": "string"
+          },
+          "evidence_projection_version": {
+            "const": "reviewed-requirement-verification-objective-projection-v1",
+            "title": "Evidence Projection Version",
+            "type": "string"
+          },
+          "evidence_schema_version": {
+            "const": "requirement-verification-evidence-v1",
+            "title": "Evidence Schema Version",
+            "type": "string"
+          },
+          "evidence_set_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Set Fingerprint"
+          },
+          "evidence_source": {
+            "$ref": "#/components/schemas/RequirementVerificationEvidenceSource"
+          },
+          "local_only": {
+            "const": true,
+            "title": "Local Only",
+            "type": "boolean"
+          },
+          "met_requirement_count": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Met Requirement Count"
+          },
+          "native_acceptance_count": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Acceptance Count"
+          },
+          "objective_projection_version": {
+            "const": "reviewed-requirement-verification-objective-projection-v1",
+            "title": "Objective Projection Version",
+            "type": "string"
+          },
+          "objective_result_count": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective Result Count"
+          },
+          "opportunity_count": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opportunity Count"
+          },
+          "opportunity_issuer_version": {
+            "const": "reviewed-r6-requirement-opportunity-issuer-v1",
+            "title": "Opportunity Issuer Version",
+            "type": "string"
+          },
+          "opportunity_set_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opportunity Set Fingerprint"
+          },
+          "persistence_schema_version": {
+            "const": "requirement-verification-persistence-v1",
+            "title": "Persistence Schema Version",
+            "type": "string"
+          },
+          "requirement_plan_confirmation_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Plan Confirmation Id"
+          },
+          "requirement_plan_evidence_fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Plan Evidence Fingerprint"
+          },
+          "requirement_plan_policy_version": {
+            "anyOf": [
+              {
+                "const": "reviewed-requirement-plan-v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Plan Policy Version"
+          },
+          "requirement_plan_proposal_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Plan Proposal Id"
+          },
+          "requirement_plan_review_rubric_version": {
+            "anyOf": [
+              {
+                "const": "active-requirement-plan-review-rubric-v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Plan Review Rubric Version"
+          },
+          "requirement_plan_schema_version": {
+            "anyOf": [
+              {
+                "const": "requirement-plan-evidence-v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Plan Schema Version"
+          },
+          "resolved_opportunity_count": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Opportunity Count"
+          },
+          "result_issuer_version": {
+            "const": "local-objective-verification-result-issuer-v1",
+            "title": "Result Issuer Version",
+            "type": "string"
+          },
+          "through_revision": {
+            "anyOf": [
+              {
+                "maximum": 32000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Through Revision"
+          }
+        },
+        "required": [
+          "evidence_source",
+          "requirement_plan_confirmation_id",
+          "requirement_plan_proposal_id",
+          "requirement_plan_evidence_fingerprint",
+          "requirement_plan_schema_version",
+          "requirement_plan_policy_version",
+          "requirement_plan_review_rubric_version",
+          "opportunity_count",
+          "opportunity_set_fingerprint",
+          "evidence_set_fingerprint",
+          "through_revision",
+          "authority_head_count",
+          "objective_result_count",
+          "native_acceptance_count",
+          "resolved_opportunity_count",
+          "met_requirement_count",
+          "opportunity_issuer_version",
+          "result_issuer_version",
+          "acceptance_issuer_version",
+          "evidence_schema_version",
+          "evidence_policy_version",
+          "persistence_schema_version",
+          "evidence_projection_version",
+          "objective_projection_version",
+          "binding_schema_version",
+          "binding_fingerprint",
+          "local_only",
+          "content_persisted"
+        ],
+        "title": "ModelRequirementVerificationEvidenceBindingDto",
         "type": "object"
       },
       "ModelRuntimeInventoryDto": {
@@ -16009,7 +16311,8 @@
           "source_projection_version": {
             "enum": [
               "metric-contract-v2-projection-6",
-              "metric-contract-v2-projection-7"
+              "metric-contract-v2-projection-7",
+              "metric-contract-v2-projection-8"
             ],
             "title": "Source Projection Version",
             "type": "string"
@@ -17499,7 +17802,8 @@
             "enum": [
               "metric-contract-v2-projection-5",
               "metric-contract-v2-projection-6",
-              "metric-contract-v2-projection-7"
+              "metric-contract-v2-projection-7",
+              "metric-contract-v2-projection-8"
             ],
             "title": "Source Projection Version",
             "type": "string"
@@ -18724,6 +19028,16 @@
         ],
         "title": "RequirementVerificationEvidenceSnapshotDto",
         "type": "object"
+      },
+      "RequirementVerificationEvidenceSource": {
+        "enum": [
+          "unavailable",
+          "opportunity_bound_exceeded",
+          "awaiting_evidence",
+          "persisted_evidence"
+        ],
+        "title": "RequirementVerificationEvidenceSource",
+        "type": "string"
       },
       "RequirementVerificationMessageErrorDto": {
         "additionalProperties": false,

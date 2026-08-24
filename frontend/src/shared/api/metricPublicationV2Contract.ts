@@ -43,6 +43,7 @@ export const METRIC_CONTRACT_V2_PROJECTION_VERSIONS = [
   "metric-contract-v2-projection-5",
   "metric-contract-v2-projection-6",
   "metric-contract-v2-projection-7",
+  "metric-contract-v2-projection-8",
 ] as const;
 
 export type MetricDefinitionMismatch =
@@ -55,7 +56,8 @@ export type MetricDefinitionMismatch =
   | "projection_version"
   | "metric_profile_binding"
   | "requirement_plan_evidence_binding"
-  | "requirement_action_evidence_binding";
+  | "requirement_action_evidence_binding"
+  | "requirement_verification_evidence_binding";
 
 function requireReadableProjectionVersion(value: unknown): asserts value is typeof METRIC_CONTRACT_V2_PROJECTION_VERSIONS[number] {
   if (METRIC_CONTRACT_V2_PROJECTION_VERSIONS.includes(
@@ -311,6 +313,124 @@ function parseStatistics(value: unknown, metricKey: string) {
   return { statistics, denominatorBasis, eligible, met, notMet, pending, unknown };
 }
 
+/**
+ * Projection 8 gives verified-requirement coverage a closed state vocabulary.
+ * This check is deliberately source-independent so compact trajectory rows are
+ * safe on their own; the full-run parser additionally correlates the row with
+ * its exact evidence binding.
+ */
+function validateR8VerifiedRequirementState(parsedState: {
+  state: Row;
+  valueState: typeof VALUE_STATES[number];
+  lower: number | null;
+  upper: number | null;
+  numerator: number | null;
+  denominator: number | null;
+  parsed: ReturnType<typeof parseStatistics>;
+}): void {
+  const { state, valueState, lower, upper, numerator, denominator, parsed } = parsedState;
+  if (
+    state.projection_version !== "metric-contract-v2-projection-8"
+    || state.metric_key !== "outcome.verified_requirement_coverage"
+  ) return;
+
+  const statistics = parsed.statistics;
+  const nonnumeric = numerator === null && denominator === null && state.numeric_value === null;
+  const nullBounds = lower === null && upper === null;
+  const exactBounds = (expectedLower: number, expectedUpper: number) => (
+    lower !== null
+    && upper !== null
+    && Math.abs(lower - expectedLower) <= 1e-9
+    && Math.abs(upper - expectedUpper) <= 1e-9
+  );
+  const frozenOwnership = statistics.superseded_excluded_count === 0
+    && statistics.distinct_owner_count === parsed.eligible;
+  const zeroCounts = parsed.eligible === 0
+    && parsed.met === 0
+    && parsed.notMet === 0
+    && parsed.pending === 0
+    && parsed.unknown === 0;
+  const unresolvedCounts = parsed.eligible > 0
+    && parsed.met === 0
+    && parsed.notMet === 0
+    && parsed.pending === 0
+    && parsed.unknown === parsed.eligible;
+
+  if (!frozenOwnership) throw new MetricPublicationV2PayloadError();
+
+  const legal = (
+    valueState === "unknown"
+    && state.explanation_code === "reviewed_requirement_authority_unavailable"
+    && statistics.capability_available === false
+    && statistics.source_complete === true
+    && nonnumeric
+    && nullBounds
+    && zeroCounts
+  ) || (
+    valueState === "unknown"
+    && state.explanation_code === "reviewed_requirement_authority_invalid"
+    && statistics.capability_available === true
+    && statistics.source_complete === false
+    && nonnumeric
+    && nullBounds
+    && zeroCounts
+  ) || (
+    valueState === "unknown"
+    && state.explanation_code === "typed_objective_opportunity_count_exceeds_receipt_bound"
+    && statistics.capability_available === true
+    && statistics.source_complete === true
+    && nonnumeric
+    && nullBounds
+    && zeroCounts
+  ) || (
+    valueState === "not_applicable"
+    && state.explanation_code === "reviewed_requirement_set_empty"
+    && statistics.capability_available === true
+    && statistics.source_complete === true
+    && nonnumeric
+    && nullBounds
+    && zeroCounts
+  ) || (
+    valueState === "unknown"
+    && state.explanation_code === "requirement_verification_evidence_unavailable"
+    && statistics.capability_available === true
+    && statistics.source_complete === true
+    && nonnumeric
+    && unresolvedCounts
+    && exactBounds(0, 1)
+  ) || (
+    valueState === "unknown"
+    && state.explanation_code === "requirement_verification_authority_invalid"
+    && statistics.capability_available === true
+    && statistics.source_complete === false
+    && nonnumeric
+    && unresolvedCounts
+    && exactBounds(0, 1)
+  ) || (
+    valueState === "unknown"
+    && state.explanation_code === "app_issued_requirement_verification_pending"
+    && statistics.capability_available === true
+    && statistics.source_complete === true
+    && nonnumeric
+    && parsed.eligible > 0
+    && parsed.pending === 0
+    && parsed.unknown > 0
+    && exactBounds(
+      parsed.met / parsed.eligible,
+      (parsed.met + parsed.unknown) / parsed.eligible,
+    )
+  ) || (
+    valueState === "known"
+    && state.explanation_code === "app_issued_verified_requirement_coverage"
+    && statistics.capability_available === true
+    && statistics.source_complete === true
+    && parsed.eligible > 0
+    && parsed.pending === 0
+    && parsed.unknown === 0
+  );
+  if (!legal) throw new MetricPublicationV2PayloadError();
+}
+
 function parseState(value: unknown, expectedMetricKey: string) {
   const state = record(value);
   const identity = METRIC_V2_CONTRACT_IDENTITIES[expectedMetricKey as MetricKeyV2];
@@ -357,8 +477,10 @@ function parseState(value: unknown, expectedMetricKey: string) {
   const lower = optionalFinite(state.censoring_lower_bound);
   const upper = optionalFinite(state.censoring_upper_bound);
   const parsed = parseStatistics(state.statistics, expectedMetricKey);
-  const r7UnavailableRequirementActionException =
-    state.projection_version === "metric-contract-v2-projection-7"
+  const reviewedRequirementActionUnavailableException =
+    ["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+      state.projection_version,
+    )
     && expectedMetricKey === "logic.requirement_action_traceability"
     && valueState === "unknown"
     && state.explanation_code === "requirement_action_evidence_unavailable"
@@ -388,7 +510,7 @@ function parseState(value: unknown, expectedMetricKey: string) {
     ))
     || (valueState === "not_applicable" && parsed.eligible !== 0)
     || (!parsed.statistics.capability_available && parsed.eligible !== 0
-      && !r7UnavailableRequirementActionException)
+      && !reviewedRequirementActionUnavailableException)
     || (authority === "objective_receipt" && valueState === "known"
       && parsed.denominatorBasis !== "objective_opportunities")
   ) {
@@ -409,7 +531,9 @@ function parseState(value: unknown, expectedMetricKey: string) {
   } else if (numerator !== null || denominator !== null || numericValue !== null) {
     throw new MetricPublicationV2PayloadError();
   }
-  return { state, authority, valueState, lower, upper, numerator, denominator, parsed };
+  const parsedState = { state, authority, valueState, lower, upper, numerator, denominator, parsed };
+  validateR8VerifiedRequirementState(parsedState);
+  return parsedState;
 }
 
 /** Strict parser for one compact V2 trajectory state in registry order. */
@@ -440,7 +564,11 @@ export function isReviewedRequirementPlanState(
 ): boolean {
   if (
     state.metric_key !== "logic.decomposition_coverage"
-    || !["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+    || ![
+      "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(
       state.projection_version,
     )
     || state.statistics.capability_available !== true
@@ -464,13 +592,15 @@ export function isReviewedRequirementPlanState(
     && state.statistics.pending_count === 0;
 }
 
-/** Exact reviewed-r7 action authority after the shared state resolver runs. */
+/** Exact reviewed r7/r8 action authority after the shared state resolver runs. */
 export function isReviewedRequirementActionState(
   state: MetricPublicationV2["metrics"][number]["state"],
 ): boolean {
   if (
     state.metric_key !== "logic.requirement_action_traceability"
-    || state.projection_version !== "metric-contract-v2-projection-7"
+    || !["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+      state.projection_version,
+    )
     || state.statistics.capability_available !== true
     || state.statistics.source_complete !== true
     || state.statistics.unknown_count !== 0
@@ -703,7 +833,9 @@ export function parseMetricPublicationV2(value: unknown): MetricPublicationV2 {
       objectiveMeasured += 1;
     }
   });
-  if (publication.projection_version === "metric-contract-v2-projection-7") {
+  if (["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+    publication.projection_version,
+  )) {
     const requirementPlan = parsedStates.get("logic.decomposition_coverage");
     const requirementAction = parsedStates.get("logic.requirement_action_traceability");
     if (requirementPlan === undefined || requirementAction === undefined) {
@@ -728,7 +860,11 @@ export function parseMetricPublicationV2(value: unknown): MetricPublicationV2 {
       throw new MetricPublicationV2PayloadError();
     }
   }
-  if (["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+  if ([
+    "metric-contract-v2-projection-6",
+    "metric-contract-v2-projection-7",
+    "metric-contract-v2-projection-8",
+  ].includes(
     publication.projection_version as string,
   )) {
     const requirementPlan = parsedStates.get("logic.decomposition_coverage");

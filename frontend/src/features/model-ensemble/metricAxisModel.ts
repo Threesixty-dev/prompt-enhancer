@@ -149,8 +149,24 @@ export function modelEnsembleMetricStateLabel(metric: EnsembleMetric | null): st
 function stateExplanation(metric: EnsembleMetric): string {
   if (isModelEnsembleV2Metric(metric)) {
     if (metric.value_state === "pending") {
-      const bounds = modelEnsembleV2PendingBounds(metric);
+      const bounds = modelEnsembleV2CensoringBounds(metric);
       return `Pending: ${metric.statistics.pending_count} of ${metric.statistics.eligible_count} eligible opportunities are still open at the right edge${bounds === null ? "; this receipt published no censoring bounds" : `, so the value is censored between a lower bound of ${exactPercent(bounds.lower)} and an upper bound of ${exactPercent(bounds.upper)}`}. It stays outside the numeric scale until its reviewed horizon closes.`;
+    }
+    const bounds = modelEnsembleV2CensoringBounds(metric);
+    if (
+      metric.projection_version === "metric-contract-v2-projection-8"
+      && metric.metric_key === "outcome.verified_requirement_coverage"
+      && metric.value_state === "unknown"
+      && bounds !== null
+    ) {
+      const interval = `The exact right-censored interval is ${exactPercent(bounds.lower)}–${exactPercent(bounds.upper)}`;
+      if (metric.explanation_code === "app_issued_requirement_verification_pending") {
+        return `Verification authority is partial: ${metric.statistics.unknown_count} of ${metric.statistics.eligible_count} reviewed requirements remain unresolved. ${interval}; app-issued passing results or separately typed native human acceptances can establish met requirements, while assistant completion claims never count.`;
+      }
+      if (metric.explanation_code === "requirement_verification_authority_invalid") {
+        return `Verification authority is invalid for this exact reviewed requirement set, so every eligible requirement remains unknown. ${interval}; repair the local typed authority and issue a fresh sealed receipt rather than treating missing proof as failure.`;
+      }
+      return `Verification evidence is unavailable for this exact reviewed requirement set, so every eligible requirement remains unknown. ${interval}; collect app-issued verification results or separately typed native human acceptances, never assistant completion claims.`;
     }
     if (metric.implementation_state === "objective_capability_missing") {
       return metric.statistics.capability_available
@@ -200,18 +216,30 @@ function stateExplanation(metric: EnsembleMetric): string {
   }
 }
 
-/** Exact censoring bounds of a pending canonical V2 receipt, or `null` (not pending, not V2, or unpublished). */
-export function modelEnsembleV2PendingBounds(
+/** Exact bounds of a nonnumeric censored V2 receipt, including legal r8 unknown intervals. */
+export function modelEnsembleV2CensoringBounds(
   metric: EnsembleMetric | null,
 ): { lower: number; upper: number } | null {
-  if (metric === null || !isModelEnsembleV2Metric(metric) || metric.value_state !== "pending") return null;
+  if (
+    metric === null
+    || !isModelEnsembleV2Metric(metric)
+    || !["pending", "unknown"].includes(metric.value_state)
+  ) return null;
   if (metric.censoring_lower_bound === null || metric.censoring_upper_bound === null) return null;
   return { lower: metric.censoring_lower_bound, upper: metric.censoring_upper_bound };
 }
 
-/** Compact caption for a pending V2 axis: `bounds 25%–75%`, or `null` when not pending / unpublished. */
+/** Exact bounds of a pending canonical V2 receipt; retained for existing callers. */
+export function modelEnsembleV2PendingBounds(
+  metric: EnsembleMetric | null,
+): { lower: number; upper: number } | null {
+  if (metric === null || !isModelEnsembleV2Metric(metric) || metric.value_state !== "pending") return null;
+  return modelEnsembleV2CensoringBounds(metric);
+}
+
+/** Compact caption for a pending or unknown-censored V2 axis. */
 export function modelEnsembleAxisPendingBoundsLabel(axis: Pick<ModelEnsembleRadarAxis, "metric">): string | null {
-  const bounds = modelEnsembleV2PendingBounds(axis.metric);
+  const bounds = modelEnsembleV2CensoringBounds(axis.metric);
   return bounds === null ? null : `bounds ${exactPercent(bounds.lower)}–${exactPercent(bounds.upper)}`;
 }
 
@@ -714,11 +742,11 @@ export function modelEnsembleAxisGuidanceSentences(
       experimentalVisible,
       experimentalMedian,
     });
-    // A pending compact row still carries its exact censoring bounds; keep them
+    // A pending or r8 unknown compact row still carries exact censoring bounds; keep them
     // inside the one meaning sentence so the visible inspector and the hidden
     // ARIA description say the same thing.
-    const bounds = modelEnsembleV2PendingBounds(metric);
-    const meaning = facts.kind === "pending" && bounds !== null
+    const bounds = modelEnsembleV2CensoringBounds(metric);
+    const meaning = bounds !== null
       ? `${facts.meaning.replace(/\.$/u, "")}; the value is censored between a lower bound of ${exactPercent(bounds.lower)} and an upper bound of ${exactPercent(bounds.upper)}.`
       : facts.meaning;
     return {

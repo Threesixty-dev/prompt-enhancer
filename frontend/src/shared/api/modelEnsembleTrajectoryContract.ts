@@ -181,8 +181,8 @@ export function parseModelEnsembleTrajectoryPage(
     }
     if (point.metric_states_v2.length > 0) {
       try {
-        // All twenty compact rows of one point come from one projection
-        // (r1 or r2), exactly as the rows of a full publication must agree.
+        // All twenty compact rows of one point come from one readable projection,
+        // exactly as the rows of a full publication must agree.
         let pointProjection: string | null = null;
         point.metric_states_v2.forEach((state, ordinal) => {
           const parsed = parseMetricV2State(state, METRIC_V2_KEYS[ordinal]);

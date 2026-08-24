@@ -14,19 +14,37 @@ function publicationFor(
   projectionVersion: ProjectionVersion,
   scenarios: Partial<Record<MetricKeyV2, MetricScenarioV2>> = {},
 ) {
-  const resolvedScenarios = projectionVersion === "metric-contract-v2-projection-7"
-    && scenarios["logic.requirement_action_traceability"] === undefined
-    ? {
-        ...scenarios,
-        "logic.requirement_action_traceability": {
-          value_state: "unknown" as const,
-          capability_available: false,
-          source_complete: true,
-          eligible: 0,
-          explanation_code: "requirement_action_evidence_unavailable",
-        },
-      }
-    : scenarios;
+  const resolvedScenarios: Partial<Record<MetricKeyV2, MetricScenarioV2>> = {
+    ...scenarios,
+  };
+  if (
+    ["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+      projectionVersion,
+    )
+    && resolvedScenarios["logic.requirement_action_traceability"] === undefined
+  ) {
+    resolvedScenarios["logic.requirement_action_traceability"] = {
+      value_state: "unknown",
+      capability_available: false,
+      source_complete: true,
+      eligible: 0,
+      explanation_code: "requirement_action_evidence_unavailable",
+    };
+  }
+  if (
+    projectionVersion === "metric-contract-v2-projection-8"
+    && resolvedScenarios["outcome.verified_requirement_coverage"] === undefined
+  ) {
+    resolvedScenarios["outcome.verified_requirement_coverage"] = {
+      value_state: "unknown",
+      capability_available: false,
+      source_complete: true,
+      eligible: 0,
+      unknown: 0,
+      explanation_code: "reviewed_requirement_authority_unavailable",
+      distinct_owner_count: 0,
+    };
+  }
   const publication = structuredClone(syntheticMetricPublicationV2(resolvedScenarios));
   publication.projection_version = projectionVersion;
   for (const metric of publication.metrics) metric.state.projection_version = projectionVersion;
@@ -650,6 +668,153 @@ describe("metric evidence readiness presentation binding", () => {
     }
   });
 
+  it("binds readiness v2-7 to the closed r8 verified-requirement truth table", () => {
+    const cases = [
+      {
+        label: "unavailable authority",
+        scenario: {
+          value_state: "unknown",
+          capability_available: false,
+          source_complete: true,
+          eligible: 0,
+          unknown: 0,
+          explanation_code: "reviewed_requirement_authority_unavailable",
+          distinct_owner_count: 0,
+        },
+        expected: {
+          availability_state: "capability_missing",
+          reason_code: "requirement_verification_adapter_capabilities_required",
+          eligible_count: 0,
+          met_count: 0,
+          not_met_count: 0,
+          unknown_count: 0,
+          resolved_count: 0,
+          censoring_lower_bound: null,
+          censoring_upper_bound: null,
+          observed_contributors: [],
+          missing_contributors: [
+            "declared_objective_opportunity_set",
+            "typed_verification_receipt",
+          ],
+        },
+      },
+      {
+        label: "awaiting evidence",
+        scenario: {
+          value_state: "unknown",
+          capability_available: true,
+          source_complete: true,
+          eligible: 2,
+          unknown: 2,
+          explanation_code: "requirement_verification_evidence_unavailable",
+          censoring_lower_bound: 0,
+          censoring_upper_bound: 1,
+          distinct_owner_count: 2,
+        },
+        expected: {
+          availability_state: "evidence_unresolved",
+          reason_code: "opportunity_classification_unresolved",
+          eligible_count: 2,
+          met_count: 0,
+          not_met_count: 0,
+          unknown_count: 2,
+          resolved_count: 0,
+          censoring_lower_bound: 0,
+          censoring_upper_bound: 1,
+          observed_contributors: ["declared_objective_opportunity_set"],
+          missing_contributors: ["typed_verification_receipt"],
+        },
+      },
+      {
+        label: "partially resolved persisted evidence",
+        scenario: {
+          value_state: "unknown",
+          capability_available: true,
+          source_complete: true,
+          eligible: 3,
+          met: 1,
+          not_met: 1,
+          unknown: 1,
+          explanation_code: "app_issued_requirement_verification_pending",
+          censoring_lower_bound: 1 / 3,
+          censoring_upper_bound: 2 / 3,
+          distinct_owner_count: 3,
+        },
+        expected: {
+          availability_state: "evidence_unresolved",
+          reason_code: "opportunity_classification_unresolved",
+          eligible_count: 3,
+          met_count: 1,
+          not_met_count: 1,
+          unknown_count: 1,
+          resolved_count: 2,
+          censoring_lower_bound: 1 / 3,
+          censoring_upper_bound: 2 / 3,
+          observed_contributors: ["declared_objective_opportunity_set"],
+          missing_contributors: ["typed_verification_receipt"],
+        },
+      },
+      {
+        label: "fully resolved persisted evidence",
+        scenario: {
+          value_state: "known",
+          numerator: 2,
+          denominator: 3,
+          capability_available: true,
+          source_complete: true,
+          explanation_code: "app_issued_verified_requirement_coverage",
+          distinct_owner_count: 3,
+        },
+        expected: {
+          availability_state: "measured",
+          reason_code: "measured_from_owned_opportunities",
+          eligible_count: 3,
+          met_count: 2,
+          not_met_count: 1,
+          unknown_count: 0,
+          resolved_count: 3,
+          censoring_lower_bound: 2 / 3,
+          censoring_upper_bound: 2 / 3,
+          observed_contributors: ["declared_objective_opportunity_set"],
+          missing_contributors: ["typed_verification_receipt"],
+        },
+      },
+    ] as const satisfies readonly {
+      label: string;
+      scenario: MetricScenarioV2;
+      expected: Record<string, unknown>;
+    }[];
+
+    for (const { label, scenario, expected } of cases) {
+      const publication = publicationFor("metric-contract-v2-projection-8", {
+        "outcome.verified_requirement_coverage": scenario,
+      });
+      const readiness = syntheticMetricEvidenceReadinessV2(publication);
+      const verified = readiness.metrics.find(
+        (row) => row.metric_key === "outcome.verified_requirement_coverage",
+      );
+
+      expect(readiness.catalog_version, label).toBe("metric-evidence-readiness-v2-7");
+      expect(verified, label).toMatchObject({
+        required_contributors: [
+          "declared_objective_opportunity_set",
+          "typed_verification_receipt",
+        ],
+        ...expected,
+      });
+      expect(verified?.observed_contributors, label).not.toContain(
+        "typed_verification_receipt",
+      );
+      expect(metricEvidenceReadinessForPublication(readiness, publication), label)
+        .toEqual(readiness);
+
+      const staleCatalog = structuredClone(readiness) as any;
+      staleCatalog.catalog_version = "metric-evidence-readiness-v2-6";
+      expect(metricEvidenceReadinessForPublication(staleCatalog, publication), label)
+        .toBeNull();
+    }
+  });
+
   it.each([
     "metric-contract-v2-projection-1",
     "metric-contract-v2-projection-2",
@@ -698,6 +863,7 @@ describe("metric evidence readiness presentation binding", () => {
       "metric-contract-v2-projection-5",
       "metric-contract-v2-projection-6",
       "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
     ] as const) {
       const publication = publicationFor(projection);
       expectReasonBound(publication, "logic.open_loop_closure", "explicit_plan_episode_required");
@@ -717,7 +883,9 @@ describe("metric evidence readiness presentation binding", () => {
           "reviewed_requirement_plan_service_required",
         );
       }
-      if (projection === "metric-contract-v2-projection-7") {
+      if (["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+        projection,
+      )) {
         expectReasonBound(
           publication,
           "logic.requirement_action_traceability",

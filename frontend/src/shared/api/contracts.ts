@@ -218,7 +218,8 @@ export type ModelEnsembleRequest = Schemas["ModelEnsembleRequest"];
 export type MetricProjectionV2Version =
   | Schemas["MetricStateV2"]["projection_version"]
   | "metric-contract-v2-projection-6"
-  | "metric-contract-v2-projection-7";
+  | "metric-contract-v2-projection-7"
+  | "metric-contract-v2-projection-8";
 export type MetricStateV2 = Omit<Schemas["MetricStateV2"], "projection_version"> & {
   projection_version: MetricProjectionV2Version;
 };
@@ -275,17 +276,55 @@ export interface ModelRequirementActionEvidenceBinding {
   content_persisted: false;
 }
 
+/** Content-free requirement-verification authority frozen into one r8 run. */
+export interface ModelRequirementVerificationEvidenceBinding {
+  evidence_source:
+    | "unavailable"
+    | "opportunity_bound_exceeded"
+    | "awaiting_evidence"
+    | "persisted_evidence";
+  requirement_plan_confirmation_id: string | null;
+  requirement_plan_proposal_id: string | null;
+  requirement_plan_evidence_fingerprint: string | null;
+  requirement_plan_schema_version: "requirement-plan-evidence-v1" | null;
+  requirement_plan_policy_version: "reviewed-requirement-plan-v1" | null;
+  requirement_plan_review_rubric_version: "active-requirement-plan-review-rubric-v1" | null;
+  opportunity_count: number | null;
+  opportunity_set_fingerprint: string | null;
+  evidence_set_fingerprint: string | null;
+  through_revision: number | null;
+  authority_head_count: number | null;
+  objective_result_count: number | null;
+  native_acceptance_count: number | null;
+  resolved_opportunity_count: number | null;
+  met_requirement_count: number | null;
+  opportunity_issuer_version: "reviewed-r6-requirement-opportunity-issuer-v1";
+  result_issuer_version: "local-objective-verification-result-issuer-v1";
+  acceptance_issuer_version: "native-explicit-requirement-acceptance-issuer-v1";
+  evidence_schema_version: "requirement-verification-evidence-v1";
+  evidence_policy_version: "app-issued-reviewed-requirement-verification-v1";
+  persistence_schema_version: "requirement-verification-persistence-v1";
+  evidence_projection_version: "reviewed-requirement-verification-objective-projection-v1";
+  objective_projection_version: "reviewed-requirement-verification-objective-projection-v1";
+  binding_schema_version: "session-requirement-verification-evidence-binding-v1";
+  binding_fingerprint: string;
+  local_only: true;
+  content_persisted: false;
+}
+
 export type ModelEnsembleRun = Omit<
   Schemas["ModelEnsembleRunDto"],
   | "metric_publication_v2"
   | "metric_evidence_readiness_v2"
   | "requirement_plan_evidence_binding"
   | "requirement_action_evidence_binding"
+  | "requirement_verification_evidence_binding"
 > & {
   metric_publication_v2: MetricPublicationV2Contract | null;
   metric_evidence_readiness_v2: MetricEvidenceReadinessProjectionV2 | null;
   requirement_plan_evidence_binding: ModelRequirementPlanEvidenceBinding | null;
   requirement_action_evidence_binding: ModelRequirementActionEvidenceBinding | null;
+  requirement_verification_evidence_binding: ModelRequirementVerificationEvidenceBinding | null;
 };
 
 /** Manual bridge until the generated OpenAPI client includes the reviewed profile route. */
@@ -371,7 +410,8 @@ export type MetricEvidenceReadinessProjectionV2 = Omit<
     | "metric-evidence-readiness-v2-3"
     | "metric-evidence-readiness-v2-4"
     | "metric-evidence-readiness-v2-5"
-    | "metric-evidence-readiness-v2-6";
+    | "metric-evidence-readiness-v2-6"
+    | "metric-evidence-readiness-v2-7";
   metric_projection_version: MetricProjectionV2Version;
   metrics: MetricEvidenceReadinessV2[];
 };
@@ -394,9 +434,9 @@ export type MetricOperabilityCatalog = Omit<
   Schemas["MetricOperabilityCatalog"],
   "catalog_version" | "projection_version" | "readiness_catalog_version" | "entries"
 > & {
-  catalog_version: "metric-operability-v3";
-  projection_version: "metric-contract-v2-projection-6";
-  readiness_catalog_version: "metric-evidence-readiness-v2-5";
+  catalog_version: "metric-operability-v4";
+  projection_version: "metric-contract-v2-projection-8";
+  readiness_catalog_version: "metric-evidence-readiness-v2-7";
   entries: MetricOperabilityEntry[];
 };
 
@@ -444,7 +484,8 @@ export interface RequirementPlanEvidenceContract {
   source_projection_version:
     | "metric-contract-v2-projection-5"
     | "metric-contract-v2-projection-6"
-    | "metric-contract-v2-projection-7";
+    | "metric-contract-v2-projection-7"
+    | "metric-contract-v2-projection-8";
   clause_algorithm: "message-clause-coordinates-en-pl-v1";
   clause_algorithm_spec: RequirementPlanClauseAlgorithmContract;
   review_rubric_version: "active-requirement-plan-review-rubric-v1";
@@ -628,7 +669,7 @@ export type RequirementPlanDecisionRequest =
   | RequirementPlanConfirmDecisionRequest
   | RequirementPlanRejectDecisionRequest;
 
-/** Explicit r7 facade narrowed by the strict runtime parsers below the generated wire types. */
+/** Explicit r7/r8 facade narrowed by the strict runtime parsers below the generated wire types. */
 export interface RequirementActionEvidenceProvenance {
   provider: Provider;
   provider_version: string;
@@ -683,7 +724,10 @@ export interface RequirementActionEvidenceContract {
   session_id: string;
   expected_source_run_id: string;
   source_window_fingerprint: string;
-  source_projection_version: "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7";
+  source_projection_version:
+    | "metric-contract-v2-projection-6"
+    | "metric-contract-v2-projection-7"
+    | "metric-contract-v2-projection-8";
   requirement_plan_confirmation_id: string;
   requirement_plan_evidence_fingerprint: string;
   candidate_manifest: RequirementActionCandidateManifest;
@@ -1610,7 +1654,7 @@ export interface PromptEnhancerTransport {
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<RequirementPlanProposalOutcome>;
-  /** Content-free, native-reviewed requirement-to-action authority for r7. */
+  /** Content-free, native-reviewed requirement-to-action authority for r7/r8. */
   getRequirementActionEvidenceContract?(
     sessionId: string,
     signal?: AbortSignal,

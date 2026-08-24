@@ -17,10 +17,10 @@ import { QUALITY_ANALYSIS_DEFINITIONS } from "../quality-profile/qualityProfile"
  *
  * Presentation copy only: it never changes a persisted value, never invents
  * transcript-specific evidence, and keeps measured evidence separate from model
- * judgments. English is the only shipped UI locale; Polish entries are kept in
- * the registry for a future locale signal and are not surfaced by any UI path.
+ * judgments. The current UI requests English; exact Polish entries remain
+ * available to the resolver for a future locale signal and contract tests.
  */
-export const METRIC_HELP_V2_VERSION = "metric-help-v2.4.0";
+export const METRIC_HELP_V2_VERSION = "metric-help-v2.5.0";
 export const METRIC_HELP_V2_SHIPPED_LOCALES = ["en"] as const;
 
 const DECLARED_TASK_PROFILE_METRIC_KEYS = new Set([
@@ -66,6 +66,8 @@ const TEXT_CANDIDATE_EN = "No objective receipt backs the candidate value; it is
 const TEXT_CANDIDATE_PL = "Wartości kandydackiej nie potwierdza żadne obiektywne pokwitowanie; to wersjonowany leksykalny kandydat do przeglądu, nigdy dowód jakości ani sukcesu zadania.";
 const TYPED_EVIDENCE_EN = "Requires a typed local tool, test, artifact, or verification receipt; without one the metric abstains and assistant prose is never counted.";
 const TYPED_EVIDENCE_PL = "Wymaga typowanego lokalnego pokwitowania narzędzia, testu, artefaktu lub weryfikacji; bez niego metryka wstrzymuje ocenę, a proza asystenta nigdy nie jest liczona.";
+const VERIFIED_REQUIREMENT_EVIDENCE_EN = "Requires either an app-issued typed passing-verification receipt or separately typed explicit native human acceptance for the requirement; assistant completion claims and other prose never count as either authority.";
+const VERIFIED_REQUIREMENT_EVIDENCE_PL = "Wymaga typowanego pokwitowania zaliczonej weryfikacji wystawionego przez aplikację albo osobno typowanej, jawnej natywnej akceptacji człowieka dla wymagania; deklaracje ukończenia i inna proza asystenta nigdy nie stanowią żadnego z tych uprawnień.";
 const HIGHER_EN = "Higher is better (radar plots the raw share).";
 const HIGHER_PL = "Wyżej znaczy lepiej (radar pokazuje surowy udział).";
 const LOWER_EN = "Lower is better (radar plots 100% minus the raw rate; the center is a raw rate of 100%).";
@@ -75,23 +77,27 @@ const R4_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projectio
 const R5_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-5";
 const R6_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-6";
 const R7_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-7";
+const R8_PROJECTION: MetricHelpProjectionVersion = "metric-contract-v2-projection-8";
 const R3_PLUS_PROJECTIONS = new Set<MetricHelpProjectionVersion>([
   R3_PROJECTION,
   R4_PROJECTION,
   R5_PROJECTION,
   R6_PROJECTION,
   R7_PROJECTION,
+  R8_PROJECTION,
 ]);
 const R4_PLUS_PROJECTIONS = new Set<MetricHelpProjectionVersion>([
   R4_PROJECTION,
   R5_PROJECTION,
   R6_PROJECTION,
   R7_PROJECTION,
+  R8_PROJECTION,
 ]);
 const R5_PLUS_PROJECTIONS = new Set<MetricHelpProjectionVersion>([
   R5_PROJECTION,
   R6_PROJECTION,
   R7_PROJECTION,
+  R8_PROJECTION,
 ]);
 const REVIEWED_PROFILE_EVIDENCE_EN = "The value is a deterministic local, method-only comparison between the immutable reviewed task-profile revision and the canonical active user request; it is neither a model judgment nor objective proof of quality or task success.";
 const EXPLICIT_PLAN_EVIDENCE_EN = "The value comes from deterministic provider-declared message kinds and explicit supersedes_message_ids links in the bounded local window; no lexical similarity or model judgment supplies a closure, and the structural receipt is not objective proof that the plan or result was correct.";
@@ -155,6 +161,30 @@ export const METRIC_HELP_V2_R7_REQUIREMENT_ACTION_EN: Readonly<Record<string, Me
     counts: "Numerator: one reviewed active requirement with at least one linked candidate in application-issued completed state. With no completed candidate, a linked started or unknown state stays right-censored pending.",
     doesNotCount: "Denominator: exactly the active requirements from the bound r6 review, not detected prose or producer-created requirements. An explicit empty link, or failed/cancelled-only links, is resolved not-met only after complete requirement enumeration, complete safe-candidate enumeration, complete link classification, and exact native review. Missing, stale, incomplete, invalid, or overflowing authority remains Unknown; an exact empty requirement set is Not applicable; neither state is zero.",
     objectiveEvidence: REVIEWED_REQUIREMENT_ACTION_EVIDENCE_EN,
+  },
+};
+
+export const METRIC_HELP_V2_R8_REQUIREMENT_VERIFICATION_EN: Readonly<Record<string, MetricHelpEntry>> = {
+  "outcome.verified_requirement_coverage": {
+    meaning: "Share of the exact native-reviewed active r6 requirements resolved as met by app-issued passing verification results or separately typed explicit native human acceptance.",
+    question: "For each reviewed active requirement, does exact local authority record a passing app-issued verification result or separately typed native human acceptance?",
+    observationUnit: "one native-reviewed active requirement clause",
+    direction: HIGHER_EN,
+    counts: "Numerator: one reviewed active requirement whose current exact authority is an app-issued passing verification result or separately typed explicit native human acceptance. A failed or rejected result is resolved not-met; unresolved requirements remain unknown and right-censor the value.",
+    doesNotCount: "Denominator: exactly the active requirements in the bound complete r6 review. Excluded, stale, superseded, foreign, unreviewed, or producer-invented requirements do not count. Missing or invalid reviewed authority, unavailable or invalid verification authority, and bounded overflow remain Unknown; an exact empty reviewed set is Not applicable; none is converted to zero.",
+    objectiveEvidence: VERIFIED_REQUIREMENT_EVIDENCE_EN,
+  },
+};
+
+export const METRIC_HELP_V2_R8_REQUIREMENT_VERIFICATION_PL: Readonly<Record<string, MetricHelpEntry>> = {
+  "outcome.verified_requirement_coverage": {
+    meaning: "Udział dokładnych, natywnie przejrzanych aktywnych wymagań r6 rozstrzygniętych jako spełnione przez wystawiony przez aplikację wynik zaliczonej weryfikacji albo osobno typowaną, jawną natywną akceptację człowieka.",
+    question: "Czy dla każdego przejrzanego aktywnego wymagania dokładne lokalne uprawnienie zapisuje zaliczony wynik weryfikacji aplikacji albo osobno typowaną natywną akceptację człowieka?",
+    observationUnit: "jedna natywnie przejrzana aktywna klauzula wymagania",
+    direction: HIGHER_PL,
+    counts: "Licznik: jedno przejrzane aktywne wymaganie, którego bieżącym dokładnym uprawnieniem jest wystawiony przez aplikację zaliczony wynik weryfikacji albo osobno typowana jawna natywna akceptacja człowieka. Wynik niezaliczony lub odrzucony jest rozstrzygnięty jako niespełniony; nierozstrzygnięte wymagania pozostają nieznane i prawostronnie cenzurują wartość.",
+    doesNotCount: "Mianownik: dokładnie aktywne wymagania z powiązanego kompletnego przeglądu r6. Wykluczone, nieaktualne, zastąpione, obce, nieprzejrzane ani wymyślone przez producenta wymagania nie są liczone. Brakujące lub nieważne uprawnienie przeglądu, niedostępne lub nieważne uprawnienie weryfikacji oraz przekroczenie limitu pozostają Nieznane; dokładny pusty zbiór jest Nie dotyczy; żaden z tych stanów nie staje się zerem.",
+    objectiveEvidence: VERIFIED_REQUIREMENT_EVIDENCE_PL,
   },
 };
 
@@ -253,6 +283,15 @@ const METRIC_HELP_V2_R7_REQUIREMENT_ACTION_MEASUREMENTS: Readonly<Record<string,
     definitionVersion: 2,
     method: "Native-reviewed active r6 requirements with at least one semantically reviewed linked application-issued completed safe-action candidate divided by the exact bound active-requirement set; started or unknown-only links remain pending.",
     limitation: "A negative is legal only under complete bounded enumeration and exact review. Redacted descriptors and source references help the person inspect semantic relevance but do not prove it automatically; completed state does not prove task success, correctness, or quality.",
+    objective: true,
+  },
+};
+
+const METRIC_HELP_V2_R8_REQUIREMENT_VERIFICATION_MEASUREMENTS: Readonly<Record<string, MetricHelpMeasurement>> = {
+  "outcome.verified_requirement_coverage": {
+    definitionVersion: 4,
+    method: "Reviewed active r6 requirements resolved as met by current app-issued passing verification results or separately typed explicit native human acceptance divided by the exact bound reviewed active-requirement set.",
+    limitation: "Failed or rejected authority is resolved not-met; unresolved authority right-censors the fraction with exact bounds. Missing, invalid, stale, foreign, or overflowing authority fails closed as Unknown, an exact empty reviewed set is Not applicable, and assistant completion claims or other prose never prove a requirement met.",
     objective: true,
   },
 };
@@ -397,8 +436,8 @@ const SEEDS: readonly MetricHelpSeed[] = [
   },
   {
     key: "outcome.verified_requirement_coverage", direction: "higher_is_better", objective: true,
-    en: { meaning: "Share of active requirements with objective passing evidence or explicit acceptance.", question: "How many active requirements have objective passing evidence or explicit acceptance?", observationUnit: "one active requirement", direction: HIGHER_EN, counts: "A typed requirement-to-verification link with a pass, or explicit human acceptance.", doesNotCount: "Completion claims, unrelated green checks, or deferred requirements.", objectiveEvidence: TYPED_EVIDENCE_EN },
-    pl: { meaning: "Udział aktywnych wymagań z obiektywnym dowodem zaliczenia lub jawną akceptacją.", question: "Ile aktywnych wymagań ma obiektywny dowód zaliczenia lub jawną akceptację?", observationUnit: "jedno aktywne wymaganie", direction: HIGHER_PL, counts: "Typowane powiązanie wymagania z weryfikacją zakończoną zaliczeniem lub jawna akceptacja człowieka.", doesNotCount: "Deklaracje ukończenia, niezwiązane zielone kontrole ani odroczone wymagania.", objectiveEvidence: TYPED_EVIDENCE_PL },
+    en: { meaning: "Share of active requirements with objective passing evidence or explicit acceptance.", question: "How many active requirements have objective passing evidence or explicit acceptance?", observationUnit: "one active requirement", direction: HIGHER_EN, counts: "A typed requirement-to-verification link with a pass, or explicit human acceptance.", doesNotCount: "Completion claims, unrelated green checks, or deferred requirements.", objectiveEvidence: VERIFIED_REQUIREMENT_EVIDENCE_EN },
+    pl: { meaning: "Udział aktywnych wymagań z obiektywnym dowodem zaliczenia lub jawną akceptacją.", question: "Ile aktywnych wymagań ma obiektywny dowód zaliczenia lub jawną akceptację?", observationUnit: "jedno aktywne wymaganie", direction: HIGHER_PL, counts: "Typowane powiązanie wymagania z weryfikacją zakończoną zaliczeniem lub jawna akceptacja człowieka.", doesNotCount: "Deklaracje ukończenia, niezwiązane zielone kontrole ani odroczone wymagania.", objectiveEvidence: VERIFIED_REQUIREMENT_EVIDENCE_PL },
   },
 ];
 
@@ -423,11 +462,19 @@ export function metricHelpV2Measurement(
   metricKey: string,
   projectionVersion: MetricHelpProjectionVersion | null = null,
 ): MetricHelpMeasurement | null {
-  if (projectionVersion === R7_PROJECTION) {
+  if (projectionVersion === R8_PROJECTION) {
+    const reviewedRequirementVerification = METRIC_HELP_V2_R8_REQUIREMENT_VERIFICATION_MEASUREMENTS[metricKey];
+    if (reviewedRequirementVerification !== undefined) return reviewedRequirementVerification;
+  }
+  if (projectionVersion === R7_PROJECTION || projectionVersion === R8_PROJECTION) {
     const reviewedRequirementAction = METRIC_HELP_V2_R7_REQUIREMENT_ACTION_MEASUREMENTS[metricKey];
     if (reviewedRequirementAction !== undefined) return reviewedRequirementAction;
   }
-  if (projectionVersion === R6_PROJECTION || projectionVersion === R7_PROJECTION) {
+  if (
+    projectionVersion === R6_PROJECTION
+    || projectionVersion === R7_PROJECTION
+    || projectionVersion === R8_PROJECTION
+  ) {
     const reviewedRequirementPlan = METRIC_HELP_V2_R6_REQUIREMENT_PLAN_MEASUREMENTS[metricKey];
     if (reviewedRequirementPlan !== undefined) return reviewedRequirementPlan;
   }
@@ -468,7 +515,8 @@ export interface ResolvedMetricHelp {
     | "r4_confirmed_lifecycle"
     | "r5_reviewed_profile"
     | "r6_reviewed_requirement_plan"
-    | "r7_reviewed_requirement_action";
+    | "r7_reviewed_requirement_action"
+    | "r8_reviewed_requirement_verification";
   projectionVersion: MetricHelpProjectionVersion | null;
   /** Shipped measurement source (English only). */
   measurement: MetricHelpMeasurement | null;
@@ -484,7 +532,8 @@ export function metricHelpV2DefinitionLabel(
     case "r4_confirmed_lifecycle": return `sealed ${projection} confirmed-lifecycle`;
     case "r5_reviewed_profile": return `sealed ${projection} reviewed-profile`;
     case "r6_reviewed_requirement_plan": return `sealed ${projection} reviewed requirement-plan`;
-    case "r7_reviewed_requirement_action": return "sealed r7 reviewed requirement-action";
+    case "r7_reviewed_requirement_action": return `sealed ${projection} reviewed requirement-action`;
+    case "r8_reviewed_requirement_verification": return `sealed ${projection} reviewed requirement-verification`;
     default: return help.projectionVersion === null
       ? "unbound local candidate"
       : `sealed ${projection} candidate`;
@@ -501,7 +550,28 @@ export function metricHelpV2(
   const english = METRIC_HELP_V2.en[metricKey];
   if (english === undefined) return null;
   const measurement = metricHelpV2Measurement(metricKey, projectionVersion);
-  const r7RequirementAction = projectionVersion === R7_PROJECTION
+  const r8Locale: MetricHelpLocale = locale === "pl" ? "pl" : "en";
+  const r8RequirementVerification = projectionVersion === R8_PROJECTION
+    ? (r8Locale === "pl"
+      ? METRIC_HELP_V2_R8_REQUIREMENT_VERIFICATION_PL[metricKey]
+      : METRIC_HELP_V2_R8_REQUIREMENT_VERIFICATION_EN[metricKey])
+    : undefined;
+  if (r8RequirementVerification !== undefined) {
+    return {
+      version: METRIC_HELP_V2_VERSION,
+      metricKey,
+      requestedLocale: locale,
+      locale: r8Locale,
+      fallback: locale !== r8Locale,
+      entry: r8RequirementVerification,
+      definitionScope: "r8_reviewed_requirement_verification",
+      projectionVersion,
+      measurement,
+    };
+  }
+  const r7RequirementAction = (
+    projectionVersion === R7_PROJECTION || projectionVersion === R8_PROJECTION
+  )
     ? METRIC_HELP_V2_R7_REQUIREMENT_ACTION_EN[metricKey]
     : undefined;
   if (r7RequirementAction !== undefined) {
@@ -517,7 +587,11 @@ export function metricHelpV2(
       measurement,
     };
   }
-  const r6RequirementPlan = (projectionVersion === R6_PROJECTION || projectionVersion === R7_PROJECTION)
+  const r6RequirementPlan = (
+    projectionVersion === R6_PROJECTION
+    || projectionVersion === R7_PROJECTION
+    || projectionVersion === R8_PROJECTION
+  )
     ? METRIC_HELP_V2_R6_REQUIREMENT_PLAN_EN[metricKey]
     : undefined;
   if (r6RequirementPlan !== undefined) {
@@ -786,10 +860,16 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
   const resolvedHelp = metricHelpV2(input.metricKey, "en", input.projectionVersion);
   const help = resolvedHelp?.entry;
   const r5ReviewedProfile = resolvedHelp?.definitionScope === "r5_reviewed_profile";
-  const reviewedProfileProjection = input.projectionVersion === R7_PROJECTION
-    ? "r7"
+  const reviewedProfileProjection = input.projectionVersion === R8_PROJECTION
+    ? "r8"
+    : input.projectionVersion === R7_PROJECTION ? "r7"
     : input.projectionVersion === R6_PROJECTION ? "r6" : "r5";
-  const reviewedPlanProjection = input.projectionVersion === R7_PROJECTION ? "r7" : "r6";
+  const reviewedPlanProjection = input.projectionVersion === R8_PROJECTION
+    ? "r8"
+    : input.projectionVersion === R7_PROJECTION ? "r7" : "r6";
+  const reviewedActionProjection = input.projectionVersion === R8_PROJECTION ? "r8" : "r7";
+  const r8VerifiedRequirement = input.projectionVersion === R8_PROJECTION
+    && input.metricKey === "outcome.verified_requirement_coverage";
   const projectionBoundDefinition = resolvedHelp !== null
     && resolvedHelp.definitionScope !== "historical_candidate";
   const definitionLabel = resolvedHelp === null
@@ -839,25 +919,48 @@ export function metricInspectorSentences(input: MetricInspectorInput): MetricIns
       action = "No user wording can supply this metric: keep it unmeasured until a supported local adapter exists — verify: that adapter produces a fresh sealed receipt before any value is interpreted.";
       break;
     case "not_applicable":
-      meaning = `Not applicable: no eligible ${unitSingular} was observed in this window, so ${input.label} has nothing to score and no value is implied.`;
-      action = `No action for this window: there was no eligible ${unitSingular} to change — verify: reassess only when a later comparable window contains an eligible opportunity.`;
+      if (r8VerifiedRequirement && input.explanationCode === "reviewed_requirement_set_empty") {
+        meaning = `Not applicable: the exact native-reviewed active-requirement set is empty, so ${input.label} has no denominator and no value is implied.`;
+        action = "No verification action is justified for this empty reviewed set — verify: reassess only after a fresh native review establishes at least one active requirement.";
+      } else {
+        meaning = `Not applicable: no eligible ${unitSingular} was observed in this window, so ${input.label} has nothing to score and no value is implied.`;
+        action = `No action for this window: there was no eligible ${unitSingular} to change — verify: reassess only when a later comparable window contains an eligible opportunity.`;
+      }
       break;
     case "unknown":
-      if (input.explanationCode === "requirement_action_evidence_unavailable") {
-        meaning = `Unknown: this sealed r7 runtime does not expose reviewed requirement-action evidence, so ${input.label} has no defensible link classification and was not converted to zero.`;
-        action = "Use a runtime that composes the local r7 requirement-action service, retrieve the exact contract, and create only an inert candidate-index proposal — verify: the app can preview it locally but no value appears until a complete native review is bound to a fresh sealed r7 receipt.";
+      if (r8VerifiedRequirement && input.explanationCode === "reviewed_requirement_authority_unavailable") {
+        meaning = `Unknown: this sealed r8 receipt has no exact native-reviewed active-requirement authority, so ${input.label} has no defensible denominator and was not converted to zero.`;
+        action = "Complete and natively confirm Reviewed requirement-to-plan evidence for the exact source window, then run a fresh analysis — verify: the new sealed r8 receipt binds the complete reviewed active-requirement set before any verification result is interpreted.";
+      } else if (r8VerifiedRequirement && input.explanationCode === "reviewed_requirement_authority_invalid") {
+        meaning = `Unknown: the reviewed active-requirement authority failed exact source-window or confirmation validation, so ${input.label} rejected the stale denominator rather than scoring it.`;
+        action = "Replace the invalid requirement-plan authority through its native review workflow, then run a fresh analysis — verify: the new sealed r8 receipt binds the exact current confirmation, evidence fingerprint, and active-requirement set.";
+      } else if (r8VerifiedRequirement && input.explanationCode === "requirement_verification_evidence_unavailable") {
+        meaning = `Unknown: an exact reviewed active-requirement denominator exists, but its local verification evidence is unavailable, so every unresolved requirement remains unknown rather than failed or zero.`;
+        action = "Restore the local verification-evidence reader or issue exact app-issued verification results or separately typed native human acceptances, then run a fresh analysis — verify: the sealed r8 receipt preserves the reviewed denominator and assistant completion claims never enter the authority.";
+      } else if (r8VerifiedRequirement && input.explanationCode === "requirement_verification_authority_invalid") {
+        meaning = `Unknown: verification authority was stale, foreign, tampered, or otherwise invalid for this exact reviewed requirement set, so ${input.label} failed closed rather than converting missing proof to failure.`;
+        action = "Repair or replace the invalid local verification authority and run a fresh analysis — verify: every app-issued result or separately typed native acceptance matches an exact current reviewed requirement and the new r8 receipt retains no foreign authority.";
+      } else if (r8VerifiedRequirement && input.explanationCode === "app_issued_requirement_verification_pending") {
+        meaning = `Unknown: exact app-issued verification results or separately typed native human acceptances resolve only part of the reviewed requirement set; the remainder right-censors ${input.label}, and assistant completion claims never close it.`;
+        action = "Resolve the remaining reviewed requirements with app-issued verification results or separately typed native human acceptances — verify: a fresh sealed r8 receipt reports zero unresolved requirements before publishing a numeric fraction.";
+      } else if (r8VerifiedRequirement && input.explanationCode === "typed_objective_opportunity_count_exceeds_receipt_bound") {
+        meaning = `Unknown: the complete reviewed requirement set exceeded the bounded r8 verification receipt, so ${input.label} was withheld rather than truncated, sampled, or converted to zero.`;
+        action = "Analyze a smaller coherent sealed window without dropping individual requirements from its complete authority — verify: the next r8 receipt fits the entire reviewed set within its published bound before any value is interpreted.";
+      } else if (input.explanationCode === "requirement_action_evidence_unavailable") {
+        meaning = `Unknown: this sealed ${reviewedActionProjection} runtime does not expose reviewed requirement-action evidence, so ${input.label} has no defensible link classification and was not converted to zero.`;
+        action = `Use a runtime that composes the local ${reviewedActionProjection} requirement-action service, retrieve the exact contract, and create only an inert candidate-index proposal — verify: the app can preview it locally but no value appears until a complete native review is bound to a fresh sealed ${reviewedActionProjection} receipt.`;
       } else if (input.explanationCode === "requirement_action_evidence_confirmation_required") {
-        meaning = `Unknown: reviewed requirements and safe action candidates are available for this sealed r7 window, but no complete owned-native review of every clause, redacted candidate descriptor, membership, and explicit empty link is bound; this missing authority is not zero.`;
-        action = "Open Reviewed requirement-to-action evidence, cross-check each source_reference_id against its safe event/session timeline, inspect every ephemeral redacted descriptor and proposed membership, acknowledge the exact complete receipt, natively confirm it, then run a fresh analysis — verify: the new sealed r7 receipt reports the exact reviewed measured, right-censored, or no-opportunity state before interpreting it.";
+        meaning = `Unknown: reviewed requirements and safe action candidates are available for this sealed ${reviewedActionProjection} window, but no complete owned-native review of every clause, redacted candidate descriptor, membership, and explicit empty link is bound; this missing authority is not zero.`;
+        action = `Open Reviewed requirement-to-action evidence, cross-check each source_reference_id against its safe event/session timeline, inspect every ephemeral redacted descriptor and proposed membership, acknowledge the exact complete receipt, natively confirm it, then run a fresh analysis — verify: the new sealed ${reviewedActionProjection} receipt reports the exact reviewed measured, right-censored, or no-opportunity state before interpreting it.`;
       } else if (input.explanationCode === "requirement_action_evidence_invalid") {
         meaning = `Unknown: the confirmed requirement-action authority did not revalidate against this exact r6 predecessor, source window, candidate manifest, or complete graph, so ${input.label} failed closed rather than scoring stale links.`;
-        action = "Regenerate the inert proposal from the current r7 contract, cross-check every source receipt and descriptor in the session timeline, review every membership and empty link, then natively confirm a replacement — verify: a fresh sealed r7 receipt binds the exact new graph and candidate set.";
+        action = `Regenerate the inert proposal from the current ${reviewedActionProjection} contract, cross-check every source receipt and descriptor in the session timeline, review every membership and empty link, then natively confirm a replacement — verify: a fresh sealed ${reviewedActionProjection} receipt binds the exact new graph and candidate set.`;
       } else if (input.explanationCode === "requirement_action_evidence_overflow") {
-        meaning = `Unknown: the exact requirement, safe-candidate, or link set exceeded the bounded r7 receipt, so ${input.label} was withheld rather than truncated, sampled, or converted to zero.`;
-        action = "Analyze a smaller coherent sealed window without dropping individual items from its complete review — verify: the next r7 contract fits every requirement, candidate, and link within its published bounds before any proposal is confirmed.";
+        meaning = `Unknown: the exact requirement, safe-candidate, or link set exceeded the bounded ${reviewedActionProjection} receipt, so ${input.label} was withheld rather than truncated, sampled, or converted to zero.`;
+        action = `Analyze a smaller coherent sealed window without dropping individual items from its complete review — verify: the next ${reviewedActionProjection} contract fits every requirement, candidate, and link within its published bounds before any proposal is confirmed.`;
       } else if (input.explanationCode === "requirement_action_candidate_source_incomplete") {
-        meaning = `Unknown: the provider adapter could not completely enumerate or decode the safe action candidates for this sealed r7 window, so ${input.label} was withheld rather than treating omitted actions as absent or failed.`;
-        action = "Update or enable an adapter that supports the complete typed action-event surface, then analyze a fresh sealed window — verify: the new r7 receipt reports a complete candidate source before creating or reviewing any membership proposal.";
+        meaning = `Unknown: the provider adapter could not completely enumerate or decode the safe action candidates for this sealed ${reviewedActionProjection} window, so ${input.label} was withheld rather than treating omitted actions as absent or failed.`;
+        action = `Update or enable an adapter that supports the complete typed action-event surface, then analyze a fresh sealed window — verify: the new ${reviewedActionProjection} receipt reports a complete candidate source before creating or reviewing any membership proposal.`;
       } else if (input.explanationCode === "requirement_plan_evidence_unavailable") {
         meaning = `Unknown: this sealed ${reviewedPlanProjection} runtime does not expose the reviewed requirement-plan service, so ${input.label} has no defensible denominator and was not converted to zero.`;
         action = `Enable a runtime that exposes Reviewed requirement-to-plan evidence, then preview a canonical content-free file bound to the exact sealed source run, import it only as an unconfirmed proposal, inspect every local user and PLAN clause, and natively confirm the complete classification — verify: a fresh sealed ${reviewedPlanProjection} receipt binds that confirmed proposal before interpreting a value.`;

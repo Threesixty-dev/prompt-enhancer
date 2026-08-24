@@ -5776,10 +5776,10 @@ export interface components {
             capability_missing_count: number;
             /**
              * Catalog Version
-             * @default metric-evidence-readiness-v2-6
+             * @default metric-evidence-readiness-v2-7
              * @constant
              */
-            catalog_version: "metric-evidence-readiness-v2-6";
+            catalog_version: "metric-evidence-readiness-v2-7";
             /** Compatibility Preview */
             compatibility_preview: boolean;
             /**
@@ -5806,7 +5806,7 @@ export interface components {
              * Metric Projection Version
              * @enum {string}
              */
-            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7";
+            metric_projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7" | "metric-contract-v2-projection-8";
             /** Metrics */
             metrics: components["schemas"]["MetricEvidenceReadinessV2"][];
             /** No Opportunity Count */
@@ -6264,10 +6264,10 @@ export interface components {
         MetricOperabilityCatalog: {
             /**
              * Catalog Version
-             * @default metric-operability-v3
+             * @default metric-operability-v4
              * @constant
              */
-            catalog_version: "metric-operability-v3";
+            catalog_version: "metric-operability-v4";
             /**
              * Content Persisted
              * @default false
@@ -6294,18 +6294,18 @@ export interface components {
             model_authoritative_metric_count: 0;
             /**
              * Projection Version
-             * @default metric-contract-v2-projection-7
+             * @default metric-contract-v2-projection-8
              * @constant
              */
-            projection_version: "metric-contract-v2-projection-7";
+            projection_version: "metric-contract-v2-projection-8";
             /** Provider Adapter Gap Count */
             provider_adapter_gap_count: number;
             /**
              * Readiness Catalog Version
-             * @default metric-evidence-readiness-v2-6
+             * @default metric-evidence-readiness-v2-7
              * @constant
              */
-            readiness_catalog_version: "metric-evidence-readiness-v2-6";
+            readiness_catalog_version: "metric-evidence-readiness-v2-7";
             /**
              * Registry Version
              * @default all-20-factor-contracts-v2
@@ -6410,7 +6410,7 @@ export interface components {
              * Projection Version
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7" | "metric-contract-v2-projection-8";
             /**
              * Publication Key
              * @default metric.contract-v2.publication
@@ -6589,7 +6589,7 @@ export interface components {
              * Projection Version
              * @enum {string}
              */
-            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7";
+            projection_version: "metric-contract-v2-projection-1" | "metric-contract-v2-projection-2" | "metric-contract-v2-projection-3" | "metric-contract-v2-projection-4" | "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7" | "metric-contract-v2-projection-8";
             /**
              * Registry Version
              * @default all-20-factor-contracts-v2
@@ -7226,6 +7226,7 @@ export interface components {
             product_metric_eligible: false;
             requirement_action_evidence_binding: components["schemas"]["ModelRequirementActionEvidenceBindingDto"] | null;
             requirement_plan_evidence_binding: components["schemas"]["ModelRequirementPlanEvidenceBindingDto"] | null;
+            requirement_verification_evidence_binding: components["schemas"]["ModelRequirementVerificationEvidenceBindingDto"] | null;
             /** Run Id */
             run_id: string;
             /**
@@ -7971,7 +7972,7 @@ export interface components {
         };
         /**
          * ModelRequirementActionEvidenceBindingDto
-         * @description Minimized reviewed requirement-to-action authority for one r7 run.
+         * @description Minimized reviewed requirement-to-action authority for one r7/r8 run.
          */
         ModelRequirementActionEvidenceBindingDto: {
             /** Candidate Manifest Fingerprint */
@@ -8044,6 +8045,100 @@ export interface components {
             local_only: true;
             /** Proposal Id */
             proposal_id?: string | null;
+        };
+        /**
+         * ModelRequirementVerificationEvidenceBindingDto
+         * @description Minimized content-free verification authority bound to one r8 run.
+         */
+        ModelRequirementVerificationEvidenceBindingDto: {
+            /**
+             * Acceptance Issuer Version
+             * @constant
+             */
+            acceptance_issuer_version: "native-explicit-requirement-acceptance-issuer-v1";
+            /** Authority Head Count */
+            authority_head_count: number | null;
+            /** Binding Fingerprint */
+            binding_fingerprint: string;
+            /**
+             * Binding Schema Version
+             * @constant
+             */
+            binding_schema_version: "session-requirement-verification-evidence-binding-v1";
+            /**
+             * Content Persisted
+             * @constant
+             */
+            content_persisted: false;
+            /**
+             * Evidence Policy Version
+             * @constant
+             */
+            evidence_policy_version: "app-issued-reviewed-requirement-verification-v1";
+            /**
+             * Evidence Projection Version
+             * @constant
+             */
+            evidence_projection_version: "reviewed-requirement-verification-objective-projection-v1";
+            /**
+             * Evidence Schema Version
+             * @constant
+             */
+            evidence_schema_version: "requirement-verification-evidence-v1";
+            /** Evidence Set Fingerprint */
+            evidence_set_fingerprint: string | null;
+            evidence_source: components["schemas"]["RequirementVerificationEvidenceSource"];
+            /**
+             * Local Only
+             * @constant
+             */
+            local_only: true;
+            /** Met Requirement Count */
+            met_requirement_count: number | null;
+            /** Native Acceptance Count */
+            native_acceptance_count: number | null;
+            /**
+             * Objective Projection Version
+             * @constant
+             */
+            objective_projection_version: "reviewed-requirement-verification-objective-projection-v1";
+            /** Objective Result Count */
+            objective_result_count: number | null;
+            /** Opportunity Count */
+            opportunity_count: number | null;
+            /**
+             * Opportunity Issuer Version
+             * @constant
+             */
+            opportunity_issuer_version: "reviewed-r6-requirement-opportunity-issuer-v1";
+            /** Opportunity Set Fingerprint */
+            opportunity_set_fingerprint: string | null;
+            /**
+             * Persistence Schema Version
+             * @constant
+             */
+            persistence_schema_version: "requirement-verification-persistence-v1";
+            /** Requirement Plan Confirmation Id */
+            requirement_plan_confirmation_id: string | null;
+            /** Requirement Plan Evidence Fingerprint */
+            requirement_plan_evidence_fingerprint: string | null;
+            /** Requirement Plan Policy Version */
+            requirement_plan_policy_version: "reviewed-requirement-plan-v1" | null;
+            /** Requirement Plan Proposal Id */
+            requirement_plan_proposal_id: string | null;
+            /** Requirement Plan Review Rubric Version */
+            requirement_plan_review_rubric_version: "active-requirement-plan-review-rubric-v1" | null;
+            /** Requirement Plan Schema Version */
+            requirement_plan_schema_version: "requirement-plan-evidence-v1" | null;
+            /** Resolved Opportunity Count */
+            resolved_opportunity_count: number | null;
+            /**
+             * Result Issuer Version
+             * @constant
+             */
+            result_issuer_version: "local-objective-verification-result-issuer-v1";
+            /** Through Revision */
+            through_revision: number | null;
         };
         /** ModelRuntimeInventoryDto */
         ModelRuntimeInventoryDto: {
@@ -9329,7 +9424,7 @@ export interface components {
              * Source Projection Version
              * @enum {string}
              */
-            source_projection_version: "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7";
+            source_projection_version: "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7" | "metric-contract-v2-projection-8";
             /** Source Window Fingerprint */
             source_window_fingerprint: string;
         };
@@ -10144,7 +10239,7 @@ export interface components {
              * Source Projection Version
              * @enum {string}
              */
-            source_projection_version: "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7";
+            source_projection_version: "metric-contract-v2-projection-5" | "metric-contract-v2-projection-6" | "metric-contract-v2-projection-7" | "metric-contract-v2-projection-8";
             /** Source Window Fingerprint */
             source_window_fingerprint: string;
             /**
@@ -10752,6 +10847,11 @@ export interface components {
             /** Revision */
             revision: number;
         };
+        /**
+         * RequirementVerificationEvidenceSource
+         * @enum {string}
+         */
+        RequirementVerificationEvidenceSource: "unavailable" | "opportunity_bound_exceeded" | "awaiting_evidence" | "persisted_evidence";
         /** RequirementVerificationMessageErrorDto */
         RequirementVerificationMessageErrorDto: {
             /**

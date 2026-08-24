@@ -31,6 +31,9 @@ describe("metric operability catalog contract", () => {
     expect(result.experimental_model_path_count).toBe(8);
     expect(result.model_authoritative_metric_count).toBe(0);
     expect(result.entries.every((entry) => !entry.measured_value_may_use_model_output)).toBe(true);
+    expect(result.catalog_version).toBe("metric-operability-v4");
+    expect(result.projection_version).toBe("metric-contract-v2-projection-8");
+    expect(result.readiness_catalog_version).toBe("metric-evidence-readiness-v2-7");
   });
 
   it.each([
@@ -56,8 +59,14 @@ describe("metric operability catalog contract", () => {
   });
 
   it.each([
-    ["future projection", (value: Record<string, unknown>) => {
+    ["stale projection", (value: Record<string, unknown>) => {
       value.projection_version = "metric-contract-v2-projection-7";
+    }],
+    ["stale operability catalog", (value: Record<string, unknown>) => {
+      value.catalog_version = "metric-operability-v3";
+    }],
+    ["stale readiness catalog", (value: Record<string, unknown>) => {
+      value.readiness_catalog_version = "metric-evidence-readiness-v2-6";
     }],
     ["contract set", (value: Record<string, unknown>) => {
       value.contract_set_fingerprint = "0".repeat(64);

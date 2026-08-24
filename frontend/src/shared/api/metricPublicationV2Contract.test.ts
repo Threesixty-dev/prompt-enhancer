@@ -121,6 +121,17 @@ function publicationFixture(): Record<string, unknown> {
   };
 }
 
+function r8VerifiedState(scenario: Parameters<typeof syntheticPublishedMetricV2>[1]): any {
+  const state = syntheticPublishedMetricV2(
+    "outcome.verified_requirement_coverage",
+    scenario,
+  ).state as any;
+  state.projection_version = "metric-contract-v2-projection-8";
+  state.statistics.superseded_excluded_count = 0;
+  state.statistics.distinct_owner_count = state.statistics.eligible_count;
+  return state;
+}
+
 describe("canonical metric V2 publication contract", () => {
   it("accepts the exact all-twenty live measured envelope", () => {
     const fixture = publicationFixture();
@@ -137,18 +148,27 @@ describe("canonical metric V2 publication contract", () => {
       "metric-contract-v2-projection-5",
       "metric-contract-v2-projection-6",
       "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
     ]) {
       const readable = structuredClone(legacy) as any;
       readable.projection_version = version;
       readable.metrics.forEach((item: any) => {
         item.state.projection_version = version;
       });
+      if (version === "metric-contract-v2-projection-8") {
+        const verified = readable.metrics.find(
+          (item: any) => item.state.metric_key === "outcome.verified_requirement_coverage",
+        );
+        verified.state.explanation_code = "reviewed_requirement_authority_unavailable";
+        verified.state.statistics.source_complete = true;
+        verified.guidance.reason_code = "reviewed_requirement_authority_unavailable";
+      }
       expect(parseMetricPublicationV2(structuredClone(readable))).toEqual(readable);
     }
     const future = structuredClone(legacy) as any;
-    future.projection_version = "metric-contract-v2-projection-8";
+    future.projection_version = "metric-contract-v2-projection-9";
     future.metrics.forEach((item: any) => {
-      item.state.projection_version = "metric-contract-v2-projection-8";
+      item.state.projection_version = "metric-contract-v2-projection-9";
     });
     let caught: unknown;
     try { parseMetricPublicationV2(future); } catch (error) { caught = error; }
@@ -221,6 +241,72 @@ describe("canonical metric V2 publication contract", () => {
       expect(() => parseMetricV2State(attacked, exact.metric_key))
         .toThrow(MetricPublicationV2PayloadError);
     }
+  });
+
+  it("accepts only the closed source-independent r8 verified-requirement state shapes", () => {
+    const missingReviewed = r8VerifiedState({
+      value_state: "unknown", capability_available: false, source_complete: true,
+      explanation_code: "reviewed_requirement_authority_unavailable",
+    });
+    const invalidReviewed = r8VerifiedState({
+      value_state: "unknown", capability_available: true, source_complete: false,
+      explanation_code: "reviewed_requirement_authority_invalid",
+    });
+    const overflow = r8VerifiedState({
+      value_state: "unknown", capability_available: true, source_complete: true,
+      explanation_code: "typed_objective_opportunity_count_exceeds_receipt_bound",
+    });
+    const empty = r8VerifiedState({
+      value_state: "not_applicable", capability_available: true, source_complete: true,
+      explanation_code: "reviewed_requirement_set_empty",
+    });
+    const unavailable = r8VerifiedState({
+      value_state: "unknown", capability_available: true, source_complete: true,
+      eligible: 2, unknown: 2, censoring_lower_bound: 0, censoring_upper_bound: 1,
+      explanation_code: "requirement_verification_evidence_unavailable",
+    });
+    const invalidVerification = r8VerifiedState({
+      value_state: "unknown", capability_available: true, source_complete: false,
+      eligible: 2, unknown: 2, censoring_lower_bound: 0, censoring_upper_bound: 1,
+      explanation_code: "requirement_verification_authority_invalid",
+    });
+    const partial = r8VerifiedState({
+      value_state: "unknown", capability_available: true, source_complete: true,
+      eligible: 4, unknown: 2, censoring_lower_bound: 0.25, censoring_upper_bound: 0.75,
+      explanation_code: "app_issued_requirement_verification_pending",
+    });
+    partial.statistics.met_count = 1;
+    partial.statistics.not_met_count = 1;
+    const known = r8VerifiedState({
+      value_state: "known", numerator: 2, denominator: 3,
+      capability_available: true, source_complete: true,
+      explanation_code: "app_issued_verified_requirement_coverage",
+    });
+
+    const legal = [
+      missingReviewed, invalidReviewed, overflow, empty, unavailable,
+      invalidVerification, partial, known,
+    ];
+    legal.forEach((state) => {
+      expect(parseMetricV2State(structuredClone(state), state.metric_key)).toEqual(state);
+    });
+
+    const attacks = [
+      (() => { const state = structuredClone(missingReviewed); state.statistics.source_complete = false; return state; })(),
+      (() => { const state = structuredClone(invalidReviewed); state.statistics.capability_available = false; return state; })(),
+      (() => { const state = structuredClone(overflow); state.statistics.eligible_count = 1; state.statistics.unknown_count = 1; state.statistics.distinct_owner_count = 1; return state; })(),
+      (() => { const state = structuredClone(empty); state.explanation_code = "no_eligible_opportunity"; return state; })(),
+      (() => { const state = structuredClone(unavailable); state.censoring_upper_bound = 0.5; return state; })(),
+      (() => { const state = structuredClone(invalidVerification); state.statistics.source_complete = true; return state; })(),
+      (() => { const state = structuredClone(partial); state.censoring_lower_bound = 0; return state; })(),
+      (() => { const state = structuredClone(known); state.explanation_code = "exact_fraction"; return state; })(),
+      (() => { const state = structuredClone(unavailable); state.statistics.superseded_excluded_count = 1; return state; })(),
+      (() => { const state = structuredClone(unavailable); state.statistics.distinct_owner_count = 0; return state; })(),
+    ];
+    attacks.forEach((state) => {
+      expect(() => parseMetricV2State(state, state.metric_key))
+        .toThrow(MetricPublicationV2PayloadError);
+    });
   });
 
   it("cross-binds every standalone r7 action denominator to the exact reviewed r6 plan", () => {
@@ -413,6 +499,25 @@ describe("canonical metric V2 publication contract", () => {
     const tampered = structuredClone(page);
     tampered.points[0].metric_states_v2[0].numeric_value = 0;
     expect(() => parseModelEnsembleTrajectoryPage(tampered)).toThrow(
+      ModelEnsembleTrajectoryPayloadError,
+    );
+
+    const r8Page = structuredClone(page);
+    r8Page.points[0].metric_states_v2.forEach((state: any) => {
+      state.projection_version = "metric-contract-v2-projection-8";
+    });
+    const verified = r8Page.points[0].metric_states_v2.find(
+      (state: any) => state.metric_key === "outcome.verified_requirement_coverage",
+    )!;
+    verified.explanation_code = "reviewed_requirement_authority_unavailable";
+    verified.statistics.source_complete = true;
+    expect(parseModelEnsembleTrajectoryPage(structuredClone(r8Page))).toEqual(r8Page);
+
+    const illegalR8 = structuredClone(r8Page);
+    illegalR8.points[0].metric_states_v2.find(
+      (state: any) => state.metric_key === "outcome.verified_requirement_coverage",
+    )!.explanation_code = "typed_objective_absent";
+    expect(() => parseModelEnsembleTrajectoryPage(illegalR8)).toThrow(
       ModelEnsembleTrajectoryPayloadError,
     );
   });

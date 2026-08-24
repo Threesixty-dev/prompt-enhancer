@@ -208,11 +208,11 @@ export function parseMetricOperabilityCatalog(value: unknown): MetricOperability
   const rawEntries = catalog.entries;
   exactKeys(catalog, CATALOG_KEYS);
   if (
-    catalog.catalog_version !== "metric-operability-v3"
+    catalog.catalog_version !== "metric-operability-v4"
     || catalog.registry_version !== METRIC_CONTRACT_V2_REGISTRY_VERSION
     || catalog.contract_set_fingerprint !== METRIC_CONTRACT_V2_SET_FINGERPRINT
-    || catalog.projection_version !== "metric-contract-v2-projection-6"
-    || catalog.readiness_catalog_version !== "metric-evidence-readiness-v2-5"
+    || catalog.projection_version !== "metric-contract-v2-projection-8"
+    || catalog.readiness_catalog_version !== "metric-evidence-readiness-v2-7"
   ) {
     throw new MetricOperabilityDefinitionsOutOfDateError();
   }
@@ -250,11 +250,11 @@ export function createSyntheticMetricOperabilityCatalog(): MetricOperabilityCata
     } satisfies MetricOperabilityEntry;
   });
   return {
-    catalog_version: "metric-operability-v3",
+    catalog_version: "metric-operability-v4",
     registry_version: METRIC_CONTRACT_V2_REGISTRY_VERSION,
     contract_set_fingerprint: METRIC_CONTRACT_V2_SET_FINGERPRINT,
-    projection_version: "metric-contract-v2-projection-6",
-    readiness_catalog_version: "metric-evidence-readiness-v2-5",
+    projection_version: "metric-contract-v2-projection-8",
+    readiness_catalog_version: "metric-evidence-readiness-v2-7",
     total_metric_count: 20,
     shipped_path_count: 16,
     task_profile_configuration_gap_count: 0,

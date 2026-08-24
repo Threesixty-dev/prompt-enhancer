@@ -57,6 +57,13 @@ describe("metricHelpV2 registry", () => {
     ]);
   });
 
+  it("documents native acceptance as a separate typed verification authority", () => {
+    const help = METRIC_HELP_V2.en["outcome.verified_requirement_coverage"];
+    expect(help.objectiveEvidence).toMatch(/app-issued typed passing-verification receipt/i);
+    expect(help.objectiveEvidence).toMatch(/separately typed explicit native human acceptance/i);
+    expect(help.objectiveEvidence).toMatch(/assistant completion claims.*never count/i);
+  });
+
   it("documents the shipped compatibility heuristic quirks instead of idealizing them", () => {
     expect(METRIC_HELP_V2.en["prompt.problem_evidence_quality"].counts).toMatch(/diagnostic keyword/i);
     expect(METRIC_HELP_V2.en["prompt.constraint_precision"].doesNotCount).toMatch(/generic prohibition/i);
@@ -174,7 +181,7 @@ describe("metricHelpV2 registry", () => {
         );
       }
     }
-    for (const projection of [5, 6, 7] as const) {
+    for (const projection of [5, 6, 7, 8] as const) {
       for (const [key, entry] of Object.entries(r5)) {
         const resolved = metricHelpV2(key, "en", `metric-contract-v2-projection-${projection}`);
         expect(resolved?.definitionScope).toBe("r5_reviewed_profile");
@@ -224,7 +231,7 @@ describe("metricHelpV2 registry", () => {
       expect(resolved?.entry).toEqual(historical);
       expect(resolved?.measurement).toEqual(historicalMeasurement);
     }
-    for (const projection of [3, 4, 5, 6, 7] as const) {
+    for (const projection of [3, 4, 5, 6, 7, 8] as const) {
       const resolved = metricHelpV2("logic.open_loop_closure", "en", `metric-contract-v2-projection-${projection}`);
       expect(resolved?.definitionScope).toBe("r3_explicit_plan_lifecycle");
       expect(resolved?.entry).toEqual(explicitPlan);
@@ -299,7 +306,7 @@ describe("metricHelpV2 registry", () => {
         expect(historical.entry.observationUnit).toBe(copy.historicalUnit);
         expect(historical.measurement?.method).toBe(copy.historicalMethod);
       }
-      for (const projection of [4, 5, 6, 7] as const) {
+      for (const projection of [4, 5, 6, 7, 8] as const) {
         const lifecycle = metricHelpV2(key, "en", `metric-contract-v2-projection-${projection}`)!;
         expect(lifecycle.definitionScope).toBe("r4_confirmed_lifecycle");
         expect(lifecycle.entry.meaning).toBe(copy.meaning);
@@ -380,6 +387,34 @@ describe("metricHelpV2 registry", () => {
     expect(r7?.entry.objectiveEvidence).toMatch(/cross-check each safe-event reference/i);
     expect(r7?.entry.objectiveEvidence).toMatch(/not proof of semantic relevance/i);
     expect(r7?.measurement?.limitation).toMatch(/completed state does not prove task success/i);
+  });
+
+  it("selects truthful EN and PL r8 reviewed requirement-verification definitions", () => {
+    const en = metricHelpV2(
+      "outcome.verified_requirement_coverage",
+      "en",
+      "metric-contract-v2-projection-8",
+    );
+    const pl = metricHelpV2(
+      "outcome.verified_requirement_coverage",
+      "pl",
+      "metric-contract-v2-projection-8",
+    );
+
+    expect(en?.definitionScope).toBe("r8_reviewed_requirement_verification");
+    expect(en?.fallback).toBe(false);
+    expect(en?.entry.meaning).toMatch(/app-issued passing verification results.*native human acceptance/i);
+    expect(en?.entry.doesNotCount).toMatch(/empty reviewed set is Not applicable/i);
+    expect(en?.entry.objectiveEvidence).toMatch(/assistant completion claims.*never count/i);
+    expect(en?.measurement).toMatchObject({ definitionVersion: 4, objective: true });
+    expect(en?.measurement?.limitation).toMatch(/right-censors.*exact bounds/i);
+
+    expect(pl?.definitionScope).toBe("r8_reviewed_requirement_verification");
+    expect(pl?.locale).toBe("pl");
+    expect(pl?.fallback).toBe(false);
+    expect(pl?.entry.meaning).toMatch(/wynik zaliczonej weryfikacji.*akceptację człowieka/i);
+    expect(pl?.entry.doesNotCount).toMatch(/pusty zbiór jest Nie dotyczy/i);
+    expect(pl?.entry.objectiveEvidence).toMatch(/deklaracje ukończenia.*nigdy/i);
   });
 });
 
@@ -562,6 +597,61 @@ describe("metricInspectorSentences", () => {
       expect(sentences.action).toMatch(expectedAction);
       expect(`${sentences.meaning} ${sentences.action}`).not.toMatch(/\b0(?:\.0+)?%?\b/u);
     }
+  });
+
+  it("uses selected r8 copy for inherited action authority and exact verification recovery", () => {
+    const inheritedAction = metricInspectorSentences({
+      metricKey: "logic.requirement_action_traceability",
+      label: "Requirement-to-action traceability",
+      projectionVersion: "metric-contract-v2-projection-8",
+      direction: "higher_is_better",
+      state: "unknown",
+      numericValue: null,
+      numerator: null,
+      denominator: null,
+      explanationCode: "requirement_action_evidence_unavailable",
+    });
+    expect(inheritedAction.meaning).toMatch(/sealed r8 runtime/i);
+    expect(inheritedAction.action).toMatch(/local r8 requirement-action service/i);
+    expect(inheritedAction.action).not.toMatch(/sealed r7 receipt/i);
+
+    for (const [explanationCode, expectedMeaning, expectedAction] of [
+      ["reviewed_requirement_authority_unavailable", /no exact native-reviewed active-requirement authority/i, /Complete and natively confirm Reviewed requirement-to-plan evidence/i],
+      ["reviewed_requirement_authority_invalid", /rejected the stale denominator/i, /Replace the invalid requirement-plan authority/i],
+      ["requirement_verification_evidence_unavailable", /verification evidence is unavailable/i, /app-issued verification results or separately typed native human acceptances/i],
+      ["requirement_verification_authority_invalid", /stale, foreign, tampered, or otherwise invalid/i, /Repair or replace the invalid local verification authority/i],
+      ["app_issued_requirement_verification_pending", /remainder right-censors/i, /Resolve the remaining reviewed requirements/i],
+      ["typed_objective_opportunity_count_exceeds_receipt_bound", /withheld rather than truncated, sampled, or converted to zero/i, /smaller coherent sealed window/i],
+    ] as const) {
+      const result = metricInspectorSentences({
+        metricKey: "outcome.verified_requirement_coverage",
+        label: "Verified requirement coverage",
+        projectionVersion: "metric-contract-v2-projection-8",
+        direction: "higher_is_better",
+        state: "unknown",
+        numericValue: null,
+        numerator: null,
+        denominator: null,
+        explanationCode,
+      });
+      expect(result.meaning).toMatch(expectedMeaning);
+      expect(result.action).toMatch(expectedAction);
+      expect(`${result.meaning} ${result.action}`).not.toMatch(/assistant (?:completion )?claims?.*(?:count|proof)/i);
+    }
+
+    const empty = metricInspectorSentences({
+      metricKey: "outcome.verified_requirement_coverage",
+      label: "Verified requirement coverage",
+      projectionVersion: "metric-contract-v2-projection-8",
+      direction: "higher_is_better",
+      state: "not_applicable",
+      numericValue: null,
+      numerator: null,
+      denominator: null,
+      explanationCode: "reviewed_requirement_set_empty",
+    });
+    expect(empty.meaning).toMatch(/exact native-reviewed active-requirement set is empty/i);
+    expect(empty.action).toMatch(/No verification action is justified/i);
   });
 
   it("routes missing profile denominators to the shipped reviewed workflow", () => {

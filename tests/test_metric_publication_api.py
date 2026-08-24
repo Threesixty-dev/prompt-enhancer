@@ -330,7 +330,7 @@ def test_publication_is_read_only_and_leaves_stored_receipts_untouched(
     assert before == after
     # A derived projection must be reproducible rather than a second record.
     assert first == second
-    assert SCHEMA_VERSION == 58
+    assert SCHEMA_VERSION == 59
 
 
 def test_publication_adds_no_table_and_cannot_outlive_its_parent_run(

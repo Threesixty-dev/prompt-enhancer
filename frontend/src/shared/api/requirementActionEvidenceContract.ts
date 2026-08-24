@@ -456,7 +456,11 @@ export function parseRequirementActionEvidenceContract(
     || item.session_id !== expectedSessionId
     || !safeId(item.expected_source_run_id)
     || !safeId(item.source_window_fingerprint)
-    || !["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(item.source_projection_version as string)
+    || ![
+      "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(item.source_projection_version as string)
     || !safeId(item.requirement_plan_confirmation_id)
     || !safeId(item.requirement_plan_evidence_fingerprint)
     || !optionalSafeId(item.expected_predecessor_confirmation_id)

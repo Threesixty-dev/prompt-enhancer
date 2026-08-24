@@ -39,9 +39,11 @@ from ...application.analysis.session_model_ensemble import (
     REQUIREMENT_PLAN_UNAVAILABLE_FINGERPRINT,
     RequirementActionEvidenceSource,
     RequirementPlanEvidenceSource,
+    RequirementVerificationEvidenceSource,
     SessionMetricProfileBinding,
     SessionRequirementActionEvidenceBinding,
     SessionRequirementPlanEvidenceBinding,
+    SessionRequirementVerificationEvidenceBinding,
     SessionModelEnsembleOutcome,
     SessionModelEnsembleRunRecord,
 )
@@ -373,7 +375,7 @@ class ModelRequirementPlanEvidenceBindingDto(StrictModel):
 
 
 class ModelRequirementActionEvidenceBindingDto(StrictModel):
-    """Minimized reviewed requirement-to-action authority for one r7 run."""
+    """Minimized reviewed requirement-to-action authority for one r7/r8 run."""
 
     evidence_source: RequirementActionEvidenceSource
     source_run_id: str | None = Field(
@@ -508,6 +510,157 @@ class ModelRequirementActionEvidenceBindingDto(StrictModel):
         )
 
 
+class ModelRequirementVerificationEvidenceBindingDto(StrictModel):
+    """Minimized content-free verification authority bound to one r8 run."""
+
+    evidence_source: RequirementVerificationEvidenceSource
+    requirement_plan_confirmation_id: str | None = Field(
+        pattern=PSEUDONYM_PATTERN.pattern
+    )
+    requirement_plan_proposal_id: str | None = Field(
+        pattern=PSEUDONYM_PATTERN.pattern
+    )
+    requirement_plan_evidence_fingerprint: str | None = Field(
+        pattern=PSEUDONYM_PATTERN.pattern
+    )
+    requirement_plan_schema_version: Literal["requirement-plan-evidence-v1"] | None
+    requirement_plan_policy_version: Literal["reviewed-requirement-plan-v1"] | None
+    requirement_plan_review_rubric_version: (
+        Literal["active-requirement-plan-review-rubric-v1"] | None
+    )
+    opportunity_count: int | None = Field(ge=0, le=1_000)
+    opportunity_set_fingerprint: str | None = Field(
+        pattern=PSEUDONYM_PATTERN.pattern
+    )
+    evidence_set_fingerprint: str | None = Field(
+        pattern=PSEUDONYM_PATTERN.pattern
+    )
+    through_revision: int | None = Field(ge=0, le=32_000)
+    authority_head_count: int | None = Field(ge=0, le=1_000)
+    objective_result_count: int | None = Field(ge=0, le=1_000)
+    native_acceptance_count: int | None = Field(ge=0, le=1_000)
+    resolved_opportunity_count: int | None = Field(ge=0, le=1_000)
+    met_requirement_count: int | None = Field(ge=0, le=1_000)
+    opportunity_issuer_version: Literal[
+        "reviewed-r6-requirement-opportunity-issuer-v1"
+    ]
+    result_issuer_version: Literal["local-objective-verification-result-issuer-v1"]
+    acceptance_issuer_version: Literal[
+        "native-explicit-requirement-acceptance-issuer-v1"
+    ]
+    evidence_schema_version: Literal["requirement-verification-evidence-v1"]
+    evidence_policy_version: Literal[
+        "app-issued-reviewed-requirement-verification-v1"
+    ]
+    persistence_schema_version: Literal["requirement-verification-persistence-v1"]
+    evidence_projection_version: Literal[
+        "reviewed-requirement-verification-objective-projection-v1"
+    ]
+    objective_projection_version: Literal[
+        "reviewed-requirement-verification-objective-projection-v1"
+    ]
+    binding_schema_version: Literal[
+        "session-requirement-verification-evidence-binding-v1"
+    ]
+    binding_fingerprint: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
+    local_only: Literal[True]
+    content_persisted: Literal[False]
+
+    @model_validator(mode="after")
+    def exact_source_shape(
+        self,
+    ) -> "ModelRequirementVerificationEvidenceBindingDto":
+        plan_fields = (
+            self.requirement_plan_confirmation_id,
+            self.requirement_plan_proposal_id,
+            self.requirement_plan_evidence_fingerprint,
+            self.requirement_plan_schema_version,
+            self.requirement_plan_policy_version,
+            self.requirement_plan_review_rubric_version,
+        )
+        opportunity_fields = (
+            self.opportunity_count,
+            self.opportunity_set_fingerprint,
+        )
+        evidence_identity_fields = (
+            self.evidence_set_fingerprint,
+            self.through_revision,
+        )
+        evidence_counts = (
+            self.authority_head_count,
+            self.objective_result_count,
+            self.native_acceptance_count,
+            self.resolved_opportunity_count,
+            self.met_requirement_count,
+        )
+        if self.evidence_source is RequirementVerificationEvidenceSource.UNAVAILABLE:
+            if any(
+                item is not None
+                for item in (
+                    *plan_fields,
+                    *opportunity_fields,
+                    *evidence_identity_fields,
+                    *evidence_counts,
+                )
+            ):
+                raise ValueError("unavailable verification authority carries identity")
+            return self
+        if any(item is None for item in (*plan_fields, *opportunity_fields)):
+            raise ValueError("verification authority is missing reviewed requirements")
+        if self.evidence_source is (
+            RequirementVerificationEvidenceSource.OPPORTUNITY_BOUND_EXCEEDED
+        ):
+            if (
+                self.opportunity_count is None
+                or self.opportunity_count <= 100
+                or any(
+                    item is not None
+                    for item in (*evidence_identity_fields, *evidence_counts)
+                )
+            ):
+                raise ValueError("bounded verification authority shape is invalid")
+            return self
+        if self.evidence_source is RequirementVerificationEvidenceSource.AWAITING_EVIDENCE:
+            if (
+                self.opportunity_count is None
+                or self.opportunity_count > 100
+                or any(item is not None for item in evidence_identity_fields)
+                or any(item != 0 for item in evidence_counts)
+            ):
+                raise ValueError("awaiting verification authority shape is invalid")
+            return self
+        if (
+            self.opportunity_count is None
+            or self.opportunity_count > 100
+            or any(
+                item is None for item in (*evidence_identity_fields, *evidence_counts)
+            )
+            or self.authority_head_count
+            != self.objective_result_count + self.native_acceptance_count  # type: ignore[operator]
+            or self.resolved_opportunity_count > self.authority_head_count  # type: ignore[operator]
+            or self.met_requirement_count > self.resolved_opportunity_count  # type: ignore[operator]
+            or self.authority_head_count > self.opportunity_count  # type: ignore[operator]
+            or self.through_revision < self.authority_head_count  # type: ignore[operator]
+        ):
+            raise ValueError("persisted verification authority shape is invalid")
+        return self
+
+    @classmethod
+    def from_binding(
+        cls,
+        binding: SessionRequirementVerificationEvidenceBinding,
+    ) -> "ModelRequirementVerificationEvidenceBindingDto":
+        return cls.model_validate(
+            binding.model_dump(
+                exclude={
+                    "session_id",
+                    "source_window_fingerprint",
+                    "bound_at",
+                }
+            )
+        )
+
+
 class ModelEnsembleRunDto(StrictModel):
     run_id: str = Field(pattern=PSEUDONYM_PATTERN.pattern)
     plan_version: Literal["local-shadow-ensemble-v1"]
@@ -544,6 +697,9 @@ class ModelEnsembleRunDto(StrictModel):
     )
     requirement_action_evidence_binding: (
         ModelRequirementActionEvidenceBindingDto | None
+    )
+    requirement_verification_evidence_binding: (
+        ModelRequirementVerificationEvidenceBindingDto | None
     )
     #: Derived from the sealed publication above plus this run's provenance.
     #: It stores nothing of its own, so it is absent exactly when the sealed
@@ -656,6 +812,13 @@ class ModelEnsembleRunDto(StrictModel):
                 if record.requirement_action_evidence_binding is None
                 else ModelRequirementActionEvidenceBindingDto.from_binding(
                     record.requirement_action_evidence_binding
+                )
+            ),
+            requirement_verification_evidence_binding=(
+                None
+                if record.requirement_verification_evidence_binding is None
+                else ModelRequirementVerificationEvidenceBindingDto.from_binding(
+                    record.requirement_verification_evidence_binding
                 )
             ),
             metric_evidence_readiness_v2=(

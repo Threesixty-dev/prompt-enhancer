@@ -94,12 +94,14 @@ const R3_REQUIREMENT_PROJECTIONS = new Set<MetricPublicationV2["projection_versi
   "metric-contract-v2-projection-5",
   "metric-contract-v2-projection-6",
   "metric-contract-v2-projection-7",
+  "metric-contract-v2-projection-8",
 ]);
 const R4_LIFECYCLE_PROJECTIONS = new Set<MetricPublicationV2["projection_version"]>([
   "metric-contract-v2-projection-4",
   "metric-contract-v2-projection-5",
   "metric-contract-v2-projection-6",
   "metric-contract-v2-projection-7",
+  "metric-contract-v2-projection-8",
 ]);
 
 const METRIC_EVIDENCE_CONTRIBUTORS_R4: Readonly<Record<string, readonly MetricEvidenceContributor[]>> =
@@ -158,7 +160,10 @@ export function metricEvidenceRequirementFor(
   requiredAdapterCapabilities: readonly MetricEvidenceAdapterCapability[];
   capabilityMissingReason: MetricEvidenceReadinessV2["reason_code"] | null;
 } {
-  const projectionContributors = projectionVersion === "metric-contract-v2-projection-7"
+  const projectionContributors = [
+    "metric-contract-v2-projection-7",
+    "metric-contract-v2-projection-8",
+  ].includes(projectionVersion)
     ? METRIC_EVIDENCE_CONTRIBUTORS_R7[metricKey]
       ?? METRIC_EVIDENCE_CONTRIBUTORS_R6[metricKey]
       ?? METRIC_EVIDENCE_CONTRIBUTORS_R4[metricKey]
@@ -175,10 +180,17 @@ export function metricEvidenceRequirementFor(
   return {
     requiredContributors: projectionContributors ?? METRIC_EVIDENCE_CONTRIBUTORS[metricKey] ?? [],
     requiredAdapterCapabilities: OBJECTIVE_ADAPTER_CAPABILITIES[metricKey] ?? [],
-    capabilityMissingReason: projectionVersion === "metric-contract-v2-projection-7"
+    capabilityMissingReason: [
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(projectionVersion)
       && metricKey === "logic.requirement_action_traceability"
       ? "reviewed_requirement_action_service_required"
-      : ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(projectionVersion)
+      : [
+        "metric-contract-v2-projection-6",
+        "metric-contract-v2-projection-7",
+        "metric-contract-v2-projection-8",
+      ].includes(projectionVersion)
       && metricKey === "logic.decomposition_coverage"
       ? "reviewed_requirement_plan_service_required"
       : R4_LIFECYCLE_PROJECTIONS.has(projectionVersion)
@@ -276,7 +288,18 @@ function expectedObservedContributors(
   if (!statistics.capability_available) return [];
   const resolved = statistics.met_count + statistics.not_met_count;
   if (
-    sealed.projection_version === "metric-contract-v2-projection-7"
+    sealed.projection_version === "metric-contract-v2-projection-8"
+    && sealed.metric_key === "outcome.verified_requirement_coverage"
+  ) {
+    return statistics.source_complete
+      && (sealed.value_state === "not_applicable" || statistics.eligible_count > 0)
+      ? ["declared_objective_opportunity_set"]
+      : [];
+  }
+  if (
+    ["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+      sealed.projection_version,
+    )
     && sealed.metric_key === "logic.requirement_action_traceability"
   ) {
     return ["known", "pending", "not_applicable"].includes(sealed.value_state)
@@ -289,7 +312,11 @@ function expectedObservedContributors(
       : [];
   }
   if (
-    ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(sealed.projection_version)
+    [
+      "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(sealed.projection_version)
     && sealed.metric_key === "logic.decomposition_coverage"
   ) {
     const observed: MetricEvidenceContributor[] = [];
@@ -311,7 +338,12 @@ function expectedObservedContributors(
     return observed;
   }
   if (
-    ["metric-contract-v2-projection-5", "metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+    [
+      "metric-contract-v2-projection-5",
+      "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(
       sealed.projection_version,
     )
     && statistics.denominator_basis === "declared_profile_slots"
@@ -361,7 +393,9 @@ function expectedReadinessVerdict(
     return { availability: "abstained", reason: "calculator_abstained" };
   }
   if (
-    sealed.projection_version === "metric-contract-v2-projection-7"
+    ["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+      sealed.projection_version,
+    )
     && sealed.metric_key === "logic.requirement_action_traceability"
     && sealed.value_state === "unknown"
   ) {
@@ -454,7 +488,11 @@ function expectedReadinessVerdict(
       : { availability: "capability_missing", reason: capabilityMissingReason };
   }
   if (
-    ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(sealed.projection_version)
+    [
+      "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(sealed.projection_version)
     && sealed.metric_key === "logic.decomposition_coverage"
     && !statistics.source_complete
   ) {
@@ -464,7 +502,11 @@ function expectedReadinessVerdict(
     };
   }
   if (
-    ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(sealed.projection_version)
+    [
+      "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(sealed.projection_version)
     && sealed.metric_key === "logic.decomposition_coverage"
     && statistics.source_complete
     && statistics.eligible_count === 0
@@ -516,14 +558,23 @@ export function metricEvidenceReadinessForPublication(
   const candidate = row(value);
   if (candidate === null || publication === null || publication === undefined) return null;
   if (!hasExactKeys(candidate, PROJECTION_KEYS)) return null;
-  const catalogIsReadable = candidate.catalog_version === "metric-evidence-readiness-v2-6"
+  const catalogIsReadable = candidate.catalog_version === "metric-evidence-readiness-v2-7"
+    || (candidate.catalog_version === "metric-evidence-readiness-v2-6"
+      && publication.projection_version !== "metric-contract-v2-projection-8")
     || (candidate.catalog_version === "metric-evidence-readiness-v2-5"
-      && publication.projection_version !== "metric-contract-v2-projection-7")
+      && !["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+        publication.projection_version,
+      ))
     || (candidate.catalog_version === "metric-evidence-readiness-v2-4"
-      && !["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(publication.projection_version))
+      && ![
+        "metric-contract-v2-projection-6",
+        "metric-contract-v2-projection-7",
+        "metric-contract-v2-projection-8",
+      ].includes(publication.projection_version))
     || (candidate.catalog_version === "metric-evidence-readiness-v2-3"
       && ![
-        "metric-contract-v2-projection-5", "metric-contract-v2-projection-6", "metric-contract-v2-projection-7",
+        "metric-contract-v2-projection-5", "metric-contract-v2-projection-6",
+        "metric-contract-v2-projection-7", "metric-contract-v2-projection-8",
       ].includes(publication.projection_version))
     || (candidate.catalog_version === "metric-evidence-readiness-v2-2"
       && !R4_LIFECYCLE_PROJECTIONS.has(publication.projection_version));
@@ -551,7 +602,9 @@ export function metricEvidenceReadinessForPublication(
   for (const field of ["provider", "provider_version", "adapter_version", "source_schema_version"] as const) {
     if (typeof candidate[field] !== "string" || !SAFE_CODE.test(candidate[field])) return null;
   }
-  if (publication.projection_version === "metric-contract-v2-projection-7") {
+  if (["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+    publication.projection_version,
+  )) {
     const requirementAction = publication.metrics.find(
       (item) => item.state.metric_key === "logic.requirement_action_traceability",
     )?.state;
@@ -595,7 +648,11 @@ export function metricEvidenceReadinessForPublication(
       sealed.metric_key,
       publication.projection_version,
     );
-    const expectedRequiredContributors = ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(publication.projection_version)
+    const expectedRequiredContributors = [
+      "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(publication.projection_version)
       && sealed.metric_key === "logic.decomposition_coverage"
       && sealed.value_state === "not_applicable"
       ? ["reviewed_requirement_enumeration"] as const

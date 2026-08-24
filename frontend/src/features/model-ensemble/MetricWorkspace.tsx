@@ -132,7 +132,8 @@ export function metricEvidenceFileProjectionSupported(
   return projectionVersion === "metric-contract-v2-projection-4"
     || projectionVersion === "metric-contract-v2-projection-5"
     || projectionVersion === "metric-contract-v2-projection-6"
-    || projectionVersion === "metric-contract-v2-projection-7";
+    || projectionVersion === "metric-contract-v2-projection-7"
+    || projectionVersion === "metric-contract-v2-projection-8";
 }
 
 export function MetricWorkspace({
@@ -374,7 +375,9 @@ export function MetricWorkspace({
         )}
       {evidenceEnabled
         && evidenceSessionId !== undefined
-        && run.metric_publication_v2?.projection_version === "metric-contract-v2-projection-7"
+        && ["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+          run.metric_publication_v2?.projection_version ?? "",
+        )
         && stageRun?.requirement_action_evidence_binding !== null
         && stageRun?.requirement_action_evidence_binding !== undefined
         && (
@@ -384,7 +387,7 @@ export function MetricWorkspace({
             publicEvidenceBinding={stageRun.requirement_action_evidence_binding}
             publicEvidenceSource={stageRun.requirement_action_evidence_binding.evidence_source}
             sessionId={evidenceSessionId}
-            sourceProjectionVersion={run.metric_publication_v2.projection_version as RequirementActionEvidenceContract["source_projection_version"]}
+            sourceProjectionVersion={run.metric_publication_v2!.projection_version as RequirementActionEvidenceContract["source_projection_version"]}
             sourceRunId={runId}
             transport={transport}
           />
@@ -395,6 +398,7 @@ export function MetricWorkspace({
           "metric-contract-v2-projection-5",
           "metric-contract-v2-projection-6",
           "metric-contract-v2-projection-7",
+          "metric-contract-v2-projection-8",
         ].includes(run.metric_publication_v2?.projection_version ?? "")
         && (
           <RequirementPlanEvidencePanel

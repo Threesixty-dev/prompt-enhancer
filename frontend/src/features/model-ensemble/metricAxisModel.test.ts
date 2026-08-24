@@ -24,6 +24,7 @@ import {
 import { isDeepModelStage } from "./modelStages";
 import * as radarModule from "./ModelEnsembleRadar";
 import { moveRovingFocus } from "../../shared/ui/rovingFocus";
+import { syntheticPublishedMetricV2 } from "../../test/metricPublicationV2Fixture";
 
 type EnsembleMetric = ModelEnsembleRun["metrics"][number];
 type TypedMetric = ModelEnsembleRun["typed_metrics"][number];
@@ -345,6 +346,43 @@ describe("metricAxisModel receipt resolver", () => {
       comparabilityState: null,
     });
     expect(modelEnsembleKnowledgeEntries([axis])[0].guidance.evidenceAuthority).toBe("conversation");
+  });
+
+  it("keeps exact r8 unknown censoring bounds and partial verification authority in compact history", () => {
+    const published = syntheticPublishedMetricV2(
+      "outcome.verified_requirement_coverage",
+      {
+        value_state: "unknown", eligible: 4, unknown: 2,
+        capability_available: true, source_complete: true,
+        censoring_lower_bound: 0.25, censoring_upper_bound: 0.75,
+        explanation_code: "app_issued_requirement_verification_pending",
+      },
+    );
+    published.state.projection_version = "metric-contract-v2-projection-8";
+    published.state.statistics.met_count = 1;
+    published.state.statistics.not_met_count = 1;
+    published.state.statistics.distinct_owner_count = 4;
+    const state = parseMetricV2State(
+      structuredClone(published.state),
+      published.state.metric_key,
+    );
+    const run = {
+      typed_metrics: [], metrics: [], chunk_metrics: [],
+      metric_publication_v2: null, metric_profile_binding: null,
+      metric_states_v2: [state],
+    } as unknown as ModelEnsembleRun;
+    const axis = modelEnsembleRadarAxes(run, "outcome-evidence").find(
+      (candidate) => candidate.key === "outcome.verified_requirement_coverage",
+    )!;
+
+    expect(axisModel.modelEnsembleAxisPendingBoundsLabel(axis)).toBe("bounds 25%–75%");
+    expect(modelEnsembleMetricPresentation(axis.metric!, axis.direction).detail)
+      .toMatch(/exact right-censored interval is 25%–75%/i);
+    const guidance = axisModel.modelEnsembleAxisGuidanceSentences(axis);
+    expect(guidance.meaning).toMatch(/remainder right-censors/i);
+    expect(guidance.meaning).toMatch(/lower bound of 25% and an upper bound of 75%/i);
+    expect(guidance.meaning).toMatch(/native human acceptances/i);
+    expect(guidance.meaning).not.toMatch(/typed receipt exists/i);
   });
 
   it("propagates the exact projection into compact guidance instead of relabeling r4 history as r5", () => {

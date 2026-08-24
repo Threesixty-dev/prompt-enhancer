@@ -145,6 +145,7 @@ export function checkpointRun(
     metric_profile_binding: null,
     requirement_plan_evidence_binding: null,
     requirement_action_evidence_binding: null,
+    requirement_verification_evidence_binding: null,
     metric_evidence_readiness_v2: null,
     typed_metrics: [],
     predictive_projection_version: "local-probabilistic-radar-v1",

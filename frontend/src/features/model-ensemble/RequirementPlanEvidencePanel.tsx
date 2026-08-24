@@ -339,6 +339,10 @@ export function RequirementPlanEvidencePanel({
   const fileHelpId = useId();
   const proposalsHeadingId = useId();
   const decisionsHeadingId = useId();
+  const sourceProjectionLabel = sourceProjectionVersion.replace(
+    "metric-contract-v2-projection-",
+    "r",
+  );
   const currentBinding = JSON.stringify([sessionId, sourceRunId, sourceProjectionVersion]);
   const [stateBinding, setStateBinding] = useState(currentBinding);
   const [stateTransport, setStateTransport] = useState(transport);
@@ -538,7 +542,7 @@ export function RequirementPlanEvidencePanel({
         !exactBinding(loadedContract, sessionId, sourceRunId, sourceProjectionVersion)
         || !contractReviewCurrent(loadedContract)
       ) {
-        setError("Requirement-plan review is not bound to a current exact sealed r5/r6/r7 source window.");
+        setError(`Requirement-plan review is not bound to a current exact sealed ${sourceProjectionLabel} source window.`);
         setErrorKind("stale");
         setLoading(false);
         return;
@@ -1118,7 +1122,7 @@ export function RequirementPlanEvidencePanel({
       </section>
     ) : (
       <section aria-label="Review requirement-to-plan evidence" className="metric-evidence-file metric-evidence-file--generic requirement-plan-evidence" data-state="loading">
-        <p role="status">Loading the exact content-free r5/r6/r7 contract for the selected context…</p>
+        <p role="status">Loading the exact content-free {sourceProjectionLabel} contract for the selected context…</p>
       </section>
     );
   }
@@ -1128,7 +1132,7 @@ export function RequirementPlanEvidencePanel({
       <section aria-label="Reviewed requirement-to-plan evidence" className="metric-evidence-file metric-evidence-file--compact metric-evidence-file--generic requirement-plan-evidence" data-state={panelState}>
         <h3 id={headingId}>Requirement-to-plan evidence</h3>
         <span>{!capabilities
-          ? "Exact r5/r6/r7 review unavailable"
+          ? `Exact ${sourceProjectionLabel} review unavailable`
           : loading
             ? "Loading exact sealed-source review…"
             : contract === null
@@ -1157,7 +1161,7 @@ export function RequirementPlanEvidencePanel({
       {!capabilities ? (
         <p className="metric-evidence-file__state" role="status">This local runtime does not expose the complete reviewed requirement-plan boundary. No preview, import, review, or decision controls are available.</p>
       ) : loading ? (
-        <p aria-live="polite" className="metric-evidence-file__state" role="status">Loading the fresh exact r5/r6/r7 contract, proposal snapshot, and native-presence capability…</p>
+        <p aria-live="polite" className="metric-evidence-file__state" role="status">Loading the fresh exact {sourceProjectionLabel} contract, proposal snapshot, and native-presence capability…</p>
       ) : contract === null ? (
         <div className="metric-evidence-file__state metric-evidence-file__state--error">
           <p className="metric-evidence-file__error" role={error === "" ? "status" : "alert"}>{error === "" ? "Exact requirement-plan review is unavailable." : error}</p>

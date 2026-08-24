@@ -16,10 +16,14 @@ import {
   parseModelMetricProfileBinding,
   parseModelRequirementActionEvidenceBinding,
   parseModelRequirementPlanEvidenceBinding,
+  parseModelRequirementVerificationEvidenceBinding,
   parseModelEnsembleOutcome,
   parseModelEnsembleRun,
 } from "../../shared/api/modelEnsembleContract";
-import { MetricDefinitionsOutOfDateError } from "../../shared/api/metricPublicationV2Contract";
+import {
+  MetricDefinitionsOutOfDateError,
+  parseMetricV2State,
+} from "../../shared/api/metricPublicationV2Contract";
 import {
   ModelEnsembleWatchPayloadError,
   parseModelEnsembleWatchSnapshot,
@@ -160,6 +164,7 @@ function runFixture(): ModelEnsembleRun {
     metric_profile_binding: null,
     requirement_plan_evidence_binding: null,
     requirement_action_evidence_binding: null,
+    requirement_verification_evidence_binding: null,
     metric_evidence_readiness_v2: null,
     typed_metrics: metricKeys.map((metric_key, index) => ({
       metric_key,
@@ -345,6 +350,111 @@ function r7RunFixture(
   }
   run.requirement_action_evidence_binding = actionBinding;
   return run;
+}
+
+const R8_VERIFICATION_IDENTITY = {
+  opportunity_issuer_version: "reviewed-r6-requirement-opportunity-issuer-v1",
+  result_issuer_version: "local-objective-verification-result-issuer-v1",
+  acceptance_issuer_version: "native-explicit-requirement-acceptance-issuer-v1",
+  evidence_schema_version: "requirement-verification-evidence-v1",
+  evidence_policy_version: "app-issued-reviewed-requirement-verification-v1",
+  persistence_schema_version: "requirement-verification-persistence-v1",
+  evidence_projection_version: "reviewed-requirement-verification-objective-projection-v1",
+  objective_projection_version: "reviewed-requirement-verification-objective-projection-v1",
+  binding_schema_version: "session-requirement-verification-evidence-binding-v1",
+  binding_fingerprint: "e".repeat(64),
+  local_only: true,
+  content_persisted: false,
+} as const;
+
+function r8UnavailableVerificationBinding() {
+  return parseModelRequirementVerificationEvidenceBinding({
+    evidence_source: "unavailable",
+    requirement_plan_confirmation_id: null,
+    requirement_plan_proposal_id: null,
+    requirement_plan_evidence_fingerprint: null,
+    requirement_plan_schema_version: null,
+    requirement_plan_policy_version: null,
+    requirement_plan_review_rubric_version: null,
+    opportunity_count: null,
+    opportunity_set_fingerprint: null,
+    evidence_set_fingerprint: null,
+    through_revision: null,
+    authority_head_count: null,
+    objective_result_count: null,
+    native_acceptance_count: null,
+    resolved_opportunity_count: null,
+    met_requirement_count: null,
+    ...R8_VERIFICATION_IDENTITY,
+  });
+}
+
+function r8OverflowVerificationBinding() {
+  return parseModelRequirementVerificationEvidenceBinding({
+    evidence_source: "opportunity_bound_exceeded",
+    requirement_plan_confirmation_id: "8".repeat(64),
+    requirement_plan_proposal_id: "9".repeat(64),
+    requirement_plan_evidence_fingerprint: "7".repeat(64),
+    requirement_plan_schema_version: "requirement-plan-evidence-v1",
+    requirement_plan_policy_version: "reviewed-requirement-plan-v1",
+    requirement_plan_review_rubric_version: "active-requirement-plan-review-rubric-v1",
+    opportunity_count: 101,
+    opportunity_set_fingerprint: "4".repeat(64),
+    evidence_set_fingerprint: null,
+    through_revision: null,
+    authority_head_count: null,
+    objective_result_count: null,
+    native_acceptance_count: null,
+    resolved_opportunity_count: null,
+    met_requirement_count: null,
+    ...R8_VERIFICATION_IDENTITY,
+  });
+}
+
+function r8AwaitingVerificationBinding() {
+  return parseModelRequirementVerificationEvidenceBinding({
+    evidence_source: "awaiting_evidence",
+    requirement_plan_confirmation_id: "8".repeat(64),
+    requirement_plan_proposal_id: "9".repeat(64),
+    requirement_plan_evidence_fingerprint: "7".repeat(64),
+    requirement_plan_schema_version: "requirement-plan-evidence-v1",
+    requirement_plan_policy_version: "reviewed-requirement-plan-v1",
+    requirement_plan_review_rubric_version: "active-requirement-plan-review-rubric-v1",
+    opportunity_count: 2,
+    opportunity_set_fingerprint: "4".repeat(64),
+    evidence_set_fingerprint: null,
+    through_revision: null,
+    authority_head_count: 0,
+    objective_result_count: 0,
+    native_acceptance_count: 0,
+    resolved_opportunity_count: 0,
+    met_requirement_count: 0,
+    ...R8_VERIFICATION_IDENTITY,
+    binding_fingerprint: "f".repeat(64),
+  });
+}
+
+function r8PersistedVerificationBinding() {
+  return parseModelRequirementVerificationEvidenceBinding({
+    evidence_source: "persisted_evidence",
+    requirement_plan_confirmation_id: "8".repeat(64),
+    requirement_plan_proposal_id: "9".repeat(64),
+    requirement_plan_evidence_fingerprint: "7".repeat(64),
+    requirement_plan_schema_version: "requirement-plan-evidence-v1",
+    requirement_plan_policy_version: "reviewed-requirement-plan-v1",
+    requirement_plan_review_rubric_version: "active-requirement-plan-review-rubric-v1",
+    opportunity_count: 2,
+    opportunity_set_fingerprint: "4".repeat(64),
+    evidence_set_fingerprint: "5".repeat(64),
+    through_revision: 1,
+    authority_head_count: 1,
+    objective_result_count: 1,
+    native_acceptance_count: 0,
+    resolved_opportunity_count: 1,
+    met_requirement_count: 1,
+    ...R8_VERIFICATION_IDENTITY,
+    binding_fingerprint: "a".repeat(64),
+  });
 }
 
 function declaredProfileFixture(): DeclaredTaskProfile {
@@ -1170,6 +1280,291 @@ describe("model ensemble response contract", () => {
       const crossed = structuredClone(reviewedRun);
       mutate(crossed);
       expect(() => parseModelEnsembleRun(crossed)).toThrow(ModelEnsemblePayloadError);
+    }
+  });
+
+  it("parses exact backend r8 missing, invalid, overflow, and censored verification states", () => {
+    type Scenario = NonNullable<Parameters<typeof syntheticPublishedMetricV2>[1]>;
+    const actionMarker = (
+      evidenceSource: "unavailable" | "binding_invalid",
+      evidenceFingerprint: string,
+      evidenceSchemaVersion: "requirement-action-unavailable-v1" | "requirement-action-binding-invalid-v1",
+    ) => parseModelRequirementActionEvidenceBinding({
+      evidence_source: evidenceSource,
+      source_run_id: null,
+      requirement_plan_confirmation_id: null,
+      requirement_plan_evidence_fingerprint: null,
+      candidate_manifest_fingerprint: null,
+      confirmation_id: null,
+      proposal_id: null,
+      reviewed_descriptor_set_fingerprint: null,
+      evidence_fingerprint: evidenceFingerprint,
+      evidence_schema_version: evidenceSchemaVersion,
+      evidence_policy_version: "reviewed-requirement-action-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    const reviewedAction = parseModelRequirementActionEvidenceBinding({
+      evidence_source: "reviewed_requirement_action",
+      source_run_id: "d".repeat(64),
+      requirement_plan_confirmation_id: "8".repeat(64),
+      requirement_plan_evidence_fingerprint: "7".repeat(64),
+      candidate_manifest_fingerprint: "4".repeat(64),
+      confirmation_id: "5".repeat(64),
+      proposal_id: "6".repeat(64),
+      reviewed_descriptor_set_fingerprint: "a".repeat(64),
+      evidence_fingerprint: "c".repeat(64),
+      evidence_schema_version: "requirement-action-evidence-v1",
+      evidence_policy_version: "reviewed-requirement-action-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    const replaceMetric = (
+      run: ModelEnsembleRun,
+      metricKey: Parameters<typeof syntheticPublishedMetricV2>[0],
+      scenario: Scenario,
+      distinctOwnerCount?: number,
+      metCount?: number,
+      notMetCount?: number,
+    ) => {
+      const publication = run.metric_publication_v2!;
+      const index = publication.metrics.findIndex(
+        (item) => item.state.metric_key === metricKey,
+      );
+      const item = syntheticPublishedMetricV2(metricKey, scenario);
+      item.state.projection_version = "metric-contract-v2-projection-8";
+      if (distinctOwnerCount !== undefined) {
+        item.state.statistics.distinct_owner_count = distinctOwnerCount;
+      }
+      if (metCount !== undefined && notMetCount !== undefined) {
+        item.state.statistics.met_count = metCount;
+        item.state.statistics.not_met_count = notMetCount;
+        item.guidance.met_count = metCount;
+        item.guidance.not_met_count = notMetCount;
+      }
+      publication.metrics[index] = item as typeof publication.metrics[number];
+    };
+    const upgrade = (
+      run: ModelEnsembleRun,
+      binding: NonNullable<ModelEnsembleRun["requirement_verification_evidence_binding"]>,
+      scenario: Scenario,
+      distinctOwnerCount = 0,
+      metCount?: number,
+      notMetCount?: number,
+    ) => {
+      const publication = run.metric_publication_v2!;
+      publication.projection_version = "metric-contract-v2-projection-8";
+      for (const item of publication.metrics) {
+        item.state.projection_version = "metric-contract-v2-projection-8";
+      }
+      replaceMetric(
+        run,
+        "outcome.verified_requirement_coverage",
+        scenario,
+        distinctOwnerCount,
+        metCount,
+        notMetCount,
+      );
+      const verified = publication.metrics.find(
+        (item) => item.state.metric_key === "outcome.verified_requirement_coverage",
+      )!.state;
+      const typedVerification = run.typed_metrics.find(
+        (item) => item.metric_key === "outcome.verified_requirement_coverage",
+      )!;
+      const resolved = verified.statistics.met_count + verified.statistics.not_met_count;
+      Object.assign(typedVerification, {
+        value_state: verified.value_state,
+        numerator: verified.numerator,
+        denominator: verified.denominator,
+        numeric_value: verified.numeric_value,
+        observed_message_count: resolved,
+        eligible_message_count: verified.statistics.eligible_count,
+        coverage: verified.statistics.eligible_count === 0
+          ? 0
+          : resolved / verified.statistics.eligible_count,
+        explanation_code: verified.explanation_code,
+        error_code: null,
+        engine_version: "reviewed-requirement-verification-objective-projection-v1",
+        algorithm_id: "reviewed-requirement-verification-authority",
+        algorithm_version: "4",
+        rubric_version: "objective-evidence-no-rubric-v4",
+      });
+      run.requirement_verification_evidence_binding = binding;
+      return run;
+    };
+
+    const missing = r7RunFixture(actionMarker(
+      "unavailable",
+      "9059e785839871abf94e1fea1c86c48e737621047a526cd3c9e94099a5b5e07f",
+      "requirement-action-unavailable-v1",
+    ));
+    missing.requirement_plan_evidence_binding = parseModelRequirementPlanEvidenceBinding({
+      evidence_source: "unavailable",
+      confirmation_id: null,
+      proposal_id: null,
+      evidence_fingerprint: "30f6b309825c563a881ed1b7587072222e3cb33ca70f7bff274ba968cb067641",
+      evidence_schema_version: "requirement-plan-unavailable-v1",
+      evidence_policy_version: "reviewed-requirement-plan-v1",
+      local_only: true,
+      content_persisted: false,
+    });
+    replaceMetric(missing, "logic.decomposition_coverage", {
+      value_state: "unknown", capability_available: false, source_complete: true,
+      explanation_code: "requirement_plan_evidence_unavailable",
+    });
+    replaceMetric(missing, "logic.requirement_action_traceability", {
+      value_state: "unknown", capability_available: false, source_complete: true,
+      explanation_code: "requirement_action_evidence_unavailable",
+    });
+    missing.metric_publication_v2!.known_count -= 1;
+    missing.metric_publication_v2!.unknown_count += 1;
+    upgrade(missing, r8UnavailableVerificationBinding(), {
+      value_state: "unknown", capability_available: false, source_complete: true,
+      explanation_code: "reviewed_requirement_authority_unavailable",
+    });
+
+    const invalid = r7RunFixture(actionMarker(
+      "binding_invalid",
+      "357ed7bbb833a8dfbd8f907e8309c363957460c6053d5b9d77d069bbbb7e55da",
+      "requirement-action-binding-invalid-v1",
+    ));
+    replaceMetric(invalid, "logic.decomposition_coverage", {
+      value_state: "unknown", capability_available: true, source_complete: false,
+      explanation_code: "requirement_plan_evidence_invalid",
+    });
+    replaceMetric(invalid, "logic.requirement_action_traceability", {
+      value_state: "unknown", capability_available: true, source_complete: false,
+      explanation_code: "requirement_action_evidence_invalid",
+    });
+    invalid.metric_publication_v2!.known_count -= 1;
+    invalid.metric_publication_v2!.unknown_count += 1;
+    upgrade(invalid, r8UnavailableVerificationBinding(), {
+      value_state: "unknown", capability_available: true, source_complete: false,
+      explanation_code: "reviewed_requirement_authority_invalid",
+    });
+
+    const overflow = r7RunFixture(reviewedAction);
+    replaceMetric(overflow, "logic.decomposition_coverage", {
+      value_state: "known", numerator: 1, denominator: 101,
+      explanation_code: "reviewed_requirement_plan_links",
+    });
+    replaceMetric(overflow, "logic.requirement_action_traceability", {
+      value_state: "known", numerator: 1, denominator: 101,
+      explanation_code: "reviewed_requirement_action_links",
+    });
+    upgrade(overflow, r8OverflowVerificationBinding(), {
+      value_state: "unknown", capability_available: true, source_complete: true,
+      explanation_code: "typed_objective_opportunity_count_exceeds_receipt_bound",
+    });
+
+    const unavailableReader = upgrade(
+      r7RunFixture(reviewedAction),
+      r8UnavailableVerificationBinding(),
+      {
+        value_state: "unknown", capability_available: true, source_complete: true,
+        eligible: 2, unknown: 2, censoring_lower_bound: 0, censoring_upper_bound: 1,
+        explanation_code: "requirement_verification_evidence_unavailable",
+      },
+      2,
+    );
+    const awaiting = upgrade(
+      r7RunFixture(reviewedAction),
+      r8AwaitingVerificationBinding(),
+      {
+        value_state: "unknown", capability_available: true, source_complete: true,
+        eligible: 2, unknown: 2, censoring_lower_bound: 0, censoring_upper_bound: 1,
+        explanation_code: "requirement_verification_evidence_unavailable",
+      },
+      2,
+    );
+    const persisted = upgrade(
+      r7RunFixture(reviewedAction),
+      r8PersistedVerificationBinding(),
+      {
+        value_state: "unknown", capability_available: true, source_complete: true,
+        eligible: 2, unknown: 1, censoring_lower_bound: 0.5, censoring_upper_bound: 1,
+        explanation_code: "app_issued_requirement_verification_pending",
+      },
+      2,
+      1,
+      0,
+    );
+
+    expect(overflow.metric_publication_v2!.known_count).toBe(
+      overflow.metric_publication_v2!.metrics.filter(
+        (item) => item.state.value_state === "known",
+      ).length,
+    );
+    expect(overflow.metric_publication_v2!.objective_measured_count).toBe(
+      overflow.metric_publication_v2!.metrics.filter(
+        (item) => item.state.value_state === "known"
+          && item.state.evidence_authority === "objective_receipt",
+      ).length,
+    );
+    overflow.metric_publication_v2!.metrics.forEach((item) => {
+      expect(
+        () => parseMetricV2State(structuredClone(item.state), item.state.metric_key),
+        `backend r8 overflow ${item.state.metric_key} state`,
+      ).not.toThrow();
+    });
+
+    for (const [label, run] of [
+      ["missing", missing],
+      ["invalid", invalid],
+      ["overflow", overflow],
+      ["unavailable reader", unavailableReader],
+      ["awaiting", awaiting],
+      ["persisted", persisted],
+    ] as const) {
+      expect(
+        () => parseModelEnsembleRun(structuredClone(run)),
+        `backend r8 ${label} DTO shape`,
+      ).not.toThrow();
+      expect(parseModelEnsembleRun(structuredClone(run))).toEqual(run);
+    }
+
+    const wrongMissingFlags = structuredClone(missing);
+    const wrongMissingState = wrongMissingFlags.metric_publication_v2!.metrics.find(
+      (item) => item.state.metric_key === "outcome.verified_requirement_coverage",
+    )!.state;
+    wrongMissingState.statistics.source_complete = false;
+    expect(() => parseModelEnsembleRun(wrongMissingFlags)).toThrow(ModelEnsemblePayloadError);
+
+    const wrongOverflowFlags = structuredClone(overflow);
+    const wrongOverflowState = wrongOverflowFlags.metric_publication_v2!.metrics.find(
+      (item) => item.state.metric_key === "outcome.verified_requirement_coverage",
+    )!.state;
+    wrongOverflowState.statistics.capability_available = false;
+    expect(() => parseModelEnsembleRun(wrongOverflowFlags)).toThrow(ModelEnsemblePayloadError);
+
+    for (const mutate of [
+      (state: typeof wrongOverflowState) => { state.statistics.superseded_excluded_count = 1; },
+      (state: typeof wrongOverflowState) => { state.statistics.distinct_owner_count += 1; },
+    ]) {
+      const crossed = structuredClone(awaiting);
+      const state = crossed.metric_publication_v2!.metrics.find(
+        (item) => item.state.metric_key === "outcome.verified_requirement_coverage",
+      )!.state;
+      mutate(state);
+      expect(() => parseModelEnsembleRun(crossed)).toThrow(ModelEnsemblePayloadError);
+    }
+
+    const forgedTypedAuthority = structuredClone(persisted);
+    forgedTypedAuthority.typed_metrics.find(
+      (item) => item.metric_key === "outcome.verified_requirement_coverage",
+    )!.algorithm_id = "typed-objective-evidence";
+    expect(() => parseModelEnsembleRun(forgedTypedAuthority)).toThrow(ModelEnsemblePayloadError);
+
+    for (const source of [unavailableReader, awaiting, persisted]) {
+      const wrongBounds = structuredClone(source);
+      const item = wrongBounds.metric_publication_v2!.metrics.find(
+        (candidate) => candidate.state.metric_key === "outcome.verified_requirement_coverage",
+      )!;
+      item.state.censoring_lower_bound = null;
+      item.state.censoring_upper_bound = null;
+      item.guidance.censoring_lower_bound = null;
+      item.guidance.censoring_upper_bound = null;
+      expect(() => parseModelEnsembleRun(wrongBounds)).toThrow(ModelEnsemblePayloadError);
     }
   });
 

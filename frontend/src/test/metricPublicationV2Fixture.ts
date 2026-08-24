@@ -26,6 +26,8 @@ export interface MetricScenarioV2 {
   numerator?: number;
   denominator?: number;
   eligible?: number;
+  met?: number;
+  not_met?: number;
   pending?: number;
   unknown?: number;
   /** Producer decision; never re-decided by the client. */
@@ -38,6 +40,7 @@ export interface MetricScenarioV2 {
   source_complete?: boolean;
   explanation_code?: string;
   contract_factor_count?: number;
+  distinct_owner_count?: number;
 }
 
 const OBJECTIVE_KEYS = new Set<string>(
@@ -102,8 +105,12 @@ export function syntheticPublishedMetricV2(metricKey: MetricKeyV2, scenario: Met
   const eligible = known ? denominator! : (scenario.eligible ?? (pending ? 4 : 0));
   const pendingCount = pending ? (scenario.pending ?? 2) : 0;
   const unknownCount = known || pending ? 0 : (scenario.unknown ?? 0);
-  const met = known ? numerator! : (pending ? Math.max(0, Math.min(eligible - pendingCount, scenario.numerator ?? 1)) : 0);
-  const notMet = eligible - met - pendingCount - unknownCount;
+  const met = known ? numerator! : pending
+    ? (scenario.met ?? Math.max(0, Math.min(eligible - pendingCount, scenario.numerator ?? 1)))
+    : (scenario.met ?? 0);
+  const notMet = known
+    ? eligible - met
+    : (scenario.not_met ?? eligible - met - pendingCount - unknownCount);
   const capabilityAvailable = scenario.capability_available ?? (known || pending || eligible > 0);
   const numericValue = known ? numerator! / denominator! : null;
   const lower = known ? numericValue : pending
@@ -135,7 +142,8 @@ export function syntheticPublishedMetricV2(metricKey: MetricKeyV2, scenario: Met
     pending_count: pendingCount,
     unknown_count: unknownCount,
     superseded_excluded_count: 0,
-    distinct_owner_count: identity.basis === "semantic_unit_opportunities" ? eligible : 0,
+    distinct_owner_count: scenario.distinct_owner_count
+      ?? (identity.basis === "semantic_unit_opportunities" ? eligible : 0),
   };
   const state = {
     metric_key: metricKey,
@@ -258,7 +266,8 @@ export function syntheticMetricEvidenceReadinessV2(
     const lifecycleProjection = publication.projection_version === "metric-contract-v2-projection-4"
       || publication.projection_version === "metric-contract-v2-projection-5"
       || publication.projection_version === "metric-contract-v2-projection-6"
-      || publication.projection_version === "metric-contract-v2-projection-7";
+      || publication.projection_version === "metric-contract-v2-projection-7"
+      || publication.projection_version === "metric-contract-v2-projection-8";
     const lifecycleMetric = state.metric_key.startsWith("collaboration.");
     let reason: MetricEvidenceReadinessRowV2["reason_code"];
     if (availability === "execution_error") {
@@ -275,7 +284,9 @@ export function syntheticMetricEvidenceReadinessV2(
     } else if (availability === "no_opportunity") {
       reason = "no_eligible_opportunity_observed";
     } else if (
-      publication.projection_version === "metric-contract-v2-projection-7"
+      ["metric-contract-v2-projection-7", "metric-contract-v2-projection-8"].includes(
+        publication.projection_version,
+      )
       && state.metric_key === "logic.requirement_action_traceability"
       && state.value_state === "unknown"
     ) {
@@ -288,7 +299,7 @@ export function syntheticMetricEvidenceReadinessV2(
       } as const;
       const resolvedReason = exactReason[state.explanation_code as keyof typeof exactReason];
       if (resolvedReason === undefined) {
-        throw new Error("synthetic r7 requirement-action fixture needs an exact structural explanation");
+        throw new Error("synthetic r7/r8 requirement-action fixture needs an exact structural explanation");
       }
       reason = resolvedReason;
     } else if (
@@ -298,6 +309,7 @@ export function syntheticMetricEvidenceReadinessV2(
         "metric-contract-v2-projection-5",
         "metric-contract-v2-projection-6",
         "metric-contract-v2-projection-7",
+        "metric-contract-v2-projection-8",
       ].includes(publication.projection_version)
       && state.statistics.denominator_basis === "objective_opportunities"
       && state.statistics.capability_available
@@ -309,7 +321,11 @@ export function syntheticMetricEvidenceReadinessV2(
       reason = requirement.capabilityMissingReason ?? "focus_owned_request_revision_required";
     } else if (
       availability === "source_incomplete"
-      && ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+      && [
+        "metric-contract-v2-projection-6",
+        "metric-contract-v2-projection-7",
+        "metric-contract-v2-projection-8",
+      ].includes(
         publication.projection_version,
       )
       && state.metric_key === "logic.decomposition_coverage"
@@ -320,7 +336,11 @@ export function syntheticMetricEvidenceReadinessV2(
     } else if (availability === "source_incomplete") {
       reason = "source_reconciliation_incomplete";
     } else if (
-      ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+      [
+        "metric-contract-v2-projection-6",
+        "metric-contract-v2-projection-7",
+        "metric-contract-v2-projection-8",
+      ].includes(
         publication.projection_version,
       )
       && state.metric_key === "logic.decomposition_coverage"
@@ -336,12 +356,22 @@ export function syntheticMetricEvidenceReadinessV2(
     } else {
       reason = "opportunity_classification_unresolved";
     }
-    const r6Decomposition = ["metric-contract-v2-projection-6", "metric-contract-v2-projection-7"].includes(
+    const r6Decomposition = [
+      "metric-contract-v2-projection-6",
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(
       publication.projection_version,
     )
       && state.metric_key === "logic.decomposition_coverage";
-    const r7RequirementAction = publication.projection_version === "metric-contract-v2-projection-7"
+    const reviewedRequirementAction = [
+      "metric-contract-v2-projection-7",
+      "metric-contract-v2-projection-8",
+    ].includes(publication.projection_version)
       && state.metric_key === "logic.requirement_action_traceability";
+    const r8VerifiedRequirement = publication.projection_version
+      === "metric-contract-v2-projection-8"
+      && state.metric_key === "outcome.verified_requirement_coverage";
     const required = r6Decomposition
       && state.value_state === "not_applicable"
       ? ["reviewed_requirement_enumeration"] as const
@@ -352,7 +382,12 @@ export function syntheticMetricEvidenceReadinessV2(
       : requirement.requiredContributors;
     const observed = !state.statistics.capability_available
       ? []
-      : r7RequirementAction
+      : r8VerifiedRequirement
+        ? (state.statistics.source_complete
+          && (state.value_state === "not_applicable" || state.statistics.eligible_count > 0)
+          ? ["declared_objective_opportunity_set" as const]
+          : [])
+      : reviewedRequirementAction
         ? (["known", "pending", "not_applicable"].includes(state.value_state)
           && state.statistics.source_complete
           ? [...required]
@@ -377,6 +412,7 @@ export function syntheticMetricEvidenceReadinessV2(
         "metric-contract-v2-projection-5",
         "metric-contract-v2-projection-6",
         "metric-contract-v2-projection-7",
+        "metric-contract-v2-projection-8",
       ].includes(
         publication.projection_version,
       )
@@ -425,9 +461,11 @@ export function syntheticMetricEvidenceReadinessV2(
   return {
     projection_key: "metric.contract-v2.evidence-readiness",
     projection_version: 1,
-    catalog_version: publication.projection_version === "metric-contract-v2-projection-7"
-      ? "metric-evidence-readiness-v2-6"
-      : "metric-evidence-readiness-v2-5",
+    catalog_version: publication.projection_version === "metric-contract-v2-projection-8"
+      ? "metric-evidence-readiness-v2-7"
+      : publication.projection_version === "metric-contract-v2-projection-7"
+        ? "metric-evidence-readiness-v2-6"
+        : "metric-evidence-readiness-v2-5",
     registry_version: "all-20-factor-contracts-v2",
     publication_key: publication.publication_key,
     publication_version: publication.publication_version,

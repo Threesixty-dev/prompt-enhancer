@@ -1130,4 +1130,14 @@ describe("RequirementActionEvidencePanel", () => {
     expect(local.previewRequirementActionEvidence).not.toHaveBeenCalled();
     expect(screen.queryByText("not-shown-example.txt")).not.toBeInTheDocument();
   });
+
+  it("labels the inherited requirement-action boundary with the selected r8 projection", () => {
+    render(<RequirementActionEvidencePanel
+      compact={false} publicEvidenceSource="unavailable" sessionId={SESSION}
+      sourceProjectionVersion="metric-contract-v2-projection-8" sourceRunId={RUN} transport={{}}
+    />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(/complete r8 requirement-action boundary/i);
+    expect(screen.getByRole("status")).not.toHaveTextContent(/complete r7 requirement-action boundary/i);
+  });
 });
